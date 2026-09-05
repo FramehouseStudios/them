@@ -51,6 +51,17 @@ test("[voice-network-fault-smokes] runs one focused UI smoke on iPhone and macOS
   assert.ok(ios.includes("-configuration"));
   assert.ok(ios.includes("Debug"));
   assert.ok(ios.includes(destination));
+  assert.deepEqual(
+    ios.slice(ios.indexOf("-parallel-testing-enabled"), ios.indexOf("-parallel-testing-enabled") + 2),
+    ["-parallel-testing-enabled", "NO"],
+  );
+  assert.deepEqual(
+    ios.slice(
+      ios.indexOf("-maximum-concurrent-test-simulator-destinations"),
+      ios.indexOf("-maximum-concurrent-test-simulator-destinations") + 2,
+    ),
+    ["-maximum-concurrent-test-simulator-destinations", "1"],
+  );
 
   assert.ok(macos.includes("-scheme"));
   assert.ok(macos.includes("them-macOS-scaffold"));
@@ -67,6 +78,6 @@ test("[voice-network-fault-smokes] runs one focused UI smoke on iPhone and macOS
     assert.ok(call.includes("test"));
     assert.ok(call.includes(`-only-testing:themUITests/V1SmokeUITests/test_realtime_network_faults_resolve_exactly_once`));
   }
-  assert.ok(ios.includes("CODE_SIGNING_ALLOWED=NO"));
-  assert.ok(ios.includes("CODE_SIGNING_REQUIRED=NO"));
+  assert.equal(ios.includes("CODE_SIGNING_ALLOWED=NO"), false);
+  assert.equal(ios.includes("CODE_SIGNING_REQUIRED=NO"), false);
 });

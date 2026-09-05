@@ -84,7 +84,7 @@ test("[page-cancel-e2e] POST /talk/page-cancel cancels by reservation id", async
 
   const app = express();
   mountPageCancelRoute(app, { pageReservationStore: store });
-  const server = app.listen(0);
+  const server = app.listen(0, "127.0.0.1");
   await new Promise((resolve) => server.once("listening", resolve));
   const port = server.address().port;
   try {
@@ -119,7 +119,7 @@ test("[page-cancel-e2e] POST /talk/page-cancel cancelByOwner via session_id", as
 
   const app = express();
   mountPageCancelRoute(app, { pageReservationStore: store });
-  const server = app.listen(0);
+  const server = app.listen(0, "127.0.0.1");
   await new Promise((resolve) => server.once("listening", resolve));
   const port = server.address().port;
   try {
@@ -160,7 +160,7 @@ test("[page-cancel-e2e] talk adapter attaches reservation for pageMode body", as
   const app = express();
   app.use(express.json());
   app.post("/talk", (req, res) => wrapped(req, res));
-  const server = app.listen(0);
+  const server = app.listen(0, "127.0.0.1");
   await new Promise((resolve) => server.once("listening", resolve));
   const port = server.address().port;
   try {
@@ -208,7 +208,7 @@ test("[page-cancel-e2e] mountTalkPipelineRoutes wires cancel when store provided
     canReadTalkTurnMeta: () => true,
     pageReservationStore: store,
   });
-  const server = app.listen(0);
+  const server = app.listen(0, "127.0.0.1");
   await new Promise((resolve) => server.once("listening", resolve));
   const port = server.address().port;
   try {

@@ -153,3 +153,11 @@ Each entry follows the ADR pattern:
   2. When Muse is enabled, plan/critique **prefer OpenAI cheap** via `preferProvider: "openai"`; draft/revise/repair stay on Muse Standard at elevated effort. Do **not** force Muse on globally or enable multipass by default.
   3. Wire through DI in `page_multipass_routing.js` + `runTalkGeneratePageMultipass`; tests inject fakes and assert per-stage model/effort (no live API).
 - **Consequences:** See `docs/product/page-multipass.md`. F4 owns memory bible / calibration residuals. Production keeps `CLEMENTINE_PAGE_MULTIPASS=0` until validated.
+
+## D014 — The orb and Clementine are permanent product anchors
+
+- **Date:** 2026-09-04
+- **Status:** accepted
+- **Context:** The human explicitly directed that the orb remain part of the app no matter how the surrounding experience evolves, and that Clementine remain the named creative companion.
+- **Decision:** The orb remains the visual heart of io.them, and Clementine remains its named, emotionally intelligent screenwriting companion. Navigation, accessibility, responsive layout, state communication, and interaction affordances around them may be redesigned, but neither may be removed, renamed, hidden behind generic assistant language, or reduced to decorative branding.
+- **Consequences:** Home and Studio improvements must clarify what Clementine is doing and what the writer can do next while preserving the orb as the primary presence. Product-copy and presentation tests should guard both anchors against accidental regression.

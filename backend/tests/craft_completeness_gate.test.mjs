@@ -125,7 +125,10 @@ test("[T23] passes a freshly generated evidence-backed complete report", async (
 
 test("[T23] resolves an owner-scoped persisted report without changing its public override scope", async () => {
   const jsonRoot = fs.mkdtempSync(path.join(os.tmpdir(), "io-them-craft-gate-persisted-"));
-  const persistence = createPersistence({ jsonRoot });
+  // The CLI below deliberately reads this JSON root. Do not let an ambient
+  // integration-test DATABASE_URL send the writer to a different adapter.
+  const persistence = createPersistence({ databaseUrl: "", jsonRoot });
+  assert.equal(persistence.kind, "json", "the fixture writer and CLI reader must use the same JSON store");
   configureCraftAnalysis({ persistence });
   try {
     const report = await generateFreshOverriddenReport();

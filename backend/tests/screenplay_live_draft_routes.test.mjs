@@ -292,7 +292,7 @@ async function withServer(deps, fn) {
     next();
   });
   mountScreenplayLiveDraftRoutes(app, deps);
-  const server = app.listen(0);
+  const server = app.listen(0, "127.0.0.1");
   await new Promise((r) => server.once("listening", r));
   const baseURL = `http://127.0.0.1:${server.address().port}`;
   const controllers = [];

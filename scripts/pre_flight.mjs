@@ -144,35 +144,6 @@ function checkSchemaDocOnlyLane() {
   );
 }
 
-function checkGeneratedV1ManualQaChecklistCurrent() {
-  // docs/testflight-v1-preflight.md is generated from
-  // scripts/v1_manual_qa_checklist.mjs. If it drifts, humans and
-  // agents get stale launch instructions (for example, a four-flow
-  // checklist after Launch Doctor moved to five gates).
-  const generator = path.join(repoRoot, "scripts", "v1_manual_qa_checklist.mjs");
-  const target = path.join(repoRoot, "docs", "testflight-v1-preflight.md");
-  if (!fs.existsSync(generator) || !fs.existsSync(target)) return;
-  let expected = "";
-  try {
-    expected = execFileSync(
-      process.execPath,
-      [generator],
-      { cwd: repoRoot, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
-    );
-  } catch {
-    return;
-  }
-  const actual = fs.readFileSync(target, "utf8");
-  if (actual.trimEnd() !== expected.trimEnd()) {
-    add(
-      "generated-v1-manual-qa-drift",
-      "docs/testflight-v1-preflight.md",
-      null,
-      "generated checklist is stale. Run `node scripts/v1_manual_qa_checklist.mjs --write=docs/testflight-v1-preflight.md` and commit the result.",
-    );
-  }
-}
-
 function checkSecretHygiene() {
   if (!isGitRepo()) return;
   const forbiddenTrackedFiles = [
@@ -575,11 +546,11 @@ function checkMountRequiredDepsGuard() {
 }
 
 function checkLibHasTest() {
-  // Every backend/lib/*.js should have a corresponding test. A test
+  // Every backend/lib/**/*.js should have a corresponding test. A test
   // can be:
   //
-  //   1. A direct `backend/tests/<name>.test.mjs` file.
-  //   2. Some other test file that imports `lib/<name>.js`.
+  //   1. A matching relative `backend/tests/<path>.test.mjs` file.
+  //   2. A test importing the module, directly or by a named re-export.
   //
   // Files can explicitly opt out by including the marker comment
   // `// pre-flight: no-test-needed` at the top of the file (for
@@ -594,25 +565,59 @@ function checkLibHasTest() {
   if (!fs.existsSync(libDir) || !fs.existsSync(testDir)) return;
   const libFiles = walkFiles(libDir, (p) => p.endsWith(".js"));
   const testFiles = walkFiles(testDir, (p) => p.endsWith(".test.mjs"));
-  // Build an import index once: map each lib path → bool seen in tests.
-  const testTexts = testFiles.map((f) => ({ path: f, text: fs.readFileSync(f, "utf8") }));
+  const libTexts = new Map(libFiles.map((f) => [f, fs.readFileSync(f, "utf8")]));
+  const importedLibs = new Set();
+  const visitedExports = new Map();
+  const namedBindings = (text) => text.split(",").flatMap((binding) => {
+    const match = binding.trim().match(/^([\w$]+)(?:\s+as\s+([\w$]+))?$/);
+    return match ? [{ original: match[1], exposed: match[2] || match[1] }] : [];
+  });
+  function visitImport(importer, specifier, names = []) {
+    if (!specifier.startsWith(".")) return;
+    const target = path.resolve(path.dirname(importer), specifier);
+    if (!libTexts.has(target)) return;
+    importedLibs.add(target);
+    const seen = visitedExports.get(target) || new Set();
+    const unseen = new Set(names.filter((name) => !seen.has(name)));
+    if (!unseen.size) return;
+    for (const name of unseen) seen.add(name);
+    visitedExports.set(target, seen);
+    // Follow only the actual named API requested by a test. Importing a
+    // barrel must not bless every sibling export or its runtime dependencies.
+    for (const match of libTexts.get(target).matchAll(/^\s*export\s*\{([^}]+)\}\s*from\s*["']([^"']+)["']/gm)) {
+      const forwarded = namedBindings(match[1])
+        .filter(({ exposed }) => unseen.has(exposed))
+        .map(({ original }) => original);
+      if (forwarded.length) visitImport(target, match[2], forwarded);
+    }
+  }
+  for (const testFile of testFiles) {
+    const text = fs.readFileSync(testFile, "utf8");
+    for (const match of text.matchAll(/^\s*import\s+([^;"'()]+?)\s+from\s*["']([^"']+)["']/gm)) {
+      const named = match[1].match(/\{([^}]+)\}/);
+      const names = named ? namedBindings(named[1]).map(({ original }) => original) : [];
+      if (/^\s*[\w$]+/.test(match[1])) names.push("default");
+      visitImport(testFile, match[2], names);
+    }
+    for (const match of text.matchAll(/\bimport\s*\(\s*["']([^"']+)["']\s*\)/g)) {
+      visitImport(testFile, match[1]);
+    }
+  }
   for (const libFile of libFiles) {
-    const libBase = path.basename(libFile, ".js");
-    const libText = fs.readFileSync(libFile, "utf8");
+    const libRelative = path.relative(libDir, libFile);
+    const libText = libTexts.get(libFile);
     // Opt-out marker.
     if (/\/\/\s*pre-flight\s*:\s*no-test-needed/i.test(libText)) continue;
     // Direct test file?
-    const directTest = path.join(testDir, `${libBase}.test.mjs`);
+    const testRelative = libRelative.replace(/\.js$/, ".test.mjs");
+    const directTest = path.join(testDir, testRelative);
     if (fs.existsSync(directTest)) continue;
-    // Indirect coverage via any test that imports `lib/<base>.js`?
-    const importPattern = new RegExp(`from\\s+["'][^"']*lib/${libBase}\\.js["']`);
-    const importedSomewhere = testTexts.some((t) => importPattern.test(t.text));
-    if (importedSomewhere) continue;
+    if (importedLibs.has(libFile)) continue;
     add(
       "lib-missing-test",
       path.relative(repoRoot, libFile),
       null,
-      `backend/lib/${libBase}.js has no direct test (${libBase}.test.mjs) and is not imported by any test file. Add a test or mark "// pre-flight: no-test-needed" if the file is pure config.`,
+      `backend/lib/${libRelative} has no direct test (${testRelative}) and is not imported by any test file, directly or through a named re-export. Add a test or mark "// pre-flight: no-test-needed" if the file is pure config.`,
     );
   }
 }
@@ -1119,7 +1124,6 @@ checkSchemaDocBackendDrift();
 checkSchemaDocMissingEndpoint();
 checkGeneratedTestFlightPreflight();
 checkSchemaDocOnlyLane();
-checkGeneratedV1ManualQaChecklistCurrent();
 checkV1LaunchHandoffHasNoStaleInstructions();
 checkSecretHygiene();
 checkMountRequiredDepsGuard();

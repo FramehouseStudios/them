@@ -37,6 +37,12 @@ public enum IOThemColors {
         public static let primary = Color(red: 0.31, green: 0.145, blue: 0.155)
     }
 
+    public enum Companion {
+        public static let panelTop = Color(red: 0.035, green: 0.039, blue: 0.051)
+        public static let panelMid = Color(red: 0.071, green: 0.078, blue: 0.102)
+        public static let panelBottom = Color(red: 0.098, green: 0.086, blue: 0.102)
+    }
+
     public enum Screenplay {
         public static let pageBackground = Color.black
         public static let paper = Color(white: 0.06)

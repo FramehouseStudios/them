@@ -136,6 +136,24 @@ function mountCraftRoutes(app, deps = {}) {
     authorizeProjectAccess = null,
   } = deps;
 
+  // Validate wiring before registering even the public routes. Keep the
+  // canonical-identity auth default for focused mounts, but never let absent
+  // ownership dependencies masquerade as a project-not-found response.
+  if (typeof requireAuthenticatedUser !== "function") {
+    throw new Error("mountCraftRoutes: requireAuthenticatedUser is required and must be a function");
+  }
+  if (authorizeProjectAccess !== null && typeof authorizeProjectAccess !== "function") {
+    throw new Error("mountCraftRoutes: authorizeProjectAccess must be a function when provided");
+  }
+  if (authorizeProjectAccess === null) {
+    const requiredOwnershipFns = { getOrCreateScreenplayOwnerRecord, getScreenplayProjectRecord };
+    for (const [name, fn] of Object.entries(requiredOwnershipFns)) {
+      if (typeof fn !== "function") {
+        throw new Error(`mountCraftRoutes: ${name} is required when authorizeProjectAccess is not provided`);
+      }
+    }
+  }
+
   app.use("/craft", (req, res, next) => {
     if (isPublicCraftRoute(req.method, req.path)) return next();
     const user = requireAuthenticatedUser(req, res, "craft_auth");

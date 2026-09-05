@@ -45,6 +45,7 @@
 // mutations resolve through the injected canonical persistence lane.
 
 import express from "express";
+import { createHash } from "node:crypto";
 import { defaultResolveMemoryUserId, memoryAuthRequired } from "./memory_route_auth.js";
 import {
   buildCreativeMemoryRevision,
@@ -152,7 +153,9 @@ function mountMemoriesRoutes(app, deps = {}) {
     return /^(?:character|episode):\S/i.test(String(key || "").trim());
   }
 
-  async function readCreativeMemoryForUser(userId, query = "memories character bible") {
+  async function readCreativeMemoryForUser(userId, query = "memories character bible", {
+    required = false,
+  } = {}) {
     if (!userId || !creativeMemoryStore) {
       return null;
     }
@@ -162,13 +165,16 @@ function mountMemoriesRoutes(app, deps = {}) {
           userId,
           includeSuperseded: true,
           maxEpisodicMemories: 72,
+          requireValidRecord: required,
         });
       }
       if (typeof creativeMemoryStore.getCreativeMemoryForPrompt === "function") {
         return await creativeMemoryStore.getCreativeMemoryForPrompt({ userId, query });
       }
+      if (required) throw new Error("Creative memory reader is unavailable.");
       return null;
     } catch (error) {
+      if (required) throw error;
       logger.log(`[memories_creative_read_failed] error=${error?.message || error}`);
       return null;
     }
@@ -693,7 +699,15 @@ function mountMemoriesRoutes(app, deps = {}) {
     if (!context) return;
     const originalMemory = sanitizePersistedSessionMemory(context.memory);
     let memory = sanitizePersistedSessionMemory(originalMemory);
-    const creativeMemory = await readCreativeMemoryForUser(userId, "memories character bible");
+    let creativeMemory;
+    try {
+      creativeMemory = await readCreativeMemoryForUser(userId, "memories character bible", { required: true });
+    } catch (_error) {
+      // Do not publish an empty ledger, a new cursor, or backfill anything when
+      // the authoritative read is unavailable. The client keeps its last view.
+      logger.log(`[${rid}] memories_read creative_read_unavailable`);
+      return sendMemoryPersistenceUnavailable(res, { action: "read", requestId: rid });
+    }
     const creativeMemoryRevision = buildCreativeMemoryRevision(creativeMemory);
     let historyThreads = buildConversationHistoryThreads(
       memory,
@@ -730,19 +744,33 @@ function mountMemoriesRoutes(app, deps = {}) {
     const readMeta = buildReadStateMeta(req, memory, context.requesterIp);
     const memories = buildMemoryCards(memory, historyThreads, limit, creativeMemory);
     const memoryQuality = buildMemoryQualitySnapshot(memory, memories, Date.now());
-    const storyMovePreferences = buildStoryMovePreferencesPayload(creativeMemory, {
+    const preferenceScope = {
       projectId:
         req.query?.story_preference_project_id ??
         req.query?.storyPreferenceProjectId,
       projectTitle:
         req.query?.story_preference_project_title ??
         req.query?.storyPreferenceProjectTitle,
-    });
+    };
+    const storyMovePreferences = buildStoryMovePreferencesPayload(creativeMemory, preferenceScope);
+
+    // Account state versions do not cover canon or creative preferences. Keep
+    // that mutation cursor stable, but validate cached list representations
+    // against both stores, including an empty ledger after another device clears.
+    // Include the ledger itself: its updatedAt fields affect ordering even when
+    // the content-only creative revision is unchanged.
+    const listETag = creativeMemoryStore
+      ? `W/"memories_${createHash("sha256").update(JSON.stringify([
+        readMeta.stateVersion, creativeMemory, limit,
+        normalizeSnippet(preferenceScope.projectId, 96).toLowerCase(),
+        normalizeSnippet(preferenceScope.projectTitle, 160).toLowerCase(),
+      ])).digest("hex").slice(0, 32)}"`
+      : readMeta.etag;
 
     res.setHeader("Cache-Control", "no-store");
-    applyReadStateHeaders(res, readMeta);
+    applyReadStateHeaders(res, { ...readMeta, etag: listETag });
     applyCreativeMemoryRevisionHeader(res, creativeMemoryRevision);
-    if (sinceVersion && sinceVersion === readMeta.stateVersion && !creativeMemory) {
+    if (sinceVersion && sinceVersion === readMeta.stateVersion && !creativeMemoryStore) {
       return res.status(200).json({
         source: selected.source,
         source_ip: selected.ip,
@@ -772,7 +800,7 @@ function mountMemoriesRoutes(app, deps = {}) {
         conversation_samples: [],
       });
     }
-    if (ifNoneMatchStateHit(req, readMeta.etag, readMeta.stateVersion)) {
+    if (ifNoneMatchStateHit(req, listETag, creativeMemoryStore ? "" : readMeta.stateVersion)) {
       return res.status(304).end();
     }
     return res.status(200).json({
@@ -884,15 +912,16 @@ function mountMemoriesRoutes(app, deps = {}) {
           status: String(receipt?.reason || "story_move_preference_failed"),
           message: notFound
             ? "That screenplay memory could not be found."
-            : "The preference could not be updated.",
+            : receipt?.reason === "ambiguous_project_identity"
+              ? "More than one screenplay has this title. Open the intended screenplay and try again."
+              : "The preference could not be updated.",
           request_id: rid,
         });
       }
-      const creativeMemory = await readCreativeMemoryForUser(
-        userId,
-        `${receipt.projectTitle || projectTitle} story move preferences`
-      );
-      const creativeMemoryRevision = buildCreativeMemoryRevision(creativeMemory);
+      if (!receipt.project || !receipt.creativeMemoryRevision) {
+        throw new Error("Story preference commit did not return its saved state.");
+      }
+      const creativeMemoryRevision = receipt.creativeMemoryRevision;
       const memory = sanitizePersistedSessionMemory(context.memory);
       const readMeta = buildReadStateMeta(req, memory, context.requesterIp);
       res.setHeader("Cache-Control", "no-store");
@@ -902,15 +931,15 @@ function mountMemoriesRoutes(app, deps = {}) {
         ok: true,
         action: "story_move_preference",
         status: action,
+        project_id: receipt.projectId,
+        project_title: receipt.projectTitle,
+        family: receipt.family,
         message: action === "reset_all"
           ? "Creative preference learning was reset for this screenplay."
           : action === "reset"
             ? "That creative preference was reset."
             : "Clementine will use this correction when ranking future story moves.",
-        story_move_preferences: buildStoryMovePreferencesPayload(creativeMemory, {
-          projectId: receipt.projectId || projectId,
-          projectTitle: receipt.projectTitle || projectTitle,
-        }),
+        story_move_preferences: buildStoryMovePreferencesPayload({ projects: [receipt.project] }),
         session_id: readMeta.sessionId,
         state_version: readMeta.stateVersion,
         creative_memory_revision: creativeMemoryRevision,

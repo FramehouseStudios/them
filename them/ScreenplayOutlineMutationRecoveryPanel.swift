@@ -32,31 +32,27 @@ struct ScreenplayOutlineMutationRecoveryPanel: View {
     let onRetry: (ScreenplayOutlineMutationRecoveryChain) -> Void
     let onDiscard: (ScreenplayOutlineMutationRecoveryChain) -> Void
 
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .firstTextBaseline) {
-                Text("Screenplay Outline Recovery")
-                    .font(IOThemTypography.UI.sectionTitle)
-                    .foregroundStyle(Color.herText.opacity(0.92))
-                Spacer()
-                Button(action: onRefresh) {
-                    if isRefreshing {
-                        ProgressView()
-                            .controlSize(.small)
-                    } else {
-                        Image(systemName: "arrow.clockwise")
-                            .font(IOThemTypography.UI.prominentCallout)
-                    }
+            if isCompactWidth {
+                VStack(alignment: .leading, spacing: 10) {
+                    recoverySectionTitle
+                    refreshButton
                 }
-                .buttonStyle(.plain)
-                .disabled(isDisabled || isRefreshing || runningChainID != nil)
-                .accessibilityLabel("Refresh parked outline changes")
-                .accessibilityIdentifier("data.outline-recovery.refresh")
+            } else {
+                HStack(alignment: .center, spacing: 12) {
+                    recoverySectionTitle
+                    Spacer()
+                    refreshButton
+                }
             }
 
             Text(statusText)
                 .font(IOThemTypography.UI.callout)
                 .foregroundStyle(Color.herText.opacity(0.78))
+                .fixedSize(horizontal: false, vertical: true)
                 .accessibilityIdentifier("data.outline-recovery.summary")
 
             ForEach(chains) { chain in
@@ -76,6 +72,39 @@ struct ScreenplayOutlineMutationRecoveryPanel: View {
         .accessibilityIdentifier("data.outline-recovery.section")
     }
 
+    private var isCompactWidth: Bool {
+        horizontalSizeClass == .compact
+    }
+
+    private var recoverySectionTitle: some View {
+        Text("Screenplay Outline Recovery")
+            .font(IOThemTypography.UI.sectionTitle)
+            .foregroundStyle(Color.herText.opacity(0.92))
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private var refreshButton: some View {
+        Button(action: onRefresh) {
+            HStack(spacing: 7) {
+                if isRefreshing {
+                    ProgressView()
+                        .controlSize(.small)
+                } else {
+                    Image(systemName: "arrow.clockwise")
+                        .font(IOThemTypography.UI.prominentCallout)
+                }
+                Text(isRefreshing ? "Refreshing" : "Refresh")
+                    .font(IOThemTypography.UI.calloutStrong)
+            }
+            .frame(minHeight: 44)
+        }
+        .buttonStyle(.bordered)
+        .disabled(isDisabled || isRefreshing || runningChainID != nil)
+        .accessibilityLabel("Refresh parked outline changes")
+        .accessibilityHint("Checks this device for screenplay outline changes that need attention.")
+        .accessibilityIdentifier("data.outline-recovery.refresh")
+    }
+
     private func recoveryChainCard(
         _ chain: ScreenplayOutlineMutationRecoveryChain
     ) -> some View {
@@ -89,6 +118,7 @@ struct ScreenplayOutlineMutationRecoveryPanel: View {
                     Text(recoveryTitle(for: chain))
                         .font(IOThemTypography.UI.prominentCallout)
                         .foregroundStyle(Color.herText.opacity(0.90))
+                        .fixedSize(horizontal: false, vertical: true)
                     Text(recoveryMetadata(for: chain))
                         .font(IOThemTypography.UI.caption)
                         .foregroundStyle(Color.herText.opacity(0.68))
@@ -115,9 +145,13 @@ struct ScreenplayOutlineMutationRecoveryPanel: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            ViewThatFits(in: .horizontal) {
-                recoveryActions(for: chain, horizontal: true)
+            if isCompactWidth {
                 recoveryActions(for: chain, horizontal: false)
+            } else {
+                ViewThatFits(in: .horizontal) {
+                    recoveryActions(for: chain, horizontal: true)
+                    recoveryActions(for: chain, horizontal: false)
+                }
             }
         }
         .padding(12)
@@ -140,12 +174,12 @@ struct ScreenplayOutlineMutationRecoveryPanel: View {
     ) -> some View {
         if horizontal {
             HStack(spacing: 8) {
-                recoveryActionButtons(for: chain)
+                recoveryActionButtons(for: chain, fullWidth: false)
             }
             .disabled(isDisabled || runningChainID != nil)
         } else {
             VStack(alignment: .leading, spacing: 8) {
-                recoveryActionButtons(for: chain)
+                recoveryActionButtons(for: chain, fullWidth: true)
             }
             .disabled(isDisabled || runningChainID != nil)
         }
@@ -153,28 +187,37 @@ struct ScreenplayOutlineMutationRecoveryPanel: View {
 
     @ViewBuilder
     private func recoveryActionButtons(
-        for chain: ScreenplayOutlineMutationRecoveryChain
+        for chain: ScreenplayOutlineMutationRecoveryChain,
+        fullWidth: Bool
     ) -> some View {
         Button {
             onInspect(chain)
         } label: {
             Label("Inspect", systemImage: "doc.text.magnifyingglass")
+                .frame(maxWidth: fullWidth ? .infinity : nil, minHeight: 44, alignment: .leading)
         }
+        .buttonStyle(.bordered)
         .accessibilityIdentifier("data.outline-recovery.inspect.\(chain.id)")
+        .accessibilityHint("Opens the saved outline snapshots and recovery details.")
 
         Button {
             onExport(chain)
         } label: {
             Label("Export", systemImage: "square.and.arrow.up")
+                .frame(maxWidth: fullWidth ? .infinity : nil, minHeight: 44, alignment: .leading)
         }
+        .buttonStyle(.bordered)
         .accessibilityIdentifier("data.outline-recovery.export.\(chain.id)")
+        .accessibilityHint("Saves this outline recovery chain as JSON.")
 
         if chain.permitsRetry {
             Button {
                 onRetry(chain)
             } label: {
                 Label("Retry Safely", systemImage: "arrow.triangle.2.circlepath")
+                    .frame(maxWidth: fullWidth ? .infinity : nil, minHeight: 44, alignment: .leading)
             }
+            .buttonStyle(.borderedProminent)
             .accessibilityHint("Retries the exact saved request with its original revision check.")
             .accessibilityIdentifier("data.outline-recovery.retry.\(chain.id)")
         }
@@ -183,8 +226,11 @@ struct ScreenplayOutlineMutationRecoveryPanel: View {
             onDiscard(chain)
         } label: {
             Label("Discard", systemImage: "trash")
+                .frame(maxWidth: fullWidth ? .infinity : nil, minHeight: 44, alignment: .leading)
         }
+        .buttonStyle(.bordered)
         .accessibilityIdentifier("data.outline-recovery.discard.\(chain.id)")
+        .accessibilityHint("Asks for confirmation before deleting the saved outline snapshots.")
     }
 
     private func recoveryTitle(for chain: ScreenplayOutlineMutationRecoveryChain) -> String {
@@ -206,6 +252,8 @@ struct ScreenplayOutlineMutationRecoveryDetailView: View {
     let onExport: () -> Void
     let onDone: () -> Void
 
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
     var body: some View {
         NavigationStack {
             ScrollView {
@@ -213,6 +261,7 @@ struct ScreenplayOutlineMutationRecoveryDetailView: View {
                     Label("Saved locally and never merged automatically", systemImage: "lock.shield")
                         .font(IOThemTypography.UI.prominentCallout)
                         .foregroundStyle(Color.orange.opacity(0.90))
+                        .fixedSize(horizontal: false, vertical: true)
 
                     metadataCard
 
@@ -220,33 +269,83 @@ struct ScreenplayOutlineMutationRecoveryDetailView: View {
                         snapshotCard(entry, index: index)
                     }
                 }
-                .padding(20)
+                .padding(isCompactWidth ? 16 : 20)
                 .frame(maxWidth: 760, alignment: .leading)
+                .frame(maxWidth: .infinity)
             }
             .navigationTitle("Parked Outline Change")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar(.hidden, for: .navigationBar)
+            .safeAreaInset(edge: .top, spacing: 0) {
+                recoveryDetailTopBar
+            }
+            #else
             .toolbar {
-                #if os(macOS)
                 ToolbarItem(placement: .automatic) {
                     Button("Done", action: onDone)
+                        .frame(minWidth: 64, minHeight: 44)
+                        .accessibilityIdentifier("data.outline-recovery.detail.done")
                 }
-                #else
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Done", action: onDone)
-                }
-                #endif
                 ToolbarItem(placement: .primaryAction) {
                     Button(action: onExport) {
                         Label("Export", systemImage: "square.and.arrow.up")
+                            .labelStyle(.titleAndIcon)
                     }
+                    .frame(minHeight: 44)
                     .disabled(isDisabled)
+                    .accessibilityIdentifier("data.outline-recovery.detail.export")
+                    .accessibilityHint("Saves the complete recovery chain as JSON.")
                 }
             }
+            #endif
         }
         .accessibilityIdentifier("data.outline-recovery.detail")
         #if os(macOS)
         .frame(minWidth: 720, minHeight: 620)
         #endif
     }
+
+    private var isCompactWidth: Bool {
+        horizontalSizeClass == .compact
+    }
+
+    #if os(iOS)
+    private var recoveryDetailTopBar: some View {
+        HStack(spacing: 10) {
+            Button("Done", action: onDone)
+                .buttonStyle(.bordered)
+                .frame(minWidth: 64, minHeight: 44)
+                .contentShape(Rectangle())
+                .accessibilityIdentifier("data.outline-recovery.detail.done")
+                .accessibilityHint("Closes the recovery detail without changing saved work.")
+            Spacer(minLength: 4)
+            Text("Outline Recovery")
+                .font(IOThemTypography.UI.calloutStrong)
+                .foregroundStyle(Color.primary.opacity(0.86))
+                .lineLimit(1)
+                .minimumScaleFactor(0.82)
+            Spacer(minLength: 4)
+            Button(action: onExport) {
+                Label("Export", systemImage: "square.and.arrow.up")
+                    .labelStyle(.titleAndIcon)
+                    .frame(minHeight: 44)
+            }
+            .buttonStyle(.borderedProminent)
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
+            .disabled(isDisabled)
+            .accessibilityIdentifier("data.outline-recovery.detail.export")
+            .accessibilityHint("Saves the complete recovery chain as JSON.")
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(.ultraThinMaterial)
+        .overlay(alignment: .bottom) {
+            Divider().opacity(0.24)
+        }
+    }
+    #endif
 
     private var metadataCard: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -306,6 +405,7 @@ struct ScreenplayOutlineMutationRecoveryDetailView: View {
                 Text("Revision \(entry.expectedOutlineRevision) • \(entry.acts.count) acts • \(entry.scenes.count) scenes • \(entry.beats.count) beats")
                     .font(IOThemTypography.UI.caption)
                     .foregroundStyle(Color.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         .padding(14)

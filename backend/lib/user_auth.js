@@ -3,35 +3,37 @@ import { createHash, createPublicKey } from "node:crypto";
 
 import {
   authenticateUser,
+  completePasswordResetDurably,
   consumeEmailVerificationToken,
-  consumePasswordResetToken,
   createOrAttachAppleUser,
   createUser,
   createUserStoreCheckpoint,
+  ensureUserStoreCanonicalReconciled,
   flushUserStorePersistenceWrites,
   getAuthSessionById,
+  getAuthSessionByToken,
   getUserByAppleSubject,
   getUserByEmail,
   getUserById,
   issueAuthSession,
+  issueAuthSessionDurably,
   issueEmailVerificationToken,
-  issuePasswordResetToken,
+  issuePasswordResetTokenDurably,
   listAuthSessionsForUser,
   markUserEmailVerified,
-  revokeAllAuthSessionsForUser,
+  revokeAllAuthSessionsForUserDurablyInMutation,
   revokeAuthSessionById,
-  revokeAuthSessionByToken,
+  revokeAuthSessionsDurably,
   restoreUserStoreCheckpoint,
-  rotateAuthSession,
+  rotateAuthSessionDurably,
   runUserStoreMutationExclusive,
-  updateUserPassword,
   validateUserPassword,
   waitForUserStoreMutations,
 } from "./user_store.js";
 
 const ACCESS_TOKEN_AUDIENCE = "io.them.them";
 const ACCESS_TOKEN_ISSUER = "io.them.backend";
-const USER_PROTECTED_PATTERNS = [
+const USER_PROTECTED_PATTERNS = Object.freeze([
   /^\/state(?:\/|$)/,
   /^\/session(?:\/|$)/,
   /^\/history(?:\/|$)/,
@@ -43,13 +45,13 @@ const USER_PROTECTED_PATTERNS = [
   /^\/screenplay(?:\/|$)/,
   /^\/telemetry\/first-page-written(?:\/|$)/,
   /^\/visual\/context(?:\/|$)/,
-];
+]);
 
 // Day 1 Backend Exposure Lock: cost-attached or identity-sensitive realtime
 // + visual endpoints must require authenticated identity *regardless* of the global
 // REQUIRE_USER_AUTH flag. /realtime/health and /realtime/bridge are
 // intentionally excluded — they are unauth health/proxy surfaces.
-const PAID_PROVIDER_PATTERNS = [
+const PAID_PROVIDER_PATTERNS = Object.freeze([
   /^\/craft\/analyze(?:\/|$)/,
   /^\/craft\/logline\/distill(?:\/|$)/,
   /^\/realtime\/client_secret(?:\/|$)/,
@@ -59,7 +61,7 @@ const PAID_PROVIDER_PATTERNS = [
   /^\/realtime\/studio_render(?:\/|$)/,
   /^\/realtime\/studio_render_stream(?:\/|$)/,
   /^\/visual\/context(?:\/|$)/,
-];
+]);
 
 function normalizeEmail(value) {
   return String(value || "").trim().toLowerCase();
@@ -170,13 +172,12 @@ function createUserAuthSubsystem(options = {}) {
     return res.status(503).json({ stage, error: "user_auth_not_configured" });
   }
 
-  async function ensureAuthMutationPersisted(res, stage, checkpoint) {
+  async function persistAuthMutationOrRestore(checkpoint) {
     try {
       const result = await flushUserStorePersistenceWrites();
-      if (result?.ok === true) return true;
+      if (result?.ok === true) return { ok: true, retryable: true };
     } catch {
-      // The response below is intentionally generic so storage details and
-      // credentials never escape through the auth surface.
+      // The compensating path below restores the pre-mutation checkpoint.
     }
     let retryable = false;
     try {
@@ -188,11 +189,17 @@ function createUserAuthSubsystem(options = {}) {
       // compensating durability attempt. Do not promise a safe retry unless
       // that compensation also reached durable storage.
     }
+    return { ok: false, retryable };
+  }
+
+  async function ensureAuthMutationPersisted(res, stage, checkpoint) {
+    const persistenceResult = await persistAuthMutationOrRestore(checkpoint);
+    if (persistenceResult.ok) return true;
     if (!res.headersSent) {
       res.status(503).json({
         stage,
         error: "auth_persistence_failed",
-        retryable,
+        retryable: persistenceResult.retryable,
       });
     }
     return false;
@@ -200,6 +207,13 @@ function createUserAuthSubsystem(options = {}) {
 
   function serializeAuthMutation(handler) {
     return (req, res, next) => runUserStoreMutationExclusive(async () => {
+      if (!(await ensureUserStoreCanonicalReconciled())) {
+        return res.status(503).json({
+          stage: "auth_user",
+          error: "auth_persistence_failed",
+          retryable: true,
+        });
+      }
       const checkpoint = createUserStoreCheckpoint(Date.now());
       return handler(req, res, checkpoint, next);
     });
@@ -240,6 +254,32 @@ function createUserAuthSubsystem(options = {}) {
       verification_required: pendingEmailVerification,
       ...extra,
     };
+  }
+
+  function respondToPasswordResetRequest(res, debugResetToken = "") {
+    const safeDebugToken = allowDebugTokens ? String(debugResetToken || "").trim() : "";
+    const extra = {
+      password_reset_requested: true,
+      email_delivery: buildEmailDelivery(
+        safeDebugToken ? "token_in_response" : "queued",
+        safeDebugToken ? "inline_debug" : "none",
+      ),
+    };
+    if (safeDebugToken) extra.debug_password_reset_token = safeDebugToken;
+    return res.status(200).json(buildAuthEnvelope({ extra }));
+  }
+
+  function serializePasswordResetRequest(handler) {
+    return (req, res, next) => runUserStoreMutationExclusive(async () => {
+      // A reconciliation outage applies to every supplied address. Keep the
+      // reset-request contract generic instead of exposing whether an account
+      // would have existed after canonical hydration.
+      if (!(await ensureUserStoreCanonicalReconciled())) {
+        return respondToPasswordResetRequest(res);
+      }
+      const checkpoint = createUserStoreCheckpoint(Date.now());
+      return handler(req, res, checkpoint, next);
+    });
   }
 
   function signAccessToken(user, session) {
@@ -433,6 +473,26 @@ function createUserAuthSubsystem(options = {}) {
       accessToken: signAccessToken(user, issued.session),
       refreshToken: issued.refreshToken,
       session: issued.session,
+    };
+  }
+
+  async function issueEmailLoginAuthResult(user, req) {
+    const result = await issueAuthSessionDurably({
+      userId: String(user?.id || "").trim(),
+      ttlMs: refreshTtlSeconds * 1000,
+      metadata: readRequestDevice(req),
+    }, Date.now());
+    const issued = result?.issuance || null;
+    if (!issued?.session || !issued?.refreshToken) {
+      return { ...result, authResult: null };
+    }
+    return {
+      ...result,
+      authResult: {
+        accessToken: signAccessToken(user, issued.session),
+        refreshToken: issued.refreshToken,
+        session: issued.session,
+      },
     };
   }
 
@@ -680,14 +740,25 @@ function createUserAuthSubsystem(options = {}) {
         error: authenticated.status === "email_required" ? "email_required" : "invalid_credentials",
       });
     }
-    const issued = issueAuthResult(authenticated.user, req);
+    const issuance = await issueEmailLoginAuthResult(authenticated.user, req);
+    if (issuance.status === "auth_persistence_failed") {
+      return res.status(503).json({
+        stage: "auth_login",
+        error: "auth_persistence_failed",
+        retryable: issuance.retryable === true,
+      });
+    }
+    const issued = issuance.authResult;
     if (!issued) {
       return res.status(500).json({
         stage: "auth_login",
         error: "session_issue_failed",
       });
     }
-    if (!(await ensureAuthMutationPersisted(res, "auth_login", checkpoint))) return;
+    if (
+      issuance.status === "snapshot_pending"
+      && !(await ensureAuthMutationPersisted(res, "auth_login", checkpoint))
+    ) return;
     return res.status(200).json(buildAuthEnvelope({
       user: authenticated.user,
       accessToken: issued.accessToken,
@@ -753,6 +824,13 @@ function createUserAuthSubsystem(options = {}) {
       });
     }
     return runUserStoreMutationExclusive(async () => {
+      if (!(await ensureUserStoreCanonicalReconciled())) {
+        return res.status(503).json({
+          stage: "auth_apple",
+          error: "auth_persistence_failed",
+          retryable: true,
+        });
+      }
       const checkpoint = createUserStoreCheckpoint(Date.now());
       return handleAuthAppleMutation(req, res, checkpoint, verified);
     });
@@ -767,10 +845,18 @@ function createUserAuthSubsystem(options = {}) {
         error: "refresh_token_required",
       });
     }
-    const rotated = rotateAuthSession(refreshToken, {
+    const rotationResult = await rotateAuthSessionDurably(refreshToken, {
       ttlMs: refreshTtlSeconds * 1000,
       metadata: readRequestDevice(req),
     }, Date.now());
+    if (rotationResult.status === "auth_persistence_failed") {
+      return res.status(503).json({
+        stage: "auth_refresh",
+        error: "auth_persistence_failed",
+        retryable: rotationResult.retryable === true,
+      });
+    }
+    const rotated = rotationResult.rotation;
     if (!rotated) {
       return res.status(401).json({
         stage: "auth_refresh",
@@ -786,7 +872,8 @@ function createUserAuthSubsystem(options = {}) {
         error: "invalid_refresh_token",
       });
     }
-    if (!(await ensureAuthMutationPersisted(res, "auth_refresh", checkpoint))) return;
+    if (rotationResult.status !== "committed"
+      && !(await ensureAuthMutationPersisted(res, "auth_refresh", checkpoint))) return;
     return res.status(200).json(buildAuthEnvelope({
       user,
       accessToken: signAccessToken(user, rotated.session),
@@ -799,12 +886,14 @@ function createUserAuthSubsystem(options = {}) {
     if (!authConfigured) return authMisconfigured(res, "auth_logout");
     const now = Date.now();
     const refreshToken = String(req.body?.refresh_token || req.body?.refreshToken || req.get("X-Refresh-Token") || "").trim();
-    let revokedRefresh = null;
-    let revokedAccess = null;
+    let refreshSession = null;
 
     if (refreshToken) {
-      revokedRefresh = revokeAuthSessionByToken(refreshToken, now);
-      if (!revokedRefresh && !req.authSession) {
+      refreshSession = getAuthSessionByToken(refreshToken, now, {
+        includeRevoked: true,
+        includeExpired: true,
+      });
+      if (!refreshSession && !req.authSession) {
         return res.status(401).json({
           stage: "auth_logout",
           error: "invalid_refresh_token",
@@ -812,11 +901,45 @@ function createUserAuthSubsystem(options = {}) {
       }
     }
 
-    if (req.authSession && (!revokedRefresh || req.authSession.sessionId !== revokedRefresh.sessionId)) {
-      revokedAccess = revokeAuthSessionById(req.authSession.sessionId, now);
+    if (
+      refreshSession
+      && req.authSession
+      && String(refreshSession.userId || "").trim() !== String(req.authSession.userId || "").trim()
+    ) {
+      return res.status(401).json({
+        stage: "auth_logout",
+        error: "invalid_refresh_token",
+      });
     }
 
-    if ((revokedRefresh || revokedAccess) && !(await ensureAuthMutationPersisted(res, "auth_logout", checkpoint))) return;
+    const sessionIds = [refreshSession?.sessionId, req.authSession?.sessionId].filter(Boolean);
+    let revocationResult = { status: "no_sessions", revoked: [] };
+    if (sessionIds.length > 0) {
+      revocationResult = await revokeAuthSessionsDurably(sessionIds, now);
+      if (revocationResult.status === "auth_persistence_failed") {
+        return res.status(503).json({
+          stage: "auth_logout",
+          error: "auth_persistence_failed",
+          retryable: revocationResult.retryable === true,
+        });
+      }
+      if (revocationResult.status === "conflict" || revocationResult.status === "not_found") {
+        return res.status(401).json({
+          stage: "auth_logout",
+          error: "invalid_refresh_token",
+        });
+      }
+      if (revocationResult.status !== "committed"
+        && !(await ensureAuthMutationPersisted(res, "auth_logout", checkpoint))) return;
+    }
+    const revokedRefresh = revocationResult.revoked.find(
+      (session) => session.sessionId === refreshSession?.sessionId,
+    ) || null;
+    const revokedAccess = req.authSession?.sessionId !== refreshSession?.sessionId
+      ? revocationResult.revoked.find(
+        (session) => session.sessionId === req.authSession?.sessionId,
+      ) || null
+      : null;
 
     return res.status(200).json(buildAuthEnvelope({
       extra: {
@@ -859,8 +982,23 @@ function createUserAuthSubsystem(options = {}) {
           error: "session_not_found",
         });
       }
-      const revoked = revokeAuthSessionById(sessionId, now);
-      if (revoked && !(await ensureAuthMutationPersisted(res, "auth_sessions_revoke", checkpoint))) return;
+      const revocationResult = await revokeAuthSessionsDurably([sessionId], now);
+      if (revocationResult.status === "auth_persistence_failed") {
+        return res.status(503).json({
+          stage: "auth_sessions_revoke",
+          error: "auth_persistence_failed",
+          retryable: revocationResult.retryable === true,
+        });
+      }
+      if (revocationResult.status === "conflict" || revocationResult.status === "not_found") {
+        return res.status(404).json({
+          stage: "auth_sessions_revoke",
+          error: "session_not_found",
+        });
+      }
+      if (revocationResult.status !== "committed"
+        && !(await ensureAuthMutationPersisted(res, "auth_sessions_revoke", checkpoint))) return;
+      const revoked = revocationResult.revoked.find((session) => session.sessionId === sessionId) || null;
       return res.status(200).json({
         ok: true,
         revoked: Boolean(revoked),
@@ -874,14 +1012,23 @@ function createUserAuthSubsystem(options = {}) {
     }
 
     if (revokeOthers) {
-      const revoked = revokeAllAuthSessionsForUser(user.id, now, {
+      const revocationResult = await revokeAllAuthSessionsForUserDurablyInMutation(user.id, now, {
         exceptSessionId: String(req.authSession?.sessionId || "").trim(),
       });
-      if (revoked.length > 0 && !(await ensureAuthMutationPersisted(res, "auth_sessions_revoke", checkpoint))) return;
+      if (!revocationResult.ok) {
+        return res.status(503).json({
+          stage: "auth_sessions_revoke",
+          error: "auth_persistence_failed",
+          retryable: revocationResult.retryable === true,
+        });
+      }
+      if (revocationResult.status !== "committed"
+        && revocationResult.revokedCount > 0
+        && !(await ensureAuthMutationPersisted(res, "auth_sessions_revoke", checkpoint))) return;
       return res.status(200).json({
         ok: true,
-        revoked: revoked.length > 0,
-        count: revoked.length,
+        revoked: revocationResult.revokedCount > 0,
+        count: revocationResult.revokedCount,
         family_id: String(req.authSession?.familyId || "").trim() || null,
         user_id: String(user.id || "").trim() || null,
       });
@@ -903,27 +1050,25 @@ function createUserAuthSubsystem(options = {}) {
       });
     }
     const user = getUserByEmail(email);
-    const issued = user
-      ? issuePasswordResetToken({
-          userId: user.id,
-          ttlMs: passwordResetTtlSeconds * 1000,
-        }, Date.now())
-      : null;
-    const debugResetToken = allowDebugTokens && issued ? issued.token : "";
-    const extra = {
-      password_reset_requested: true,
-      email_delivery: buildEmailDelivery(
-        debugResetToken ? "token_in_response" : "queued",
-        debugResetToken ? "inline_debug" : "none"
-      ),
-    };
-    if (debugResetToken) {
-      extra.debug_password_reset_token = debugResetToken;
-    }
-    if (issued && !(await ensureAuthMutationPersisted(res, "auth_request_password_reset", checkpoint))) return;
-    return res.status(200).json(buildAuthEnvelope({
-      extra,
-    }));
+    const issuanceResult = await issuePasswordResetTokenDurably(user
+      ? {
+        userId: user.id,
+        ttlMs: passwordResetTtlSeconds * 1000,
+      }
+      : {
+        privacyCoverKey: email,
+        ttlMs: passwordResetTtlSeconds * 1000,
+      }, Date.now());
+    let issued = issuanceResult?.issuance || null;
+    if (
+      issuanceResult?.status === "snapshot_pending"
+      && !(await persistAuthMutationOrRestore(checkpoint)).ok
+    ) issued = null;
+
+    // Persistence failures, collisions, and uncertain commits intentionally
+    // collapse into the same accepted response as an unknown address. A raw
+    // token is exposed only in local/test mode after confirmed durability.
+    return respondToPasswordResetRequest(res, issued?.token);
   }
 
   async function handleAuthResetPassword(req, res, checkpoint) {
@@ -943,29 +1088,37 @@ function createUserAuthSubsystem(options = {}) {
         error: passwordValidation.status,
       });
     }
-    const consumed = consumePasswordResetToken(token, Date.now());
-    if (!consumed) {
+    const completed = await completePasswordResetDurably(token, newPassword, Date.now());
+    if (completed.status === "auth_persistence_failed") {
+      return res.status(503).json({
+        stage: "auth_reset_password",
+        error: "auth_persistence_failed",
+        retryable: completed.retryable === true,
+      });
+    }
+    if (completed.status === "invalid_reset_token") {
       if (!(await ensureAuthMutationPersisted(res, "auth_reset_password", checkpoint))) return;
       return res.status(400).json({
         stage: "auth_reset_password",
         error: "invalid_reset_token",
       });
     }
-    const updated = updateUserPassword(consumed.userId, newPassword, Date.now());
-    if (!updated.ok) {
+    if (!completed.user) {
       if (!(await ensureAuthMutationPersisted(res, "auth_reset_password", checkpoint))) return;
-      return res.status(updated.status === "not_found" ? 404 : 400).json({
+      return res.status(completed.status === "not_found" ? 404 : 400).json({
         stage: "auth_reset_password",
-        error: updated.status || "password_reset_failed",
+        error: completed.status || "password_reset_failed",
       });
     }
-    const revoked = revokeAllAuthSessionsForUser(updated.user.id, Date.now());
-    if (!(await ensureAuthMutationPersisted(res, "auth_reset_password", checkpoint))) return;
+    if (
+      completed.status === "snapshot_pending"
+      && !(await ensureAuthMutationPersisted(res, "auth_reset_password", checkpoint))
+    ) return;
     return res.status(200).json(buildAuthEnvelope({
-      user: updated.user,
+      user: completed.user,
       extra: {
         password_reset: true,
-        revoked_sessions: revoked.length,
+        revoked_sessions: completed.revoked.length,
       },
     }));
   }
@@ -1066,7 +1219,7 @@ function createUserAuthSubsystem(options = {}) {
     handleAuthLogout: serializeAuthMutation(handleAuthLogout),
     handleAuthRefresh: serializeAuthMutation(handleAuthRefresh),
     handleAuthRequestEmailVerification: serializeAuthMutation(handleAuthRequestEmailVerification),
-    handleAuthRequestPasswordReset: serializeAuthMutation(handleAuthRequestPasswordReset),
+    handleAuthRequestPasswordReset: serializePasswordResetRequest(handleAuthRequestPasswordReset),
     handleAuthResetPassword: serializeAuthMutation(handleAuthResetPassword),
     handleAuthSessions,
     handleAuthSessionsRevoke: serializeAuthMutation(handleAuthSessionsRevoke),

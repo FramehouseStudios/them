@@ -13,7 +13,7 @@ import {
   serializeTransition,
   escapeXml,
 } from "../lib/fdx_export.js";
-import { mountFDXExportRoute, sanitizeFilenameBase } from "../lib/fdx_export_route.js";
+import { mountFDXExportRoute, sanitizeFilenameBase, applyDraftDateDefault } from "../lib/fdx_export_route.js";
 
 // ---------- escapeXml ----------
 
@@ -133,10 +133,10 @@ test("[fdx] sanitizeFilenameBase replaces unsafe characters", () => {
 // middleware. The route is expected to parse its own body. If a
 // future refactor removes the route-local parser, every test below
 // fails — which is the correct guardrail.
-async function withTestServer(fn) {
+async function withTestServer(fn, options = {}) {
   const app = express();
-  mountFDXExportRoute(app);
-  const server = app.listen(0);
+  mountFDXExportRoute(app, options);
+  const server = app.listen(0, "127.0.0.1");
   await new Promise((resolve) => server.once("listening", resolve));
   const port = server.address().port;
   const baseURL = `http://127.0.0.1:${port}`;
@@ -210,7 +210,7 @@ test("[fdx] route parses its own JSON body (no app-level express.json required)"
   // Build a bare Express app — no body parser middleware at all.
   const app = express();
   mountFDXExportRoute(app);
-  const server = app.listen(0);
+  const server = app.listen(0, "127.0.0.1");
   await new Promise((resolve) => server.once("listening", resolve));
   const port = server.address().port;
   const baseURL = `http://127.0.0.1:${port}`;
@@ -235,7 +235,7 @@ test("[fdx] route parses its own JSON body (no app-level express.json required)"
 test("[fdx] route returns 400 when body is empty (route-local parser sees no fields)", async () => {
   const app = express();
   mountFDXExportRoute(app);
-  const server = app.listen(0);
+  const server = app.listen(0, "127.0.0.1");
   await new Promise((resolve) => server.once("listening", resolve));
   const port = server.address().port;
   const baseURL = `http://127.0.0.1:${port}`;
@@ -308,13 +308,12 @@ test("[fdx] revision true carries Revision 1; trailing * without flag does NOT",
   assert.equal(plainStar.includes('Revision="1"'), false);
 });
 
-test("[fdx] draft date auto-fill: title present + no draftDate -> today; no title -> no draftDate", () => {
-  const today = new Date().toISOString().slice(0, 10);
+test("[fdx] pure serialization does not invent a draft date", () => {
   const withTitle = exportToFDX({
     title: { title: "My Script", author: "A" },
     scenes: [],
   });
-  assert.match(withTitle, new RegExp(`Draft Date: ${today}`));
+  assert.equal(withTitle.includes("Draft Date"), false);
   const noTitle = exportToFDX({
     title: { title: "", author: "A" },
     scenes: [],
@@ -325,4 +324,61 @@ test("[fdx] draft date auto-fill: title present + no draftDate -> today; no titl
     scenes: [],
   });
   assert.equal(emptyTitle.includes("Draft Date"), false);
+});
+
+test("[fdx] route supplies its injected UTC date for a titled export only", async () => {
+  let clockCalls = 0;
+  await withTestServer(async ({ baseURL }) => {
+    for (const headers of [{}, { accept: "application/xml" }]) {
+      const result = await post(baseURL, "/screenplay/export/fdx", {
+        title: { title: "Writer's draft", author: "A" }, scenes: [],
+      }, headers);
+      assert.equal(result.status, 200);
+      assert.match(result.json?.fdx || result.text, /Draft Date: 2042-01-02/);
+    }
+    const untitled = await post(baseURL, "/screenplay/export/fdx", {
+      title: { author: "A" }, scenes: [],
+    });
+    assert.equal(untitled.status, 200);
+    assert.equal(untitled.json.fdx.includes("Draft Date"), false);
+    assert.equal(clockCalls, 2);
+  }, { now: () => { clockCalls += 1; return new Date("2042-01-02T23:00:00Z"); } });
+});
+
+test("[fdx] route preserves explicit date aliases despite earlier whitespace fields", async () => {
+  await withTestServer(async ({ baseURL }) => {
+    for (const fields of [
+      { title: { title: "T", draftDate: " " }, draft_date: " 2024-06-03 " },
+      { title: { title: "T", draftDate: " " }, draft_date: " ", draftDate: " 2024-06-03 " },
+      { title: { title: "T", draftDate: " 2024-06-03 " }, draft_date: "ignored", draftDate: "ignored" },
+    ]) {
+      const result = await post(baseURL, "/screenplay/export/fdx", { ...fields, scenes: [] });
+      assert.equal(result.status, 200);
+      assert.match(result.json.fdx, /Draft Date: 2024-06-03/);
+    }
+  }, { now: () => { throw new Error("Explicit writer dates must not read the clock"); } });
+});
+
+test("[fdx] date default does not mutate frozen writer metadata or screenplay content", () => {
+  const title = Object.freeze({ title: "T", author: "A", notes: "Keep this", draftDate: " " });
+  const scenes = Object.freeze([{ heading: "INT. ROOM - DAY", lines: [] }]);
+  const body = Object.freeze({ title, scenes, draft_date: "2024-06-03" });
+  const result = applyDraftDateDefault(body, () => { throw new Error("Unexpected clock read"); });
+  assert.notEqual(result, body);
+  assert.deepEqual(result.title, { ...title, draftDate: "2024-06-03" });
+  assert.equal(result.scenes, scenes);
+  assert.equal(body.title.draftDate, " ");
+  assert.equal(result.draft_date, body.draft_date);
+  assert.equal(applyDraftDateDefault(result), result);
+});
+
+test("[fdx] explicit date serialization is stable across clock changes", (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: new Date("2020-01-01T00:00:00Z") });
+  const screenplay = Object.freeze({ title: Object.freeze({ title: "T", draftDate: "Writer's final draft" }), scenes: [] });
+  const withoutDate = Object.freeze({ title: Object.freeze({ title: "T" }), scenes: [] });
+  const before = [exportToFDX(screenplay), exportToFDX(withoutDate)];
+  t.mock.timers.setTime(new Date("2050-01-01T00:00:00Z").getTime());
+  assert.deepEqual([exportToFDX(screenplay), exportToFDX(withoutDate)], before);
+  assert.match(before[0], /Draft Date: Writer&apos;s final draft/);
+  assert.equal(before[1].includes("Draft Date"), false);
 });

@@ -498,6 +498,8 @@ test("[pre-flight] flags generated TestFlight preflight drift", () => {
   const r = runIn(tmp);
   assert.match(r.stderr, /generated-testflight-preflight-drift/);
   assert.match(r.stderr, /v1_manual_qa_checklist\.mjs --write=docs\/testflight-v1-preflight\.md/);
+  assert.match(r.stderr, /pre-flight: 1 finding\(s\)/);
+  assert.doesNotMatch(r.stderr, /generated-v1-manual-qa-drift/);
 });
 
 test("[pre-flight] accepts generated TestFlight preflight artifact in sync", () => {
@@ -716,6 +718,98 @@ export const KEYS = ["a", "b", "c"];
   const tmp = tempRepo({ withMountFile: libFile });
   const r = runIn(tmp);
   assert.doesNotMatch(r.stderr, /lib-missing-test/);
+});
+
+test("[pre-flight] resolves nested library imports relative to nested tests", () => {
+  const tmp = tempRepo();
+  fs.mkdirSync(path.join(tmp, "backend/lib/nested"));
+  fs.mkdirSync(path.join(tmp, "backend/tests/integration"));
+  fs.writeFileSync(path.join(tmp, "backend/lib/nested/compute.js"), "export const compute = () => 1;");
+  fs.writeFileSync(path.join(tmp, "backend/tests/integration/other.test.mjs"), `
+import {
+  compute as calculate,
+} from "../../lib/nested/compute.js";
+calculate();
+`);
+  const r = runIn(tmp, ["--strict"]);
+  assert.equal(r.status, 0, r.stderr);
+});
+
+test("[pre-flight] recognizes literal dynamic imports of nested libraries", () => {
+  const tmp = tempRepo();
+  fs.mkdirSync(path.join(tmp, "backend/lib/nested"));
+  fs.writeFileSync(path.join(tmp, "backend/lib/nested/compute.js"), "export const compute = () => 1;");
+  fs.writeFileSync(path.join(tmp, "backend/tests/other.test.mjs"), `
+const { compute } = await import("../lib/nested/compute.js");
+compute();
+`);
+  const r = runIn(tmp, ["--strict"]);
+  assert.equal(r.status, 0, r.stderr);
+});
+
+test("[pre-flight] recognizes matching nested direct test paths", () => {
+  const tmp = tempRepo();
+  fs.mkdirSync(path.join(tmp, "backend/lib/nested"));
+  fs.mkdirSync(path.join(tmp, "backend/tests/nested"));
+  fs.writeFileSync(path.join(tmp, "backend/lib/nested/compute.js"), "export const compute = () => 1;");
+  fs.writeFileSync(path.join(tmp, "backend/tests/nested/compute.test.mjs"), "");
+  const r = runIn(tmp, ["--strict"]);
+  assert.equal(r.status, 0, r.stderr);
+});
+
+test("[pre-flight] a matching basename does not cover a different library path", () => {
+  const tmp = tempRepo();
+  fs.mkdirSync(path.join(tmp, "backend/lib/nested"));
+  fs.writeFileSync(path.join(tmp, "backend/lib/compute.js"), "export const compute = () => 1;");
+  fs.writeFileSync(path.join(tmp, "backend/lib/nested/compute.js"), "export const compute = () => 2;");
+  fs.writeFileSync(path.join(tmp, "backend/tests/compute.test.mjs"), `
+import { compute } from "../lib/compute.js";
+compute();
+`);
+  const r = runIn(tmp, ["--strict"]);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /pre-flight: 1 finding\(s\)/);
+  assert.match(r.stderr, /backend\/lib\/nested\/compute\.js/);
+});
+
+test("[pre-flight] follows only requested named barrel re-exports, including aliases", () => {
+  const tmp = tempRepo();
+  fs.mkdirSync(path.join(tmp, "backend/lib/nested"));
+  fs.writeFileSync(path.join(tmp, "backend/lib/nested/index.js"), `
+export { intermediate as publicCompute } from "./middle.js";
+export { unused } from "./unused.js";
+`);
+  fs.writeFileSync(path.join(tmp, "backend/lib/nested/middle.js"), `
+export { compute as intermediate } from "./compute.js";
+`);
+  fs.writeFileSync(path.join(tmp, "backend/lib/nested/compute.js"), `
+import { dependency } from "./dependency.js";
+export const compute = () => dependency();
+`);
+  fs.writeFileSync(path.join(tmp, "backend/lib/nested/unused.js"), "export const unused = () => 0;");
+  fs.writeFileSync(path.join(tmp, "backend/lib/nested/dependency.js"), "export const dependency = () => 1;");
+  fs.writeFileSync(path.join(tmp, "backend/tests/other.test.mjs"), `
+import { publicCompute as calculate } from "../lib/nested/index.js";
+calculate();
+`);
+  const r = runIn(tmp, ["--strict"]);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /pre-flight: 2 finding\(s\)/);
+  assert.match(r.stderr, /backend\/lib\/nested\/unused\.js/);
+  assert.match(r.stderr, /backend\/lib\/nested\/dependency\.js/);
+  assert.doesNotMatch(r.stderr, /backend\/lib\/nested\/(?:index|middle|compute)\.js/);
+});
+
+test("[pre-flight] named barrel cycles terminate without exempting untested siblings", () => {
+  const tmp = tempRepo();
+  fs.writeFileSync(path.join(tmp, "backend/lib/a.js"), 'export { compute } from "./b.js";');
+  fs.writeFileSync(path.join(tmp, "backend/lib/b.js"), 'export { compute } from "./a.js";');
+  fs.writeFileSync(path.join(tmp, "backend/lib/untested.js"), "export const untested = () => 1;");
+  fs.writeFileSync(path.join(tmp, "backend/tests/other.test.mjs"), 'import { compute } from "../lib/a.js";');
+  const r = runIn(tmp, ["--strict"]);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /pre-flight: 1 finding\(s\)/);
+  assert.match(r.stderr, /backend\/lib\/untested\.js/);
 });
 
 // ---------- task-missing-v1-pillar ----------
@@ -1220,35 +1314,38 @@ test("[pre-flight] schema-doc-missing-endpoint: skips INDEX.md and README.md", (
   assert.doesNotMatch(r.stderr, /schema-doc-missing-endpoint/);
 });
 
-// ---------- generated V1 manual QA checklist drift ----------
+// ---------- generated TestFlight checklist fail-closed behavior ----------
 
-test("[pre-flight] flags stale generated TestFlight checklist", () => {
-  const generator = `
-console.log("# io.them V1 TestFlight Preflight");
-console.log("");
-console.log("fresh five-flow checklist");
-`;
+test("[pre-flight] failing TestFlight generator is a strict failure", () => {
   const tmp = tempRepo({
-    withV1ManualQaGenerator: generator,
-    withV1ManualQaDoc: "# io.them V1 TestFlight Preflight\n\nstale four-flow checklist\n",
+    withV1ManualQaGenerator: 'throw new Error("fixture generator failure");',
+    withV1ManualQaDoc: "# checklist\n",
   });
-  const r = runIn(tmp);
-  assert.match(r.stderr, /generated-v1-manual-qa-drift/);
-  assert.match(r.stderr, /v1_manual_qa_checklist\.mjs --write=docs\/testflight-v1-preflight\.md/);
+  const r = runIn(tmp, ["--strict"]);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /generated-testflight-preflight-drift/);
+  assert.match(r.stderr, /could not regenerate TestFlight checklist/);
 });
 
-test("[pre-flight] current generated TestFlight checklist is NOT flagged", () => {
-  const generator = `
-console.log("# io.them V1 TestFlight Preflight");
-console.log("");
-console.log("fresh five-flow checklist");
-`;
-  const tmp = tempRepo({
-    withV1ManualQaGenerator: generator,
-    withV1ManualQaDoc: "# io.them V1 TestFlight Preflight\n\nfresh five-flow checklist\n",
-  });
-  const r = runIn(tmp);
-  assert.doesNotMatch(r.stderr, /generated-v1-manual-qa-drift/);
+test("[pre-flight] missing TestFlight generator or artifact is a strict failure", () => {
+  const noGenerator = tempRepo({ withV1ManualQaDoc: "# checklist\n" });
+  const noArtifact = tempRepo();
+  writeManualQaGenerator(noArtifact, "# checklist\n");
+  for (const tmp of [noGenerator, noArtifact]) {
+    const r = runIn(tmp, ["--strict"]);
+    assert.equal(r.status, 1);
+    assert.match(r.stderr, /generated-testflight-preflight-drift/);
+    assert.match(r.stderr, /missing/);
+  }
+});
+
+test("[pre-flight] trailing whitespace drift remains a strict failure", () => {
+  const tmp = tempRepo({ withV1ManualQaDoc: "# checklist\n\n" });
+  writeManualQaGenerator(tmp, "# checklist\n");
+  const r = runIn(tmp, ["--strict"]);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /pre-flight: 1 finding\(s\)/);
+  assert.match(r.stderr, /generated-testflight-preflight-drift/);
 });
 
 // ---------- stale V1 launch handoff instructions ----------

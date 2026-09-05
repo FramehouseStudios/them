@@ -565,6 +565,208 @@ final class BackendMemoryScreenplayExportTests: XCTestCase {
         )
     }
 
+    func testMemoriesReadFailureThrowsAndPreservesCachedETagPreferencesAndRevisionFor304() async throws {
+        let recorder = ScreenplayExportRequestRecorder()
+        let (api, session) = makeMemoriesReadAPI(recorder: recorder, responses: [
+            try memoriesReadSnapshot(creativeRevision: "cm-before"),
+            ScreenplayExportHTTPStub(
+                status: 503,
+                // Even an intermediary's misleading headers must not become a saved snapshot.
+                headers: [
+                    "Content-Type": "application/json", "ETag": #""failed-read""#,
+                    "X-State-Version": "failed-state", "X-Creative-Memory-Revision": "cm-failed",
+                ],
+                body: Data(#"{"ok":false,"action":"read","status":"memory_persistence_unavailable","message":"Memory sync is temporarily unavailable. No changes were applied.","request_id":"read-failure"}"#.utf8)
+            ),
+            ScreenplayExportHTTPStub(status: 304, headers: [:], body: Data()),
+        ])
+        defer { session.invalidateAndCancel() }
+
+        let original = try await api.fetchMemories(limit: 72)
+        XCTAssertEqual(original.payload.memories.map(\.id), ["memory-a"])
+        XCTAssertEqual(original.payload.storyMovePreferences?.first?.explicitStance, "prefer")
+        do {
+            _ = try await api.fetchMemories(limit: 72)
+            XCTFail("A failed creative-memory read must throw, even when a snapshot is cached.")
+        } catch BackendMemoryAPIError.server(let status, let message) {
+            XCTAssertEqual(status, 503)
+            XCTAssertEqual(message, "Memory sync is temporarily unavailable. No changes were applied.")
+        }
+        let syncAfterFailure = await api.currentSyncState()
+        XCTAssertEqual(syncAfterFailure.stateVersion, original.sync.stateVersion)
+
+        let unchanged = try await api.fetchMemories(limit: 72)
+        XCTAssertTrue(unchanged.notModified)
+        XCTAssertEqual(unchanged.payload.memories.map(\.id), original.payload.memories.map(\.id))
+        XCTAssertEqual(unchanged.payload.storyMovePreferences, original.payload.storyMovePreferences)
+        XCTAssertEqual(unchanged.payload.creativeMemoryRevision, "cm-before")
+        XCTAssertEqual(unchanged.payload.stateVersion, "account-v1")
+        let reads = recorder.requests.filter { $0.path == "/memories" }
+        XCTAssertEqual(reads.count, 3)
+        XCTAssertEqual(reads.map(\.ifNoneMatchHeader), [nil, #""memories-cm-before""#, #""memories-cm-before""#])
+    }
+
+    func testMemoriesChangedCreativeSnapshotAndClearReplaceCacheAtSameAccountVersion() async throws {
+        let recorder = ScreenplayExportRequestRecorder()
+        let (api, session) = makeMemoriesReadAPI(recorder: recorder, responses: [
+            try memoriesReadSnapshot(creativeRevision: "cm-before"),
+            try memoriesReadSnapshot(creativeRevision: "cm-corrected", preferenceStance: "avoid"),
+            try memoriesReadSnapshot(creativeRevision: "cm-cleared", ids: [], preferenceStance: nil),
+            ScreenplayExportHTTPStub(status: 304, headers: [:], body: Data()),
+        ])
+        defer { session.invalidateAndCancel() }
+
+        let original = try await api.fetchMemories(limit: 72)
+        let corrected = try await api.fetchMemories(limit: 72)
+        XCTAssertFalse(corrected.notModified)
+        XCTAssertEqual(corrected.payload.stateVersion, original.payload.stateVersion)
+        XCTAssertEqual(corrected.payload.creativeMemoryRevision, "cm-corrected")
+        XCTAssertEqual(corrected.payload.storyMovePreferences?.first?.explicitStance, "avoid")
+        XCTAssertEqual(corrected.payload.memories.map(\.id), ["memory-a"])
+
+        let cleared = try await api.fetchMemories(limit: 72)
+        XCTAssertFalse(cleared.notModified)
+        XCTAssertEqual(cleared.payload.stateVersion, original.payload.stateVersion)
+        XCTAssertEqual(cleared.payload.creativeMemoryRevision, "cm-cleared")
+        XCTAssertEqual(cleared.payload.deltaNoChange, false)
+        XCTAssertTrue(cleared.payload.memories.isEmpty)
+        XCTAssertEqual(cleared.payload.storyMovePreferences, [])
+
+        let unchanged = try await api.fetchMemories(limit: 72)
+        XCTAssertTrue(unchanged.notModified)
+        XCTAssertTrue(unchanged.payload.memories.isEmpty)
+        XCTAssertEqual(unchanged.payload.storyMovePreferences, [])
+        XCTAssertEqual(unchanged.payload.creativeMemoryRevision, "cm-cleared")
+        let reads = recorder.requests.filter { $0.path == "/memories" }
+        XCTAssertEqual(reads.count, 4)
+        XCTAssertEqual(reads.map(\.ifNoneMatchHeader), [
+            nil, #""memories-cm-before""#, #""memories-cm-corrected""#, #""memories-cm-cleared""#,
+        ])
+    }
+
+    @MainActor
+    func testMemoriesHTTP503PreservesDisplayedCardsDetailAndPreferencesUntilRecovery() async throws {
+        let recorder = ScreenplayExportRequestRecorder()
+        let (api, session) = makeMemoriesReadAPI(recorder: recorder, responses: [
+            try memoriesReadSnapshot(creativeRevision: "cm-before", ids: ["memory-a", "memory-b"]),
+            ScreenplayExportHTTPStub(
+                status: 503,
+                headers: ["Content-Type": "application/json"],
+                body: Data(#"{"ok":false,"action":"read","status":"memory_persistence_unavailable","message":"Memory sync is temporarily unavailable. No changes were applied.","request_id":"read-failure"}"#.utf8)
+            ),
+            try memoriesReadSnapshot(
+                creativeRevision: "cm-recovered", ids: ["memory-a"],
+                preferenceStance: "avoid", summary: "The recovered creative memory.", isDelta: true
+            ),
+        ])
+        defer { session.invalidateAndCancel() }
+        let vm = MemoriesViewModel(
+            api: api, notificationCenter: NotificationCenter(),
+            pendingQuestionLoader: { _ in nil }
+        )
+        let loaded = await vm.load()
+        XCTAssertEqual(loaded, .succeeded)
+        let original = try XCTUnwrap(vm.memory(forID: "memory-a"))
+        vm.selection = original
+        let state = vm.state
+        let preferences = vm.storyMovePreferences
+        let quality = vm.qualitySnapshot
+        let receipts = vm.recentActionReceipts
+        XCTAssertFalse(preferences.isEmpty)
+        XCTAssertNotNil(quality)
+        XCTAssertFalse(receipts.isEmpty)
+
+        let failed = await vm.refreshCrossDeviceMemoriesIfNeeded()
+        XCTAssertEqual(failed, .failed)
+        XCTAssertEqual(vm.state, state)
+        XCTAssertEqual(vm.selection, original)
+        XCTAssertEqual(vm.memory(forID: original.id), original)
+        XCTAssertEqual(vm.storyMovePreferences, preferences)
+        XCTAssertEqual(vm.qualitySnapshot, quality)
+        XCTAssertEqual(vm.recentActionReceipts, receipts)
+        XCTAssertNotNil(vm.refreshError)
+        XCTAssertFalse(vm.isRefreshing)
+
+        let recovered = await vm.refreshCrossDeviceMemoriesIfNeeded()
+        XCTAssertEqual(recovered, .succeeded)
+        XCTAssertNil(vm.memory(forID: "memory-b"), "Recovery must replace the snapshot, including removed cards.")
+        XCTAssertEqual(vm.selection?.id, original.id)
+        XCTAssertEqual(vm.memory(forID: vm.selection?.id ?? "")?.summary, "The recovered creative memory.")
+        XCTAssertEqual(vm.storyMovePreferences.first?.explicitStance, "avoid")
+        XCTAssertNil(vm.refreshError)
+        let reads = recorder.requests.filter { $0.path == "/memories" }
+        XCTAssertEqual(reads.count, 3)
+        XCTAssertEqual(reads.map { $0.queryItems["sinceVersion"] }, [nil, "account-v1", "account-v1"])
+    }
+
+    private func makeMemoriesReadAPI(
+        recorder: ScreenplayExportRequestRecorder,
+        responses: [ScreenplayExportHTTPStub]
+    ) -> (BackendMemoryAPI, URLSession) {
+        ScreenplayExportURLProtocolStub.handler = { request in
+            recorder.record(request)
+            switch request.url?.path {
+            case "/session":
+                return ScreenplayExportHTTPStub(
+                    status: 200, headers: ["Content-Type": "application/json"],
+                    body: Data(#"{"client_token":"client-memory-read","expires_in":3600,"remembered_names":[]}"#.utf8)
+                )
+            case "/memories":
+                let index = recorder.requests.filter { $0.path == "/memories" }.count - 1
+                guard responses.indices.contains(index) else { throw URLError(.badServerResponse) }
+                return responses[index]
+            default:
+                throw URLError(.unsupportedURL)
+            }
+        }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [ScreenplayExportURLProtocolStub.self]
+        let session = URLSession(configuration: configuration)
+        return (
+            BackendMemoryAPI(session: session, baseURL: URL(string: "https://screenplay-export.test")!),
+            session
+        )
+    }
+
+    private func memoriesReadSnapshot(
+        creativeRevision: String,
+        ids: [String] = ["memory-a"],
+        preferenceStance: String? = "prefer",
+        summary: String = "The original creative memory.",
+        isDelta: Bool = false
+    ) throws -> ScreenplayExportHTTPStub {
+        let preferences: [[String: Any]] = preferenceStance.map { stance in [[
+            "project_id": "p1", "project_title": "The Crossing", "family": "physical-choice",
+            "display_name": "Physical choices", "summary": "Make the choice physical.",
+            "learned_score": 1, "effective_score": stance == "prefer" ? 10 : -10,
+            "evidence_count": 1, "selected_count": 1, "passed_over_count": 0,
+            "accepted_page_count": 1, "block_resolution_count": 0, "explicit_stance": stance,
+        ]] } ?? []
+        let body: [String: Any] = [
+            "source": "auth_user", "source_ip": "", "state_version": "account-v1",
+            "creative_memory_revision": creativeRevision, "is_delta": isDelta, "delta_no_change": false,
+            "memories": ids.map { id in [
+                "id": id, "key": "theme-\(id)", "title": "A remembered choice", "summary": summary,
+                "reason": "The writer shared this.", "emotional_tone": "reflective", "salience": 0.7,
+                "confidence": 0.8, "remembered_at": 1, "snippets": [], "reference_hint": "", "source": "theme",
+            ] as [String: Any] },
+            "conversation_samples": [], "story_move_preferences": preferences,
+            "memory_quality": ["total_cards": ids.count, "avg_quality_score": 0.8],
+            "action_receipts": ["count": 1, "items": [[
+                "id": "receipt-1", "type": "memory", "status": "saved", "target": "memory-a",
+                "summary": "Clementine remembered the choice.", "created_at": 1,
+            ]]],
+        ]
+        return ScreenplayExportHTTPStub(
+            status: 200,
+            headers: [
+                "Content-Type": "application/json", "ETag": "\"memories-\(creativeRevision)\"",
+                "X-State-Version": "account-v1", "X-Creative-Memory-Revision": creativeRevision,
+            ],
+            body: try JSONSerialization.data(withJSONObject: body)
+        )
+    }
+
     func testDurableMemoryForgetPostsObservedStateAndCreativeRevisions() async throws {
         let recorder = ScreenplayExportRequestRecorder()
         ScreenplayExportURLProtocolStub.handler = { request in
@@ -633,6 +835,128 @@ final class BackendMemoryScreenplayExportTests: XCTestCase {
         XCTAssertEqual(
             request.bodyObject?["expected_creative_memory_revision"] as? String,
             "cm_forget_before"
+        )
+    }
+
+    func testForgetPinsExplicitRevisionsInBodyAndHeadersDespiteNewerGlobalRead() async throws {
+        let recorder = ScreenplayExportRequestRecorder()
+        let api = makeForgetRevisionAPI(recorder: recorder)
+        _ = try await api.fetchMemories(limit: 1, force: true)
+
+        _ = try await api.forgetMemoryCard(
+            id: "memory-a", key: "theme-a",
+            expectedStateVersion: "v1", expectedCreativeMemoryRevision: "cm1"
+        )
+
+        let request = try XCTUnwrap(recorder.requests.first { $0.path == "/memories/forget" })
+        XCTAssertEqual(request.bodyObject?["expected_state_version"] as? String, "v1")
+        XCTAssertEqual(request.bodyObject?["expected_creative_memory_revision"] as? String, "cm1")
+        XCTAssertEqual(request.stateVersionHeader, "v1")
+        XCTAssertEqual(request.creativeRevisionHeader, "cm1")
+    }
+
+    func testForgetRejectsExplicitBlankRevisionsBeforeAnyTransport() async throws {
+        let recorder = ScreenplayExportRequestRecorder()
+        let api = makeForgetRevisionAPI(recorder: recorder)
+        for (state, creative) in [(" \n ", "cm1"), ("v1", "\t"), ("", "")] {
+            do {
+                _ = try await api.forgetMemoryCard(
+                    id: "memory-a", key: "theme-a",
+                    expectedStateVersion: state, expectedCreativeMemoryRevision: creative
+                )
+                XCTFail("An explicit blank baseline must not adopt an unseen global revision.")
+            } catch BackendMemoryAPIError.invalidResponse {
+                // Expected, before even session bootstrap.
+            }
+        }
+        XCTAssertTrue(recorder.requests.isEmpty)
+    }
+
+    @MainActor
+    func testForgetUsesDisplayedReadRevisionInsteadOfUnappliedGlobalSync() async throws {
+        let recorder = ScreenplayExportRequestRecorder()
+        let api = makeForgetRevisionAPI(recorder: recorder)
+        let newer = try await api.fetchMemories(limit: 1, force: true)
+        let vm = MemoriesViewModel(
+            api: api, notificationCenter: NotificationCenter(),
+            memoriesLoader: { _, _ in
+                let decoder = JSONDecoder()
+                decoder.keyDecodingStrategy = .convertFromSnakeCase
+                let payload = try decoder.decode(BackendMemoriesResponse.self, from: Data(
+                    #"{"source":"auth_user","source_ip":"","state_version":"v1","creative_memory_revision":"cm1","memories":[{"id":"memory-a","key":"theme-a","title":"A promise","summary":"The original promise.","emotional_tone":"reflective","salience":0.7,"confidence":0.8,"remembered_at":1,"snippets":[],"reference_hint":"","source":"theme"}],"conversation_samples":[]}"#.utf8
+                ))
+                // The API's global sync may already be ahead of the returned payload.
+                return BackendReadResult(payload: payload, sync: newer.sync, notModified: false)
+            },
+            pendingQuestionLoader: { _ in nil }
+        )
+        _ = await vm.load()
+        let original = try XCTUnwrap(vm.memory(forID: "memory-a"))
+        _ = try await api.fetchMemories(limit: 1, force: true)
+        try await vm.forgetMemory(itemID: original.id, key: original.key, expectedItem: original)
+
+        let request = try XCTUnwrap(recorder.requests.first { $0.path == "/memories/forget" })
+        XCTAssertEqual(request.bodyObject?["expected_state_version"] as? String, "v1")
+        XCTAssertEqual(request.bodyObject?["expected_creative_memory_revision"] as? String, "cm1")
+        XCTAssertEqual(request.stateVersionHeader, "v1")
+        XCTAssertEqual(request.creativeRevisionHeader, "cm1")
+        XCTAssertNil(vm.memory(forID: original.id))
+    }
+
+    @MainActor
+    func testForgetWithoutDisplayedRevisionPreservesCardAndDoesNotContactTransport() async throws {
+        let recorder = ScreenplayExportRequestRecorder()
+        let api = makeForgetRevisionAPI(recorder: recorder)
+        let vm = MemoriesViewModel(
+            api: api, notificationCenter: NotificationCenter(),
+            memoriesLoader: { _, _ in
+                let decoder = JSONDecoder()
+                decoder.keyDecodingStrategy = .convertFromSnakeCase
+                let payload = try decoder.decode(BackendMemoriesResponse.self, from: Data(
+                    #"{"source":"auth_user","source_ip":"","memories":[{"id":"memory-a","key":"theme-a","title":"A promise","summary":"The original promise.","emotional_tone":"reflective","salience":0.7,"confidence":0.8,"remembered_at":1,"snippets":[],"reference_hint":"","source":"theme"}],"conversation_samples":[]}"#.utf8
+                ))
+                return BackendReadResult(payload: payload, sync: .empty, notModified: false)
+            },
+            pendingQuestionLoader: { _ in nil }
+        )
+        _ = await vm.load()
+        let original = try XCTUnwrap(vm.memory(forID: "memory-a"))
+        do {
+            try await vm.forgetMemory(itemID: original.id, key: original.key, expectedItem: original)
+            XCTFail("A delete requires the screen's observed revisions.")
+        } catch MemoryForgetError.invalidReceipt {
+            // Refresh is required before a destructive request is safe.
+        }
+        XCTAssertEqual(vm.memory(forID: original.id), original)
+        XCTAssertNil(vm.actionNotice)
+        XCTAssertTrue(recorder.requests.isEmpty)
+    }
+
+    private func makeForgetRevisionAPI(recorder: ScreenplayExportRequestRecorder) -> BackendMemoryAPI {
+        ScreenplayExportURLProtocolStub.handler = { request in
+            recorder.record(request)
+            let body: String
+            switch request.url?.path {
+            case "/session":
+                body = #"{"client_token":"client-pinned-forget","expires_in":3600,"remembered_names":[]}"#
+            case "/memories":
+                body = #"{"source":"auth_user","source_ip":"","state_version":"v9","creative_memory_revision":"cm9","memories":[],"conversation_samples":[]}"#
+            case "/memories/forget":
+                body = #"{"ok":true,"action":"forget","status":"forgotten","forgotten_id":"memory-a","state_version":"v10","creative_memory_revision":"cm10"}"#
+            default:
+                throw URLError(.unsupportedURL)
+            }
+            return ScreenplayExportHTTPStub(
+                status: 200,
+                headers: ["Content-Type": "application/json", "X-State-Version": "v9", "X-Creative-Memory-Revision": "cm9"],
+                body: Data(body.utf8)
+            )
+        }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [ScreenplayExportURLProtocolStub.self]
+        return BackendMemoryAPI(
+            session: URLSession(configuration: configuration),
+            baseURL: URL(string: "https://screenplay-export.test")!
         )
     }
 
@@ -979,6 +1303,9 @@ private struct RecordedScreenplayExportRequest {
     let path: String
     let queryItems: [String: String]
     let acceptHeader: String?
+    let ifNoneMatchHeader: String?
+    let stateVersionHeader: String?
+    let creativeRevisionHeader: String?
     let bodyObject: [String: Any]?
 }
 
@@ -1008,6 +1335,9 @@ private final class ScreenplayExportRequestRecorder: @unchecked Sendable {
                 }
             ),
             acceptHeader: request.value(forHTTPHeaderField: "Accept"),
+            ifNoneMatchHeader: request.value(forHTTPHeaderField: "If-None-Match"),
+            stateVersionHeader: request.value(forHTTPHeaderField: "X-State-Version"),
+            creativeRevisionHeader: request.value(forHTTPHeaderField: "X-Creative-Memory-Revision"),
             bodyObject: bodyObject
         )
         lock.lock()

@@ -155,7 +155,7 @@ test("[iap] POST /billing/iap/credit verify fail → no credit (fail closed)", a
     env: { NODE_ENV: "production" },
   });
   const app = mountTestApp({ wallet, verifier });
-  const server = app.listen(0);
+  const server = app.listen(0, "127.0.0.1");
   await new Promise((r) => server.once("listening", r));
   const port = server.address().port;
   try {
@@ -183,7 +183,7 @@ test("[iap] POST /billing/iap/credit auth required", async () => {
   const wallet = createWalletStore();
   const verifier = createMockIapVerifier();
   const app = mountTestApp({ wallet, verifier });
-  const server = app.listen(0);
+  const server = app.listen(0, "127.0.0.1");
   await new Promise((r) => server.once("listening", r));
   const port = server.address().port;
   try {
@@ -203,7 +203,7 @@ test("[iap] POST /billing/iap/credit success + idempotent replay; no TPM in body
   const productId = "io.them.clementine.pack.starter_evening";
   const verifier = createMockIapVerifier();
   const app = mountTestApp({ wallet, verifier });
-  const server = app.listen(0);
+  const server = app.listen(0, "127.0.0.1");
   await new Promise((r) => server.once("listening", r));
   const port = server.address().port;
   const signedTransaction = JSON.stringify({
@@ -252,7 +252,7 @@ test("[iap] unknown productId does not credit", async () => {
   const wallet = createWalletStore();
   const verifier = createMockIapVerifier();
   const app = mountTestApp({ wallet, verifier });
-  const server = app.listen(0);
+  const server = app.listen(0, "127.0.0.1");
   await new Promise((r) => server.once("listening", r));
   const port = server.address().port;
   try {

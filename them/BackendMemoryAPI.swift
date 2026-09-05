@@ -639,8 +639,8 @@ nonisolated struct BackendMemoryCard: Decodable, Hashable, Identifiable {
     let summary: String
     let reason: String?
     let emotionalTone: String
-    let salience: Double
-    let confidence: Double
+    let salience: Double?
+    let confidence: Double?
     let rememberedAt: TimeInterval
     let lastUsedAt: TimeInterval?
     let qualityScore: Double?
@@ -762,6 +762,9 @@ nonisolated struct BackendStorySpineMemory: Decodable, Hashable {
 
 nonisolated struct BackendMemoryQualitySnapshot: Decodable, Hashable {
     let avgQualityScore: Double?
+    let scoredCards: Int?
+    let unknownQualityCards: Int?
+    let unknownStalenessCards: Int?
     let totalCards: Int?
     let freshCards: Int?
     let warmCards: Int?
@@ -1488,6 +1491,9 @@ nonisolated struct BackendMemoryMutationResponse: Decodable {
     let correctionAmbiguity: BackendCanonCorrectionAmbiguity?
     let storyMovePreferences: [BackendStoryMovePreference]?
     let storyObligationCorrection: BackendStoryObligationCorrection?
+    let projectId: String?
+    let projectTitle: String?
+    let family: String?
     let sessionId: String?
     let stateVersion: String?
     let creativeMemoryRevision: String?
@@ -2345,6 +2351,35 @@ nonisolated struct BackendAuthRequestIdentity: Equatable, Sendable {
     let userID: String
     let clientToken: String
     let accessToken: String
+}
+
+nonisolated struct BackendRequestAuthentication: Equatable, Sendable {
+    let userID: String
+    let clientToken: String
+    let accessToken: String
+    let appToken: String
+    let accessTokenExpired: Bool
+    let clientTokenExpired: Bool
+
+    init(
+        userID: String,
+        clientToken: String,
+        accessToken: String,
+        appToken: String,
+        accessTokenExpired: Bool = false,
+        clientTokenExpired: Bool = false
+    ) {
+        self.userID = userID
+        self.clientToken = clientToken
+        self.accessToken = accessToken
+        self.appToken = appToken
+        self.accessTokenExpired = accessTokenExpired
+        self.clientTokenExpired = clientTokenExpired
+    }
+
+    var hasKnownExpiredCredential: Bool {
+        accessTokenExpired || clientTokenExpired
+    }
 }
 
 nonisolated struct BackendPasswordResetIntent: Equatable, Sendable {
@@ -3962,6 +3997,32 @@ nonisolated enum BackendAuthClient {
                 defaults: .standard
             )
         }
+    }
+
+    static func currentRequestAuthentication(
+        generateUserIDIfMissing: Bool = false
+    ) -> BackendRequestAuthentication {
+        let identity = requestIdentitySnapshot(
+            generateUserIDIfMissing: generateUserIDIfMissing
+        )
+        let authSession = currentAuthSessionState()
+        return BackendRequestAuthentication(
+            userID: identity.userID,
+            clientToken: identity.clientToken,
+            accessToken: identity.accessToken,
+            appToken: appToken() ?? "",
+            accessTokenExpired: !identity.accessToken.isEmpty && authSession.accessExpired,
+            clientTokenExpired: !identity.clientToken.isEmpty && sharedClientTokenIsExpired()
+        )
+    }
+
+    private static func sharedClientTokenIsExpired(now: Date = Date()) -> Bool {
+        guard let expiryRaw = sharedClientTokenExpiry() else { return false }
+        guard let expiry = ISO8601DateFormatter().date(from: expiryRaw) else {
+            // An unreadable stored expiry must not make a known token look current.
+            return true
+        }
+        return expiry <= now
     }
 
     private static func requestIdentitySnapshotLocked(
@@ -8521,9 +8582,19 @@ actor BackendMemoryAPI {
         clientRequestId: String = "",
         includeUserIdentity: Bool = true,
         includeAuthToken: Bool = true,
-        clientTokenOverride: String? = nil
+        clientTokenOverride: String? = nil,
+        expectedAuthSessionIntentGeneration: Int? = nil
     ) async throws -> BackendReadResult<BackendScreenplayVersionMutationResponse> {
+        let authIntent = expectedAuthSessionIntentGeneration
+            ?? BackendAuthClient.currentAuthSessionIntentGeneration()
+        func validateAuthIntent() throws {
+            guard BackendAuthClient.currentAuthSessionIntentGeneration() == authIntent else {
+                throw BackendMemoryAPIError.server(status: 409, message: "auth_request_superseded")
+            }
+        }
+        try validateAuthIntent()
         _ = try? await bootstrapSession(force: false)
+        try validateAuthIntent()
         let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedProjectId.isEmpty else {
             throw BackendMemoryAPIError.server(status: 400, message: "project_id_required")
@@ -8590,6 +8661,7 @@ actor BackendMemoryAPI {
         var http: HTTPURLResponse?
         var didAttemptAuthRefresh = false
         while true {
+            try validateAuthIntent()
             var request = try makeWriteRequest(path: "/screenplay/projects/\(normalizedProjectId)/version")
             applyProjectOwnerHeaders(
                 to: &request,
@@ -8598,7 +8670,11 @@ actor BackendMemoryAPI {
                 clientTokenOverride: clientTokenOverride
             )
             request.httpBody = requestBody
+            // Header construction reads the canonical identity snapshot. Never
+            // send that snapshot with a draft owned by a superseded sign-in intent.
+            try validateAuthIntent()
             let responsePair = try await session.data(for: request)
+            try validateAuthIntent()
             guard let response = responsePair.1 as? HTTPURLResponse else {
                 throw BackendMemoryAPIError.invalidResponse
             }
@@ -9089,7 +9165,8 @@ actor BackendMemoryAPI {
         title: String,
         summary: String,
         reason: String,
-        storySpine: BackendStorySpineMemory? = nil
+        storySpine: BackendStorySpineMemory? = nil,
+        expectedStateVersion: String? = nil
     ) async throws -> BackendReadResult<BackendMemoryMutationResponse> {
         var payload: [String: Any] = [
             "card_id": id,
@@ -9101,36 +9178,50 @@ actor BackendMemoryAPI {
             payload["story_spine"] = storySpine.payload
         }
         if let key, !key.isEmpty { payload["key"] = key }
-        return try await runMemoryMutation(path: "/memories/update", payload: payload)
+        return try await runMemoryMutation(
+            path: "/memories/update", payload: payload,
+            expectedStateVersion: expectedStateVersion
+        )
     }
 
     func updateCharacterBibleMemory(
         id: String,
         key: String? = nil,
-        characterBible: BackendCharacterBibleMemory
+        characterBible: BackendCharacterBibleMemory,
+        expectedCreativeMemoryRevision: String? = nil
     ) async throws -> BackendReadResult<BackendMemoryMutationResponse> {
         var payload: [String: Any] = [
             "card_id": id,
             "character_bible": characterBible.payload
         ]
         if let key, !key.isEmpty { payload["key"] = key }
-        return try await runMemoryMutation(path: "/memories/character-bible/update", payload: payload)
+        return try await runMemoryMutation(
+            path: "/memories/character-bible/update", payload: payload,
+            expectedCreativeMemoryRevision: expectedCreativeMemoryRevision
+        )
     }
 
     func forgetMemoryCard(
         id: String,
-        key: String? = nil
+        key: String? = nil,
+        expectedStateVersion: String? = nil,
+        expectedCreativeMemoryRevision: String? = nil
     ) async throws -> BackendReadResult<BackendMemoryMutationResponse> {
         var payload: [String: Any] = ["card_id": id]
         if let key, !key.isEmpty { payload["key"] = key }
-        return try await runMemoryMutation(path: "/memories/forget", payload: payload)
+        return try await runMemoryMutation(
+            path: "/memories/forget", payload: payload,
+            expectedStateVersion: expectedStateVersion,
+            expectedCreativeMemoryRevision: expectedCreativeMemoryRevision
+        )
     }
 
     func updateStoryMovePreference(
         projectID: String,
         projectTitle: String,
         family: String,
-        action: String
+        action: String,
+        expectedCreativeMemoryRevision: String? = nil
     ) async throws -> BackendReadResult<BackendMemoryMutationResponse> {
         var payload: [String: Any] = [
             "action": action,
@@ -9143,7 +9234,8 @@ actor BackendMemoryAPI {
         if !cleanFamily.isEmpty { payload["family"] = cleanFamily }
         return try await runMemoryMutation(
             path: "/memories/story-preferences/update",
-            payload: payload
+            payload: payload,
+            expectedCreativeMemoryRevision: expectedCreativeMemoryRevision
         )
     }
 
@@ -9173,17 +9265,20 @@ actor BackendMemoryAPI {
     }
 
     func undoCanonCorrection(
-        receiptID: String
+        receiptID: String,
+        expectedCreativeMemoryRevision: String? = nil
     ) async throws -> BackendReadResult<BackendMemoryMutationResponse> {
         return try await runMemoryMutation(
             path: "/memories/corrections/undo",
-            payload: ["receipt_id": receiptID]
+            payload: ["receipt_id": receiptID],
+            expectedCreativeMemoryRevision: expectedCreativeMemoryRevision
         )
     }
 
     func resolveCanonCorrection(
         ambiguityID: String,
-        selectedFacts: [String]
+        selectedFacts: [String],
+        expectedCreativeMemoryRevision: String? = nil
     ) async throws -> BackendReadResult<BackendMemoryMutationResponse> {
         var seen = Set<String>()
         let cleanFacts = selectedFacts.compactMap { value -> String? in
@@ -9204,17 +9299,20 @@ actor BackendMemoryAPI {
             payload: [
                 "ambiguity_id": ambiguityID,
                 "selected_facts": cleanFacts,
-            ]
+            ],
+            expectedCreativeMemoryRevision: expectedCreativeMemoryRevision
         )
     }
 
     func resolveCanonCorrection(
         ambiguityID: String,
-        selectedFact: String
+        selectedFact: String,
+        expectedCreativeMemoryRevision: String? = nil
     ) async throws -> BackendReadResult<BackendMemoryMutationResponse> {
         try await resolveCanonCorrection(
             ambiguityID: ambiguityID,
-            selectedFacts: [selectedFact]
+            selectedFacts: [selectedFact],
+            expectedCreativeMemoryRevision: expectedCreativeMemoryRevision
         )
     }
 
@@ -9223,7 +9321,8 @@ actor BackendMemoryAPI {
         key: String? = nil,
         title: String? = nil,
         summary: String? = nil,
-        reason: String? = nil
+        reason: String? = nil,
+        expectedStateVersion: String? = nil
     ) async throws -> BackendReadResult<BackendMemoryMutationResponse> {
         var payload: [String: Any] = ["card_id": id]
         if let key, !key.isEmpty { payload["key"] = key }
@@ -9236,14 +9335,17 @@ actor BackendMemoryAPI {
         if let reason, !reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             payload["reason"] = reason
         }
-        return try await runMemoryMutation(path: "/memories/promote", payload: payload)
+        return try await runMemoryMutation(
+            path: "/memories/promote", payload: payload, expectedStateVersion: expectedStateVersion
+        )
     }
 
     func markMemoryQuality(
         id: String,
         key: String? = nil,
         signal: String,
-        note: String? = nil
+        note: String? = nil,
+        expectedStateVersion: String? = nil
     ) async throws -> BackendReadResult<BackendMemoryMutationResponse> {
         var payload: [String: Any] = [
             "card_id": id,
@@ -9253,7 +9355,9 @@ actor BackendMemoryAPI {
         if let note, !note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             payload["note"] = note
         }
-        return try await runMemoryMutation(path: "/memories/feedback", payload: payload)
+        return try await runMemoryMutation(
+            path: "/memories/feedback", payload: payload, expectedStateVersion: expectedStateVersion
+        )
     }
 
     func updateTask(
@@ -9482,8 +9586,17 @@ actor BackendMemoryAPI {
 
     private func runMemoryMutation(
         path: String,
-        payload: [String: Any]
+        payload: [String: Any],
+        expectedStateVersion: String? = nil,
+        expectedCreativeMemoryRevision: String? = nil
     ) async throws -> BackendReadResult<BackendMemoryMutationResponse> {
+        // Explicit baselines describe the content the writer actually reviewed. Never
+        // replace them with global revisions advanced by bootstrap or another read.
+        let pinnedState = expectedStateVersion?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let pinnedCreativeRevision = expectedCreativeMemoryRevision?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard pinnedState != "", pinnedCreativeRevision != "" else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
         if baseURLOverride == nil, healthyBaseURL == nil {
             _ = try? await fetchHealth()
         }
@@ -9504,26 +9617,28 @@ actor BackendMemoryAPI {
         ]
         let needsCreativeRevision = revisionProtectedPaths.contains(path)
         let needsStateVersion = stateProtectedPaths.contains(path)
-        if (needsCreativeRevision && latestCreativeMemoryRevision.isEmpty) ||
-            (needsStateVersion && latestSeenStateVersion.isEmpty) {
+        if (needsCreativeRevision && pinnedCreativeRevision == nil && latestCreativeMemoryRevision.isEmpty) ||
+            (needsStateVersion && pinnedState == nil && latestSeenStateVersion.isEmpty) {
             _ = try await fetchMemories(limit: 1, force: true)
         }
+        let creativeRevision = pinnedCreativeRevision ?? latestCreativeMemoryRevision
+        let stateVersion = pinnedState ?? latestSeenStateVersion
         var outgoingPayload = payload
-        if needsCreativeRevision, !latestCreativeMemoryRevision.isEmpty {
-            outgoingPayload["expected_creative_memory_revision"] = latestCreativeMemoryRevision
+        if needsCreativeRevision, !creativeRevision.isEmpty {
+            outgoingPayload["expected_creative_memory_revision"] = creativeRevision
         }
-        if needsStateVersion, !latestSeenStateVersion.isEmpty {
-            outgoingPayload["expected_state_version"] = latestSeenStateVersion
+        if needsStateVersion, !stateVersion.isEmpty {
+            outgoingPayload["expected_state_version"] = stateVersion
         }
         var request = try makeWriteRequest(path: path)
-        if needsCreativeRevision, !latestCreativeMemoryRevision.isEmpty {
+        if needsCreativeRevision, !creativeRevision.isEmpty {
             request.setValue(
-                latestCreativeMemoryRevision,
+                creativeRevision,
                 forHTTPHeaderField: "X-Creative-Memory-Revision"
             )
         }
-        if needsStateVersion, !latestSeenStateVersion.isEmpty {
-            request.setValue(latestSeenStateVersion, forHTTPHeaderField: "X-State-Version")
+        if needsStateVersion, !stateVersion.isEmpty {
+            request.setValue(stateVersion, forHTTPHeaderField: "X-State-Version")
         }
         request.httpBody = try JSONSerialization.data(withJSONObject: outgoingPayload, options: [])
         let (data, response) = try await session.data(for: request)
@@ -10688,11 +10803,11 @@ actor BackendMemoryAPI {
         if let baseURLOverride {
             return baseURLOverride
         }
-        if let healthyBaseURL {
-            return healthyBaseURL
-        }
         if let uiTestURL = BackendDefaultBaseURLPolicy.currentUITestOverrideBaseURL {
             return uiTestURL
+        }
+        if let healthyBaseURL {
+            return healthyBaseURL
         }
         let fromBaseEnv = ProcessInfo.processInfo.environment["BACKEND_BASE_URL"] ?? ""
         if isUsableConfigValue(fromBaseEnv), let url = URL(string: fromBaseEnv), isUsableBackendURL(url) {
@@ -10729,6 +10844,9 @@ actor BackendMemoryAPI {
         if let baseURLOverride {
             return [baseURLOverride]
         }
+        if let uiTestURL = BackendDefaultBaseURLPolicy.currentUITestOverrideBaseURL {
+            return [uiTestURL]
+        }
         var candidates = [baseURL()]
         let storedRaw = BackendAuthClient.preferenceString(forKey: DefaultsKey.baseURL)
         if isUsableConfigValue(storedRaw),
@@ -10746,6 +10864,12 @@ actor BackendMemoryAPI {
 
     private func adoptHealthyBaseURL(_ url: URL) {
         let resolved = canonicalizeLoopbackURL(url)
+        if baseURLOverride == nil,
+           let uiTestURL = BackendDefaultBaseURLPolicy.currentUITestOverrideBaseURL,
+           resolved != canonicalizeLoopbackURL(uiTestURL) {
+            // A probe begun before the UI-test fault must not undo its explicit URL change.
+            return
+        }
         healthyBaseURL = resolved
         BackendUserDefaultsStore.set(resolved.absoluteString, forKey: DefaultsKey.baseURL)
     }

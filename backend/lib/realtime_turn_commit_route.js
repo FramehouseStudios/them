@@ -363,6 +363,7 @@ function mountRealtimeTurnCommitRoute(app, deps = {}) {
       storeTalkTurnMeta({
         turnId: readMeta.lastTurnId,
         sessionId: readMeta.sessionId,
+        userId: String(req.authUser?.id || req.userId || "").trim(),
         stateVersion: readMeta.stateVersion,
         transcript,
         reply,

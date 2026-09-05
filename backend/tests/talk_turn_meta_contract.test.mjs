@@ -42,7 +42,7 @@ const DEFAULT_RENDER_CONTRACT_KEYS = [
   "sync_ready",
 ];
 
-async function withTestServer(fn, { meta = null, canRead = true, userId = "u-test" } = {}) {
+async function withTestServer(fn, { meta = null, canRead = true, userId = "u-test", lookup = null } = {}) {
   const app = express();
   if (userId !== null) {
     app.use((req, _res, next) => { req.user = { id: userId }; next(); });
@@ -56,10 +56,10 @@ async function withTestServer(fn, { meta = null, canRead = true, userId = "u-tes
     talkUpload: (req, _res, next) => next(),
     handleTalkRequest: (_req, res) => res.status(200).json({ ok: true }),
     normalizeTalkTurnId: (v) => String(v || "").trim(),
-    getTalkTurnMeta: () => meta,
-    canReadTalkTurnMeta: () => canRead,
+    getTalkTurnMeta: lookup || (() => meta),
+    canReadTalkTurnMeta: (req, entry) => typeof canRead === "function" ? canRead(req, entry) : canRead,
   });
-  const server = app.listen(0);
+  const server = app.listen(0, "127.0.0.1");
   await new Promise((resolve) => server.once("listening", resolve));
   const port = server.address().port;
   const baseURL = `http://127.0.0.1:${port}`;
@@ -106,6 +106,27 @@ test("[talk-turn-meta] caller can't read meta → 403 forbidden", async () => {
     },
     { meta: { turnId: "abc" }, canRead: false },
   );
+});
+
+test("[talk-turn-meta] canonical lookup receives the same request context as authorization", async () => {
+  let receivedRequest;
+  await withTestServer(async ({ baseURL }) => {
+    const result = await get(baseURL, "/talk/turn/abc");
+    assert.equal(result.status, 200);
+    assert.equal(receivedRequest.user.id, "u-test");
+    assert.equal(receivedRequest.params.turnId, "abc");
+  }, {
+    lookup: (turnId, req) => {
+      assert.equal(turnId, "abc");
+      receivedRequest = req;
+      return { turnId };
+    },
+    canRead: (req, entry) => {
+      assert.equal(req, receivedRequest);
+      assert.equal(entry.turnId, "abc");
+      return true;
+    },
+  });
 });
 
 // ---------- success-shape contract ----------

@@ -7,6 +7,7 @@ let lastUserStorePersistenceWrite = Promise.resolve({
   persistenceFailureCount: 0,
 });
 let lastUserStoreMutation = Promise.resolve();
+let userStoreCanonicalReconciliationRequired = false;
 
 const PASSWORD_MIN_LENGTH = 8;
 const AUTH_STORE_META_DOMAIN = "auth_store_meta";
@@ -43,6 +44,7 @@ function configureUserStore(deps = {}) {
     persistenceFailureCount: 0,
   });
   lastUserStoreMutation = Promise.resolve();
+  userStoreCanonicalReconciliationRequired = false;
 }
 
 function userStoreDeps() {
@@ -776,6 +778,48 @@ function waitForUserStoreMutations() {
   return lastUserStoreMutation.catch(() => {});
 }
 
+async function ensureUserStoreCanonicalReconciled() {
+  if (!userStoreCanonicalReconciliationRequired) return true;
+  const { persistence } = userStoreDeps();
+  if (persistence?.kind !== "postgres") return false;
+  try {
+    const loaded = await loadUserStoreFromAdapter({
+      failOnUnavailable: true,
+      failOnUninitialized: true,
+    });
+    if (loaded !== true) return false;
+    userStoreCanonicalReconciliationRequired = false;
+    writeLocalUserStoreMirror(Date.now());
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function fenceUserStoreAfterUnknownCanonicalCommit() {
+  userStoreCanonicalReconciliationRequired = true;
+  return ensureUserStoreCanonicalReconciled();
+}
+
+// A revocation (including a refresh rotation) whose COMMIT acknowledgement was
+// lost or unusable may or may not have applied. Deny the affected sessions locally so an
+// access token cannot keep working against a session Postgres has already
+// revoked; the fence then makes the next auth mutation rehydrate canonical
+// state, which restores any session the transaction actually rolled back.
+async function quarantineSessionsAfterUnknownRevocation(sessionIds, now = Date.now()) {
+  for (const sessionId of sessionIds) {
+    const localSession = authSessionsById.get(sessionId);
+    if (!localSession || Number(localSession.revokedAt || 0) > 0) continue;
+    replaceAuthSessionRecord({
+      ...localSession,
+      revokedAt: Math.max(1, Number(now)),
+      updatedAt: now,
+    });
+  }
+  writeLocalUserStoreMirror(now);
+  await fenceUserStoreAfterUnknownCanonicalCommit();
+}
+
 async function listAllUserStoreAdapterRows(persistence, domain) {
   const rows = [];
   const observedKeys = new Set();
@@ -954,6 +998,7 @@ async function loadUserStoreFromAdapter(options = {}) {
   }
   applyUserStoreAdapterState(stagedState);
   cleanupExpiredAuthRecords(Date.now());
+  userStoreCanonicalReconciliationRequired = false;
   return true;
 }
 
@@ -1013,6 +1058,14 @@ function saveUserStore(now = Date.now()) {
     persistenceFailureCount: 0,
     persistencePromise: null,
   };
+  if (persistence?.kind === "postgres" && userStoreCanonicalReconciliationRequired) {
+    result.ok = false;
+    result.persistenceStatus = "canonical_reconciliation_required";
+    result.persistenceFailureCount = 1;
+    lastUserStorePersistenceWrite = Promise.resolve({ ...result });
+    result.persistencePromise = lastUserStorePersistenceWrite;
+    return result;
+  }
   if (persistence && typeof persistence.put === "function") {
     result.persistenceStatus = "pending";
     const persistencePromise = lastUserStorePersistenceWrite
@@ -1264,7 +1317,7 @@ function markUserEmailVerified(userId, now = Date.now()) {
   return updated;
 }
 
-function updateUserPassword(userId, password, now = Date.now()) {
+function prepareUserPasswordUpdate(userId, password, now = Date.now()) {
   const existing = getUserById(userId);
   if (!existing) {
     return { ok: false, status: "not_found", message: "Account not found." };
@@ -1272,23 +1325,235 @@ function updateUserPassword(userId, password, now = Date.now()) {
   const passwordValidation = validateUserPassword(password);
   if (!passwordValidation.ok) return passwordValidation;
   const cleanPassword = passwordValidation.password;
-  const updated = replaceUserRecord({
+  const updated = sanitizeStoredUserRecord({
     ...existing,
     password: createPasswordRecord(cleanPassword),
     updatedAt: now,
   });
+  return { ok: true, expectedUser: existing, user: updated };
+}
+
+function updateUserPassword(userId, password, now = Date.now()) {
+  const prepared = prepareUserPasswordUpdate(userId, password, now);
+  if (!prepared.ok) return prepared;
+  const updated = replaceUserRecord(prepared.user);
   saveUserStore(now);
   return { ok: true, user: updated };
+}
+
+async function completePasswordResetDurably(resetToken, password, now = Date.now()) {
+  const { persistence } = userStoreDeps();
+  if (persistence?.kind !== "postgres") {
+    const consumed = consumePasswordResetToken(resetToken, now);
+    if (!consumed) {
+      return { status: "invalid_reset_token", user: null, revoked: [], retryable: false };
+    }
+    const updated = updateUserPassword(consumed.userId, password, now);
+    if (!updated.ok) {
+      return {
+        status: updated.status || "password_reset_failed",
+        user: null,
+        revoked: [],
+        retryable: false,
+      };
+    }
+    invalidateOneTimeTokensForUser(passwordResetTokensByHash, updated.user.id, now);
+    const revoked = revokeAllAuthSessionsForUser(updated.user.id, now);
+    return {
+      status: "snapshot_pending",
+      user: updated.user,
+      revoked,
+      retryable: true,
+    };
+  }
+  if (typeof persistence.completePasswordReset !== "function") {
+    return {
+      status: "auth_persistence_failed",
+      user: null,
+      revoked: [],
+      retryable: false,
+    };
+  }
+
+  let pendingPersistence = null;
+  try {
+    pendingPersistence = await flushUserStorePersistenceWrites();
+  } catch {
+    // Do not derive exact canonical expectations while an earlier auth write
+    // has an unresolved persistence result.
+  }
+  if (pendingPersistence?.ok !== true) {
+    return {
+      status: "auth_persistence_failed",
+      user: null,
+      revoked: [],
+      retryable: false,
+    };
+  }
+
+  const tokenHash = hashOpaqueToken(resetToken);
+  const expectedToken = sanitizeOneTimeTokenRecord(passwordResetTokensByHash.get(tokenHash));
+  if (
+    !expectedToken
+    || Number(expectedToken.usedAt || 0) > 0
+    || Number(expectedToken.expiresAt || 0) <= now
+  ) {
+    return { status: "invalid_reset_token", user: null, revoked: [], retryable: false };
+  }
+  const preparedUser = prepareUserPasswordUpdate(expectedToken.userId, password, now);
+  if (!preparedUser.ok || !preparedUser.expectedUser || !preparedUser.user) {
+    return {
+      status: preparedUser.status || "password_reset_failed",
+      user: null,
+      revoked: [],
+      retryable: false,
+    };
+  }
+  const consumedToken = sanitizeOneTimeTokenRecord({
+    ...expectedToken,
+    usedAt: now,
+  });
+
+  try {
+    const result = await persistence.completePasswordReset({
+      expectedUser: preparedUser.expectedUser,
+      updatedUser: preparedUser.user,
+      expectedToken,
+      consumedToken,
+    });
+    if (result?.status !== "committed") {
+      return { status: "invalid_reset_token", user: null, revoked: [], retryable: false };
+    }
+    const canonicalUser = sanitizeStoredUserRecord(result.user);
+    const canonicalTokens = (Array.isArray(result.tokens) ? result.tokens : [])
+      .map((token) => sanitizeOneTimeTokenRecord(token))
+      .filter(Boolean);
+    const canonicalTokensByHash = new Map(
+      canonicalTokens.map((token) => [token.tokenHash, token]),
+    );
+    const canonicalSessions = (Array.isArray(result.sessions) ? result.sessions : [])
+      .map((session) => sanitizeAuthSessionRecord(session))
+      .filter(Boolean);
+    const canonicalById = new Map(canonicalSessions.map((session) => [session.sessionId, session]));
+    const invalidatedTokenHashes = new Set(
+      (Array.isArray(result.invalidatedTokenHashes) ? result.invalidatedTokenHashes : [])
+        .map((hash) => String(hash || "").trim())
+        .filter(Boolean),
+    );
+    const revokedSessionIds = new Set(
+      (Array.isArray(result.revokedSessionIds) ? result.revokedSessionIds : [])
+        .map((sessionId) => String(sessionId || "").trim())
+        .filter(Boolean),
+    );
+    const completeCanonicalResult = canonicalUser
+      && JSON.stringify(canonicalUser) === JSON.stringify(preparedUser.user)
+      && canonicalTokens.length === canonicalTokensByHash.size
+      && canonicalTokensByHash.has(tokenHash)
+      && JSON.stringify(canonicalTokensByHash.get(tokenHash)) === JSON.stringify(consumedToken)
+      && canonicalTokens.every((token) => (
+        token.userId === expectedToken.userId && Number(token.usedAt || 0) > 0
+      ))
+      && invalidatedTokenHashes.has(tokenHash)
+      && [...invalidatedTokenHashes].every((hash) => canonicalTokensByHash.has(hash))
+      && canonicalSessions.length === canonicalById.size
+      && canonicalSessions.every((session) => (
+        session.userId === expectedToken.userId && Number(session.revokedAt || 0) > 0
+      ))
+      && [...revokedSessionIds].every((sessionId) => canonicalById.has(sessionId));
+    if (!completeCanonicalResult) {
+      // A committed acknowledgement with unusable rows is not a rollback.
+      // Quarantine the affected account until validated hydration settles it.
+      await quarantineSessionsAfterUnknownRevocation(
+        [...authSessionsById.values()]
+          .filter((session) => session.userId === expectedToken.userId)
+          .map((session) => session.sessionId),
+        now,
+      );
+      return {
+        status: "auth_persistence_failed",
+        user: null,
+        revoked: [],
+        retryable: false,
+      };
+    }
+
+    const committedUser = replaceUserRecord(canonicalUser);
+    for (const token of canonicalTokens) {
+      replaceOneTimeTokenRecord(passwordResetTokensByHash, token);
+    }
+    for (const localToken of [...passwordResetTokensByHash.values()]) {
+      if (localToken.userId !== expectedToken.userId) continue;
+      const canonical = canonicalTokensByHash.get(localToken.tokenHash);
+      if (canonical) {
+        replaceOneTimeTokenRecord(passwordResetTokensByHash, canonical);
+      } else if (Number(localToken.usedAt || 0) <= 0) {
+        replaceOneTimeTokenRecord(passwordResetTokensByHash, {
+          ...localToken,
+          usedAt: now,
+        });
+      }
+    }
+    for (const session of canonicalSessions) replaceAuthSessionRecord(session);
+    for (const localSession of [...authSessionsById.values()]) {
+      if (localSession.userId !== expectedToken.userId) continue;
+      const canonical = canonicalById.get(localSession.sessionId);
+      if (canonical) {
+        replaceAuthSessionRecord(canonical);
+      } else if (Number(localSession.revokedAt || 0) <= 0) {
+        replaceAuthSessionRecord({
+          ...localSession,
+          revokedAt: now,
+          updatedAt: now,
+        });
+      }
+    }
+    writeLocalUserStoreMirror(now);
+    return {
+      status: "committed",
+      user: committedUser,
+      revoked: canonicalSessions.filter((session) => revokedSessionIds.has(session.sessionId)),
+      retryable: true,
+    };
+  } catch (error) {
+    if (error?.commitOutcomeUnknown) {
+      // The transaction may have committed. Keep the old local password and
+      // reset-token expectations untouched, but deny every pre-reset session
+      // until a later canonical hydration or exact-CAS auth mutation safely
+      // reconciles the outcome.
+      await quarantineSessionsAfterUnknownRevocation(
+        [...authSessionsById.values()]
+          .filter((session) => session.userId === expectedToken.userId)
+          .map((session) => session.sessionId),
+        now,
+      );
+    }
+    return {
+      status: "auth_persistence_failed",
+      user: null,
+      revoked: [],
+      retryable: !error?.rollbackError && !error?.commitOutcomeUnknown,
+    };
+  }
 }
 
 function issueAuthSession(input = {}, now = Date.now()) {
   const userId = normalizeUserId(input.userId);
   if (!userId) return null;
+  const prepared = prepareAuthSession({ ...input, userId }, now);
+  const session = replaceAuthSessionRecord(prepared.session);
+  saveUserStore(now);
+  return {
+    session,
+    refreshToken: prepared.refreshToken,
+  };
+}
+
+function prepareAuthSession(input = {}, now = Date.now()) {
   const refreshToken = buildOpaqueToken();
-  const session = replaceAuthSessionRecord({
+  const session = sanitizeAuthSessionRecord({
     sessionId: "sess_" + randomUUID().replace(/-/g, "").slice(0, 16),
     familyId: String(input.familyId || "fam_" + randomUUID().replace(/-/g, "").slice(0, 16)).trim(),
-    userId,
+    userId: input.userId,
     tokenHash: hashOpaqueToken(refreshToken),
     createdAt: now,
     updatedAt: now,
@@ -1297,10 +1562,98 @@ function issueAuthSession(input = {}, now = Date.now()) {
     replacedBySessionId: "",
     metadata: sanitizeSessionMetadata(input.metadata),
   });
-  saveUserStore(now);
   return {
     session,
     refreshToken,
+  };
+}
+
+async function issueAuthSessionDurably(input = {}, now = Date.now()) {
+  const { persistence } = userStoreDeps();
+  if (persistence?.kind !== "postgres") {
+    return {
+      status: "snapshot_pending",
+      issuance: issueAuthSession(input, now),
+      retryable: true,
+    };
+  }
+  if (typeof persistence.issueAuthSession !== "function") {
+    return {
+      status: "auth_persistence_failed",
+      issuance: null,
+      retryable: false,
+    };
+  }
+
+  let pendingPersistence = null;
+  try {
+    pendingPersistence = await flushUserStorePersistenceWrites();
+  } catch {
+    // Existing-user login must not derive a new canonical row from live state
+    // while an earlier auth snapshot has an unresolved persistence failure.
+  }
+  if (pendingPersistence?.ok !== true) {
+    return {
+      status: "auth_persistence_failed",
+      issuance: null,
+      retryable: false,
+    };
+  }
+
+  const userId = normalizeUserId(input.userId);
+  const expectedUser = getUserById(userId);
+  if (!userId || !expectedUser) {
+    return {
+      status: "auth_persistence_failed",
+      issuance: null,
+      retryable: false,
+    };
+  }
+  const prepared = prepareAuthSession({ ...input, userId }, now);
+  if (!prepared.session) {
+    return {
+      status: "session_issue_failed",
+      issuance: null,
+      retryable: false,
+    };
+  }
+
+  try {
+    const result = await persistence.issueAuthSession({
+      userId,
+      expectedUser,
+      session: prepared.session,
+    });
+    if (result?.status !== "committed") {
+      return {
+        status: "auth_persistence_failed",
+        issuance: null,
+        retryable: result?.status === "conflict",
+      };
+    }
+  } catch (error) {
+    if (error?.commitOutcomeUnknown) {
+      // The row may exist canonically while its refresh token was never
+      // returned. Fence snapshot writes so hydration, not a stale snapshot,
+      // decides whether that orphan survives.
+      await fenceUserStoreAfterUnknownCanonicalCommit();
+    }
+    return {
+      status: "auth_persistence_failed",
+      issuance: null,
+      retryable: !error?.rollbackError && !error?.commitOutcomeUnknown,
+    };
+  }
+
+  const session = replaceAuthSessionRecord(prepared.session);
+  writeLocalUserStoreMirror(now);
+  return {
+    status: "committed",
+    issuance: {
+      session,
+      refreshToken: prepared.refreshToken,
+    },
+    retryable: true,
   };
 }
 
@@ -1346,6 +1699,139 @@ function revokeAuthSessionByToken(refreshToken, now = Date.now(), options = {}) 
   return revokeAuthSessionById(session.sessionId, now, options);
 }
 
+function writeLocalUserStoreMirror(now = Date.now()) {
+  const { USER_STORE_PATH, writeJsonFileAtomic } = userStoreDeps();
+  const payload = buildUserStorePayload(now, { cleanupExpired: false });
+  let fileOk = true;
+  try {
+    fileOk = typeof writeJsonFileAtomic === "function"
+      ? writeJsonFileAtomic(USER_STORE_PATH, payload, "user_store")
+      : true;
+  } catch {
+    fileOk = false;
+  }
+  if (!fileOk) {
+    console.error("[user_store] local auth mirror write failed after canonical auth mutation");
+  }
+  return Boolean(fileOk);
+}
+
+async function revokeAuthSessionsDurably(sessionIds, now = Date.now()) {
+  const { persistence } = userStoreDeps();
+  const normalizedSessionIds = [...new Set(
+    (Array.isArray(sessionIds) ? sessionIds : [sessionIds])
+      .map((sessionId) => String(sessionId || "").trim())
+      .filter(Boolean),
+  )];
+  if (persistence?.kind !== "postgres") {
+    const revoked = normalizedSessionIds
+      .map((sessionId) => revokeAuthSessionById(sessionId, now))
+      .filter(Boolean);
+    return {
+      status: "snapshot_pending",
+      revoked,
+      retryable: true,
+    };
+  }
+  if (typeof persistence.revokeAuthSessions !== "function") {
+    return {
+      status: "auth_persistence_failed",
+      revoked: [],
+      retryable: false,
+    };
+  }
+  let pendingPersistence = null;
+  try {
+    pendingPersistence = await flushUserStorePersistenceWrites();
+  } catch {
+    // A prior canonical write must be settled before this mutation can use
+    // the in-memory row as its compare-and-swap expectation.
+  }
+  if (pendingPersistence?.ok !== true) {
+    return {
+      status: "auth_persistence_failed",
+      revoked: [],
+      retryable: false,
+    };
+  }
+  const expectedSessions = normalizedSessionIds
+    .map((sessionId) => sanitizeAuthSessionRecord(authSessionsById.get(sessionId)))
+    .filter(Boolean);
+  if (expectedSessions.length !== normalizedSessionIds.length || expectedSessions.length === 0) {
+    return { status: "not_found", revoked: [], retryable: false };
+  }
+  const userId = expectedSessions[0].userId;
+  if (expectedSessions.some((session) => session.userId !== userId)) {
+    return { status: "conflict", revoked: [], retryable: false };
+  }
+  const revokedSessions = expectedSessions.map((session) => (
+    Number(session.revokedAt || 0) > 0
+      ? session
+      : sanitizeAuthSessionRecord({
+        ...session,
+        revokedAt: Math.max(1, Number(now)),
+        updatedAt: now,
+      })
+  ));
+  try {
+    const result = await persistence.revokeAuthSessions({
+      userId,
+      expectedSessions,
+      revokedSessions,
+    });
+    if (result?.status !== "committed") {
+      const expectedById = new Map(expectedSessions.map((session) => [session.sessionId, session]));
+      const reconciledSessions = (Array.isArray(result?.sessions) ? result.sessions : [])
+        .map((session) => sanitizeAuthSessionRecord(session))
+        .filter((session) => {
+          const expected = expectedById.get(session?.sessionId);
+          return expected
+            && session.userId === userId
+            && session.tokenHash === expected.tokenHash
+            && Number(session.revokedAt || 0) > 0;
+        });
+      for (const session of reconciledSessions) replaceAuthSessionRecord(session);
+      if (reconciledSessions.length > 0) writeLocalUserStoreMirror(now);
+      return { status: "conflict", revoked: [], retryable: false };
+    }
+    const canonicalSessions = (Array.isArray(result.sessions) ? result.sessions : [])
+      .map((session) => sanitizeAuthSessionRecord(session))
+      .filter(Boolean);
+    const canonicalById = new Map(canonicalSessions.map((session) => [session.sessionId, session]));
+    const completeCanonicalResult = expectedSessions.every((expectedSession) => {
+      const canonical = canonicalById.get(expectedSession.sessionId);
+      return canonical
+        && canonical.userId === userId
+        && canonical.tokenHash === expectedSession.tokenHash
+        && Number(canonical.revokedAt || 0) > 0;
+    });
+    if (!completeCanonicalResult || canonicalSessions.length !== expectedSessions.length) {
+      await quarantineSessionsAfterUnknownRevocation(normalizedSessionIds, now);
+      return {
+        status: "auth_persistence_failed",
+        revoked: [],
+        retryable: false,
+      };
+    }
+    for (const session of canonicalSessions) replaceAuthSessionRecord(session);
+    writeLocalUserStoreMirror(now);
+    return {
+      status: "committed",
+      revoked: canonicalSessions,
+      retryable: true,
+    };
+  } catch (error) {
+    if (error?.commitOutcomeUnknown) {
+      await quarantineSessionsAfterUnknownRevocation(normalizedSessionIds, now);
+    }
+    return {
+      status: "auth_persistence_failed",
+      revoked: [],
+      retryable: !error?.rollbackError && !error?.commitOutcomeUnknown,
+    };
+  }
+}
+
 function revokeAllAuthSessionsForUser(userId, now = Date.now(), options = {}) {
   const normalizedUserId = normalizeUserId(userId);
   const exceptSessionId = String(options.exceptSessionId || "").trim();
@@ -1366,6 +1852,11 @@ function revokeAllAuthSessionsForUser(userId, now = Date.now(), options = {}) {
 }
 
 async function revokeAllAuthSessionsForUserDurably(userId, now = Date.now(), options = {}) {
+  if (userStoreDeps().persistence?.kind === "postgres") {
+    return runUserStoreMutationExclusive(
+      () => revokeAllAuthSessionsForUserDurablyInMutation(userId, now, options),
+    );
+  }
   return runUserStoreMutationExclusive(async () => {
     const checkpoint = createUserStoreCheckpoint(now);
     const revoked = revokeAllAuthSessionsForUser(userId, now, options);
@@ -1403,10 +1894,163 @@ async function revokeAllAuthSessionsForUserDurably(userId, now = Date.now(), opt
   });
 }
 
+async function revokeAllAuthSessionsForUserDurablyInMutation(userId, now = Date.now(), options = {}) {
+  const { persistence } = userStoreDeps();
+  if (persistence?.kind !== "postgres") {
+    const revoked = revokeAllAuthSessionsForUser(userId, now, options);
+    return {
+      ok: true,
+      status: "snapshot_pending",
+      revoked,
+      revokedCount: revoked.length,
+      retryable: true,
+    };
+  }
+  if (typeof persistence.revokeAuthSessionsForUser !== "function") {
+    return {
+      ok: false,
+      status: "auth_persistence_failed",
+      revoked: [],
+      revokedCount: 0,
+      retryable: false,
+    };
+  }
+  let pendingPersistence = null;
+  try {
+    pendingPersistence = await flushUserStorePersistenceWrites();
+  } catch {
+    // Do not derive a canonical mutation from a row that may not have reached
+    // the adapter yet.
+  }
+  if (pendingPersistence?.ok !== true) {
+    return {
+      ok: false,
+      status: "auth_persistence_failed",
+      revoked: [],
+      revokedCount: 0,
+      retryable: false,
+    };
+  }
+  const normalizedUserId = normalizeUserId(userId);
+  const exceptSessionId = String(options.exceptSessionId || "").trim();
+  try {
+    const result = await persistence.revokeAuthSessionsForUser({
+      userId: normalizedUserId,
+      exceptSessionId,
+      revokedAt: now,
+    });
+    if (result?.status !== "committed") {
+      return {
+        ok: false,
+        status: "auth_persistence_failed",
+        revoked: [],
+        revokedCount: 0,
+        retryable: false,
+      };
+    }
+    const canonicalSessions = (Array.isArray(result.sessions) ? result.sessions : [])
+      .map((session) => sanitizeAuthSessionRecord(session))
+      .filter(Boolean);
+    const revokedSessionIds = new Set(
+      (Array.isArray(result.revokedSessionIds) ? result.revokedSessionIds : [])
+        .map((sessionId) => String(sessionId || "").trim())
+        .filter(Boolean),
+    );
+    const preservedSession = result.preservedSession
+      ? sanitizeAuthSessionRecord(result.preservedSession)
+      : null;
+    const canonicalById = new Map(canonicalSessions.map((session) => [session.sessionId, session]));
+    const completeCanonicalResult = canonicalSessions.length === canonicalById.size
+      && canonicalSessions.every((session) => (
+        session.userId === normalizedUserId
+        && session.sessionId !== exceptSessionId
+        && Number(session.revokedAt || 0) > 0
+      ))
+      && [...revokedSessionIds].every((sessionId) => canonicalById.has(sessionId))
+      && (!preservedSession || (
+        exceptSessionId
+        && preservedSession.sessionId === exceptSessionId
+        && preservedSession.userId === normalizedUserId
+      ));
+    if (!completeCanonicalResult) {
+      await quarantineSessionsAfterUnknownRevocation(
+        [...authSessionsById.values()]
+          .filter((session) => (
+            session.userId === normalizedUserId
+            && (!exceptSessionId || session.sessionId !== exceptSessionId)
+          ))
+          .map((session) => session.sessionId),
+        now,
+      );
+      return {
+        ok: false,
+        status: "auth_persistence_failed",
+        revoked: [],
+        revokedCount: 0,
+        retryable: false,
+      };
+    }
+    for (const canonicalSession of canonicalSessions) {
+      replaceAuthSessionRecord(canonicalSession);
+    }
+    if (exceptSessionId) {
+      const localException = authSessionsById.get(exceptSessionId) || null;
+      if (preservedSession) {
+        replaceAuthSessionRecord(preservedSession);
+      } else if (localException && Number(localException.revokedAt || 0) <= 0) {
+        replaceAuthSessionRecord({
+          ...localException,
+          revokedAt: Math.max(1, Number(now)),
+          updatedAt: now,
+        });
+      }
+    }
+    for (const localSession of [...authSessionsById.values()]) {
+      if (localSession.userId !== normalizedUserId) continue;
+      if (exceptSessionId && localSession.sessionId === exceptSessionId) continue;
+      const canonical = canonicalById.get(localSession.sessionId);
+      if (canonical) {
+        replaceAuthSessionRecord(canonical);
+      } else if (Number(localSession.revokedAt || 0) <= 0) {
+        replaceAuthSessionRecord({
+          ...localSession,
+          revokedAt: Math.max(1, Number(now)),
+          updatedAt: now,
+        });
+      }
+    }
+    writeLocalUserStoreMirror(now);
+    return {
+      ok: true,
+      status: "committed",
+      revoked: canonicalSessions.filter((session) => revokedSessionIds.has(session.sessionId)),
+      revokedCount: revokedSessionIds.size,
+      retryable: true,
+    };
+  } catch (error) {
+    if (error?.commitOutcomeUnknown) {
+      const affectedSessionIds = [...authSessionsById.values()]
+        .filter((session) => (
+          session.userId === normalizedUserId
+          && (!exceptSessionId || session.sessionId !== exceptSessionId)
+        ))
+        .map((session) => session.sessionId);
+      await quarantineSessionsAfterUnknownRevocation(affectedSessionIds, now);
+    }
+    return {
+      ok: false,
+      status: "auth_persistence_failed",
+      revoked: [],
+      revokedCount: 0,
+      retryable: !error?.rollbackError && !error?.commitOutcomeUnknown,
+    };
+  }
+}
+
 function rotateAuthSession(refreshToken, input = {}, now = Date.now()) {
   const current = getAuthSessionByToken(refreshToken, now);
   if (!current) return null;
-  const issued = issueAuthSession({
+  const issued = prepareAuthSession({
     userId: current.userId,
     familyId: current.familyId,
     ttlMs: input.ttlMs,
@@ -1415,18 +2059,107 @@ function rotateAuthSession(refreshToken, input = {}, now = Date.now()) {
       ? input.metadata
       : current.metadata,
   }, now);
-  if (!issued) return null;
+  if (!issued.session) return null;
+  const session = replaceAuthSessionRecord(issued.session);
   const previousSession = replaceAuthSessionRecord({
+    ...current,
+    revokedAt: now,
+    updatedAt: now,
+    replacedBySessionId: session.sessionId,
+  });
+  saveUserStore(now);
+  return {
+    previousSession,
+    session,
+    refreshToken: issued.refreshToken,
+  };
+}
+
+async function rotateAuthSessionDurably(refreshToken, input = {}, now = Date.now()) {
+  const { persistence } = userStoreDeps();
+  if (persistence?.kind !== "postgres") {
+    return {
+      status: "snapshot_pending",
+      rotation: rotateAuthSession(refreshToken, input, now),
+      retryable: true,
+    };
+  }
+  if (typeof persistence.rotateAuthSession !== "function") {
+    return {
+      status: "auth_persistence_failed",
+      rotation: null,
+      retryable: false,
+    };
+  }
+
+  const pendingPersistence = await flushUserStorePersistenceWrites();
+  if (pendingPersistence?.ok !== true) {
+    return {
+      status: "auth_persistence_failed",
+      rotation: null,
+      retryable: false,
+    };
+  }
+  const current = getAuthSessionByToken(refreshToken, now);
+  if (!current || !getUserById(current.userId)) {
+    return { status: "invalid_refresh_token", rotation: null, retryable: false };
+  }
+  const issued = prepareAuthSession({
+    userId: current.userId,
+    familyId: current.familyId,
+    ttlMs: input.ttlMs,
+    expiresAt: input.expiresAt,
+    metadata: Object.keys(input.metadata && typeof input.metadata === "object" ? input.metadata : {}).length
+      ? input.metadata
+      : current.metadata,
+  }, now);
+  if (!issued.session) {
+    return { status: "invalid_refresh_token", rotation: null, retryable: false };
+  }
+  const previousSession = sanitizeAuthSessionRecord({
     ...current,
     revokedAt: now,
     updatedAt: now,
     replacedBySessionId: issued.session.sessionId,
   });
-  saveUserStore(now);
+
+  try {
+    const swapped = await persistence.rotateAuthSession({
+      expectedSession: current,
+      previousSession,
+      nextSession: issued.session,
+    });
+    if (!swapped) {
+      return { status: "invalid_refresh_token", rotation: null, retryable: false };
+    }
+  } catch (error) {
+    if (error?.commitOutcomeUnknown) {
+      // Rotation revokes the old access session too. If canonical hydration
+      // is unavailable, trusting the old local bearer would reauthorize a
+      // session whose rotation may have committed. Quarantine only that
+      // session and fence snapshot writes; do not revoke its canonical row.
+      // The next serialized refresh first reconciles canonical state, so a
+      // rolled-back rotation restores the original valid refresh token.
+      await quarantineSessionsAfterUnknownRevocation([current.sessionId], now);
+    }
+    return {
+      status: "auth_persistence_failed",
+      rotation: null,
+      retryable: !error?.rollbackError && !error?.commitOutcomeUnknown,
+    };
+  }
+
+  const committedPreviousSession = replaceAuthSessionRecord(previousSession);
+  const committedSession = replaceAuthSessionRecord(issued.session);
+  writeLocalUserStoreMirror(now);
   return {
-    previousSession,
-    session: issued.session,
-    refreshToken: issued.refreshToken,
+    status: "committed",
+    rotation: {
+      previousSession: committedPreviousSession,
+      session: committedSession,
+      refreshToken: issued.refreshToken,
+    },
+    retryable: true,
   };
 }
 
@@ -1439,19 +2172,26 @@ function listAuthSessionsForUser(userId, now = Date.now()) {
     .sort((left, right) => Math.max(0, Number(right.updatedAt || 0)) - Math.max(0, Number(left.updatedAt || 0)));
 }
 
-function issueOneTimeToken(targetMap, input = {}, now = Date.now()) {
+function prepareOneTimeToken(input = {}, now = Date.now()) {
   const userId = normalizeUserId(input.userId);
   if (!userId) return null;
   const token = buildOpaqueToken();
-  const record = replaceOneTimeTokenRecord(targetMap, {
+  const record = sanitizeOneTimeTokenRecord({
     tokenHash: hashOpaqueToken(token),
     userId,
     createdAt: now,
     expiresAt: Math.max(now + 1000, now + Math.max(60000, Number(input.ttlMs || 0))),
     usedAt: 0,
   });
-  saveUserStore(now);
   return { token, record };
+}
+
+function issueOneTimeToken(targetMap, input = {}, now = Date.now()) {
+  const prepared = prepareOneTimeToken(input, now);
+  if (!prepared?.record) return null;
+  const record = replaceOneTimeTokenRecord(targetMap, prepared.record);
+  saveUserStore(now);
+  return { token: prepared.token, record };
 }
 
 function consumeOneTimeToken(targetMap, token, now = Date.now()) {
@@ -1476,8 +2216,158 @@ function consumeOneTimeToken(targetMap, token, now = Date.now()) {
   return updated;
 }
 
+function invalidateOneTimeTokensForUser(targetMap, userId, now = Date.now()) {
+  const normalizedUserId = normalizeUserId(userId);
+  if (!normalizedUserId) return [];
+  const invalidated = [];
+  for (const record of [...targetMap.values()]) {
+    if (record.userId !== normalizedUserId || Number(record.usedAt || 0) > 0) continue;
+    const updated = replaceOneTimeTokenRecord(targetMap, {
+      ...record,
+      usedAt: now,
+    });
+    if (updated) invalidated.push(updated);
+  }
+  if (invalidated.length > 0) saveUserStore(now);
+  return invalidated;
+}
+
 function issuePasswordResetToken(input = {}, now = Date.now()) {
   return issueOneTimeToken(passwordResetTokensByHash, input, now);
+}
+
+async function issuePasswordResetTokenDurably(input = {}, now = Date.now()) {
+  const { persistence } = userStoreDeps();
+  const privacyCoverKey = String(input.privacyCoverKey || "").trim();
+  const isPrivacyCover = !normalizeUserId(input.userId) && Boolean(privacyCoverKey);
+  const privacyCoverUserId = isPrivacyCover
+    ? `password_reset_privacy_${randomUUID().replace(/-/g, "")}`
+    : "";
+  if (persistence?.kind !== "postgres") {
+    if (isPrivacyCover) {
+      // Local JSON development keeps its existing no-write behavior for an
+      // unknown address. Production always uses Postgres and takes the same
+      // row-scoped adapter path for known and unknown addresses below.
+      prepareOneTimeToken({
+        userId: privacyCoverUserId,
+        ttlMs: input.ttlMs,
+      }, now);
+      return {
+        status: "privacy_cover_complete",
+        issuance: null,
+        retryable: true,
+      };
+    }
+    return {
+      status: "snapshot_pending",
+      issuance: issuePasswordResetToken(input, now),
+      retryable: true,
+    };
+  }
+  if (typeof persistence.issuePasswordResetToken !== "function") {
+    return {
+      status: "auth_persistence_failed",
+      issuance: null,
+      retryable: false,
+    };
+  }
+
+  let pendingPersistence = null;
+  try {
+    pendingPersistence = await flushUserStorePersistenceWrites();
+  } catch {
+    // A token must not be derived from a stale user expectation while an
+    // earlier canonical auth write is unresolved.
+  }
+  if (pendingPersistence?.ok !== true) {
+    return {
+      status: "auth_persistence_failed",
+      issuance: null,
+      retryable: false,
+    };
+  }
+
+  const userId = isPrivacyCover
+    ? privacyCoverUserId
+    : normalizeUserId(input.userId);
+  // This deliberately cannot equal a valid hydrated auth-user record. It
+  // lets an unknown address traverse the same transaction, advisory lock,
+  // and exact canonical lookup as a known address without selecting or
+  // creating an account.
+  const expectedUser = isPrivacyCover
+    ? { id: userId, passwordResetPrivacyCover: true }
+    : getUserById(userId);
+  const prepared = prepareOneTimeToken({ ...input, userId }, now);
+  if (!userId || !expectedUser || !prepared?.record) {
+    return {
+      status: "auth_persistence_failed",
+      issuance: null,
+      retryable: false,
+    };
+  }
+
+  try {
+    const result = await persistence.issuePasswordResetToken({
+      userId,
+      expectedUser,
+      token: prepared.record,
+    });
+    if (isPrivacyCover) {
+      if (result?.status === "user_missing") {
+        // Match the synchronous post-transaction mirror work performed after
+        // a known-user commit without publishing the prepared cover token.
+        writeLocalUserStoreMirror(now);
+        return {
+          status: "privacy_cover_complete",
+          issuance: null,
+          retryable: true,
+        };
+      }
+      // A cover request must never create or expose a usable token. Treat an
+      // unexpected commit acknowledgement as canonical state that needs a
+      // full validated hydration before any later snapshot mutation.
+      if (result?.status === "committed") {
+        await fenceUserStoreAfterUnknownCanonicalCommit();
+      }
+      return {
+        status: "auth_persistence_failed",
+        issuance: null,
+        retryable: result?.status === "conflict",
+      };
+    }
+    if (result?.status !== "committed") {
+      return {
+        status: "auth_persistence_failed",
+        issuance: null,
+        retryable: result?.status === "conflict",
+      };
+    }
+    const canonicalToken = sanitizeOneTimeTokenRecord(result.token);
+    if (JSON.stringify(canonicalToken) !== JSON.stringify(prepared.record)) {
+      await fenceUserStoreAfterUnknownCanonicalCommit();
+      return {
+        status: "auth_persistence_failed",
+        issuance: null,
+        retryable: false,
+      };
+    }
+    const committedToken = replaceOneTimeTokenRecord(passwordResetTokensByHash, canonicalToken);
+    writeLocalUserStoreMirror(now);
+    return {
+      status: "committed",
+      issuance: { token: prepared.token, record: committedToken },
+      retryable: true,
+    };
+  } catch (error) {
+    if (error?.commitOutcomeUnknown) {
+      await fenceUserStoreAfterUnknownCanonicalCommit();
+    }
+    return {
+      status: "auth_persistence_failed",
+      issuance: null,
+      retryable: !error?.rollbackError && !error?.commitOutcomeUnknown,
+    };
+  }
 }
 
 function consumePasswordResetToken(token, now = Date.now()) {
@@ -1497,6 +2387,7 @@ export {
   authSessionIdByTokenHash,
   authSessionsById,
   configureUserStore,
+  completePasswordResetDurably,
   consumeEmailVerificationToken,
   consumePasswordResetToken,
   createUserStoreCheckpoint,
@@ -1505,14 +2396,17 @@ export {
   deleteUserById,
   emailVerificationTokensByHash,
   flushUserStorePersistenceWrites,
+  ensureUserStoreCanonicalReconciled,
   getAuthSessionById,
   getAuthSessionByToken,
   getUserByAppleSubject,
   getUserByEmail,
   getUserById,
   issueAuthSession,
+  issueAuthSessionDurably,
   issueEmailVerificationToken,
   issuePasswordResetToken,
+  issuePasswordResetTokenDurably,
   loadUserStoreFromAdapter,
   listAuthSessionsForUser,
   loadUserStore,
@@ -1520,10 +2414,13 @@ export {
   passwordResetTokensByHash,
   revokeAllAuthSessionsForUser,
   revokeAllAuthSessionsForUserDurably,
+  revokeAllAuthSessionsForUserDurablyInMutation,
   revokeAuthSessionById,
   revokeAuthSessionByToken,
+  revokeAuthSessionsDurably,
   restoreUserStoreCheckpoint,
   rotateAuthSession,
+  rotateAuthSessionDurably,
   runUserStoreMutationExclusive,
   saveUserStore,
   usersByAppleSubject,

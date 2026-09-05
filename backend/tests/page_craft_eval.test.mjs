@@ -1,7 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
+import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 import {
@@ -61,6 +63,68 @@ test("[page-craft] pass fixtures meet floor; fail fixtures meet ceiling", () => 
       `${fixture.id}: overall=${scored.overall} detail=${gate.detail}`,
     );
   }
+});
+
+test("[page-craft] heuristic scoring is deterministic without mutating fixtures", () => {
+  for (const fixture of loadFixtures(fixturesDir)) {
+    const before = structuredClone(fixture);
+    const first = scorePageHeuristic(fixture.text, { fixture });
+    const second = scorePageHeuristic(fixture.text, { fixture });
+    assert.deepEqual(second, first, fixture.id);
+    assert.deepEqual(fixture, before, `${fixture.id}: input must not change`);
+  }
+});
+
+test("[page-craft] heuristic CLI summaries are repeatable except generated_at", (t) => {
+  const tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "io-them-page-craft-")));
+  t.after(() => fs.rmSync(tmp, { recursive: true, force: true }));
+  const summaries = [];
+  for (const name of ["first", "second"]) {
+    const out = path.join(tmp, `${name}.json`);
+    const result = spawnSync(process.execPath, [
+      path.join(root, "../evals/page_craft/run_page_craft_eval.mjs"),
+      "--mode=heuristic",
+      `--out=${out}`,
+    ], {
+      encoding: "utf8",
+      env: { ...process.env, PAGE_CRAFT_LLM_JUDGE: "0", OPENAI_API_KEY: "" },
+    });
+    assert.equal(result.status, 0, result.stderr);
+    const { generated_at, ...summary } = JSON.parse(fs.readFileSync(out, "utf8"));
+    assert.ok(Number.isFinite(Date.parse(generated_at)));
+    assert.equal(summary.llm_judge.used, false);
+    assert.equal(summary.gate_failures, 0);
+    assert.ok(summary.fixture_count >= 12);
+    summaries.push(summary);
+  }
+  assert.deepEqual(summaries[1], summaries[0]);
+});
+
+test("[page-craft] eval exits nonzero when heuristic scores are not deterministic", (t) => {
+  const tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "io-them-page-craft-")));
+  t.after(() => fs.rmSync(tmp, { recursive: true, force: true }));
+  const runner = path.join(tmp, "run_page_craft_eval.mjs");
+  fs.copyFileSync(path.join(root, "../evals/page_craft/run_page_craft_eval.mjs"), runner);
+  fs.writeFileSync(path.join(tmp, "package.json"), JSON.stringify({ type: "module" }));
+  fs.writeFileSync(path.join(tmp, "score_page.js"), `
+export const DIMENSIONS = ["subtext_density"];
+export const THRESHOLDS = { passMinOverall: 3.5, failMaxOverall: 2.8 };
+export const llmJudgeEnabled = () => ({ enabled: false, key: "" });
+let calls = 0;
+export function scorePageHeuristic() {
+  const score = ++calls % 2 ? 4 : 5;
+  return { overall: score, dimensions: { subtext_density: score }, mode: "heuristic" };
+}
+export const scorePage = scorePageHeuristic;
+`);
+  fs.mkdirSync(path.join(tmp, "fixtures"));
+  fs.writeFileSync(path.join(tmp, "fixtures", "sample.json"), JSON.stringify({
+    id: "unstable", label: "pass", text: "INT. ROOM - DAY\n\nA door closes.",
+  }));
+  const result = spawnSync(process.execPath, [runner, "--mode=heuristic"], { encoding: "utf8" });
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /heuristic scoring must be deterministic for the same input/);
+  assert.equal(fs.existsSync(path.join(tmp, "last_page_craft_summary.json")), false);
 });
 
 test("[page-craft] on-the-nose fail scores low subtext; voice-clash scores low voice", () => {

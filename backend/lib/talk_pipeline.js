@@ -201,7 +201,7 @@ function mountTalkPipelineRoutes(app, {
     if (!turnId) {
       return res.status(400).json({ error: "invalid_turn_id" });
     }
-    const meta = getTalkTurnMeta(turnId);
+    const meta = getTalkTurnMeta(turnId, req);
     if (!meta) {
       return res.status(404).json({ error: "turn_not_found" });
     }

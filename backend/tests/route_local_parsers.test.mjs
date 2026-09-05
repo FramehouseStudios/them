@@ -16,6 +16,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import express from "express";
+import qs from "qs";
 
 import { mountCharacterTraitRoute } from "../lib/character_trait_route.js";
 import { mountMemoryCharacterMentionRoute } from "../lib/memory_character_mention_route.js";
@@ -43,7 +44,7 @@ async function withBareApp(mountFn, fn) {
   // must mount its own parser.
   const app = express();
   mountFn(app);
-  const server = app.listen(0);
+  const server = app.listen(0, "127.0.0.1");
   await new Promise((resolve) => server.once("listening", resolve));
   const port = server.address().port;
   try {
@@ -62,6 +63,31 @@ async function postJson(baseURL, path, body) {
   const json = await r.json().catch(() => null);
   return { status: r.status, body: json };
 }
+
+test("[route-local-parsers] patched query parser preserves empty and nested Express queries", () => {
+  const parse = express().get("query parser fn");
+  assert.deepEqual(parse(""), {});
+  assert.deepEqual(
+    parse("limit=24&filter[act]=II&filter[characters][]=Mara&filter[characters][]=Eli&tags[]=1,2,3,4"),
+    { limit: "24", filter: { act: "II", characters: ["Mara", "Eli"] }, tags: ["1,2,3,4"] }
+  );
+});
+
+test("[route-local-parsers] qs rejects bracketed comma groups above the configured limit", () => {
+  // GHSA-x5fp-wj9c-mxmx: brackets must not bypass the comma array limit.
+  assert.throws(
+    () => qs.parse("a[]=1,2,3,4", { comma: true, arrayLimit: 3, throwOnLimitExceeded: true }),
+    RangeError
+  );
+});
+
+test("[route-local-parsers] qs safely serializes a parsed non-callable constructor.isBuffer", () => {
+  // GHSA-4mjr-xmp4-gh2g: never call a client-controlled non-function.
+  const parse = express().get("query parser fn");
+  const parsed = parse("x[constructor][isBuffer]=y");
+  assert.deepEqual(parsed, { x: { constructor: { isBuffer: "y" } } });
+  assert.equal(qs.stringify(parsed), "x%5Bconstructor%5D%5BisBuffer%5D=y");
+});
 
 test("[route-local-parsers] POST /memory/character-trait parses req.body without app-level parser", async () => {
   const store = fakeStore();

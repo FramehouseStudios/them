@@ -46,6 +46,22 @@ test("[ci-merge-safety] complete backend tests gate pull requests and main pushe
   assert.doesNotMatch(backendJob, /OPENAI_API_KEY|APP_TOKEN|secrets\./);
 });
 
+test("[ci-merge-safety] deterministic signed iOS and Swift UI smokes fail the quality-gate job", () => {
+  const v1UISmokeStep = qualityGate.match(
+    /- name: Run signed iOS V1 UI smoke tests[\s\S]*?run: scripts\/run_v1_ui_smoke\.sh/,
+  )?.[0] || "";
+  const networkFaultStep = qualityGate.match(
+    /- name: Run signed iPhone and macOS voice network-fault smokes[\s\S]*?run: scripts\/run_voice_network_fault_smokes\.sh/,
+  )?.[0] || "";
+
+  assert.notEqual(v1UISmokeStep, "", "signed V1 UI smoke step is missing");
+  assert.notEqual(networkFaultStep, "", "signed voice network-fault step is missing");
+  assert.doesNotMatch(v1UISmokeStep, /continue-on-error/);
+  assert.doesNotMatch(networkFaultStep, /continue-on-error/);
+  assert.match(qualityGate, /iOS V1 UI smoke: enforced \(signed themUITests; no provider secret\)/);
+  assert.match(qualityGate, /Voice network faults: enforced \(signed iPhone \+ macOS fixture smokes\)/);
+});
+
 test("[ci-merge-safety] persistence changes exercise the migration workflow on PRs and main", () => {
   assert.match(migrationsCheck, /^\s+pull_request:\n\s+paths:/m);
   assert.match(migrationsCheck, /^\s+push:\n\s+branches:\n\s+- main\n\s+paths:/m);
@@ -65,6 +81,7 @@ test("[ci-merge-safety] required quality gate enforces signed iOS units and nati
   assert.match(macStep, /-configuration 'Mac Scaffold Debug'/);
   assert.match(macStep, /-destination 'platform=macOS'/);
   assert.match(macStep, /-only-testing:themTests\/ScreenplayLocalExportTests/);
+  assert.match(macStep, /-only-testing:themTests\/ScreenplayPrintMacRenderingTests/);
   for (const step of [iosStep, macStep]) {
     assert.match(step, /CODE_SIGNING_ALLOWED=YES CODE_SIGNING_REQUIRED=YES/);
     assert.match(step, /-resultBundlePath/);

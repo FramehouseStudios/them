@@ -104,7 +104,8 @@ test("[requestIdMiddleware] mints a UUID when no header supplied", async () => {
     req.log.info("served", { path: "/r" });
     res.json({ req_id: req.requestId });
   });
-  const server = app.listen(0);
+  const server = app.listen(0, "127.0.0.1");
+  await new Promise((resolve) => server.once("listening", resolve));
   try {
     const port = server.address().port;
     const res = await fetch(`http://127.0.0.1:${port}/r`);
@@ -122,7 +123,8 @@ test("[requestIdMiddleware] honors incoming x-request-id", async () => {
   const app = express();
   app.use(createRequestIdMiddleware());
   app.get("/r", (req, res) => res.json({ req_id: req.requestId }));
-  const server = app.listen(0);
+  const server = app.listen(0, "127.0.0.1");
+  await new Promise((resolve) => server.once("listening", resolve));
   try {
     const port = server.address().port;
     const res = await fetch(`http://127.0.0.1:${port}/r`, {

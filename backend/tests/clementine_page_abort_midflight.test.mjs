@@ -196,7 +196,7 @@ test("[page-abort-midflight] adapter exposes abortSignal; HTTP cancel aborts mid
   app.use(express.json());
   app.post("/talk", (req, res) => wrapped(req, res));
   mountPageCancelRoute(app, { pageReservationStore: store });
-  const server = app.listen(0);
+  const server = app.listen(0, "127.0.0.1");
   await new Promise((resolve) => server.once("listening", resolve));
   const port = server.address().port;
   try {

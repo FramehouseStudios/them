@@ -76,6 +76,8 @@ async function seedPendingQuestion(server, identity) {
   );
 
   const persistence = createPersistence({
+    // Match the isolated backend's JSON store, never the caller's database.
+    databaseUrl: "",
     jsonRoot: server.env.PERSISTENCE_JSON_ROOT,
   });
   try {

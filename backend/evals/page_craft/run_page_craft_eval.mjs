@@ -9,6 +9,7 @@
 // Exit non-zero if any threshold is violated or fixtures are missing.
 //
 
+import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
@@ -102,9 +103,17 @@ async function main() {
   let failed = 0;
 
   for (const fixture of fixtures) {
+    // The owned heuristic must be deterministic even when the optional LLM
+    // judge is enabled. Never repeat a paid judge call for this check.
+    const heuristic = scorePageHeuristic(fixture.text, { fixture });
+    assert.deepEqual(
+      scorePageHeuristic(fixture.text, { fixture }),
+      heuristic,
+      `${fixture.id}: heuristic scoring must be deterministic for the same input`,
+    );
     const scored = useLlm
       ? await scorePage(fixture.text, { fixture, mode: args.mode })
-      : scorePageHeuristic(fixture.text, { fixture });
+      : heuristic;
     const gate = evaluateAgainstLabel(fixture, scored.overall);
     if (!gate.ok) failed += 1;
     const row = {

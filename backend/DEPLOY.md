@@ -68,12 +68,20 @@ runtime requires the env vars enforced by `assertProductionEnv()` in
 
 4. **Keep the V1 backend at one instance.**
 
-   Auth mutations are serialized by an in-process lock and persisted as a
-   complete auth-store snapshot. That is safe for the V1 single-instance
-   deployment, but not for horizontal scaling: two writers can prune each
-   other's records or rotate the same refresh token twice. Before increasing
-   instance count, replace auth snapshot writes with row-scoped Postgres
-   transactions and compare-and-swap refresh rotation.
+   Existing-user email-login session issuance, refresh-token rotation, logout,
+   session revocation, and password-reset request/completion now use row-scoped
+   Postgres transactions. These session and credential mutations share a
+   user-scoped transaction lock so their ordering is explicit and they cannot
+   overwrite unrelated auth rows. A completed password reset atomically
+   invalidates every outstanding reset token and session for that user. An
+   ambiguous reset mutation fences later auth snapshot writes until canonical
+   Postgres hydration succeeds. Reset-request responses keep the same generic
+   accepted envelope for unknown addresses and persistence failures so the
+   route does not become an account-existence oracle. Signup, Apple account
+   creation/linking, verification, and other auth mutations still persist
+   complete auth-store snapshots. Keep the V1 backend at one instance until
+   those remaining writes and prunes are row-scoped too;
+   otherwise two writers can still overwrite unrelated auth records.
 
 ## Required production environment
 
@@ -118,11 +126,18 @@ process will not start.
 # First-time setup
 render blueprint launch render.yaml
 
-# Subsequent deploys
-git push origin main
-# Render builds the Dockerfile and runs the new image after the health
-# check at /healthz responds 200.
 ```
+
+The checked-in blueprint disables automatic deployment for both services.
+Pushing or merging `main` publishes code; it does **not** promote a release.
+After the exact commit passes the required checks and the pre-flight above,
+use the service's Render **Deploys → Manual Deploy → Deploy a specific commit**
+action and select that verified SHA. Keep automatic deployments disabled.
+See [Render's specific-commit deployment instructions](https://render.com/docs/deploys#deploying-a-specific-commit).
+Confirm the deployed SHA, successful pre-deploy step, `/healthz`, and the
+authenticated post-deploy smoke below; a healthy old deployment is not proof
+that the new commit is serving. Do not promote while production configuration,
+auth initialization, or rollback compatibility is unverified.
 
 The blueprint provisions a managed Postgres alongside the web service and
 injects its private `connectionString` into `DATABASE_URL`. Never copy or

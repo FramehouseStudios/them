@@ -42,15 +42,15 @@ function domainFilePath(root, domain) {
 
 function readDomainFile(root, domain) {
   const file = domainFilePath(root, domain);
-  if (!fs.existsSync(file)) return {};
   try {
     const buf = fs.readFileSync(file, "utf8");
-    if (!buf.trim()) return {};
     const parsed = JSON.parse(buf);
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-      ? parsed
-      : {};
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new Error("persistence domain must contain a JSON object");
+    }
+    return parsed;
   } catch (e) {
+    if (e.code === "ENOENT") return {};
     const err = new Error(`failed to read persistence domain "${domain}": ${e.message}`);
     err.code = "persistence_read_error";
     throw err;

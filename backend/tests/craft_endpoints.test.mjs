@@ -30,7 +30,11 @@ function freshPersistenceRoot() {
 
 async function withTestServer(
   fn,
-  { mockUser = { id: "craft-route-test-user" }, persistenceRoot = null } = {},
+  {
+    mockUser = { id: "craft-route-test-user" },
+    persistenceRoot = null,
+    craftDeps = { authorizeProjectAccess: async () => true },
+  } = {},
 ) {
   // T22: each test runs against a fresh JSON persistence root so writes
   // don't leak between tests.
@@ -48,8 +52,8 @@ async function withTestServer(
       next();
     });
   }
-  mountCraftRoutes(app, { authorizeProjectAccess: async () => true });
-  const server = app.listen(0);
+  mountCraftRoutes(app, craftDeps);
+  const server = app.listen(0, "127.0.0.1");
   await new Promise((resolve) => server.once("listening", resolve));
   const port = server.address().port;
   const baseURL = `http://127.0.0.1:${port}`;
@@ -81,6 +85,124 @@ async function del(baseURL, path) {
   const body = await r.json().catch(() => null);
   return { status: r.status, body };
 }
+
+// ---------- mount-time authentication/ownership contract ----------
+
+test("mountCraftRoutes rejects missing, partial, and invalid wiring before registering routes", () => {
+  const productionDeps = {
+    requireAuthenticatedUser: (req) => req.authUser,
+    getOrCreateScreenplayOwnerRecord: () => ({}),
+    getScreenplayProjectRecord: () => null,
+  };
+  const cases = [
+    ["omitted dependencies", undefined, /getOrCreateScreenplayOwnerRecord is required/],
+    ["empty dependencies", {}, /getOrCreateScreenplayOwnerRecord is required/],
+    ["auth alone", { requireAuthenticatedUser: productionDeps.requireAuthenticatedUser }, /getOrCreateScreenplayOwnerRecord is required/],
+    ["owner lookup alone", { getOrCreateScreenplayOwnerRecord: productionDeps.getOrCreateScreenplayOwnerRecord }, /getScreenplayProjectRecord is required/],
+    ["project lookup alone", { getScreenplayProjectRecord: productionDeps.getScreenplayProjectRecord }, /getOrCreateScreenplayOwnerRecord is required/],
+    ...[null, false, "auth", {}].map((invalid) => [
+      `invalid auth ${JSON.stringify(invalid)}`,
+      { ...productionDeps, requireAuthenticatedUser: invalid },
+      /requireAuthenticatedUser is required and must be a function/,
+    ]),
+    ...[true, "authorize", {}].map((invalid) => [
+      `invalid focused authorizer ${JSON.stringify(invalid)}`,
+      { ...productionDeps, authorizeProjectAccess: invalid },
+      /authorizeProjectAccess must be a function when provided/,
+    ]),
+    ...["getOrCreateScreenplayOwnerRecord", "getScreenplayProjectRecord"].flatMap((name) => (
+      [null, undefined, false, "lookup", {}].map((invalid) => [
+        `invalid ${name} ${JSON.stringify(invalid)}`,
+        { ...productionDeps, [name]: invalid },
+        new RegExp(`${name} is required`),
+      ])
+    )),
+  ];
+
+  for (const [label, deps, expectedError] of cases) {
+    const registrations = [];
+    const app = Object.fromEntries(["use", "get", "post", "delete"].map((method) => [
+      method, (...args) => registrations.push({ method, args }),
+    ]));
+    assert.throws(() => mountCraftRoutes(app, deps), expectedError, label);
+    assert.deepEqual(registrations, [], `${label} must fail before any route or middleware is mounted`);
+  }
+});
+
+test("production-shaped craft dependencies preserve canonical auth and read-only ownership checks", async () => {
+  const calls = [];
+  const owner = { userId: "craft-route-test-user" };
+  const craftDeps = {
+    requireAuthenticatedUser(req, _res, stage) {
+      assert.equal(stage, "craft_auth");
+      return req.authUser;
+    },
+    getOrCreateScreenplayOwnerRecord(req, options) {
+      assert.equal(req.userId, owner.userId);
+      assert.deepEqual(options, { create: false });
+      return owner;
+    },
+    getScreenplayProjectRecord(receivedOwner, projectId) {
+      assert.equal(receivedOwner, owner);
+      calls.push(projectId);
+      return projectId === "owned-project" ? { id: projectId } : null;
+    },
+  };
+  await withTestServer(async ({ baseURL }) => {
+    const created = await postJson(baseURL, "/craft/analyze", {
+      projectId: "owned-project",
+      versionId: "v1",
+      frameworkId: "save-the-cat",
+      screenplay: { pageCount: 110 },
+      userId: "forged-user",
+    }, { "X-User-Id": "forged-user" });
+    assert.equal(created.status, 200);
+    const fetched = await get(baseURL, "/craft/reports/owned-project/v1");
+    assert.equal(fetched.status, 200);
+    assert.equal(fetched.body.id, created.body.id);
+    const denied = await get(baseURL, "/craft/reports/another-users-project/v1");
+    assert.equal(denied.status, 404);
+    assert.deepEqual(denied.body, { stage: "craft_project", error: "project_not_found" });
+  }, { craftDeps });
+  assert.deepEqual(calls, ["owned-project", "owned-project", "another-users-project"]);
+});
+
+test("focused craft authorizer supports allow/deny without replacing canonical authentication", async () => {
+  const calls = [];
+  const craftDeps = {
+    async authorizeProjectAccess({ req, userId, projectId }) {
+      assert.equal(req.authUser.id, "craft-route-test-user");
+      assert.equal(userId, req.authUser.id);
+      calls.push(projectId);
+      if (projectId === "allow-boolean") return true;
+      if (projectId === "allow-project") return { id: projectId };
+      return false;
+    },
+  };
+  await withTestServer(async ({ baseURL }) => {
+    for (const projectId of ["allow-boolean", "allow-project"]) {
+      const allowed = await get(baseURL, `/craft/reports/${projectId}/v1`, { "X-User-Id": "forged-user" });
+      assert.equal(allowed.status, 404);
+      assert.equal(allowed.body.error, "craft_report_not_found");
+    }
+    const denied = await get(baseURL, "/craft/reports/denied/v1");
+    assert.equal(denied.status, 404);
+    assert.deepEqual(denied.body, { stage: "craft_project", error: "project_not_found" });
+  }, { craftDeps });
+  assert.deepEqual(calls, ["allow-boolean", "allow-project", "denied"]);
+
+  await withTestServer(async ({ baseURL }) => {
+    for (const pathname of ["/craft/frameworks", "/craft/frameworks/save-the-cat", "/craft/schemas/report", "/craft/schemas/framework"]) {
+      assert.equal((await get(baseURL, pathname)).status, 200);
+    }
+    const denied = await get(baseURL, "/craft/reports/allow-boolean/v1", { "X-User-Id": "forged-user" });
+    assert.equal(denied.status, 401);
+    assert.deepEqual(denied.body, { stage: "craft_auth", error: "user_auth_required" });
+    const mutation = await postJson(baseURL, "/craft/frameworks", {});
+    assert.equal(mutation.status, 401);
+  }, { mockUser: null, craftDeps });
+  assert.deepEqual(calls, ["allow-boolean", "allow-project", "denied"], "anonymous requests must never reach the authorizer");
+});
 
 // ---------- success shapes ----------
 

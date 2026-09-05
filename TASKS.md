@@ -13,6 +13,38 @@
 
 ## Active work — quick view
 
+### Current milestone — dependable writer beta (September 5, 2026)
+
+- **Owner:** codex; human owns production credentials, deployment clearance,
+  privacy/signing, distribution, and physical-device release acceptance.
+- **Branch:** `codex/T-writer-beta-integration` (local integration only), based
+  on the tested main-gates branch and `codex/T-ios-keychain-token-migration`.
+  Both source checkouts remain clean and unchanged.
+- **Status:** in-progress. This milestone supersedes the historical next-action
+  queue below; do not restart old merged work.
+- **Product bar (human reaffirmed September 5):** care deeply about making
+  something wonderful that we and our friends would want to use. Codex owns
+  product/engineering polish decisions against that standard; protect the
+  writer's work, verify the complete experience, and preserve the orb and
+  Clementine. On September 5 the human explicitly authorized pushing and
+  deployment into main once the work is connected, working, and safe. Publish
+  through current required checks; this does not waive production configuration,
+  credentials, privacy/signing, or release acceptance gates.
+- **Scope:** close verified reliability defects; run full client/backend and
+  real PostgreSQL regression checks; prepare the production-configured iPhone
+  writer-beta handoff while preserving the orb and Clementine.
+- **Done when:** the real idea → pages → edit → save → relaunch → corrected
+  memory → export journey passes on the signed beta with its approved backend,
+  required release gates are green, and the release owner records signoff.
+- **Evidence and exact remaining steps:** [Writer beta readiness](docs/writer-beta-readiness.md).
+- **Integration:** newer `main` has diverged; reconcile verified changes in an
+  isolated local branch. The shared checkout must not be reset or blindly merged.
+- **PR audit:** all 11 open Claude-related heads reviewed in
+  [the September 5 audit](docs/claude-pr-audit-2026-09-05.md). Carry useful
+  corrections into this project-owned branch; do not merge unsafe experimental
+  feature stacks or relax required gates. Review completion is not feature or
+  release acceptance.
+
 | ID   | Title                                              | Owner  | Status            |
 |------|----------------------------------------------------|--------|-------------------|
 | T01  | Triage 409-file uncommitted snapshot               | human  | ready             |

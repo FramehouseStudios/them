@@ -120,25 +120,61 @@ enum ScreenplayPrintServiceMac {
         let paper = ScreenplayPrintMemory.effectivePaper
         printInfo.paperSize = paper == .a4 ? NSSize(width: 595, height: 842) : NSSize(width: 612, height: 792)
         printInfo.jobDisposition = .spool
-        let view = PDFViewPrintAdapter(pdf: pdf)
+        guard let view = PDFViewPrintAdapter(pdf: pdf) else { return false }
         let op = NSPrintOperation(view: view, printInfo: printInfo)
         op.jobTitle = jobName
         op.showsPrintPanel = false
         op.showsProgressPanel = false
         return op.run()
     }
-    private class PDFViewPrintAdapter: NSView {
+    final class PDFViewPrintAdapter: NSView {
         let pdf: PDFDocument
-        init(pdf: PDFDocument) { self.pdf = pdf; super.init(frame: .zero) }
+        private let pageRects: [NSRect]
+
+        init?(pdf: PDFDocument) {
+            guard pdf.pageCount > 0 else { return nil }
+            var rectangles: [NSRect] = []
+            var nextY: CGFloat = 0
+            var maximumWidth: CGFloat = 0
+            for index in 0..<pdf.pageCount {
+                guard let page = pdf.page(at: index), page.pageRef != nil else { return nil }
+                let media = page.bounds(for: .mediaBox)
+                let rotation = ((page.rotation % 360) + 360) % 360
+                let size = rotation == 90 || rotation == 270
+                    ? NSSize(width: media.height, height: media.width) : media.size
+                guard size.width.isFinite, size.height.isFinite, size.width > 0, size.height > 0 else { return nil }
+                rectangles.append(NSRect(origin: NSPoint(x: 0, y: nextY), size: size))
+                nextY += size.height
+                maximumWidth = max(maximumWidth, size.width)
+            }
+            self.pdf = pdf
+            self.pageRects = rectangles
+            super.init(frame: NSRect(x: 0, y: 0, width: maximumWidth, height: nextY))
+        }
+
         required init?(coder: NSCoder) { fatalError() }
         override func knowsPageRange(_ range: NSRangePointer) -> Bool {
             range.pointee = NSRange(location: 1, length: pdf.pageCount)
             return true
         }
         override func rectForPage(_ page: Int) -> NSRect {
-            pdf.page(at: page-1)?.bounds(for: .mediaBox) ?? NSRect(x: 0, y: 0, width: 612, height: 792)
+            guard page > 0, page <= pageRects.count else { return .zero }
+            return pageRects[page - 1]
         }
-        override func draw(_ dirtyRect: NSRect) {}
+
+        override func draw(_ dirtyRect: NSRect) {
+            guard let context = NSGraphicsContext.current?.cgContext else { return }
+            // AppKit displays rectForPage for each requested page. Distinct view-space
+            // rectangles also make PDF preview/export exercise the real print drawing.
+            for (index, rect) in pageRects.enumerated() where rect.intersects(dirtyRect) {
+                guard let page = pdf.page(at: index)?.pageRef else { continue }
+                context.saveGState()
+                context.clip(to: rect)
+                context.concatenate(page.getDrawingTransform(.mediaBox, rect: rect, rotate: 0, preserveAspectRatio: true))
+                context.drawPDFPage(page)
+                context.restoreGState()
+            }
+        }
     }
 }
 import PDFKit

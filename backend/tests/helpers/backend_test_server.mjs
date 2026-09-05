@@ -53,6 +53,12 @@ export async function startBackend({
   const stderr = [];
   const childEnv = {
     ...process.env,
+    // JSON-fixture tests must not inherit shared storage from a live-test run.
+    // Deliberate external-storage tests can still opt in through env below.
+    DATABASE_URL: "",
+    SCALE_POSTGRES_URL: "",
+    REDIS_URL: "",
+    SCALE_REDIS_URL: "",
     PORT: String(port),
     HOST: "127.0.0.1",
     RUN_SERVER: "1",

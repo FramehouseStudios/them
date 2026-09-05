@@ -78,7 +78,6 @@ final class IOThemRuntimeTests: XCTestCase {
             "automation-only"
         )
     }
-
     func testStudioAutomationTargetRequiresExactMarkerAndSessionID() {
         let environment = [
             IOThemRuntime.studioAutomationSessionIDEnvironmentKey: "restore-smoke-42",

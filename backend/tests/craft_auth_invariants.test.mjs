@@ -18,7 +18,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { test } from "node:test";
+import { mock, test } from "node:test";
 import express from "express";
 
 import { PAID_PROVIDER_PATTERNS, USER_PROTECTED_PATTERNS } from "../lib/user_auth.js";
@@ -69,7 +69,7 @@ function freshPersistence() {
 }
 
 async function withServer(app, fn) {
-  const server = app.listen(0);
+  const server = app.listen(0, "127.0.0.1");
   await new Promise((resolve) => server.once("listening", resolve));
   const baseURL = `http://127.0.0.1:${server.address().port}`;
   try {
@@ -95,8 +95,12 @@ async function request(baseURL, method, urlPath, { user = null, json = null } = 
 function buildUnauthenticatedCraftApp() {
   const app = express();
   app.use(express.json());
-  mountCraftRoutes(app);
-  return app;
+  // Satisfy the real mount's required ownership dependency without granting
+  // access. Unauthenticated requests must stop at the canonical 401 gate,
+  // before project authorization is consulted.
+  const authorizeProjectAccess = mock.fn(async () => false);
+  mountCraftRoutes(app, { authorizeProjectAccess });
+  return { app, authorizeProjectAccess };
 }
 
 function buildTwoUserCraftApp(persistence) {
@@ -123,7 +127,7 @@ function buildTwoUserCraftApp(persistence) {
 // ---------------------------------------------------------------- (a)
 
 test("[craft-invariants] the public /craft allowlist is exactly the literal list", () => {
-  const app = buildUnauthenticatedCraftApp();
+  const { app } = buildUnauthenticatedCraftApp();
   const routes = collectRegisteredCraftRoutes(app);
   assert.ok(routes.length >= 15, `expected the real craft router, saw ${routes.length} routes`);
   const publicRoutes = routes
@@ -134,7 +138,7 @@ test("[craft-invariants] the public /craft allowlist is exactly the literal list
 });
 
 test("[craft-invariants] every registered non-public /craft route 401s without a canonical user", async () => {
-  const app = buildUnauthenticatedCraftApp();
+  const { app, authorizeProjectAccess } = buildUnauthenticatedCraftApp();
   const routes = collectRegisteredCraftRoutes(app);
   await withServer(app, async (baseURL) => {
     for (const { method, path: routePath } of routes) {
@@ -151,10 +155,11 @@ test("[craft-invariants] every registered non-public /craft route 401s without a
       assert.equal(body?.error, "user_auth_required", `${method} ${routePath} error`);
     }
   });
+  assert.equal(authorizeProjectAccess.mock.callCount(), 0, "unauthenticated and public routes must not reach project authorization");
 });
 
 test("[craft-invariants] a probe route added under /craft without the gate is caught", async () => {
-  const app = buildUnauthenticatedCraftApp();
+  const { app, authorizeProjectAccess } = buildUnauthenticatedCraftApp();
   // The mount-level gate is `app.use("/craft", ...)`, so anything mounted
   // after it is covered. This proves the enumeration sees the runtime
   // router (not a hand-maintained list) and that the gate is positional.
@@ -166,6 +171,7 @@ test("[craft-invariants] a probe route added under /craft without the gate is ca
     assert.equal(status, 401);
     assert.equal(body?.stage, "craft_auth");
   });
+  assert.equal(authorizeProjectAccess.mock.callCount(), 0, "the mount auth gate must stop the unauthenticated probe first");
 });
 
 test("[craft-invariants] cost-attached craft routes are also in PAID_PROVIDER_PATTERNS", () => {

@@ -27,6 +27,139 @@ function freshPersistence() {
   return createJsonPersistence({ jsonRoot: root });
 }
 
+test("strict creative ledger reads preserve absent, empty, cleared, and partial legacy records", async () => {
+  const persistence = freshPersistence();
+  const store = createCreativeMemoryStore({ persistence });
+  const userId = "u-strict-ledger";
+  const read = () => store.getCreativeMemoryLedger({ userId, requireValidRecord: true });
+
+  assert.equal(await read(), null);
+  await persistence.put({
+    domain: "creative_memory", key: userId,
+    value: { userId, version: store.SCHEMA_VERSION },
+  });
+  assert.equal(await read(), null);
+
+  await persistence.put({
+    domain: "creative_memory", key: userId,
+    value: { userId, version: store.SCHEMA_VERSION, characters: [{ name: "Mara" }] },
+  });
+  assert.deepEqual((await read()).characters, [{ name: "Mara" }]);
+
+  await store.clearUserMemory({ userId });
+  const tombstone = await persistence.get({ domain: "creative_memory", key: userId });
+  assert.ok(tombstone.clearedAt > 0);
+  assert.equal(await read(), null);
+  assert.deepEqual(await persistence.get({ domain: "creative_memory", key: userId }), tombstone);
+});
+
+test("strict creative ledger reads reject malformed persisted shapes without modifying them", async () => {
+  const persistence = freshPersistence();
+  const store = createCreativeMemoryStore({ persistence });
+  const userId = "u-strict-ledger-invalid";
+  const base = { userId, version: store.SCHEMA_VERSION };
+  const records = [
+    false, 0, "", "invalid", [], {},
+    { ...base, version: store.SCHEMA_VERSION + 1, characters: [{ name: "Mara" }] },
+    { ...base, version: String(store.SCHEMA_VERSION) },
+    ...["projects", "characters", "episodicMemories", "canonCorrectionReceipts", "canonCorrectionAmbiguities"]
+      .flatMap((field) => [
+        { ...base, [field]: {} },
+        { ...base, [field]: null },
+        { ...base, [field]: [null] },
+        { ...base, [field]: ["invalid"] },
+        { ...base, [field]: [[]] },
+        { ...base, [field]: [{}] },
+      ]),
+    ...["style", "tone", "habits"].flatMap((field) => [
+      { ...base, [field]: [] },
+      { ...base, [field]: null },
+      { ...base, [field]: "invalid" },
+    ]),
+    { ...base, style: { lexicalFingerprint: "invalid" } },
+    { ...base, characters: [{ name: " \n " }] },
+    { ...base, characters: [{ name: 17 }] },
+    { ...base, projects: [{ projectId: " ", projectTitle: " " }] },
+    { ...base, episodicMemories: [{ id: "episode-without-content" }] },
+    { ...base, canonCorrectionReceipts: [{ id: "receipt-without-facts" }] },
+    { ...base, canonCorrectionAmbiguities: [{ id: "ambiguity-with-one-fact", candidateFacts: ["One fact."] }] },
+  ];
+
+  for (const value of records) {
+    await persistence.put({ domain: "creative_memory", key: userId, value });
+    await assert.rejects(
+      store.getCreativeMemoryLedger({ userId, requireValidRecord: true }),
+      { code: "creative_memory_record_invalid" },
+      JSON.stringify(value),
+    );
+    assert.deepEqual(await persistence.get({ domain: "creative_memory", key: userId }), value);
+  }
+});
+
+test("strict creative ledger reads accept canonical legacy items and reject mixed valid and invalid collections", async () => {
+  const persistence = freshPersistence();
+  const store = createCreativeMemoryStore({ persistence });
+  const userId = "u-strict-ledger-items";
+  const base = { userId, version: store.SCHEMA_VERSION };
+  const validItems = {
+    projects: { project_id: "rain-docket", project_title: "Rain Docket", updated_at: 1000 },
+    characters: { name: "Mara" },
+    episodicMemories: { summary: "Mara keeps the affidavit.", created_at: 1000 },
+    canonCorrectionReceipts: { id: "receipt-1", matched_facts: ["Mara kept the affidavit."] },
+    canonCorrectionAmbiguities: {
+      id: "ambiguity-1", candidate_facts: ["Mara kept the affidavit.", "Mara burned the affidavit."],
+    },
+  };
+  const validRecord = {
+    ...base,
+    ...Object.fromEntries(Object.entries(validItems).map(([field, item]) => [field, [item]])),
+  };
+  await persistence.put({ domain: "creative_memory", key: userId, value: validRecord });
+  const ledger = await store.getCreativeMemoryLedger({ userId, requireValidRecord: true });
+  for (const field of Object.keys(validItems)) assert.equal(ledger[field].length, 1, field);
+  assert.equal(ledger.projects[0].projectId, "rain-docket");
+  assert.deepEqual(ledger.canonCorrectionReceipts[0].matchedFacts, ["Mara kept the affidavit."]);
+
+  for (const [field, item] of Object.entries(validItems)) {
+    const value = { ...base, [field]: [item, {}] };
+    await persistence.put({ domain: "creative_memory", key: userId, value });
+    await assert.rejects(
+      store.getCreativeMemoryLedger({ userId, requireValidRecord: true }),
+      { code: "creative_memory_record_invalid" },
+      field,
+    );
+    const legacyLedger = await store.getCreativeMemoryLedger({ userId });
+    assert.equal(legacyLedger[field].length, field === "characters" ? 2 : 1, field);
+    assert.deepEqual(await persistence.get({ domain: "creative_memory", key: userId }), value);
+  }
+});
+
+test("creative ledger validation stays opt-in and persistence failures still propagate", async () => {
+  const persistence = freshPersistence();
+  const store = createCreativeMemoryStore({ persistence });
+  const userId = "u-legacy-ledger";
+  for (const value of [
+    { version: store.SCHEMA_VERSION + 1, characters: [{ name: "Mara" }] },
+    { version: store.SCHEMA_VERSION, characters: "invalid" },
+  ]) {
+    await persistence.put({ domain: "creative_memory", key: userId, value });
+    assert.equal(await store.getCreativeMemoryLedger({ userId }), null);
+    assert.equal(await store.getCreativeMemoryLedger({ userId, requireValidRecord: false }), null);
+    assert.equal(await store.getCreativeMemoryForPrompt({ userId }), null);
+  }
+
+  const failure = new Error("fixture persistence outage");
+  const unavailableStore = createCreativeMemoryStore({
+    persistence: { get: async () => { throw failure; } },
+  });
+  for (const requireValidRecord of [false, true]) {
+    await assert.rejects(
+      unavailableStore.getCreativeMemoryLedger({ userId, requireValidRecord }),
+      (error) => error === failure,
+    );
+  }
+});
+
 test("recordTriggersFromTalkTurn skips with no userId", async () => {
   const store = createCreativeMemoryStore({ persistence: freshPersistence() });
   const r = await store.recordTriggersFromTalkTurn({ userId: null, transcript: "hello" });
@@ -2553,6 +2686,8 @@ test("story move preference corrections persist and reset without deleting quest
   });
   assert.equal(corrected.ok, true);
   let ledger = await store.getCreativeMemoryLedger({ userId });
+  assert.deepEqual(corrected.project, ledger.projects[0]);
+  assert.equal(corrected.creativeMemoryRevision, buildCreativeMemoryRevision(ledger));
   assert.deepEqual(ledger.projects[0].storyMovePreferenceOverrides, [{
     family: "relationship_pressure",
     stance: "prefer",
@@ -2568,6 +2703,8 @@ test("story move preference corrections persist and reset without deleting quest
   });
   assert.equal(reset.ok, true);
   ledger = await store.getCreativeMemoryLedger({ userId });
+  assert.deepEqual(reset.project, ledger.projects[0]);
+  assert.equal(reset.creativeMemoryRevision, buildCreativeMemoryRevision(ledger));
   assert.equal(ledger.projects[0].questionEffectiveness.length, 1);
   assert.equal(ledger.projects[0].questionEffectiveness[0].responseStatus, "answered");
   assert.equal(ledger.projects[0].questionEffectiveness[0].selectedMoveFamily, undefined);
@@ -2576,16 +2713,135 @@ test("story move preference corrections persist and reset without deleting quest
     ["relationship_pressure", "obstacle_pressure"]
   );
 
-  await store.updateStoryMovePreference({
+  const resetAll = await store.updateStoryMovePreference({
     userId,
     projectId: "split-ferries",
     action: "reset_all",
     at: 4_000,
   });
   ledger = await store.getCreativeMemoryLedger({ userId });
+  assert.deepEqual(resetAll.project, ledger.projects[0]);
+  assert.equal(resetAll.creativeMemoryRevision, buildCreativeMemoryRevision(ledger));
+  assert.equal(resetAll.projectId, "split-ferries");
+  assert.equal(resetAll.projectTitle, "Split Ferries");
+  assert.equal(resetAll.family, "");
   assert.equal(ledger.projects[0].questionEffectiveness.length, 1);
   assert.equal(ledger.projects[0].questionEffectiveness[0].offeredMoveFamilies, undefined);
   assert.equal(ledger.projects[0].storyMovePreferenceOverrides, undefined);
+});
+
+test("story preference updates never substitute a same-title project for a supplied project ID", async () => {
+  const store = createCreativeMemoryStore({ persistence: freshPersistence() });
+  const userId = "u-story-preference-project-identity";
+  await store.recordProjectContinuity({
+    userId,
+    continuity: {
+      projectId: "existing-screenplay",
+      projectTitle: "Shared Title",
+      storyMovePreferenceOverrides: [{
+        family: "relationship_pressure",
+        stance: "prefer",
+        updatedAt: 1_000,
+      }],
+    },
+  });
+  const before = await store.getCreativeMemoryLedger({ userId });
+  const revision = buildCreativeMemoryRevision(before);
+  for (const action of ["prefer", "avoid", "reset", "reset_all"]) {
+    const receipt = await store.updateStoryMovePreference({
+      userId,
+      projectId: "different-screenplay",
+      projectTitle: "Shared Title",
+      family: "relationship_pressure",
+      action,
+      expectedRevision: revision,
+    });
+    assert.deepEqual(receipt, { ok: false, reason: "project_not_found" });
+    assert.deepEqual(await store.getCreativeMemoryLedger({ userId }), before);
+  }
+  const legacyTitleReceipt = await store.updateStoryMovePreference({
+    userId,
+    projectTitle: "Shared Title",
+    family: "relationship_pressure",
+    action: "avoid",
+    expectedRevision: revision,
+  });
+  assert.equal(legacyTitleReceipt.ok, true);
+  assert.equal(legacyTitleReceipt.projectId, "existing-screenplay");
+});
+
+test("story preference title-only updates reject duplicate project titles before writing", async () => {
+  const store = createCreativeMemoryStore({ persistence: freshPersistence() });
+  const userId = "u-story-preference-ambiguous-title";
+  for (const projectId of ["screenplay-a", "screenplay-b"]) {
+    await store.recordProjectContinuity({
+      userId,
+      continuity: {
+        projectId,
+        projectTitle: "Shared Title",
+        storyMovePreferenceOverrides: [{
+          family: "relationship_pressure",
+          stance: "prefer",
+          updatedAt: 1_000,
+        }],
+      },
+    });
+  }
+  const before = await store.getCreativeMemoryLedger({ userId });
+  for (const action of ["prefer", "avoid", "reset", "reset_all"]) {
+    const receipt = await store.updateStoryMovePreference({
+      userId,
+      projectTitle: " shared TITLE ",
+      family: "relationship_pressure",
+      action,
+      expectedRevision: buildCreativeMemoryRevision(before),
+    });
+    assert.deepEqual(receipt, { ok: false, reason: "ambiguous_project_identity" });
+    assert.deepEqual(await store.getCreativeMemoryLedger({ userId }), before);
+  }
+});
+
+test("story preference receipts keep the committed project snapshot and account revision across later writes", async () => {
+  const store = createCreativeMemoryStore({ persistence: freshPersistence() });
+  const userId = "u-story-preference-committed-snapshot";
+  for (const projectId of ["screenplay-a", "screenplay-b"]) {
+    await store.recordProjectContinuity({
+      userId,
+      continuity: { projectId, projectTitle: "Shared Title" },
+    });
+  }
+  const receipt = await store.updateStoryMovePreference({
+    userId,
+    projectId: "SCREENPLAY-A",
+    projectTitle: "Shared Title",
+    family: "relationship_pressure",
+    action: "prefer",
+  });
+  const committedLedger = await store.getCreativeMemoryLedger({ userId });
+  const committedProject = committedLedger.projects.find((project) => project.projectId === "screenplay-a");
+  assert.equal(receipt.projectId, "screenplay-a");
+  assert.deepEqual(receipt.project, committedProject);
+  assert.equal(receipt.creativeMemoryRevision, buildCreativeMemoryRevision(committedLedger));
+  assert.notEqual(receipt.creativeMemoryRevision, buildCreativeMemoryRevision({ projects: [receipt.project] }));
+
+  await store.updateStoryMovePreference({
+    userId,
+    projectId: "screenplay-b",
+    family: "relationship_pressure",
+    action: "avoid",
+    expectedRevision: receipt.creativeMemoryRevision,
+  });
+  await store.updateStoryMovePreference({
+    userId,
+    projectId: "screenplay-a",
+    action: "reset_all",
+  });
+  const laterLedger = await store.getCreativeMemoryLedger({ userId });
+  assert.notEqual(receipt.creativeMemoryRevision, buildCreativeMemoryRevision(laterLedger));
+  assert.deepEqual(receipt.project, committedProject);
+  assert.equal(receipt.project.storyMovePreferenceOverrides[0].stance, "prefer");
+  receipt.project.storyMovePreferenceOverrides[0].stance = "avoid";
+  assert.deepEqual(await store.getCreativeMemoryLedger({ userId }), laterLedger);
 });
 
 test("creative memory revisions serialize competing device corrections without lost updates", async () => {

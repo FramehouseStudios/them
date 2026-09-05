@@ -283,9 +283,11 @@ test("[outbox-store] runOutboxWorkerTick calls processOutboxBatch when enabled",
 
 test("[outbox-store] concurrent worker ticks and shutdown waiter share the active batch", async () => {
   const backplane = buildScaleBackplaneStub();
+  const claimScopes = [];
   let releaseClaim;
-  backplane.claimDueOutbox = async (limit) => {
+  backplane.claimDueOutbox = async (limit, scope) => {
     backplane.calls.claimDueOutbox.push(limit);
+    claimScopes.push(scope);
     return new Promise((resolve) => { releaseClaim = () => resolve([]); });
   };
   configureOutboxStore(defaultDeps({ scaleBackplane: backplane }));
@@ -298,6 +300,7 @@ test("[outbox-store] concurrent worker ticks and shutdown waiter share the activ
 
   await Promise.all([first, second, shutdownWait]);
   assert.equal(backplane.calls.claimDueOutbox.length, 1);
+  assert.deepEqual(claimScopes, [{ allowAllUsers: true }]);
   assert.equal(await waitForOutboxWorkerIdle(), undefined);
 });
 

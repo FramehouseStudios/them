@@ -105,8 +105,14 @@ enum ScreenplayPrintMemory {
 
 // MARK: - PDF generation (shared)
 enum ScreenplayPrintService {
+    // Keep the existing memory/work bound, but never return a successful partial PDF.
+    static let maximumPDFPages = 250
+
     static func makePDF(draft: String, title: String) throws -> Data {
-        let clean = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        let clean = draft
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .components(separatedBy: .newlines).joined(separator: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !clean.isEmpty else { throw PrintError.emptyDraft }
         #if os(macOS)
         // Reuse ScreenplayLocalExport on macOS (CoreText path, already Letter)
@@ -119,67 +125,62 @@ enum ScreenplayPrintService {
         let attributed = iOSAttributedDraft(for: clean, printableWidth: contentRect.width)
         let framesetter = CTFramesetterCreateWithAttributedString(attributed as CFAttributedString)
         let data = NSMutableData()
-        guard let consumer = CGDataConsumer(data: data as CFMutableData) else { throw PrintError.emptyDraft }
+        guard let consumer = CGDataConsumer(data: data as CFMutableData) else { throw PrintError.pdfCreationFailed }
         var mediaBox = pageRect
-        guard let context = CGContext(consumer: consumer, mediaBox: &mediaBox, nil) else { throw PrintError.emptyDraft }
+        guard let context = CGContext(consumer: consumer, mediaBox: &mediaBox, nil) else { throw PrintError.pdfCreationFailed }
+        var didFinishPDF = false
+        defer { if !didFinishPDF { context.closePDF() } }
         var range = CFRange(location: 0, length: 0)
         let fullLength = attributed.length
-        let elements = ScreenplayEditorElement.inferredSequence(for: clean)
-        let lines = clean.components(separatedBy: .newlines)
+        let elements = ScreenplayEditorElement.inferredSequence(for: attributed.string)
+        let lineMap = UTF16LineMap(text: attributed.string)
         var pageNumber = 1
         while range.location < fullLength {
+            guard pageNumber <= maximumPDFPages else {
+                throw PrintError.pageLimitExceeded(maximumPDFPages)
+            }
+            let continuation = continuationCharacter(atUTF16Offset: range.location, lineMap: lineMap, elements: elements)
+            let continuationAttr = continuation.map { name in
+                let label = name.hasSuffix("(CONT'D)") ? name : "\(name) (CONT'D)"
+                return printLabel(label, size: 12, alignment: .center)
+            }
+            let continuationHeight: CGFloat = continuationAttr.map { label in
+                let size = CTFramesetterSuggestFrameSizeWithConstraints(
+                    CTFramesetterCreateWithAttributedString(label), CFRange(location: 0, length: label.length), nil,
+                    CGSize(width: contentRect.width, height: .greatestFiniteMagnitude), nil
+                )
+                return max(18, ceil(size.height))
+            } ?? 0
+            let continuationReserve = continuation == nil ? 0 : continuationHeight + 8
+            guard continuationReserve < contentRect.height else { throw PrintError.paginationFailed }
+            let bodyRect = CGRect(x: contentRect.minX, y: contentRect.minY, width: contentRect.width, height: contentRect.height - continuationReserve)
             context.beginPDFPage(nil)
             context.saveGState()
+            // A raw PDF CGContext already uses Quartz's bottom-left, y-up coordinates.
+            // UIKit's translate/negative-scale recipe would mirror the glyphs here.
             context.textMatrix = .identity
-            context.translateBy(x: 0, y: pageRect.height)
-            context.scaleBy(x: 1, y: -1)
-            // Page number
-            let headerText = "\(pageNumber)."
-            let headerAttr = NSAttributedString(string: headerText, attributes: [
-                .font: UIFont(name: "Courier", size: 10) ?? UIFont.systemFont(ofSize: 10),
-                .foregroundColor: UIColor.black.withAlphaComponent(0.7)
-            ])
-            let headerPath = CGPath(rect: CGRect(x: 108, y: 36, width: 400, height: 20), transform: nil)
-            let headerFrame = CTFramesetterCreateFrame(CTFramesetterCreateWithAttributedString(headerAttr), CFRange(location: 0, length: headerAttr.length), headerPath, nil)
-            CTFrameDraw(headerFrame, context)
-            var path = CGPath(rect: contentRect, transform: nil)
+            drawPrintLabel(printLabel("\(pageNumber).", size: 10, alignment: .right),
+                           in: CGRect(x: contentRect.minX, y: pageRect.maxY - 56, width: contentRect.width, height: 20), context: context)
+            if let continuationAttr {
+                drawPrintLabel(continuationAttr,
+                               in: CGRect(x: contentRect.minX, y: contentRect.maxY - continuationHeight, width: contentRect.width, height: continuationHeight), context: context)
+            }
+            let path = CGPath(rect: bodyRect, transform: nil)
             var frame = CTFramesetterCreateFrame(framesetter, range, path, nil)
             var visible = CTFrameGetVisibleStringRange(frame)
             // Widow: pull back last line if next page would have single line — dual-aware for MORE/CONT'D pagination orphan
             if range.location + visible.length < fullLength {
                 let remaining = fullLength - (range.location + visible.length)
                 let nextIdxForWidow = visible.location + visible.length
-                let breakLineForWidow = (clean as NSString).substring(to: min(nextIdxForWidow, clean.count)).components(separatedBy: "\n").count - 1
-                let nextElForWidow = elements.indices.contains(breakLineForWidow) ? elements[breakLineForWidow] : nil
-                let prevElForWidow = breakLineForWidow > 0 && elements.indices.contains(breakLineForWidow-1) ? elements[breakLineForWidow-1] : nil
-                let isDualBreak = (prevElForWidow == .dialogue || prevElForWidow == .character) && (nextElForWidow == .dialogue || nextElForWidow == .parenthetical)
+                let isDualBreak = continuationCharacter(atUTF16Offset: nextIdxForWidow, lineMap: lineMap, elements: elements) != nil
                 let widowThreshold = isDualBreak ? 160 : 80
                 if remaining > 0 && remaining < widowThreshold {
                     let prefix = (attributed.string as NSString).substring(with: NSRange(location: range.location, length: visible.length))
-                    if isDualBreak {
-                        let comps = prefix.components(separatedBy: "\n")
-                        if comps.count >= 3, let lastBreak = prefix.lastIndex(of: "\n"), let secondBreak = prefix[..<lastBreak].lastIndex(of: "\n") {
-                            let pullBack = prefix.distance(from: secondBreak, to: prefix.endIndex)
-                            if pullBack < visible.length && pullBack > 0 {
-                                let adjRange = CFRange(location: range.location, length: visible.length - pullBack)
-                                frame = CTFramesetterCreateFrame(framesetter, adjRange, CGPath(rect: contentRect, transform: nil), nil)
-                                visible = CTFrameGetVisibleStringRange(frame)
-                            }
-                        } else if comps.count >= 2, let lastBreak = prefix.lastIndex(of: "\n") {
-                            let pullBack = prefix.distance(from: lastBreak, to: prefix.endIndex)
-                            if pullBack < visible.length && pullBack > 0 {
-                                let adjRange = CFRange(location: range.location, length: visible.length - pullBack)
-                                frame = CTFramesetterCreateFrame(framesetter, adjRange, CGPath(rect: contentRect, transform: nil), nil)
-                                visible = CTFrameGetVisibleStringRange(frame)
-                            }
-                        }
-                    } else if prefix.components(separatedBy: "\n").count >= 2, let lastBreak = prefix.lastIndex(of: "\n") {
-                        let pullBack = prefix.distance(from: lastBreak, to: prefix.endIndex)
-                        if pullBack < visible.length && pullBack > 0 {
-                            let adjRange = CFRange(location: range.location, length: visible.length - pullBack)
-                            frame = CTFramesetterCreateFrame(framesetter, adjRange, CGPath(rect: contentRect, transform: nil), nil)
-                            visible = CTFrameGetVisibleStringRange(frame)
-                        }
+                    let pullBack = widowPullbackUTF16Length(in: prefix, prefersDialoguePair: isDualBreak)
+                    if pullBack < visible.length && pullBack > 0 {
+                        let adjRange = CFRange(location: range.location, length: visible.length - pullBack)
+                        frame = CTFramesetterCreateFrame(framesetter, adjRange, path, nil)
+                        visible = CTFrameGetVisibleStringRange(frame)
                     }
                 }
             }
@@ -187,48 +188,77 @@ enum ScreenplayPrintService {
             // MORE at bottom if dialogue breaks
             if range.location + visible.length < fullLength {
                 let nextIdx = visible.location + visible.length
-                let breakLine = (clean as NSString).substring(to: min(nextIdx, clean.count)).components(separatedBy: "\n").count - 1
-                let nextEl = elements.indices.contains(breakLine) ? elements[breakLine] : nil
-                let prevEl = breakLine > 0 && elements.indices.contains(breakLine-1) ? elements[breakLine-1] : nil
-                if (prevEl == .dialogue || prevEl == .character) && (nextEl == .dialogue || nextEl == .parenthetical) {
-                    let moreAttr = NSAttributedString(string: "(MORE)", attributes: [.font: UIFont(name: "Courier", size: 10) ?? UIFont.systemFont(ofSize: 10), .foregroundColor: UIColor.black])
-                    let morePath = CGPath(rect: CGRect(x: 250, y: 730, width: 112, height: 14), transform: nil)
-                    let moreFrame = CTFramesetterCreateFrame(CTFramesetterCreateWithAttributedString(moreAttr), CFRange(location: 0, length: moreAttr.length), morePath, nil)
-                    CTFrameDraw(moreFrame, context)
-                }
-            }
-            if range.location > 0 {
-                let prevIdx = max(0, range.location - 1)
-                let prevLineIdx = (clean as NSString).substring(to: min(prevIdx, clean.count)).components(separatedBy: "\n").count - 1
-                let prevEl = elements.indices.contains(prevLineIdx) ? elements[prevLineIdx] : nil
-                if prevEl == .dialogue || prevEl == .parenthetical {
-                    var charName: String?
-                    var scan = prevLineIdx
-                    while scan >= 0 {
-                        if elements.indices.contains(scan), elements[scan] == .character {
-                            charName = lines[scan].trimmingCharacters(in: .whitespacesAndNewlines)
-                            break
-                        }
-                        scan -= 1
-                    }
-                    if let name = charName, !name.isEmpty {
-                        let contAttr = NSAttributedString(string: "\(name) (CONT'D)", attributes: [.font: UIFont(name: "Courier", size: 12) ?? UIFont.monospacedSystemFont(ofSize: 12, weight: .regular), .foregroundColor: UIColor.black])
-                        let contPath = CGPath(rect: CGRect(x: 220, y: 72, width: 200, height: 14), transform: nil)
-                        let contFrame = CTFramesetterCreateFrame(CTFramesetterCreateWithAttributedString(contAttr), CFRange(location: 0, length: contAttr.length), contPath, nil)
-                        CTFrameDraw(contFrame, context)
-                    }
+                if continuationCharacter(atUTF16Offset: nextIdx, lineMap: lineMap, elements: elements) != nil {
+                    drawPrintLabel(printLabel("(MORE)", size: 10, alignment: .center),
+                                   in: CGRect(x: contentRect.minX, y: contentRect.minY - 28, width: contentRect.width, height: 16), context: context)
                 }
             }
             context.restoreGState()
             context.endPDFPage()
-            guard visible.length > 0 else { break }
-            range.location += visible.length
+            range.location = try nextPageOffset(after: visible, currentOffset: range.location, totalLength: fullLength)
             pageNumber += 1
-            if pageNumber > 250 { break }
         }
         context.closePDF()
+        didFinishPDF = true
         return data as Data
         #endif
+    }
+
+    /// Core Text ranges are UTF-16 offsets, not Swift grapheme counts. Build once per
+    /// render so locating continuation lines does not rescan a long draft per page.
+    struct UTF16LineMap {
+        let lines: [String]
+        private let starts: [Int]
+        let utf16Length: Int
+
+        init(text: String) {
+            lines = text.components(separatedBy: "\n")
+            var offset = 0
+            starts = lines.map { line in
+                defer { offset += (line as NSString).length + 1 }
+                return offset
+            }
+            utf16Length = (text as NSString).length
+        }
+
+        func lineIndex(atUTF16Offset offset: Int) -> Int {
+            let target = min(max(0, offset), utf16Length)
+            var lower = 0
+            var upper = starts.count
+            while lower < upper {
+                let middle = lower + (upper - lower) / 2
+                if starts[middle] <= target { lower = middle + 1 }
+                else { upper = middle }
+            }
+            return max(0, lower - 1)
+        }
+    }
+
+    static func continuationCharacter(atUTF16Offset offset: Int, lineMap: UTF16LineMap, elements: [ScreenplayEditorElement?]) -> String? {
+        guard offset > 0, offset < lineMap.utf16Length else { return nil }
+        var index = lineMap.lineIndex(atUTF16Offset: offset)
+        guard elements.indices.contains(index), elements[index] == .dialogue || elements[index] == .parenthetical else { return nil }
+        while index >= 0, elements.indices.contains(index), elements[index] == .dialogue || elements[index] == .parenthetical {
+            index -= 1
+        }
+        guard index >= 0, elements.indices.contains(index), elements[index] == .character, lineMap.lines.indices.contains(index) else { return nil }
+        let name = ScreenplayEditorElement.characterCueName(lineMap.lines[index]).trimmingCharacters(in: .whitespacesAndNewlines)
+        return name.isEmpty ? nil : name
+    }
+
+    static func widowPullbackUTF16Length(in prefix: String, prefersDialoguePair: Bool) -> Int {
+        guard let lastBreak = prefix.lastIndex(of: "\n") else { return 0 }
+        let start = prefersDialoguePair ? (prefix[..<lastBreak].lastIndex(of: "\n") ?? lastBreak) : lastBreak
+        return NSRange(start..<prefix.endIndex, in: prefix).length
+    }
+
+    static func nextPageOffset(after visible: CFRange, currentOffset: Int, totalLength: Int) throws -> Int {
+        guard currentOffset >= 0, currentOffset < totalLength,
+              visible.location == currentOffset, visible.length > 0,
+              visible.length <= totalLength - currentOffset else {
+            throw PrintError.paginationFailed
+        }
+        return currentOffset + visible.length
     }
 
     /// Real page count of a rendered PDF; nil if the data isn't a readable PDF.
@@ -248,8 +278,23 @@ enum ScreenplayPrintService {
     }
 
     #if !os(macOS)
+    private static func printLabel(_ text: String, size: CGFloat, alignment: NSTextAlignment) -> NSAttributedString {
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = alignment
+        return NSAttributedString(string: text, attributes: [
+            .font: UIFont(name: "Courier", size: size) ?? UIFont.monospacedSystemFont(ofSize: size, weight: .regular),
+            .foregroundColor: UIColor.black,
+            .paragraphStyle: paragraph,
+        ])
+    }
+
+    private static func drawPrintLabel(_ label: NSAttributedString, in rect: CGRect, context: CGContext) {
+        let frame = CTFramesetterCreateFrame(CTFramesetterCreateWithAttributedString(label), CFRange(location: 0, length: label.length), CGPath(rect: rect, transform: nil), nil)
+        CTFrameDraw(frame, context)
+    }
+
     private static func iOSAttributedDraft(for draft: String, printableWidth: CGFloat) -> NSAttributedString {
-        let fullText = draft.replacingOccurrences(of: "\r\n", with: "\n")
+        let fullText = draft
         let lines = fullText.components(separatedBy: .newlines)
         let inferred = ScreenplayEditorElement.inferredSequence(for: fullText)
         let font = UIFont(name: "Courier", size: 12) ?? UIFont.monospacedSystemFont(ofSize: 12, weight: .regular)
@@ -291,13 +336,20 @@ enum ScreenplayPrintService {
     }
     #endif
 
-    enum PrintError: LocalizedError {
+    enum PrintError: LocalizedError, Equatable {
         case emptyDraft
         case noDraft
+        case pdfCreationFailed
+        case paginationFailed
+        case pageLimitExceeded(Int)
         var errorDescription: String? {
             switch self {
             case .emptyDraft: return "Draft is empty."
             case .noDraft: return "No current draft to print."
+            case .pdfCreationFailed: return "Could not create the print PDF. Nothing was sent to the printer."
+            case .paginationFailed: return "Could not lay out the complete screenplay. Nothing was sent to the printer."
+            case .pageLimitExceeded(let limit):
+                return "This screenplay exceeds the \(limit)-page print limit. Nothing was sent to the printer. Print a smaller section instead."
             }
         }
     }

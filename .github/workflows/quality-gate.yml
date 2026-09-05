@@ -114,7 +114,7 @@ jobs:
     name: Quality Gate
     runs-on: macos-latest
     # Measured 2026-09-02/03: repo gate ~10 s, required writer loop 490–590 s,
-    # soft UI smoke 750–1000 s, voice smokes 170–260 s, plus setup — about
+    # UI smoke 750–1000 s, voice smokes 170–260 s, plus setup — about
     # 35 min end to end. Without this cap a wedged simulator holds the
     # required check for the 6-hour default.
     timeout-minutes: 75
@@ -208,6 +208,7 @@ jobs:
             -configuration 'Mac Scaffold Debug' \
             -destination 'platform=macOS' \
             -only-testing:themTests/ScreenplayLocalExportTests \
+            -only-testing:themTests/ScreenplayPrintMacRenderingTests \
             -parallel-testing-enabled NO \
             -resultBundlePath /tmp/them-macos-export-unit-tests.xcresult \
             CODE_SIGNING_ALLOWED=YES CODE_SIGNING_REQUIRED=YES \
@@ -218,12 +219,10 @@ jobs:
         working-directory: backend
         run: npm run eval:studio-ios-writer-loop-contract
 
-      - name: Run iOS V1 UI smoke tests (soft gate)
-        continue-on-error: true
+      - name: Run signed iOS V1 UI smoke tests
         run: scripts/run_v1_ui_smoke.sh
 
-      - name: Run iPhone and macOS voice network-fault smokes (soft gate)
-        continue-on-error: true
+      - name: Run signed iPhone and macOS voice network-fault smokes
         run: scripts/run_voice_network_fault_smokes.sh
 
       - name: Workflow inputs summary
@@ -248,10 +247,10 @@ jobs:
             echo "- Ops alerts: $(gate_status "${RUN_ALERT}")"
             echo "- Load profile: $(gate_status "${RUN_LOAD}")"
             echo "- iOS unit bundle: required (signed themTests)"
-            echo "- macOS local export unit tests: required (signed ScreenplayLocalExportTests)"
+            echo "- macOS exports and print drawing: required (signed native rendering tests)"
             echo "- Integrated iPhone writer loop: required"
-            echo "- iOS V1 UI smoke: soft gate (themUITests)"
-            echo "- Voice network faults: soft gate (iPhone + macOS themUITests)"
+            echo "- iOS V1 UI smoke: enforced (signed themUITests; no provider secret)"
+            echo "- Voice network faults: enforced (signed iPhone + macOS fixture smokes)"
             echo "- Default secrets for this workflow shape: \`OPENAI_API_KEY\`, \`APP_TOKEN\`"
           } | tee -a "${GITHUB_STEP_SUMMARY}"
 

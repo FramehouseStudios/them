@@ -39,7 +39,7 @@ async function withTestServer(fn, opts = {}) {
     canReadTalkTurnMeta: () => true,
     turnReadRateLimiter: opts.rateLimiter,
   });
-  const server = app.listen(0);
+  const server = app.listen(0, "127.0.0.1");
   await new Promise((resolve) => server.once("listening", resolve));
   const baseURL = `http://127.0.0.1:${server.address().port}`;
   try {

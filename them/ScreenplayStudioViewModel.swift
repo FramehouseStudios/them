@@ -1341,6 +1341,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         let screenplayBindings: [BackendScreenplayBindingRecord]
         let baseVersionId: String
         let authContext: ScreenplayStudioAuthContext
+        let selectionID: UUID
 
         init(
             id: String,
@@ -1354,7 +1355,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
             studioWriteAnchors: [BackendScreenplayWriteAnchor],
             screenplayBindings: [BackendScreenplayBindingRecord],
             baseVersionId: String,
-            authContext: ScreenplayStudioAuthContext
+            authContext: ScreenplayStudioAuthContext,
+            selectionID: UUID
         ) {
             self.id = id
             self.projectId = projectId
@@ -1368,9 +1370,10 @@ final class ScreenplayStudioViewModel: ObservableObject {
             self.screenplayBindings = screenplayBindings
             self.baseVersionId = baseVersionId
             self.authContext = authContext
+            self.selectionID = selectionID
         }
 
-        init(entry: ScreenplayDraftSaveOutboxEntry, authContext: ScreenplayStudioAuthContext) {
+        init(entry: ScreenplayDraftSaveOutboxEntry, authContext: ScreenplayStudioAuthContext, selectionID: UUID) {
             id = entry.id
             projectId = entry.projectId
             ownerUserId = entry.ownerUserId
@@ -1383,6 +1386,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
             screenplayBindings = entry.screenplayBindings
             baseVersionId = entry.baseVersionId
             self.authContext = authContext
+            self.selectionID = selectionID
         }
 
         var outboxEntry: ScreenplayDraftSaveOutboxEntry {
@@ -1421,7 +1425,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 studioWriteAnchors: studioWriteAnchors,
                 screenplayBindings: screenplayBindings,
                 baseVersionId: serverVersionId.trimmingCharacters(in: .whitespacesAndNewlines),
-                authContext: authContext
+                authContext: authContext,
+                selectionID: selectionID
             )
         }
     }
@@ -1471,7 +1476,14 @@ final class ScreenplayStudioViewModel: ObservableObject {
     @Published var infoText: String = ""
 
     @Published var projects: [BackendScreenplayProjectSummary] = []
-    @Published var selectedProjectID: String = ""
+    @Published var selectedProjectID: String = "" {
+        didSet {
+            if oldValue.trimmingCharacters(in: .whitespacesAndNewlines) !=
+                selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines) {
+                draftSaveSelectionID = UUID()
+            }
+        }
+    }
     @Published var selectedProject: BackendScreenplayProjectSummary?
     @Published var outline: BackendScreenplayOutline = .empty
     @Published var outlineRevision: Int = 0
@@ -1624,6 +1636,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
     @Published var isPaginationRefreshing: Bool = false
     @Published var paginationErrorText: String = ""
     @Published var linesPerPage: Int = 55
+    private var paginationRefreshID: UUID?
     @Published var revisionColor: String = "blue"
     @Published var revisionSummary: BackendScreenplayRevisionSummary?
     @Published var revisionRanges: [BackendScreenplayRevisionRange] = []
@@ -1676,6 +1689,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
     private var outlineRevisionProjectID = ""
     private var isCrossDeviceRefreshInFlight = false
     private var isDraftSaveInFlight = false
+    private var draftSaveSelectionID = UUID()
+    private var revisionRefreshID: UUID?
     private var outlineMutationRetryTask: Task<Void, Never>?
     private var outlineMutationDrainCoordinator = ScreenplayOutlineMutationDrainCoordinator()
     private var outlineMutationTerminalAcceptance: [String: Bool] = [:]
@@ -1683,15 +1698,25 @@ final class ScreenplayStudioViewModel: ObservableObject {
     private var latestOptimisticOutlineMutationByProject: [String: ScreenplayOutlineMutationOutboxEntry] = [:]
     private var pendingDraftSaveRequest: DraftSaveRequest?
     private var shouldQueuePendingDraftSaveAfterFailure = false
-    private let localDraftRecoveryStore = ScreenplayLocalDraftRecoveryStore()
-    private let draftSaveOutbox = ScreenplayDraftSaveOutbox.shared
+    private let localDraftRecoveryStore: ScreenplayLocalDraftRecoveryStore
+    private let draftSaveOutbox: ScreenplayDraftSaveOutbox
+    private let draftAPI: BackendMemoryAPI
     private let outlineMutationOutbox = ScreenplayOutlineMutationOutbox.shared
     private let craftClient = BackendClient()
-    private let projectSelectionAPI = BackendMemoryAPI()
+    private let projectSelectionAPI: BackendMemoryAPI
     private var clientTokenOwnedProjectIDs: Set<String> = []
     private var activeLoadRequestID: UUID?
 
-    init() {
+    init(
+        draftSaveOutbox: ScreenplayDraftSaveOutbox = .shared,
+        localDraftRecoveryStore: ScreenplayLocalDraftRecoveryStore? = nil,
+        draftAPI: BackendMemoryAPI = .shared,
+        projectSelectionAPI: BackendMemoryAPI = BackendMemoryAPI()
+    ) {
+        self.draftSaveOutbox = draftSaveOutbox
+        self.localDraftRecoveryStore = localDraftRecoveryStore ?? ScreenplayLocalDraftRecoveryStore()
+        self.draftAPI = draftAPI
+        self.projectSelectionAPI = projectSelectionAPI
         fountainDraft = ScreenplayLiveDraftBridge.shared.draftText
         draftDebounceCancellable = $fountainDraft
             .removeDuplicates()
@@ -1724,6 +1749,16 @@ final class ScreenplayStudioViewModel: ObservableObject {
     }
 
     func load() async {
+        errorText = ""
+        infoText = ""
+        #if DEBUG
+        if IOThemRuntime.isRunningUITests,
+           ProcessInfo.processInfo.arguments.contains("--ui-studio-recovery-error") {
+            didLoadScreenplayProjectsFromBackend = true
+            infoText = "Studio refreshed. The last saved version remains available."
+            return
+        }
+        #endif
         guard !IOThemRuntime.isRunningTests else {
             didLoadScreenplayProjectsFromBackend = false
             projects = []
@@ -1747,8 +1782,6 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 isLoading = false
             }
         }
-        errorText = ""
-        infoText = ""
         let result: BackendReadResult<BackendScreenplayProjectsResponse>
         do {
             result = try await BackendMemoryAPI.shared.fetchScreenplayProjects(
@@ -1798,7 +1831,9 @@ final class ScreenplayStudioViewModel: ObservableObject {
         guard authContextIsCurrent(authContext) else { return }
         await refreshPendingScreenplayQuestion()
         guard authContextIsCurrent(authContext) else { return }
-        await resumeQueuedDraftSavesIfNeeded()
+        // A completed authenticated reload proves connectivity. Do not leave a
+        // fast relaunch waiting for the previous offline attempt's backoff.
+        await resumeQueuedDraftSavesIfNeeded(force: true)
     }
 
     func refresh() async {
@@ -5065,7 +5100,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
         await refreshScreenplayExportFormats(reportErrors: false)
     }
 
-    func refreshCrossDeviceStateIfNeeded() async {
+    @discardableResult
+    func refreshCrossDeviceStateIfNeeded() async -> AdaptiveBackgroundSyncOutcome {
         await resumeQueuedDraftSavesIfNeeded()
         // A transient launch-time project-list failure must not permanently
         // disable the timer that can recover that same list on reconnect.
@@ -5073,7 +5109,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
               !isLoading,
               !isSaving,
               !isStreamingDraftPreviewActive else {
-            return
+            return .deferred
         }
         isCrossDeviceRefreshInFlight = true
         defer { isCrossDeviceRefreshInFlight = false }
@@ -5085,7 +5121,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 includeVersions: false,
                 includeDrafts: false
             )
-            guard authContextIsCurrent(authContext) else { return }
+            guard authContextIsCurrent(authContext) else { return .deferred }
             let incomingStateVersion = result.payload.stateVersion?
                 .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             let shouldRefresh = CrossDeviceStateVersionPolicy.shouldRefresh(
@@ -5095,17 +5131,19 @@ final class ScreenplayStudioViewModel: ObservableObject {
             if !incomingStateVersion.isEmpty {
                 lastSeenScreenplayStateVersion = incomingStateVersion
             }
-            guard shouldRefresh else { return }
+            guard shouldRefresh else { return .succeeded }
 
             let locallySelectedProjectID = selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
             projects = result.payload.screenplayProjects
             selectedProjectID = locallySelectedProjectID
-            guard !locallySelectedProjectID.isEmpty else { return }
+            guard !locallySelectedProjectID.isEmpty else { return .succeeded }
             await loadSelectedProjectOutline(reportErrors: false, remoteRefresh: true)
-            guard authContextIsCurrent(authContext) else { return }
+            guard authContextIsCurrent(authContext) else { return .deferred }
             await refreshPendingScreenplayQuestion()
+            return .succeeded
         } catch {
             // Background continuity refreshes stay quiet; explicit refresh still reports errors.
+            return .failed
         }
     }
 
@@ -5541,8 +5579,15 @@ final class ScreenplayStudioViewModel: ObservableObject {
         Task { await saveCurrentDraft(source: source) }
     }
 
-    private func handleDraftDebouncedChange(_ draft: String) async {
-        guard !isHydratingDraft else { return }
+    func handleDraftDebouncedChange(_ draft: String) async {
+        guard !isHydratingDraft, fountainDraft == draft else { return }
+        let authContext = currentStudioAuthContext()
+        let projectID = selectedProjectID
+        let versionID = latestVersionID
+        func isCurrentDraft() -> Bool {
+            authContextIsCurrent(authContext) && selectedProjectID == projectID &&
+                latestVersionID == versionID && fountainDraft == draft && !isHydratingDraft
+        }
         let normalized = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         let hasCoveragePresentation = coverageSimulationReport != nil ||
             !coverageSimulationErrorText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -5556,7 +5601,12 @@ final class ScreenplayStudioViewModel: ObservableObject {
         let currentFingerprint = fingerprint(for: normalized)
         hasUnsavedDraftChanges = currentFingerprint != lastSavedDraftFingerprint
         if hasUnsavedDraftChanges && isManualDraftEditing {
-            autosaveStatusText = "Unsaved changes"
+            if autosaveEnabled {
+                autosaveStatusText = "Unsaved changes"
+            } else {
+                await refreshDraftStatusWithAutosaveDisabled()
+                guard isCurrentDraft() else { return }
+            }
             if infoText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
                 infoText == "Project ready." ||
                 infoText == "Loaded latest draft" {
@@ -5565,7 +5615,9 @@ final class ScreenplayStudioViewModel: ObservableObject {
         }
 
         await recomputePagination(for: draft, source: "Draft")
+        guard isCurrentDraft() else { return }
         await recomputeRevision(for: draft, source: "Draft")
+        guard isCurrentDraft() else { return }
         Task { await self.refreshFormatLint(source: "Draft") }
 
         if isStreamingDraftPreviewActive {
@@ -5591,7 +5643,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
             return
         }
         guard autosaveEnabled else {
-            autosaveStatusText = hasUnsavedDraftChanges ? "Unsaved changes" : "Saved"
+            await refreshDraftStatusWithAutosaveDisabled()
             return
         }
         guard hasUnsavedDraftChanges else {
@@ -5641,25 +5693,47 @@ final class ScreenplayStudioViewModel: ObservableObject {
             screenplayBindings: screenplayBindings,
             baseVersionId: (baseVersionOverride ?? latestVersionID)
                 .trimmingCharacters(in: .whitespacesAndNewlines),
-            authContext: authContext
+            authContext: authContext,
+            selectionID: draftSaveSelectionID
         )
     }
 
+    func refreshDraftStatusWithAutosaveDisabled() async {
+        guard !autosaveEnabled,
+              !isSaving,
+              !isStreamingDraftPreviewActive,
+              conflictState == nil else { return }
+        autosaveStatusText = hasUnsavedDraftChanges ? "Unsaved changes" : "Saved"
+        await refreshDraftSaveOutboxStatus()
+    }
+
     func refreshDraftSaveOutboxStatus() async {
-        let ownerUserId = BackendAuthClient.currentAuthSessionState().user?.userId
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let snapshot = await draftSaveOutbox.snapshot(ownerUserId: ownerUserId)
-        queuedDraftSaveCount = snapshot.activeCount
-        parkedDraftSaveCount = snapshot.parkedCount
-        guard !isSaving, conflictState == nil else { return }
-        if snapshot.activeCount > 0 {
-            autosaveStatusText = snapshot.activeCount == 1
+        let authContext = currentStudioAuthContext()
+        let projectId = selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let draft = fountainDraft
+        let snapshot = await draftSaveOutbox.snapshot(
+            ownerUserId: authContext.userID,
+            projectId: projectId,
+            draft: draft
+        )
+        guard authContextIsCurrent(authContext) else { return }
+        queuedDraftSaveCount = snapshot.owner.activeCount
+        parkedDraftSaveCount = snapshot.owner.parkedCount
+        guard !isSaving,
+              !isStreamingDraftPreviewActive,
+              conflictState == nil,
+              !projectId.isEmpty,
+              selectedProject?.id == projectId,
+              selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines) == projectId,
+              fountainDraft == draft else { return }
+        if snapshot.draft.activeCount > 0 {
+            autosaveStatusText = snapshot.draft.activeCount == 1
                 ? "Queued locally - reconnecting"
-                : "\(snapshot.activeCount) saves queued locally"
-        } else if snapshot.parkedCount > 0 {
-            autosaveStatusText = snapshot.parkedCount == 1
+                : "\(snapshot.draft.activeCount) saves queued locally"
+        } else if snapshot.draft.parkedCount > 0 {
+            autosaveStatusText = snapshot.draft.parkedCount == 1
                 ? "1 local save needs attention"
-                : "\(snapshot.parkedCount) local saves need attention"
+                : "\(snapshot.draft.parkedCount) local saves need attention"
         }
     }
 
@@ -5670,7 +5744,9 @@ final class ScreenplayStudioViewModel: ObservableObject {
             return
         }
         let projectId = selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !projectId.isEmpty else {
+        guard !projectId.isEmpty,
+              selectedProject?.id == projectId,
+              loadedDraftProjectID == projectId else {
             await refreshDraftSaveOutboxStatus()
             return
         }
@@ -5695,13 +5771,50 @@ final class ScreenplayStudioViewModel: ObservableObject {
             guard let entry else { break }
             let currentContext = currentStudioAuthContext()
             guard currentContext.userID == entry.ownerUserId.trimmingCharacters(in: .whitespacesAndNewlines) else {
+                try? await draftSaveOutbox.markRetryable(id: entry.id, error: "Account changed before retry.")
                 break
             }
-            let didSave = await performDraftSave(DraftSaveRequest(entry: entry, authContext: currentContext))
-            guard didSave else { break }
+            guard selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines) == entry.projectId,
+                  selectedProject?.id == entry.projectId else {
+                try? await draftSaveOutbox.markRetryable(id: entry.id, error: "Project changed before retry.")
+                break
+            }
+            restoreQueuedDraftForRetryIfNeeded(entry)
+            let request = DraftSaveRequest(entry: entry, authContext: currentContext, selectionID: draftSaveSelectionID)
+            let didSave = await performDraftSave(request)
+            guard didSave, draftSaveContextIsCurrent(request) else { break }
             completedCount += 1
         }
         await refreshDraftSaveOutboxStatus()
+    }
+
+    func restoreQueuedDraftForRetryIfNeeded(_ entry: ScreenplayDraftSaveOutboxEntry) {
+        let ownerID = currentStudioAuthContext().userID
+        guard ownerID == entry.ownerUserId,
+              selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines) == entry.projectId,
+              selectedProject?.id == entry.projectId,
+              !hasUnsavedDraftChanges,
+              !isStreamingDraftPreviewActive,
+              conflictState == nil else { return }
+        // Relaunch hydrates the server first. A requested local save must be on
+        // the page before its retry can present a meaningful Keep Mine decision.
+        // Prefer newer journal edits, but never replace an already-dirty page.
+        let recovery = localDraftRecoveryStore.recoverySnapshot(
+            ownerUserId: ownerID,
+            projectId: entry.projectId,
+            serverDraft: fountainDraft,
+            fingerprint: { [weak self] value in self?.fingerprint(for: value) ?? value }
+        )
+        let useRecovery = (recovery?.savedAt ?? 0) >= entry.createdAt
+        let draft = useRecovery ? (recovery?.draft ?? entry.draft) : entry.draft
+        guard fingerprint(for: draft) != fingerprint(for: fountainDraft) else { return }
+        recoveryCandidate = LocalDraftRecoveryCandidate(
+            projectId: entry.projectId,
+            draft: draft,
+            baseVersionId: useRecovery ? (recovery?.baseVersionId ?? entry.baseVersionId) : entry.baseVersionId,
+            savedAt: useRecovery ? (recovery?.savedAt ?? entry.createdAt) : entry.createdAt
+        )
+        restoreDraftFromRecovery()
     }
 
     func reconnectAndResumeQueuedDraftSaves() async {
@@ -5736,13 +5849,23 @@ final class ScreenplayStudioViewModel: ObservableObject {
             return
         }
 
-        if !isDraftSaveInFlight,
-           (try? await draftSaveOutbox.hasActiveEntries(
-               projectId: request.projectId,
-               ownerUserId: request.ownerUserId
-           )) == true {
+        var hasActiveEntries = false
+        if !isDraftSaveInFlight {
+            hasActiveEntries = (try? await draftSaveOutbox.hasActiveEntries(
+                projectId: request.projectId,
+                ownerUserId: request.ownerUserId
+            )) == true
+        }
+        // The queue read suspends. A different save or selection may now own the editor.
+        guard draftSaveContextIsCurrent(request) else { return }
+        if isDraftSaveInFlight {
+            pendingDraftSaveRequest = request
+            return
+        }
+        if hasActiveEntries {
             do {
                 try await draftSaveOutbox.enqueue(request.outboxEntry)
+                guard draftSaveContextIsCurrent(request) else { return }
                 hasUnsavedDraftChanges = true
                 persistRecoveryForUnconfirmedSave(
                     projectId: request.projectId,
@@ -5754,13 +5877,9 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 errorText = ""
                 await refreshDraftSaveOutboxStatus()
             } catch {
+                guard draftSaveContextIsCurrent(request) else { return }
                 errorText = "Your draft is preserved locally, but its retry could not be queued: \(error.localizedDescription)"
             }
-            return
-        }
-
-        if isDraftSaveInFlight {
-            pendingDraftSaveRequest = request
             return
         }
 
@@ -5774,17 +5893,32 @@ final class ScreenplayStudioViewModel: ObservableObject {
             guard didSave else {
                 let queuedRequest = pendingDraftSaveRequest
                 pendingDraftSaveRequest = nil
+                if let queuedRequest,
+                   draftSaveContextIsCurrent(queuedRequest),
+                   !draftSaveContextIsCurrent(activeRequest) {
+                    // An explicitly requested save in the new context keeps its own base.
+                    nextRequest = queuedRequest
+                    continue
+                }
                 if shouldQueuePendingDraftSaveAfterFailure,
-                   let queuedRequest {
+                   let queuedRequest,
+                   draftSaveContextIsCurrent(queuedRequest) {
                     do {
                         try await draftSaveOutbox.enqueue(queuedRequest.outboxEntry)
                     } catch {
+                        guard draftSaveContextIsCurrent(queuedRequest) else { return }
                         errorText = "Your newest local draft is preserved, but its retry could not be queued: \(error.localizedDescription)"
                     }
                 }
                 return
             }
             if let queuedRequest = pendingDraftSaveRequest {
+                pendingDraftSaveRequest = nil
+                guard draftSaveContextIsCurrent(queuedRequest) else { return }
+                guard draftSaveContextIsCurrent(activeRequest) else {
+                    nextRequest = queuedRequest
+                    continue
+                }
                 if ScreenplayDraftSaveCoalescingPolicy.shouldCoalesce(
                     activeDraft: activeRequest.draft,
                     activeSource: activeRequest.source,
@@ -5802,6 +5936,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 continue
             }
 
+            guard draftSaveContextIsCurrent(activeRequest) else { return }
             let currentDraft = fountainDraft
             guard ScreenplayDraftSaveCompletionPolicy.hasUnsavedChanges(
                 currentDraft: currentDraft,
@@ -5823,6 +5958,13 @@ final class ScreenplayStudioViewModel: ObservableObject {
         }
     }
 
+    private func draftSaveContextIsCurrent(_ request: DraftSaveRequest) -> Bool {
+        authContextIsCurrent(request.authContext) &&
+            draftSaveSelectionID == request.selectionID &&
+            selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines) == request.projectId &&
+            selectedProject?.id == request.projectId
+    }
+
     private func performDraftSave(_ request: DraftSaveRequest) async -> Bool {
         let normalized = request.draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalized.isEmpty else {
@@ -5830,7 +5972,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
             return false
         }
 
-        guard authContextIsCurrent(request.authContext) else { return false }
+        guard draftSaveContextIsCurrent(request) else { return false }
 
         #if DEBUG
         if IOThemRuntime.isRunningUITests,
@@ -5856,7 +5998,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
             try await draftSaveOutbox.enqueue(request.outboxEntry)
             try await draftSaveOutbox.markInflight(id: request.id)
         } catch {
-            guard authContextIsCurrent(request.authContext) else { return false }
+            guard draftSaveContextIsCurrent(request) else { return false }
             hasUnsavedDraftChanges = true
             persistRecoveryForUnconfirmedSave(
                 projectId: request.projectId,
@@ -5872,14 +6014,19 @@ final class ScreenplayStudioViewModel: ObservableObject {
         isSaving = true
         defer { isSaving = false }
         do {
-            guard authContextIsCurrent(request.authContext) else {
+            guard draftSaveContextIsCurrent(request) else {
                 try? await draftSaveOutbox.markRetryable(
                     id: request.id,
-                    error: "Account changed before save confirmation."
+                    error: "Account or project changed before save confirmation."
                 )
                 return false
             }
-            switch try await emptyBaseDraftSavePreflight(for: request) {
+            let preflight = try await emptyBaseDraftSavePreflight(for: request)
+            guard draftSaveContextIsCurrent(request) else {
+                try? await draftSaveOutbox.markRetryable(id: request.id, error: "Account or project changed during save preflight.")
+                return false
+            }
+            switch preflight {
             case .notRequired, .versionlessProject:
                 break
             case .canonicalVersion(let serverVersion):
@@ -5890,6 +6037,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
                         id: request.id,
                         serverVersionId: serverVersion.id
                     )
+                    guard draftSaveContextIsCurrent(request) else { return true }
                     latestVersionID = serverVersion.id
                     lastSavedDraftFingerprint = fingerprint(for: request.draft)
                     lastRevisionBaseDraft = request.draft
@@ -5938,7 +6086,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
             let baseVersionId = request.baseVersionId
             let result: BackendReadResult<BackendScreenplayVersionMutationResponse>
             do {
-                result = try await BackendMemoryAPI.shared.upsertScreenplayProjectVersion(
+                result = try await draftAPI.upsertScreenplayProjectVersion(
                     projectId: request.projectId,
                     draft: request.draft,
                     title: request.title,
@@ -5952,12 +6100,16 @@ final class ScreenplayStudioViewModel: ObservableObject {
                     clientRequestId: request.id,
                     includeUserIdentity: ownerHeaders.includeUserIdentity,
                     includeAuthToken: ownerHeaders.includeAuthToken,
-                    clientTokenOverride: ownerHeaders.clientTokenOverride
+                    clientTokenOverride: ownerHeaders.clientTokenOverride,
+                    expectedAuthSessionIntentGeneration: request.authContext.sessionIntentGeneration
                 )
             } catch BackendMemoryAPIError.server(let status, _)
                         where ownerHeaders.usesDebugClientTokenOwner && status == 404 {
-                guard authContextIsCurrent(request.authContext) else { return false }
-                result = try await BackendMemoryAPI.shared.upsertScreenplayProjectVersion(
+                guard draftSaveContextIsCurrent(request) else {
+                    try? await draftSaveOutbox.markRetryable(id: request.id, error: "Account or project changed before save retry.")
+                    return false
+                }
+                result = try await draftAPI.upsertScreenplayProjectVersion(
                     projectId: request.projectId,
                     draft: request.draft,
                     title: request.title,
@@ -5968,7 +6120,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
                     screenplayBindings: request.screenplayBindings,
                     baseVersionId: baseVersionId,
                     conflictStrategy: "reject_if_stale",
-                    clientRequestId: request.id
+                    clientRequestId: request.id,
+                    expectedAuthSessionIntentGeneration: request.authContext.sessionIntentGeneration
                 )
             }
             guard authContextIsCurrent(request.authContext) else {
@@ -5981,6 +6134,12 @@ final class ScreenplayStudioViewModel: ObservableObject {
             let conflictDetected = (result.payload.conflict ?? false)
                 || (result.payload.status?.localizedCaseInsensitiveContains("conflict") ?? false)
             if conflictDetected {
+                guard draftSaveContextIsCurrent(request) else {
+                    // Keep the original bytes and base. Reopening the project retries
+                    // its own conflict decision; another page must never display it.
+                    try? await draftSaveOutbox.markRetryable(id: request.id, error: "Project changed before conflict confirmation.")
+                    return false
+                }
                 let baseVersionId = (result.payload.baseVersionId ?? "")
                     .trimmingCharacters(in: .whitespacesAndNewlines)
                 let serverVersionId = (result.payload.serverVersionId ?? "")
@@ -6008,21 +6167,25 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 )
                 return false
             }
-            conflictState = nil
-            if let nextProject = result.payload.project {
-                upsertProject(nextProject)
-                selectedProject = nextProject
-                selectedProjectID = nextProject.id
-            }
             let nextVersionId = (result.payload.versionId ?? result.payload.version?.id ?? "")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !nextVersionId.isEmpty else {
+            guard !nextVersionId.isEmpty,
+                  result.payload.project.map({ $0.id == request.projectId }) ?? true,
+                  result.payload.projectId.map({ $0 == request.projectId }) ?? true else {
                 throw BackendMemoryAPIError.invalidResponse
             }
             try? await draftSaveOutbox.markSucceeded(
                 id: request.id,
                 serverVersionId: nextVersionId
             )
+            // Acknowledge the original durable request even after navigation, but
+            // re-check ownership after the actor hop before touching editor state.
+            guard draftSaveContextIsCurrent(request) else { return true }
+            conflictState = nil
+            if let nextProject = result.payload.project {
+                upsertProject(nextProject)
+                selectedProject = nextProject
+            }
             latestVersionID = nextVersionId
             if let savedAnchors = result.payload.version?.studioWriteAnchors {
                 studioWriteAnchors = savedAnchors.filter { anchor in
@@ -6069,6 +6232,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
             if request.source == "studio_snapshot" || request.source == "studio_conflict_resolve" {
                 await loadSelectedProjectOutline()
             }
+            guard draftSaveContextIsCurrent(request) else { return true }
             persistLocalDraftRecovery(
                 projectId: request.projectId,
                 draft: fountainDraft,
@@ -6076,6 +6240,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 dirty: hasUnsavedDraftChanges
             )
             await recomputeRevision(for: fountainDraft, source: request.source)
+            guard draftSaveContextIsCurrent(request) else { return true }
             if !errorText.isEmpty {
                 errorText = ""
             }
@@ -6088,26 +6253,31 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 )
                 return false
             }
+            let shouldRetry = ScreenplayDraftSaveRetryPolicy.shouldRetry(error)
+            if shouldRetry {
+                shouldQueuePendingDraftSaveAfterFailure = true
+                try? await draftSaveOutbox.markRetryable(
+                    id: request.id,
+                    error: error.localizedDescription
+                )
+            } else {
+                try? await draftSaveOutbox.markParked(
+                    id: request.id,
+                    error: error.localizedDescription
+                )
+            }
+            guard draftSaveContextIsCurrent(request) else { return false }
             hasUnsavedDraftChanges = true
             persistRecoveryForUnconfirmedSave(
                 projectId: request.projectId,
                 draft: fountainDraft,
                 baseVersionId: request.baseVersionId
             )
-            if ScreenplayDraftSaveRetryPolicy.shouldRetry(error) {
-                shouldQueuePendingDraftSaveAfterFailure = true
-                try? await draftSaveOutbox.markRetryable(
-                    id: request.id,
-                    error: error.localizedDescription
-                )
+            if shouldRetry {
                 autosaveStatusText = "Queued locally - reconnecting"
                 infoText = "Your draft is safe on this device and will save when the connection returns."
                 errorText = ""
             } else {
-                try? await draftSaveOutbox.markParked(
-                    id: request.id,
-                    error: error.localizedDescription
-                )
                 autosaveStatusText = ScreenplayDraftSaveRecoveryPresentationPolicy.failureStatus(source: request.source)
                 infoText = ScreenplayDraftSaveRecoveryPresentationPolicy.recoveryInfo(source: request.source)
                 errorText = ScreenplayDraftSaveRecoveryPresentationPolicy.failureError(
@@ -6165,28 +6335,65 @@ final class ScreenplayStudioViewModel: ObservableObject {
     }
 
     private func recomputePagination(for draft: String, source: String) async {
+        let refreshID = UUID()
+        paginationRefreshID = refreshID
         let normalized = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalized.isEmpty else {
             paginationPages = []
             paginationErrorText = ""
+            isPaginationRefreshing = false
             return
         }
 
+        let requestedLinesPerPage = linesPerPage
         isPaginationRefreshing = true
-        defer { isPaginationRefreshing = false }
+        defer {
+            if paginationRefreshID == refreshID {
+                paginationRefreshID = nil
+                isPaginationRefreshing = false
+            }
+        }
+
+        #if DEBUG
+        if IOThemRuntime.isRunningUITests,
+           ProcessInfo.processInfo.arguments.contains("--ui-pages-workflow-fixture") {
+            await Task.yield()
+            guard paginationRefreshID == refreshID,
+                  requestedLinesPerPage == linesPerPage,
+                  normalized == fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines) else {
+                return
+            }
+            paginationPages = Self.paginationPagesForUITesting(
+                draft: draft,
+                linesPerPage: requestedLinesPerPage
+            )
+            paginationErrorText = ""
+            return
+        }
+        #endif
+
         do {
             let result = try await StudioCraftResilience.run(source: source) {
                 try await BackendMemoryAPI.shared.paginateScreenplayDraft(
                     draft: draft,
                     title: selectedProject?.title ?? "",
                     phase: selectedProject?.lastPhase ?? "scene_draft",
-                    linesPerPage: linesPerPage
+                    linesPerPage: requestedLinesPerPage
                 )
             }
-            guard normalized == fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines) else { return }
+            guard paginationRefreshID == refreshID,
+                  requestedLinesPerPage == linesPerPage,
+                  normalized == fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines) else {
+                return
+            }
             paginationPages = result.payload.pages
             paginationErrorText = ""
         } catch {
+            guard paginationRefreshID == refreshID,
+                  requestedLinesPerPage == linesPerPage,
+                  normalized == fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines) else {
+                return
+            }
             paginationErrorText = StudioCraftResilience.presentedError(
                 error,
                 source: source,
@@ -6195,9 +6402,51 @@ final class ScreenplayStudioViewModel: ObservableObject {
         }
     }
 
+    #if DEBUG
+    private static func paginationPagesForUITesting(
+        draft: String,
+        linesPerPage: Int
+    ) -> [BackendScreenplayPaginationPage] {
+        let normalized = draft
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else { return [] }
+
+        let lines = normalized.components(separatedBy: "\n")
+        let pageSize = max(24, min(90, linesPerPage))
+        return stride(from: 0, to: lines.count, by: pageSize).enumerated().map { pageIndex, startIndex in
+            let endIndex = min(lines.count, startIndex + pageSize)
+            let pageLines = Array(lines[startIndex..<endIndex])
+            let estimate = (Double(pageLines.count) / 55.0 * 100.0).rounded() / 100.0
+            return BackendScreenplayPaginationPage(
+                page: pageIndex + 1,
+                startLine: startIndex + 1,
+                endLine: endIndex,
+                lineCount: pageLines.count,
+                preview: String(pageLines.joined(separator: " ").prefix(140)),
+                estMinutes: estimate
+            )
+        }
+    }
+    #endif
+
     private func recomputeRevision(for draft: String, source: String) async {
+        let refreshID = UUID()
+        revisionRefreshID = refreshID
+        let selectionID = draftSaveSelectionID
+        let authContext = currentStudioAuthContext()
+        let baseDraft = lastRevisionBaseDraft
+        let color = revisionColor
         let normalized = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        func isCurrent() -> Bool {
+            revisionRefreshID == refreshID && draftSaveSelectionID == selectionID &&
+                authContextIsCurrent(authContext) &&
+                normalized == fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
         guard !normalized.isEmpty else {
+            revisionRefreshID = nil
+            isRevisionRefreshing = false
             revisionSummary = nil
             revisionRanges = []
             revisionErrorText = ""
@@ -6205,20 +6454,26 @@ final class ScreenplayStudioViewModel: ObservableObject {
         }
 
         isRevisionRefreshing = true
-        defer { isRevisionRefreshing = false }
+        defer {
+            if revisionRefreshID == refreshID {
+                revisionRefreshID = nil
+                isRevisionRefreshing = false
+            }
+        }
         do {
             let result = try await StudioCraftResilience.run(source: source) {
-                try await BackendMemoryAPI.shared.fetchScreenplayRevisionColors(
-                    baseDraft: lastRevisionBaseDraft,
+                try await draftAPI.fetchScreenplayRevisionColors(
+                    baseDraft: baseDraft,
                     draft: draft,
-                    revisionColor: revisionColor
+                    revisionColor: color
                 )
             }
-            guard normalized == fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines) else { return }
+            guard isCurrent() else { return }
             revisionSummary = result.payload.summary
             revisionRanges = result.payload.ranges
             revisionErrorText = ""
         } catch {
+            guard isCurrent() else { return }
             revisionErrorText = StudioCraftResilience.presentedError(
                 error,
                 source: source,

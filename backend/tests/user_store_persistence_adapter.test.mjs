@@ -989,3 +989,18 @@ test("[auth-store-metadata-migration] marks only nonempty auth stores during upg
   assert.match(sql, /ON CONFLICT \(key\) DO NOTHING/);
   assert.doesNotMatch(sql, /VALUES\s*\(\s*'canonical_state'/);
 });
+
+test("[auth-user-scoped-index-migration] indexes canonical user lookups without replacing the wallet migration", () => {
+  const sql = fs.readFileSync(
+    new URL("../migrations/013_auth_user_scoped_indexes.sql", import.meta.url),
+    "utf8"
+  );
+  assert.match(sql, /CREATE INDEX IF NOT EXISTS persistence_auth_sessions_user_id_idx\s+ON persistence_auth_sessions \(\(value->>'userId'\)\)/);
+  assert.match(sql, /CREATE INDEX IF NOT EXISTS persistence_auth_password_reset_tokens_user_id_idx\s+ON persistence_auth_password_reset_tokens \(\(value->>'userId'\)\)/);
+  assert.match(sql, /^BEGIN;/m);
+  assert.match(sql, /^COMMIT;/m);
+  assert.doesNotMatch(sql, /CONCURRENTLY/);
+  assert.ok(fs.existsSync(new URL("../migrations/012_wallet_iap_persistence.sql", import.meta.url)));
+  const importer = fs.readFileSync(new URL("../../scripts/migrate_stores_to_postgres.mjs", import.meta.url), "utf8");
+  assert.match(importer, /const PRE_IMPORT_MIGRATIONS = Object\.freeze\(\[[\s\S]*?"013_auth_user_scoped_indexes\.sql"[\s\S]*?\]\)/);
+});

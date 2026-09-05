@@ -174,7 +174,7 @@ async function withServer(deps, fn) {
   mountHistoryRoutes(app, deps);
   mountRecapRoutes(app, deps);
   const server = await new Promise((resolve) => {
-    const s = app.listen(0, () => resolve(s));
+    const s = app.listen(0, "127.0.0.1", () => resolve(s));
   });
   try {
     const { port } = server.address();

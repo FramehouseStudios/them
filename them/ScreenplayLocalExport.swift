@@ -7,11 +7,12 @@ import UniformTypeIdentifiers
 #endif
 
 #if os(macOS)
-enum ScreenplayLocalExportError: LocalizedError {
+enum ScreenplayLocalExportError: LocalizedError, Equatable {
     case emptyDraft
     case unsupportedFormat(String)
     case failedToCreatePDFContext
     case failedToCreatePDFConsumer
+    case incompletePDFLayout
 
     var errorDescription: String? {
         switch self {
@@ -23,6 +24,8 @@ enum ScreenplayLocalExportError: LocalizedError {
             return "Could not create the PDF export."
         case .failedToCreatePDFConsumer:
             return "Could not prepare the PDF file data."
+        case .incompletePDFLayout:
+            return "Could not lay out the complete screenplay. No partial PDF was exported."
         }
     }
 }
@@ -231,7 +234,12 @@ enum ScreenplayLocalExport {
             .replacingOccurrences(of: "'", with: "&apos;")
     }
 
-    private static func screenplayPDFData(for draft: String) throws -> Data {
+    // The frame seam lets regressions exercise a real layout failure after earlier
+    // pages have rendered, without opening a printer or replacing the export path.
+    static func screenplayPDFData(
+        for draft: String,
+        makeFrame: (CTFramesetter, CFRange, CGPath) -> CTFrame = { CTFramesetterCreateFrame($0, $1, $2, nil) }
+    ) throws -> Data {
         let pageRect = CGRect(x: 0, y: 0, width: 612, height: 792)
         let contentRect = CGRect(x: 108, y: 72, width: 432, height: 648)
         let attributed = attributedDraft(for: draft, printableWidth: contentRect.width)
@@ -245,29 +253,38 @@ enum ScreenplayLocalExport {
         guard let context = CGContext(consumer: consumer, mediaBox: &mediaBox, nil) else {
             throw ScreenplayLocalExportError.failedToCreatePDFContext
         }
+        var didFinishPDF = false
+        defer { if !didFinishPDF { context.closePDF() } }
 
         var currentRange = CFRange(location: 0, length: 0)
         let fullLength = attributed.length
         while currentRange.location < fullLength {
             context.beginPDFPage(nil)
             context.saveGState()
+            // This is a raw Quartz PDF context, not a UIKit-flipped drawing surface.
             context.textMatrix = .identity
-            context.translateBy(x: 0, y: pageRect.height)
-            context.scaleBy(x: 1, y: -1)
 
             let path = CGPath(rect: contentRect, transform: nil)
-            let frame = CTFramesetterCreateFrame(framesetter, currentRange, path, nil)
+            let frame = makeFrame(framesetter, currentRange, path)
             CTFrameDraw(frame, context)
             let visible = CTFrameGetVisibleStringRange(frame)
 
             context.restoreGState()
             context.endPDFPage()
 
-            guard visible.length > 0 else { break }
-            currentRange.location += visible.length
+            do {
+                // Both renderers consume Core Text's UTF-16 ranges. Requiring forward
+                // progress bounds this loop by source length and forbids partial success.
+                currentRange.location = try ScreenplayPrintService.nextPageOffset(
+                    after: visible, currentOffset: currentRange.location, totalLength: fullLength
+                )
+            } catch {
+                throw ScreenplayLocalExportError.incompletePDFLayout
+            }
         }
 
         context.closePDF()
+        didFinishPDF = true
         return data as Data
     }
 

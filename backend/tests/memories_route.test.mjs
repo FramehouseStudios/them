@@ -8,6 +8,9 @@
 // what the live helpers produce in the happy path.
 
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { test } from "node:test";
 import express from "express";
 
@@ -15,6 +18,7 @@ import {
   mountMemoriesRoutes,
   MEMORIES_MUTATION_BODY_LIMIT,
 } from "../lib/memories_route.js";
+import { buildCreativeMemoryRevision, createCreativeMemoryStore } from "../lib/creative_memory_store.js";
 
 function defaultDeps(overrides = {}) {
   const calls = {
@@ -83,6 +87,7 @@ function defaultDeps(overrides = {}) {
     },
     buildReadStateMeta: () => baseReadMeta,
     applyReadStateHeaders: (res, meta) => {
+      if (meta.etag) res.setHeader("etag", meta.etag);
       res.setHeader("x-state-version", String(meta.stateVersion || ""));
       res.setHeader("x-session-id", String(meta.sessionId || ""));
     },
@@ -152,7 +157,7 @@ async function withTestServer(deps, fn, { authenticated = true } = {}) {
     });
   }
   mountMemoriesRoutes(app, deps);
-  const server = app.listen(0);
+  const server = app.listen(0, "127.0.0.1");
   await new Promise((r) => server.once("listening", r));
   const port = server.address().port;
   try { await fn(`http://127.0.0.1:${port}`); }
@@ -208,6 +213,316 @@ test("[memories] mount fails when TASKS_MAX_STORED is not a number", () => {
 });
 
 // ============== GET /memories ==============
+
+async function assertUndatedCreativeHTTPReads(t, { nestedProvenance = false } = {}) {
+  const importRoot = fs.mkdtempSync(path.join(os.tmpdir(), "io-them-memories-recency-import-"));
+  const environment = {
+    RUN_SERVER: "0", OUTBOX_SNAPSHOT_ENABLED: "0", OPENAI_API_KEY: "test-openai-key",
+    REALTIME_PROVIDER: "stub", DATABASE_URL: "", SCALE_BACKPLANE_ENABLED: "0",
+    PERSISTENCE_JSON_ROOT: path.join(importRoot, "persistence"),
+  };
+  for (const variable of [
+    "USER_MEMORY_STORE_PATH", "SCREENPLAY_STORE_PATH", "USER_STORE_PATH",
+    "OUTBOX_STORE_PATH", "ASSISTANT_IDENTITY_STORE_PATH",
+  ]) environment[variable] = path.join(importRoot, `${variable.toLowerCase()}.json`);
+  const previousEnvironment = Object.fromEntries(Object.keys(environment).map((key) => [key, process.env[key]]));
+  const realNow = Date.now;
+  t.after(() => {
+    Date.now = realNow;
+    for (const [key, value] of Object.entries(previousEnvironment)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    fs.rmSync(importRoot, { recursive: true, force: true });
+  });
+  Object.assign(process.env, environment);
+  const { buildMemoryCards, createEmptyEmotionMemory } = await import("../index.js");
+  let nowTs = 1_800_000_000_000;
+  Date.now = () => nowTs;
+  const persisted = {
+    userId: "user_memories_test", version: 1, updatedAt: nowTs,
+    projects: [{ projectId: "rain-docket", projectTitle: "Rain Docket", currentBeat: "Mara keeps the affidavit." }],
+    episodicMemories: [{ id: "episode-undated", summary: "Mara keeps the affidavit.", projectId: "rain-docket" }],
+    characters: [{ name: "Mara", voice: "Guarded, precise, dry under pressure." }],
+  };
+  if (nestedProvenance) {
+    Object.assign(persisted.projects[0], {
+      acceptedScenes: [{
+        id: "accepted-undated", sceneHeading: "INT. COURTHOUSE - NIGHT",
+        summary: "Mara keeps the affidavit.", decisions: ["Mara keeps the affidavit."],
+      }],
+      authoritativeFields: [{
+        id: "project-authority-undated", field: "protagonistWant", value: "Expose the forged testimony.",
+        sourceCorrectionId: "legacy-project-correction",
+      }],
+      learnedFields: [{
+        id: "project-learning-undated", field: "centralQuestion", value: "Can Mara trust Eli with the truth?",
+        questionId: "legacy-project-question",
+      }],
+      writerCanonFacts: [{
+        id: "writer-canon-undated", fact: "Mara is Eli's sister.", replacesFacts: ["Mara is Eli's mother."],
+        receiptId: "legacy-family-correction",
+      }],
+    });
+    persisted.characters[0].bible = {
+      canon: ["Mara is Eli's sister."],
+      authoritativeFields: [{
+        id: "character-authority-undated", field: "falseBelief", value: "Truth will get Eli killed.",
+        sourceCorrectionId: "legacy-character-correction",
+      }],
+      learnedFields: [{
+        id: "character-learning-undated", field: "want", value: "Protect Eli.",
+        questionId: "legacy-character-question",
+      }],
+    };
+  }
+  const original = structuredClone(persisted);
+  let writes = 0;
+  const creativeMemoryStore = createCreativeMemoryStore({ persistence: {
+    async get({ domain, key }) {
+      assert.equal(domain, "creative_memory");
+      assert.equal(key, persisted.userId);
+      return structuredClone(persisted);
+    },
+    async put() { writes += 1; },
+  } });
+  const memory = createEmptyEmotionMemory();
+  const originalMemory = structuredClone(memory);
+  const deps = defaultDeps({
+    creativeMemoryStore,
+    buildMemoryCards,
+    buildConversationHistoryThreads: () => [],
+    resolveCanonicalWritableMemoryContext: async () => ({
+      memory, requesterIp: "10.0.0.1", authenticatedUserId: persisted.userId, canonical: true,
+      canonicalRecord: { userId: persisted.userId, memory },
+    }),
+    ifNoneMatchStateHit: (req, etag) => req.get("If-None-Match") === etag,
+  });
+  t.after(() => {
+    assert.equal(writes, 0);
+    assert.equal(deps._calls.persistCanonicalWritableMemoryContext, 0);
+    assert.deepEqual(persisted, original);
+    assert.deepEqual(memory, originalMemory, "reads must not backfill or mutate account memory");
+  });
+  if (nestedProvenance) {
+    const ledger = await creativeMemoryStore.getCreativeMemoryLedger({ userId: persisted.userId, requireValidRecord: true });
+    const project = ledger.projects[0];
+    assert.equal(project.acceptedScenes[0].id, "accepted-undated");
+    assert.equal(project.authoritativeFields[0].id, "project-authority-undated");
+    assert.equal(project.learnedFields[0].id, "project-learning-undated");
+    assert.equal(project.writerCanonFacts[0].id, "writer-canon-undated");
+    assert.equal(ledger.characters[0].bible.authoritativeFields[0].id, "character-authority-undated");
+    assert.equal(ledger.characters[0].bible.learnedFields[0].id, "character-learning-undated");
+  }
+  await withTestServer(deps, async (baseURL) => {
+    const first = await getJson(baseURL, "/memories");
+    nowTs += 24 * 60 * 60 * 1000;
+    const later = await getJson(baseURL, "/memories?sinceVersion=v9");
+    for (const result of [first, later]) {
+      assert.equal(result.status, 200);
+      assert.equal(result.body.delta_no_change, false);
+      assert.deepEqual(result.body.memories.map((card) => card.source).sort(), [
+        "character_bible", "episodic_memory", "screenplay_project",
+      ]);
+      for (const card of result.body.memories) {
+        assert.equal(card.rememberedAt, 0, card.source);
+        assert.equal(card.lastUsedAt, 0, card.source);
+        assert.equal(card.qualityLastFeedbackAt, 0, card.source);
+        assert.equal(card.stalenessDays, null, card.source);
+        assert.equal(card.stalenessBand, "unknown", card.source);
+      }
+      assert.equal(result.headers.get("x-creative-memory-revision"), result.body.creative_memory_revision);
+    }
+    assert.match(first.headers.get("etag"), /^W\/"memories_[a-f0-9]{32}"$/);
+    assert.deepEqual({
+      creativeRevision: later.body.creative_memory_revision,
+      etag: later.headers.get("etag"),
+      memories: later.body.memories,
+    }, {
+      creativeRevision: first.body.creative_memory_revision,
+      etag: first.headers.get("etag"),
+      memories: first.body.memories,
+    }, "Reading unchanged legacy provenance at a later clock must not change the HTTP representation.");
+    const cached = await fetch(`${baseURL}/memories`, { headers: { "If-None-Match": first.headers.get("etag") } });
+    assert.equal(cached.status, 304);
+    assert.equal(cached.headers.get("x-creative-memory-revision"), first.body.creative_memory_revision);
+  });
+}
+
+test("[memories] real undated creative records stay unknown and unchanged across later HTTP reads", async (t) => {
+  await assertUndatedCreativeHTTPReads(t);
+});
+
+test("[memories] nested undated creative provenance preserves HTTP cards revision and ETag across clocks", async (t) => {
+  await assertUndatedCreativeHTTPReads(t, { nestedProvenance: true });
+});
+
+for (const reader of ["getCreativeMemoryLedger", "getCreativeMemoryForPrompt"]) {
+  test(`[memories] failed ${reader} is a retryable read error, never empty or unchanged`, async () => {
+    let shouldFail = true;
+    const deps = defaultDeps({
+      creativeMemoryStore: {
+        [reader]: async (input) => {
+          assert.equal(input.userId, "user_memories_test");
+          if (reader === "getCreativeMemoryLedger") assert.equal(input.requireValidRecord, true);
+          if (shouldFail) throw new Error("Private screenplay details in persistence error");
+          return null;
+        },
+      },
+      ifNoneMatchStateHit: () => true,
+    });
+    await withTestServer(deps, async (baseURL) => {
+      for (const query of ["", "?sinceVersion=v9", "?story_preference_project_id=project-a"]) {
+        const response = await fetch(`${baseURL}/memories${query}`, { headers: { "If-None-Match": "etag_v9" } });
+        const body = await response.json();
+        assert.equal(response.status, 503);
+        assert.equal(body.ok, false);
+        assert.equal(body.action, "read");
+        assert.equal(body.status, "memory_persistence_unavailable");
+        assert.equal(body.memories, undefined);
+        assert.equal(body.story_move_preferences, undefined);
+        assert.equal(body.creative_memory_revision, undefined);
+        // Express may hash the error body, but no successful list validator is published.
+        assert.doesNotMatch(response.headers.get("etag") || "", /memories_|etag_v9/);
+        assert.equal(response.headers.get("x-state-version"), null);
+        assert.equal(response.headers.get("x-creative-memory-revision"), null);
+        assert.equal(response.headers.get("cache-control"), "no-store");
+      }
+      assert.equal(deps._calls.maybeBackfillThemesFromHistory, 0);
+      assert.equal(deps._calls.persistCanonicalWritableMemoryContext, 0);
+      assert.ok(deps._calls.logs.every((line) => !line.includes("Private screenplay details")));
+      shouldFail = false;
+      // A healthy read once again reaches conditional response handling.
+      assert.equal((await fetch(`${baseURL}/memories`)).status, 304);
+    });
+  });
+}
+
+test("[memories] configured but missing creative reader fails closed", async () => {
+  await withTestServer(defaultDeps({ creativeMemoryStore: {} }), async (baseURL) => {
+    const result = await getJson(baseURL, "/memories");
+    assert.equal(result.status, 503);
+    assert.equal(result.body.status, "memory_persistence_unavailable");
+  });
+});
+
+test("[memories] canonical creative persistence failures and invalid records never masquerade as empty", async () => {
+  let persisted = null;
+  let fail = false;
+  let writes = 0;
+  const creativeMemoryStore = createCreativeMemoryStore({ persistence: {
+    async get() { if (fail) throw new Error("disk unavailable"); return persisted; },
+    async put() { writes += 1; },
+  } });
+  const deps = defaultDeps({ creativeMemoryStore });
+  await withTestServer(deps, async (baseURL) => {
+    fail = true;
+    assert.equal((await getJson(baseURL, "/memories?sinceVersion=v9")).status, 503);
+    fail = false;
+    for (const value of ["invalid", [], { version: 999 }, { version: 1, projects: "lost" }, { version: 1, characters: [null] }]) {
+      persisted = value;
+      const result = await getJson(baseURL, "/memories?sinceVersion=v9");
+      assert.equal(result.status, 503);
+      assert.equal(result.body.status, "memory_persistence_unavailable");
+      assert.equal(result.body.memories, undefined);
+    }
+    assert.equal(writes, 0);
+    assert.equal(deps._calls.maybeBackfillThemesFromHistory, 0);
+    for (const value of [null, { version: 1 }, { version: 1, projects: [], clearedAt: 100 }]) {
+      persisted = value;
+      const result = await getJson(baseURL, "/memories?sinceVersion=v9");
+      assert.equal(result.status, 200);
+      assert.equal(result.body.delta_no_change, false);
+      assert.deepEqual(result.body.story_move_preferences, []);
+    }
+  });
+});
+
+test("[memories] an empty creative ledger is a full replacement even when the account cursor matches", async () => {
+  for (const ledger of [null, { projects: [], characters: [], episodicMemories: [] }]) {
+    const deps = defaultDeps({ creativeMemoryStore: { getCreativeMemoryLedger: async () => ledger } });
+    await withTestServer(deps, async (baseURL) => {
+      const result = await getJson(baseURL, "/memories?sinceVersion=v9");
+      assert.equal(result.status, 200);
+      assert.equal(result.body.state_version, "v9");
+      assert.equal(result.body.delta_no_change, false);
+      assert.equal(result.body.is_delta, true);
+      assert.equal(result.body.memories.length, 1, "Account memories remain in the full snapshot.");
+      assert.deepEqual(result.body.story_move_preferences, []);
+      assert.match(result.headers.get("etag"), /^W\/"memories_[a-f0-9]{32}"$/);
+    });
+  }
+});
+
+function conditionalMemoriesDeps(creativeMemoryStore, overrides = {}) {
+  return defaultDeps({
+    creativeMemoryStore,
+    ifNoneMatchStateHit: (req, etag, stateVersion) => {
+      assert.equal(stateVersion, "", "Account-only cursors cannot validate a creative list.");
+      return String(req.get("If-None-Match") || "").split(",").some((item) => item.trim() === etag);
+    },
+    ...overrides,
+  });
+}
+
+test("[memories] conditional reads follow creative changes and clears without changing the account mutation cursor", async () => {
+  let ledger = { projects: [{
+    projectId: "project-a", projectTitle: "The Crossing", updatedAt: 100,
+    storyMovePreferenceOverrides: [{ family: "relationship_pressure", stance: "prefer", updatedAt: 100 }],
+  }] };
+  const deps = conditionalMemoriesDeps({ getCreativeMemoryLedger: async () => ledger });
+  await withTestServer(deps, async (baseURL) => {
+    const first = await getJson(baseURL, "/memories");
+    const tag = first.headers.get("etag");
+    assert.equal(first.body.story_move_preferences[0].explicit_stance, "prefer");
+    assert.equal(first.body.state_version, "v9");
+    const cached = await fetch(`${baseURL}/memories`, { headers: { "If-None-Match": tag } });
+    assert.equal(cached.status, 304);
+    assert.equal(await cached.text(), "");
+    assert.equal(cached.headers.get("x-creative-memory-revision"), first.body.creative_memory_revision);
+
+    ledger.projects[0].storyMovePreferenceOverrides[0].stance = "avoid";
+    const changed = await fetch(`${baseURL}/memories`, { headers: { "If-None-Match": tag } });
+    const changedBody = await changed.json();
+    assert.equal(changed.status, 200);
+    assert.equal(changedBody.state_version, "v9");
+    assert.equal(changedBody.story_move_preferences[0].explicit_stance, "avoid");
+    assert.notEqual(changed.headers.get("etag"), tag);
+    assert.notEqual(changedBody.creative_memory_revision, first.body.creative_memory_revision);
+
+    // updatedAt affects ordering, despite the creative mutation hash ignoring it.
+    ledger.projects[0].updatedAt = 200;
+    const reordered = await fetch(`${baseURL}/memories`, { headers: { "If-None-Match": changed.headers.get("etag") } });
+    assert.equal(reordered.status, 200);
+    assert.equal((await reordered.json()).creative_memory_revision, changedBody.creative_memory_revision);
+    assert.notEqual(reordered.headers.get("etag"), changed.headers.get("etag"));
+
+    ledger = null;
+    const cleared = await fetch(`${baseURL}/memories?sinceVersion=v9`, { headers: { "If-None-Match": reordered.headers.get("etag") } });
+    const clearedBody = await cleared.json();
+    assert.equal(cleared.status, 200);
+    assert.equal(clearedBody.delta_no_change, false);
+    assert.deepEqual(clearedBody.story_move_preferences, []);
+    const clearedCached = await fetch(`${baseURL}/memories`, { headers: { "If-None-Match": cleared.headers.get("etag") } });
+    assert.equal(clearedCached.status, 304);
+  });
+});
+
+test("[memories] cache validators include limit and project scope and reject legacy account-only tags", async () => {
+  const deps = conditionalMemoriesDeps({ getCreativeMemoryLedger: async () => null });
+  await withTestServer(deps, async (baseURL) => {
+    const tags = new Set();
+    for (const query of ["", "?limit=1", "?story_preference_project_id=a", "?story_preference_project_id=b", "?story_preference_project_title=The%20Crossing"]) {
+      const response = await fetch(`${baseURL}/memories${query}`, { headers: { "If-None-Match": "etag_v9" } });
+      assert.equal(response.status, 200);
+      tags.add(response.headers.get("etag"));
+      assert.equal((await response.json()).state_version, "v9");
+    }
+    assert.equal(tags.size, 5);
+    const oldVersion = await fetch(`${baseURL}/memories`, { headers: { "If-None-Match": 'W/"v9"' } });
+    assert.equal(oldVersion.status, 200);
+  });
+});
 
 test("[memories] GET /memories: full envelope on happy path", async () => {
   await withTestServer(defaultDeps(), async (baseURL) => {
@@ -356,7 +671,7 @@ test("[memories] GET exposes project-scoped learned and corrected story preferen
   });
 });
 
-test("[memories] POST story preference update is authenticated and returns refreshed profile", async () => {
+test("[memories] POST story preference update returns its committed snapshot and revision without rereading", async () => {
   const calls = [];
   const canonicalMemory = {
     source: "canonical-account",
@@ -373,6 +688,10 @@ test("[memories] POST story preference update is authenticated and returns refre
       updatedAt: 5_000,
     }],
   };
+  const creativeMemoryRevision = buildCreativeMemoryRevision({
+    projects: [project, { projectId: "other-project", projectTitle: "Other Project" }],
+  });
+  let ledgerReads = 0;
   const creativeMemoryStore = {
     updateStoryMovePreference: async (input) => {
       calls.push(input);
@@ -383,9 +702,14 @@ test("[memories] POST story preference update is authenticated and returns refre
         projectId: input.projectId,
         projectTitle: "Split Ferries",
         updatedAt: 5_000,
+        creativeMemoryRevision,
+        project: structuredClone(project),
       };
     },
-    getCreativeMemoryLedger: async () => ({ projects: [project] }),
+    getCreativeMemoryLedger: async () => {
+      ledgerReads += 1;
+      throw new Error("A later ledger read must not replace the committed snapshot.");
+    },
   };
   const deps = defaultDeps({
     creativeMemoryStore,
@@ -424,12 +748,101 @@ test("[memories] POST story preference update is authenticated and returns refre
     assert.equal(r.status, 200);
     assert.equal(r.body.ok, true);
     assert.equal(r.body.status, "avoid");
+    assert.equal(r.body.project_id, "split-ferries");
+    assert.equal(r.body.project_title, "Split Ferries");
+    assert.equal(r.body.family, "relationship_pressure");
     assert.equal(r.body.story_move_preferences[0].explicit_stance, "avoid");
+    assert.equal(r.body.story_move_preferences[0].project_id, r.body.project_id);
+    assert.equal(r.body.creative_memory_revision, creativeMemoryRevision);
+    assert.equal(r.headers.get("x-creative-memory-revision"), creativeMemoryRevision);
     assert.equal(r.body.state_version, "state_story_preferences_42");
     assert.equal(r.headers.get("x-state-version"), "state_story_preferences_42");
     assert.ok(r.body.memory_updated_at >= 5_000);
     assert.equal(calls[0].userId, "user_memories_test");
     assert.equal(calls[0].projectId, "split-ferries");
+    assert.equal(ledgerReads, 0);
+  });
+});
+
+for (const action of ["reset", "reset_all"]) {
+  test(`[memories] ${action} keeps committed project identity when the preference snapshot is empty`, async () => {
+    const project = {
+      projectId: "split-ferries",
+      projectTitle: "Split Ferries",
+      updatedAt: 5_000,
+      questionEffectiveness: [],
+    };
+    const creativeMemoryRevision = buildCreativeMemoryRevision({ projects: [project] });
+    const family = action === "reset" ? "relationship_pressure" : "";
+    const creativeMemoryStore = {
+      updateStoryMovePreference: async () => ({
+        ok: true,
+        action,
+        family,
+        projectId: project.projectId,
+        projectTitle: project.projectTitle,
+        updatedAt: project.updatedAt,
+        creativeMemoryRevision,
+        project,
+      }),
+      getCreativeMemoryLedger: async () => {
+        throw new Error("Creative memory read unavailable after commit.");
+      },
+    };
+    await withTestServer(defaultDeps({ creativeMemoryStore }), async (baseURL) => {
+      const r = await postJson(baseURL, "/memories/story-preferences/update", {
+        project_id: "split-ferries",
+        project_title: "Old Project Title",
+        family,
+        action,
+      });
+      assert.equal(r.status, 200);
+      assert.equal(r.body.ok, true);
+      assert.equal(r.body.status, action);
+      assert.equal(r.body.project_id, project.projectId);
+      assert.equal(r.body.project_title, project.projectTitle);
+      assert.equal(r.body.family, family);
+      assert.deepEqual(r.body.story_move_preferences, []);
+      assert.equal(r.body.creative_memory_revision, creativeMemoryRevision);
+      assert.equal(r.headers.get("x-creative-memory-revision"), creativeMemoryRevision);
+    });
+  });
+}
+
+test("[memories] ambiguous title-only preference updates return a scoped failure", async () => {
+  const creativeMemoryStore = {
+    updateStoryMovePreference: async () => ({ ok: false, reason: "ambiguous_project_identity" }),
+  };
+  await withTestServer(defaultDeps({ creativeMemoryStore }), async (baseURL) => {
+    const r = await postJson(baseURL, "/memories/story-preferences/update", {
+      project_title: "Shared Title",
+      action: "reset_all",
+    });
+    assert.equal(r.status, 400);
+    assert.equal(r.body.ok, false);
+    assert.equal(r.body.status, "ambiguous_project_identity");
+    assert.match(r.body.message, /More than one screenplay/);
+    assert.equal(r.body.story_move_preferences, undefined);
+  });
+});
+
+test("[memories] an incomplete preference commit receipt cannot masquerade as an empty reset", async () => {
+  const creativeMemoryStore = {
+    updateStoryMovePreference: async () => ({
+      ok: true,
+      action: "reset_all",
+      projectId: "split-ferries",
+      projectTitle: "Split Ferries",
+    }),
+  };
+  await withTestServer(defaultDeps({ creativeMemoryStore }), async (baseURL) => {
+    const r = await postJson(baseURL, "/memories/story-preferences/update", {
+      project_id: "split-ferries",
+      action: "reset_all",
+    });
+    assert.equal(r.status, 500);
+    assert.equal(r.body.ok, false);
+    assert.equal(r.body.story_move_preferences, undefined);
   });
 });
 
@@ -825,6 +1238,7 @@ test("[memories] POST /memories/character-bible/update: records structured chara
 
   await withTestServer(deps, async (baseURL) => {
     const r = await postJson(baseURL, "/memories/character-bible/update", {
+      expected_creative_memory_revision: "cm_writer_observed",
       character_bible: {
         character: "Mara",
         canon: ["Mara is Eli's sister."],
@@ -847,11 +1261,61 @@ test("[memories] POST /memories/character-bible/update: records structured chara
     assert.equal(recordCalls[0].userId, "user_memories_test");
     assert.equal(recordCalls[0].characterName, "Mara");
     assert.equal(recordCalls[0].source, "memory_character_bible_edit");
+    assert.equal(recordCalls[0].expectedRevision, "cm_writer_observed");
     assert.deepEqual(recordCalls[0].characterBible.canon, ["Mara is Eli's sister."]);
     assert.deepEqual(recordCalls[0].characterBible.correctedTerms, ["perfect proof can keep everyone safe"]);
     assert.equal(recordCalls[0].characterBible.arc.falseBelief, "truth will get Eli killed");
     assert.equal(recordCalls[0].characterBible.arc.nextEmotionalTurn, "public courage");
   });
+});
+
+test("[memories] character correction rejects a stale revision before canonical repair", async () => {
+  const writes = [];
+  const deps = defaultDeps({
+    creativeMemoryStore: {
+      recordCharacterMention: async (input) => {
+        writes.push(input);
+        const error = new Error("Character memory changed on another device.");
+        error.code = "stale_creative_memory_revision";
+        error.expectedRevision = input.expectedRevision;
+        error.currentRevision = "cm_newer_correction";
+        throw error;
+      },
+    },
+  });
+  await withTestServer(deps, async (baseURL) => {
+    const response = await postJson(baseURL, "/memories/character-bible/update", {
+      expected_creative_memory_revision: "cm_visible_correction",
+      character_bible: { character: "Mara", canon: ["Mara returns for June."] },
+    });
+    assert.equal(response.status, 409);
+    assert.equal(response.body.status, "stale_creative_memory_revision");
+    assert.equal(response.body.current_creative_memory_revision, "cm_newer_correction");
+    assert.equal(response.headers.get("x-creative-memory-revision"), "cm_newer_correction");
+  });
+  assert.equal(writes.length, 1);
+  assert.equal(writes[0].userId, "user_memories_test");
+  assert.equal(writes[0].expectedRevision, "cm_visible_correction");
+  assert.equal(deps._calls.persistCanonicalWritableMemoryContext, 0);
+  assert.equal(deps._calls.updateMemoryCardInMemory.length, 0);
+});
+
+test("[memories] character correction requires authentication before reading or writing memory", async () => {
+  let writes = 0;
+  const deps = defaultDeps({
+    creativeMemoryStore: { recordCharacterMention: async () => { writes += 1; return { ok: true }; } },
+  });
+  await withTestServer(deps, async (baseURL) => {
+    const response = await postJson(baseURL, "/memories/character-bible/update", {
+      expected_creative_memory_revision: "cm_visible_correction",
+      character_bible: { character: "Mara", canon: ["Mara returns for June."] },
+    });
+    assert.equal(response.status, 401);
+    assert.equal(response.body.error, "user_auth_required");
+  }, { authenticated: false });
+  assert.equal(writes, 0);
+  assert.equal(deps._calls.resolveCanonicalWritableMemoryContext, 0);
+  assert.equal(deps._calls.persistCanonicalWritableMemoryContext, 0);
 });
 
 test("[memories] POST /memories/character-bible/update: derives structured replacements from correction prose", async () => {

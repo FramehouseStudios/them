@@ -125,10 +125,15 @@ function defaultDeps(overrides = {}) {
   };
 }
 
-async function withTestServer(deps, fn) {
+async function withTestServer(deps, fn, { authUser = null, userId = "" } = {}) {
   const app = express();
+  app.use((req, _res, next) => {
+    req.authUser = authUser;
+    req.userId = userId;
+    next();
+  });
   mountRealtimeTurnCommitRoute(app, deps);
-  const server = app.listen(0);
+  const server = app.listen(0, "127.0.0.1");
   await new Promise((r) => server.once("listening", r));
   const port = server.address().port;
   try { await fn(`http://127.0.0.1:${port}`); }
@@ -335,11 +340,33 @@ test("[turn-commit] storeTalkTurnMeta gets canonical render contract", async () 
     });
     assert.equal(args.turnId, "turn_xyz");
     assert.equal(args.sessionId, "sess_abc");
+    assert.equal(args.userId, "", "legacy anonymous commits remain explicitly ownerless");
     assert.equal(args.stateVersion, "v9");
     assert.equal(args.transcript, "x");
     assert.equal(args.reply, "y");
     assert.equal(args.requestId, "rq_1");
   });
+});
+
+test("[turn-commit] metadata owner comes from authenticated identity, never payload or headers", async () => {
+  const deps = defaultDeps();
+  await withTestServer(deps, async (baseURL) => {
+    const result = await postJson(baseURL, {
+      transcript: "private input", reply: "private reply", user_id: "forged-body-owner",
+    }, { "X-User-Id": "forged-header-owner" });
+    assert.equal(result.status, 201);
+    assert.equal(deps._calls.storeTalkTurnMeta.length, 1);
+    assert.equal(deps._calls.storeTalkTurnMeta[0].userId, "authenticated-owner");
+  }, { authUser: { id: "authenticated-owner" }, userId: "other-server-alias" });
+});
+
+test("[turn-commit] metadata preserves the server-attached userId fallback", async () => {
+  const deps = defaultDeps();
+  await withTestServer(deps, async (baseURL) => {
+    const result = await postJson(baseURL, { transcript: "input", reply: "reply" });
+    assert.equal(result.status, 201);
+    assert.equal(deps._calls.storeTalkTurnMeta[0].userId, "server-attached-owner");
+  }, { userId: "server-attached-owner" });
 });
 
 test("[turn-commit] storeTalkTurnMeta NOT called when buildReadStateMeta has no lastTurnId", async () => {

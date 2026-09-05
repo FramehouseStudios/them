@@ -159,7 +159,7 @@ test("[wallet] POST /talk/wallet returns calm balance only", async () => {
   });
   const app = express();
   mountTalkWalletRoute(app, { walletStore: wallet });
-  const server = app.listen(0);
+  const server = app.listen(0, "127.0.0.1");
   await new Promise((resolve) => server.once("listening", resolve));
   const port = server.address().port;
   try {
@@ -218,7 +218,7 @@ test("[wallet] POST /talk/page-cancel releases wallet funds", async () => {
 
   const app = express();
   mountPageCancelRoute(app, { pageReservationStore: pages });
-  const server = app.listen(0);
+  const server = app.listen(0, "127.0.0.1");
   await new Promise((resolve) => server.once("listening", resolve));
   const port = server.address().port;
   try {

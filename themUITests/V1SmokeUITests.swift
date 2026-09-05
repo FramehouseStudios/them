@@ -31,6 +31,10 @@ final class V1SmokeUITests: XCTestCase {
             "The screenplay page did not expose its editable text surface.\n\(app.debugDescription)"
         )
         XCTAssertTrue(editor.isHittable, "The screenplay page editor was not directly tappable.")
+        XCTAssertTrue(
+            waitForDraft(in: app, containing: "EMPTY_DRAFT", timeout: 3),
+            "The reset typing fixture restored an earlier draft."
+        )
 
         let sentence = "She counts seven red lights before the motel sign finally goes dark."
         editor.tap()
@@ -124,8 +128,31 @@ final class V1SmokeUITests: XCTestCase {
         assertRememberedLoginRestored(in: app)
 
         let remember = app.switches["profile-auth-remember-me"]
-        remember.tap()
-        XCTAssertTrue(waitForSwitch(remember, toBeOn: false), "Remember me did not turn off.")
+        // The actual profile scroll container can leave this switch only
+        // partially visible on narrow phones even when AX calls it hittable.
+        let profileScroll = app.scrollViews.containing(.switch, identifier: "profile-auth-remember-me").firstMatch
+        guard profileScroll.waitForExistence(timeout: 3),
+              revealFullyInStudioDrawer(remember, drawer: profileScroll, maxSwipes: 8),
+              app.frame.contains(remember.frame) else {
+            XCTFail("Remember me did not become fully visible in its profile scroll container.")
+            app.terminate()
+            return
+        }
+        let beforeToggle = XCTAttachment(screenshot: app.screenshot())
+        beforeToggle.name = "remembered-login-visible-before-disable.png"
+        beforeToggle.lifetime = .keepAlways
+        add(beforeToggle)
+        // A SwiftUI switch's AX frame includes its label and the blank row
+        // between label and thumb. Hit the actual trailing switch, not that gap.
+        let switchInset = min(CGFloat(26), remember.frame.width / 2)
+        remember.coordinate(withNormalizedOffset: CGVector(dx: 1, dy: 0.5))
+            .withOffset(CGVector(dx: -switchInset, dy: 0)).tap()
+        let disabled = waitForSwitch(remember, toBeOn: false)
+        let afterToggle = XCTAttachment(screenshot: app.screenshot())
+        afterToggle.name = "remembered-login-after-disable.png"
+        afterToggle.lifetime = .keepAlways
+        add(afterToggle)
+        XCTAssertTrue(disabled, "Remember me did not turn off; visible switch frame: \(remember.frame).")
         app.terminate()
 
         app = launchApp(resetState: false)
@@ -263,6 +290,10 @@ final class V1SmokeUITests: XCTestCase {
             openCommandBar: true,
             routePage: true
         )
+        XCTAssertTrue(
+            waitForDraft(in: app, containing: "EMPTY_DRAFT", timeout: 10),
+            "The reset batch fixture restored an earlier draft."
+        )
 
         try submitStudioWriterBlockPrompt(
             "Write the first page batch for Lucy and Frank.",
@@ -303,9 +334,14 @@ final class V1SmokeUITests: XCTestCase {
         )
     }
 
-    func test_screenplay_export_returns_a_file() {
-        let app = launchApp(openStudio: true, openExportTools: true, structuralSeed: true)
+    func test_screenplay_export_failure_preserves_draft_without_claiming_saved() {
+        let app = launchApp(
+            openStudio: true, openExportTools: true, structuralSeed: true,
+            launchEnvironment: ["THEM_UITEST_BACKEND_BASE_URL": "http://127.0.0.1:1"]
+        )
+        defer { app.terminate() }
         XCTAssertTrue(waitForDraft(in: app, containing: "INT. DINER - NIGHT", timeout: 10))
+        let originalDraft = accessibleDraftText(in: app)
 
         let exportMenu = app.buttons["studio.export.menu"]
         if !exportMenu.waitForExistence(timeout: 4) {
@@ -321,7 +357,12 @@ final class V1SmokeUITests: XCTestCase {
             app.buttons.matching(NSPredicate(format: "label CONTAINS[c] %@", "Markdown")).firstMatch.tap()
         }
 
-        XCTAssertTrue(staticText(containing: "Saved", in: app).waitForExistence(timeout: 6))
+        XCTAssertTrue(waitForRestoreSnapshot(in: app, timeout: 40) { snapshot in
+            !stringValue(snapshot["error_text"]).isEmpty
+                && !stringValue(snapshot["info_text"]).hasPrefix("Saved ")
+        }, "A failed real export must report an error, not a synthetic saved artifact.")
+        XCTAssertEqual(accessibleDraftText(in: app), originalDraft)
+        XCTAssertFalse(staticText(containing: "Choose where to save", in: app).exists)
     }
 
     @MainActor
@@ -489,10 +530,36 @@ final class V1SmokeUITests: XCTestCase {
         let markdownExport = app.buttons["studio.export.md"]
         XCTAssertTrue(markdownExport.waitForExistence(timeout: writerLoopWait(5)), "Export Copy did not offer Markdown.")
         markdownExport.tap()
+        let cancelExport = app.buttons["Cancel"]
+        XCTAssertTrue(cancelExport.waitForExistence(timeout: writerLoopWait(10)),
+                      "Real export did not present the native Files picker.\n\(app.debugDescription)")
+        let firstPicker = XCTAttachment(screenshot: app.screenshot())
+        firstPicker.name = "writer-loop-files-before-cancel.png"
+        firstPicker.lifetime = .keepAlways
+        add(firstPicker)
+        cancelExport.tap()
+        XCTAssertTrue(staticText(containing: "Export cancelled.", in: app).waitForExistence(timeout: writerLoopWait(5)))
+        XCTAssertTrue(waitForExactWriterLoopDraft(marker, in: app, timeout: writerLoopWait(5)))
+        XCTAssertTrue(revealInStudioDrawer(exportMenu, drawer: rightDrawer, scrollingUp: false, maxSwipes: 8))
+        exportMenu.tap()
+        XCTAssertTrue(markdownExport.waitForExistence(timeout: writerLoopWait(5)))
+        markdownExport.tap()
+        let saveExport = app.buttons["Save"]
+        XCTAssertTrue(waitForHittability(of: saveExport, timeout: writerLoopWait(10)),
+                      "The second export did not offer native Save.\n\(app.debugDescription)")
+        let savePicker = XCTAttachment(screenshot: app.screenshot())
+        savePicker.name = "writer-loop-files-before-save.png"
+        savePicker.lifetime = .keepAlways
+        add(savePicker)
+        saveExport.tap()
         XCTAssertTrue(
-            staticText(containing: expectedMarkdownFilename, in: app).waitForExistence(timeout: writerLoopWait(10)),
-            "Markdown export did not report its .md artifact."
+            staticText(containing: "Saved " + expectedMarkdownFilename, in: app).waitForExistence(timeout: writerLoopWait(10)),
+            "Markdown export did not confirm the native Files save.\n\(app.debugDescription)"
         )
+        let savedExport = XCTAttachment(screenshot: app.screenshot())
+        savedExport.name = "writer-loop-files-saved.png"
+        savedExport.lifetime = .keepAlways
+        add(savedExport)
         app.terminate()
 
         app = launchApp(
@@ -587,6 +654,298 @@ final class V1SmokeUITests: XCTestCase {
         XCTAssertTrue(app.descendants(matching: .any)["studio.draft.page-tools"].waitForExistence(timeout: 4))
     }
 
+    func test_studio_pages_navigator_is_readable_and_connected_on_phone() throws {
+#if os(iOS)
+        func retainPagesScreenshot(_ app: XCUIApplication, stage: String) {
+            let attachment = XCTAttachment(screenshot: app.screenshot())
+            attachment.name = "pages-phone-\(stage).png"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
+
+        let app = launchApp(
+            openStudio: true,
+            openExportTools: true,
+            structuralSeed: true,
+            pagesWorkflowFixture: true
+        )
+        defer { app.terminate() }
+
+        let drawer = element(identifier: "studio.sidebar.right.drawer", in: app)
+        let pageTools = element(identifier: "studio.draft.page-tools", in: app)
+        XCTAssertTrue(drawer.waitForExistence(timeout: 10), "The phone inspector did not open.")
+        XCTAssertTrue(pageTools.waitForExistence(timeout: 10), "The Pages tools did not load.")
+
+        let title = element(identifier: "studio.draft.pages.title", in: app)
+        XCTAssertTrue(
+            revealInStudioDrawer(title, drawer: drawer, scrollingUp: true, maxSwipes: 16),
+            "Page Navigator did not become reachable in the phone-width inspector."
+        )
+        XCTAssertGreaterThan(title.frame.width, 100, "Page Navigator collapsed into a narrow text column.")
+        XCTAssertLessThanOrEqual(title.frame.height, 44, "Page Navigator wrapped vertically: \(title.frame)")
+        assertHorizontallyContained(title, in: drawer, message: "Page Navigator escaped the inspector")
+        retainPagesScreenshot(app, stage: "introduction")
+
+        let currentSummary = element(identifier: "studio.draft.pages.summary.current", in: app)
+        let totalSummary = element(identifier: "studio.draft.pages.summary.total", in: app)
+        let runtimeSummary = element(identifier: "studio.draft.pages.summary.runtime", in: app)
+        for summary in [currentSummary, totalSummary, runtimeSummary] {
+            XCTAssertTrue(
+                revealFrameInStudioDrawer(summary, drawer: drawer, maxSwipes: 8),
+                "A Pages summary was not readable: \(summary.identifier)"
+            )
+            XCTAssertGreaterThan(summary.frame.width, 180, "A Pages summary collapsed: \(summary.frame)")
+            assertHorizontallyContained(summary, in: drawer, message: "A Pages summary escaped the inspector")
+        }
+        XCTAssertTrue(waitForAccessibilityText(in: currentSummary, containing: "Current page, 1", timeout: 5))
+        XCTAssertTrue(waitForAccessibilityText(in: totalSummary, containing: "Draft pages, 3", timeout: 5))
+        XCTAssertTrue(waitForAccessibilityText(in: runtimeSummary, containing: "2.2 minutes", timeout: 5))
+        retainPagesScreenshot(app, stage: "summaries")
+
+        let density = element(identifier: "studio.draft.pages.density", in: app)
+        let decrease = app.buttons["studio.draft.pages.lines.decrease"]
+        let value = element(identifier: "studio.draft.pages.lines.value", in: app)
+        let increase = app.buttons["studio.draft.pages.lines.increase"]
+        let standard = app.buttons["studio.draft.pages.lines.standard"]
+        let refresh = app.buttons["studio.draft.pages.refresh"]
+        XCTAssertTrue(
+            revealFrameInStudioDrawer(density, drawer: drawer, maxSwipes: 12),
+            "Page density controls were not reachable."
+        )
+        XCTAssertTrue(
+            revealInStudioDrawer(decrease, drawer: drawer, scrollingUp: true, maxSwipes: 8),
+            "Decrease density did not become reachable."
+        )
+        XCTAssertEqual(value.label, "Lines per page")
+        XCTAssertTrue(waitForAccessibilityValue(of: value, equalTo: "55", timeout: 5))
+        XCTAssertEqual(decrease.label, "Decrease lines per page")
+        XCTAssertEqual(increase.label, "Increase lines per page")
+        XCTAssertFalse(standard.isEnabled, "Standard density should begin selected.")
+
+        for control in [decrease, increase, standard, refresh] {
+            XCTAssertTrue(control.exists, "Missing Pages control: \(control.identifier)")
+            XCTAssertGreaterThanOrEqual(control.frame.height, 44, "Pages control missed the touch target: \(control.frame)")
+            XCTAssertLessThanOrEqual(control.frame.height, 64, "Pages control wrapped vertically: \(control.frame)")
+            assertHorizontallyContained(control, in: density, message: "Pages control escaped the density card")
+        }
+
+        XCTAssertTrue(waitForHittability(of: decrease, timeout: 3))
+        decrease.tap()
+        XCTAssertTrue(waitForAccessibilityValue(of: value, equalTo: "54", timeout: 5))
+        XCTAssertTrue(standard.isEnabled, "Changing density did not enable the standard reset.")
+
+        let pageTwo = app.buttons["studio.draft.page.2"]
+        XCTAssertTrue(
+            revealInStudioDrawer(pageTwo, drawer: drawer, scrollingUp: true, maxSwipes: 16),
+            "The second full-width page card was not reachable."
+        )
+        XCTAssertTrue(waitForAccessibilityText(in: pageTwo, containing: "lines 55 through 108", timeout: 5))
+        XCTAssertTrue(waitForAccessibilityText(in: pageTwo, containing: "Preview:", timeout: 5))
+        XCTAssertGreaterThan(pageTwo.frame.width, drawer.frame.width * 0.65, "Page card collapsed: \(pageTwo.frame)")
+        assertHorizontallyContained(pageTwo, in: drawer, message: "Page card escaped the inspector")
+
+        XCTAssertTrue(
+            revealInStudioDrawer(increase, drawer: drawer, scrollingUp: false, maxSwipes: 16),
+            "Increase density did not remain reachable."
+        )
+        increase.tap()
+        XCTAssertTrue(waitForAccessibilityValue(of: value, equalTo: "55", timeout: 5))
+        XCTAssertTrue(
+            revealInStudioDrawer(pageTwo, drawer: drawer, scrollingUp: true, maxSwipes: 16),
+            "The second page card disappeared after increasing density."
+        )
+        XCTAssertTrue(waitForAccessibilityText(in: pageTwo, containing: "lines 56 through 110", timeout: 5))
+
+        XCTAssertTrue(revealInStudioDrawer(decrease, drawer: drawer, scrollingUp: false, maxSwipes: 16))
+        decrease.tap()
+        XCTAssertTrue(waitForAccessibilityValue(of: value, equalTo: "54", timeout: 5))
+        XCTAssertTrue(revealFullyInStudioDrawer(standard, drawer: drawer, maxSwipes: 4))
+        // SwiftUI can retain an old activation point after this control becomes
+        // enabled in a scrolled inspector. Tap the current visible frame center.
+        standard.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        XCTAssertTrue(revealFrameInStudioDrawer(value, drawer: drawer, maxSwipes: 4))
+        XCTAssertTrue(waitForAccessibilityValue(of: value, equalTo: "55", timeout: 5),
+                      "Standard density did not reset. Readout: \(value.label), value: \(String(describing: value.value))")
+        XCTAssertFalse(standard.isEnabled, "Standard density did not restore its selected state.")
+        retainPagesScreenshot(app, stage: "density")
+
+        XCTAssertTrue(revealInStudioDrawer(refresh, drawer: drawer, scrollingUp: true, maxSwipes: 4))
+        XCTAssertEqual(refresh.label, "Recalculate Pages")
+        refresh.tap()
+        XCTAssertTrue(waitForHittability(of: refresh, timeout: 5), "Recalculate Pages did not finish.")
+        XCTAssertTrue(waitForAccessibilityText(in: totalSummary, containing: "Draft pages, 3", timeout: 5))
+
+        let previous = app.buttons["studio.draft.pages.previous"]
+        let next = app.buttons["studio.draft.pages.next"]
+        XCTAssertTrue(revealFrameInStudioDrawer(previous, drawer: drawer, maxSwipes: 12))
+        XCTAssertFalse(previous.isEnabled, "Previous should be disabled on page 1.")
+        XCTAssertTrue(next.isEnabled, "Next should be enabled on page 1.")
+        XCTAssertGreaterThanOrEqual(next.frame.height, 44)
+        next.tap()
+        XCTAssertTrue(
+            revealInStudioDrawer(pageTwo, drawer: drawer, scrollingUp: true, maxSwipes: 12),
+            "Next did not reveal page 2."
+        )
+        XCTAssertTrue(waitForAccessibilityText(in: pageTwo, containing: "current page", timeout: 5))
+        XCTAssertTrue(revealFullyInStudioDrawer(pageTwo, drawer: drawer, maxSwipes: 8))
+        retainPagesScreenshot(app, stage: "page-two-current")
+
+        let pageThree = app.buttons["studio.draft.page.3"]
+        XCTAssertTrue(
+            revealInStudioDrawer(pageThree, drawer: drawer, scrollingUp: true, maxSwipes: 12),
+            "The third full-width page card was not reachable."
+        )
+        pageThree.tap()
+        XCTAssertTrue(waitForAccessibilityText(in: pageThree, containing: "current page", timeout: 5))
+        XCTAssertTrue(revealFullyInStudioDrawer(pageThree, drawer: drawer, maxSwipes: 8))
+        retainPagesScreenshot(app, stage: "page-three-current")
+
+        XCTAssertTrue(
+            revealInStudioDrawer(previous, drawer: drawer, scrollingUp: false, maxSwipes: 20),
+            "Previous did not remain reachable after a direct page jump."
+        )
+        XCTAssertFalse(next.isEnabled, "Next must be disabled on the final page.")
+        previous.tap()
+        XCTAssertTrue(
+            revealInStudioDrawer(pageTwo, drawer: drawer, scrollingUp: true, maxSwipes: 12),
+            "Previous did not return to page 2."
+        )
+        XCTAssertTrue(waitForAccessibilityText(in: pageTwo, containing: "current page", timeout: 5))
+#else
+        throw XCTSkip("The narrow Pages navigator regression specifically covers iPhone.")
+#endif
+    }
+
+    func test_studio_working_thread_is_readable_filterable_and_dismissible_on_phone() throws {
+#if os(iOS)
+        let app = launchApp(openStudio: true, structuralSeed: true)
+        defer { app.terminate() }
+
+        XCTAssertTrue(
+            element(identifier: "studio.surface", in: app).waitForExistence(timeout: 10),
+            "Studio did not open for the Working Thread workflow.\n\(app.debugDescription)"
+        )
+        let drawer = element(identifier: "studio.sidebar.right.drawer", in: app)
+        if !drawer.exists {
+            let inspectorToggle = app.buttons["studio.sidebar.right.toggle"]
+            XCTAssertTrue(inspectorToggle.waitForExistence(timeout: 5), "Studio inspector toggle was not exposed.")
+            XCTAssertTrue(inspectorToggle.isHittable, "Studio inspector toggle was not hittable.")
+            inspectorToggle.tap()
+        }
+        XCTAssertTrue(drawer.waitForExistence(timeout: 8), "The Studio inspector drawer was not available.")
+        let themTab = app.buttons["studio.right-panel.them"]
+        XCTAssertTrue(themTab.waitForExistence(timeout: 4), "The io.them inspector tab was missing.")
+        if !themTab.isSelected {
+            themTab.tap()
+        }
+
+        let openThread = app.buttons["studio.thread.open-full"]
+        XCTAssertTrue(
+            revealInStudioDrawer(openThread, drawer: drawer, scrollingUp: true, maxSwipes: 12),
+            "The real Working Thread entry point was not reachable in the io.them rail."
+        )
+        XCTAssertGreaterThanOrEqual(openThread.frame.height, 44, "Working Thread entry point missed its touch target.")
+        XCTAssertTrue(waitForAccessibilityValue(of: openThread, equalTo: "1 entry", timeout: 3))
+        openThread.tap()
+
+        let sheet = element(identifier: "studio.thread.sheet", in: app)
+        XCTAssertTrue(
+            sheet.waitForExistence(timeout: 6),
+            "Working Thread did not open from its real Studio action.\n\(app.debugDescription)"
+        )
+        XCTAssertLessThanOrEqual(
+            sheet.frame.maxX,
+            app.frame.maxX + 1,
+            "Working Thread exceeded the iPhone viewport: sheet=\(sheet.frame), app=\(app.frame)"
+        )
+
+        let search = element(identifier: "studio.thread.search", in: app)
+        let resultCount = element(identifier: "studio.thread.result-count", in: app)
+        XCTAssertTrue(search.waitForExistence(timeout: 4), "Working Thread search was missing.")
+        XCTAssertTrue(resultCount.waitForExistence(timeout: 4), "Working Thread result count was missing.")
+        XCTAssertGreaterThanOrEqual(search.frame.height, 44, "Working Thread search missed its touch target.")
+        XCTAssertGreaterThan(search.frame.width, 240, "Working Thread search collapsed at phone width: \(search.frame)")
+        XCTAssertGreaterThanOrEqual(
+            resultCount.frame.minY,
+            search.frame.maxY - 2,
+            "Search and count remained crowded into one phone-width row: search=\(search.frame), count=\(resultCount.frame)"
+        )
+        XCTAssertTrue(waitForAccessibilityValue(of: resultCount, equalTo: "1 shown", timeout: 4))
+
+        let allFilter = app.buttons["studio.thread.filter.all"]
+        let pageWritesFilter = app.buttons["studio.thread.filter.pageWrites"]
+        let voicePinFilter = app.buttons["studio.thread.filter.voicePin"]
+        let allScenes = app.buttons["studio.thread.scene.all"]
+        for control in [allFilter, pageWritesFilter, voicePinFilter, allScenes] {
+            XCTAssertTrue(control.waitForExistence(timeout: 4), "Missing Working Thread control: \(control.identifier)")
+            XCTAssertGreaterThanOrEqual(control.frame.height, 44, "Working Thread control missed its touch target: \(control.frame)")
+        }
+
+        pageWritesFilter.tap()
+        XCTAssertTrue(waitForAccessibilityValue(of: pageWritesFilter, equalTo: "Selected", timeout: 3))
+        XCTAssertTrue(waitForAccessibilityValue(of: resultCount, equalTo: "1 shown", timeout: 3))
+
+        voicePinFilter.tap()
+        XCTAssertTrue(waitForAccessibilityValue(of: voicePinFilter, equalTo: "Selected", timeout: 3))
+        XCTAssertTrue(waitForAccessibilityValue(of: resultCount, equalTo: "0 shown", timeout: 3))
+        XCTAssertTrue(
+            element(identifier: "studio.thread.empty", in: app).waitForExistence(timeout: 3),
+            "An empty filter result did not explain that the thread and draft were unchanged."
+        )
+
+        allFilter.tap()
+        XCTAssertTrue(waitForAccessibilityValue(of: resultCount, equalTo: "1 shown", timeout: 3))
+
+        let threadEntries = element(identifier: "studio.thread.entries", in: app)
+        XCTAssertTrue(threadEntries.waitForExistence(timeout: 3), "Working Thread entries did not expose their scroll container.")
+        let section = app.buttons["studio.thread.section.diner-night"]
+        XCTAssertTrue(section.waitForExistence(timeout: 4), "The seeded Diner thread section was missing.")
+        XCTAssertTrue(
+            revealInStudioDrawer(section, drawer: threadEntries, scrollingUp: false, maxSwipes: 8),
+            "The seeded Diner thread section was not reachable after filtering."
+        )
+        XCTAssertGreaterThanOrEqual(section.frame.height, 44, "Thread section toggle missed its touch target.")
+        XCTAssertTrue(waitForAccessibilityValue(of: section, equalTo: "Expanded", timeout: 3))
+        let timelineActions = [
+            (prefix: "studio.thread.timeline.jump.", label: "Jump to page"),
+            (prefix: "studio.thread.timeline.diff.", label: "Open diff on page"),
+            (prefix: "studio.thread.timeline.reload.", label: "Reload ask"),
+        ]
+        for action in timelineActions {
+            let button = app.buttons.matching(
+                NSPredicate(format: "identifier BEGINSWITH %@", action.prefix)
+            ).firstMatch
+            XCTAssertTrue(button.waitForExistence(timeout: 3), "Missing visible \(action.label) timeline action.")
+            XCTAssertEqual(button.label, action.label, "Timeline action lost its visible meaning.")
+            XCTAssertGreaterThanOrEqual(button.frame.height, 44, "\(action.label) missed its touch target.")
+            XCTAssertGreaterThanOrEqual(button.frame.width, 44, "\(action.label) missed its touch target.")
+        }
+        let prompt = element(identifier: "studio.thread.entry.prompt", in: app)
+        XCTAssertTrue(prompt.waitForExistence(timeout: 3), "The seeded thread entry was not visible.")
+
+        section.tap()
+        XCTAssertTrue(waitForAccessibilityValue(of: section, equalTo: "Collapsed", timeout: 3))
+        XCTAssertTrue(waitForDisappearance(of: prompt, timeout: 3), "Collapsing a thread section did not hide its entry.")
+        section.tap()
+        XCTAssertTrue(waitForAccessibilityValue(of: section, equalTo: "Expanded", timeout: 3))
+        XCTAssertTrue(prompt.waitForExistence(timeout: 3), "Expanding a thread section did not restore its entry.")
+
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "working-thread-readable-phone-width.png"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+
+        let done = app.buttons["studio.thread.done"]
+        XCTAssertTrue(done.waitForExistence(timeout: 3), "Working Thread did not expose Done.")
+        XCTAssertGreaterThanOrEqual(done.frame.height, 44, "Working Thread Done missed its touch target.")
+        done.tap()
+        XCTAssertTrue(waitForDisappearance(of: sheet, timeout: 5), "Done did not dismiss Working Thread.")
+        XCTAssertTrue(element(identifier: "studio.surface", in: app).exists, "Dismissal did not return to Studio.")
+#else
+        throw XCTSkip("The narrow Working Thread regression specifically covers iPhone Studio.")
+#endif
+    }
+
     func test_all_studio_inspector_tabs_route_to_real_panels_and_report_selection() {
         let app = launchApp(openStudio: true, openExportTools: true, structuralSeed: true)
         defer { app.terminate() }
@@ -600,17 +959,23 @@ final class V1SmokeUITests: XCTestCase {
             (tab: "saved", panel: "studio.saved.save"),
         ]
         let drawer = element(identifier: "studio.sidebar.right.drawer", in: app)
+        XCTAssertTrue(drawer.waitForExistence(timeout: 8), "Missing Studio inspector drawer")
 
         for route in routes {
             let tab = app.buttons["studio.right-panel.\(route.tab)"]
-            XCTAssertTrue(tab.waitForExistence(timeout: 8), "Missing \(route.tab) inspector tab")
+            XCTAssertTrue(
+                revealInStudioDrawer(tab, drawer: drawer, scrollingUp: false, maxSwipes: 16),
+                "Missing \(route.tab) inspector tab"
+            )
             tab.tap()
+            // The tab grid scrolls with its panel, so check selection before its row leaves view.
+            XCTAssertTrue(waitForAccessibilityValue(of: tab, equalTo: "Selected", timeout: 3))
+            XCTAssertTrue(tab.isSelected, "The \(route.tab) tab did not report its selected state")
             let panel = element(identifier: route.panel, in: app)
             XCTAssertTrue(
                 revealInStudioDrawer(panel, drawer: drawer, scrollingUp: true, maxSwipes: 16),
                 "The \(route.tab) tab did not reveal its working panel"
             )
-            XCTAssertTrue(tab.isSelected, "The \(route.tab) tab did not report its selected state")
 
             if route.tab == "outline" {
                 let nextSceneWrite = app.buttons["studio.feature-compass.move.next-scene.write"]
@@ -623,6 +988,9 @@ final class V1SmokeUITests: XCTestCase {
     func test_studio_header_shortcuts_and_project_drawer_tabs_reveal_their_destinations() {
         let app = launchApp(openStudio: true, openExportTools: true, structuralSeed: true)
         defer { app.terminate() }
+        XCTAssertTrue(element(identifier: "studio.surface", in: app).waitForExistence(timeout: 10))
+        let usesCompactHeader = app.buttons["studio.compact.done"].exists
+        let drawer = element(identifier: "studio.sidebar.right.drawer", in: app)
 
         let shortcuts = [
             (shortcut: "pages", panel: "studio.draft.page-tools"),
@@ -632,14 +1000,37 @@ final class V1SmokeUITests: XCTestCase {
         ]
 
         for route in shortcuts {
-            let shortcut = app.buttons["studio.draft-shortcut.\(route.shortcut)"]
-            XCTAssertTrue(shortcut.waitForExistence(timeout: 8), "Missing \(route.shortcut) draft shortcut")
+            // Compact Studio exposes these destinations in its inspector, not the expanded header.
+            let identifier = usesCompactHeader
+                ? (route.shortcut == "saved" ? "studio.right-panel.saved" : "studio.draft.tools.\(route.shortcut)")
+                : "studio.draft-shortcut.\(route.shortcut)"
+            let shortcut = app.buttons[identifier]
+            if usesCompactHeader {
+                XCTAssertTrue(
+                    revealInStudioDrawer(shortcut, drawer: drawer, scrollingUp: false, maxSwipes: 16),
+                    "Missing \(route.shortcut) inspector destination"
+                )
+            } else {
+                XCTAssertTrue(shortcut.waitForExistence(timeout: 8), "Missing \(route.shortcut) draft shortcut")
+            }
             shortcut.tap()
+            XCTAssertTrue(shortcut.isSelected, "The \(route.shortcut) control did not report its selected state")
             XCTAssertTrue(
-                app.descendants(matching: .any)[route.panel].waitForExistence(timeout: 4),
+                revealInStudioDrawer(
+                    element(identifier: route.panel, in: app),
+                    drawer: drawer,
+                    scrollingUp: true,
+                    maxSwipes: 16
+                ),
                 "The \(route.shortcut) shortcut did not reveal its destination"
             )
-            XCTAssertTrue(shortcut.isSelected, "The \(route.shortcut) shortcut did not report its selected state")
+        }
+
+        if usesCompactHeader {
+            let projectDrawerToggle = app.buttons["studio.sidebar.left.toggle"]
+            XCTAssertTrue(projectDrawerToggle.waitForExistence(timeout: 4))
+            projectDrawerToggle.tap()
+            XCTAssertTrue(element(identifier: "studio.sidebar.left.drawer", in: app).waitForExistence(timeout: 4))
         }
 
         let filesTab = app.buttons["studio.sidebar.files"]
@@ -1312,6 +1703,118 @@ final class V1SmokeUITests: XCTestCase {
         )
     }
 
+    func test_studio_compact_header_reports_projectless_drafts_as_unsaved() throws {
+#if os(iOS)
+        let app = launchApp(openStudio: true)
+        defer { app.terminate() }
+
+        let saveStatus = app.staticTexts["studio.header.save-status"]
+        XCTAssertTrue(saveStatus.waitForExistence(timeout: 5), "Compact Studio save status was not exposed.")
+        XCTAssertEqual(
+            saveStatus.value as? String,
+            "Not saved",
+            "An empty projectless draft reported the wrong save state."
+        )
+
+        let editor = app.textViews["studio.draft.editor"]
+        XCTAssertTrue(editor.waitForExistence(timeout: 10), "Projectless Studio editor was not exposed.")
+        editor.tap()
+        editor.typeText("INT. STORY ROOM - NIGHT")
+
+        let deadline = Date().addingTimeInterval(5)
+        while Date() < deadline, saveStatus.value as? String != "Live only" {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        }
+        XCTAssertEqual(
+            saveStatus.value as? String,
+            "Live only",
+            "A populated projectless draft falsely implied it had been saved."
+        )
+#else
+        throw XCTSkip("The compact projectless save-state regression specifically covers iPhone Studio.")
+#endif
+    }
+
+    func test_studio_recovery_banner_preserves_error_meaning_and_opens_real_projects_drawer() throws {
+#if os(iOS)
+        let app = launchApp(
+            openStudio: true,
+            structuralSeed: true,
+            studioRecoveryError: true
+        )
+        defer { app.terminate() }
+
+        let banner = element(identifier: "studio.status.recovery", in: app)
+        XCTAssertTrue(
+            banner.waitForExistence(timeout: 10),
+            "Studio recovery banner was not exposed. Accessibility hierarchy:\n\(app.debugDescription)"
+        )
+        XCTAssertLessThanOrEqual(
+            banner.frame.maxX,
+            app.frame.maxX + 1,
+            "Recovery banner extended beyond the iPhone viewport: banner=\(banner.frame), app=\(app.frame)"
+        )
+
+        let message = app.staticTexts["studio.status.recovery.message"]
+        XCTAssertTrue(message.waitForExistence(timeout: 3), "Recovery message was not accessible.")
+        XCTAssertTrue(
+            message.label.contains("server connection timed out") &&
+                message.label.contains("no writing was removed") &&
+                message.label.contains("then retry"),
+            "Recovery message lost useful failure meaning: \(message.label)"
+        )
+        XCTAssertGreaterThan(
+            message.frame.height,
+            22,
+            "Recovery message collapsed back to a single unreadable line: \(message.frame)"
+        )
+
+        let draftStatus = app.staticTexts["studio.status.recovery.draft-status"]
+        XCTAssertTrue(draftStatus.waitForExistence(timeout: 3), "Saved draft availability was not stated.")
+        XCTAssertTrue(
+            draftStatus.label.localizedCaseInsensitiveContains("saved") &&
+                draftStatus.label.localizedCaseInsensitiveContains("available"),
+            "Saved draft availability copy was ambiguous: \(draftStatus.label)"
+        )
+
+        let retry = app.buttons["studio.status.recovery.retry"]
+        let openProjects = app.buttons["studio.status.recovery.open-projects"]
+        for (name, action) in [("Retry", retry), ("Open Projects", openProjects)] {
+            XCTAssertTrue(action.waitForExistence(timeout: 3), "\(name) recovery action was not exposed.")
+            XCTAssertGreaterThanOrEqual(action.frame.height, 44, "\(name) recovery action was too short: \(action.frame)")
+            XCTAssertTrue(action.isHittable, "\(name) recovery action was not connected or hittable.")
+        }
+        XCTAssertFalse(banner.buttons["Account"].exists, "Recovery banner exposed a disconnected Account action.")
+
+        openProjects.tap()
+        let projectsDrawer = element(identifier: "studio.sidebar.left.drawer", in: app)
+        XCTAssertTrue(
+            projectsDrawer.waitForExistence(timeout: 5),
+            "Open Projects did not reveal the real Projects drawer."
+        )
+
+        let leftToggle = app.buttons["studio.sidebar.left.toggle"]
+        XCTAssertTrue(leftToggle.waitForExistence(timeout: 3))
+        leftToggle.tap()
+        XCTAssertTrue(waitForDisappearance(of: projectsDrawer, timeout: 5))
+
+        XCTAssertTrue(retry.waitForExistence(timeout: 3))
+        retry.tap()
+        XCTAssertTrue(
+            waitForDisappearance(of: banner, timeout: 5),
+            "The real Studio reload path did not replace the recovery error."
+        )
+        let refreshConfirmation = app.staticTexts["studio.status.info"]
+        XCTAssertTrue(
+            refreshConfirmation.waitForExistence(timeout: 3) &&
+                refreshConfirmation.label.localizedCaseInsensitiveContains("Studio refreshed"),
+            "Retry only dismissed the banner instead of completing the ViewModel refresh path."
+        )
+#else
+        throw XCTSkip("The recovery banner narrow-width regression specifically covers iPhone Studio.")
+#endif
+    }
+
     func test_studio_compact_drawers_fit_phone_and_remain_mutually_exclusive() {
         let app = launchApp(openStudio: true, structuralSeed: true)
         defer { app.terminate() }
@@ -1329,6 +1832,26 @@ final class V1SmokeUITests: XCTestCase {
         let compactDone = app.buttons["studio.compact.done"]
         XCTAssertTrue(compactDone.waitForExistence(timeout: 5), "Compact close control was not exposed.")
         let leftToggle = app.buttons["studio.sidebar.left.toggle"]
+        let compactControls: [(String, XCUIElement)] = [
+            ("project drawer", leftToggle),
+            ("Clementine talk", app.buttons["studio.compact.talk"]),
+            ("inspector drawer", app.buttons["studio.sidebar.right.toggle"]),
+            ("settings", app.buttons["studio.header.settings"]),
+            ("close", compactDone),
+        ]
+        for (name, control) in compactControls {
+            XCTAssertTrue(control.waitForExistence(timeout: 5), "Compact \(name) control was not exposed.")
+            XCTAssertGreaterThanOrEqual(
+                control.frame.width,
+                44,
+                "Compact \(name) control is narrower than the minimum interactive target: \(control.frame)"
+            )
+            XCTAssertGreaterThanOrEqual(
+                control.frame.height,
+                44,
+                "Compact \(name) control is shorter than the minimum interactive target: \(control.frame)"
+            )
+        }
         XCTAssertTrue(
             waitForHittability(of: compactDone, timeout: 3),
             "Compact close control was compressed or obstructed: control=\(compactDone.frame), left=\(leftToggle.frame), app=\(app.frame)"
@@ -1543,20 +2066,22 @@ final class V1SmokeUITests: XCTestCase {
 
         XCTAssertTrue(app.otherElements["studio.surface"].waitForExistence(timeout: 12))
         var queuedSnapshot: [String: Any] = [:]
-        XCTAssertTrue(
-            waitForRestoreSnapshot(in: app, timeout: 60) { snapshot in
-                queuedSnapshot = snapshot
-                return stringValue(snapshot["selected_project_id"]).lowercased() == fixture.projectID.lowercased()
-                    && stringValue(snapshot["draft_tail_preview"]).contains(marker)
-                    && intValue(snapshot["queued_draft_save_count"]) == 1
-                    && intValue(snapshot["parked_draft_save_count"]) == 0
-                    && boolValue(snapshot["has_unsaved_draft_changes"])
-                    && stringValue(snapshot["autosave_status_text"])
-                        .localizedCaseInsensitiveContains("queued locally")
-                    && stringValue(snapshot["error_text"]).isEmpty
-            },
-            "Offline screenplay save was not durably queued before termination. Snapshot: \(queuedSnapshot)"
-        )
+        let saveWasQueued = waitForRestoreSnapshot(in: app, timeout: 60) { snapshot in
+            queuedSnapshot = snapshot
+            return stringValue(snapshot["selected_project_id"]).lowercased() == fixture.projectID.lowercased()
+                && stringValue(snapshot["draft_tail_preview"]).contains(marker)
+                && intValue(snapshot["queued_draft_save_count"]) == 1
+                && intValue(snapshot["parked_draft_save_count"]) == 0
+                && boolValue(snapshot["has_unsaved_draft_changes"])
+                && stringValue(snapshot["autosave_status_text"])
+                    .localizedCaseInsensitiveContains("queued locally")
+                && stringValue(snapshot["error_text"]).isEmpty
+        }
+        guard saveWasQueued else {
+            XCTFail("Offline screenplay save was not durably queued before termination. Snapshot: \(queuedSnapshot)")
+            app.terminate()
+            return
+        }
         app.terminate()
 
         app = launchApp(
@@ -1650,17 +2175,19 @@ final class V1SmokeUITests: XCTestCase {
 
         XCTAssertTrue(app.otherElements["studio.surface"].waitForExistence(timeout: 12))
         var queuedSnapshot: [String: Any] = [:]
-        XCTAssertTrue(
-            waitForRestoreSnapshot(in: app, timeout: 60) { snapshot in
-                queuedSnapshot = snapshot
-                return stringValue(snapshot["draft_tail_preview"]).contains(marker)
-                    && intValue(snapshot["queued_draft_save_count"]) == 1
-                    && intValue(snapshot["parked_draft_save_count"]) == 0
-                    && boolValue(snapshot["has_unsaved_draft_changes"])
-                    && stringValue(snapshot["error_text"]).isEmpty
-            },
-            "Offline screenplay save was not queued before stale-version setup. Snapshot: \(queuedSnapshot)"
-        )
+        let saveWasQueued = waitForRestoreSnapshot(in: app, timeout: 60) { snapshot in
+            queuedSnapshot = snapshot
+            return stringValue(snapshot["draft_tail_preview"]).contains(marker)
+                && intValue(snapshot["queued_draft_save_count"]) == 1
+                && intValue(snapshot["parked_draft_save_count"]) == 0
+                && boolValue(snapshot["has_unsaved_draft_changes"])
+                && stringValue(snapshot["error_text"]).isEmpty
+        }
+        guard saveWasQueued else {
+            XCTFail("Offline screenplay save was not queued before stale-version setup. Snapshot: \(queuedSnapshot)")
+            app.terminate()
+            return
+        }
         app.terminate()
 
         let ownerHeaders = [
@@ -2645,12 +3172,14 @@ final class V1SmokeUITests: XCTestCase {
         openCommandBar: Bool = false,
         openExportTools: Bool = false,
         structuralSeed: Bool = false,
+        pagesWorkflowFixture: Bool = false,
         realtimeStub: Bool = false,
         routePage: Bool = false,
         routeVoicePin: Bool = false,
         showCanonClarification: Bool = false,
         showDraftConflict: Bool = false,
         showOutlineRecovery: Bool = false,
+        studioRecoveryError: Bool = false,
         conflictSaveSuccess: Bool = false,
         liveMemory: Bool = false,
         showPendingScreenplayQuestion: Bool = false,
@@ -2707,6 +3236,9 @@ final class V1SmokeUITests: XCTestCase {
                 "\(Int(Date().timeIntervalSince1970 * 1_000))"
             ])
         }
+        if pagesWorkflowFixture {
+            arguments.append("--ui-pages-workflow-fixture")
+        }
         if realtimeStub {
             arguments.append("--ui-realtime-stub")
         }
@@ -2724,6 +3256,9 @@ final class V1SmokeUITests: XCTestCase {
         }
         if showOutlineRecovery {
             arguments.append("--ui-outline-recovery-fixture")
+        }
+        if studioRecoveryError {
+            arguments.append("--ui-studio-recovery-error")
         }
         if conflictSaveSuccess {
             arguments.append("--ui-conflict-save-success")
@@ -4647,6 +5182,32 @@ final class V1SmokeUITests: XCTestCase {
             replacedWriteID: secondWriteID,
             timestamp: now
         )
+        let askHistory = [thirdEntry, secondEntry, firstEntry]
+
+        func assertSeededAskHistory(_ response: JSONResponse, context: String) throws {
+            let project = try XCTUnwrap(response.payload["project"] as? [String: Any])
+            let history = try XCTUnwrap(project["studio_ask_note_history"] as? [[String: Any]])
+            XCTAssertEqual(
+                history.map { stringValue($0["id"]).lowercased() },
+                askHistory.map { stringValue($0["id"]).lowercased() },
+                "\(context) did not preserve the three seeded history entries."
+            )
+            XCTAssertEqual(
+                history.map { stringValue($0["inserted_text"]) },
+                askHistory.map { stringValue($0["insertedText"]) },
+                "\(context) changed the seeded history content."
+            )
+            XCTAssertEqual(
+                history.map { stringValue($0["write_id"]) },
+                askHistory.map { stringValue($0["writeID"]) },
+                "\(context) changed the seeded write identities."
+            )
+            XCTAssertEqual(
+                history.map { stringValue($0["replaced_write_id"]) },
+                askHistory.map { stringValue($0["replacedWriteID"]) },
+                "\(context) changed the seeded replacement lineage."
+            )
+        }
 
         let threadViewState: [String: Any] = [
             "searchText": "",
@@ -4741,9 +5302,11 @@ final class V1SmokeUITests: XCTestCase {
                     "fingerprint": acknowledgedFingerprint,
                     "write_id": secondWriteID,
                 ]],
+                "studio_ask_note_history": askHistory,
             ]
         )
         try assertHTTP(projectState, context: "project state")
+        try assertSeededAskHistory(projectState, context: "Project creation")
 
         let version = try await requestJSON(
             baseURL: baseURL,
@@ -4817,8 +5380,18 @@ final class V1SmokeUITests: XCTestCase {
         )
         try assertHTTP(resolvedComment, context: "resolve comment")
 
+        let restoredProject = try await requestJSON(
+            baseURL: baseURL,
+            path: "/screenplay/projects/\(projectID)",
+            method: "GET",
+            headers: ownerHeaders,
+            body: nil
+        )
+        try assertHTTP(restoredProject, context: "seeded project readback")
+        try assertSeededAskHistory(restoredProject, context: "Project readback")
+
         let fullThreadStateJSON = try jsonString([projectKey: threadViewState])
-        let askHistoryJSON = try jsonString([projectKey: [thirdEntry, secondEntry, firstEntry]])
+        let askHistoryJSON = try jsonString([projectKey: askHistory])
         let acknowledgedJSON = try jsonString([projectKey: [lineageKey: acknowledgedFingerprint]])
         let acknowledgedWriteIDsJSON = try jsonString([projectKey: [lineageKey: secondWriteID]])
         let loadToken = Int(Date().timeIntervalSince1970 * 1000) % 1_000_000_000

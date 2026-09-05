@@ -1470,6 +1470,18 @@ final class BackendCredentialMigrationTests: XCTestCase {
     }
 
     func testStudioDebugProjectLoadRejectsStandardMirroredClientTokenWithoutAutomationMarker() {
+        XCTAssertFalse(IOThemRuntime.isStudioAutomationSession)
+        let keys = [
+            "client_token", "studio_debug_load_project_id",
+            "studio_debug_load_project_token", "studio_debug_load_project_ack_token",
+        ]
+        let originalValues = keys.map { UserDefaults.standard.object(forKey: $0) }
+        defer {
+            for (key, value) in zip(keys, originalValues) {
+                if let value { BackendUserDefaultsStore.set(value, forKey: key) }
+                else { BackendUserDefaultsStore.removeObject(forKey: key) }
+            }
+        }
         XCTAssertTrue(BackendUserDefaultsStore.set(
             " standard-studio-smoke-project ",
             forKey: "client_token"
@@ -1486,13 +1498,30 @@ final class BackendCredentialMigrationTests: XCTestCase {
             201,
             forKey: "studio_debug_load_project_ack_token"
         ))
-        defer {
-            BackendUserDefaultsStore.removeObject(forKey: "client_token")
-            BackendUserDefaultsStore.removeObject(forKey: "studio_debug_load_project_id")
-            BackendUserDefaultsStore.removeObject(forKey: "studio_debug_load_project_token")
-            BackendUserDefaultsStore.removeObject(forKey: "studio_debug_load_project_ack_token")
-        }
+        XCTAssertFalse(BackendAuthClient.isStudioDebugClientTokenOverrideActive())
+        XCTAssertNil(BackendAuthClient.studioDebugClientTokenOverride())
+    }
 
+    func testStudioDebugProjectLoadRejectsStandardMirroredClientTokenOutsideAutomation() {
+        XCTAssertFalse(IOThemRuntime.isStudioAutomationSession)
+        let standard = UserDefaults.standard
+        let keys = [
+            "client_token", "studio_debug_load_project_id",
+            "studio_debug_load_project_token", "studio_debug_load_project_ack_token",
+        ]
+        let originalValues = keys.map { standard.object(forKey: $0) }
+        defer {
+            for (key, value) in zip(keys, originalValues) {
+                if let value { standard.set(value, forKey: key) }
+                else { standard.removeObject(forKey: key) }
+            }
+        }
+        standard.set(" standard-studio-smoke-project ", forKey: "client_token")
+        standard.set("project-456", forKey: "studio_debug_load_project_id")
+        standard.set(202, forKey: "studio_debug_load_project_token")
+        standard.set(201, forKey: "studio_debug_load_project_ack_token")
+
+        // Pending debug defaults cannot opt an ordinary app process into automation.
         XCTAssertFalse(BackendAuthClient.isStudioDebugClientTokenOverrideActive())
         XCTAssertNil(BackendAuthClient.studioDebugClientTokenOverride())
     }
@@ -1553,6 +1582,36 @@ final class BackendCredentialMigrationTests: XCTestCase {
                 arguments: ["them", "--ui-testing", "-studio_debug_seed_structural_token", "0"]
             )
         )
+    }
+
+    func testPreservedUITestRelaunchDoesNotReplayVersionSpecificLoadCommands() throws {
+        let suiteName = "io.them.tests.ui-relaunch-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let commandKeys = [
+            "studio_debug_load_project_id", "studio_debug_load_project_version_id",
+            "studio_debug_load_project_token", "studio_debug_load_project_ack_token",
+        ]
+        for key in commandKeys { defaults.set("old-command", forKey: key) }
+        defaults.set("retained-history", forKey: "studio.ask.note.history.v2")
+
+        UITestLaunchConfiguration.applyIfNeeded(
+            arguments: ["them", "--ui-testing", "--ui-preserve-state"],
+            environment: [:],
+            defaults: defaults
+        )
+
+        for key in commandKeys { XCTAssertNil(defaults.object(forKey: key), key) }
+        XCTAssertEqual(defaults.string(forKey: "studio.ask.note.history.v2"), "retained-history")
+    }
+
+    func testNormalLaunchDoesNotClearDebugProjectPreferences() throws {
+        let suiteName = "io.them.tests.normal-relaunch-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set("pending-project", forKey: "studio_debug_load_project_id")
+        UITestLaunchConfiguration.applyIfNeeded(arguments: ["them"], environment: [:], defaults: defaults)
+        XCTAssertEqual(defaults.string(forKey: "studio_debug_load_project_id"), "pending-project")
     }
 
     func testUITestLaunchConfigurationSeedsBackendRestoreDefaultsFromEnvironment() throws {

@@ -23,7 +23,23 @@ function sanitizeFilenameBase(raw) {
   return cleaned || "screenplay";
 }
 
-function mountFDXExportRoute(app) {
+function applyDraftDateDefault(body, now = () => new Date()) {
+  const title = body?.title;
+  if (!title || typeof title !== "object" || Array.isArray(title)
+      || !String(title.title || "").trim()) return body;
+  if (String(title.draftDate || "").trim()) return body;
+  // Normalize each candidate before choosing: a whitespace-only earlier field
+  // must never mask a later explicit writer date.
+  const explicitDate = [body.draft_date, body.draftDate]
+    .map((value) => String(value ?? "").trim())
+    .find(Boolean);
+  return {
+    ...body,
+    title: { ...title, draftDate: explicitDate || now().toISOString().slice(0, 10) },
+  };
+}
+
+function mountFDXExportRoute(app, { now = () => new Date() } = {}) {
   if (!app || typeof app.post !== "function") {
     throw new Error("mountFDXExportRoute requires an Express app");
   }
@@ -47,7 +63,7 @@ function mountFDXExportRoute(app) {
       }
       let fdx;
       try {
-        fdx = exportToFDX(body);
+        fdx = exportToFDX(applyDraftDateDefault(body, now));
       } catch (e) {
         return res.status(500).json({
           error: "fdx_export_failed",
@@ -70,4 +86,4 @@ function mountFDXExportRoute(app) {
   );
 }
 
-export { mountFDXExportRoute, sanitizeFilenameBase, FDX_BODY_LIMIT };
+export { mountFDXExportRoute, sanitizeFilenameBase, applyDraftDateDefault, FDX_BODY_LIMIT };

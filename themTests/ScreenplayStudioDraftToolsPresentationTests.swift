@@ -4,7 +4,7 @@ import ScreenplayStudio
 
 @MainActor
 final class ScreenplayStudioDraftToolsPresentationTests: XCTestCase {
-    func testPaginationProjectionPreservesPreviewPrecedenceClippingPaddingAndActiveBounds() {
+    func testPaginationProjectionFallsBackToFullPreviewLinesAndPreservesActiveBounds() {
         let longPreviewLine = String(repeating: "x", count: 45)
         let page = BackendScreenplayPaginationPage(
             page: 2,
@@ -15,13 +15,13 @@ final class ScreenplayStudioDraftToolsPresentationTests: XCTestCase {
             estMinutes: 1.2
         )
 
-        let lines = ScreenplayStudioDraftToolsPresentationPlanner.paginationThumbnailLines(
+        let lines = ScreenplayStudioDraftToolsPresentationPlanner.paginationPreviewLines(
             for: page,
-            draft: "This fallback must not render.",
+            draft: "",
             maxLines: 4
         )
 
-        XCTAssertEqual(lines, ["First beat", String(repeating: "x", count: 36), "Third beat", ""])
+        XCTAssertEqual(lines, ["First beat", longPreviewLine, "Third beat"])
         XCTAssertFalse(
             ScreenplayStudioDraftToolsPresentationPlanner.isPaginationPageActive(page, cursorLine: 7)
         )
@@ -34,27 +34,34 @@ final class ScreenplayStudioDraftToolsPresentationTests: XCTestCase {
         XCTAssertFalse(
             ScreenplayStudioDraftToolsPresentationPlanner.isPaginationPageActive(page, cursorLine: 15)
         )
+
+        let presentation = ScreenplayStudioPaginationPagePresentation(
+            page: page,
+            previewLines: ["", "  First beat  ", "   ", "Second beat"],
+            isActive: true
+        )
+        XCTAssertEqual(presentation.visiblePreviewLines, ["First beat", "Second beat"])
     }
 
-    func testPaginationProjectionFallsBackToDraftAndClampsLineBounds() {
+    func testPaginationProjectionPrefersActualDraftLinesAndClampsLineBounds() {
         let longDraftLine = String(repeating: "y", count: 48)
         let page = BackendScreenplayPaginationPage(
             page: 1,
             startLine: 2,
             endLine: 99,
             lineCount: 3,
-            preview: "  \r\n",
+            preview: "Flattened server excerpt must not replace the page lines.",
             estMinutes: nil
         )
         let draft = "FIRST\r\n\(longDraftLine)\r\n\r\nLAST"
 
         XCTAssertEqual(
-            ScreenplayStudioDraftToolsPresentationPlanner.paginationThumbnailLines(
+            ScreenplayStudioDraftToolsPresentationPlanner.paginationPreviewLines(
                 for: page,
                 draft: draft,
                 maxLines: 5
             ),
-            [String(repeating: "y", count: 40), "", "LAST", "", ""]
+            [longDraftLine, "LAST"]
         )
 
         let outOfRangePage = BackendScreenplayPaginationPage(
@@ -66,12 +73,89 @@ final class ScreenplayStudioDraftToolsPresentationTests: XCTestCase {
             estMinutes: nil
         )
         XCTAssertEqual(
-            ScreenplayStudioDraftToolsPresentationPlanner.paginationThumbnailLines(
+            ScreenplayStudioDraftToolsPresentationPlanner.paginationPreviewLines(
                 for: outOfRangePage,
                 draft: draft,
                 maxLines: 3
             ),
-            ["", "", ""]
+            []
+        )
+        XCTAssertTrue(ScreenplayStudioDraftToolsPresentationPlanner.paginationPreviewLines(
+            for: page, draft: draft, maxLines: 0
+        ).isEmpty)
+    }
+
+    func testPaginationPresentationProvidesCurrentPreviousNextAndRuntimeContext() throws {
+        var rows: [ScreenplayStudioPaginationPagePresentation] = []
+        for pageNumber in 1...3 {
+            let startLine = ((pageNumber - 1) * 10) + 1
+            let page = BackendScreenplayPaginationPage(
+                page: pageNumber,
+                startLine: startLine,
+                endLine: pageNumber * 10,
+                lineCount: 10,
+                preview: "Page \(pageNumber)",
+                estMinutes: Double(pageNumber) * 0.5
+            )
+            rows.append(ScreenplayStudioPaginationPagePresentation(
+                page: page,
+                previewLines: ["Page \(pageNumber)"],
+                isActive: pageNumber == 2
+            ))
+        }
+        let presentation = ScreenplayStudioDraftPagesPresentation(
+            isRefreshing: false,
+            isDraftEmpty: false,
+            errorText: "",
+            pages: rows
+        )
+
+        XCTAssertEqual(presentation.activePageIndex, 1)
+        XCTAssertEqual(presentation.activePage?.page.page, 2)
+        XCTAssertEqual(presentation.previousPage?.page, 1)
+        XCTAssertEqual(presentation.nextPage?.page, 3)
+        XCTAssertEqual(try XCTUnwrap(presentation.estimatedMinutes), 3.0, accuracy: 0.001)
+
+        let noActivePage = ScreenplayStudioDraftPagesPresentation(
+            isRefreshing: false,
+            isDraftEmpty: false,
+            errorText: "",
+            pages: rows.map {
+                ScreenplayStudioPaginationPagePresentation(
+                    page: $0.page,
+                    previewLines: $0.previewLines,
+                    isActive: false
+                )
+            }
+        )
+        XCTAssertNil(noActivePage.activePage)
+        XCTAssertNil(noActivePage.previousPage)
+        XCTAssertNil(noActivePage.nextPage)
+
+        let rowsWithMissingRuntime = rows.enumerated().map { index, row in
+            ScreenplayStudioPaginationPagePresentation(
+                page: BackendScreenplayPaginationPage(
+                    page: row.page.page,
+                    startLine: row.page.startLine,
+                    endLine: row.page.endLine,
+                    lineCount: row.page.lineCount,
+                    preview: row.page.preview,
+                    estMinutes: index == 1 ? nil : row.page.estMinutes
+                ),
+                previewLines: row.previewLines,
+                isActive: row.isActive
+            )
+        }
+        let missingRuntimePresentation = ScreenplayStudioDraftPagesPresentation(
+            isRefreshing: false,
+            isDraftEmpty: false,
+            errorText: "",
+            pages: rowsWithMissingRuntime
+        )
+        XCTAssertEqual(
+            try XCTUnwrap(missingRuntimePresentation.estimatedMinutes),
+            2.0 + (10.0 / 55.0),
+            accuracy: 0.001
         )
     }
 
