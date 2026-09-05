@@ -2171,6 +2171,64 @@ nonisolated enum BackendErrorMessageSanitizer {
     }
 }
 
+// User-facing error mapping — one place to add entries.
+// Maps backend {stage, error} to a sentence the writer can act on. Unmapped
+// codes fall back to a safe generic. The raw stage:error pair is never shown.
+// Copy is placeholder and needs human review before App Store copy polish.
+nonisolated enum BackendUserFacingErrorMapper {
+    static func message(forStage stage: String?, error: String?) -> String {
+        let s = (stage ?? "").lowercased()
+        let e = (error ?? "").lowercased()
+        let key = "\(s):\(e)"
+        switch key {
+        case "auth:user_auth_required", "auth_user:user_auth_required":
+            return "Please sign in to continue."
+        case "auth:user_auth_not_configured":
+            return "Sign-in is not configured. Please try again later."
+        case "craft:craft_framework_not_found", "craft:craft_report_not_found", "craft:craft_override_not_found", "craft:craft_logline_not_found":
+            return "We couldn't find that item. Please refresh and try again."
+        case "craft:craft_invalid_framework_id":
+            return "That story framework isn't available."
+        case "craft:craft_invalid_screenplay":
+            return "That screenplay text needs attention before we can continue."
+        case "craft:craft_schema_version_unsupported":
+            return "This app version is out of date. Please update."
+        case "craft:craft_override_user_mismatch":
+            return "You don't have access to change that item."
+        case "talk:talk_rate_limited", "talk:rate_limited":
+            return "You're sending messages too quickly. Please wait a moment."
+        case "talk:talk_voice_not_configured", "realtime:realtime_not_configured":
+            return "Voice is not set up yet."
+        case "auth:auth_rate_limited":
+            return "Too many sign-in attempts. Please wait and try again."
+        default:
+            if e.contains("not_found") { return "We couldn't find that item." }
+            if e.contains("invalid") { return "Something in that request needs fixing." }
+            if s == "auth" || s == "auth_user" { return "Please sign in again." }
+            return "Something went wrong. Please try again."
+        }
+    }
+
+    /// Decodes a structured `{stage, error}` body when present; otherwise
+    /// defers to the sanitizer so HTML and stack traces never reach the writer.
+    static func displayMessage(from data: Data, status: Int? = nil) -> String {
+        if let payload = try? JSONDecoder().decode(StageErrorPayload.self, from: data),
+           let error = payload.error, !error.isEmpty {
+            return message(forStage: payload.stage, error: error)
+        }
+        return BackendErrorMessageSanitizer.displayMessage(
+            from: data,
+            status: status,
+            fallback: "Something went wrong. Please try again."
+        )
+    }
+
+    private struct StageErrorPayload: Decodable {
+        let stage: String?
+        let error: String?
+    }
+}
+
 nonisolated enum BackendAPIResponseValidator {
     static func hasMatchingOrigin(requestURL: URL?, responseURL: URL?) -> Bool {
         guard let requestURL,

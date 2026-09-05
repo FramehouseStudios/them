@@ -148,11 +148,15 @@ jobs:
           # Project approval check. Strict: an explicit signal from a trusted
           # OWNER/MEMBER/COLLABORATOR is required. There is no quiet-time
           # fallback, and risky paths were already rejected above.
-          approved_via_review=$(echo "$info" | jq -r "[.reviews[] | select(.state == \"APPROVED\" and (.authorAssociation as \$a | [\"OWNER\", \"MEMBER\", \"COLLABORATOR\"] | index(\$a)))] | length")
-          approved_via_comment=$(echo "$info" | jq -r "[.comments[] | select((.authorAssociation as \$a | [\"OWNER\", \"MEMBER\", \"COLLABORATOR\"] | index(\$a)) and (.body | test(\"^(Codex|Project) supervisor update: approved\")))] | length")
+          # The approval must come from someone other than the PR author. A
+          # trusted account can still open a PR and approve it on the same
+          # login; that is not a second pair of eyes and must not auto-merge.
+          pr_author=$(echo "$info" | jq -r '.author.login // ""')
+          approved_via_review=$(echo "$info" | jq --arg author "$pr_author" -r "[.reviews[] | select(.state == \"APPROVED\" and (.authorAssociation as \$a | [\"OWNER\", \"MEMBER\", \"COLLABORATOR\"] | index(\$a)) and ((.author.login // \"\") != \$author))] | length")
+          approved_via_comment=$(echo "$info" | jq --arg author "$pr_author" -r "[.comments[] | select((.authorAssociation as \$a | [\"OWNER\", \"MEMBER\", \"COLLABORATOR\"] | index(\$a)) and ((.author.login // \"\") != \$author) and (.body | test(\"^(Codex|Project) supervisor update: approved\")))] | length")
 
           if [[ "$approved_via_review" -eq 0 && "$approved_via_comment" -eq 0 ]]; then
-            echo "PR #$PR has no explicit project approval (review=0, comment=0); skipping."
+            echo "PR #$PR has no explicit project approval from someone other than its author (review=0, comment=0); skipping."
             exit 0
           fi
 
