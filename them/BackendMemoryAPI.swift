@@ -10710,11 +10710,11 @@ actor BackendMemoryAPI {
         if let baseURLOverride {
             return baseURLOverride
         }
-        if let healthyBaseURL {
-            return healthyBaseURL
-        }
         if let uiTestURL = BackendDefaultBaseURLPolicy.currentUITestOverrideBaseURL {
             return uiTestURL
+        }
+        if let healthyBaseURL {
+            return healthyBaseURL
         }
         let fromBaseEnv = ProcessInfo.processInfo.environment["BACKEND_BASE_URL"] ?? ""
         if isUsableConfigValue(fromBaseEnv), let url = URL(string: fromBaseEnv), isUsableBackendURL(url) {
@@ -10751,6 +10751,9 @@ actor BackendMemoryAPI {
         if let baseURLOverride {
             return [baseURLOverride]
         }
+        if let uiTestURL = BackendDefaultBaseURLPolicy.currentUITestOverrideBaseURL {
+            return [uiTestURL]
+        }
         var candidates = [baseURL()]
         let storedRaw = BackendAuthClient.preferenceString(forKey: DefaultsKey.baseURL)
         if isUsableConfigValue(storedRaw),
@@ -10768,6 +10771,12 @@ actor BackendMemoryAPI {
 
     private func adoptHealthyBaseURL(_ url: URL) {
         let resolved = canonicalizeLoopbackURL(url)
+        if baseURLOverride == nil,
+           let uiTestURL = BackendDefaultBaseURLPolicy.currentUITestOverrideBaseURL,
+           resolved != canonicalizeLoopbackURL(uiTestURL) {
+            // A probe begun before the UI-test fault must not undo its explicit URL change.
+            return
+        }
         healthyBaseURL = resolved
         BackendUserDefaultsStore.set(resolved.absoluteString, forKey: DefaultsKey.baseURL)
     }

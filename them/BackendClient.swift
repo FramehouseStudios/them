@@ -6670,6 +6670,11 @@ final class BackendClient {
 
     private func persistSharedBackendBaseURL(_ url: URL) {
         guard shouldPersistBackendBaseURL else { return }
+        if let uiTestURL = BackendDefaultBaseURLPolicy.currentUITestOverrideBaseURL,
+           Self.canonicalizeLoopbackURL(url) != uiTestURL {
+            // An earlier request must not replace an explicitly changed test URL.
+            return
+        }
         BackendUserDefaultsStore.set(url.absoluteString, forKey: sharedBackendBaseURLDefaultsKey)
     }
 }

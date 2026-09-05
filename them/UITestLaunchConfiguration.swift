@@ -9,6 +9,17 @@ nonisolated enum UITestLaunchConfiguration {
     ) {
         guard arguments.contains("--ui-testing") else { return }
 
+        // These are launch commands, not persisted writer state. A preserved
+        // relaunch must not replay the first launch's version-specific load.
+        for key in [
+            "studio_debug_load_project_id",
+            "studio_debug_load_project_version_id",
+            "studio_debug_load_project_token",
+            "studio_debug_load_project_ack_token",
+        ] {
+            defaults.removeObject(forKey: key)
+        }
+
         if arguments.contains("--ui-reset-state"),
            !arguments.contains("--ui-preserve-state"),
            let bundleID = Bundle.main.bundleIdentifier {

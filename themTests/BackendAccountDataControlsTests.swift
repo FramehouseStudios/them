@@ -1523,6 +1523,36 @@ final class BackendCredentialMigrationTests: XCTestCase {
         )
     }
 
+    func testPreservedUITestRelaunchDoesNotReplayVersionSpecificLoadCommands() throws {
+        let suiteName = "io.them.tests.ui-relaunch-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let commandKeys = [
+            "studio_debug_load_project_id", "studio_debug_load_project_version_id",
+            "studio_debug_load_project_token", "studio_debug_load_project_ack_token",
+        ]
+        for key in commandKeys { defaults.set("old-command", forKey: key) }
+        defaults.set("retained-history", forKey: "studio.ask.note.history.v2")
+
+        UITestLaunchConfiguration.applyIfNeeded(
+            arguments: ["them", "--ui-testing", "--ui-preserve-state"],
+            environment: [:],
+            defaults: defaults
+        )
+
+        for key in commandKeys { XCTAssertNil(defaults.object(forKey: key), key) }
+        XCTAssertEqual(defaults.string(forKey: "studio.ask.note.history.v2"), "retained-history")
+    }
+
+    func testNormalLaunchDoesNotClearDebugProjectPreferences() throws {
+        let suiteName = "io.them.tests.normal-relaunch-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set("pending-project", forKey: "studio_debug_load_project_id")
+        UITestLaunchConfiguration.applyIfNeeded(arguments: ["them"], environment: [:], defaults: defaults)
+        XCTAssertEqual(defaults.string(forKey: "studio_debug_load_project_id"), "pending-project")
+    }
+
     func testUITestLaunchConfigurationSeedsBackendRestoreDefaultsFromEnvironment() throws {
         let suiteName = "io.them.tests.ui-launch-\(UUID().uuidString)"
         let suiteDefaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
