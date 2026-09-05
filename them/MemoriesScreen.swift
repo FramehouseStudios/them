@@ -85,6 +85,61 @@ private extension MemoryItem {
     }
 }
 
+enum MemoryForgetError: LocalizedError {
+    case changed, removed, invalidReceipt, inProgress
+
+    var errorDescription: String? {
+        switch self {
+        case .changed:
+            return "This memory changed after you opened the confirmation. Review the latest memory, then choose Forget again."
+        case .removed:
+            return "This memory is no longer available. Refresh Memories to see the latest saved memories."
+        case .invalidReceipt:
+            return "Couldn’t confirm this memory was forgotten. Refresh Memories before trying again."
+        case .inProgress:
+            return "A memory is already being forgotten. Wait for it to finish before trying again."
+        }
+    }
+}
+
+enum MemoryForgetPresentation {
+    static func confirmationMessage(for item: MemoryItem) -> String {
+        let key = item.key.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let id = normalizedID(item.id)
+        let scope: String
+        if key.hasPrefix("character:") {
+            scope = "This removes remembered character details for this name across your account, not just this project."
+        } else if key.hasPrefix("episode:") {
+            scope = "This removes the saved creative episode from Clementine’s memory."
+        } else if id.hasPrefix("history-") {
+            scope = "This also removes the associated saved conversation turn from History."
+        } else if id == "memory-last-recap" {
+            scope = "This clears the last saved conversation recap and its snapshot."
+        } else {
+            scope = "This removes this saved memory from Memories. It does not erase every mention of it elsewhere."
+        }
+        return "“\(item.title)”\n\n\(scope) There is no undo for this action."
+    }
+
+    static func errorMessage(for error: Error) -> String {
+        if let local = error as? MemoryForgetError { return local.localizedDescription }
+        if let backend = error as? BackendMemoryAPIError {
+            if backend.requiresUserAuthentication {
+                return "Sign in to forget this memory. Return Home, sign in, then open Memories again."
+            }
+            if backend.isCrossDeviceMemoryConflict {
+                return MemoryForgetError.changed.localizedDescription
+            }
+        }
+        // A lost response can follow a successful or partial server write.
+        return "Couldn’t confirm this memory was forgotten. You can still read the copy shown here. Check your connection and refresh Memories before trying again."
+    }
+
+    static func normalizedID(_ value: String) -> String {
+        value.lowercased().filter { !$0.isWhitespace }
+    }
+}
+
 // MARK: - ViewModel
 
 @MainActor
@@ -109,19 +164,25 @@ final class MemoriesViewModel: ObservableObject {
     @Published var storyObligationActionError = ""
     @Published private(set) var isRefreshing = false
     @Published private(set) var refreshError: String?
+    @Published private(set) var actionNotice: String?
 
     typealias MemoriesLoader = @MainActor (Bool, String?) async throws -> BackendReadResult<BackendMemoriesResponse>
     typealias PendingQuestionLoader = @MainActor (Bool) async throws -> BackendPendingScreenplayQuestion?
+    typealias ForgetLoader = @MainActor (String, String) async throws -> BackendReadResult<BackendMemoryMutationResponse>
 
     private let api: BackendMemoryAPI
     private let notificationCenter: NotificationCenter
     private var memoriesLoader: MemoriesLoader
     private var pendingQuestionLoader: PendingQuestionLoader
+    private var forgetLoader: ForgetLoader?
+    private var forgettingMemoryID: String?
     private var lastLoadedAt: Date?
     private let reloadCooldownSeconds: TimeInterval = 1.0
     private var lastSync: BackendSyncState = .empty
     private var turnObserver: NSObjectProtocol?
     private var latestSeenStateVersion = ""
+    private var displayedMemoryStateVersion = ""
+    private var displayedCreativeMemoryRevision = ""
     private var pendingEventVersions: Set<String> = []
     private var pendingFullRefresh = false
     private var mutationRevision = 0
@@ -134,10 +195,12 @@ final class MemoriesViewModel: ObservableObject {
         api: BackendMemoryAPI = .shared,
         notificationCenter: NotificationCenter = .default,
         memoriesLoader: MemoriesLoader? = nil,
-        pendingQuestionLoader: PendingQuestionLoader? = nil
+        pendingQuestionLoader: PendingQuestionLoader? = nil,
+        forgetLoader: ForgetLoader? = nil
     ) {
         self.api = api
         self.notificationCenter = notificationCenter
+        self.forgetLoader = forgetLoader
         self.memoriesLoader = memoriesLoader ?? { force, sinceVersion in
             try await api.fetchMemories(limit: 72, force: force, sinceVersion: sinceVersion)
         }
@@ -230,6 +293,8 @@ final class MemoriesViewModel: ObservableObject {
         lastSync.memoryUpdatedAt = payload.memoryUpdatedAt ?? 0
         lastSync.historyUpdatedAt = payload.historyUpdatedAt ?? 0
         latestSeenStateVersion = lastSync.stateVersion
+        displayedMemoryStateVersion = payload.stateVersion?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        displayedCreativeMemoryRevision = payload.creativeMemoryRevision?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard !noChange else { return }
 
         // Changed /memories responses contain the complete bounded snapshot.
@@ -351,6 +416,7 @@ final class MemoriesViewModel: ObservableObject {
             askedAt: Date().timeIntervalSince1970 * 1_000
         )
         isUITestFixture = true
+        forgetLoader = { _, _ in throw URLError(.notConnectedToInternet) }
         let pending = pendingScreenplayQuestion
         pendingQuestionLoader = { _ in pending }
         memoriesLoader = { _, _ in
@@ -372,16 +438,38 @@ final class MemoriesViewModel: ObservableObject {
         #if DEBUG
         guard arguments.contains("--ui-testing"), arguments.contains("--ui-memories-fixture") else { return false }
         isUITestFixture = true
+        forgetLoader = { _, _ in throw URLError(.notConnectedToInternet) }
         pendingQuestionLoader = { _ in nil }
         var shouldFail = arguments.contains("--ui-memories-refresh-failure")
         let editable = arguments.contains("--ui-memories-editable-fixture")
+        var forgottenIDs: Set<String> = []
+        if arguments.contains("--ui-memories-forget-fixture") {
+            var shouldFailForget = true
+            forgetLoader = { id, _ in
+                guard ["ui-lighthouse", "ui-causeway"].contains(id) else { throw MemoryForgetError.removed }
+                if shouldFailForget {
+                    shouldFailForget = false
+                    throw URLError(.notConnectedToInternet)
+                }
+                forgottenIDs.insert(id)
+                let data = try JSONSerialization.data(withJSONObject: [
+                    "ok": true, "action": "forget", "status": "forgotten", "forgottenId": id,
+                ])
+                return BackendReadResult(
+                    payload: try JSONDecoder().decode(BackendMemoryMutationResponse.self, from: data),
+                    sync: .empty, notModified: false
+                )
+            }
+        }
         memoriesLoader = { _, _ in
             if shouldFail {
                 shouldFail = false
                 throw URLError(.notConnectedToInternet)
             }
             return BackendReadResult(
-                payload: try Self.memoriesUITestPayload(now: now, refreshed: true, editable: editable), sync: .empty, notModified: false
+                payload: try Self.memoriesUITestPayload(
+                    now: now, refreshed: true, editable: editable, excluding: forgottenIDs
+                ), sync: .empty, notModified: false
             )
         }
         do {
@@ -396,7 +484,9 @@ final class MemoriesViewModel: ObservableObject {
     }
 
     #if DEBUG
-    private static func memoriesUITestPayload(now: Date, refreshed: Bool, editable: Bool) throws -> BackendMemoriesResponse {
+    private static func memoriesUITestPayload(
+        now: Date, refreshed: Bool, editable: Bool, excluding forgottenIDs: Set<String> = []
+    ) throws -> BackendMemoriesResponse {
         let summary = refreshed
             ? "Mara returns to the lighthouse to tell June the truth."
             : "Mara keeps returning to the lighthouse when she needs to make a difficult choice."
@@ -414,7 +504,8 @@ final class MemoriesViewModel: ObservableObject {
         ]
         let data = try JSONSerialization.data(withJSONObject: [
             "source": "ui-fixture", "sourceIp": "", "stateVersion": refreshed ? "fixture-v2" : "fixture-v1",
-            "memories": rows, "conversationSamples": [], "deltaNoChange": false,
+            "memories": rows.filter { !forgottenIDs.contains($0["id"] as? String ?? "") },
+            "conversationSamples": [], "deltaNoChange": false,
         ])
         return try JSONDecoder().decode(BackendMemoriesResponse.self, from: data)
     }
@@ -499,15 +590,35 @@ final class MemoriesViewModel: ObservableObject {
         ])
     }
 
-    func forgetMemory(itemID: String, key: String) async throws {
-        try checkMutationTransport()
-        _ = try? await api.bootstrapSession()
+    func forgetMemory(itemID: String, key: String, expectedItem: MemoryItem? = nil) async throws {
+        guard forgettingMemoryID == nil else { throw MemoryForgetError.inProgress }
+        let requestedID = MemoryForgetPresentation.normalizedID(itemID)
+        guard !requestedID.isEmpty else { throw MemoryForgetError.removed }
+        if let expectedItem { try validateMemoryForget(expectedItem, itemID: itemID, key: key) }
+        forgettingMemoryID = requestedID
+        actionNotice = nil
+        defer { forgettingMemoryID = nil }
+        let title = expectedItem?.title ?? memory(forID: itemID)?.title ?? "Memory"
+        // Pin this action to the snapshot shown here, not another API request's newer state.
+        let expectedStateVersion = displayedMemoryStateVersion
+        let expectedCreativeMemoryRevision = displayedCreativeMemoryRevision
         let result: BackendReadResult<BackendMemoryMutationResponse>
         do {
-            result = try await api.forgetMemoryCard(
-                id: itemID,
-                key: key
-            )
+            if let forgetLoader {
+                result = try await forgetLoader(itemID, key)
+            } else {
+                try checkMutationTransport()
+                guard !expectedStateVersion.isEmpty, !expectedCreativeMemoryRevision.isEmpty else {
+                    throw MemoryForgetError.invalidReceipt
+                }
+                _ = try? await api.bootstrapSession()
+                if let expectedItem { try validateMemoryForget(expectedItem, itemID: itemID, key: key) }
+                result = try await api.forgetMemoryCard(
+                    id: itemID, key: key,
+                    expectedStateVersion: expectedStateVersion,
+                    expectedCreativeMemoryRevision: expectedCreativeMemoryRevision
+                )
+            }
         } catch {
             if let backendError = error as? BackendMemoryAPIError,
                backendError.isCrossDeviceMemoryConflict {
@@ -515,18 +626,32 @@ final class MemoriesViewModel: ObservableObject {
             }
             throw error
         }
+        guard result.payload.ok,
+              result.payload.action == "forget",
+              result.payload.status == "forgotten",
+              let forgottenID = result.payload.forgottenId,
+              MemoryForgetPresentation.normalizedID(forgottenID) == requestedID else {
+            throw MemoryForgetError.invalidReceipt
+        }
         adoptMutationSync(result.sync)
-        let forgottenID = (result.payload.forgottenId ?? itemID).trimmingCharacters(in: .whitespacesAndNewlines)
         let characterKeyPrefix = "character:"
         if key.lowercased().hasPrefix(characterKeyPrefix) {
             ScreenplayLiveDraftBridge.shared.forgetCharacterVoiceMemory(
                 named: String(key.dropFirst(characterKeyPrefix.count))
             )
         }
-        removeMemoryItem(id: forgottenID, key: key)
+        removeMemoryItem(id: itemID, key: key)
         if let selected = selection,
-           selected.id == forgottenID || selected.key == key {
+           MemoryForgetPresentation.normalizedID(selected.id) == requestedID || selected.key == key {
             selection = nil
+        }
+        actionNotice = "Forgot “\(title)”."
+    }
+
+    private func validateMemoryForget(_ expected: MemoryItem, itemID: String, key: String) throws {
+        guard let current = memory(forID: expected.id) else { throw MemoryForgetError.removed }
+        guard current == expected, expected.id == itemID, expected.key == key else {
+            throw MemoryForgetError.changed
         }
     }
 
@@ -934,7 +1059,8 @@ struct MemoriesScreen: View {
                     onForget: { target in
                         try await vm.forgetMemory(
                             itemID: target.id,
-                            key: target.key
+                            key: target.key,
+                            expectedItem: target
                         )
                     },
                     onUndoCorrection: { receipt in
@@ -1112,6 +1238,13 @@ struct MemoriesScreen: View {
                     .foregroundStyle(MemoriesTheme.textPrimary)
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier("memories.refresh-error")
+            }
+            if let notice = vm.actionNotice {
+                Text(notice)
+                    .font(.system(size: 14))
+                    .foregroundStyle(MemoriesTheme.textPrimary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("memories.action-notice")
             }
         }
     }
@@ -2419,7 +2552,7 @@ struct MemoryDetailView: View {
     let onReturnHome: () -> Void
     let onEditingChanged: (Bool) -> Void
     let onSave: @MainActor (MemoryItem, MemoryItem) async throws -> MemoryItem
-    let onForget: (MemoryItem) async throws -> Void
+    let onForget: @MainActor (MemoryItem) async throws -> Void
     let onUndoCorrection: (BackendCanonCorrectionReceipt) async throws -> Void
     let onResolveCorrection: (BackendCanonCorrectionAmbiguity, [String]) async throws -> Void
     let onQualitySignal: (MemoryItem, String) async throws -> MemoryItem
@@ -2432,6 +2565,9 @@ struct MemoryDetailView: View {
     @State private var showingEdit = false
     @State private var isSaving = false
     @State private var isForgetting = false
+    @State private var showingForgetConfirmation = false
+    @State private var forgetConfirmationItem: MemoryItem?
+    @State private var forgetError: String?
     @State private var isUndoingCorrection = false
     @State private var isResolvingCorrection = false
     @State private var isSendingQuality = false
@@ -2443,7 +2579,7 @@ struct MemoryDetailView: View {
         onReturnHome: @escaping () -> Void = {},
         onEditingChanged: @escaping (Bool) -> Void = { _ in },
         onSave: @escaping @MainActor (MemoryItem, MemoryItem) async throws -> MemoryItem,
-        onForget: @escaping (MemoryItem) async throws -> Void,
+        onForget: @escaping @MainActor (MemoryItem) async throws -> Void,
         onUndoCorrection: @escaping (BackendCanonCorrectionReceipt) async throws -> Void,
         onResolveCorrection: @escaping (BackendCanonCorrectionAmbiguity, [String]) async throws -> Void,
         onQualitySignal: @escaping (MemoryItem, String) async throws -> MemoryItem,
@@ -2487,6 +2623,32 @@ struct MemoryDetailView: View {
                         .foregroundStyle(MemoriesTheme.textPrimary.opacity(0.9))
                         .lineSpacing(8)
                         .accessibilityIdentifier("memories.detail.summary")
+
+                    if isForgetting {
+                        ProgressView("Forgetting memory…")
+                            .accessibilityIdentifier("memories.forget.progress")
+                    }
+                    if let forgetError {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text(forgetError)
+                                .font(.system(size: 14))
+                                .fixedSize(horizontal: false, vertical: true)
+                                .accessibilityIdentifier("memories.forget.error")
+                            Button { beginForgetting() } label: {
+                                Text("Review and retry")
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .frame(maxWidth: .infinity, minHeight: 44)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .background(Color.white.opacity(0.20), in: RoundedRectangle(cornerRadius: 10))
+                            .accessibilityIdentifier("memories.forget.retry")
+                        }
+                        .foregroundStyle(MemoriesTheme.textPrimary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(14)
+                        .background(Color.white.opacity(0.20), in: RoundedRectangle(cornerRadius: 12))
+                    }
 
                     if currentItem.editable {
                         Button {
@@ -2604,13 +2766,29 @@ struct MemoryDetailView: View {
                 }
                 if !currentItem.hasCanonCorrectionControl {
                     Button(role: .destructive) {
-                        Task { await forgetCurrentItem() }
+                        beginForgetting()
                     } label: {
                         Text("Forget").frame(minWidth: 44, minHeight: 44)
                     }
                     .disabled(isBusy)
+                    .accessibilityIdentifier("memories.detail.forget")
+                    .accessibilityHint("Shows what will be removed and asks for confirmation.")
                 }
             }
+        }
+        .alert(
+            "Forget this memory?",
+            isPresented: $showingForgetConfirmation,
+            presenting: forgetConfirmationItem
+        ) { target in
+            Button("Forget memory", role: .destructive) {
+                Task { await forgetCurrentItem(target) }
+            }
+            .accessibilityIdentifier("memories.forget.confirm")
+            Button("Keep memory", role: .cancel) {}
+                .accessibilityIdentifier("memories.forget.cancel")
+        } message: { target in
+            Text(MemoryForgetPresentation.confirmationMessage(for: target))
         }
         .sheet(isPresented: $showingEdit) {
             MemoryEditSheet(
@@ -2630,6 +2808,7 @@ struct MemoryDetailView: View {
             adoptDeferredItemIfIdle()
         }
         .onChange(of: isBusy) { _, _ in adoptDeferredItemIfIdle() }
+        .onChange(of: showingForgetConfirmation) { _, _ in adoptDeferredItemIfIdle() }
         .onChange(of: showingEdit) { _, showing in
             if !showing { onEditingChanged(false) }
             adoptDeferredItemIfIdle()
@@ -2644,7 +2823,7 @@ struct MemoryDetailView: View {
     }
 
     private func adoptDeferredItemIfIdle() {
-        guard !isBusy, !showingEdit, let deferredItem else { return }
+        guard !isBusy, !showingEdit, !showingForgetConfirmation, let deferredItem else { return }
         currentItem = deferredItem
         self.deferredItem = nil
     }
@@ -2791,16 +2970,24 @@ struct MemoryDetailView: View {
     }
 
     @MainActor
-    private func forgetCurrentItem() async {
+    private func forgetCurrentItem(_ target: MemoryItem) async {
+        guard !isBusy else { return }
         isForgetting = true
+        forgetError = nil
         defer { isForgetting = false }
         do {
-            try await onForget(currentItem)
+            try await onForget(target)
             errorText = ""
-            dismiss()
+            // The view model clears selection only after a matching deletion receipt.
         } catch {
-            errorText = error.localizedDescription
+            forgetError = MemoryForgetPresentation.errorMessage(for: error)
         }
+    }
+
+    private func beginForgetting() {
+        guard !isBusy, !showingEdit else { return }
+        forgetConfirmationItem = currentItem
+        showingForgetConfirmation = true
     }
 
     @MainActor

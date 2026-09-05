@@ -528,6 +528,7 @@ final class MemoriesRefreshTests: XCTestCase {
     ) throws -> BackendReadResult<BackendMemoriesResponse> {
         var body: [String: Any] = [
             "source": "test", "sourceIp": "", "stateVersion": version,
+            "creativeMemoryRevision": "cm-\(version)",
             "memoryUpdatedAt": 1, "lastUpdatedAt": 1,
             "isDelta": true, "deltaNoChange": noChange,
             "memories": ids.map { card($0, summary: summary) }, "conversationSamples": samples,

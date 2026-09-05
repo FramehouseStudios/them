@@ -96,6 +96,90 @@ final class MemoriesResponsiveUITests: XCTestCase {
         #endif
     }
 
+    func testForgetRequiresConfirmationPreservesFailedDeletionAndRecovers() throws {
+        #if os(iOS)
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "--ui-testing", "--ui-reset-state", "--ui-skip-onboarding", "--ui-open-memories",
+            "--ui-memories-fixture", "--ui-memories-forget-fixture",
+            "-studio_debug_submit_transport_mode", "stub",
+        ]
+        app.launch()
+        defer { app.terminate() }
+
+        XCTAssertTrue(element("memories.screen", in: app).waitForExistence(timeout: 8))
+        let card = app.buttons["memories.card.ui-lighthouse"]
+        XCTAssertTrue(card.waitForExistence(timeout: 4))
+        card.tap()
+        XCTAssertTrue(element("memories.detail.screen", in: app).waitForExistence(timeout: 4))
+        let forget = app.buttons["memories.detail.forget"]
+        XCTAssertTrue(forget.isHittable)
+        forget.tap()
+        let confirm = app.buttons["Forget memory"].firstMatch
+        let keep = app.buttons["Keep memory"].firstMatch
+        XCTAssertTrue(confirm.waitForExistence(timeout: 3))
+        capture("Memories - Native forget confirmation")
+        XCTAssertTrue(keep.isHittable, app.debugDescription)
+        XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "The lighthouse promise")).firstMatch.exists)
+        XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "no undo")).firstMatch.exists)
+        capture("Memories - Forget confirmation")
+        keep.tap()
+        XCTAssertTrue(element("memories.detail.screen", in: app).exists)
+        XCTAssertFalse(element("memories.forget.error", in: app).exists)
+        goBack(in: app)
+        XCTAssertTrue(card.waitForExistence(timeout: 3), "Cancel must leave the saved memory intact.")
+        XCTAssertFalse(element("memories.action-notice", in: app).exists)
+        card.tap()
+
+        forget.tap()
+        XCTAssertTrue(confirm.waitForExistence(timeout: 3))
+        confirm.tap()
+        let failure = element("memories.forget.error", in: app)
+        XCTAssertTrue(failure.waitForExistence(timeout: 4))
+        XCTAssertTrue(failure.label.contains("Couldn’t confirm"))
+        XCTAssertTrue(element("memories.detail.summary", in: app).exists)
+        capture("Memories - Unconfirmed deletion stays readable")
+
+        let retry = app.buttons["memories.forget.retry"]
+        assertMinimumTarget(retry)
+        retry.tap()
+        XCTAssertTrue(confirm.waitForExistence(timeout: 3), "Retry must ask for confirmation again.")
+        confirm.tap()
+        XCTAssertTrue(element("memories.screen", in: app).waitForExistence(timeout: 4))
+        let notice = element("memories.action-notice", in: app)
+        XCTAssertTrue(notice.waitForExistence(timeout: 4))
+        XCTAssertEqual(notice.label, "Forgot “The lighthouse promise”.")
+        XCTAssertFalse(card.exists)
+        XCTAssertTrue(app.buttons["memories.card.ui-causeway"].exists)
+        capture("Memories - Confirmed deletion")
+
+        let refresh = app.buttons["memories.refresh"]
+        refresh.tap()
+        let refreshed = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "isEnabled == true AND label == %@", "Refresh memories"),
+            object: refresh
+        )
+        XCTAssertEqual(XCTWaiter.wait(for: [refreshed], timeout: 4), .completed)
+        XCTAssertFalse(card.exists, "A refresh must not resurrect the confirmed forgotten card.")
+        let remaining = app.buttons["memories.card.ui-causeway"]
+        XCTAssertTrue(remaining.exists)
+        remaining.tap()
+        XCTAssertTrue(forget.waitForExistence(timeout: 3))
+        forget.tap()
+        XCTAssertTrue(confirm.waitForExistence(timeout: 3))
+        confirm.tap()
+        XCTAssertTrue(app.staticTexts["I am still getting to know you."].waitForExistence(timeout: 4))
+        XCTAssertEqual(notice.label, "Forgot “The tide cuts off retreat”.")
+        XCTAssertFalse(remaining.exists)
+        assertMinimumTarget(app.buttons["Start Talking"])
+        capture("Memories - Last deletion leaves a useful empty state")
+        app.buttons["memories.return"].tap()
+        XCTAssertTrue(element("home.orb", in: app).waitForExistence(timeout: 4))
+        #else
+        throw XCTSkip("The Forget confirmation workflow is iPhone-specific.")
+        #endif
+    }
+
     private func goBack(in app: XCUIApplication) {
         let back = app.navigationBars.buttons.firstMatch
         XCTAssertTrue(back.waitForExistence(timeout: 3))

@@ -9102,11 +9102,17 @@ actor BackendMemoryAPI {
 
     func forgetMemoryCard(
         id: String,
-        key: String? = nil
+        key: String? = nil,
+        expectedStateVersion: String? = nil,
+        expectedCreativeMemoryRevision: String? = nil
     ) async throws -> BackendReadResult<BackendMemoryMutationResponse> {
         var payload: [String: Any] = ["card_id": id]
         if let key, !key.isEmpty { payload["key"] = key }
-        return try await runMemoryMutation(path: "/memories/forget", payload: payload)
+        return try await runMemoryMutation(
+            path: "/memories/forget", payload: payload,
+            expectedStateVersion: expectedStateVersion,
+            expectedCreativeMemoryRevision: expectedCreativeMemoryRevision
+        )
     }
 
     func updateStoryMovePreference(
@@ -9465,8 +9471,17 @@ actor BackendMemoryAPI {
 
     private func runMemoryMutation(
         path: String,
-        payload: [String: Any]
+        payload: [String: Any],
+        expectedStateVersion: String? = nil,
+        expectedCreativeMemoryRevision: String? = nil
     ) async throws -> BackendReadResult<BackendMemoryMutationResponse> {
+        // Explicit baselines describe the content the writer actually reviewed. Never
+        // replace them with global revisions advanced by bootstrap or another read.
+        let pinnedState = expectedStateVersion?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let pinnedCreativeRevision = expectedCreativeMemoryRevision?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard pinnedState != "", pinnedCreativeRevision != "" else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
         if baseURLOverride == nil, healthyBaseURL == nil {
             _ = try? await fetchHealth()
         }
@@ -9487,26 +9502,28 @@ actor BackendMemoryAPI {
         ]
         let needsCreativeRevision = revisionProtectedPaths.contains(path)
         let needsStateVersion = stateProtectedPaths.contains(path)
-        if (needsCreativeRevision && latestCreativeMemoryRevision.isEmpty) ||
-            (needsStateVersion && latestSeenStateVersion.isEmpty) {
+        if (needsCreativeRevision && pinnedCreativeRevision == nil && latestCreativeMemoryRevision.isEmpty) ||
+            (needsStateVersion && pinnedState == nil && latestSeenStateVersion.isEmpty) {
             _ = try await fetchMemories(limit: 1, force: true)
         }
+        let creativeRevision = pinnedCreativeRevision ?? latestCreativeMemoryRevision
+        let stateVersion = pinnedState ?? latestSeenStateVersion
         var outgoingPayload = payload
-        if needsCreativeRevision, !latestCreativeMemoryRevision.isEmpty {
-            outgoingPayload["expected_creative_memory_revision"] = latestCreativeMemoryRevision
+        if needsCreativeRevision, !creativeRevision.isEmpty {
+            outgoingPayload["expected_creative_memory_revision"] = creativeRevision
         }
-        if needsStateVersion, !latestSeenStateVersion.isEmpty {
-            outgoingPayload["expected_state_version"] = latestSeenStateVersion
+        if needsStateVersion, !stateVersion.isEmpty {
+            outgoingPayload["expected_state_version"] = stateVersion
         }
         var request = try makeWriteRequest(path: path)
-        if needsCreativeRevision, !latestCreativeMemoryRevision.isEmpty {
+        if needsCreativeRevision, !creativeRevision.isEmpty {
             request.setValue(
-                latestCreativeMemoryRevision,
+                creativeRevision,
                 forHTTPHeaderField: "X-Creative-Memory-Revision"
             )
         }
-        if needsStateVersion, !latestSeenStateVersion.isEmpty {
-            request.setValue(latestSeenStateVersion, forHTTPHeaderField: "X-State-Version")
+        if needsStateVersion, !stateVersion.isEmpty {
+            request.setValue(stateVersion, forHTTPHeaderField: "X-State-Version")
         }
         request.httpBody = try JSONSerialization.data(withJSONObject: outgoingPayload, options: [])
         let (data, response) = try await session.data(for: request)
