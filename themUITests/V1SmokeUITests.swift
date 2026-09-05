@@ -31,6 +31,10 @@ final class V1SmokeUITests: XCTestCase {
             "The screenplay page did not expose its editable text surface.\n\(app.debugDescription)"
         )
         XCTAssertTrue(editor.isHittable, "The screenplay page editor was not directly tappable.")
+        XCTAssertTrue(
+            waitForDraft(in: app, containing: "EMPTY_DRAFT", timeout: 3),
+            "The reset typing fixture restored an earlier draft."
+        )
 
         let sentence = "She counts seven red lights before the motel sign finally goes dark."
         editor.tap()
@@ -269,6 +273,10 @@ final class V1SmokeUITests: XCTestCase {
             openStudio: true,
             openCommandBar: true,
             routePage: true
+        )
+        XCTAssertTrue(
+            waitForDraft(in: app, containing: "EMPTY_DRAFT", timeout: 10),
+            "The reset batch fixture restored an earlier draft."
         )
 
         try submitStudioWriterBlockPrompt(
@@ -675,7 +683,8 @@ final class V1SmokeUITests: XCTestCase {
             revealInStudioDrawer(decrease, drawer: drawer, scrollingUp: true, maxSwipes: 8),
             "Decrease density did not become reachable."
         )
-        XCTAssertTrue(waitForAccessibilityText(in: value, containing: "55 lines per page", timeout: 5))
+        XCTAssertEqual(value.label, "Lines per page")
+        XCTAssertTrue(waitForAccessibilityValue(of: value, equalTo: "55", timeout: 5))
         XCTAssertEqual(decrease.label, "Decrease lines per page")
         XCTAssertEqual(increase.label, "Increase lines per page")
         XCTAssertFalse(standard.isEnabled, "Standard density should begin selected.")
@@ -689,7 +698,7 @@ final class V1SmokeUITests: XCTestCase {
 
         XCTAssertTrue(waitForHittability(of: decrease, timeout: 3))
         decrease.tap()
-        XCTAssertTrue(waitForAccessibilityText(in: value, containing: "54 lines per page", timeout: 5))
+        XCTAssertTrue(waitForAccessibilityValue(of: value, equalTo: "54", timeout: 5))
         XCTAssertTrue(standard.isEnabled, "Changing density did not enable the standard reset.")
 
         let pageTwo = app.buttons["studio.draft.page.2"]
@@ -698,6 +707,7 @@ final class V1SmokeUITests: XCTestCase {
             "The second full-width page card was not reachable."
         )
         XCTAssertTrue(waitForAccessibilityText(in: pageTwo, containing: "lines 55 through 108", timeout: 5))
+        XCTAssertTrue(waitForAccessibilityText(in: pageTwo, containing: "Preview:", timeout: 5))
         XCTAssertGreaterThan(pageTwo.frame.width, drawer.frame.width * 0.65, "Page card collapsed: \(pageTwo.frame)")
         assertHorizontallyContained(pageTwo, in: drawer, message: "Page card escaped the inspector")
 
@@ -706,7 +716,7 @@ final class V1SmokeUITests: XCTestCase {
             "Increase density did not remain reachable."
         )
         increase.tap()
-        XCTAssertTrue(waitForAccessibilityText(in: value, containing: "55 lines per page", timeout: 5))
+        XCTAssertTrue(waitForAccessibilityValue(of: value, equalTo: "55", timeout: 5))
         XCTAssertTrue(
             revealInStudioDrawer(pageTwo, drawer: drawer, scrollingUp: true, maxSwipes: 16),
             "The second page card disappeared after increasing density."
@@ -715,10 +725,14 @@ final class V1SmokeUITests: XCTestCase {
 
         XCTAssertTrue(revealInStudioDrawer(decrease, drawer: drawer, scrollingUp: false, maxSwipes: 16))
         decrease.tap()
-        XCTAssertTrue(waitForAccessibilityText(in: value, containing: "54 lines per page", timeout: 5))
-        XCTAssertTrue(revealInStudioDrawer(standard, drawer: drawer, scrollingUp: true, maxSwipes: 4))
-        standard.tap()
-        XCTAssertTrue(waitForAccessibilityText(in: value, containing: "55 lines per page", timeout: 5))
+        XCTAssertTrue(waitForAccessibilityValue(of: value, equalTo: "54", timeout: 5))
+        XCTAssertTrue(revealFullyInStudioDrawer(standard, drawer: drawer, maxSwipes: 4))
+        // SwiftUI can retain an old activation point after this control becomes
+        // enabled in a scrolled inspector. Tap the current visible frame center.
+        standard.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        XCTAssertTrue(revealFrameInStudioDrawer(value, drawer: drawer, maxSwipes: 4))
+        XCTAssertTrue(waitForAccessibilityValue(of: value, equalTo: "55", timeout: 5),
+                      "Standard density did not reset. Readout: \(value.label), value: \(String(describing: value.value))")
         XCTAssertFalse(standard.isEnabled, "Standard density did not restore its selected state.")
 
         XCTAssertTrue(revealInStudioDrawer(refresh, drawer: drawer, scrollingUp: true, maxSwipes: 4))
@@ -776,6 +790,7 @@ final class V1SmokeUITests: XCTestCase {
             (tab: "saved", panel: "studio.saved.save"),
         ]
         let drawer = element(identifier: "studio.sidebar.right.drawer", in: app)
+        XCTAssertTrue(drawer.waitForExistence(timeout: 8), "Missing Studio inspector drawer")
 
         for route in routes {
             let tab = app.buttons["studio.right-panel.\(route.tab)"]
@@ -813,6 +828,9 @@ final class V1SmokeUITests: XCTestCase {
     func test_studio_header_shortcuts_and_project_drawer_tabs_reveal_their_destinations() {
         let app = launchApp(openStudio: true, openExportTools: true, structuralSeed: true)
         defer { app.terminate() }
+        XCTAssertTrue(element(identifier: "studio.surface", in: app).waitForExistence(timeout: 10))
+        let usesCompactHeader = app.buttons["studio.compact.done"].exists
+        let drawer = element(identifier: "studio.sidebar.right.drawer", in: app)
 
         let shortcuts = [
             (shortcut: "pages", panel: "studio.draft.page-tools"),
@@ -1817,20 +1835,22 @@ final class V1SmokeUITests: XCTestCase {
 
         XCTAssertTrue(app.otherElements["studio.surface"].waitForExistence(timeout: 12))
         var queuedSnapshot: [String: Any] = [:]
-        XCTAssertTrue(
-            waitForRestoreSnapshot(in: app, timeout: 60) { snapshot in
-                queuedSnapshot = snapshot
-                return stringValue(snapshot["selected_project_id"]).lowercased() == fixture.projectID.lowercased()
-                    && stringValue(snapshot["draft_tail_preview"]).contains(marker)
-                    && intValue(snapshot["queued_draft_save_count"]) == 1
-                    && intValue(snapshot["parked_draft_save_count"]) == 0
-                    && boolValue(snapshot["has_unsaved_draft_changes"])
-                    && stringValue(snapshot["autosave_status_text"])
-                        .localizedCaseInsensitiveContains("queued locally")
-                    && stringValue(snapshot["error_text"]).isEmpty
-            },
-            "Offline screenplay save was not durably queued before termination. Snapshot: \(queuedSnapshot)"
-        )
+        let saveWasQueued = waitForRestoreSnapshot(in: app, timeout: 60) { snapshot in
+            queuedSnapshot = snapshot
+            return stringValue(snapshot["selected_project_id"]).lowercased() == fixture.projectID.lowercased()
+                && stringValue(snapshot["draft_tail_preview"]).contains(marker)
+                && intValue(snapshot["queued_draft_save_count"]) == 1
+                && intValue(snapshot["parked_draft_save_count"]) == 0
+                && boolValue(snapshot["has_unsaved_draft_changes"])
+                && stringValue(snapshot["autosave_status_text"])
+                    .localizedCaseInsensitiveContains("queued locally")
+                && stringValue(snapshot["error_text"]).isEmpty
+        }
+        guard saveWasQueued else {
+            XCTFail("Offline screenplay save was not durably queued before termination. Snapshot: \(queuedSnapshot)")
+            app.terminate()
+            return
+        }
         app.terminate()
 
         app = launchApp(
@@ -1924,17 +1944,19 @@ final class V1SmokeUITests: XCTestCase {
 
         XCTAssertTrue(app.otherElements["studio.surface"].waitForExistence(timeout: 12))
         var queuedSnapshot: [String: Any] = [:]
-        XCTAssertTrue(
-            waitForRestoreSnapshot(in: app, timeout: 60) { snapshot in
-                queuedSnapshot = snapshot
-                return stringValue(snapshot["draft_tail_preview"]).contains(marker)
-                    && intValue(snapshot["queued_draft_save_count"]) == 1
-                    && intValue(snapshot["parked_draft_save_count"]) == 0
-                    && boolValue(snapshot["has_unsaved_draft_changes"])
-                    && stringValue(snapshot["error_text"]).isEmpty
-            },
-            "Offline screenplay save was not queued before stale-version setup. Snapshot: \(queuedSnapshot)"
-        )
+        let saveWasQueued = waitForRestoreSnapshot(in: app, timeout: 60) { snapshot in
+            queuedSnapshot = snapshot
+            return stringValue(snapshot["draft_tail_preview"]).contains(marker)
+                && intValue(snapshot["queued_draft_save_count"]) == 1
+                && intValue(snapshot["parked_draft_save_count"]) == 0
+                && boolValue(snapshot["has_unsaved_draft_changes"])
+                && stringValue(snapshot["error_text"]).isEmpty
+        }
+        guard saveWasQueued else {
+            XCTFail("Offline screenplay save was not queued before stale-version setup. Snapshot: \(queuedSnapshot)")
+            app.terminate()
+            return
+        }
         app.terminate()
 
         let ownerHeaders = [
@@ -4990,6 +5012,32 @@ final class V1SmokeUITests: XCTestCase {
             replacedWriteID: secondWriteID,
             timestamp: now
         )
+        let askHistory = [thirdEntry, secondEntry, firstEntry]
+
+        func assertSeededAskHistory(_ response: JSONResponse, context: String) throws {
+            let project = try XCTUnwrap(response.payload["project"] as? [String: Any])
+            let history = try XCTUnwrap(project["studio_ask_note_history"] as? [[String: Any]])
+            XCTAssertEqual(
+                history.map { stringValue($0["id"]).lowercased() },
+                askHistory.map { stringValue($0["id"]).lowercased() },
+                "\(context) did not preserve the three seeded history entries."
+            )
+            XCTAssertEqual(
+                history.map { stringValue($0["inserted_text"]) },
+                askHistory.map { stringValue($0["insertedText"]) },
+                "\(context) changed the seeded history content."
+            )
+            XCTAssertEqual(
+                history.map { stringValue($0["write_id"]) },
+                askHistory.map { stringValue($0["writeID"]) },
+                "\(context) changed the seeded write identities."
+            )
+            XCTAssertEqual(
+                history.map { stringValue($0["replaced_write_id"]) },
+                askHistory.map { stringValue($0["replacedWriteID"]) },
+                "\(context) changed the seeded replacement lineage."
+            )
+        }
 
         let threadViewState: [String: Any] = [
             "searchText": "",
@@ -5084,9 +5132,11 @@ final class V1SmokeUITests: XCTestCase {
                     "fingerprint": acknowledgedFingerprint,
                     "write_id": secondWriteID,
                 ]],
+                "studio_ask_note_history": askHistory,
             ]
         )
         try assertHTTP(projectState, context: "project state")
+        try assertSeededAskHistory(projectState, context: "Project creation")
 
         let version = try await requestJSON(
             baseURL: baseURL,
@@ -5160,8 +5210,18 @@ final class V1SmokeUITests: XCTestCase {
         )
         try assertHTTP(resolvedComment, context: "resolve comment")
 
+        let restoredProject = try await requestJSON(
+            baseURL: baseURL,
+            path: "/screenplay/projects/\(projectID)",
+            method: "GET",
+            headers: ownerHeaders,
+            body: nil
+        )
+        try assertHTTP(restoredProject, context: "seeded project readback")
+        try assertSeededAskHistory(restoredProject, context: "Project readback")
+
         let fullThreadStateJSON = try jsonString([projectKey: threadViewState])
-        let askHistoryJSON = try jsonString([projectKey: [thirdEntry, secondEntry, firstEntry]])
+        let askHistoryJSON = try jsonString([projectKey: askHistory])
         let acknowledgedJSON = try jsonString([projectKey: [lineageKey: acknowledgedFingerprint]])
         let acknowledgedWriteIDsJSON = try jsonString([projectKey: [lineageKey: secondWriteID]])
         let loadToken = Int(Date().timeIntervalSince1970 * 1000) % 1_000_000_000

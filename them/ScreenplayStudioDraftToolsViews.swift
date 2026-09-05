@@ -65,11 +65,11 @@ struct ScreenplayStudioPaginationPagePresentation: Identifiable {
     var id: Int { page.page }
 
     let page: BackendScreenplayPaginationPage
-    let thumbnailLines: [String]
+    let previewLines: [String]
     let isActive: Bool
 
     var visiblePreviewLines: [String] {
-        thumbnailLines
+        previewLines
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
     }
@@ -201,41 +201,30 @@ enum ScreenplayStudioDraftToolsPresentationPlanner {
             : "\(issueCount) non-screenplay blocks detected"
     }
 
-    static func paginationThumbnailLines(
+    static func paginationPreviewLines(
         for page: BackendScreenplayPaginationPage,
         draft: String,
-        maxLines: Int = 8
+        maxLines: Int = 4
     ) -> [String] {
-        let safeMaxLines = max(0, maxLines)
-        let previewLines = (page.preview ?? "")
-            .replacingOccurrences(of: "\r\n", with: "\n")
-            .replacingOccurrences(of: "\r", with: "\n")
-            .components(separatedBy: "\n")
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-        if !previewLines.isEmpty {
-            let clippedPreview = previewLines.prefix(safeMaxLines).map { String($0.prefix(36)) }
-            if clippedPreview.count >= safeMaxLines {
-                return clippedPreview
-            }
-            return clippedPreview + Array(
-                repeating: "",
-                count: max(0, safeMaxLines - clippedPreview.count)
-            )
+        guard maxLines > 0 else { return [] }
+        func normalizedLines(_ text: String) -> [String] {
+            text.replacingOccurrences(of: "\r\n", with: "\n")
+                .replacingOccurrences(of: "\r", with: "\n")
+                .components(separatedBy: "\n")
         }
-
-        let normalizedDraft = draft
-            .replacingOccurrences(of: "\r\n", with: "\n")
-            .replacingOccurrences(of: "\r", with: "\n")
-        let allLines = normalizedDraft.components(separatedBy: "\n")
-        let startIndex = max(0, min(page.startLine - 1, allLines.count))
+        func visibleLines(_ lines: [String]) -> [String] {
+            Array(lines.lazy
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+                .prefix(maxLines))
+        }
+        // The backend excerpt can be flattened or shortened. The current draft
+        // keeps screenplay line structure and lets the view truncate visibly.
+        let allLines = normalizedLines(draft)
+        let startIndex = min(max(page.startLine, 1) - 1, allLines.count)
         let endIndex = max(startIndex, min(page.endLine, allLines.count))
-        let pageLines = Array(allLines[startIndex..<endIndex])
-        let clipped = pageLines.prefix(safeMaxLines).map { String($0.prefix(40)) }
-        if clipped.count >= safeMaxLines {
-            return clipped
-        }
-        return clipped + Array(repeating: "", count: max(0, safeMaxLines - clipped.count))
+        let pageLines = visibleLines(Array(allLines[startIndex..<endIndex]))
+        return pageLines.isEmpty ? visibleLines(normalizedLines(page.preview ?? "")) : pageLines
     }
 
     static func isPaginationPageActive(
@@ -913,8 +902,9 @@ private struct ScreenplayStudioDraftPageTools: View {
                         .minimumScaleFactor(0.82)
                 }
                 .frame(maxWidth: .infinity)
-                .accessibilityElement(children: .combine)
-                .accessibilityLabel("\(linesPerPage) lines per page")
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Lines per page")
+                .accessibilityValue("\(linesPerPage)")
                 .accessibilityIdentifier("studio.draft.pages.lines.value")
 
                 linesPerPageButton(
@@ -1068,7 +1058,6 @@ private struct ScreenplayStudioDraftPageTools: View {
 
     private func pageRow(_ row: ScreenplayStudioPaginationPagePresentation) -> some View {
         let page = row.page
-        let previewLines = Array(row.visiblePreviewLines.prefix(4))
         let rowButton = Button {
             onJumpToPage(page)
         } label: {
@@ -1106,33 +1095,7 @@ private struct ScreenplayStudioDraftPageTools: View {
                 .font(IOThemTypography.UI.labelRegular)
                 .foregroundStyle(Color.herText.opacity(0.64))
 
-                VStack(alignment: .leading, spacing: 4) {
-                    if previewLines.isEmpty {
-                        Text("No preview text is available for this page yet.")
-                            .font(IOThemTypography.UI.caption)
-                            .foregroundStyle(Color.herText.opacity(0.52))
-                            .italic()
-                    } else {
-                        ForEach(Array(previewLines.enumerated()), id: \.offset) { _, line in
-                            Text(line)
-                                .font(IOThemTypography.UI.monoThumbnail)
-                                .foregroundStyle(Color.black.opacity(0.74))
-                                .lineLimit(1)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                    }
-                }
-                .padding(11)
-                .frame(maxWidth: .infinity, minHeight: 70, alignment: .topLeading)
-                .background(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(Color.white.opacity(0.96))
-                        .shadow(color: Color.black.opacity(0.05), radius: 6, y: 2)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .stroke(Color.herShellStroke.opacity(0.20), lineWidth: 1)
-                )
+                pagePreview(row)
 
                 HStack(spacing: 6) {
                     Image(systemName: row.isActive ? "location.fill" : "arrow.right.circle")
@@ -1169,6 +1132,38 @@ private struct ScreenplayStudioDraftPageTools: View {
             .accessibilityAddTraits(row.isActive ? .isSelected : [])
     }
 
+    private func pagePreview(_ row: ScreenplayStudioPaginationPagePresentation) -> some View {
+        let lines = Array(row.visiblePreviewLines.prefix(4))
+        return VStack(alignment: .leading, spacing: 4) {
+            if lines.isEmpty {
+                Text("No preview text is available for this page yet.")
+                    .font(IOThemTypography.UI.caption)
+                    .foregroundStyle(Color.herText.opacity(0.52))
+                    .italic()
+            } else {
+                ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
+                    Text(line)
+                        .font(IOThemTypography.UI.monoCaption)
+                        .foregroundStyle(Color.black.opacity(0.74))
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+        }
+        .padding(11)
+        .frame(maxWidth: .infinity, minHeight: 70, alignment: .topLeading)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color.white.opacity(0.96))
+                .shadow(color: Color.black.opacity(0.05), radius: 6, y: 2)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(Color.herShellStroke.opacity(0.20), lineWidth: 1)
+        )
+    }
+
     private func pageAccessibilityLabel(_ row: ScreenplayStudioPaginationPagePresentation) -> String {
         let page = row.page
         var components = [
@@ -1181,6 +1176,10 @@ private struct ScreenplayStudioDraftPageTools: View {
         }
         if let estMinutes = page.estMinutes, estMinutes > 0 {
             components.append(String(format: "approximately %.1f minutes", estMinutes))
+        }
+        let excerpt = row.visiblePreviewLines.prefix(2).joined(separator: ". ")
+        if !excerpt.isEmpty {
+            components.append("Preview: \(excerpt.prefix(160))")
         }
         return components.joined(separator: ", ")
     }
