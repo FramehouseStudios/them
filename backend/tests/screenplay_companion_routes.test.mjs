@@ -366,6 +366,15 @@ const paginationLineFixtures = [
     ],
     newline: "\r\n",
   },
+  {
+    name: "lone CR, leading and trailing blank lines, and Unicode",
+    lines: [
+      "", "", "  INT. CAFÉ — NIGHT",
+      ...Array.from({ length: 55 }, (_, i) => i % 4 === 0 ? "" : `JOSÉ ${i + 1} 👩🏽‍🚀 e\u0301`),
+      "  Fin — 終わり  ", "", "",
+    ],
+    newline: "\r",
+  },
 ];
 
 for (const fixture of paginationLineFixtures) {
@@ -389,7 +398,7 @@ for (const fixture of paginationLineFixtures) {
       assert.equal(lineCount, fixture.lines.length, "Every editor line, including blank lines, must be addressable");
       assert.equal(pageCount, Math.ceil(fixture.lines.length / 55));
       assert.equal(pages.length, pageCount);
-      assert.equal(splitInput, draft.replace(/\r\n/g, "\n"), "Pagination must not trim writer text");
+      assert.equal(splitInput, fixture.lines.join("\n"), "Pagination may normalize line endings but must not trim writer text");
 
       const addressedLines = [];
       for (const [index, page] of pages.entries()) {
