@@ -214,7 +214,7 @@ test("[memories] mount fails when TASKS_MAX_STORED is not a number", () => {
 
 // ============== GET /memories ==============
 
-test("[memories] real undated creative records stay unknown and unchanged across later HTTP reads", async (t) => {
+async function assertUndatedCreativeHTTPReads(t, { nestedProvenance = false } = {}) {
   const importRoot = fs.mkdtempSync(path.join(os.tmpdir(), "io-them-memories-recency-import-"));
   const environment = {
     RUN_SERVER: "0", OUTBOX_SNAPSHOT_ENABLED: "0", OPENAI_API_KEY: "test-openai-key",
@@ -245,6 +245,37 @@ test("[memories] real undated creative records stay unknown and unchanged across
     episodicMemories: [{ id: "episode-undated", summary: "Mara keeps the affidavit.", projectId: "rain-docket" }],
     characters: [{ name: "Mara", voice: "Guarded, precise, dry under pressure." }],
   };
+  if (nestedProvenance) {
+    Object.assign(persisted.projects[0], {
+      acceptedScenes: [{
+        id: "accepted-undated", sceneHeading: "INT. COURTHOUSE - NIGHT",
+        summary: "Mara keeps the affidavit.", decisions: ["Mara keeps the affidavit."],
+      }],
+      authoritativeFields: [{
+        id: "project-authority-undated", field: "protagonistWant", value: "Expose the forged testimony.",
+        sourceCorrectionId: "legacy-project-correction",
+      }],
+      learnedFields: [{
+        id: "project-learning-undated", field: "centralQuestion", value: "Can Mara trust Eli with the truth?",
+        questionId: "legacy-project-question",
+      }],
+      writerCanonFacts: [{
+        id: "writer-canon-undated", fact: "Mara is Eli's sister.", replacesFacts: ["Mara is Eli's mother."],
+        receiptId: "legacy-family-correction",
+      }],
+    });
+    persisted.characters[0].bible = {
+      canon: ["Mara is Eli's sister."],
+      authoritativeFields: [{
+        id: "character-authority-undated", field: "falseBelief", value: "Truth will get Eli killed.",
+        sourceCorrectionId: "legacy-character-correction",
+      }],
+      learnedFields: [{
+        id: "character-learning-undated", field: "want", value: "Protect Eli.",
+        questionId: "legacy-character-question",
+      }],
+    };
+  }
   const original = structuredClone(persisted);
   let writes = 0;
   const creativeMemoryStore = createCreativeMemoryStore({ persistence: {
@@ -267,6 +298,22 @@ test("[memories] real undated creative records stay unknown and unchanged across
     }),
     ifNoneMatchStateHit: (req, etag) => req.get("If-None-Match") === etag,
   });
+  t.after(() => {
+    assert.equal(writes, 0);
+    assert.equal(deps._calls.persistCanonicalWritableMemoryContext, 0);
+    assert.deepEqual(persisted, original);
+    assert.deepEqual(memory, originalMemory, "reads must not backfill or mutate account memory");
+  });
+  if (nestedProvenance) {
+    const ledger = await creativeMemoryStore.getCreativeMemoryLedger({ userId: persisted.userId, requireValidRecord: true });
+    const project = ledger.projects[0];
+    assert.equal(project.acceptedScenes[0].id, "accepted-undated");
+    assert.equal(project.authoritativeFields[0].id, "project-authority-undated");
+    assert.equal(project.learnedFields[0].id, "project-learning-undated");
+    assert.equal(project.writerCanonFacts[0].id, "writer-canon-undated");
+    assert.equal(ledger.characters[0].bible.authoritativeFields[0].id, "character-authority-undated");
+    assert.equal(ledger.characters[0].bible.learnedFields[0].id, "character-learning-undated");
+  }
   await withTestServer(deps, async (baseURL) => {
     const first = await getJson(baseURL, "/memories");
     nowTs += 24 * 60 * 60 * 1000;
@@ -286,18 +333,28 @@ test("[memories] real undated creative records stay unknown and unchanged across
       }
       assert.equal(result.headers.get("x-creative-memory-revision"), result.body.creative_memory_revision);
     }
-    assert.deepEqual(later.body.memories, first.body.memories);
-    assert.equal(later.body.creative_memory_revision, first.body.creative_memory_revision);
     assert.match(first.headers.get("etag"), /^W\/"memories_[a-f0-9]{32}"$/);
-    assert.equal(later.headers.get("etag"), first.headers.get("etag"));
+    assert.deepEqual({
+      creativeRevision: later.body.creative_memory_revision,
+      etag: later.headers.get("etag"),
+      memories: later.body.memories,
+    }, {
+      creativeRevision: first.body.creative_memory_revision,
+      etag: first.headers.get("etag"),
+      memories: first.body.memories,
+    }, "Reading unchanged legacy provenance at a later clock must not change the HTTP representation.");
     const cached = await fetch(`${baseURL}/memories`, { headers: { "If-None-Match": first.headers.get("etag") } });
     assert.equal(cached.status, 304);
     assert.equal(cached.headers.get("x-creative-memory-revision"), first.body.creative_memory_revision);
   });
-  assert.equal(writes, 0);
-  assert.equal(deps._calls.persistCanonicalWritableMemoryContext, 0);
-  assert.deepEqual(persisted, original);
-  assert.deepEqual(memory, originalMemory, "reads must not backfill or mutate account memory");
+}
+
+test("[memories] real undated creative records stay unknown and unchanged across later HTTP reads", async (t) => {
+  await assertUndatedCreativeHTTPReads(t);
+});
+
+test("[memories] nested undated creative provenance preserves HTTP cards revision and ETag across clocks", async (t) => {
+  await assertUndatedCreativeHTTPReads(t, { nestedProvenance: true });
 });
 
 for (const reader of ["getCreativeMemoryLedger", "getCreativeMemoryForPrompt"]) {

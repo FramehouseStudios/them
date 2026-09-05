@@ -150,8 +150,18 @@ clock; a superseded memory stays superseded even when its age is unknown.
 
 Ranking's existing score formulas are unchanged. New reads cannot identify
 timestamps that older code already fabricated and persisted, so the client
-continues to call age **reported**, not verified. This rule covers card recency;
-nested learning/canon provenance has its own field-level timestamps.
+continues to call age **reported**, not verified.
+
+Nested accepted-scene, learning, and writer-canon records also keep unknown
+dates as zero when normalized. Character/project field provenance must not
+acquire a date just because it is inspected. An answered question can retain
+its recorded status without an invented answer time. Revision checks and ETags
+therefore remain stable across reads of the same undated records, so time
+passing alone cannot reject a reviewed correction as a cross-device conflict.
+Actual acceptance, learning, correction, and embedding-generation events
+continue to record their dates at the write boundary.
+An older cached revision may require one refresh when this normalization
+changes; subsequent reads are stable. Previously persisted dates are retained.
 
 ## Response shape (200 delta-no-change)
 

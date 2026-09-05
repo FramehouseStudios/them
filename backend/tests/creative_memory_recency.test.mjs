@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   buildCreativeMemoryRevision,
+  buildCharacterFieldProvenance,
+  buildProjectFieldProvenance,
   createCreativeMemoryStore,
   CREATIVE_MEMORY_SCHEMA_VERSION,
 } from "../lib/creative_memory_store.js";
@@ -198,4 +200,130 @@ test("unrelated project and episode writes do not freshen undated legacy records
   assert.equal(episode.updatedAt, 0);
   assert.equal(episode.lastReferencedAt, 0);
   assert.equal(data.writeCount(), 2);
+});
+
+function nestedRecords(dateFields = {}) {
+  return {
+    projects: [{
+      projectId: "legacy-project",
+      acceptedScenes: [{ summary: "The ferry waits in silence.", ...dateFields }],
+      authoritativeFields: [{ field: "themeArgument", value: "Trust requires honesty.", ...dateFields }],
+      learnedFields: [{ field: "centralQuestion", value: "Will Mara trust Eli?", ...dateFields }],
+      writerCanonFacts: [{ fact: "Mara waits at the ferry.", replacesFacts: ["Mara left town."], ...dateFields }],
+      questionEffectiveness: [{
+        questionId: "legacy-question", targetField: "project.central_question",
+        responseStatus: "answered", ...dateFields, askedAt: firstTime - 1,
+      }],
+    }],
+    characters: [{ name: "Mara", bible: {
+      canon: ["Mara waits at the ferry."],
+      authoritativeFields: [{ field: "need", value: "Trust Eli.", ...dateFields }],
+      learnedFields: [{ field: "want", value: "Catch the ferry.", ...dateFields }],
+      ...dateFields,
+    } }],
+    episodicMemories: [{
+      id: "legacy-episode", summary: "The ferry waits in silence.",
+      embedding: { model: "fixture", textHash: "fixture-hash", vector: [1, 0], ...dateFields },
+    }],
+  };
+}
+
+async function nestedSnapshot(data) {
+  const ledger = await data.ledger();
+  return {
+    ledger,
+    revision: buildCreativeMemoryRevision(data.readStored()),
+    projectProvenance: buildProjectFieldProvenance(ledger.projects[0]),
+    characterProvenance: buildCharacterFieldProvenance(ledger.characters[0].bible),
+  };
+}
+
+test("nested legacy provenance and revisions do not acquire dates when read", async () => {
+  for (const value of [undefined, null, 0, -1, NaN, Infinity, "invalid", "Infinity", true, {}, []]) {
+    const data = fixture(nestedRecords({
+      createdAt: value, learnedAt: value, acceptedAt: value, updatedAt: value,
+      answeredAt: value, respondedAt: value,
+    }));
+    const before = data.readStored();
+    const first = await atTime(firstTime, () => nestedSnapshot(data));
+    const second = await atTime(secondTime, () => nestedSnapshot(data));
+    assert.deepEqual(second, first);
+    const project = first.ledger.projects[0];
+    assert.equal(project.acceptedScenes[0].acceptedAt, 0);
+    assert.equal(project.acceptedScenes[0].updatedAt, 0);
+    assert.equal(project.authoritativeFields[0].createdAt, 0);
+    assert.equal(project.learnedFields[0].learnedAt, 0);
+    assert.equal(project.learnedFields[0].updatedAt, 0);
+    assert.equal(project.writerCanonFacts[0].createdAt, 0);
+    assert.equal(project.writerCanonFacts[0].updatedAt, 0);
+    assert.equal(project.questionEffectiveness[0].responseStatus, "answered");
+    assert.equal(project.questionEffectiveness[0].answeredAt, undefined);
+    assert.equal(project.questionEffectiveness[0].respondedAt, undefined);
+    assert.equal(project.questionEffectiveness[0].updatedAt, firstTime - 1);
+    for (const rows of [first.projectProvenance, first.characterProvenance]) {
+      assert.equal(rows.length, 2);
+      for (const row of rows) {
+        assert.equal(row.learnedAt, 0);
+        assert.equal(row.updatedAt, 0);
+      }
+    }
+    assert.deepEqual(data.readStored(), before);
+    assert.equal(data.writeCount(), 0);
+  }
+});
+
+test("nested stored timestamp aliases and future dates retain their actual values", async () => {
+  const future = secondTime + 86_400_000;
+  const data = fixture(nestedRecords({
+    created_at: String(firstTime), learned_at: String(firstTime),
+    accepted_at: String(firstTime), updated_at: future,
+    answered_at: String(secondTime), responded_at: future,
+  }));
+  const snapshot = await atTime(firstTime - 10, () => nestedSnapshot(data));
+  const project = snapshot.ledger.projects[0];
+  assert.equal(project.acceptedScenes[0].acceptedAt, firstTime);
+  assert.equal(project.acceptedScenes[0].updatedAt, future);
+  assert.equal(project.authoritativeFields[0].createdAt, firstTime);
+  assert.equal(project.learnedFields[0].learnedAt, firstTime);
+  assert.equal(project.learnedFields[0].updatedAt, future);
+  assert.equal(project.writerCanonFacts[0].createdAt, firstTime);
+  assert.equal(project.writerCanonFacts[0].updatedAt, future);
+  assert.equal(project.questionEffectiveness[0].answeredAt, secondTime);
+  assert.equal(project.questionEffectiveness[0].respondedAt, future);
+  for (const rows of [snapshot.projectProvenance, snapshot.characterProvenance]) {
+    assert.equal(rows.find((row) => row.status === "corrected").updatedAt, firstTime);
+    assert.equal(rows.find((row) => row.status === "current").updatedAt, future);
+  }
+});
+
+test("reading an undated project does not invalidate a later reviewed mutation", async () => {
+  const data = fixture(nestedRecords());
+  const revision = await atTime(firstTime, () => buildCreativeMemoryRevision(data.readStored()));
+  const result = await atTime(secondTime, () => data.store.updateStoryMovePreference({
+    userId, projectId: "legacy-project", action: "reset_all", expectedRevision: revision,
+  }));
+  assert.equal(result.ok, true);
+  assert.equal(data.writeCount(), 1);
+  assert.equal((await data.ledger()).projects[0].acceptedScenes[0].acceptedAt, 0);
+});
+
+test("an unrelated episode write preserves an undated stored embedding", async () => {
+  const data = fixture(nestedRecords());
+  await atTime(secondTime, () => data.store.recordEpisodicMemory({
+    userId, summary: "An astronomer opens the observatory dome.", projectId: "another-project",
+  }));
+  const legacy = data.readStored().episodicMemories.find((item) => item.id === "legacy-episode");
+  assert.equal(legacy.embedding.updatedAt, 0);
+  assert.deepEqual(legacy.embedding.vector, [1, 0]);
+});
+
+test("new character Bible writes still record their real creation and update time", async () => {
+  const data = fixture();
+  const write = () => data.store.recordCharacterMention({
+    userId, characterName: "Mara", characterBible: { arc: { need: "Trust Eli." } },
+  });
+  await atTime(firstTime, write);
+  assert.equal(data.readStored().characters[0].bible.updatedAt, firstTime);
+  await atTime(secondTime, write);
+  assert.equal(data.readStored().characters[0].bible.updatedAt, secondTime);
 });

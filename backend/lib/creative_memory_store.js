@@ -413,6 +413,8 @@ function nowMs() {
 }
 
 function storedTimestamp(value) {
+  // Reading legacy records must not invent activity or change conflict tokens.
+  // Actual write-event builders own timestamps; zero represents an unknown date.
   if (typeof value !== "number" && typeof value !== "string") return 0;
   const timestamp = Number(value);
   return Number.isFinite(timestamp) && timestamp > 0 ? timestamp : 0;
@@ -583,10 +585,8 @@ function sanitizeAcceptedSceneContinuity(value = {}) {
   if (storyObligationChanges.length) out.storyObligationChanges = storyObligationChanges;
   const pageCount = Math.max(0, Math.round(Number(value.pageCount ?? value.page_count ?? 0)));
   if (pageCount > 0) out.pageCount = Math.min(1_000, pageCount);
-  const rawAcceptedAt = Number(value.acceptedAt ?? value.accepted_at ?? nowMs());
-  const acceptedAt = Number.isFinite(rawAcceptedAt) ? Math.max(0, rawAcceptedAt) : nowMs();
-  const rawUpdatedAt = Number(value.updatedAt ?? value.updated_at ?? acceptedAt);
-  const updatedAt = Number.isFinite(rawUpdatedAt) ? Math.max(acceptedAt, rawUpdatedAt) : acceptedAt;
+  const acceptedAt = storedTimestamp(value.acceptedAt ?? value.accepted_at);
+  const updatedAt = Math.max(acceptedAt, storedTimestamp(value.updatedAt ?? value.updated_at));
   out.acceptedAt = acceptedAt;
   out.updatedAt = updatedAt;
   if (!acceptedSceneHasCausalSignal(out)) return null;
@@ -867,8 +867,7 @@ function sanitizeAuthoritativeProjectField(value = null) {
     8,
     220
   );
-  const rawCreatedAt = Number(value.createdAt ?? value.created_at ?? nowMs());
-  const createdAt = Number.isFinite(rawCreatedAt) && rawCreatedAt > 0 ? rawCreatedAt : nowMs();
+  const createdAt = storedTimestamp(value.createdAt ?? value.created_at);
   const id = cleanText(value.id, 96) || `project_field_${stableHash([
     field,
     fieldValue.toLowerCase(),
@@ -951,16 +950,10 @@ function sanitizeLearnedProjectField(value = null) {
   const question = cleanText(value.question, 260);
   const targetLabel = cleanText(value.targetLabel ?? value.target_label, 120);
   const anchor = cleanText(value.anchor, 180);
-  const rawLearnedAt = Number(
-    value.learnedAt ?? value.learned_at ?? value.createdAt ?? value.created_at ?? nowMs()
+  const learnedAt = storedTimestamp(
+    value.learnedAt ?? value.learned_at ?? value.createdAt ?? value.created_at
   );
-  const learnedAt = Number.isFinite(rawLearnedAt) && rawLearnedAt > 0
-    ? rawLearnedAt
-    : nowMs();
-  const rawUpdatedAt = Number(value.updatedAt ?? value.updated_at ?? learnedAt);
-  const updatedAt = Number.isFinite(rawUpdatedAt) && rawUpdatedAt > 0
-    ? Math.max(learnedAt, rawUpdatedAt)
-    : learnedAt;
+  const updatedAt = Math.max(learnedAt, storedTimestamp(value.updatedAt ?? value.updated_at));
   const id = cleanText(value.id, 96) || `project_learning_${stableHash([
     field,
     fieldValue.toLowerCase(),
@@ -1018,11 +1011,8 @@ function sanitizeWriterCanonFact(value = null) {
   );
   if (!fact || !replacesFacts.length) return null;
   const receiptId = cleanText(value.receiptId ?? value.receipt_id, 96);
-  const rawCreatedAt = Number(value.createdAt ?? value.created_at ?? nowMs());
-  const createdAt = Number.isFinite(rawCreatedAt) && rawCreatedAt > 0
-    ? rawCreatedAt
-    : nowMs();
-  const rawUpdatedAt = Number(value.updatedAt ?? value.updated_at ?? createdAt);
+  const createdAt = storedTimestamp(value.createdAt ?? value.created_at);
+  const updatedAt = Math.max(createdAt, storedTimestamp(value.updatedAt ?? value.updated_at));
   const structuredTargets = mergeWriterCanonTargets(
     value.structuredTargets ?? value.structured_targets
   );
@@ -1039,9 +1029,7 @@ function sanitizeWriterCanonFact(value = null) {
     receiptId,
     structuredTargets,
     createdAt,
-    updatedAt: Number.isFinite(rawUpdatedAt)
-      ? Math.max(createdAt, rawUpdatedAt)
-      : createdAt,
+    updatedAt,
   };
 }
 
@@ -1113,12 +1101,9 @@ function sanitizeQuestionEffectivenessRecord(value = {}) {
   const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
   const questionId = cleanText(source.questionId ?? source.question_id, 120);
   const targetField = cleanText(source.targetField ?? source.target_field, 64).toLowerCase();
-  let askedAt = Math.max(0, Number(source.askedAt ?? source.asked_at ?? 0));
-  let answeredAt = Math.max(0, Number(source.answeredAt ?? source.answered_at ?? 0));
-  const respondedAt = Math.max(
-    0,
-    Number(source.respondedAt ?? source.responded_at ?? answeredAt ?? 0)
-  );
+  let askedAt = storedTimestamp(source.askedAt ?? source.asked_at);
+  let answeredAt = storedTimestamp(source.answeredAt ?? source.answered_at);
+  const respondedAt = storedTimestamp(source.respondedAt ?? source.responded_at ?? answeredAt);
   if (!askedAt && answeredAt) askedAt = answeredAt;
   const responseStatusRaw = cleanText(
     source.responseStatus ?? source.response_status,
@@ -1130,19 +1115,13 @@ function sanitizeQuestionEffectivenessRecord(value = {}) {
       ? "answered"
       : "asked";
   if (responseStatus === "answered" && !answeredAt) {
-    answeredAt = respondedAt || nowMs();
+    answeredAt = respondedAt;
   }
   if (!questionId || !targetField || !askedAt) return null;
   const actKeyRaw = cleanText(source.actKey ?? source.act_key, 24).toLowerCase();
   const sequenceKeyRaw = cleanText(source.sequenceKey ?? source.sequence_key, 32).toLowerCase();
-  const acceptedPageAt = Math.max(
-    0,
-    Number(source.acceptedPageAt ?? source.accepted_page_at ?? 0)
-  );
-  const blockResolvedAt = Math.max(
-    0,
-    Number(source.blockResolvedAt ?? source.block_resolved_at ?? 0)
-  );
+  const acceptedPageAt = storedTimestamp(source.acceptedPageAt ?? source.accepted_page_at);
+  const blockResolvedAt = storedTimestamp(source.blockResolvedAt ?? source.block_resolved_at);
   const acceptedPageCount = acceptedPageAt
     ? Math.max(1, Math.min(8, Math.floor(Number(
       source.acceptedPageCount ?? source.accepted_page_count ?? 1
@@ -1153,10 +1132,7 @@ function sanitizeQuestionEffectivenessRecord(value = {}) {
       source.blockResolutionCount ?? source.block_resolution_count ?? 1
     ) || 1)))
     : 0;
-  const rescueFailedAt = Math.max(
-    0,
-    Number(source.rescueFailedAt ?? source.rescue_failed_at ?? 0)
-  );
+  const rescueFailedAt = storedTimestamp(source.rescueFailedAt ?? source.rescue_failed_at);
   const failedRescueCount = rescueFailedAt
     ? Math.max(1, Math.min(8, Math.floor(Number(
       source.failedRescueCount ?? source.failed_rescue_count ?? 1
@@ -1224,7 +1200,7 @@ function sanitizeQuestionEffectivenessRecord(value = {}) {
       acceptedPageAt,
       blockResolvedAt,
       rescueFailedAt,
-      Number(source.updatedAt ?? source.updated_at ?? 0)
+      storedTimestamp(source.updatedAt ?? source.updated_at)
     ),
   }).filter(([, fieldValue]) => (
     typeof fieldValue === "boolean" ? fieldValue : Boolean(fieldValue)
@@ -1823,8 +1799,7 @@ function sanitizeAuthoritativeCharacterField(value = null) {
     8,
     220
   );
-  const rawCreatedAt = Number(value.createdAt ?? value.created_at ?? nowMs());
-  const createdAt = Number.isFinite(rawCreatedAt) && rawCreatedAt > 0 ? rawCreatedAt : nowMs();
+  const createdAt = storedTimestamp(value.createdAt ?? value.created_at);
   const id = cleanText(value.id, 96) || `character_field_${stableHash([
     field,
     fieldValue.toLowerCase(),
@@ -1914,16 +1889,10 @@ function sanitizeLearnedCharacterField(value = null) {
   const question = cleanText(value.question, 260);
   const targetLabel = cleanText(value.targetLabel ?? value.target_label, 120);
   const anchor = cleanText(value.anchor, 180);
-  const rawLearnedAt = Number(
-    value.learnedAt ?? value.learned_at ?? value.createdAt ?? value.created_at ?? nowMs()
+  const learnedAt = storedTimestamp(
+    value.learnedAt ?? value.learned_at ?? value.createdAt ?? value.created_at
   );
-  const learnedAt = Number.isFinite(rawLearnedAt) && rawLearnedAt > 0
-    ? rawLearnedAt
-    : nowMs();
-  const rawUpdatedAt = Number(value.updatedAt ?? value.updated_at ?? learnedAt);
-  const updatedAt = Number.isFinite(rawUpdatedAt) && rawUpdatedAt > 0
-    ? Math.max(learnedAt, rawUpdatedAt)
-    : learnedAt;
+  const updatedAt = Math.max(learnedAt, storedTimestamp(value.updatedAt ?? value.updated_at));
   const id = cleanText(value.id, 96) || `character_learning_${stableHash([
     field,
     fieldValue.toLowerCase(),
@@ -2116,7 +2085,7 @@ function sanitizeCharacterBibleDelta(value = null) {
     learnedFields,
     correctedTerms,
     correctionReplacements,
-    updatedAt: Math.max(0, Number(value.updatedAt || nowMs())),
+    updatedAt: storedTimestamp(value.updatedAt ?? value.updated_at),
   };
 }
 
@@ -2648,7 +2617,7 @@ function sanitizeEpisodicEmbedding(value = null) {
     dimensions: vector.length,
     textHash,
     norm: resolvedNorm,
-    updatedAt: Math.max(0, Number(value.updatedAt ?? value.updated_at ?? nowMs())),
+    updatedAt: storedTimestamp(value.updatedAt ?? value.updated_at),
     vector,
   };
 }
@@ -5829,6 +5798,9 @@ function createCreativeMemoryStore({
         existingIdx = namedIndexes[0]?.index ?? -1;
       }
       const now = nowMs();
+      if (cleanCharacterBible) {
+        cleanCharacterBible = { ...cleanCharacterBible, updatedAt: now };
+      }
       if (existingIdx >= 0) {
         resolvedAction = "updated";
         characters[existingIdx].last_referenced = now;
