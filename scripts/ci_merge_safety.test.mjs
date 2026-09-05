@@ -5,6 +5,27 @@ import test from "node:test";
 const qualityGate = readFileSync(new URL("../.github/workflows/quality-gate.yml", import.meta.url), "utf8");
 const migrationsCheck = readFileSync(new URL("../.github/workflows/migrations-check.yml", import.meta.url), "utf8");
 const autoMerge = readFileSync(new URL("../.github/workflows/auto-merge-tier1.yml", import.meta.url), "utf8");
+const project = readFileSync(new URL("../them.xcodeproj/project.pbxproj", import.meta.url), "utf8");
+
+function projectObjectIDs(source) {
+  // Objects are defined at two-tab indentation; deeper TargetAttributes IDs are references.
+  return [...source.matchAll(/^\t\t([A-F0-9]{24})(?: \/\*[^\n]*?\*\/)? = \{/gm)].map((match) => match[1]);
+}
+
+test("[ci-merge-safety] Xcode project object definitions have unique IDs", () => {
+  const ids = projectObjectIDs(project);
+  assert.ok(ids.length > 20, "must inspect the project objects, not an empty match");
+  const duplicates = ids.filter((id, index) => ids.indexOf(id) !== index);
+  assert.deepEqual(duplicates, [], "duplicate project IDs can silently pass plutil but break Xcode");
+});
+
+test("[ci-merge-safety] project ID check catches a configuration colliding with a sources phase", () => {
+  const fixture = '\t\tA1B2C30E2F50000100AAA001 /* Sources */ = {isa = PBXSourcesBuildPhase; };\n'
+    + '\t\tA1B2C30E2F50000100AAA001 /* Mac Scaffold Debug */ = {\n\t\t\tisa = XCBuildConfiguration;\n\t\t};\n';
+  const ids = projectObjectIDs(fixture);
+  assert.equal(ids.length, 2);
+  assert.equal(new Set(ids).size, 1);
+});
 
 test("[ci-merge-safety] quality gate runs on pull requests with secret-backed gates disabled", () => {
   assert.match(qualityGate, /^\s+pull_request:\n\s+types: \[opened, synchronize, reopened, ready_for_review\]/m);
@@ -33,6 +54,39 @@ test("[ci-merge-safety] persistence changes exercise the migration workflow on P
   assert.match(migrationsCheck, /backend\/tests\/persistence_postgres_live\.test\.mjs/);
   assert.match(migrationsCheck, /working-directory: backend\n\s+run: npm ci/);
   assert.match(migrationsCheck, /node --test backend\/tests\/persistence_postgres_live\.test\.mjs/);
+});
+
+test("[ci-merge-safety] required quality gate enforces signed iOS units and native macOS exports", () => {
+  const iosStep = qualityGate.match(/      - name: Run complete signed iOS unit test bundle \(required\)[\s\S]*?(?=\n      - name:)/)?.[0] || "";
+  const macStep = qualityGate.match(/      - name: Run signed macOS local export unit tests \(required\)[\s\S]*?(?=\n      - name:)/)?.[0] || "";
+  assert.match(iosStep, /ONLY_TESTING: themTests\n/);
+  assert.match(iosStep, /run: scripts\/run_v1_ui_smoke\.sh/);
+  assert.match(macStep, /-scheme them-macOS-scaffold/);
+  assert.match(macStep, /-configuration 'Mac Scaffold Debug'/);
+  assert.match(macStep, /-destination 'platform=macOS'/);
+  assert.match(macStep, /-only-testing:themTests\/ScreenplayLocalExportTests/);
+  for (const step of [iosStep, macStep]) {
+    assert.match(step, /CODE_SIGNING_ALLOWED=YES CODE_SIGNING_REQUIRED=YES/);
+    assert.match(step, /-resultBundlePath/);
+    assert.doesNotMatch(step, /continue-on-error|\n\s+if:|CODE_SIGNING_ALLOWED=NO|CODE_SIGNING_REQUIRED=NO/);
+  }
+
+  const scheme = readFileSync(new URL("../them.xcodeproj/xcshareddata/xcschemes/them-macOS-scaffold.xcscheme", import.meta.url), "utf8");
+  const testables = scheme.match(/<Testables>[\s\S]*?<\/Testables>/)?.[0] || "";
+  assert.match(testables, /skipped = "NO"[\s\S]*?BlueprintName = "themTests"/);
+  const macConfig = project.match(/C2A86109E4D84776BFC117A5 \/\* Mac Scaffold Debug \*\/ = \{[\s\S]*?name = "Mac Scaffold Debug";/)?.[0] || "";
+  assert.match(macConfig, /SUPPORTED_PLATFORMS = macosx;/);
+  assert.match(macConfig, /TEST_HOST = "\$\(BUILT_PRODUCTS_DIR\)\/them\.app\/Contents\/MacOS\/them";/);
+  const unitConfigs = project.match(/Build configuration list for PBXNativeTarget "themTests" \*\/ = \{[\s\S]*?defaultConfigurationIsVisible/)?.[0] || "";
+  assert.match(unitConfigs, /C2A86109E4D84776BFC117A5 \/\* Mac Scaffold Debug \*\//);
+});
+
+test("[ci-merge-safety] writer-loop failures retain their diagnostic result bundle", () => {
+  const runner = readFileSync(new URL("../backend/evals/run_studio_ios_writer_loop_contract_smoke.mjs", import.meta.url), "utf8");
+  assert.match(runner, /Writer-loop diagnostic result retained at/);
+  assert.doesNotMatch(runner, /(?:rmSync|unlinkSync)\(RESULT_BUNDLE_PATH/);
+  assert.match(runner, /unlinkSync\(XCCONFIG_PATH\)/, "temporary launch configuration still gets cleaned up");
+  assert.match(qualityGate, /\/tmp\/io-them-studio-ios-writer-loop-\*\.xcresult/);
 });
 
 test("[ci-merge-safety] auto-merge refuses risky release/auth/privacy paths", () => {

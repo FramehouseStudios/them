@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, unlinkSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 import { startBackend } from "../tests/helpers/backend_test_server.mjs";
@@ -102,6 +102,8 @@ try {
   console.log("studio-ios-writer-loop-contract-smoke: ok");
 } finally {
   if (existsSync(XCCONFIG_PATH)) unlinkSync(XCCONFIG_PATH);
-  if (existsSync(RESULT_BUNDLE_PATH)) rmSync(RESULT_BUNDLE_PATH, { recursive: true, force: true });
+  if (existsSync(RESULT_BUNDLE_PATH)) {
+    console.log(`Writer-loop diagnostic result retained at ${RESULT_BUNDLE_PATH}`);
+  }
   if (server) await server.stop();
 }

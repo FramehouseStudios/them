@@ -3,6 +3,8 @@ import XCTest
 
 @MainActor
 final class StudioThreadViewStateSupportTests: XCTestCase {
+    // These publication gates belong to the iOS editor coordinator in ScreenplayLiveDraftBridge.
+    #if os(iOS)
     func testDeferredEditorTransactionRejectsMetadataWhenQueuedTextLosesItsBaseline() {
         let generation = 41
         let requirements = [
@@ -43,6 +45,7 @@ final class StudioThreadViewStateSupportTests: XCTestCase {
             )
         )
     }
+    #endif
 
     func testLegacyDecodeDefaultsMissingReopenedFields() throws {
         let payload = """

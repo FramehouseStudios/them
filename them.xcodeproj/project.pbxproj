@@ -377,6 +377,31 @@
 			};
 			name = Debug;
 		};
+		C2A86109E4D84776BFC117A5 /* Mac Scaffold Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "$(DEVELOPMENT_TEAM_ID)";
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = themTests;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				PRODUCT_BUNDLE_IDENTIFIER = io.them.themTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = auto;
+				SUPPORTED_PLATFORMS = macosx;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/them.app/Contents/MacOS/them";
+				TEST_TARGET_NAME = them;
+			};
+			name = "Mac Scaffold Debug";
+		};
 		A1B2C30D2F50000100AAA001 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -948,6 +973,7 @@
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				A1B2C30C2F50000100AAA001 /* Debug */,
+				C2A86109E4D84776BFC117A5 /* Mac Scaffold Debug */,
 				A1B2C30D2F50000100AAA001 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;

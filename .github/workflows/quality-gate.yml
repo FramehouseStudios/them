@@ -195,6 +195,25 @@ jobs:
       - name: Run repo quality gate
         run: bash ./scripts/quality_gate.sh
 
+      - name: Run complete signed iOS unit test bundle (required)
+        env:
+          ONLY_TESTING: themTests
+        run: scripts/run_v1_ui_smoke.sh CODE_SIGNING_ALLOWED=YES CODE_SIGNING_REQUIRED=YES -resultBundlePath /tmp/them-ios-unit-tests.xcresult
+
+      - name: Run signed macOS local export unit tests (required)
+        run: |
+          xcodebuild test \
+            -project them.xcodeproj \
+            -scheme them-macOS-scaffold \
+            -configuration 'Mac Scaffold Debug' \
+            -destination 'platform=macOS' \
+            -only-testing:themTests/ScreenplayLocalExportTests \
+            -parallel-testing-enabled NO \
+            -resultBundlePath /tmp/them-macos-export-unit-tests.xcresult \
+            CODE_SIGNING_ALLOWED=YES CODE_SIGNING_REQUIRED=YES \
+            CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- CODE_SIGN_ENTITLEMENTS= \
+            ENABLE_APP_SANDBOX=NO REGISTER_APP_GROUPS=NO
+
       - name: Run integrated iPhone writer loop (required)
         working-directory: backend
         run: npm run eval:studio-ios-writer-loop-contract
@@ -228,6 +247,8 @@ jobs:
             echo "- Talk recovery gate: $(gate_status "${RUN_TALK_RECOVERY_GATE}")"
             echo "- Ops alerts: $(gate_status "${RUN_ALERT}")"
             echo "- Load profile: $(gate_status "${RUN_LOAD}")"
+            echo "- iOS unit bundle: required (signed themTests)"
+            echo "- macOS local export unit tests: required (signed ScreenplayLocalExportTests)"
             echo "- Integrated iPhone writer loop: required"
             echo "- iOS V1 UI smoke: soft gate (themUITests)"
             echo "- Voice network faults: soft gate (iPhone + macOS themUITests)"
@@ -242,4 +263,7 @@ jobs:
           if-no-files-found: ignore
           path: |
             /tmp/them-quality-gate-backend.log
+            /tmp/them-ios-unit-tests.xcresult
+            /tmp/them-macos-export-unit-tests.xcresult
+            /tmp/io-them-studio-ios-writer-loop-*.xcresult
             /tmp/them-smoke/them-home.png

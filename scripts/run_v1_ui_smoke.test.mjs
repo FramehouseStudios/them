@@ -10,7 +10,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
 const script = path.join(repoRoot, "scripts", "run_v1_ui_smoke.sh");
 
-function runSmoke({ xcconfigPath = "" } = {}) {
+function runSmoke({ xcconfigPath = "", onlyTesting = "themUITests", buildArguments = [] } = {}) {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "io-them-v1-ui-smoke-"));
   const log = path.join(tmp, "xcodebuild.args");
   const fakeXcodebuild = path.join(tmp, "xcodebuild");
@@ -27,6 +27,7 @@ function runSmoke({ xcconfigPath = "" } = {}) {
     script,
     "-resultBundlePath",
     path.join(tmp, "result.xcresult"),
+    ...buildArguments,
   ], {
     cwd: repoRoot,
     env: {
@@ -34,6 +35,7 @@ function runSmoke({ xcconfigPath = "" } = {}) {
       XCODEBUILD: fakeXcodebuild,
       XCODEBUILD_CALLS_LOG: log,
       IOS_SIMULATOR_DESTINATION: destination,
+      ONLY_TESTING: onlyTesting,
       THEM_UITEST_RESTORE_XCCONFIG_PATH: xcconfigPath,
     },
     encoding: "utf8",
@@ -77,4 +79,16 @@ test("[v1-ui-smoke] forwards an optional restore xcconfig as one argument", () =
 
   assert.equal(result.status, 0, result.stderr);
   assert.deepEqual(args.slice(0, 3), ["-xcconfig", xcconfig, "test"]);
+});
+
+test("[v1-ui-smoke] can require the complete signed unit bundle without narrowing to UI tests", () => {
+  const { args, result } = runSmoke({
+    onlyTesting: "themTests",
+    buildArguments: ["CODE_SIGNING_ALLOWED=YES", "CODE_SIGNING_REQUIRED=YES"],
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(args.filter((arg) => arg.startsWith("-only-testing:")), ["-only-testing:themTests"]);
+  assert.ok(args.includes("CODE_SIGNING_ALLOWED=YES"));
+  assert.ok(args.includes("CODE_SIGNING_REQUIRED=YES"));
+  assert.equal(args.includes("CODE_SIGNING_ALLOWED=NO"), false);
 });
