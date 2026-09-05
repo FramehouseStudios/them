@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-08-29T03:43:37.089Z",
-  "updatedBy": "unknown",
+  "updatedAt": "2026-09-05T04:29:41.147Z",
+  "updatedBy": "support",
   "openPullRequests": [
     {
       "number": 354,
@@ -1660,12 +1660,109 @@
       "title": "release: integrate V1 to human-clearance boundary",
       "owner": "codex",
       "tier": 3,
-      "status": "review",
+      "status": "merged",
       "branch": "codex/T-v1-human-clearance",
-      "blocker": "Human approval and release-owner operations are required before merge.",
-      "blocker_kind": "needs_human",
+      "blocker": null,
+      "blocker_kind": null,
       "reviewer_note": "Review the AppIcon and inherited Email Address privacy declaration, then complete Apple signing, live deployment, App Store, TestFlight, and physical-iPhone clearance.",
-      "expected_action": "Keep do-not-merge until every human-clearance step in docs/v1-release-preflight-proof.md is green."
+      "expected_action": null
+    },
+    {
+      "number": 416,
+      "title": "feat(sync): live typing between devices — desktop keystrokes land on iPhone in real time",
+      "owner": "support",
+      "tier": 2,
+      "status": "merged",
+      "branch": "claude/live-draft-sync",
+      "blocker": null
+    },
+    {
+      "number": 417,
+      "title": "fix(security): rescue Day 1–3 sprint invariants onto main (craft enumeration, prompt-wire twist scoping, outbox per-user rows, timing-safe app token)",
+      "owner": "support",
+      "tier": 3,
+      "status": "merged",
+      "branch": "claude/rescue-sprint-security",
+      "blocker": null
+    },
+    {
+      "number": 418,
+      "title": "test(sync): two-device UI smoke — iPhone and Mac type into the same live page",
+      "owner": "support",
+      "tier": 1,
+      "status": "merged",
+      "branch": "claude/live-draft-two-device-smoke",
+      "blocker": null
+    },
+    {
+      "number": 419,
+      "title": "ci(quality-gate): de-flake the required iPhone writer-loop gate for slow macos runners",
+      "owner": "support",
+      "tier": 1,
+      "status": "merged",
+      "branch": "claude/quality-gate-deflake",
+      "blocker": null
+    },
+    {
+      "number": 421,
+      "title": "fix: ship resilient cross-device live drafts",
+      "owner": "codex",
+      "tier": 2,
+      "status": "merged",
+      "branch": "codex/live-cross-device-draft-sync",
+      "blocker": null
+    },
+    {
+      "number": 420,
+      "title": "ci(quality-gate): run soft-gate iOS smokes on main/dispatch, opt-in on PRs",
+      "owner": "support",
+      "tier": 2,
+      "status": "review",
+      "branch": "claude/quality-gate-pr-cost",
+      "blocker": "Draft. Workflow-cost change; human decides whether PR-time iOS smokes become opt-in.",
+      "blocker_kind": "needs_human"
+    },
+    {
+      "number": 422,
+      "title": "Harden authenticated first-run resume",
+      "owner": "codex",
+      "tier": 3,
+      "status": "review",
+      "branch": "codex/onboarding-trust-polish",
+      "blocker": "Auth/first-run behavior change; needs human clearance per AGENTS.md.",
+      "blocker_kind": "needs_human"
+    },
+    {
+      "number": 423,
+      "title": "Auth index, ETag guard, unknown-commit fencing, scoped UI gate (stacked on codex keychain branch)",
+      "owner": "support",
+      "tier": 3,
+      "status": "review",
+      "branch": "claude/auth-userid-index-etag-guard",
+      "blocker": "CONFLICTING with main; carries Codex's 41 unpushed keychain commits. Narrows to 4 commits once codex/T-ios-keychain-token-migration lands.",
+      "blocker_kind": "needs_rebase"
+    },
+    {
+      "number": 424,
+      "title": "backend: boot-level IAP fail-closed, ship knowledge cards in the image, MUSE_MODEL knob",
+      "owner": "support",
+      "tier": 3,
+      "status": "review",
+      "branch": "claude/launch-safety-boot-guard",
+      "blocker": "Human merge. Set APP_STORE_ISSUER_ID/KEY_ID/PRIVATE_KEY/BUNDLE_ID in Render before the next deploy or production boot refuses by design.",
+      "blocker_kind": "needs_human",
+      "expected_action": "Merge after Quality Gate; set the four APP_STORE_* values in Render; accept/reject the D001 and D011 proposals in docs/proposed-decisions.md."
+    },
+    {
+      "number": 425,
+      "title": "Fix the six V1 smoke failures: leaked draft journal on reset, phone-layout-aware tests",
+      "owner": "support",
+      "tier": 2,
+      "status": "review",
+      "branch": "claude/v1-smoke-fixes",
+      "blocker": "Stacked on #423; lands after it.",
+      "blocker_kind": "needs_rebase",
+      "blocker_against_pr": 423
     }
   ],
   "blockers": [
@@ -1674,8 +1771,21 @@
       "owner": "human",
       "summary": "Release preflight fails until signing/configuration values in docs/v1-release-preflight-proof.md are cleared.",
       "since": "2026-05-15"
+    },
+    {
+      "id": "render-app-store-secrets",
+      "owner": "human",
+      "summary": "Once #424 is on main, production boot refuses to start until APP_STORE_ISSUER_ID, APP_STORE_KEY_ID, APP_STORE_PRIVATE_KEY, and APP_STORE_BUNDLE_ID are set in the Render dashboard (render.yaml declares them sync:false).",
+      "since": "2026-09-05"
     }
   ],
-  "decisionsPending": [],
+  "decisionsPending": [
+    {
+      "id": "d011-boot-level-fail-closed",
+      "question": "Accept or reject the two entries in docs/proposed-decisions.md: D001 domain clarification (them.io hosts are infrastructure for io.them) and D011 amendment (production boot refuses to start without App Store Server API secrets; already implemented in #424).",
+      "ownerNeeds": "human",
+      "since": "2026-09-05"
+    }
+  ],
   "endpointsAwaitingIosConsumer": []
 }

@@ -13,6 +13,15 @@ Focus on the live app first:
 3. Do not merge stale helper branches wholesale. Port only the smallest useful implementation slices into a new branch.
 4. Keep release-only secrets and signing material out of git.
 
+## Landed This Week (2026-09-05)
+
+- #417 sprint security rescue: craft route enumeration, prompt-wire twist scoping, outbox per-user rows, timing-safe app token.
+- #416, #418, #421: live typing between devices with two-device smoke and resilience fixes.
+- #419: Quality Gate writer-loop de-flake.
+- #424 (open, human merge): boot-level IAP fail-closed, `knowledge_cards.json` shipped in the image (production had run RAG on the 30 fallback cards), `MUSE_MODEL` test isolation and Render knob.
+
+Priority 2 below still stands for provider retry, migration-runner safety, spend caps, and realtime metering. The migration runner and Render predeploy landed via #414.
+
 ## Backend Work Codex Actually Wants Next
 
 These are ordered by app-visible V1 impact, not backend curiosity.
