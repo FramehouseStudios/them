@@ -132,6 +132,29 @@ actor ScreenplayDraftSaveOutbox {
         }
     }
 
+    func snapshot(
+        ownerUserId: String,
+        projectId: String,
+        draft: String
+    ) -> (owner: ScreenplayDraftSaveOutboxSnapshot, draft: ScreenplayDraftSaveOutboxSnapshot) {
+        do {
+            try loadIfNeeded()
+            let cleanOwnerUserId = ownerUserId.trimmingCharacters(in: .whitespacesAndNewlines)
+            let cleanProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
+            let cleanDraft = normalizedDraft(draft)
+            let ownerEntries = entries.filter { $0.ownerUserId == cleanOwnerUserId }
+            let draftEntries = ownerEntries.filter {
+                $0.projectId == cleanProjectId && normalizedDraft($0.draft) == cleanDraft
+            }
+            // Both views come from the same actor-isolated read; badge totals do not
+            // imply that newer edits, or another project's draft, have been queued.
+            return (owner: snapshotFor(ownerEntries), draft: snapshotFor(draftEntries))
+        } catch {
+            let failed = snapshotFor([], lastError: error.localizedDescription)
+            return (owner: failed, draft: failed)
+        }
+    }
+
     @discardableResult
     func enqueue(_ entry: ScreenplayDraftSaveOutboxEntry) throws -> ScreenplayDraftSaveOutboxSnapshot {
         try loadIfNeeded()

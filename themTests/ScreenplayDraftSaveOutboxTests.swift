@@ -67,6 +67,44 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
         XCTAssertEqual(all.pendingCount, 2)
     }
 
+    func testDraftSnapshotSeparatesOwnerTotalsFromExactProjectAndNormalizedDraft() async throws {
+        let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let draft = "INT. MOTEL - NIGHT\n\nCLEMENTINE waits."
+        try await store.enqueue(makeEntry(id: "parked", draft: draft))
+        try await store.markParked(id: "parked", error: "Conflict")
+        try await store.enqueue(makeEntry(id: "inflight", draft: draft))
+        try await store.markInflight(id: "inflight")
+        try await store.enqueue(makeEntry(id: "older", draft: draft + " An older ending."))
+        try await store.enqueue(makeEntry(id: "other-project", draft: draft, projectId: "project-2"))
+        try await store.enqueue(replacingOwner(of: makeEntry(id: "other-owner", draft: draft), with: "user-2"))
+        let beforeRead = try await store.entriesForTesting()
+        let manifestURL = storageDirectory.appendingPathComponent("queue.json")
+        let persistedBeforeRead = try Data(contentsOf: manifestURL)
+
+        let snapshot = await store.snapshot(
+            ownerUserId: " user-1 ",
+            projectId: " project-1 ",
+            draft: "\n" + draft.replacingOccurrences(of: "\n", with: "\r\n") + "\n"
+        )
+        let newer = await store.snapshot(ownerUserId: "user-1", projectId: "project-1", draft: draft + " New edit.")
+        let owner = await store.snapshot(ownerUserId: "user-1")
+        let all = await store.snapshot()
+
+        XCTAssertEqual(snapshot.owner, owner)
+        XCTAssertEqual(snapshot.owner.pendingCount, 2)
+        XCTAssertEqual(snapshot.owner.inflightCount, 1)
+        XCTAssertEqual(snapshot.owner.parkedCount, 1)
+        XCTAssertEqual(snapshot.draft.pendingCount, 0)
+        XCTAssertEqual(snapshot.draft.inflightCount, 1)
+        XCTAssertEqual(snapshot.draft.parkedCount, 1)
+        XCTAssertEqual(newer.owner, owner)
+        XCTAssertEqual(newer.draft, .empty)
+        XCTAssertEqual(all.activeCount, 4)
+        let afterRead = try await store.entriesForTesting()
+        XCTAssertEqual(afterRead, beforeRead)
+        XCTAssertEqual(try Data(contentsOf: manifestURL), persistedBeforeRead)
+    }
+
     func testCorruptManifestIsNotSilentlyReplacedByAnEmptyQueue() async throws {
         try FileManager.default.createDirectory(at: storageDirectory, withIntermediateDirectories: true)
         let manifestURL = storageDirectory.appendingPathComponent("queue.json")
@@ -76,9 +114,12 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
 
         let firstRead = await store.snapshot(ownerUserId: "user-1")
         let secondRead = await store.snapshot(ownerUserId: "user-1")
+        let draftRead = await store.snapshot(ownerUserId: "user-1", projectId: "project-1", draft: "Draft")
 
         XCTAssertFalse(firstRead.lastError.isEmpty)
         XCTAssertFalse(secondRead.lastError.isEmpty)
+        XCTAssertFalse(draftRead.owner.lastError.isEmpty)
+        XCTAssertEqual(draftRead.owner, draftRead.draft)
         XCTAssertEqual(try Data(contentsOf: manifestURL), corruptData)
     }
 
@@ -377,11 +418,12 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
     private func makeEntry(
         id: String,
         draft: String = "Draft one",
-        createdAt: TimeInterval = 100
+        createdAt: TimeInterval = 100,
+        projectId: String = "project-1"
     ) -> ScreenplayDraftSaveOutboxEntry {
         ScreenplayDraftSaveOutboxEntry(
             id: id,
-            projectId: "project-1",
+            projectId: projectId,
             ownerUserId: "user-1",
             draft: draft,
             title: "Feature",

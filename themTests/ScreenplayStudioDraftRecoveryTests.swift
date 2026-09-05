@@ -7,19 +7,256 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
     private let ownerUserID = "user-recovery"
     private var defaults: UserDefaults!
     private var store: ScreenplayLocalDraftRecoveryStore!
+    private var outboxDirectory: URL!
 
     override func setUp() {
         super.setUp()
         defaults = UserDefaults(suiteName: defaultsSuiteName)!
         defaults.removePersistentDomain(forName: defaultsSuiteName)
         store = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: recoveryKey)
+        outboxDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ScreenplayStudioDraftRecoveryTests-\(UUID().uuidString)", isDirectory: true)
     }
 
     override func tearDown() {
+        if let outboxDirectory {
+            try? FileManager.default.removeItem(at: outboxDirectory)
+        }
+        outboxDirectory = nil
         defaults.removePersistentDomain(forName: defaultsSuiteName)
         store = nil
         defaults = nil
         super.tearDown()
+    }
+
+    @MainActor
+    func testAutosaveDisabledStatusRefreshKeepsTheCurrentQueuedDraftStatus() async throws {
+        let outbox = ScreenplayDraftSaveOutbox(storageDirectory: outboxDirectory)
+        let owner = BackendAuthClient.currentAuthSessionState().user?.userId
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let draft = "INT. MOTEL - NIGHT\n\nCLEMENTINE waits for the rain to stop."
+        try await outbox.enqueue(draftSaveEntry(id: "current", owner: owner, projectId: "current-project", draft: draft))
+        try await outbox.enqueue(draftSaveEntry(id: "other-project", owner: owner, projectId: "other-project", draft: draft))
+        let model = ScreenplayStudioViewModel(draftSaveOutbox: outbox, localDraftRecoveryStore: store)
+        defer {
+            model.fountainDraft = ""
+            model.selectedProjectID = ""
+        }
+        model.selectedProjectID = "current-project"
+        model.selectedProject = projectSummary(id: "current-project")
+        model.latestVersionID = "server-before-offline-edit"
+        model.autosaveEnabled = false
+        model.fountainDraft = "\n" + draft.replacingOccurrences(of: "\n", with: "\r\n") + "\n"
+        model.noteManualDraftEdit()
+        XCTAssertEqual(model.autosaveStatusText, "Unsaved changes")
+
+        // This is the same async status path used before enrichment and by the
+        // delayed debounce's autosave-disabled branch, without its unrelated HTTP work.
+        await model.refreshDraftStatusWithAutosaveDisabled()
+        XCTAssertEqual(model.autosaveStatusText, "Queued locally - reconnecting")
+        await model.refreshDraftStatusWithAutosaveDisabled()
+
+        XCTAssertEqual(model.autosaveStatusText, "Queued locally - reconnecting")
+        XCTAssertEqual(model.queuedDraftSaveCount, 2, "The badge includes the other project's save, but this draft's status does not.")
+        XCTAssertEqual(model.parkedDraftSaveCount, 0)
+        XCTAssertTrue(model.hasUnsavedDraftChanges, "Queued is not an acknowledgement from the server.")
+        XCTAssertEqual(model.latestVersionID, "server-before-offline-edit")
+        XCTAssertEqual(store.payloads(ownerUserId: owner)["current-project"]?["draft"] as? String, model.fountainDraft)
+        let entries = try await outbox.entriesForTesting()
+        XCTAssertEqual(entries.count, 2)
+        XCTAssertTrue(entries.allSatisfy { $0.status == .pending })
+        await outbox.stopNetworkMonitoring()
+    }
+
+    @MainActor
+    func testAutosaveDisabledStatusDoesNotLabelNewerUnqueuedEditsAsQueued() async throws {
+        let outbox = ScreenplayDraftSaveOutbox(storageDirectory: outboxDirectory)
+        let owner = BackendAuthClient.currentAuthSessionState().user?.userId
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let queuedDraft = "INT. MOTEL - NIGHT\n\nCLEMENTINE waits."
+        let newerDraft = queuedDraft + " Then she opens the door."
+        try await outbox.enqueue(draftSaveEntry(id: "older-current", owner: owner, projectId: "current-project", draft: queuedDraft))
+        try await outbox.enqueue(draftSaveEntry(id: "matching-other-project", owner: owner, projectId: "other-project", draft: newerDraft))
+        try await outbox.enqueue(draftSaveEntry(id: "matching-other-owner", owner: owner + "-other", projectId: "current-project", draft: newerDraft))
+        let model = ScreenplayStudioViewModel(draftSaveOutbox: outbox, localDraftRecoveryStore: store)
+        defer {
+            model.fountainDraft = ""
+            model.selectedProjectID = ""
+        }
+        model.selectedProjectID = "current-project"
+        model.selectedProject = projectSummary(id: "current-project")
+        model.autosaveEnabled = false
+        model.fountainDraft = queuedDraft
+        model.noteManualDraftEdit()
+        await model.refreshDraftStatusWithAutosaveDisabled()
+        XCTAssertEqual(model.autosaveStatusText, "Queued locally - reconnecting")
+
+        model.fountainDraft = newerDraft
+        model.noteManualDraftEdit()
+        await model.refreshDraftStatusWithAutosaveDisabled()
+        await model.refreshDraftSaveOutboxStatus()
+
+        XCTAssertEqual(model.autosaveStatusText, "Unsaved changes")
+        XCTAssertEqual(model.queuedDraftSaveCount, 2)
+        XCTAssertTrue(model.hasUnsavedDraftChanges)
+        XCTAssertEqual(store.payloads(ownerUserId: owner)["current-project"]?["draft"] as? String, newerDraft)
+
+        try await outbox.enqueue(draftSaveEntry(id: "newer-current", owner: owner, projectId: "current-project", draft: newerDraft))
+        await model.refreshDraftStatusWithAutosaveDisabled()
+        XCTAssertEqual(model.autosaveStatusText, "Queued locally - reconnecting")
+        XCTAssertEqual(model.queuedDraftSaveCount, 3)
+        await outbox.stopNetworkMonitoring()
+    }
+
+    @MainActor
+    func testAutosaveDisabledStatusKeepsParkedDraftAttentionAndActiveWorkStatuses() async throws {
+        let outbox = ScreenplayDraftSaveOutbox(storageDirectory: outboxDirectory)
+        let owner = BackendAuthClient.currentAuthSessionState().user?.userId
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let draft = "INT. MOTEL - NIGHT\n\nCLEMENTINE waits."
+        try await outbox.enqueue(draftSaveEntry(id: "parked-current", owner: owner, projectId: "current-project", draft: draft))
+        try await outbox.markParked(id: "parked-current", error: "Conflict")
+        let model = ScreenplayStudioViewModel(draftSaveOutbox: outbox, localDraftRecoveryStore: store)
+        defer {
+            model.fountainDraft = ""
+            model.selectedProjectID = ""
+        }
+        model.selectedProjectID = "current-project"
+        model.selectedProject = projectSummary(id: "current-project")
+        model.autosaveEnabled = false
+        model.fountainDraft = draft
+        model.noteManualDraftEdit()
+
+        await model.refreshDraftStatusWithAutosaveDisabled()
+        XCTAssertEqual(model.autosaveStatusText, "1 local save needs attention")
+        XCTAssertEqual(model.parkedDraftSaveCount, 1)
+
+        model.isSaving = true
+        model.autosaveStatusText = "Saving..."
+        await model.refreshDraftStatusWithAutosaveDisabled()
+        await model.refreshDraftSaveOutboxStatus()
+        XCTAssertEqual(model.autosaveStatusText, "Saving...")
+        model.isSaving = false
+        model.setStreamingDraftPreviewActive(true)
+        await model.refreshDraftStatusWithAutosaveDisabled()
+        await model.refreshDraftSaveOutboxStatus()
+        XCTAssertEqual(model.autosaveStatusText, "Receiving live draft...")
+        model.setStreamingDraftPreviewActive(false)
+
+        model.fountainDraft = draft + " This edit is not in the parked save."
+        model.noteManualDraftEdit()
+        await model.refreshDraftStatusWithAutosaveDisabled()
+        XCTAssertEqual(model.autosaveStatusText, "Unsaved changes")
+        model.hasUnsavedDraftChanges = false
+        await model.refreshDraftStatusWithAutosaveDisabled()
+        XCTAssertEqual(model.autosaveStatusText, "Saved")
+        XCTAssertEqual(model.parkedDraftSaveCount, 1)
+        await outbox.stopNetworkMonitoring()
+    }
+
+    @MainActor
+    func testQueuedRetryWaitsForTheSelectedDraftToHydrate() async throws {
+        let outbox = ScreenplayDraftSaveOutbox(storageDirectory: outboxDirectory)
+        let model = ScreenplayStudioViewModel(draftSaveOutbox: outbox, localDraftRecoveryStore: store)
+        let owner = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""
+        let entry = draftSaveEntry(id: "queued", owner: owner, projectId: "not-hydrated", draft: "LOCAL EDIT")
+        try await outbox.enqueue(entry)
+        model.selectedProjectID = entry.projectId
+        model.selectedProject = projectSummary(id: entry.projectId)
+        model.autosaveEnabled = false
+
+        await model.resumeQueuedDraftSavesIfNeeded(force: true)
+
+        let entries = try await outbox.entriesForTesting()
+        XCTAssertEqual(entries, [entry], "An early background retry must not drain against an unhydrated page.")
+        XCTAssertFalse(model.isSaving)
+        XCTAssertEqual(model.queuedDraftSaveCount, 1)
+        model.fountainDraft = ""
+        model.selectedProjectID = ""
+        await outbox.stopNetworkMonitoring()
+    }
+
+    @MainActor
+    func testQueuedRetryRestoresLocalTextBeforeAStaleVersionDecision() async throws {
+        let outbox = ScreenplayDraftSaveOutbox(storageDirectory: outboxDirectory)
+        let model = ScreenplayStudioViewModel(draftSaveOutbox: outbox, localDraftRecoveryStore: store)
+        let owner = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""
+        let entry = draftSaveEntry(id: "queued", owner: owner, projectId: "current-project", draft: "LOCAL OFFLINE EDIT")
+        try await outbox.enqueue(entry)
+        model.selectedProjectID = entry.projectId
+        model.selectedProject = projectSummary(id: entry.projectId)
+        model.autosaveEnabled = false
+        model.applyStructuralUITestDraft("SERVER COLLABORATOR EDIT", versionID: "new-server-version")
+
+        model.restoreQueuedDraftForRetryIfNeeded(entry)
+
+        XCTAssertEqual(model.fountainDraft, entry.draft)
+        XCTAssertEqual(model.latestVersionID, entry.baseVersionId)
+        XCTAssertTrue(model.hasUnsavedDraftChanges)
+        XCTAssertEqual(store.payloads(ownerUserId: owner)[entry.projectId]?["draft"] as? String, entry.draft)
+        // An already scheduled server-draft debounce must not erase the local
+        // dirty state or recovery journal after the retry restores the page.
+        await model.handleDraftDebouncedChange("SERVER COLLABORATOR EDIT")
+        XCTAssertEqual(model.fountainDraft, entry.draft)
+        XCTAssertTrue(model.hasUnsavedDraftChanges)
+        XCTAssertEqual(store.payloads(ownerUserId: owner)[entry.projectId]?["draft"] as? String, entry.draft)
+        let entries = try await outbox.entriesForTesting()
+        XCTAssertEqual(entries, [entry], "Restoring the page is not a server acknowledgement.")
+        model.fountainDraft = ""
+        model.selectedProjectID = ""
+        await outbox.stopNetworkMonitoring()
+    }
+
+    @MainActor
+    func testQueuedRetryKeepsNewerJournalAndInMemoryEdits() async {
+        let outbox = ScreenplayDraftSaveOutbox(storageDirectory: outboxDirectory)
+        let model = ScreenplayStudioViewModel(draftSaveOutbox: outbox, localDraftRecoveryStore: store)
+        let owner = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""
+        let entry = draftSaveEntry(id: "queued", owner: owner, projectId: "current-project", draft: "QUEUED EDIT")
+        model.selectedProjectID = entry.projectId
+        model.selectedProject = projectSummary(id: entry.projectId)
+        model.autosaveEnabled = false
+        model.applyStructuralUITestDraft("SERVER EDIT", versionID: "new-server-version")
+        store.save(ownerUserId: owner, projectId: entry.projectId, draft: "NEWER JOURNAL EDIT",
+                   baseVersionId: "journal-base", dirty: true, savedAt: entry.createdAt + 1)
+
+        model.restoreQueuedDraftForRetryIfNeeded(entry)
+        XCTAssertEqual(model.fountainDraft, "NEWER JOURNAL EDIT")
+        XCTAssertEqual(model.latestVersionID, "journal-base")
+        XCTAssertTrue(model.hasUnsavedDraftChanges)
+
+        model.fountainDraft = "NEWEST MANUAL EDIT"
+        model.noteManualDraftEdit()
+        model.restoreQueuedDraftForRetryIfNeeded(entry)
+        XCTAssertEqual(model.fountainDraft, "NEWEST MANUAL EDIT")
+        XCTAssertTrue(model.hasUnsavedDraftChanges)
+        model.fountainDraft = ""
+        model.selectedProjectID = ""
+        await outbox.stopNetworkMonitoring()
+    }
+
+    @MainActor
+    func testQueuedRetryCannotRestoreAnotherOwnerOrProject() async {
+        let outbox = ScreenplayDraftSaveOutbox(storageDirectory: outboxDirectory)
+        let model = ScreenplayStudioViewModel(draftSaveOutbox: outbox, localDraftRecoveryStore: store)
+        let owner = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""
+        model.selectedProjectID = "current-project"
+        model.selectedProject = projectSummary(id: "current-project")
+        model.autosaveEnabled = false
+        model.applyStructuralUITestDraft("CURRENT PAGE", versionID: "current-version")
+        model.restoreQueuedDraftForRetryIfNeeded(draftSaveEntry(
+            id: "foreign-project", owner: owner, projectId: "other-project", draft: "OTHER PROJECT"
+        ))
+        model.restoreQueuedDraftForRetryIfNeeded(draftSaveEntry(
+            id: "foreign-owner", owner: owner + "-other", projectId: "current-project", draft: "OTHER OWNER"
+        ))
+        XCTAssertEqual(model.fountainDraft, "CURRENT PAGE")
+        XCTAssertEqual(model.latestVersionID, "current-version")
+        XCTAssertFalse(model.hasUnsavedDraftChanges)
+        XCTAssertNil(model.recoveryCandidate)
+        model.fountainDraft = ""
+        model.selectedProjectID = ""
+        await outbox.stopNetworkMonitoring()
     }
 
     func testNavigatorRootUsesDedicatedApplicationSupportFolderOnMacOS() {
@@ -1320,6 +1557,33 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         XCTAssertFalse(ScreenplaySceneSessionRestorePolicy.shouldClearSelection(" scene-a ", validIDs: validIDs))
         XCTAssertTrue(ScreenplaySceneSessionRestorePolicy.shouldClearSelection("scene-old", validIDs: validIDs))
         XCTAssertFalse(ScreenplaySceneSessionRestorePolicy.shouldClearSelection("   ", validIDs: validIDs))
+    }
+
+    private func draftSaveEntry(
+        id: String,
+        owner: String,
+        projectId: String,
+        draft: String
+    ) -> ScreenplayDraftSaveOutboxEntry {
+        ScreenplayDraftSaveOutboxEntry(
+            id: id,
+            projectId: projectId,
+            ownerUserId: owner,
+            draft: draft,
+            title: projectId,
+            phase: "scene_draft",
+            notes: "",
+            source: "studio_manual_save",
+            studioWriteAnchors: [],
+            screenplayBindings: [],
+            baseVersionId: "server-before-offline-edit",
+            createdAt: 1_700_000_000,
+            updatedAt: 1_700_000_000,
+            status: .pending,
+            retries: 0,
+            nextAttemptAt: 1_700_000_000,
+            lastError: ""
+        )
     }
 
     private func featurePlannerActionSnapshot(
