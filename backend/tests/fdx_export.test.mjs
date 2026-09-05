@@ -255,3 +255,74 @@ test("[fdx] route returns 400 when body is empty (route-local parser sees no fie
     await new Promise((resolve) => server.close(resolve));
   }
 });
+
+test("[fdx] 2-scene script headings carry Number 1 and 2", () => {
+  const xml = exportToFDX({
+    title: { title: "Test" },
+    scenes: [
+      { heading: "INT. ROOM - DAY", lines: [{ kind: "action", text: "a" }] },
+      { heading: "EXT. HALL - NIGHT", lines: [{ kind: "action", text: "b" }] },
+    ],
+  });
+  assert.match(xml, /Number="1"/);
+  assert.match(xml, /Number="2"/);
+  assert.match(xml, /INT\. ROOM - DAY/);
+  assert.match(xml, /EXT\. HALL - NIGHT/);
+});
+
+test("[fdx] dual cue emits DualDialogue on Character, Parenthetical and every Dialogue, and on nothing else", () => {
+  const xml = exportToFDX({
+    title: { title: "T" },
+    scenes: [
+      {
+        heading: "INT. ROOM - DAY",
+        lines: [
+          { kind: "character", name: "ALEX", parenthetical: "softly", dialogue: ["Hi.", "There."], dual: true },
+          { kind: "action", text: "She walks." },
+        ],
+      },
+    ],
+  });
+  // Dual block: Character, Parenthetical, Dialogue x2 should have DualDialogue="Yes"
+  const dualMatches = [...xml.matchAll(/DualDialogue="Yes"/g)];
+  assert.equal(dualMatches.length, 4); // Character + Parenthetical + 2 Dialogues
+  // Action should not have it
+  assert.equal(xml.includes('<Paragraph Type="Action" DualDialogue'), false);
+});
+
+test("[fdx] revision true carries Revision 1; trailing * without flag does NOT", () => {
+  const withFlag = exportToFDX({
+    title: { title: "T" },
+    scenes: [{ heading: "INT. ROOM - DAY", lines: [{ kind: "action", text: "He waits.*", revision: true }] }],
+  });
+  assert.match(withFlag, /Revision="1"/);
+  const withoutFlag = exportToFDX({
+    title: { title: "T" },
+    scenes: [{ heading: "INT. ROOM - DAY", lines: [{ kind: "action", text: "He waits.*", revision: false }] }],
+  });
+  assert.equal(withoutFlag.includes('Revision="1"'), false);
+  const plainStar = exportToFDX({
+    title: { title: "T" },
+    scenes: [{ heading: "INT. ROOM - DAY", lines: [{ kind: "action", text: "Legal text with * at end*" }] }],
+  });
+  assert.equal(plainStar.includes('Revision="1"'), false);
+});
+
+test("[fdx] draft date auto-fill: title present + no draftDate -> today; no title -> no draftDate", () => {
+  const today = new Date().toISOString().slice(0, 10);
+  const withTitle = exportToFDX({
+    title: { title: "My Script", author: "A" },
+    scenes: [],
+  });
+  assert.match(withTitle, new RegExp(`Draft Date: ${today}`));
+  const noTitle = exportToFDX({
+    title: { title: "", author: "A" },
+    scenes: [],
+  });
+  assert.equal(noTitle.includes("Draft Date"), false);
+  const emptyTitle = exportToFDX({
+    title: {},
+    scenes: [],
+  });
+  assert.equal(emptyTitle.includes("Draft Date"), false);
+});
