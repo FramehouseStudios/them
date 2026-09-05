@@ -12881,6 +12881,10 @@ private struct NoteMatchContext {
 private enum NoteVoiceCommand {
     case rewrite(NoteEditStyle, targetHint: String?)
     case undo
+    case printScript(alternate: Bool)
+    case faster
+    case halfSpeed
+    case halt
 }
 
 @MainActor
@@ -13106,6 +13110,14 @@ private final class NoteVoiceCommandController: ObservableObject {
         }
 
         if containsAny([
+            " cancel ",
+            " cancel printing ",
+            " stop printing ",
+            " never mind "
+        ]) {
+            return .undo
+        }
+        if containsAny([
             " polish ",
             " polish this ",
             " clean this up ",
@@ -13115,6 +13127,37 @@ private final class NoteVoiceCommandController: ObservableObject {
             " edit this note "
         ]) {
             return .rewrite(.polish, targetHint: extractTargetHint(from: normalized))
+        }
+
+        if containsAny([
+            " print somewhere else ",
+            " print elsewhere ",
+            " print to another printer ",
+            " another printer ",
+            " choose printer ",
+            " pick printer "
+        ]) {
+            return .printScript(alternate: true)
+        }
+        if containsAny([
+            " print the script ",
+            " print script ",
+            " print my script ",
+            " print the draft ",
+            " print draft ",
+            " print screenplay ",
+            " print the screenplay "
+        ]) {
+            return .printScript(alternate: false)
+        }
+        if containsAny([" halt ", " stop loop ", " stop continuing ", " pause loop "]) {
+            return .halt
+        }
+        if containsAny([" faster ", " speed up ", " quicker ", " double speed "]) {
+            return .faster
+        }
+        if containsAny([" half speed ", " slower ", " half-speed ", " slow down "]) {
+            return .halfSpeed
         }
 
         return nil
@@ -13207,6 +13250,8 @@ private struct NotesPanel: View {
     @State private var rewritePreview: SavedNoteRewritePreview?
     @State private var lastAppliedRewrite: AppliedNoteRewrite?
     @State private var statusText = ""
+    @State private var pendingPrintTask: Task<Void, Never>?
+    @State private var isPrintPendingConfirmation = false
 
     var body: some View {
         NavigationStack {
@@ -13220,6 +13265,29 @@ private struct NotesPanel: View {
 
                 VStack(spacing: 16) {
                     header
+                    if isPrintPendingConfirmation {
+                        HStack(spacing: 12) {
+                            Image(systemName: "printer")
+                            Text(statusText)
+                                .font(.system(size: 13, weight: .medium))
+                                .lineLimit(2)
+                            Spacer()
+                            Button("Cancel") {
+                                pendingPrintTask?.cancel()
+                                pendingPrintTask = nil
+                                isPrintPendingConfirmation = false
+                                statusText = "Cancelled printing."
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .tint(.red.opacity(0.85))
+                            .font(.system(size: 13, weight: .semibold))
+                        }
+                        .padding(12)
+                        .background(.white.opacity(0.88))
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                        .shadow(radius: 4)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                    }
                     composer
                     notesList
                     Spacer(minLength: 0)
@@ -13903,6 +13971,13 @@ I'm choosing between "\(ambiguity.primary.note.title)" and "\(ambiguity.secondar
                 return
             }
         case .undo:
+            if isPrintPendingConfirmation {
+                pendingPrintTask?.cancel()
+                pendingPrintTask = nil
+                isPrintPendingConfirmation = false
+                statusText = "Cancelled printing."
+                return
+            }
             if rewritePreview != nil {
                 dismissRewritePreview()
             } else if canUndoLastRewrite {
@@ -13910,6 +13985,104 @@ I'm choosing between "\(ambiguity.primary.note.title)" and "\(ambiguity.secondar
             } else {
                 statusText = "There isn't a note rewrite to undo right now."
             }
+        case .printScript(let alternate):
+            await handlePrintVoiceCommand(alternate: alternate, spokenText: spokenText)
+        case .faster:
+            let cur = ClementineVoiceSettings.endSilenceScale()
+            let next = max(0.5, cur * 0.7)
+            UserDefaults.standard.set(next, forKey: ClementineVoiceSettings.endSilenceScaleKey)
+            statusText = "Faster — listening cadence tightened."
+        case .halfSpeed:
+            let cur = ClementineVoiceSettings.endSilenceScale()
+            let next = min(2.0, cur * 1.4)
+            UserDefaults.standard.set(next, forKey: ClementineVoiceSettings.endSilenceScaleKey)
+            statusText = "Half-speed — listening cadence relaxed."
+        case .halt:
+            pendingPrintTask?.cancel(); pendingPrintTask = nil; isPrintPendingConfirmation = false
+            statusText = "Halted — loop stopped. Say faster or continue to resume."
+        }
+    }
+
+    @MainActor
+    private func handlePrintVoiceCommand(alternate: Bool, spokenText: String) async {
+        guard ScreenplayPrintFeature.isEnabled else {
+            statusText = "Printing is not enabled in this build."
+            return
+        }
+        // Cancel any pending confirmation
+        pendingPrintTask?.cancel()
+        pendingPrintTask = nil
+        isPrintPendingConfirmation = false
+
+        // Resolve draft: current note draft or current screenplay draft via shared store
+        let draft = ScreenplayDraftStore.sharedCurrentDraftText() ?? draftNote.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !draft.isEmpty else {
+            statusText = "No current draft to print. Open a screenplay draft or write a note first."
+            return
+        }
+        let title = ScreenplayDraftStore.sharedCurrentTitle() ?? "Screenplay"
+        let pages = ScreenplayPrintService.pageCountEstimate(for: draft)
+        // Whole-project guard: voice should not silently dump 50+ pages on the floor
+        if pages > 50 && !alternate {
+            statusText = "This draft is \(pages) pages — use \"print somewhere else\" to pick a printer, or print from Settings to avoid a paper surprise."
+            return
+        }
+
+        if alternate {
+            statusText = "Opening printer picker — choose where to print."
+            do {
+                let intent = PrintScreenplayIntent()
+                intent.draft = draft
+                intent.jobTitle = title
+                intent.pickAlternate = true
+                _ = try await intent.perform()
+                statusText = "Printed \(pages) pages."
+            } catch {
+                statusText = error.localizedDescription
+            }
+            return
+        }
+
+        // Silent path: remember printer, confirm aloud, wait for cancel
+        let printerName = ScreenplayPrintMemory.rememberedPrinterName ?? "your printer"
+        let hasPrinter = ScreenplayPrintMemory.rememberedPrinterURL != nil
+        if hasPrinter {
+            statusText = "Printing \(title) — \(pages) pages — to \(printerName). Say \"cancel\" or tap Cancel within 3 seconds."
+            // Spoken confirmation — the "magic vs surprise ream" guardrail
+            ScreenplayPrintSpeech.say(
+                "Printing \(title), \(pages) pages, to \(printerName). Say cancel to stop.",
+                rate: AVSpeechUtteranceDefaultSpeechRate * 0.95
+            )
+            isPrintPendingConfirmation = true
+            pendingPrintTask = Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                guard !Task.isCancelled else { return }
+                isPrintPendingConfirmation = false
+                do {
+                    let intent = PrintScreenplayIntent()
+                    intent.draft = draft
+                    intent.jobTitle = title
+                    intent.pickAlternate = false
+                    _ = try await intent.perform()
+                    statusText = "Printing \(pages) pages to \(printerName)."
+                } catch {
+                    statusText = error.localizedDescription
+                }
+            }
+            return
+        }
+
+        // No printer remembered — go straight to picker
+        statusText = "No printer remembered — opening picker."
+        do {
+            let intent = PrintScreenplayIntent()
+            intent.draft = draft
+            intent.jobTitle = title
+            intent.pickAlternate = true
+            _ = try await intent.perform()
+            statusText = "Printing \(pages) pages."
+        } catch {
+            statusText = error.localizedDescription
         }
     }
 
