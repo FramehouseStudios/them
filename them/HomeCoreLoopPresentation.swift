@@ -1,4 +1,5 @@
 import SwiftUI
+import ScreenplayStudio
 
 enum HomePrimaryDestination: String, CaseIterable, Identifiable {
     case write
@@ -137,11 +138,11 @@ struct HomePrimaryNavigation: View {
                 } label: {
                     VStack(spacing: 5) {
                         Image(systemName: item.systemImage)
-                            .font(.system(size: 18, weight: .medium))
+                            .font(IOThemTypography.UI.sectionTitle)
                             .frame(height: 20)
 
                         Text(item.title)
-                            .font(.system(size: 11, weight: .semibold))
+                            .font(IOThemTypography.UI.label)
                             .lineLimit(1)
                             .minimumScaleFactor(0.75)
                     }
@@ -181,9 +182,9 @@ struct HomeMorePanel: View {
         ZStack {
             LinearGradient(
                 colors: [
-                    Color(red: 0.035, green: 0.039, blue: 0.051),
-                    Color(red: 0.071, green: 0.078, blue: 0.102),
-                    Color(red: 0.098, green: 0.086, blue: 0.102),
+                    IOThemColors.Companion.panelTop,
+                    IOThemColors.Companion.panelMid,
+                    IOThemColors.Companion.panelBottom,
                 ],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
@@ -195,10 +196,10 @@ struct HomeMorePanel: View {
                     HStack(alignment: .top, spacing: 16) {
                         VStack(alignment: .leading, spacing: 5) {
                             Text("More")
-                                .font(.system(size: 30, weight: .semibold))
+                                .font(IOThemTypography.UI.largeTitle)
                                 .foregroundStyle(.white)
                             Text("Clementine's conversation, organization, privacy, and support tools.")
-                                .font(.system(size: 14))
+                                .font(IOThemTypography.UI.body)
                                 .foregroundStyle(.white.opacity(0.62))
                                 .fixedSize(horizontal: false, vertical: true)
                         }
@@ -217,17 +218,17 @@ struct HomeMorePanel: View {
 
                     HStack(spacing: 10) {
                         Image(systemName: "person.crop.circle.badge.checkmark")
-                            .font(.system(size: 16, weight: .medium))
+                            .font(IOThemTypography.UI.sectionTitle)
                         VStack(alignment: .leading, spacing: 2) {
                             Text("Clementine persona")
-                                .font(.system(size: 13, weight: .semibold))
+                                .font(IOThemTypography.UI.calloutStrong)
                             Text(personaTitle)
-                                .font(.system(size: 12))
+                                .font(IOThemTypography.UI.caption)
                                 .foregroundStyle(.white.opacity(0.62))
                         }
                         Spacer(minLength: 8)
                         Text("Current")
-                            .font(.system(size: 11, weight: .semibold))
+                            .font(IOThemTypography.UI.label)
                             .foregroundStyle(.white.opacity(0.66))
                     }
                     .foregroundStyle(.white.opacity(0.90))
@@ -275,7 +276,7 @@ struct HomeMorePanel: View {
     ) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(title)
-                .font(.system(size: 13, weight: .semibold))
+                .font(IOThemTypography.UI.calloutStrong)
                 .foregroundStyle(.white.opacity(0.66))
                 .textCase(.uppercase)
 
@@ -286,19 +287,19 @@ struct HomeMorePanel: View {
                     } label: {
                         HStack(spacing: 13) {
                             Image(systemName: destination.systemImage)
-                                .font(.system(size: 17, weight: .medium))
+                                .font(IOThemTypography.UI.compactTitle)
                                 .foregroundStyle(.white.opacity(0.84))
                                 .frame(width: 28, height: 28)
 
                             VStack(alignment: .leading, spacing: 3) {
                                 Text(destination.title)
-                                    .font(.system(size: 15, weight: .semibold))
+                                    .font(IOThemTypography.UI.bodyStrong)
                                     .foregroundStyle(.white.opacity(0.94))
                                     .lineLimit(1)
                                     .minimumScaleFactor(0.82)
 
                                 Text(destination.subtitle)
-                                    .font(.system(size: 12))
+                                    .font(IOThemTypography.UI.caption)
                                     .foregroundStyle(.white.opacity(0.58))
                                     .multilineTextAlignment(.leading)
                                     .lineLimit(2)
@@ -308,7 +309,7 @@ struct HomeMorePanel: View {
                             Spacer(minLength: 8)
 
                             Image(systemName: "chevron.right")
-                                .font(.system(size: 12, weight: .semibold))
+                                .font(IOThemTypography.UI.captionStrong)
                                 .foregroundStyle(.white.opacity(0.42))
                         }
                         .padding(.horizontal, 14)

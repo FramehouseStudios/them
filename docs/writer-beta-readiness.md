@@ -5,9 +5,14 @@ Updated September 5, 2026 (America/Los_Angeles).
 ## Milestone and scope
 
 DECIDED: the next milestone is a dependable, production-configured iPhone
-writer beta. The orb and Clementine remain permanent product anchors (D008).
+writer beta. The orb and Clementine remain permanent product anchors (D014,
+formerly D008 on the writer-beta branch; renumbering explicitly approved by
+the human on September 5 to preserve main's separate D008 Muse-runtime decision).
 No push, deployment, paid-provider gate, distribution upload, or production
 credential change has been performed in this pass.
+The human subsequently authorized pushing and deploying verified, safe work
+into main. This replaces the earlier no-push restriction, not the release
+configuration, credentials, privacy/signing, or acceptance requirements.
 
 The acceptance journey is: start a project, turn an idea into formatted pages,
 edit while generation is active without losing edits, save, reopen after a
@@ -16,6 +21,65 @@ Failures and offline transitions must preserve the writer's input and provide
 a real recovery path. A simulator fixture pass is not production acceptance.
 
 ## Code-owned work
+
+### Authenticated Render inspection (September 5, after briefing)
+
+VERIFIED from the signed-in service dashboard, without changing configuration:
+
+- Service `srv-dact95cmqu1s73bpjal0` shows `a5ea13faada2a7411637354cb434017113c5e776`
+  as its live, last successful deployment. The newer `c2b80225...` deployment
+  failed; health from the old instance does not prove new-code readiness.
+- Failed deployment logs show all 12 then-current migrations already applied,
+  zero pending, and the canonical auth store initialized. Pre-deploy completed.
+  Startup subsequently refused to boot for missing `APP_STORE_ISSUER_ID`,
+  `APP_STORE_KEY_ID`, and `APP_STORE_PRIVATE_KEY`.
+- Current masked environment-key inventory still lacks those three entries.
+  `APP_STORE_BUNDLE_ID` and `APP_STORE_ENVIRONMENT` exist, but their values were
+  not revealed or validated. No environment groups are linked.
+- Actual service settings match the checked-in Dockerfile/context, pre-deploy
+  command, `/healthz`, and Auto-Deploy Off. No deploy was triggered.
+
+HUMAN_INPUT_REQUIRED: enter the missing App Store Server API credentials
+securely in Render. Do not remove the production verification guard or claim
+IAP acceptance merely because environment keys exist. TestFlight signing,
+public domains/privacy, exact release-token agreement, purchase verification,
+and current-revision deployment checks remain separate release gates.
+
+### Current integration and PR review (September 5)
+
+The active isolated branch is `codex/T-writer-beta-integration` at
+`/private/tmp/io-them-writer-beta-integration.Xj45Mg`. It combines tested
+main-based commit `945c8cf` with writer-beta commit `6c9ed23`; the merge is
+still uncommitted while complete regression verification runs. Source branches
+and unrelated shared-worktree state were not changed. The reviewed 11 PR heads,
+reproductions, local ports and parked features are recorded in
+[the Claude-related PR audit](claude-pr-audit-2026-09-05.md).
+
+New integration corrections cover uncertain auth-commit fencing and recovery,
+empty ETag handling, owner-scoped turn metadata (including colliding public
+turn IDs), deterministic FDX dates, and native print/export correctness.
+The combined signed iOS build compiled; its first full unit pass found one
+design-token violation (835 passed, one failed), now corrected without adding
+a guard exception. Its complete UI run is still in progress. The first full
+PostgreSQL-enabled backend pass had 2,689 passes, five fixture failures and
+one provider-gated skip; scoped fixture repairs passed 71/71 and a deployment
+Node 20 full rerun is underway. These are not yet all-green integration claims.
+
+The first native export tests passed despite inverted glyphs visible in the
+rendered PDFs. Both renderers' raw Quartz coordinate handling is now corrected,
+and native macOS export/print tests passed 9/9 with reading-order assertions.
+All six pages of the numbered Unicode fixture plus both print pages and the
+rotated-page fixture were visually inspected after correction. iOS continuation
+layout now reserves label space, but its corrected runtime/visual rerun is
+still pending behind the active UI run. Physical printing remains untested and
+Release printing remains off by default.
+
+The disposable PostgreSQL database applied all 13 migrations, reran with zero
+pending/applied, and used both new account-scoped auth indexes on 10,000-row
+fixtures. No production migration was performed. Required hosted gates remain
+required, with native print drawing added to macOS coverage. Nothing was pushed.
+
+### Previously committed writer-beta work
 
 - Legacy memory reads no longer invent nested acceptance/learning/correction
   dates or manufacture cross-device revision conflicts. Real write events keep
