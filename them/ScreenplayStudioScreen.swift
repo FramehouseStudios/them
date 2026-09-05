@@ -2865,6 +2865,39 @@ private var directionOneScriptEditor: some View {
                     .frame(maxWidth: .infinity)
             }
 
+            if let nudge = liveDraftBridge.clarifyNudge {
+                Button {
+                    liveDraftBridge.answerClarifyNudge()
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "questionmark.bubble")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(Color.herText.opacity(0.55))
+                        Text(nudge.question)
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(Color.herText.opacity(0.78))
+                            .multilineTextAlignment(.leading)
+                            .lineLimit(2)
+                        Spacer(minLength: 0)
+                        Text("tap to answer")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(Color.herText.opacity(0.40))
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    .background(Color.yellow.opacity(0.18))
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Color.yellow.opacity(0.25), lineWidth: 1))
+                    .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("studio.clarifyNudge")
+                .accessibilityLabel(nudge.question)
+                .accessibilityHint("Jumps to the line that needs the answer.")
+                .frame(width: pageWidth)
+                .frame(maxWidth: .infinity)
+                .transition(.opacity)
+            }
 
             screenplayPageSurface(
                 minHeight: pageMinHeight,

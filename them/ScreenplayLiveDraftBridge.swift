@@ -2960,8 +2960,15 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         didSet {
             guard draftText != oldValue else { return }
             syncStructuredDraftSnapshot(text: draftText)
+            let nudge = ScreenplayClarifyNudge.nudge(in: draftText)
+            if nudge != clarifyNudge {
+                clarifyNudge = nudge
+            }
         }
     }
+    /// A `TODO: clarify …` line left in the draft, surfaced as a question pill above the
+    /// page. Tapping the pill jumps to that line so the answer can be typed in place.
+    @Published private(set) var clarifyNudge: ScreenplayClarifyNudge.Nudge?
     @Published var latestVoiceTurn: String = ""
     @Published var latestPack: String = ""
     @Published var latestPhase: String = ""
@@ -5487,6 +5494,14 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         let safeLine = max(1, line)
         currentCursorLine = safeLine
         pendingLineJump = ScreenplayLineJumpRequest(id: UUID(), line: safeLine)
+    }
+
+    /// Jump to the `TODO: clarify` line behind the current nudge and focus the editor there.
+    func answerClarifyNudge() {
+        guard let nudge = clarifyNudge else { return }
+        jumpToLine(nudge.line)
+        highlightLineRange(startLine: nudge.line)
+        requestEditorFocus()
     }
 
     func highlightLineRange(startLine: Int, endLine: Int? = nil) {
