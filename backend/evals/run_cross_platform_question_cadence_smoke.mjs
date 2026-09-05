@@ -199,7 +199,8 @@ async function assertMacCanRestoreProjects(server, identity) {
 }
 
 function openMemoryStore(server) {
-  const persistence = createPersistence({ jsonRoot: server.env.PERSISTENCE_JSON_ROOT });
+  // Match the isolated backend's JSON store, never the caller's database.
+  const persistence = createPersistence({ databaseUrl: "", jsonRoot: server.env.PERSISTENCE_JSON_ROOT });
   return {
     persistence,
     store: createCreativeMemoryStore({ persistence }),
@@ -208,6 +209,7 @@ function openMemoryStore(server) {
 
 async function seedAccountPendingQuestions(server, identity, pendingQuestions) {
   const pendingPersistence = createPersistence({
+    databaseUrl: "",
     jsonRoot: server.env.PERSISTENCE_JSON_ROOT,
   });
   try {

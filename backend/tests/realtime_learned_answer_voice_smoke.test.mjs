@@ -14,7 +14,14 @@ test("realtime voice learns a planned answer and uses it on the next spoken turn
       encoding: "utf8",
       timeout: 120_000,
       maxBuffer: 16 * 1024 * 1024,
-      env: process.env,
+      // A developer's ambient storage must never receive this fixture's writes.
+      env: {
+        ...process.env,
+        DATABASE_URL: "postgres://ambient:poison@127.0.0.1:1/ambient_database",
+        SCALE_POSTGRES_URL: "postgres://ambient:poison@127.0.0.1:1/ambient_scale",
+        REDIS_URL: "redis://127.0.0.1:1/0",
+        SCALE_REDIS_URL: "redis://127.0.0.1:1/1",
+      },
     },
   );
   const output = `${result.stdout || ""}\n${result.stderr || ""}`;
