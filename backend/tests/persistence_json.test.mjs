@@ -179,6 +179,68 @@ test("[persistence-json] new adapter on same root sees previously-written data (
   assert.deepEqual(got, { v: 42 });
 });
 
+test("[persistence-json] missing files and valid empty objects remain empty and writable", async () => {
+  for (const initialContent of [null, "{}\n"]) {
+    const p = make();
+    const filePath = path.join(p.root, "creative_memory.json");
+    if (initialContent !== null) fs.writeFileSync(filePath, initialContent);
+    assert.equal(await p.get({ domain: "creative_memory", key: "writer" }), null);
+    assert.deepEqual(await p.list({ domain: "creative_memory" }), []);
+    await p.delete({ domain: "creative_memory", key: "writer" });
+    if (initialContent === null) assert.equal(fs.existsSync(filePath), false);
+    else assert.equal(fs.readFileSync(filePath, "utf8"), initialContent);
+
+    await p.put({ domain: "creative_memory", key: "writer", value: { version: 1 } });
+    assert.deepEqual(await p.get({ domain: "creative_memory", key: "writer" }), { version: 1 });
+  }
+});
+
+for (const [label, damagedContent] of [
+  ["empty", ""],
+  ["whitespace", " \n\t\r\n"],
+  ["truncated", '{"writer":{"version":1'],
+  ["null", "null\n"],
+  ["array", "[]\n"],
+  ["string", '"damaged domain"\n'],
+  ["number", "42\n"],
+  ["boolean", "false\n"],
+]) {
+  test(`[persistence-json] ${label} domain damage fails reads and writes without changing bytes, then recovers`, async () => {
+    const p = make();
+    const domain = "creative_memory";
+    const key = "writer";
+    const filePath = path.join(p.root, `${domain}.json`);
+    const damagedBytes = Buffer.from(damagedContent, "utf8");
+    fs.writeFileSync(filePath, damagedBytes);
+    const operations = [
+      ["get", () => p.get({ domain, key })],
+      ["list", () => p.list({ domain })],
+      ["put", () => p.put({ domain, key, value: { version: 1 } })],
+      ["compareAndSwap", () => p.compareAndSwap({ domain, key, expectedValue: null, value: { version: 1 } })],
+      ["delete", () => p.delete({ domain, key })],
+    ];
+    for (const [operation, run] of operations) {
+      await assert.rejects(run, { code: "persistence_read_error" }, operation);
+      assert.deepEqual(fs.readFileSync(filePath), damagedBytes, operation);
+      assert.deepEqual(fs.readdirSync(p.root), [`${domain}.json`], operation);
+    }
+
+    // Repair only this test's damaged file. The same adapter and write queue
+    // must recover after the failed writes once valid data is restored.
+    fs.writeFileSync(filePath, "{}");
+    assert.equal(await p.get({ domain, key }), null);
+    assert.deepEqual(await p.list({ domain }), []);
+    await p.put({ domain, key, value: { version: 1 } });
+    assert.equal(await p.compareAndSwap({
+      domain, key, expectedValue: { version: 1 }, value: { version: 2 },
+    }), true);
+    assert.deepEqual(await p.get({ domain, key }), { version: 2 });
+    await p.delete({ domain, key });
+    assert.equal(await p.get({ domain, key }), null);
+    assert.deepEqual(await p.list({ domain }), []);
+  });
+}
+
 // ---------- close (parity with postgres adapter) ----------
 
 test("[persistence-json] close is a no-op (parity with Postgres adapter)", async () => {
