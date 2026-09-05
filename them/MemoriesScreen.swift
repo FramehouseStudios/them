@@ -13,13 +13,13 @@ struct MemoryItem: Identifiable, Hashable {
     var lastUsedDate: Date?
     var snippets: [String]
     var emotionalTone: String
-    var salience: Double
-    var confidence: Double
-    var qualityScore: Double
-    var qualityHitCount: Int
-    var qualityCorrectionCount: Int
+    var salience: Double?
+    var confidence: Double?
+    var qualityScore: Double?
+    var qualityHitCount: Int?
+    var qualityCorrectionCount: Int?
     var qualityLastFeedbackDate: Date?
-    var stalenessDays: Int
+    var stalenessDays: Int?
     var stalenessBand: String
     var editable: Bool
     var source: String
@@ -42,7 +42,65 @@ struct MemoryItem: Identifiable, Hashable {
     var storySpine: BackendStorySpineMemory?
 }
 
+enum MemorySignalPresentation {
+    static func validScore(_ value: Double?) -> Double? {
+        guard let value, value.isFinite, (0...1).contains(value) else { return nil }
+        return value
+    }
+
+    static func validCount(_ value: Int?) -> Int? {
+        guard let value, value >= 0 else { return nil }
+        return value
+    }
+
+    static func score(_ value: Double?) -> String {
+        guard let value = validScore(value) else { return "Not available" }
+        return "\(Int((value * 100).rounded()))/100"
+    }
+
+    static func count(_ value: Int?) -> String {
+        validCount(value).map(String.init) ?? "Not available"
+    }
+
+    static func activityAge(_ days: Int?) -> String {
+        guard let days = validCount(days) else { return "Not available" }
+        return "\(days) \(days == 1 ? "day" : "days")"
+    }
+
+    static func average(_ snapshot: BackendMemoryQualitySnapshot) -> String {
+        guard let total = validCount(snapshot.totalCards), total > 0,
+              let scored = validCount(snapshot.scoredCards), scored > 0, scored <= total else { return "Not available" }
+        return score(snapshot.avgQualityScore)
+    }
+
+    static func coverage(_ snapshot: BackendMemoryQualitySnapshot) -> String {
+        guard let total = validCount(snapshot.totalCards),
+              let scored = validCount(snapshot.scoredCards), scored <= total else { return "Not available" }
+        return "\(scored) of \(total)"
+    }
+
+    static func scoreBasis(source: String) -> String {
+        switch source.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "theme", "classifier", "fallback", "summarizer", "carry", "history_backfill", "promoted_history", "promoted_recap":
+            return "Based on recorded feedback, use signals, and time since activity."
+        case "history", "recap":
+            return "Based on elapsed time and a default starting score."
+        case "character_bible", "screenplay_project", "canon_correction", "canon_correction_undone", "canon_correction_ambiguous", "episodic_memory", "episodic_correction", "episodic_superseded":
+            return "Assigned from this memory’s type and correction status."
+        default: return "Calculated by the memory system; its basis was not provided."
+        }
+    }
+}
+
 private extension MemoryItem {
+    var scoreSummary: String {
+        qualityScore == nil ? "Score estimate unavailable" : "Score estimate: \(MemorySignalPresentation.score(qualityScore))"
+    }
+
+    var activitySummary: String {
+        stalenessDays == nil ? "Activity age unavailable" : "Reported activity age: \(MemorySignalPresentation.activityAge(stalenessDays))"
+    }
+
     var supportsQualityFeedback: Bool {
         editable && id.hasPrefix("theme-") && characterBible == nil && storySpine == nil && !hasCanonCorrectionControl
     }
@@ -572,6 +630,13 @@ final class MemoriesViewModel: ObservableObject {
         canonActionLoader = { _, _ in throw URLError(.notConnectedToInternet) }
         pendingQuestionLoader = { _ in nil }
         storyPreferenceLoader = { _, _, _, _ in throw URLError(.notConnectedToInternet) }
+        if arguments.contains("--ui-memories-signals-fixture") {
+            let read = { try Self.signalsUITestRead(now: now, unknownOnly: arguments.contains("--ui-memories-signals-unknown")) }
+            memoriesLoader = { _, _ in try read() }
+            do { applyReadSnapshot(try read().payload) }
+            catch { state = .error(message: "The memory signals test fixture could not load.") }
+            return true
+        }
         if arguments.contains("--ui-memories-preferences-fixture") {
             return installStoryPreferencesUITestFixture(now: now, failRefresh: arguments.contains("--ui-memories-refresh-failure"))
         }
@@ -687,6 +752,31 @@ final class MemoriesViewModel: ObservableObject {
     }
 
     #if DEBUG
+    private static func signalsUITestRead(now: Date, unknownOnly: Bool) throws -> BackendReadResult<BackendMemoriesResponse> {
+        var rows = memoriesUITestRows(now: now, refreshed: false, editable: false, correction: nil)
+        rows[0]["rememberedAt"] = 0
+        rows[0].removeValue(forKey: "confidence")
+        rows[0].removeValue(forKey: "salience")
+        if !unknownOnly {
+            rows[1]["source"] = "episodic_memory"
+            rows[1]["qualityScore"] = 0.74
+            rows[1]["qualityHitCount"] = 0
+            rows[1]["qualityCorrectionCount"] = 0
+            rows[1]["stalenessDays"] = 1
+        }
+        let body: [String: Any] = [
+            "source": "ui-fixture", "sourceIp": "", "stateVersion": "signals-v1",
+            "memories": rows, "conversationSamples": [],
+            "memoryQuality": ["totalCards": 2, "scoredCards": unknownOnly ? 0 : 1,
+                              "unknownQualityCards": unknownOnly ? 2 : 1,
+                              "avgQualityScore": unknownOnly ? 0 : 0.74],
+        ]
+        return BackendReadResult(
+            payload: try JSONDecoder().decode(BackendMemoriesResponse.self, from: JSONSerialization.data(withJSONObject: body)),
+            sync: .empty, notModified: false
+        )
+    }
+
     private func installStoryPreferencesUITestFixture(now: Date, failRefresh: Bool) -> Bool {
         var rows = [Self.preferenceUITestRow()]
         var revision = "preferences-v1"
@@ -1500,13 +1590,13 @@ final class MemoriesViewModel: ObservableObject {
             lastUsedDate: themOptionalDateFromEpoch(card.lastUsedAt),
             snippets: card.snippets,
             emotionalTone: card.emotionalTone,
-            salience: card.salience,
-            confidence: card.confidence,
-            qualityScore: min(max(card.qualityScore ?? 0.58, 0), 1),
-            qualityHitCount: max(0, card.qualityHitCount ?? 0),
-            qualityCorrectionCount: max(0, card.qualityCorrectionCount ?? 0),
+            salience: MemorySignalPresentation.validScore(card.salience),
+            confidence: MemorySignalPresentation.validScore(card.confidence),
+            qualityScore: MemorySignalPresentation.validScore(card.qualityScore),
+            qualityHitCount: MemorySignalPresentation.validCount(card.qualityHitCount),
+            qualityCorrectionCount: MemorySignalPresentation.validCount(card.qualityCorrectionCount),
             qualityLastFeedbackDate: themOptionalDateFromEpoch(card.qualityLastFeedbackAt),
-            stalenessDays: max(0, card.stalenessDays ?? 0),
+            stalenessDays: MemorySignalPresentation.validCount(card.stalenessDays),
             stalenessBand: (card.stalenessBand ?? "").trimmingCharacters(in: .whitespacesAndNewlines),
             editable: card.editable ?? false,
             source: card.source,
@@ -2270,27 +2360,66 @@ private struct PendingScreenplayQuestionMemoryCard: View {
     }
 }
 
+/// Prefer a single readable line, then stack the value when the inspector is narrow.
+private struct MemorySignalRow: View {
+    let label: String
+    let value: String
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                labelText.fixedSize()
+                Spacer(minLength: 0)
+                valueText.fixedSize()
+            }
+            VStack(alignment: .leading, spacing: 3) {
+                labelText
+                valueText
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .fixedSize(horizontal: false, vertical: true)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(label): \(value)")
+    }
+
+    private var labelText: some View {
+        Text(label)
+            .font(.system(size: 12))
+            .foregroundStyle(MemoriesTheme.textSecondary)
+    }
+
+    private var valueText: some View {
+        Text(value)
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(MemoriesTheme.textPrimary)
+    }
+}
+
 struct MemoryQualityOverviewCard: View {
     let snapshot: BackendMemoryQualitySnapshot
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Memory Quality")
+            Text("Memory signals")
                 .font(.system(size: 14, weight: .semibold, design: .default))
                 .foregroundStyle(MemoriesTheme.textPrimary.opacity(0.92))
 
-            Text(summaryLine)
+            Text("System estimates across the cards in this snapshot—not a measure of truth or screenplay quality.")
                 .font(.system(size: 13, weight: .regular, design: .default))
                 .foregroundStyle(MemoriesTheme.textPrimary.opacity(0.82))
-                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
 
-            HStack(spacing: 14) {
-                ledgerItem("Cards", value: intText(snapshot.totalCards))
-                ledgerItem("Avg", value: percentText(snapshot.avgQualityScore))
-                ledgerItem("Prompt", value: "\(intText(snapshot.promptInjectedCount))/\(intText(snapshot.promptThemeCount))")
-                ledgerItem("Suppressed", value: intText(snapshot.promptSuppressedCount))
-                ledgerItem("Backfill", value: intText(snapshot.backfillTotal))
-            }
+            MemorySignalRow(label: "Cards in this snapshot", value: MemorySignalPresentation.count(snapshot.totalCards))
+                .accessibilityIdentifier("memories.signals.cards")
+            MemorySignalRow(label: "Average score estimate", value: MemorySignalPresentation.average(snapshot))
+                .accessibilityIdentifier("memories.signals.average")
+            MemorySignalRow(label: "Cards with a score", value: MemorySignalPresentation.coverage(snapshot))
+                .accessibilityIdentifier("memories.signals.coverage")
+            Text("Cards without a score are excluded from the average. Open a memory to see its recorded signals.")
+                .font(.system(size: 12))
+                .foregroundStyle(MemoriesTheme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
@@ -2302,41 +2431,8 @@ struct MemoryQualityOverviewCard: View {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .stroke(Color.white.opacity(0.16), lineWidth: 1)
         )
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(summaryLine)
-    }
-
-    private var summaryLine: String {
-        let trigger = (snapshot.usefulnessLastTrigger ?? "none").trimmingCharacters(in: .whitespacesAndNewlines)
-        let promptLast = relativeTime(snapshot.promptLastAt)
-        let backfillLast = relativeTime(snapshot.backfillLastAt)
-        return "Usefulness trigger: \(trigger). Prompt refresh: \(promptLast). Backfill: \(backfillLast)."
-    }
-
-    private func ledgerItem(_ label: String, value: String) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(label)
-                .font(.system(size: 11, weight: .regular, design: .default))
-                .foregroundStyle(MemoriesTheme.textPrimary.opacity(0.62))
-            Text(value)
-                .font(.system(size: 13, weight: .semibold, design: .default))
-                .foregroundStyle(MemoriesTheme.textPrimary.opacity(0.88))
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private func intText(_ value: Int?) -> String {
-        String(max(0, value ?? 0))
-    }
-
-    private func percentText(_ value: Double?) -> String {
-        let normalized = min(max(value ?? 0, 0), 1)
-        return "\(Int((normalized * 100).rounded()))%"
-    }
-
-    private func relativeTime(_ epoch: TimeInterval?) -> String {
-        guard let epoch, epoch > 0 else { return "n/a" }
-        return RelativeDateFormatter.relativeString(for: themDateFromEpoch(epoch))
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("memories.signals")
     }
 }
 
@@ -3072,25 +3168,16 @@ struct MemoryCard: View {
                         .lineLimit(1)
                 }
 
-                HStack(spacing: 8) {
-                    Text("Quality \(Int((min(max(item.qualityScore, 0), 1) * 100).rounded()))%")
-                        .font(.system(size: 11, weight: .regular, design: .default))
-                        .foregroundStyle(MemoriesTheme.textPrimary.opacity(0.68))
-                    Text("•")
-                        .font(.system(size: 10, weight: .regular, design: .default))
-                        .foregroundStyle(MemoriesTheme.textPrimary.opacity(0.48))
-                    Text("\(max(0, item.stalenessDays))d \(item.stalenessBand.isEmpty ? "fresh" : item.stalenessBand)")
-                        .font(.system(size: 11, weight: .regular, design: .default))
-                        .foregroundStyle(MemoriesTheme.textPrimary.opacity(0.62))
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(item.scoreSummary)
+                    Text(item.activitySummary)
                     if item.referenceCount > 0 {
-                        Text("•")
-                            .font(.system(size: 10, weight: .regular, design: .default))
-                            .foregroundStyle(MemoriesTheme.textPrimary.opacity(0.48))
-                        Text("\(item.referenceCount)x recalled")
-                            .font(.system(size: 11, weight: .regular, design: .default))
-                            .foregroundStyle(MemoriesTheme.textPrimary.opacity(0.62))
+                        Text("\(item.referenceCount) recorded references")
                     }
                 }
+                .font(.system(size: 12))
+                .foregroundStyle(MemoriesTheme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
 
                 Spacer(minLength: 0)
 
@@ -3112,7 +3199,7 @@ struct MemoryCard: View {
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("memories.card.\(item.id)")
-        .accessibilityLabel("Memory. \(item.title). \(item.repairAccessibilityLabel). Remembered \(rememberedDateText).")
+        .accessibilityLabel("Memory. \(item.title). \(item.repairAccessibilityLabel). \(item.scoreSummary). \(item.activitySummary). Remembered \(rememberedDateText).")
         .accessibilityHint("Opens memory details.")
         .background(cardBackground)
         .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
@@ -3140,7 +3227,7 @@ struct MemoryCard: View {
     }
 
     private var rememberedDateText: String {
-        RelativeDateFormatter.relativeString(for: item.rememberedDate)
+        item.rememberedDate <= .distantPast ? "date not recorded" : RelativeDateFormatter.relativeString(for: item.rememberedDate)
     }
 }
 
@@ -3454,7 +3541,7 @@ struct MemoryDetailView: View {
                 .font(.system(size: 14, weight: .semibold, design: .default))
                 .foregroundStyle(MemoriesTheme.textPrimary.opacity(0.92))
             ledgerRow("Source", value: currentItem.source)
-            ledgerRow("Remembered", value: RelativeDateFormatter.relativeString(for: currentItem.rememberedDate))
+            ledgerRow("Remembered", value: currentItem.rememberedDate <= .distantPast ? "Not recorded" : RelativeDateFormatter.relativeString(for: currentItem.rememberedDate))
             ledgerRow("Last used", value: lastUsedText)
             if !currentItem.projectDisplayName.isEmpty {
                 ledgerRow("Project", value: currentItem.projectDisplayName)
@@ -3463,17 +3550,30 @@ struct MemoryDetailView: View {
                 ledgerRow("Characters", value: currentItem.characterNames.joined(separator: ", "))
             }
             if currentItem.referenceCount > 0 {
-                ledgerRow("Recalled", value: "\(currentItem.referenceCount)x")
+                ledgerRow("Recorded references", value: "\(currentItem.referenceCount)")
             }
-            ledgerRow("Quality score", value: String(format: "%.0f%%", currentItem.qualityScore * 100))
-            ledgerRow("Quality votes", value: "\(currentItem.qualityHitCount) helpful / \(currentItem.qualityCorrectionCount) fix")
-            ledgerRow("Staleness", value: stalenessText)
+            ledgerRow("Memory score estimate", value: MemorySignalPresentation.score(currentItem.qualityScore))
+                .accessibilityIdentifier("memories.ledger.score")
+            Text(currentItem.qualityScore == nil ? "A score was not provided for this memory." : MemorySignalPresentation.scoreBasis(source: currentItem.source))
+                .font(.system(size: 12))
+                .foregroundStyle(MemoriesTheme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+            ledgerRow("Positive signals", value: MemorySignalPresentation.count(currentItem.qualityHitCount))
+                .accessibilityIdentifier("memories.ledger.positive-signals")
+            ledgerRow("Correction signals", value: MemorySignalPresentation.count(currentItem.qualityCorrectionCount))
+            ledgerRow("Reported activity age", value: MemorySignalPresentation.activityAge(currentItem.stalenessDays))
+                .accessibilityIdentifier("memories.ledger.activity-age")
             if currentItem.isSuperseded, let supersededDate = currentItem.supersededDate {
                 ledgerRow("Repaired", value: RelativeDateFormatter.relativeString(for: supersededDate))
             }
-            ledgerRow("Last quality", value: qualityLastFeedbackText)
-            ledgerRow("Confidence", value: String(format: "%.0f%%", currentItem.confidence * 100))
-            ledgerRow("Salience", value: String(format: "%.0f%%", currentItem.salience * 100))
+            ledgerRow("Last signal", value: qualityLastFeedbackText)
+            ledgerRow("Confidence estimate", value: MemorySignalPresentation.score(currentItem.confidence))
+            ledgerRow("Importance estimate", value: MemorySignalPresentation.score(currentItem.salience))
+            Text("These system estimates are not measures of truth or screenplay quality. Signals can include automatic use, feedback, and references. Reported activity age is not a check that the memory is still correct.")
+                .font(.system(size: 12))
+                .foregroundStyle(MemoriesTheme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("memories.ledger.explanation")
         }
         .padding(14)
         .background(
@@ -3488,26 +3588,14 @@ struct MemoryDetailView: View {
 
     private var lastUsedText: String {
         guard let lastUsed = currentItem.lastUsedDate, lastUsed > .distantPast else {
-            return "Not used yet"
+            return "Not recorded"
         }
         return RelativeDateFormatter.relativeString(for: lastUsed)
     }
 
-    private var stalenessText: String {
-        let band = currentItem.stalenessBand.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let normalizedBand: String
-        switch band {
-        case "fresh": normalizedBand = "Fresh"
-        case "warm": normalizedBand = "Warm"
-        case "stale": normalizedBand = "Stale"
-        default: normalizedBand = "Fresh"
-        }
-        return "\(normalizedBand) (\(max(0, currentItem.stalenessDays))d)"
-    }
-
     private var qualityLastFeedbackText: String {
         guard let last = currentItem.qualityLastFeedbackDate, last > .distantPast else {
-            return "No feedback yet"
+            return "Not recorded"
         }
         return RelativeDateFormatter.relativeString(for: last)
     }
@@ -3582,16 +3670,7 @@ struct MemoryDetailView: View {
 
     @ViewBuilder
     private func ledgerRow(_ label: String, value: String) -> some View {
-        HStack {
-            Text(label)
-                .font(.system(size: 12, weight: .semibold, design: .default))
-                .foregroundStyle(MemoriesTheme.textPrimary.opacity(0.74))
-            Spacer(minLength: 12)
-            Text(value.isEmpty ? "—" : value)
-                .font(.system(size: 12, weight: .regular, design: .default))
-                .foregroundStyle(MemoriesTheme.textPrimary.opacity(0.88))
-                .multilineTextAlignment(.trailing)
-        }
+        MemorySignalRow(label: label, value: value.isEmpty ? "Not available" : value)
     }
 
     @MainActor

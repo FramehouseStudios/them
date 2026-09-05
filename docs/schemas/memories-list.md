@@ -104,9 +104,33 @@ The account `state_version` remains unchanged for mutation compatibility.
 | `is_delta` | boolean | yes | `true` when `?sinceVersion` was supplied |
 | `delta_no_change` | boolean | yes | may be true only for account-only operation without a configured creative store |
 | `story_move_preferences` | array | yes | project-scoped learned and corrected preferences; empty is authoritative only on successful reads |
-| `memory_quality` | object | yes | from `buildMemoryQualitySnapshot` — `memory-stats.md` for the rollup shape |
+| `memory_quality` | object | yes | from `buildMemoryQualitySnapshot`; see estimate coverage below (not the `/memory/stats` envelope) |
 | `memories` | array | yes | up to `limit` memory cards |
 | `conversation_samples` | array | yes | history-thread excerpts; size scales with `limit` (3..12) |
+
+### Memory estimate coverage
+
+`memory_quality` describes the cards included in this response, not every saved
+memory. Its additive coverage fields distinguish unavailable estimates from zero:
+
+| Key | Type | Meaning |
+| --- | --- | --- |
+| `total_cards` | int | Number of cards in this snapshot |
+| `scored_cards` | int | Cards with a finite numeric `qualityScore` in `[0, 1]` |
+| `unknown_quality_cards` | int | Cards excluded from the average because their score is absent or invalid |
+| `avg_quality_score` | number | Average of scored cards only; legacy numeric `0` when `scored_cards` is zero, **not** a measured zero score |
+| `fresh_cards`, `warm_cards`, `stale_cards` | int | Counts of recognized, reported staleness bands |
+| `unknown_staleness_cards` | int | Cards without a recognized staleness band |
+
+Scores are system estimates, not measured accuracy or screenplay quality. Theme
+estimates use recorded signals and elapsed time; some creative-memory scores are
+assigned by memory type and correction status. Positive signals can include
+automatic use; reference counts are not proof of successful recall. Activity age
+is a system-reported value, not a verification that a memory is still correct.
+Source calculations can use default timestamps or scores; coverage validates the
+reported values, not their provenance. Client presentation must not fabricate
+missing scores, counts, or ages. Older responses without `scored_cards` do not
+establish the average's scored-card denominator.
 
 ## Response shape (200 delta-no-change)
 
@@ -161,8 +185,8 @@ All responses (200, 200-delta, and 304) set:
   `sinceVersion` was supplied — body is full.
 - A `?sinceVersion=` (empty string) is treated as not-supplied
   (`is_delta: false`).
-- `memory_quality` matches `docs/schemas/memory-stats.md` field
-  names + shape.
+- `memory_quality` follows the snapshot estimate coverage described above;
+  it is distinct from the `GET /memory/stats` count envelope.
 
 ## Side effects
 

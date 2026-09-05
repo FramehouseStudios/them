@@ -31141,16 +31141,23 @@ function buildMemoryQualitySnapshot(memory, cards = [], nowTs = Date.now()) {
   );
   const cardList = Array.isArray(cards) ? cards : [];
   const totalCards = cardList.length;
-  const avgQualityScore = totalCards
-    ? cardList.reduce((sum, card) => sum + clampUnit(card?.qualityScore, 0.58), 0) / totalCards
+  const qualityScores = cardList
+    .map((card) => card?.qualityScore)
+    .filter((score) => (
+      typeof score === "number" && Number.isFinite(score) && score >= 0 && score <= 1
+    ));
+  const scoredCards = qualityScores.length;
+  // Preserve the numeric legacy field; coverage distinguishes no estimate from a valid zero.
+  const avgQualityScore = scoredCards
+    ? qualityScores.reduce((sum, score) => sum + score, 0) / scoredCards
     : 0;
-  const staleCardCount = cardList.reduce((sum, card) => (
-    String(card?.stalenessBand || "").trim().toLowerCase() === "stale" ? sum + 1 : sum
-  ), 0);
-  const warmCardCount = cardList.reduce((sum, card) => (
-    String(card?.stalenessBand || "").trim().toLowerCase() === "warm" ? sum + 1 : sum
-  ), 0);
-  const freshCardCount = Math.max(0, totalCards - staleCardCount - warmCardCount);
+  const stalenessBands = cardList.map((card) => (
+    typeof card?.stalenessBand === "string" ? card.stalenessBand.trim().toLowerCase() : ""
+  ));
+  const staleCardCount = stalenessBands.filter((band) => band === "stale").length;
+  const warmCardCount = stalenessBands.filter((band) => band === "warm").length;
+  const freshCardCount = stalenessBands.filter((band) => band === "fresh").length;
+  const unknownStalenessCards = totalCards - staleCardCount - warmCardCount - freshCardCount;
   const hitCount = themes.reduce((sum, theme) => sum + Math.max(0, Number(theme?.qualityHitCount || 0)), 0);
   const correctionCount = themes.reduce((sum, theme) => sum + Math.max(0, Number(theme?.qualityCorrectionCount || 0)), 0);
   const lastFeedbackAt = themes.reduce((maxTs, theme) => (
@@ -31161,11 +31168,14 @@ function buildMemoryQualitySnapshot(memory, cards = [], nowTs = Date.now()) {
   ), 0);
   const staleThresholdDays = MEMORY_QUALITY_STALE_DAYS;
   return {
-    avg_quality_score: clampUnit(avgQualityScore, totalCards ? 0.58 : 0),
+    avg_quality_score: avgQualityScore,
     total_cards: totalCards,
+    scored_cards: scoredCards,
+    unknown_quality_cards: totalCards - scoredCards,
     fresh_cards: freshCardCount,
     warm_cards: warmCardCount,
     stale_cards: staleCardCount,
+    unknown_staleness_cards: unknownStalenessCards,
     stale_threshold_days: staleThresholdDays,
     max_staleness_days: staleDaysMax,
     hit_count: hitCount,

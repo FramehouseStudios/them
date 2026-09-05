@@ -274,8 +274,9 @@ final class MemoriesResponsiveUITests: XCTestCase {
         let confirmation = element("memories.card-action.notice", in: app)
         XCTAssertTrue(confirmation.waitForExistence(timeout: 4))
         XCTAssertEqual(confirmation.label, "Feedback saved.")
-        let votes = app.staticTexts["1 helpful / 0 fix"]
+        let votes = element("memories.ledger.positive-signals", in: app)
         XCTAssertTrue(votes.waitForExistence(timeout: 4))
+        XCTAssertEqual(votes.label, "Positive signals: 1")
         XCTAssertFalse(error.exists)
         reveal(votes, in: app)
         capture("Memories - Helpful confirmation")
@@ -542,6 +543,75 @@ final class MemoriesResponsiveUITests: XCTestCase {
         #else
         throw XCTSkip("Creative memory storage recovery is an iPhone workflow.")
         #endif
+    }
+
+    func testMemorySignalsDistinguishEstimatesFromUnknownValuesAtNarrowWidth() throws {
+        #if os(iOS)
+        let app = launchSignalsFixture()
+        defer { app.terminate() }
+        XCTAssertEqual(element("memories.signals.cards", in: app).label, "Cards in this snapshot: 2")
+        XCTAssertEqual(element("memories.signals.average", in: app).label, "Average score estimate: 74/100")
+        XCTAssertEqual(element("memories.signals.coverage", in: app).label, "Cards with a score: 1 of 2")
+        capture("Memories - Readable signal overview")
+
+        let known = app.buttons["memories.card.ui-causeway"]
+        reveal(known, in: app)
+        XCTAssertTrue(known.label.contains("Score estimate: 74/100"))
+        XCTAssertTrue(known.label.contains("Reported activity age: 1 day"))
+        capture("Memories - Known and unknown card estimates")
+        known.tap()
+        let score = element("memories.ledger.score", in: app)
+        reveal(score, in: app)
+        XCTAssertEqual(score.label, "Memory score estimate: 74/100")
+        XCTAssertEqual(element("memories.ledger.positive-signals", in: app).label, "Positive signals: 0")
+        XCTAssertEqual(element("memories.ledger.activity-age", in: app).label, "Reported activity age: 1 day")
+        let explanation = element("memories.ledger.explanation", in: app)
+        reveal(explanation, in: app)
+        XCTAssertTrue(explanation.label.contains("not measures of truth or screenplay quality"))
+        capture("Memories - Estimates explained in the ledger")
+        goBack(in: app)
+
+        let unknown = app.buttons["memories.card.ui-lighthouse"]
+        reveal(unknown, in: app)
+        XCTAssertTrue(unknown.label.contains("Score estimate unavailable"))
+        XCTAssertTrue(unknown.label.contains("Activity age unavailable"))
+        unknown.tap()
+        reveal(score, in: app)
+        XCTAssertEqual(score.label, "Memory score estimate: Not available")
+        XCTAssertEqual(element("memories.ledger.positive-signals", in: app).label, "Positive signals: Not available")
+        XCTAssertEqual(element("memories.ledger.activity-age", in: app).label, "Reported activity age: Not available")
+        reveal(explanation, in: app)
+        capture("Memories - Unknown signals are not zero or fresh")
+        goBack(in: app)
+        app.buttons["memories.return"].tap()
+        XCTAssertTrue(element("home.orb", in: app).waitForExistence(timeout: 4))
+        #else
+        throw XCTSkip("Narrow memory signals are an iPhone workflow.")
+        #endif
+    }
+
+    func testMemorySignalsWithoutScoredCardsDoNotShowZeroAverage() throws {
+        #if os(iOS)
+        let app = launchSignalsFixture(extraArguments: ["--ui-memories-signals-unknown"])
+        defer { app.terminate() }
+        XCTAssertEqual(element("memories.signals.average", in: app).label, "Average score estimate: Not available")
+        XCTAssertEqual(element("memories.signals.coverage", in: app).label, "Cards with a score: 0 of 2")
+        capture("Memories - Unknown average is not zero")
+        #else
+        throw XCTSkip("Narrow memory signals are an iPhone workflow.")
+        #endif
+    }
+
+    private func launchSignalsFixture(extraArguments: [String] = []) -> XCUIApplication {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "--ui-testing", "--ui-reset-state", "--ui-skip-onboarding", "--ui-open-memories",
+            "--ui-memories-fixture", "--ui-memories-signals-fixture",
+            "-studio_debug_submit_transport_mode", "stub",
+        ] + extraArguments
+        app.launch()
+        XCTAssertTrue(element("memories.signals", in: app).waitForExistence(timeout: 8))
+        return app
     }
 
     private func launchPreferenceFixture(extraArguments: [String] = []) -> XCUIApplication {

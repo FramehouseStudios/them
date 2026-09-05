@@ -618,8 +618,8 @@ nonisolated struct BackendMemoryCard: Decodable, Hashable, Identifiable {
     let summary: String
     let reason: String?
     let emotionalTone: String
-    let salience: Double
-    let confidence: Double
+    let salience: Double?
+    let confidence: Double?
     let rememberedAt: TimeInterval
     let lastUsedAt: TimeInterval?
     let qualityScore: Double?
@@ -741,6 +741,9 @@ nonisolated struct BackendStorySpineMemory: Decodable, Hashable {
 
 nonisolated struct BackendMemoryQualitySnapshot: Decodable, Hashable {
     let avgQualityScore: Double?
+    let scoredCards: Int?
+    let unknownQualityCards: Int?
+    let unknownStalenessCards: Int?
     let totalCards: Int?
     let freshCards: Int?
     let warmCards: Int?
