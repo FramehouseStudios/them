@@ -92,3 +92,33 @@ import Foundation
     Not now.
     """)
 }
+
+@Test func dualDialogueCaretStillReadsAsACharacterCue() async throws {
+    #expect(ScreenplayEditorElement.looksLikeCharacterCue("MARCUS ^"))
+    #expect(ScreenplayEditorElement.looksLikeCharacterCue("MARCUS^"))
+    #expect(ScreenplayEditorElement.isDualDialogueCue("MARCUS ^"))
+    #expect(!ScreenplayEditorElement.isDualDialogueCue("MARCUS"))
+    #expect(ScreenplayEditorElement.characterCueName("MARCUS ^") == "MARCUS")
+    #expect(ScreenplayEditorElement.characterCueName("MARCUS") == "MARCUS")
+    // A caret anywhere else is not a cue.
+    #expect(!ScreenplayEditorElement.looksLikeCharacterCue("^ MARCUS"))
+    #expect(!ScreenplayEditorElement.looksLikeCharacterCue("MAR^CUS"))
+}
+
+@Test func dualDialogueBlockInfersCharacterThenDialogue() async throws {
+    let draft = """
+    JESS
+    I'm not leaving.
+
+    MARCUS ^
+    (under his breath)
+    Neither am I.
+    """
+    let sequence = ScreenplayEditorElement.inferredSequence(for: draft)
+    #expect(sequence[0] == .character)
+    #expect(sequence[1] == .dialogue)
+    #expect(sequence[2] == nil)
+    #expect(sequence[3] == .character)
+    #expect(sequence[4] == .parenthetical)
+    #expect(sequence[5] == .dialogue)
+}

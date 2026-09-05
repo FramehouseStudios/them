@@ -1381,7 +1381,8 @@ public enum FountainFormatter {
         guard !trimmed.contains(":") else { return false }
         guard !isSceneHeadingLine(trimmed) else { return false }
         guard !isTransitionLine(trimmed) else { return false }
-        return trimmed.range(of: #"^[A-Z0-9 '\-().]+$"#, options: .regularExpression) != nil
+        // Trailing caret = Fountain dual-dialogue marker; still a cue.
+        return trimmed.range(of: #"^[A-Z0-9 '\-().]+(?:\s*\^)?$"#, options: .regularExpression) != nil
     }
 
     private static func hasCharacterDialoguePair(_ lines: [String]) -> Bool {
