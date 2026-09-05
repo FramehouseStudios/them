@@ -78,7 +78,14 @@ struct ScreenplayPrintPipeline {
                 #endif
             },
             formatIssue: { ScreenplayDraftGate.firstErrorReason(draft: $0) },
-            pageCount: { ScreenplayPrintService.pageCountEstimate(for: $0) },
+            pageCount: { draft in
+                // Real page count from the rendered PDF; the line-based estimate is the fallback.
+                if let pdf = try? ScreenplayPrintService.makePDF(draft: draft, title: ScreenplayDraftStore.sharedCurrentTitle() ?? "Screenplay"),
+                   let pages = ScreenplayPrintService.pageCount(of: pdf) {
+                    return pages
+                }
+                return ScreenplayPrintService.pageCountEstimate(for: draft)
+            },
             printToRememberedPrinter: { draft, title in
                 guard let pdf = try? ScreenplayPrintService.makePDF(draft: draft, title: title) else { return false }
                 #if canImport(UIKit)

@@ -1,6 +1,7 @@
 import Foundation
 import ScreenplayStudio
 import CoreText
+import PDFKit
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -226,6 +227,12 @@ enum ScreenplayPrintService {
         #endif
     }
 
+    /// Real page count of a rendered PDF; nil if the data isn't a readable PDF.
+    static func pageCount(of pdf: Data) -> Int? {
+        guard let document = PDFDocument(data: pdf), document.pageCount > 0 else { return nil }
+        return document.pageCount
+    }
+
     static func pageCountEstimate(for draft: String) -> Int {
         // Industry: 1 page ≈ 55 lines at Courier 12 with 1" margins — matches CTFramesetter contentRect; orphan guard keeps real pages honest.
         let lines = draft.components(separatedBy: .newlines).count
@@ -331,8 +338,7 @@ enum ScreenplayPrintUI {
                     cont.resume(returning: completed && c.selectedPrinter != nil)
                 }
             }
-        } else if let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-                  let window = scene.windows.first {
+        } else if let window = presentationWindow() {
             ok = await withCheckedContinuation { cont in
                 picker.present(from: CGRect(x: window.bounds.midX, y: window.bounds.midY, width: 1, height: 1), in: window, animated: true) { c, completed, _ in
                     cont.resume(returning: completed && c.selectedPrinter != nil)
@@ -345,6 +351,16 @@ enum ScreenplayPrintUI {
         ScreenplayPrintMemory.rememberedPrinterURL = printer.url
         ScreenplayPrintMemory.rememberedPrinterName = printer.displayName
         return (printer.url, printer.displayName)
+    }
+
+    /// Key window of the foreground-active scene, falling back to any window.
+    @MainActor
+    private static func presentationWindow() -> UIWindow? {
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        let ordered = scenes.filter { $0.activationState == .foregroundActive }
+            + scenes.filter { $0.activationState != .foregroundActive }
+        let windows = ordered.flatMap(\.windows)
+        return windows.first(where: \.isKeyWindow) ?? windows.first
     }
 }
 #endif
@@ -386,20 +402,15 @@ enum ScreenplayDraftGate {
 
 // MARK: - Shared draft store (single source; avoids ScreenplayStudioScreen coupling)
 enum ScreenplayDraftStore {
-    // Try live draft bridge, then UserDefaults fallback, then clipboard
+    /// The live draft bridge is the single source of truth. It restores the persisted,
+    /// owner-scoped draft itself, so there is no separate UserDefaults fallback here.
     static func sharedCurrentDraftText() -> String? {
-        // Live sync is the phone truth after #421
-        if let live = ScreenplayLiveDraftBridge.shared.draftText.trimmingCharacters(in: .whitespacesAndNewlines) as String?, !live.isEmpty {
-            return live
-        }
-        // Legacy draft persisted by Studio VM
-        if let d = UserDefaults.standard.string(forKey: "screenplay_draft_fountain"), !d.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return d
-        }
-        return nil
+        let live = ScreenplayLiveDraftBridge.shared.draftText.trimmingCharacters(in: .whitespacesAndNewlines)
+        return live.isEmpty ? nil : live
     }
+    /// Title of the Studio project the draft is bound to, when there is one.
     static func sharedCurrentTitle() -> String? {
-        let t = UserDefaults.standard.string(forKey: "screenplay_draft_title")
-        return t?.isEmpty == true ? nil : t
+        let title = ScreenplayLiveDraftBridge.shared.projectBinding.projectTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        return title.isEmpty ? nil : title
     }
 }
