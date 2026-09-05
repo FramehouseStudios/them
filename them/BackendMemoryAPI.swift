@@ -3396,6 +3396,11 @@ nonisolated enum BackendMemoryAPIError: LocalizedError {
             if requiresUserAuthentication {
                 return "Sign in to create projects and keep your screenplay work connected."
             }
+            // Known backend codes become a sentence the writer can act on.
+            // Anything else keeps its diagnostic text so support can read it.
+            if let mapped = BackendUserFacingErrorMapper.knownMessage(forServerMessage: message) {
+                return mapped
+            }
             return "Backend error \(status): \(message)"
         }
     }
@@ -6585,10 +6590,15 @@ nonisolated enum BackendAuthClient {
         if let payload = try? JSONDecoder().decode(ErrorPayload.self, from: data),
            let error = payload.error,
            !error.isEmpty {
-            // Never surface the raw stage:error pair to the writer.
-            return BackendUserFacingErrorMapper.message(forStage: payload.stage, error: error)
+            // Keep the raw stage:error pair in the error value. Code that decides
+            // recovery (requiresUserAuthentication, retry policy) matches on it;
+            // the writer-facing sentence is produced in errorDescription.
+            if let stage = payload.stage, !stage.isEmpty {
+                return "\(stage): \(error)"
+            }
+            return error
         }
-        return BackendUserFacingErrorMapper.displayMessage(from: data)
+        return BackendErrorMessageSanitizer.displayMessage(from: data)
     }
 }
 
@@ -10655,11 +10665,14 @@ actor BackendMemoryAPI {
                 return "\(message) Alternatives: \(alternatives)."
             }
             if let error = payload.error, !error.isEmpty {
-                // Never surface the raw stage:error pair to the writer.
-                return BackendUserFacingErrorMapper.message(forStage: payload.stage, error: error)
+                // Raw stage:error stays in the error value; see decodeErrorMessage.
+                if let stage = payload.stage, !stage.isEmpty {
+                    return "\(stage): \(error)"
+                }
+                return error
             }
         }
-        return BackendUserFacingErrorMapper.displayMessage(from: data)
+        return BackendErrorMessageSanitizer.displayMessage(from: data)
     }
 
     private func decodeScreenplayExportError(status: Int, data: Data) -> Error {
