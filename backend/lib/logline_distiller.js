@@ -129,7 +129,7 @@ async function llmLogline({ text, frameworkId, classifier }) {
   // robust against free-form model variation.
   try {
     const result = await classifier.classifyScene({
-      framework: frameworkId || "save-the-cat",
+      framework: frameworkId || "three-act",
       scene: {
         title: "LOGLINE REQUEST",
         text:

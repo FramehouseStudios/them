@@ -35,16 +35,16 @@ const SAVE_THE_CAT = Object.freeze({
 const THREE_ACT = Object.freeze({
   id: "three-act",
   title: "Three-Act Structure",
-  summary: "Classical three-act structure with three required major turns: inciting incident, midpoint twist, and climax.",
+  summary: "Classical three-act structure for a ~110-page feature: commitment by ~25, midpoint reversal near 55, low point near 75, climax by ~100. Three required major turns: inciting incident, midpoint twist, and climax.",
   version: "1.0",
   requiredMajorTurnIds: ["inciting-incident", "midpoint-twist", "climax"],
   beats: [
     { id: "act-one-setup",          label: "Act One — Setup",            summary: "Establishes protagonist, world, and status quo. Plants what will pay off later.", expectedPageRange: { start: 1, end: 25 },    required: false },
-    { id: "inciting-incident",      label: "Inciting Incident",          summary: "The event that disrupts the protagonist's world and demands a response.",          expectedPageRange: { start: 12, end: 12 },   required: true,  majorTurnId: "inciting-incident" },
-    { id: "first-plot-point",       label: "First Plot Point",           summary: "The protagonist commits to the journey. Act One closes; Act Two begins.",          expectedPageRange: { start: 25, end: 25 },   required: false },
+    { id: "inciting-incident",      label: "Inciting Incident",          summary: "The event that disrupts the protagonist's world and demands a response.",          expectedPageRange: { start: 8, end: 15 },   required: true,  majorTurnId: "inciting-incident" },
+    { id: "first-plot-point",       label: "First Plot Point",           summary: "The protagonist commits to the journey. Act One closes; Act Two begins.",          expectedPageRange: { start: 20, end: 30 },   required: false },
     { id: "act-two-confrontation",  label: "Act Two — Confrontation",    summary: "Rising obstacles. The protagonist tries and fails, learning along the way.",       expectedPageRange: { start: 25, end: 75 },   required: false },
-    { id: "midpoint-twist",         label: "Midpoint Twist",             summary: "A revelation or reversal that recasts the protagonist's quest.",                    expectedPageRange: { start: 55, end: 55 },   required: true,  majorTurnId: "midpoint-twist" },
-    { id: "second-plot-point",      label: "Second Plot Point",          summary: "The protagonist receives the final piece needed to confront the antagonist.",      expectedPageRange: { start: 75, end: 75 },   required: false },
+    { id: "midpoint-twist",         label: "Midpoint Twist",             summary: "A revelation or reversal that recasts the protagonist's quest.",                    expectedPageRange: { start: 50, end: 60 },   required: true,  majorTurnId: "midpoint-twist" },
+    { id: "second-plot-point",      label: "Second Plot Point",          summary: "The protagonist receives the final piece needed to confront the antagonist.",      expectedPageRange: { start: 70, end: 82 },   required: false },
     { id: "act-three-resolution",   label: "Act Three — Resolution",     summary: "The protagonist executes a new plan and the conflict resolves.",                    expectedPageRange: { start: 75, end: 110 },  required: false },
     { id: "climax",                 label: "Climax",                     summary: "The decisive confrontation. Stakes peak. The protagonist wins or loses definitively.", expectedPageRange: { start: 95, end: 105 }, required: true,  majorTurnId: "climax" },
   ],
@@ -140,7 +140,11 @@ function serializeBeatDefinition(beat) {
   return out;
 }
 
+/** The framework Clementine assumes when nothing else is chosen (Hollywood three-act). */
+const DEFAULT_FRAMEWORK_ID = "three-act";
+
 export {
+  DEFAULT_FRAMEWORK_ID,
   SAVE_THE_CAT,
   THREE_ACT,
   STORY_CIRCLE,
