@@ -6,8 +6,11 @@ fixture-level contracts only; it does not replace the human app smoke in
 
 ## Last Verified
 
-2026-08-30 America/Los_Angeles on branch
-`codex/T-v1-release-clearance-refresh`, based on current `main`.
+2026-09-05 America/Los_Angeles on branch
+`claude/launch-doctor-refresh-2026-09-05`, based on current `main`
+(9c74759, after #437 / #439 / #441 merged).
+
+Previous verification: 2026-08-30 on `codex/T-v1-release-clearance-refresh`.
 
 ## Command
 
@@ -19,10 +22,10 @@ cd backend && npm run eval:v1-smokes
 
 Passed.
 
-All five commands in the current `eval:v1-smokes` chain passed. The fifth smoke
-starts a loopback-only local backend with a simulated realtime provider; the
-first sandboxed attempt was denied permission to bind localhost, and the same
-command passed when rerun with loopback permission.
+All five commands in the current `eval:v1-smokes` chain passed on the first
+attempt (the fifth smoke's loopback-only local backend bound without a
+permission prompt this time). The full backend unit suite on the same `main`
+was green the same day (2522 tests).
 
 ## Covered Smokes
 
