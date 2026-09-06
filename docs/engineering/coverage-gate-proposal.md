@@ -59,7 +59,36 @@ a PR-comment diff is wanted.
 Measured locally: the suite takes ~10% longer under c8 (instrumentation is
 V8-native, no source transform). Well inside the job's budget.
 
-## What this does not cover
+## iOS baseline (measured 2026-09-06)
+
+`xcodebuild test -only-testing:themTests -enableCodeCoverage YES` on `main`
+(launch-doctor branch), signed, isolated iPhone 17 simulator, 615 tests:
+
+| Target | Line coverage |
+| --- | --- |
+| them.app | 19.5% (25,421 / 130,478) |
+| themTests.xctest | 97.9% (the tests themselves) |
+
+Where the app's uncovered lines are — the four god-files carry most of it:
+
+| File | Executable lines | Covered |
+| --- | --- | --- |
+| ScreenplayStudioScreen.swift | 26,091 | 0.0% |
+| RootExperienceView.swift | 22,297 | 16.5% |
+| ScreenplayLiveDraftBridge.swift | 10,478 | 19.8% |
+| BackendMemoryAPI.swift | 9,075 | 50.3% |
+| MemoriesScreen.swift | 6,758 | 0.0% |
+| BackendClient.swift | 6,613 | 45.9% |
+
+Reading: the unit target exercises the client/API layer at roughly half
+coverage and the SwiftUI god views at zero. That is the D009 I4 argument
+in numbers — view code composed into child views becomes testable; the
+monolith screen is not. Proposal for iOS: **report only** until the I4
+extractions land; then gate the non-view targets (BackendMemoryAPI,
+BackendClient, bridge stores) at their measured floor minus 2 points,
+and leave view files out of the gate.
+
+## What this does not cover (backend section above)
 
 iOS. `xcodebuild test` can emit coverage (`-enableCodeCoverage YES`), but
 the unit target's numbers are only meaningful once the five pre-existing
