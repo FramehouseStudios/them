@@ -180,7 +180,24 @@ private final class PageCancelRequestRecorder {
     func record(_ request: URLRequest) {
         let path = request.url?.path ?? ""
         let headers = request.allHTTPHeaderFields ?? [:]
-        let json = (try? JSONSerialization.jsonObject(with: request.httpBody ?? Data())) as? [String: Any] ?? [:]
+        // URLSession hands URLProtocol stubs the body as a stream, not `httpBody`,
+        // so drain the stream when the data property is nil (same as the other recorders).
+        let bodyData: Data = request.httpBody ?? {
+            guard let stream = request.httpBodyStream else { return Data() }
+            stream.open()
+            defer { stream.close() }
+            var data = Data()
+            let bufferSize = 4096
+            let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: bufferSize)
+            defer { buffer.deallocate() }
+            while stream.hasBytesAvailable {
+                let read = stream.read(buffer, maxLength: bufferSize)
+                if read <= 0 { break }
+                data.append(buffer, count: read)
+            }
+            return data
+        }()
+        let json = (try? JSONSerialization.jsonObject(with: bodyData)) as? [String: Any] ?? [:]
         requests.append(
             Recorded(
                 method: request.httpMethod ?? "",
