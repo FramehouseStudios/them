@@ -615,8 +615,7 @@ final class V1SmokeUITests: XCTestCase {
             // hierarchy, so bring it back before tapping and check the
             // selected state before this panel's reveal scrolls it away again.
             XCTAssertTrue(
-                tab.waitForExistence(timeout: 8)
-                    || revealInStudioDrawer(tab, drawer: drawer, scrollingUp: false, maxSwipes: 16),
+                revealInspectorTab(tab, drawer: drawer, in: app),
                 "Missing \(route.tab) inspector tab"
             )
             XCTAssertTrue(
@@ -3285,6 +3284,36 @@ final class V1SmokeUITests: XCTestCase {
     }
 
     @discardableResult
+    /// The inspector tab grid sits at the top of a lazy drawer, so revealing a
+    /// panel can scroll it out of the accessibility hierarchy. Swiping down
+    /// normally brings it back; in the full scripted smoke those swipes were
+    /// once swallowed while the drawer was still settling ("Missing craft
+    /// inspector tab" after 16 swipes, 44 s instead of 34 s). Closing and
+    /// reopening the drawer puts the grid back at the top, so do that once
+    /// before giving up. Callers keep their own assertion and message.
+    private func revealInspectorTab(
+        _ tab: XCUIElement,
+        drawer: XCUIElement,
+        in app: XCUIApplication
+    ) -> Bool {
+        if tab.waitForExistence(timeout: 8)
+            || revealInStudioDrawer(tab, drawer: drawer, scrollingUp: false, maxSwipes: 16) {
+            return true
+        }
+        XCTContext.runActivity(
+            named: "Inspector tab grid did not come back after 16 swipes; reopening the drawer"
+        ) { _ in }
+        let toggle = app.buttons["studio.sidebar.right.toggle"]
+        guard waitForHittability(of: toggle, timeout: 4) else { return false }
+        toggle.tap()
+        _ = waitForDisappearance(of: drawer, timeout: 4)
+        guard waitForHittability(of: toggle, timeout: 4) else { return false }
+        toggle.tap()
+        guard drawer.waitForExistence(timeout: 5) else { return false }
+        return tab.waitForExistence(timeout: 8)
+            || revealInStudioDrawer(tab, drawer: drawer, scrollingUp: false, maxSwipes: 16)
+    }
+
     private func revealInStudioDrawer(
         _ target: XCUIElement,
         drawer: XCUIElement,
