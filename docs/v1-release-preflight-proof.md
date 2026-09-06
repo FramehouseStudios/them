@@ -12,6 +12,8 @@ The release path uses ignored, mode-600 local inputs:
 
 - `them/Release.local.env` is the operator input.
 - `scripts/run_release_preflight.sh` rejects symlinks, non-regular files, and any `Release.local.env` mode other than 600 before sourcing it. Its full quality gate defaults on.
+- The wrapper ends with a `[release-preflight] Gate summary` block listing every gate that ran and every gate skipped (with the `RUN_*` flag that skipped it). The last line is `GREEN` only when every default-on gate ran; if any default-on gate was skipped it prints `PARTIAL`, so a preflight report must quote that line rather than calling a partial run green.
+- `release_config_status.mjs` only checks that `BACKEND_URL` is a non-local HTTPS string. Reachability (including the parked-domain 302 that `https://api.them.io` currently returns) is proven or failed by the live backend health step, which runs by default.
 - `scripts/release_config_status.mjs` now enforces the wrapper's `OPENAI_API_KEY` requirement and reports only redacted source/length metadata. Missing, placeholder, short, whitespace/control-containing, and shell-precedence cases are covered.
 - `scripts/write_release_xcconfig.mjs` validates and atomically writes the Team ID, app token, and hosted HTTPS backend origin to ignored `them/Release.local.xcconfig` immediately before Xcode inspection/build. This keeps a later Organizer archive on the same backend that preflight checked.
 - `Release.local.xcconfig` is an exact synchronized-folder membership exception, is excluded from all four target configurations, and is a hard-fail artifact if present in the built app.
