@@ -1117,8 +1117,32 @@ final class V1SmokeUITests: XCTestCase {
         )
         let pageRoute = element(identifier: "studio.prompt.routing.page", in: app)
         XCTAssertTrue(pageRoute.waitForExistence(timeout: 4))
+        var pageRouted = waitForSelection(of: pageRoute, timeout: 4)
+        if !pageRouted {
+            // In the full scripted smoke the To Page tap is lost roughly every
+            // run (the drawer is still settling from the swipe-up loop above and
+            // swallows the touch), while the same test passes alone and in any
+            // shorter order. Tap once more only when the route did not switch;
+            // the assertion below is unchanged, so a genuine routing bug still
+            // fails with the same message.
+            XCTContext.runActivity(named: "To Page tap did not switch routing; tapping once more") { _ in }
+            for _ in 0..<20 where !toPage.isHittable {
+                drawer.swipeUp()
+            }
+            if waitForHittability(of: toPage, timeout: 5) {
+#if os(macOS)
+                toPage.click()
+#else
+                toPage.tap()
+#endif
+            }
+            for _ in 0..<20 where !promptField.isHittable {
+                drawer.swipeDown()
+            }
+            pageRouted = waitForSelection(of: pageRoute, timeout: 6)
+        }
         XCTAssertTrue(
-            waitForSelection(of: pageRoute, timeout: 4),
+            pageRouted,
             "To Page did not re-route the current exchange to the page."
         )
 #if os(iOS)
