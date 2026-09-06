@@ -244,6 +244,18 @@ node scripts/v1_status.mjs --pillar=talk
 Reads `docs/v1-definition.md` and emits per-pillar completion %
 and remaining items.
 
+## iOS unit bundle
+
+The full `themTests` target is a required CI gate as of 2026-09-06, run by
+`scripts/run_ios_unit_tests.sh` (a thin wrapper over `run_v1_ui_smoke.sh`
+with `ONLY_TESTING=themTests`) on the first available iPhone simulator, ahead
+of the writer loop. It was added after five unit classes sat red on `main`
+for days without any check noticing (fixed in #441 and #452). Run it locally
+from a clean checkout or worktree, never from an iCloud-synced tree with
+duplicate `<file> 2.swift` copies: `DesignSystemGuardTests` scans the tree on
+disk and would report those copies as violations. Keep default simulator
+signing on; an unsigned test host cannot use Keychain.
+
 ## iOS V1 UI smoke
 
 The single integrated writer-loop contract is a required CI gate. It runs

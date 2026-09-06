@@ -132,6 +132,7 @@ jobs:
     name: Quality Gate
     runs-on: macos-latest
     # Measured 2026-09-02/03: repo gate ~10 s, required writer loop 490–590 s,
+    # required unit bundle (themTests, added 2026-09-06) build + ~600 tests,
     # soft UI smoke 750–1000 s, voice smokes 170–260 s, plus setup — about
     # 35 min end to end. Without this cap a wedged simulator holds the
     # required check for the 6-hour default.
@@ -213,6 +214,12 @@ jobs:
       - name: Run repo quality gate
         run: bash ./scripts/quality_gate.sh
 
+      # The unit bundle runs before the writer loop so a red unit test fails the
+      # gate in ~10 min instead of after the 8-10 min UI story, and its build
+      # warms the derived data the writer loop then reuses.
+      - name: Run iOS unit bundle themTests (required)
+        run: scripts/run_ios_unit_tests.sh
+
       - name: Run integrated iPhone writer loop (required)
         working-directory: backend
         run: npm run eval:studio-ios-writer-loop-contract
@@ -246,6 +253,7 @@ jobs:
             echo "- Talk recovery gate: $(gate_status "${RUN_TALK_RECOVERY_GATE}")"
             echo "- Ops alerts: $(gate_status "${RUN_ALERT}")"
             echo "- Load profile: $(gate_status "${RUN_LOAD}")"
+            echo "- iOS unit bundle: required (themTests)"
             echo "- Integrated iPhone writer loop: required"
             echo "- iOS V1 UI smoke: soft gate (themUITests)"
             echo "- Voice network faults: soft gate (iPhone + macOS themUITests)"
