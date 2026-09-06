@@ -6,6 +6,7 @@ const qualityGate = readFileSync(new URL("../.github/workflows/quality-gate.yml"
 const migrationsCheck = readFileSync(new URL("../.github/workflows/migrations-check.yml", import.meta.url), "utf8");
 const autoMerge = readFileSync(new URL("../.github/workflows/auto-merge-tier1.yml", import.meta.url), "utf8");
 const project = readFileSync(new URL("../them.xcodeproj/project.pbxproj", import.meta.url), "utf8");
+const iosUnitRunner = readFileSync(new URL("./run_ios_unit_tests.sh", import.meta.url), "utf8");
 
 function projectObjectIDs(source) {
   // Objects are defined at two-tab indentation; deeper TargetAttributes IDs are references.
@@ -44,6 +45,7 @@ test("[ci-merge-safety] complete backend tests gate pull requests and main pushe
   assert.match(backendJob, /working-directory: backend\n\s+run: npm ci/);
   assert.match(backendJob, /working-directory: backend\n\s+run: npm test/);
   assert.doesNotMatch(backendJob, /OPENAI_API_KEY|APP_TOKEN|secrets\./);
+  assert.match(qualityGate, /\n  quality-gate:\n\s+name: Quality Gate\n\s+needs: \[god-file-gate, backend-tests\]/);
 });
 
 test("[ci-merge-safety] deterministic signed iOS and Swift UI smokes fail the quality-gate job", () => {
@@ -75,8 +77,9 @@ test("[ci-merge-safety] persistence changes exercise the migration workflow on P
 test("[ci-merge-safety] required quality gate enforces signed iOS units and native macOS exports", () => {
   const iosStep = qualityGate.match(/      - name: Run complete signed iOS unit test bundle \(required\)[\s\S]*?(?=\n      - name:)/)?.[0] || "";
   const macStep = qualityGate.match(/      - name: Run signed macOS local export unit tests \(required\)[\s\S]*?(?=\n      - name:)/)?.[0] || "";
-  assert.match(iosStep, /ONLY_TESTING: themTests\n/);
-  assert.match(iosStep, /run: scripts\/run_v1_ui_smoke\.sh/);
+  assert.match(iosStep, /run: scripts\/run_ios_unit_tests\.sh/);
+  assert.match(iosUnitRunner, /ONLY_TESTING="\$\{ONLY_TESTING:-themTests\}"/);
+  assert.match(iosUnitRunner, /run_v1_ui_smoke\.sh/);
   assert.match(macStep, /-scheme them-macOS-scaffold/);
   assert.match(macStep, /-configuration 'Mac Scaffold Debug'/);
   assert.match(macStep, /-destination 'platform=macOS'/);

@@ -202,6 +202,8 @@ private final class PageCancelRequestRecorder {
         let headers = (request.allHTTPHeaderFields ?? [:]).reduce(into: [String: String]()) {
             $0[$1.key.lowercased()] = $1.value
         }
+        // URLSession hands URLProtocol stubs the body as a stream, not `httpBody`,
+        // so drain the stream when needed and normalize header names for lookup.
         let json = (try? JSONSerialization.jsonObject(with: Self.bodyData(from: request) ?? Data())) as? [String: Any] ?? [:]
         requests.append(
             Recorded(

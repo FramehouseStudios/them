@@ -110,6 +110,7 @@ xcodebuild -project them.xcodeproj -scheme them -configuration Debug -sdk iphone
   - `run_alert`
   - `run_load`
 - Both checked-in workflows now write a short Actions step summary that makes enforced vs skipped sections visible from the run UI.
+- On pull requests, `quality-gate.yml` runs five enforced Apple-platform checks on the macOS runner: the full signed `themTests` unit bundle via `scripts/run_ios_unit_tests.sh` (added 2026-09-06), signed native macOS export/print tests, the integrated iPhone writer-loop story, then the broader signed `themUITests` and iPhone/macOS voice network-fault smokes. Any failure blocks promotion. The required `Quality Gate` job also depends on the Linux backend and D009 god-file jobs, so their failures cannot be hidden behind a green aggregate check.
 - On failure, the checked-in workflows upload the most useful local logs as CI artifacts:
   - `/tmp/them-quality-gate-backend.log`
   - `/tmp/them_release_preflight_build.log`

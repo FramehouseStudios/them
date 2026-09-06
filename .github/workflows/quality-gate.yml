@@ -87,6 +87,24 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  god-file-gate:
+    name: God-file gate (D009)
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Check god-file growth vs base
+        run: node scripts/check_god_files.mjs
+
   backend-tests:
     name: Backend tests
     runs-on: ubuntu-latest
@@ -112,9 +130,11 @@ jobs:
 
   quality-gate:
     name: Quality Gate
+    needs: [god-file-gate, backend-tests]
     runs-on: macos-latest
     # Measured 2026-09-02/03: repo gate ~10 s, required writer loop 490–590 s,
-    # UI smoke 750–1000 s, voice smokes 170–260 s, plus setup — about
+    # required unit bundle (themTests, added 2026-09-06) build + ~600 tests,
+    # enforced UI smoke 750–1000 s, voice smokes 170–260 s, plus setup — about
     # 35 min end to end. Without this cap a wedged simulator holds the
     # required check for the 6-hour default.
     timeout-minutes: 75
@@ -195,10 +215,11 @@ jobs:
       - name: Run repo quality gate
         run: bash ./scripts/quality_gate.sh
 
+      # The unit bundle runs before the writer loop so a red unit test fails the
+      # gate in ~10 min instead of after the 8-10 min UI story, and its build
+      # warms the derived data the writer loop then reuses.
       - name: Run complete signed iOS unit test bundle (required)
-        env:
-          ONLY_TESTING: themTests
-        run: scripts/run_v1_ui_smoke.sh CODE_SIGNING_ALLOWED=YES CODE_SIGNING_REQUIRED=YES -resultBundlePath /tmp/them-ios-unit-tests.xcresult
+        run: scripts/run_ios_unit_tests.sh CODE_SIGNING_ALLOWED=YES CODE_SIGNING_REQUIRED=YES -resultBundlePath /tmp/them-ios-unit-tests.xcresult
 
       - name: Run signed macOS local export unit tests (required)
         run: |

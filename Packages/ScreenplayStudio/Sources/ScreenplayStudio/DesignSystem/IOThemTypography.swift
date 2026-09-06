@@ -5,12 +5,15 @@ public enum IOThemTypography {
         public static let largeTitle = Font.system(size: 34, weight: .semibold, design: .default)
         public static let editorialTitle = Font.system(size: 30, weight: .semibold, design: .serif)
         public static let title = Font.system(size: 22, weight: .semibold, design: .default)
+        public static let utilitySheetTitle = Font.system(size: 20, weight: .semibold, design: .default)
         public static let editorialMetric = Font.system(size: 18, weight: .semibold, design: .serif)
+        public static let metricValue = Font.system(size: 18, weight: .semibold, design: .default)
         public static let compactTitle = Font.system(size: 17, weight: .semibold, design: .default)
         public static let sectionTitle = Font.system(size: 16, weight: .semibold, design: .default)
         public static let body = Font.system(size: 15, weight: .regular, design: .default)
         public static let bodyMedium = Font.system(size: 15, weight: .medium, design: .default)
         public static let bodyStrong = Font.system(size: 15, weight: .semibold, design: .default)
+        public static let supportingBody = Font.system(size: 14, weight: .regular, design: .default)
         public static let prominentCallout = Font.system(size: 14, weight: .semibold, design: .default)
         public static let callout = Font.system(size: 13, weight: .regular, design: .default)
         public static let calloutMedium = Font.system(size: 13, weight: .medium, design: .default)
@@ -42,6 +45,10 @@ public enum IOThemTypography {
         public static let monoNano = Font.system(size: 9, weight: .semibold, design: .monospaced)
         public static let monoBadge = Font.system(size: 8.5, weight: .semibold, design: .monospaced)
         public static let monoThumbnail = Font.system(size: 7.2, weight: .regular, design: .monospaced)
+
+        public static func companionTitle(isCompact: Bool) -> Font {
+            .system(size: isCompact ? 28 : 32, weight: .semibold, design: .default)
+        }
     }
 
     public enum Screenplay {

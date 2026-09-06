@@ -135,18 +135,21 @@ final class ElevenLabsTtsClient: CompanionTtsProviding, @unchecked Sendable {
 
     static func redactSecrets(_ value: String) -> String {
         var text = value
-        let patterns = [
-            #"xi-api-key["'\s:=]+[A-Za-z0-9_\-]{8,}"#,
-            #"sk_[A-Za-z0-9_\-]{16,}"#,
-            #"(api[_-]?key["'\s:=]+)([A-Za-z0-9_\-]{20,})"#,
+        // Each pattern carries its own replacement so an `sk_…` token is not
+        // rewritten as an `xi-api-key=` line. `sk_` tokens contain underscores
+        // (`sk_live_…`), so the class must allow them.
+        let patterns: [(pattern: String, template: String)] = [
+            (#"xi-api-key["'\s:=]+[A-Za-z0-9_\-]{8,}"#, "xi-api-key=[redacted]"),
+            (#"sk_[A-Za-z0-9_\-]{12,}"#, "[redacted]"),
+            (#"(api[_-]?key["'\s:=]+)([A-Za-z0-9_\-]{20,})"#, "$1[redacted]"),
         ]
-        for pattern in patterns {
-            if let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) {
+        for entry in patterns {
+            if let regex = try? NSRegularExpression(pattern: entry.pattern, options: [.caseInsensitive]) {
                 text = regex.stringByReplacingMatches(
                     in: text,
                     options: [],
                     range: NSRange(text.startIndex..<text.endIndex, in: text),
-                    withTemplate: "xi-api-key=[redacted]"
+                    withTemplate: entry.template
                 )
             }
         }

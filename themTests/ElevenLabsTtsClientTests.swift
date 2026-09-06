@@ -51,7 +51,7 @@ final class ElevenLabsTtsClientTests: XCTestCase {
         for key in keys {
             XCTAssertEqual(
                 ElevenLabsTtsClient.redactSecrets("provider rejected [\(key)]."),
-                "provider rejected [xi-api-key=[redacted]]."
+                "provider rejected [[redacted]]."
             )
         }
         XCTAssertEqual(ElevenLabsTtsClient.redactSecrets("No voices found."), "No voices found.")
