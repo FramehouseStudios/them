@@ -82,6 +82,8 @@ import {
   shouldSpeakLowConfidenceRepeatPrompt,
 } from "./low_confidence_repeat_streak.js";
 import { shouldTreatAsLowConfidence } from "./low_confidence_gate.js";
+import { isMentorTurn, elevateChatModelPlanForMentorTurn } from "./mentor_turn.js";
+import { resolveCompanionArcsPolicy, applyCompanionArcsPolicy } from "./companion_arcs_policy.js";
 import { composeTalkSystemPrompt } from "./talk_prompt.js";
 import { runTalkGenerate } from "./talk_generate.js";
 
@@ -2784,19 +2786,28 @@ function createTalkHandler(deps) {
       turnPlanner.emotionToMatch,
     );
     const runtimeStatusSnapshot = deriveBackendRuntimeStatus();
-    const chatModelPlan = selectChatModelForTurn({
-      transcript: talkGenerationTranscript,
-      turnPlanner,
-      flags,
-      routingLane,
-      runtimeStatus: runtimeStatusSnapshot,
+    const screenplayContextActive = Boolean(
+      studioMeta?.screenplayProjectId ||
+      studioMeta?.screenplayTarget ||
+      studioMeta?.screenplayPromptSource
+    );
+    const mentorTurn = isMentorTurn({
+      customSystemPrompt,
       screenplayPageWrite: isScreenplayPageWriteTurn,
-      screenplayContextActive: Boolean(
-        studioMeta?.screenplayProjectId ||
-        studioMeta?.screenplayTarget ||
-        studioMeta?.screenplayPromptSource
-      ),
+      screenplayContextActive,
     });
+    const chatModelPlan = elevateChatModelPlanForMentorTurn(
+      selectChatModelForTurn({
+        transcript: talkGenerationTranscript,
+        turnPlanner,
+        flags,
+        routingLane,
+        runtimeStatus: runtimeStatusSnapshot,
+        screenplayPageWrite: isScreenplayPageWriteTurn,
+        screenplayContextActive,
+      }),
+      { mentorTurn },
+    );
     const boundaryEdgeSignal = deriveBoundaryEdgeSignal({
       transcript,
       memory: sessionMemory,
@@ -3276,6 +3287,7 @@ function createTalkHandler(deps) {
     const presetBoundSystem = appendDirectorAddendum(personaBoundSystem, presetGuidance);
     const systemBaseRaw = withOutputContract(presetBoundSystem, {
       screenplayPageWrite: isScreenplayPageWriteTurn,
+      mentorTurn,
     });
     // T08: augment with per-user creative memory when present (no-op for cold users).
     const systemBaseWithMemory = await wrapSystemPromptWithCreativeMemory(systemBaseRaw, req, {
@@ -3866,15 +3878,9 @@ ${directorOutputRule}
     }
 
     // ---- talk_prompt stage: compose system prompt ----
-    const { rawSystem, system } = composeTalkSystemPrompt({
-      systemBase,
-      appendDirectorAddendum,
-      fitSystemPromptForTurnLatency,
-      turnPlanner,
-      flags,
-      routingLane,
-      chatModelPlan,
-      addenda: {
+    const companionArcsPolicy = resolveCompanionArcsPolicy();
+    const companionArcs = applyCompanionArcsPolicy(
+      {
         assistantSelfNameAddendum,
         humanStyleAddendum,
         therapeuticDepthAddendum,
@@ -3896,6 +3902,22 @@ ${directorOutputRule}
         melancholySeedAddendum,
         directorAddendum,
       },
+      companionArcsPolicy,
+    );
+    if (companionArcs.dropped.length) {
+      logger.log(
+        `[${rid}] companion_arcs=off mentor_turn=${mentorTurn ? 1 : 0} dropped=${companionArcs.dropped.join(",")}`
+      );
+    }
+    const { rawSystem, system } = composeTalkSystemPrompt({
+      systemBase,
+      appendDirectorAddendum,
+      fitSystemPromptForTurnLatency,
+      turnPlanner,
+      flags,
+      routingLane,
+      chatModelPlan,
+      addenda: companionArcs.addenda,
     });
     if (process.env.NODE_ENV !== "production" && rawSystem.length !== system.length) {
       logger.log(
@@ -3936,7 +3958,7 @@ ${directorOutputRule}
 
     try {
       logger.log(
-      `[${rid}] chat_system=${customSystemPrompt ? "client" : "default"} chars=${system.length} ` +
+      `[${rid}] chat_system=${customSystemPrompt ? "client" : "default"} mentor_turn=${mentorTurn ? 1 : 0} chars=${system.length} ` +
         `preset=${activePreset} ` +
         `self_name=${assistantSelfName} ` +
         `chat_tokens=${chatMaxTokens} ` +
