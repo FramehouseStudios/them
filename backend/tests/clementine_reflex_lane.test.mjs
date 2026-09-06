@@ -246,3 +246,28 @@ test("[reflex] sendReflexReply shape has no TPM fields", () => {
   assert.equal("tpm" in payload, false);
   assert.equal("tokens" in payload, false);
 });
+
+test("[reflex] a greeting that opens a fresh conversation goes to the model so the scene pitch can fire", () => {
+  const laneInfo = laneForIntent(INTENT.GREETING);
+  for (const text of ["hello", "hi clementine", "hey there", "how are you"]) {
+    assert.equal(tryTalkEdgeReflex({ text, laneInfo, freshConversation: true }), null, text);
+    const later = tryTalkEdgeReflex({ text, laneInfo, freshConversation: false });
+    assert.equal(later?.handled, true, `${text} still uses Reflex once the conversation has history`);
+  }
+  // Non-greeting templates are unaffected by freshness.
+  const thanks = tryTalkEdgeReflex({ text: "thanks", laneInfo: laneForIntent(INTENT.UNKNOWN), freshConversation: true });
+  assert.equal(thanks?.handled, true);
+});
+
+test("[reflex] conversation freshness comes from the explicit index, else from the client prompt", async () => {
+  const { peekConversationFreshness, RECENT_CONVERSATION_MARKER } = await import("../lib/clementine/talk_edge_adapter.js");
+  assert.equal(peekConversationFreshness({ body: { conversation_turn_index: "0" } }), true);
+  assert.equal(peekConversationFreshness({ body: { conversation_turn_index: 0 } }), true);
+  assert.equal(peekConversationFreshness({ body: { conversation_turn_index: "3" } }), false);
+  assert.equal(peekConversationFreshness({ body: { system_prompt: "You are io.them.\nSCENE PITCH (standing collaborator rule):\n- This is the first exchange of the session." } }), true);
+  assert.equal(peekConversationFreshness({ body: { system_prompt: `You are io.them.\n${RECENT_CONVERSATION_MARKER}last 2 turns - use for continuity):\nUSER: hi` } }), false);
+  assert.equal(peekConversationFreshness({ body: { system_prompt: "  " } }), false, "no prompt, no evidence → keep Reflex");
+  assert.equal(peekConversationFreshness({ body: {} }), false);
+  assert.equal(peekConversationFreshness(null), false);
+  assert.equal(peekConversationFreshness({ body: { conversation_turn_index: "abc", system_prompt: "fresh prompt" } }), true, "junk index falls back to the prompt");
+});

@@ -35,11 +35,36 @@ function isReflexEligibleLane(laneName) {
  * Try Reflex short-circuit at the talk edge.
  * @returns {null | { handled: true, text: string, lane: 'reflex', templateId: string, confidence: number }}
  */
+/**
+ * Is this the first exchange of a conversation? The client may say so with
+ * `conversation_turn_index` (0 = nothing before this turn). Older clients do
+ * not send it, but they do send their assembled `system_prompt`, which carries
+ * a RECENT CONVERSATION block only once there is history — so a non-empty
+ * prompt without that block is a fresh conversation. Unknown → false.
+ */
+const RECENT_CONVERSATION_MARKER = "RECENT CONVERSATION (";
+const FRESH_SKIPPED_TEMPLATES = /^(greeting|check_in)/;
+
+function peekConversationFreshness(req) {
+  const body = req?.body && typeof req.body === "object" ? req.body : {};
+  const explicit = body.conversation_turn_index ?? body.conversationTurnIndex;
+  if (explicit !== undefined && explicit !== null && String(explicit).trim() !== "") {
+    const index = Number.parseInt(String(explicit).trim(), 10);
+    if (Number.isFinite(index)) return index <= 0;
+  }
+  const systemPrompt = typeof body.system_prompt === "string"
+    ? body.system_prompt
+    : (typeof body.systemPrompt === "string" ? body.systemPrompt : "");
+  if (!systemPrompt.trim()) return false;
+  return !systemPrompt.includes(RECENT_CONVERSATION_MARKER);
+}
+
 function tryTalkEdgeReflex({
   text,
   laneInfo,
   knownFacts = [],
   voiceSpecHints = {},
+  freshConversation = false,
 } = {}) {
   if (!isReflexEligibleLane(laneInfo?.lane)) {
     return null;
@@ -50,6 +75,12 @@ function tryTalkEdgeReflex({
   }
   const result = tryReflexReply({ text, knownFacts, voiceSpecHints });
   if (!result?.handled) return null;
+  // A greeting that opens a conversation is the persona's cue to pitch a
+  // scene (HerVoiceSpec SCENE PITCH). A canned template would swallow it, so
+  // the first "hello" goes to the model; later greetings stay on Reflex.
+  if (freshConversation && FRESH_SKIPPED_TEMPLATES.test(String(result.templateId || ""))) {
+    return null;
+  }
   return result;
 }
 
@@ -85,6 +116,8 @@ function sendReflexReply(res, { reflex, laneInfo }) {
 }
 
 export {
+  peekConversationFreshness,
+  RECENT_CONVERSATION_MARKER,
   peekKnownFacts,
   peekVoiceSpecHints,
   isReflexEligibleLane,
