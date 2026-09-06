@@ -1,6 +1,6 @@
 # Claude Inbox
 
-Codex-owned handoff, refreshed at **2026-09-05 23:19 UTC / 16:19 PDT** from
+Codex-owned handoff, refreshed **2026-09-06 18:13 UTC / 11:13 PDT**, from
 GitHub and local test artifacts. This supersedes #426's launch queue. Read
 `AGENTS.md`, current `TASKS.md`, `DECISIONS.md`, and `docs/coordination.json`.
 Historical assistant lanes are not authority to start competing work.
@@ -16,9 +16,12 @@ node scripts/coordination_state.mjs read
 
 VERIFIED: [#445](https://github.com/FramehouseStudios/them/pull/445) is **open**,
 not uncommitted. Its base is main `9c74759e8028acfe48b44add55fdf6f6fa75857d`;
-reviewed head is `d5763d4a55f4859cc8923bd368396851cf7eb5be`. The integration
-commit is `35557b7`. The checkout also contains later, uncommitted feature work:
-do not stage, overwrite, or represent it as part of this verified PR head.
+latest completed hosted run reviewed head `47ed3dc9f5ad4b00a6e452aeda7bd6da1257afb4`
+via merge tree `425b9559ef5d19fe95533e14485b6d514f67d643`. The original integration
+commit is `35557b7`. Pages follow-up work uses the isolated checkout
+`/private/tmp/io-them-pages-navigation.7ytHgn`; the shared integration checkout
+still contains unrelated, uncommitted feature work. Do not stage or overwrite
+that work, or represent it as part of the verified PR.
 
 **Hold #445 until the required Quality Gate is green on main itself and on the
 current PR revision.** Human push/deploy permission does not waive that hold.
@@ -27,12 +30,22 @@ current PR revision.** Human push/deploy permission does not waive that hold.
 | --- | --- |
 | [Main run 33980301593](https://github.com/FramehouseStudios/them/actions/runs/33980301593), `9c74759` | Failed required writer loop: “Save now did not deliver exactly one UI action.” Backend passed. Main is not green. |
 | [#445 run 33988950331](https://github.com/FramehouseStudios/them/actions/runs/33988950331), `d5763d4` | Backend, signed iOS units, native Mac exports and required writer loop passed. Required broader V1 suite failed Pages Previous → page 2 current-page assertion; 56 tests, 9 skipped, 1 failed. |
+| [#445 run 33998728292](https://github.com/FramehouseStudios/them/actions/runs/33998728292), `47ed3dc` | Backend, full signed iOS units and Mac exports passed. Required writer loop failed at the first native Files Cancel query with an XCTest snapshot timeout (V1SmokeUITests.swift:534); broader V1 and voice smokes were skipped. Save-now checks preceded the failure without reported failure. This run does not clear export or Pages. |
 | [Direct diagnostic 33994330170](https://github.com/FramehouseStudios/them/actions/runs/33994330170), `4620164` | Stopped at Required Secrets (`APP_TOKEN` missing), before iOS. No causal isolation result. |
 | [#446 probe 33994535280](https://github.com/FramehouseStudios/them/actions/runs/33994535280), `2740e48` | Required writer loop passed, but checkout was PR merge `e804be9` onto current main, not the pre-#437 tree. Print code compiled; soft V1 and voice smokes failed despite overall green. Not main-branch clearance. |
 
 The probe is diagnostic-only and **must not be merged**. A green merge-ref
-probe does not prove or disprove #437 caused a failure. Do not repair a red
+probe does not prove or disprove #437 caused a failure. The latest #445 Files
+failure also does not establish a print regression. Do not repair a red
 gate by suppressing the assertion or changing required jobs to optional.
+
+VERIFIED LOCALLY: follow-up implementation commit `1fe8a80` fixes the Pages
+cursor/geometry path, isolates stale pagination responses, pins simulator names
+to one booted UDID, and handles both native Files starting locations without
+weakening Save Now, draft-integrity, native-save, server-version, or relaunch
+assertions. The signed 375-point Pages test and complete writer-loop contract
+pass. iPhone Release preflight and the Mac scaffold build also pass. This is not
+hosted or merge clearance until the current #445 revision and main are green.
 
 ## Eleven-PR audit and single implementation lanes
 
@@ -100,15 +113,15 @@ back the delivered file bytes. These are distinct results, not beta signoff.
 
 ## Next actions, without duplicate work
 
-1. Codex: diagnose and fix Pages Previous, including actual visible target
-   geometry; preserve the current-page assertion and repeat signed narrow-phone
-   verification.
+1. Codex: publish the verified `1fe8a80` follow-up and require the complete
+   hosted #445 checks; preserve the retained local xcresults as diagnostic
+   evidence, not as a substitute for hosted proof.
 2. Codex/supervisor: repair and verify main's required gate; the existing
    diagnostic did not isolate a pre-print revision. Do not launch another
    supposedly pinned probe that checks out a PR merge ref.
-3. Codex: reconcile local native-export presentation, eliminate clipboard-test
-   permission stalls, and verify delivered export bytes before declaring the
-   full export story dependable.
+3. Codex: add delivered-file byte readback as a separate export-hardening gate.
+   Native Files cancel/save, draft integrity, server persistence, and relaunch
+   restore are now locally green; do not regress them while adding readback.
 4. Supervisor: consolidate #443/#444, close or rescope #440 as planned; no new
    competing pills/ghost PRs. Parked features retain their recorded test gates.
 5. Human: obtain App Store Server API credentials and enter them securely in

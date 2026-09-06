@@ -1,4 +1,4 @@
-# TASKS.md — io.them Active Work
+# TASKS.md — THEM Active Work
 
 > **Rule:** Every task has one owner, one branch, one scope, and one definition of done. Every task must serve at least one north-star pillar — **mobile-first**, **voice→scene**, **living companion**, **longitudinal learning**. See `AGENTS.md`.
 
@@ -26,8 +26,21 @@
 - **Merge hold (September 5):** required Quality Gate must be green on main
   itself and the current #445 revision before merge. At the latest audit,
   main `9c74759` failed Save now; #445 `d5763d4` passed the required writer loop
-  but failed Pages Previous in its broader required V1 suite. Diagnostic #446
+  but failed Pages Previous in its broader required V1 suite. The later #445
+  `47ed3dc` run passed backend/units/Mac but failed native Files snapshot
+  evaluation in the required writer loop; V1 and voice were skipped. Diagnostic #446
   tested a PR merge tree, not an isolated pre-#437 tree, and does not clear main.
+- **Local follow-up evidence (September 6):** implementation commit `1fe8a80`
+  passes the signed 375-point Pages workflow, the complete temporary-backend
+  writer loop (including native Files cancel/save and relaunch restore), iPhone
+  Release preflight, and the macOS scaffold build. This is local evidence only
+  until the current #445 revision completes its hosted required checks.
+- **Release inputs (September 6):** the ignored local release configuration and
+  GitHub Actions secrets now contain validated `DEVELOPMENT_TEAM_ID`,
+  `APP_TOKEN_RELEASE`, and `OPENAI_API_KEY` values. No value is committed.
+  Render's live `APP_TOKEN` has not been rotated to the new app token, and the
+  three App Store Server API credentials remain unavailable, so production
+  promotion stays fail-closed.
 - **Product bar (human reaffirmed September 5):** care deeply about making
   something wonderful that we and our friends would want to use. Codex owns
   product/engineering polish decisions against that standard; protect the
@@ -61,6 +74,7 @@
 |------|----------------------------------------------------|--------|-------------------|
 | T01  | Triage 409-file uncommitted snapshot               | human  | ready             |
 | T04  | Apply canonical product name `io.them` end-to-end  | codex  | merged            |
+| T-brand-them | Rename the visible product and app to `THEM` | codex | review |
 | T05  | Add `first_page_written` client telemetry event    | codex  | merged            |
 | T07  | Promote backend persistence to Postgres canonical  | support | merged            |
 | T07a | Wire `outbox_store` diagnostic snapshots           | support | merged            |

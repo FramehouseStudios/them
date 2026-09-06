@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-05T23:19:35Z",
+  "updatedAt": "2026-09-06T18:13:04Z",
   "updatedBy": "codex",
   "openPullRequests": [
     {
@@ -1983,10 +1983,10 @@
       "tier": 3,
       "status": "blocked",
       "branch": "codex/T-writer-beta-integration",
-      "blocker": "OPEN, not uncommitted. Main's required Quality Gate is red; #445 also failed its required broader V1 suite at Pages Previous → page 2. Do not merge until main itself and the current PR revision have green required checks.",
+      "blocker": "OPEN, not uncommitted. Main's required Quality Gate is red. Latest hosted #445 head 47ed3dc failed the required writer loop at native Files Cancel snapshot evaluation, so V1 and voice were skipped. Local follow-up 1fe8a80 is green but is not hosted clearance. Do not merge until main itself and the current PR revision have green required checks.",
       "blocker_kind": "needs_test_fix",
-      "reviewer_note": "Verified base main 9c74759e8028acfe48b44add55fdf6f6fa75857d, head d5763d4a55f4859cc8923bd368396851cf7eb5be. Run 33988950331 passed signed units, Mac exports and required writer loop, but Quality Gate failed. Docker and fresh-Postgres migrations checks passed. Eleven-PR dispositions live in docs/claude-pr-audit-2026-09-05.md.",
-      "expected_action": "Fix the current Pages interaction without weakening assertions; independently repair and verify main's required gate. Recheck exact head/base and every required check before any merge. Preserve unrelated uncommitted work; production deployment remains credential-gated."
+      "reviewer_note": "Verified base main 9c74759e8028acfe48b44add55fdf6f6fa75857d. Hosted run 33998728292 tested head 47ed3dc9f5ad4b00a6e452aeda7bd6da1257afb4 and failed at the native Files Cancel query. Local follow-up 1fe8a80 passes the signed 375-point Pages flow, complete writer-loop contract with native Files cancel/save, iPhone Release preflight and Mac scaffold. Eleven-PR dispositions remain in docs/claude-pr-audit-2026-09-05.md; local proof does not waive hosted gates.",
+      "expected_action": "Publish the verified isolated follow-up while preserving shared feature work, then require every hosted #445 check. Add delivered-file byte readback separately without weakening the now-green native Files, draft-integrity, persistence, and relaunch assertions. Independently repair and verify main's required gate. Production remains credential-gated."
     },
     {
       "number": 446,
@@ -2005,19 +2005,19 @@
     {
       "id": "v1-release-preflight-config",
       "owner": "human",
-      "summary": "Release preflight fails until signing/configuration values in docs/v1-release-preflight-proof.md are cleared.",
+      "summary": "Ignored local release configuration and GitHub Actions secrets now contain validated DEVELOPMENT_TEAM_ID, APP_TOKEN_RELEASE and OPENAI_API_KEY values; the iPhone Release preflight is green and no values are committed. Distribution archive/signing identity and physical-device TestFlight acceptance remain unproven, and Render's live APP_TOKEN has not been rotated to the new app token.",
       "since": "2026-05-15"
     },
     {
       "id": "render-app-store-secrets",
       "owner": "human",
-      "summary": "#424 is merged. Authenticated Render inspection found APP_STORE_ISSUER_ID, APP_STORE_KEY_ID and APP_STORE_PRIVATE_KEY missing; the human says they do not have them yet. APP_STORE_BUNDLE_ID and APP_STORE_ENVIRONMENT keys exist but values were not revealed/validated. Live remains a5ea13fa; c2b80225 failed after successful pre-deploy migrations. Leave production unchanged and keep purchase verification fail-closed.",
+      "summary": "#424 is merged. Authenticated Render inspection found APP_STORE_ISSUER_ID, APP_STORE_KEY_ID and APP_STORE_PRIVATE_KEY missing; the human says they do not have them yet. APP_STORE_BUNDLE_ID and APP_STORE_ENVIRONMENT keys exist but values were not revealed/validated. The new local/GitHub APP_TOKEN_RELEASE is intentionally not promoted to Render while deployment is blocked. Leave production unchanged and keep purchase verification fail-closed.",
       "since": "2026-09-05"
     },
     {
       "id": "writer-beta-required-quality-gate",
       "owner": "codex",
-      "summary": "Hold #445 until the required Quality Gate is green on main itself and on the current PR revision. Main 9c74759 run 33980301593 failed Save now's exactly-one action; #445 d5763d4 run 33988950331 passed writer loop but failed Pages Previous in required V1 smokes. Diagnostic #446's green merge-ref run is not a main-branch pass or a pre-#437 isolation proof.",
+      "summary": "Hold #445 until required Quality Gate is green on main itself and the current PR revision. Main 9c74759 run 33980301593 failed Save now; hosted #445 head 47ed3dc timed out on the native Files Cancel query. Local follow-up 1fe8a80 now passes the signed Pages and complete writer-loop contracts, but local proof and #446's merge-ref probe are not main or hosted PR clearance.",
       "since": "2026-09-05"
     },
     {
