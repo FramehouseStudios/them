@@ -66,6 +66,28 @@ async function postJson(baseURL, path, payload, headers = {}) {
   return { status: r.status, body };
 }
 
+test("[prompt-routes] a momentum-rescue build with no character-arc memory returns 200 instead of crashing the process", async () => {
+  // 2026-09-06 live session: this request threw `Cannot read properties of
+  // undefined (reading 'split')` inside buildWriterBlockMemoryBlock and, being
+  // an async route, took the whole backend down.
+  await withTestServer(async ({ baseURL }) => {
+    const response = await postJson(baseURL, "/screenplay/prompt/build", {
+        persona: "You are Clementine, a cinematic story editor.",
+        screenplay_task_hint: "I'm stuck, help me find the next beat.",
+        session_context: {
+          project_id: "momentum-no-arcs",
+          project_title: "Hole In The Closet",
+          act: "Act III",
+          draft_excerpt: "INT. KITCHEN - NIGHT\n\nJUNE waits by the sink.",
+        },
+    });
+    assert.equal(response.status, 200, JSON.stringify(response.body));
+    const prompt = String(response.body?.prompt || "");
+    assert.match(prompt, /<writer_block_memory>/, "the writer-block memory block is still assembled");
+    assert.match(prompt, /the protagonist/, "falls back to a neutral character when no arc is known");
+  });
+});
+
 test("POST /screenplay/prompt/build assembles persona, memory, session, user input, and craft block", async () => {
   await withTestServer(
     async ({ baseURL, requestedMemoryUserId, requestedMemoryArgs }) => {

@@ -67,6 +67,8 @@ import {
   runOutboxWorkerTick,
   waitForOutboxWorkerIdle,
 } from "./lib/outbox_store.js";
+import "./lib/process_guards.install.js";
+import { splitScreenplayLines, buildDraftExcerpt } from "./lib/draft_text.js";
 import { createPersonaRuntime } from "./lib/persona.js";
 import { applyClementineVoiceDirection } from "./lib/clementine_voice_director.js";
 import {
@@ -9658,19 +9660,6 @@ function normalizeScreenplayStringList(items, maxItems = 16, maxChars = 48) {
     if (out.length >= maxItems) break;
   }
   return out;
-}
-
-function splitScreenplayLines(draft) {
-  const normalized = String(draft || "").replace(/\r\n/g, "\n");
-  if (!normalized) return [];
-  return normalized.split("\n");
-}
-
-function buildDraftExcerpt(draft, maxChars = 220) {
-  return String(draft || "")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, Math.max(32, maxChars));
 }
 
 function normalizeScreenplayMultilineSnippet(value, maxChars = 2400) {

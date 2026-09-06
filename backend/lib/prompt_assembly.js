@@ -1897,7 +1897,7 @@ function buildWriterBlockMemoryBlock(sessionContext, screenplayTask, creativeMem
 
   const asClause = (value, fallback = "") =>
     (trimContextLine(value, 320) || fallback).replace(/[.!?]+$/g, "").trim();
-  const mainCharacter = characterFocus[0] || trimContextLine((characterArcState || characterArcTurns[0]).split(":")[0], 80) || "the protagonist";
+  const mainCharacter = characterFocus[0] || trimContextLine(String(characterArcState || characterArcTurns[0] || "").split(":")[0], 80) || "the protagonist";
   const primaryPressure = asClause(
     dueSetup ||
       duePayoff ||
