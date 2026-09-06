@@ -67,7 +67,7 @@ struct ScreenplayStudioScreen: View {
         self.shouldRoutePromptToPage = shouldRoutePromptToPage
     }
 
-    @StateObject private var vm = ScreenplayStudioViewModel()
+    @StateObject var vm = ScreenplayStudioViewModel()
     @StateObject private var creativeInstincts = StudioCreativeInstinctsModel()
     @AppStorage("studio_debug_overlay_enabled") private var studioDebugOverlayEnabled = false
     @State private var navigatorRootURL: URL?
@@ -545,6 +545,7 @@ Replace is best when this file should become the script you edit. Append is safe
             .sheet(isPresented: $showingFullStudioThread) {
                 fullStudioThreadSheet
             }
+            .sheet(isPresented: $vm.isPagesOverviewPresented) { screenplayPagesOverviewSheet }
             .background(studioFocusShortcutLayer)
     }
 
@@ -8758,6 +8759,7 @@ Current draft version:
                 Spacer(minLength: 0)
 
                 HStack(spacing: 8) {
+                    screenplayPagesOverviewChip
                     if vm.selectedProject == nil {
                         screenplayPageActionChipButton(
                             title: "Create Project",
@@ -17300,11 +17302,6 @@ Look at the city.
             options: .regularExpression
         )
         return collapsed.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private func jumpToPaginationPage(_ page: BackendScreenplayPaginationPage) {
-        liveDraftBridge.jumpToLine(page.startLine)
-        liveDraftBridge.highlightLineRange(startLine: page.startLine, endLine: page.endLine)
     }
 
     @MainActor
