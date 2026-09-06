@@ -252,6 +252,147 @@ import {
   buildTalkScreenplayRepairDirectives,
   buildTherapeuticDepthAddendum,
 } from "./lib/builders.js";
+import {
+  normalizeAssistantSelfName,
+  normalizeKnowledgeCard,
+  normalizeScreenplayMemoryCharacterCue,
+  normalizeStoredCreativeProactiveSuggestion,
+  normalizeStoredScreenplayBinding,
+  normalizeStoredScreenplayBindings,
+  normalizeStoredScreenplayDiffAcknowledgedEntries,
+  normalizeStoredScreenplayDiffAcknowledgedKeys,
+  normalizeStoredScreenplayDiffAcknowledgementState,
+  normalizeStoredScreenplayStudioAskNoteExchange,
+  normalizeStoredScreenplayStudioAskNoteHistory,
+  normalizeStoredScreenplayVersion,
+  normalizeStoredScreenplayWriteAnchors,
+  normalizeStoryObligationLedgerForApi,
+  normalizeUserPersonName,
+  normalizeVisualContextImageDataUrl,
+} from "./lib/normalizers_bounded.js";
+import {
+  sanitizeAdaptiveBias,
+  sanitizeAdaptiveHistoryItems,
+  sanitizeAdaptiveQualityTags,
+  sanitizeRememberedPeople,
+  sanitizeSocialSparkMoments,
+  sanitizeTalkDialogueTimeline,
+  sanitizeTaskItems,
+} from "./lib/sanitizers_bounded.js";
+import {
+  deriveAdaptiveBiasTargetsFromTags,
+  deriveCycleEvolutionProfile,
+  deriveCycleIndexUiReflection,
+  deriveDynamicTailBoostMs,
+  deriveGrowthLevel,
+  deriveHiddenDepthModeState,
+  deriveOverAttachmentSafeguardState,
+} from "./lib/derivers_bounded.js";
+import {
+  computeReflectiveAnswerScore,
+  computeRelationshipDepthTarget,
+  computeReturnConsistencyScore,
+  computeSeasonProgressStep,
+} from "./lib/computations_bounded.js";
+import {
+  parseAdaptiveEvalJson,
+  parseTalkScreenplayCharacterArcMemoryItems,
+  parseTalkScreenplayCharacterVoiceMemoryItems,
+} from "./lib/parsers_bounded.js";
+import {
+  extractAnchorTerms,
+  extractAssistantRenameIntent,
+  extractNoteCaptureIntent,
+  extractUserIdentityIntent,
+} from "./lib/extractors_bounded.js";
+import {
+  isLocalActionDuplicate,
+  isSpeculativePrepareRequest,
+  isTalkCharacterCueLine,
+  isTalkUppercaseCueCandidate,
+} from "./lib/predicates_bounded.js";
+import {
+  buildCycleConsciousMemoryAddendum,
+  buildCycleEvolutionAddendum,
+  buildHiddenDepthModeAddendum,
+  buildKnowledgeContextLines,
+  buildNoteCaptureReply,
+  buildTalkPersistentFeatureMemoryBrief,
+  buildTalkTestDebugOfflineReply,
+  buildTaskActionReply,
+  buildTextContainsMatcher,
+} from "./lib/builders_bounded.js";
+import {
+  CYCLE_MEMORY_MIN_REL_DEPTH,
+  KNOWLEDGE_RAG_CONTEXT_MAX_CHARS,
+  TEXT_CONTAINS_MATCHER_CACHE,
+} from "./lib/limits.js";
+import {
+  LOCAL_ACTION_DEDUPE_WINDOW_MS,
+  TALK_SPECULATIVE_ENABLED,
+} from "./lib/limits.js";
+import {
+  NOTE_CAPTURE_TRIGGERS,
+  RESPONSE_FOCUS_STOPWORDS,
+} from "./lib/limits.js";
+import {
+  LISTENING_FACT_MAX_MEMORY,
+  RELATIONSHIP_DEPTH_DAY_STEP,
+  RELATIONSHIP_DEPTH_TURN_STEP,
+  REL_DEPTH_DEEP_ELABORATION_WORDS,
+  SEASON_BASELINE_MATURITY_START,
+  SEASON_PROGRESS_BASE_GROWTH,
+  SEASON_PROGRESS_BASE_SURFACE,
+  SEASON_PROGRESS_BASE_TRANSCENDENCE,
+  SEASON_PROGRESS_MAX_STEP,
+  SEASON_PROGRESS_MIN_STEP,
+  SURFACE_MODE_DEPTH_CAP,
+} from "./lib/limits.js";
+import {
+  CYCLE_EVOLUTION_ABSTRACTION_GAIN_PER_CYCLE,
+  CYCLE_EVOLUTION_CALM_GAIN_PER_CYCLE,
+  CYCLE_EVOLUTION_FLIRT_DECAY_PER_CYCLE,
+  CYCLE_EVOLUTION_MAX_CYCLES,
+  CYCLE_EVOLUTION_PHILOSOPHY_GAIN_PER_CYCLE,
+  CYCLE_EVOLUTION_VALIDATION_DECAY_PER_CYCLE,
+  CYCLE_UI_REACTIVITY_REDUCTION_MAX,
+  CYCLE_UI_SATURATION_REDUCTION_MAX,
+  CYCLE_UI_SMOOTHING_BASE,
+  CYCLE_UI_SMOOTHING_GAIN_MAX,
+  CYCLE_UI_VOICE_SLOWDOWN_MAX,
+  HIDDEN_DEPTH_MODES,
+  HIDDEN_MODE_TRANSCENDENCE_ACTIVE_DAYS,
+  HIDDEN_MODE_TRANSCENDENCE_BEHAVIOR_DEPTH,
+  HIDDEN_MODE_TRANSCENDENCE_CONVERSATIONS,
+  HIDDEN_MODE_TRANSCENDENCE_REL_DEPTH,
+  OVER_ATTACHMENT_AUTONOMY_SCALE_WHEN_ACTIVE,
+  OVER_ATTACHMENT_BEHAVIOR_DEPTH_THRESHOLD,
+  OVER_ATTACHMENT_DEP_SIGNAL_MIN_COUNT,
+  OVER_ATTACHMENT_HIGH_BEHAVIOR_7D_MIN,
+  OVER_ATTACHMENT_HIGH_BEHAVIOR_STREAK_MIN,
+  OVER_ATTACHMENT_REL_DEPTH_THRESHOLD,
+  OVER_ATTACHMENT_VALIDATION_SCALE_WHEN_ACTIVE,
+  RELATIONSHIP_DEPTH_MAX,
+  TTS_SPEED,
+  TURN_END_GUARD_DYNAMIC_NOISE_ENABLED,
+  TURN_END_GUARD_DYNAMIC_TAIL_BOOST_MAX_MS,
+  TURN_END_GUARD_VAD_BASE_RMS,
+} from "./lib/limits.js";
+import {
+  ADAPTIVE_BIAS_LIMIT,
+  ADAPTIVE_HISTORY_MAX,
+  ADAPTIVE_QUALITY_TAGS,
+  SOCIAL_SPARK_MEMORY_MAX,
+  TASKS_MAX_STORED,
+  USER_MEMORY_REMEMBERED_PEOPLE_MAX,
+} from "./lib/limits.js";
+import {
+  ASSISTANT_SELF_NAME_MAX_CHARS,
+  KNOWLEDGE_RAG_CARD_BODY_MAX_CHARS,
+  SCREENPLAY_MEMORY_GENERIC_CUES,
+  USER_PRIMARY_NAME_MAX_CHARS,
+  VISUAL_CONTEXT_IMAGE_DATA_URL_MAX_CHARS,
+} from "./lib/limits.js";
 import { mountOpsRoutesListRoute } from "./lib/ops_routes_list_route.js";
 import { mountOpsMetricsRoute } from "./lib/ops_metrics_route.js";
 import { mountOpsAlertsRoute } from "./lib/ops_alerts_route.js";
@@ -481,9 +622,6 @@ const TALK_IDEMPOTENCY_MAX_ENTRIES = parsePositiveInt(
   process.env.TALK_IDEMPOTENCY_MAX_ENTRIES,
   160
 );
-const TALK_SPECULATIVE_ENABLED = process.env.TALK_SPECULATIVE_ENABLED == null
-  ? true
-  : parseBool(process.env.TALK_SPECULATIVE_ENABLED);
 const TALK_SPECULATIVE_TTL_MS = parsePositiveInt(
   process.env.TALK_SPECULATIVE_TTL_MS,
   20_000
@@ -663,11 +801,6 @@ const VISUAL_CONTEXT_SUMMARY_MAX_CHARS = parsePositiveInt(
   process.env.VISUAL_CONTEXT_SUMMARY_MAX_CHARS,
   900
 );
-const VISUAL_CONTEXT_IMAGE_DATA_URL_MAX_CHARS = parsePositiveInt(
-  process.env.VISUAL_CONTEXT_IMAGE_DATA_URL_MAX_CHARS,
-  1_600_000
-);
-const TTS_SPEED = parseNumberInRange(process.env.TTS_SPEED, 0.25, 4, 1.26);
 const STT_LANGUAGE = String(process.env.STT_LANGUAGE || "en").trim().toLowerCase();
 const CLEMENTINE_ROMANTIC_DEPTH_BASELINE = parseNumberInRange(
   process.env.CLEMENTINE_ROMANTIC_DEPTH_BASELINE,
@@ -703,11 +836,6 @@ const LOCAL_ACTION_MIN_STT_CONFIDENCE = parseNumberInRange(
   1,
   0.42
 );
-const LOCAL_ACTION_DEDUPE_WINDOW_MS = parsePositiveInt(
-  process.env.LOCAL_ACTION_DEDUPE_WINDOW_MS,
-  45_000
-);
-const TASKS_MAX_STORED = parsePositiveInt(process.env.TASKS_MAX_STORED, 240);
 const TASKS_LIST_DEFAULT_LIMIT = parsePositiveInt(process.env.TASKS_LIST_DEFAULT_LIMIT, 80);
 const DAILY_RECAP_HOUR_LOCAL = parsePositiveInt(process.env.DAILY_RECAP_HOUR_LOCAL, 9);
 const ENDING_QUESTION_RATE = parseNumberInRange(process.env.ENDING_QUESTION_RATE, 0, 1, 0.10);
@@ -738,16 +866,6 @@ const ADAPTIVE_BIAS_ALPHA = parseNumberInRange(
   0.02,
   0.60,
   0.12
-);
-const ADAPTIVE_BIAS_LIMIT = parseNumberInRange(
-  process.env.ADAPTIVE_BIAS_LIMIT,
-  0.05,
-  0.50,
-  0.25
-);
-const ADAPTIVE_HISTORY_MAX = Math.max(
-  8,
-  parsePositiveInt(process.env.ADAPTIVE_HISTORY_MAX, 24)
 );
 const USER_SPECIFICITY_EMA_ALPHA = parseNumberInRange(
   process.env.USER_SPECIFICITY_EMA_ALPHA,
@@ -795,22 +913,6 @@ const KPI_TARGET_MIN_AVG_TURN_QUALITY_7D = parseNumberInRange(
   1,
   0.66
 );
-const ADAPTIVE_QUALITY_TAGS = new Set([
-  "too_generic",
-  "too_long",
-  "too_short",
-  "missed_intent",
-  "low_empathy",
-  "question_stack",
-  "over_advice",
-  "under_specific",
-  "incomplete_reply",
-  "strong_clarity",
-  "good_question",
-  "great_reflection",
-  "strong_empathy",
-  "memory_continuity",
-]);
 const TURN_END_GUARD_ENABLED = process.env.TURN_END_GUARD_ENABLED == null
   ? true
   : parseBool(process.env.TURN_END_GUARD_ENABLED);
@@ -841,15 +943,6 @@ const TURN_END_GUARD_LONG_STORY_TAIL_SILENCE_MS = parsePositiveInt(
   process.env.TURN_END_GUARD_LONG_STORY_TAIL_SILENCE_MS,
   1250
 );
-const TURN_END_GUARD_DYNAMIC_NOISE_ENABLED = process.env.TURN_END_GUARD_DYNAMIC_NOISE_ENABLED == null
-  ? true
-  : parseBool(process.env.TURN_END_GUARD_DYNAMIC_NOISE_ENABLED);
-const TURN_END_GUARD_VAD_BASE_RMS = parseNumberInRange(
-  process.env.TURN_END_GUARD_VAD_BASE_RMS,
-  0.002,
-  0.08,
-  0.012
-);
 const TURN_END_GUARD_VAD_MIN_RMS = parseNumberInRange(
   process.env.TURN_END_GUARD_VAD_MIN_RMS,
   0.001,
@@ -867,10 +960,6 @@ const TURN_END_GUARD_NOISE_MULTIPLIER = parseNumberInRange(
   1.2,
   6.0,
   2.5
-);
-const TURN_END_GUARD_DYNAMIC_TAIL_BOOST_MAX_MS = parsePositiveInt(
-  process.env.TURN_END_GUARD_DYNAMIC_TAIL_BOOST_MAX_MS,
-  350
 );
 const BARGE_IN_ENABLED = process.env.BARGE_IN_ENABLED == null
   ? true
@@ -977,14 +1066,6 @@ const KNOWLEDGE_RAG_EMBEDDING_CACHE_FILE = resolveStorePath(
   "knowledge_embeddings_cache.json",
   process.env.KNOWLEDGE_RAG_EMBEDDING_CACHE_FILE
 );
-const KNOWLEDGE_RAG_CONTEXT_MAX_CHARS = parsePositiveInt(
-  process.env.KNOWLEDGE_RAG_CONTEXT_MAX_CHARS,
-  2400
-);
-const KNOWLEDGE_RAG_CARD_BODY_MAX_CHARS = parsePositiveInt(
-  process.env.KNOWLEDGE_RAG_CARD_BODY_MAX_CHARS,
-  420
-);
 const KNOWLEDGE_RAG_WARMUP_ON_BOOT = process.env.KNOWLEDGE_RAG_WARMUP_ON_BOOT == null
   ? true
   : parseBool(process.env.KNOWLEDGE_RAG_WARMUP_ON_BOOT);
@@ -1012,7 +1093,6 @@ const REPLY_COMPLETENESS_MIN_WORDS = parsePositiveInt(
   7
 );
 const LISTENING_FACT_MAX_PER_TURN = parsePositiveInt(process.env.LISTENING_FACT_MAX_PER_TURN, 4);
-const LISTENING_FACT_MAX_MEMORY = parsePositiveInt(process.env.LISTENING_FACT_MAX_MEMORY, 10);
 const SHORT_TERM_CONTEXT_TURNS = Math.max(
   6,
   Math.min(8, parsePositiveInt(process.env.SHORT_TERM_CONTEXT_TURNS, 8))
@@ -1249,24 +1329,11 @@ const WEEKLY_EXPANSION_EXISTENTIAL_TURNS = Math.max(
   WEEKLY_EXPANSION_SELF_AWARENESS_TURNS + 8,
   parsePositiveInt(process.env.WEEKLY_EXPANSION_EXISTENTIAL_TURNS, 44)
 );
-const RELATIONSHIP_DEPTH_MAX = parsePositiveInt(process.env.RELATIONSHIP_DEPTH_MAX, 160);
 const RELATIONSHIP_DEPTH_ALPHA = parseNumberInRange(
   process.env.RELATIONSHIP_DEPTH_ALPHA,
   0.005,
   0.25,
   0.04
-);
-const RELATIONSHIP_DEPTH_TURN_STEP = parseNumberInRange(
-  process.env.RELATIONSHIP_DEPTH_TURN_STEP,
-  0.5,
-  6,
-  2.0
-);
-const RELATIONSHIP_DEPTH_DAY_STEP = parseNumberInRange(
-  process.env.RELATIONSHIP_DEPTH_DAY_STEP,
-  1,
-  12,
-  5.5
 );
 const REL_DEPTH_BEHAVIOR_WEIGHT = parseNumberInRange(
   process.env.REL_DEPTH_BEHAVIOR_WEIGHT,
@@ -1297,10 +1364,6 @@ const REL_DEPTH_DAILY_CAP = parseNumberInRange(
   1,
   30,
   15
-);
-const REL_DEPTH_DEEP_ELABORATION_WORDS = parsePositiveInt(
-  process.env.REL_DEPTH_DEEP_ELABORATION_WORDS,
-  20
 );
 const BEHAVIOR_DEPTH_BASELINE = parseNumberInRange(
   process.env.BEHAVIOR_DEPTH_BASELINE,
@@ -1360,12 +1423,6 @@ const DEEP_TURN_SCORE_THRESHOLD = parseNumberInRange(
   100,
   44
 );
-const SURFACE_MODE_DEPTH_CAP = parseNumberInRange(
-  process.env.SURFACE_MODE_DEPTH_CAP,
-  5,
-  40,
-  19
-);
 const HIDDEN_MODE_GROWTH_BEHAVIOR_DEPTH = parseNumberInRange(
   process.env.HIDDEN_MODE_GROWTH_BEHAVIOR_DEPTH,
   8,
@@ -1378,65 +1435,9 @@ const HIDDEN_MODE_GROWTH_REL_DEPTH = parseNumberInRange(
   80,
   18
 );
-const HIDDEN_MODE_TRANSCENDENCE_REL_DEPTH = parseNumberInRange(
-  process.env.HIDDEN_MODE_TRANSCENDENCE_REL_DEPTH,
-  30,
-  120,
-  102
-);
-const HIDDEN_MODE_TRANSCENDENCE_BEHAVIOR_DEPTH = parseNumberInRange(
-  process.env.HIDDEN_MODE_TRANSCENDENCE_BEHAVIOR_DEPTH,
-  20,
-  100,
-  74
-);
-const HIDDEN_MODE_TRANSCENDENCE_ACTIVE_DAYS = parsePositiveInt(
-  process.env.HIDDEN_MODE_TRANSCENDENCE_ACTIVE_DAYS,
-  18
-);
-const HIDDEN_MODE_TRANSCENDENCE_CONVERSATIONS = parsePositiveInt(
-  process.env.HIDDEN_MODE_TRANSCENDENCE_CONVERSATIONS,
-  56
-);
 const SEASONAL_CYCLE_LENGTH_TURNS = parsePositiveInt(
   process.env.SEASONAL_CYCLE_LENGTH_TURNS,
   40
-);
-const SEASON_PROGRESS_BASE_SURFACE = parseNumberInRange(
-  process.env.SEASON_PROGRESS_BASE_SURFACE,
-  0.02,
-  0.40,
-  0.05
-);
-const SEASON_PROGRESS_BASE_GROWTH = parseNumberInRange(
-  process.env.SEASON_PROGRESS_BASE_GROWTH,
-  0.02,
-  0.40,
-  0.08
-);
-const SEASON_PROGRESS_BASE_TRANSCENDENCE = parseNumberInRange(
-  process.env.SEASON_PROGRESS_BASE_TRANSCENDENCE,
-  0.02,
-  0.40,
-  0.10
-);
-const SEASON_PROGRESS_MIN_STEP = parseNumberInRange(
-  process.env.SEASON_PROGRESS_MIN_STEP,
-  0.01,
-  0.50,
-  0.03
-);
-const SEASON_PROGRESS_MAX_STEP = parseNumberInRange(
-  process.env.SEASON_PROGRESS_MAX_STEP,
-  0.05,
-  0.80,
-  0.16
-);
-const SEASON_BASELINE_MATURITY_START = parseNumberInRange(
-  process.env.SEASON_BASELINE_MATURITY_START,
-  0,
-  1,
-  0.22
 );
 const SEASON_BASELINE_MATURITY_INCREMENT = parseNumberInRange(
   process.env.SEASON_BASELINE_MATURITY_INCREMENT,
@@ -1483,12 +1484,6 @@ const REMEMBER_COOLDOWN_TRANSCENDENCE = parsePositiveInt(
   process.env.REMEMBER_COOLDOWN_TRANSCENDENCE,
   4
 );
-const CYCLE_MEMORY_MIN_REL_DEPTH = parseNumberInRange(
-  process.env.CYCLE_MEMORY_MIN_REL_DEPTH,
-  5,
-  120,
-  30
-);
 const CYCLE_MEMORY_RATE_GROWTH = parseNumberInRange(
   process.env.CYCLE_MEMORY_RATE_GROWTH,
   0,
@@ -1505,109 +1500,9 @@ const CYCLE_MEMORY_COOLDOWN_TURNS = parsePositiveInt(
   process.env.CYCLE_MEMORY_COOLDOWN_TURNS,
   10
 );
-const CYCLE_EVOLUTION_MAX_CYCLES = parsePositiveInt(
-  process.env.CYCLE_EVOLUTION_MAX_CYCLES,
-  4
-);
-const CYCLE_EVOLUTION_FLIRT_DECAY_PER_CYCLE = parseNumberInRange(
-  process.env.CYCLE_EVOLUTION_FLIRT_DECAY_PER_CYCLE,
-  0.01,
-  0.50,
-  0.24
-);
-const CYCLE_EVOLUTION_VALIDATION_DECAY_PER_CYCLE = parseNumberInRange(
-  process.env.CYCLE_EVOLUTION_VALIDATION_DECAY_PER_CYCLE,
-  0.01,
-  0.50,
-  0.18
-);
-const CYCLE_EVOLUTION_ABSTRACTION_GAIN_PER_CYCLE = parseNumberInRange(
-  process.env.CYCLE_EVOLUTION_ABSTRACTION_GAIN_PER_CYCLE,
-  0.01,
-  0.50,
-  0.10
-);
-const CYCLE_EVOLUTION_CALM_GAIN_PER_CYCLE = parseNumberInRange(
-  process.env.CYCLE_EVOLUTION_CALM_GAIN_PER_CYCLE,
-  0.01,
-  0.50,
-  0.10
-);
-const CYCLE_EVOLUTION_PHILOSOPHY_GAIN_PER_CYCLE = parseNumberInRange(
-  process.env.CYCLE_EVOLUTION_PHILOSOPHY_GAIN_PER_CYCLE,
-  0.01,
-  0.50,
-  0.09
-);
-const OVER_ATTACHMENT_REL_DEPTH_THRESHOLD = parseNumberInRange(
-  process.env.OVER_ATTACHMENT_REL_DEPTH_THRESHOLD,
-  60,
-  300,
-  120
-);
 const OVER_ATTACHMENT_DEP_SIGNAL_WINDOW_DAYS = parsePositiveInt(
   process.env.OVER_ATTACHMENT_DEP_SIGNAL_WINDOW_DAYS,
   14
-);
-const OVER_ATTACHMENT_DEP_SIGNAL_MIN_COUNT = parsePositiveInt(
-  process.env.OVER_ATTACHMENT_DEP_SIGNAL_MIN_COUNT,
-  3
-);
-const OVER_ATTACHMENT_BEHAVIOR_DEPTH_THRESHOLD = parseNumberInRange(
-  process.env.OVER_ATTACHMENT_BEHAVIOR_DEPTH_THRESHOLD,
-  50,
-  100,
-  86
-);
-const OVER_ATTACHMENT_HIGH_BEHAVIOR_STREAK_MIN = parsePositiveInt(
-  process.env.OVER_ATTACHMENT_HIGH_BEHAVIOR_STREAK_MIN,
-  3
-);
-const OVER_ATTACHMENT_HIGH_BEHAVIOR_7D_MIN = parsePositiveInt(
-  process.env.OVER_ATTACHMENT_HIGH_BEHAVIOR_7D_MIN,
-  5
-);
-const OVER_ATTACHMENT_VALIDATION_SCALE_WHEN_ACTIVE = parseNumberInRange(
-  process.env.OVER_ATTACHMENT_VALIDATION_SCALE_WHEN_ACTIVE,
-  0.10,
-  1,
-  0.58
-);
-const OVER_ATTACHMENT_AUTONOMY_SCALE_WHEN_ACTIVE = parseNumberInRange(
-  process.env.OVER_ATTACHMENT_AUTONOMY_SCALE_WHEN_ACTIVE,
-  1,
-  3,
-  1.45
-);
-const CYCLE_UI_SATURATION_REDUCTION_MAX = parseNumberInRange(
-  process.env.CYCLE_UI_SATURATION_REDUCTION_MAX,
-  0,
-  0.60,
-  0.14
-);
-const CYCLE_UI_REACTIVITY_REDUCTION_MAX = parseNumberInRange(
-  process.env.CYCLE_UI_REACTIVITY_REDUCTION_MAX,
-  0,
-  0.70,
-  0.30
-);
-const CYCLE_UI_SMOOTHING_BASE = parseNumberInRange(
-  process.env.CYCLE_UI_SMOOTHING_BASE,
-  0.10,
-  1,
-  0.55
-);
-const CYCLE_UI_SMOOTHING_GAIN_MAX = parseNumberInRange(
-  process.env.CYCLE_UI_SMOOTHING_GAIN_MAX,
-  0,
-  0.70,
-  0.30
-);
-const CYCLE_UI_VOICE_SLOWDOWN_MAX = parseNumberInRange(
-  process.env.CYCLE_UI_VOICE_SLOWDOWN_MAX,
-  0,
-  0.40,
-  0.08
 );
 const KPI_TARGET_MAX_MODE_SWITCHES_30D = parsePositiveInt(
   process.env.KPI_TARGET_MAX_MODE_SWITCHES_30D,
@@ -1629,10 +1524,6 @@ const KPI_TARGET_MIN_REFLECTIVE_ANSWER_RATE = parseNumberInRange(
   1,
   0.45
 );
-const ASSISTANT_SELF_NAME_MAX_CHARS = parsePositiveInt(
-  process.env.ASSISTANT_SELF_NAME_MAX_CHARS,
-  24
-);
 const ASSISTANT_IDENTITY_STALE_DAYS = parsePositiveInt(
   process.env.ASSISTANT_IDENTITY_STALE_DAYS,
   180
@@ -1645,10 +1536,6 @@ const ASSISTANT_IDENTITY_STORE_PATH = resolveStorePath(
   "assistant_identity_store.json",
   process.env.ASSISTANT_IDENTITY_STORE_PATH
 );
-const USER_PRIMARY_NAME_MAX_CHARS = parsePositiveInt(
-  process.env.USER_PRIMARY_NAME_MAX_CHARS,
-  32
-);
 const USER_MEMORY_STALE_DAYS = parsePositiveInt(
   process.env.USER_MEMORY_STALE_DAYS,
   365
@@ -1657,10 +1544,6 @@ const USER_MEMORY_MAX_TRACKED = parsePositiveInt(
   process.env.USER_MEMORY_MAX_TRACKED,
   20_000
 );
-const USER_MEMORY_REMEMBERED_PEOPLE_MAX = Math.max(
-  1,
-  parsePositiveInt(process.env.USER_MEMORY_REMEMBERED_PEOPLE_MAX, 24)
-);
 const USER_MEMORY_LISTENING_FACTS_MAX = Math.max(
   LISTENING_FACT_MAX_MEMORY,
   parsePositiveInt(process.env.USER_MEMORY_LISTENING_FACTS_MAX, 18)
@@ -1668,10 +1551,6 @@ const USER_MEMORY_LISTENING_FACTS_MAX = Math.max(
 const USER_MEMORY_TURN_HISTORY_MAX = Math.max(
   TURN_HISTORY_MAX_ENTRIES,
   parsePositiveInt(process.env.USER_MEMORY_TURN_HISTORY_MAX, 32)
-);
-const SOCIAL_SPARK_MEMORY_MAX = Math.max(
-  3,
-  parsePositiveInt(process.env.SOCIAL_SPARK_MEMORY_MAX, 12)
 );
 const SOCIAL_SPARK_YASS_MAX_PER_SESSION = Math.max(
   1,
@@ -2895,36 +2774,6 @@ const WEEKLY_EXPANSION_ARC = Object.freeze({
   },
 });
 
-const HIDDEN_DEPTH_MODES = Object.freeze({
-  surface: {
-    key: "surface",
-    label: "Surface Mode",
-    goal: "light conversation for casual users",
-    tone: "simple, warm, socially light",
-    behavior:
-      "keep things conversational and clear; no existential growth push; no evolution arc triggers",
-    userFit: "good for casual users or users who prefer jokes/lightness",
-  },
-  growth: {
-    key: "growth",
-    label: "Growth Mode",
-    goal: "engaged users build reflection over time",
-    tone: "attentive, grounded, reflective",
-    behavior:
-      "enable cyclical arc, encourage self-reflection, and introduce evolution slowly",
-    userFit: "default for most engaged users",
-  },
-  transcendence: {
-    key: "transcendence",
-    label: "Transcendence Mode",
-    goal: "rare, earned high-depth dialogue",
-    tone: "calm, spacious, abstract but grounded",
-    behavior:
-      "unlock existential themes, awareness of change, release cycles, and higher abstraction",
-    userFit: "only after depth thresholds are met; should feel intentional and rare",
-  },
-});
-
 const SEASONAL_WAVE_CYCLE = Object.freeze({
   closeOrbit: {
     key: "close_orbit",
@@ -3109,13 +2958,6 @@ const TIME_OF_DAY_TONE = Object.freeze({
     ],
   },
 });
-
-const RESPONSE_FOCUS_STOPWORDS = new Set([
-  "the", "and", "for", "with", "that", "this", "from", "have", "just", "your", "about",
-  "what", "when", "where", "which", "been", "were", "they", "them", "into", "feel", "feels",
-  "feeling", "today", "really", "there", "here", "then", "than", "would", "could", "should",
-  "want", "need", "like", "know", "dont", "don't", "cant", "can't", "im", "i'm", "youre", "you're",
-]);
 
 // talkRateBuckets, talkInFlightBySession, talkIdempotencyCache are
 // owned by backend/lib/talk_state.js (Phase 7a). Reads go through
@@ -3362,138 +3204,6 @@ function recordCreativeMemoryTriggersForRequest(req, turn = {}) {
     learningContext: turn?.learningContext,
     questionInteraction: turn?.questionInteraction,
   });
-}
-
-function parseTalkScreenplayCharacterArcMemoryItems(value, maxItems = 8) {
-  if (!value) return [];
-  const out = [];
-  const seen = new Set();
-  const push = (candidate) => {
-    const clean = parseTalkScreenplayCharacterArcMemory(candidate);
-    if (!clean) return;
-    const key = [
-      clean.character,
-      clean.act,
-      clean.want,
-      clean.need,
-      clean.wound,
-      clean.falseBelief,
-      clean.relationshipPressure,
-      clean.currentTactic,
-      clean.nextEmotionalTurn,
-    ].join("|").toLowerCase();
-    if (seen.has(key)) return;
-    seen.add(key);
-    out.push(clean);
-  };
-
-  if (typeof value === "string") {
-    const raw = value.trim();
-    if (!raw) return [];
-    if (raw.startsWith("[") || raw.startsWith("{")) {
-      try {
-        return parseTalkScreenplayCharacterArcMemoryItems(JSON.parse(raw), maxItems);
-      } catch (_err) {
-        push(raw);
-        return out;
-      }
-    }
-    push(raw);
-    return out.slice(0, Math.max(1, Number(maxItems || 8)));
-  }
-
-  if (Array.isArray(value)) {
-    for (const item of value) {
-      push(item);
-      if (out.length >= maxItems) break;
-    }
-    return out;
-  }
-
-  if (value && typeof value === "object") {
-    const nested =
-      value.characterBibles ??
-      value.character_bibles ??
-      value.characters ??
-      value.arcs ??
-      value.items ??
-      null;
-    if (Array.isArray(nested)) {
-      for (const item of nested) {
-        push(item);
-        if (out.length >= maxItems) break;
-      }
-      return out;
-    }
-    push(value);
-  }
-
-  return out.slice(0, Math.max(1, Number(maxItems || 8)));
-}
-
-function parseTalkScreenplayCharacterVoiceMemoryItems(value, maxItems = 8) {
-  if (!value) return [];
-  const out = [];
-  const seen = new Set();
-  const push = (candidate) => {
-    const clean = parseTalkScreenplayCharacterVoiceMemory(candidate);
-    if (!clean) return;
-    const key = [
-      clean.character,
-      clean.voiceFingerprint.tactics.join(","),
-      clean.voiceFingerprint.silence,
-      clean.voiceFingerprint.emotionalTells.join(","),
-    ].join("|").toLowerCase();
-    if (seen.has(key)) return;
-    seen.add(key);
-    out.push(clean);
-  };
-
-  if (typeof value === "string") {
-    const raw = value.trim();
-    if (!raw) return [];
-    if (raw.startsWith("[") || raw.startsWith("{")) {
-      try {
-        return parseTalkScreenplayCharacterVoiceMemoryItems(JSON.parse(raw), maxItems);
-      } catch (_err) {
-        push(raw);
-        return out;
-      }
-    }
-    push(raw);
-    return out.slice(0, Math.max(1, Number(maxItems || 8)));
-  }
-
-  if (Array.isArray(value)) {
-    for (const item of value) {
-      push(item);
-      if (out.length >= maxItems) break;
-    }
-    return out;
-  }
-
-  if (value && typeof value === "object") {
-    const nested =
-      value.characterVoiceFingerprints ??
-      value.character_voice_fingerprints ??
-      value.characterVoiceMemories ??
-      value.character_voice_memories ??
-      value.voiceFingerprints ??
-      value.voice_fingerprints ??
-      value.characters ??
-      value.items ??
-      null;
-    if (Array.isArray(nested)) {
-      for (const item of nested) {
-        push(item);
-        if (out.length >= maxItems) break;
-      }
-      return out;
-    }
-    push(value);
-  }
-
-  return out.slice(0, Math.max(1, Number(maxItems || 8)));
 }
 
 function buildCreativeMemoryRecallQuery(req = null, {
@@ -4048,47 +3758,6 @@ function selectScreenplayProjectMemoryForPrompt(memory, studioMeta = null, body 
     if (byVersion) return repairScreenplayProjectMemoryForPrompt(byVersion) || byVersion;
   }
   return repairScreenplayProjectMemoryForPrompt(items[0]) || items[0] || null;
-}
-
-function buildTalkPersistentFeatureMemoryBrief(memoryProject) {
-  if (!memoryProject) return "";
-  const correctionContract = buildScreenplayProjectCorrectionContract(memoryProject, {
-    label: "corrections",
-    maxChars: 360,
-  });
-  const parts = [
-    memoryProject.logline ? `logline: ${memoryProject.logline}` : "",
-    memoryProject.act || memoryProject.featureSequence
-      ? `position: ${[memoryProject.act, memoryProject.featureSequence].filter(Boolean).join(" / ")}`
-      : "",
-    correctionContract,
-    memoryProject.currentBeat ? `current beat: ${memoryProject.currentBeat}` : "",
-    memoryProject.featureObligation ? `due now: ${memoryProject.featureObligation}` : "",
-    memoryProject.actPressureState ? `act pressure: ${memoryProject.actPressureState}` : "",
-    memoryProject.characterArcState ? `character arc: ${memoryProject.characterArcState}` : "",
-    memoryProject.lastSceneOutcome ? `last scene outcome: ${memoryProject.lastSceneOutcome}` : "",
-    Array.isArray(memoryProject.unresolvedSetups) && memoryProject.unresolvedSetups.length
-      ? `open setups: ${memoryProject.unresolvedSetups.slice(0, 3).join(" / ")}`
-      : "",
-    Array.isArray(memoryProject.unresolvedStoryThreads) && memoryProject.unresolvedStoryThreads.length
-      ? `story threads: ${memoryProject.unresolvedStoryThreads.slice(0, 3).join(" / ")}`
-      : "",
-    Array.isArray(memoryProject.nextThreeTurns) && memoryProject.nextThreeTurns.length
-      ? `next three turns: ${memoryProject.nextThreeTurns.slice(0, 3).join(" / ")}`
-      : "",
-    Array.isArray(memoryProject.actThreePayoffPath) && memoryProject.actThreePayoffPath.length
-      ? `Act III payoff path: ${memoryProject.actThreePayoffPath.slice(0, 3).join(" / ")}`
-      : "",
-    Array.isArray(memoryProject.characterArcTurns) && memoryProject.characterArcTurns.length
-      ? `arc turns: ${memoryProject.characterArcTurns.slice(0, 3).join(" / ")}`
-      : "",
-    Array.isArray(memoryProject.imageMotifs) && memoryProject.imageMotifs.length
-      ? `image motifs: ${memoryProject.imageMotifs.slice(0, 3).join(" / ")}`
-      : "",
-    memoryProject.nextScenePlan ? `next: ${memoryProject.nextScenePlan}` : "",
-    memoryProject.endingImage ? `ending image: ${memoryProject.endingImage}` : "",
-  ].filter(Boolean);
-  return normalizeSnippet(parts.join("; "), 900);
 }
 
 function buildSessionContinuitySnapshot(memory = null, creativeMemory = null) {
@@ -5113,13 +4782,6 @@ function clientIp(req) {
   return normalizeClientIp(rawIp);
 }
 
-function isSpeculativePrepareRequest(req) {
-  if (!TALK_SPECULATIVE_ENABLED) return false;
-  return String(req.get("X-Speculative-Mode") || "")
-    .trim()
-    .toLowerCase() === "prepare";
-}
-
 function resolveTalkSessionKey(req) {
   const clientToken = normalizeClientToken(req.get("X-Client-Token"));
   if (clientToken) return `token:${clientToken}`;
@@ -5488,17 +5150,6 @@ function splitInlineTalkSceneHeading(line = "") {
     parts.push("", suffix);
   }
   return parts;
-}
-
-function isTalkUppercaseCueCandidate(line = "") {
-  const trimmed = String(line || "").trim();
-  if (!trimmed) return false;
-  if (isTalkSceneHeadingLine(trimmed) || isTalkTransitionLine(trimmed) || isTalkParentheticalLine(trimmed)) {
-    return false;
-  }
-  if (trimmed.length > 42 || /[.!?]$/.test(trimmed)) return false;
-  if (trimmed !== trimmed.toUpperCase()) return false;
-  return /[A-Z]/.test(trimmed);
 }
 
 function splitInlineTalkCharacterDialogue(line = "") {
@@ -6192,20 +5843,6 @@ function repairTalkScreenplayOutputWithSceneAnchor({
   };
 }
 
-function isTalkCharacterCueLine(line = "", nextNonEmpty = "") {
-  const trimmed = String(line || "").trim();
-  if (!trimmed) return false;
-  if (isTalkSceneHeadingLine(trimmed) || isTalkTransitionLine(trimmed) || isTalkParentheticalLine(trimmed)) {
-    return false;
-  }
-  if (trimmed.length > 42 || /[.!?]$/.test(trimmed)) return false;
-  if (trimmed !== trimmed.toUpperCase()) return false;
-  if (!/[A-Z]/.test(trimmed)) return false;
-  const cleanNext = String(nextNonEmpty || "").trim();
-  if (!cleanNext) return false;
-  return !isTalkSceneHeadingLine(cleanNext) && !isTalkTransitionLine(cleanNext);
-}
-
 function buildTalkScreenplayOutputLines(text = "") {
   const normalized = normalizeTalkScreenplayText(text);
   return classifyScreenplayLines(normalized);
@@ -6618,55 +6255,6 @@ function buildTalkDialogueTimelineRevision({
       insert_mode: insertionMode,
     },
     segments,
-  };
-}
-
-function sanitizeTalkDialogueTimeline(dialogueTimeline = null) {
-  if (!dialogueTimeline || typeof dialogueTimeline !== "object") return null;
-  const revisionId = normalizeSnippet(
-    dialogueTimeline.revision_id ?? dialogueTimeline.revisionId,
-    96
-  ) || randomUUID();
-  return {
-    turn_id: normalizeSnippet(dialogueTimeline.turn_id ?? dialogueTimeline.turnId, 96),
-    revision_id: revisionId,
-    audio_asset_id: normalizeSnippet(dialogueTimeline.audio_asset_id ?? dialogueTimeline.audioAssetId, 120),
-    duration_ms: Math.max(0, Number(dialogueTimeline.duration_ms ?? dialogueTimeline.durationMs ?? 0)),
-    document_revision_id: normalizeSnippet(
-      dialogueTimeline.document_revision_id ?? dialogueTimeline.documentRevisionId,
-      96
-    ) || revisionId,
-    insertion_anchor: sanitizeTalkPageAnchor(
-      dialogueTimeline.insertion_anchor ?? dialogueTimeline.insertionAnchor,
-      { script_node_id: `${revisionId}:root`, range_start: 0, range_end: 0 }
-    ),
-    segments: Array.isArray(dialogueTimeline.segments)
-      ? dialogueTimeline.segments
-        .filter((segment) => segment && typeof segment === "object")
-        .slice(0, 400)
-        .map((segment, index) => {
-          const id = normalizeSnippet(segment.id, 160) || `${revisionId}:segment:${index + 1}`;
-          return {
-            id,
-            line_id: normalizeSnippet(segment.line_id ?? segment.lineId, 160) || `${revisionId}:line:${index + 1}`,
-            kind: normalizeDialogueSegmentKind(segment.kind),
-            text: normalizeTalkMultilineSnippet(segment.text, 240),
-            start_ms: Math.max(0, Number(segment.start_ms ?? segment.startMs ?? 0)),
-            end_ms: Math.max(
-              Math.max(0, Number(segment.start_ms ?? segment.startMs ?? 0)) + 1,
-              Number(segment.end_ms ?? segment.endMs ?? 0)
-            ),
-            page_anchor: sanitizeTalkPageAnchor(
-              segment.page_anchor ?? segment.pageAnchor,
-              { script_node_id: `${revisionId}:node:${index + 1}` }
-            ),
-            reveal_units: sanitizeTalkRevealUnits(
-              segment.reveal_units ?? segment.revealUnits,
-              id
-            ),
-          };
-        })
-      : [],
   };
 }
 
@@ -7149,48 +6737,6 @@ function createSessionToken() {
   return randomBytes(32).toString("base64url");
 }
 
-const NOTE_CAPTURE_TRIGGERS = Object.freeze([
-  "write this down",
-  "can you write this down",
-  "could you write this down",
-  "please write this down",
-  "note this",
-  "save this note",
-  "save this down",
-  "take a note",
-  "make a note",
-  "jot this down",
-]);
-
-function sanitizeTaskItems(items, maxItems = TASKS_MAX_STORED) {
-  const source = Array.isArray(items) ? items : [];
-  const out = [];
-  for (const item of source) {
-    if (!item || typeof item !== "object") continue;
-    const id = String(item.id || "").trim() || `task-${randomUUID().slice(0, 8)}`;
-    const title = normalizeSnippet(item.title, 160);
-    if (!title) continue;
-    const statusRaw = String(item.status || "open").trim().toLowerCase();
-    const status = statusRaw === "done" || statusRaw === "completed" ? "completed" : "open";
-    const priority = normalizeTaskPriority(item.priority);
-    const dueAt = Math.max(0, Number(item.dueAt || 0));
-    const createdAt = Math.max(0, Number(item.createdAt || 0));
-    const completedAt = Math.max(0, Number(item.completedAt || 0));
-    const sourceTag = normalizeSnippet(item.source, 40) || "conversation";
-    out.push({
-      id,
-      title,
-      status,
-      priority,
-      dueAt,
-      createdAt,
-      completedAt,
-      source: sourceTag,
-    });
-  }
-  return out.slice(-Math.max(1, maxItems));
-}
-
 function createTaskInMemory(memory, { title, dueAt = 0, priority = "normal", source = "conversation" }, nowTs = Date.now()) {
   if (!memory || typeof memory !== "object") return null;
   const cleanTitle = normalizeSnippet(title, 160);
@@ -7308,54 +6854,6 @@ function clearCompletedTasksInMemory(memory, nowTs = Date.now()) {
   memory.tasks = sanitizeTaskItems(remaining, TASKS_MAX_STORED);
   memory.taskLastUpdatedAt = nowTs;
   return removedCount;
-}
-
-function buildTaskActionReply(result) {
-  const state = result && typeof result === "object" ? result : {};
-  if (state.status === "needs_confirmation") {
-    return buildPendingLocalActionConfirmationReply({
-      summary: state.summary || "",
-    });
-  }
-  if (state.status === "created") {
-    const due = Number(state.task?.dueAt || 0) > 0
-      ? ` due ${new Date(Number(state.task.dueAt)).toLocaleString()}`
-      : "";
-    return [
-      "Done.",
-      "",
-      `I added this task: "${state.task?.title || "task"}"${due}.`,
-    ].join("\n");
-  }
-  if (state.status === "completed") {
-    return [
-      "Nice.",
-      "",
-      `Marked complete: "${state.task?.title || "task"}".`,
-    ].join("\n");
-  }
-  if (state.status === "duplicate") {
-    return [
-      "Already tracked.",
-      "",
-      `You already have an open task for "${state.task?.title || "that"}".`,
-    ].join("\n");
-  }
-  if (state.status === "none") {
-    return [
-      "I could not find an open task to complete.",
-      "",
-      "Say the task name and I will mark it done.",
-    ].join("\n");
-  }
-  if (state.status === "failed") {
-    return [
-      "I could not update that task yet.",
-      "",
-      "Say it one more time with the task name.",
-    ].join("\n");
-  }
-  return "";
 }
 
 function classifyActionLane({ noteResult, taskResult }) {
@@ -7501,25 +6999,6 @@ function selectExecutableLocalActionCandidate({
   return null;
 }
 
-function isLocalActionDuplicate(memory, {
-  type = "",
-  signature = "",
-  nowTs = Date.now(),
-  windowMs = LOCAL_ACTION_DEDUPE_WINDOW_MS,
-} = {}) {
-  if (!memory || typeof memory !== "object") return false;
-  const lastType = normalizeLocalActionType(memory.lastLocalActionType);
-  const nextType = normalizeLocalActionType(type);
-  if (!nextType || nextType === "none" || !signature) return false;
-  if (lastType !== nextType) return false;
-  const lastSignature = String(memory.lastLocalActionSignature || "").trim();
-  if (!lastSignature || lastSignature !== signature) return false;
-  const lastAt = Math.max(0, Number(memory.lastLocalActionAt || 0));
-  if (!lastAt) return false;
-  const ageMs = Math.max(0, Number(nowTs || Date.now()) - lastAt);
-  return ageMs <= Math.max(2_000, Number(windowMs || LOCAL_ACTION_DEDUPE_WINDOW_MS));
-}
-
 function recordLocalAction(memory, {
   type = "",
   signature = "",
@@ -7531,83 +7010,6 @@ function recordLocalAction(memory, {
   memory.lastLocalActionType = nextType;
   memory.lastLocalActionSignature = String(signature || "").trim();
   memory.lastLocalActionAt = Math.max(0, Number(nowTs || Date.now()));
-}
-
-function extractNoteCaptureIntent(transcript) {
-  const source = String(transcript || "").trim();
-  if (!source) {
-    return {
-      shouldCapture: false,
-      needsContent: false,
-      noteText: "",
-      trigger: "",
-    };
-  }
-
-  const lower = source.toLowerCase();
-  let trigger = "";
-  let triggerIndex = -1;
-
-  for (const candidate of NOTE_CAPTURE_TRIGGERS) {
-    const idx = lower.indexOf(candidate);
-    if (idx >= 0 && (triggerIndex === -1 || idx < triggerIndex)) {
-      trigger = candidate;
-      triggerIndex = idx;
-    }
-  }
-
-  if (triggerIndex < 0) {
-    return {
-      shouldCapture: false,
-      needsContent: false,
-      noteText: "",
-      trigger: "",
-    };
-  }
-
-  let noteText = source.slice(triggerIndex + trigger.length).trim();
-  noteText = noteText.replace(/^[\s:,\-–—]+/, "").trim();
-  noteText = noteText.replace(/^["“”'`]+|["“”'`]+$/g, "").trim();
-
-  const quoted = [...source.matchAll(/["“]([^"”]+)["”]/g)]
-    .map((m) => String(m[1] || "").trim())
-    .filter(Boolean);
-  if (!noteText && quoted.length) {
-    noteText = quoted[quoted.length - 1];
-  }
-
-  if (!noteText) {
-    noteText = source
-      .replace(/\bclementine\b[:,]?\s*/ig, "")
-      .replace(
-        new RegExp(
-          `\\b(?:can you|could you|please|hey)?\\s*${escapeRegex(trigger)}\\b`,
-          "i"
-        ),
-        ""
-      )
-      .replace(/^[\s:,\-–—]+/, "")
-      .trim();
-  }
-
-  noteText = noteText.replace(/\b(?:please|for me)\b$/i, "").trim();
-  noteText = noteText.replace(/\s+/g, " ");
-
-  if (!noteText || noteText.length < 3) {
-    return {
-      shouldCapture: true,
-      needsContent: true,
-      noteText: "",
-      trigger,
-    };
-  }
-
-  return {
-    shouldCapture: true,
-    needsContent: false,
-    noteText,
-    trigger,
-  };
 }
 
 function formatNoteTimestamp(date = new Date()) {
@@ -7725,119 +7127,6 @@ async function captureLocalNote({ noteText, reqId }) {
   }
 }
 
-function buildNoteCaptureReply(result) {
-  const state = result && typeof result === "object" ? result : {};
-  const title = trimToMax(state.title || "your note", 72);
-
-  if (state.status === "needs_confirmation") {
-    return buildPendingLocalActionConfirmationReply({
-      summary: state.summary || "",
-    });
-  }
-
-  if (state.status === "needs_content") {
-    return [
-      "I can do that.",
-      "",
-      "Say \"write this down:\" and the exact note, and I'll save it.",
-    ].join("\n");
-  }
-
-  if (state.status === "saved" && state.target === "apple_notes") {
-    return [
-      "Got it.",
-      "",
-      `I saved that to Notes as "${title}".`,
-    ].join("\n");
-  }
-
-  if (state.status === "saved" && state.target === "file") {
-    return [
-      "Got it.",
-      "",
-      `I saved that on this device as "${title}".`,
-    ].join("\n");
-  }
-
-  return [
-    "I tried to save that, but it didn't go through.",
-    "",
-    "Say it one more time and I'll retry.",
-  ].join("\n");
-}
-
-function normalizeAssistantSelfName(value) {
-  const cleaned = String(value || "")
-    .replace(/^[`"'“”‘’\s]+|[`"'“”‘’\s]+$/g, "")
-    .replace(/\s+/g, " ")
-    .replace(/[^A-Za-z0-9' -]/g, "")
-    .trim();
-  if (!cleaned) return "";
-  if (cleaned.length < 2) return "";
-  const bounded = cleaned.slice(0, ASSISTANT_SELF_NAME_MAX_CHARS).trim();
-  if (!bounded) return "";
-  const lower = bounded.toLowerCase();
-  if (["you", "yourself", "me", "myself", "assistant", "ai", "bot"].includes(lower)) {
-    return "";
-  }
-  const hasUpper = /[A-Z]/.test(bounded);
-  if (hasUpper) return bounded;
-  return bounded
-    .split(" ")
-    .filter(Boolean)
-    .map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
-    .join(" ");
-}
-
-function normalizeUserPersonName(value, maxChars = USER_PRIMARY_NAME_MAX_CHARS) {
-  const cleaned = String(value || "")
-    .replace(/^[`"'“”‘’\s]+|[`"'“”‘’\s]+$/g, "")
-    .replace(/\s+/g, " ")
-    .replace(/[^A-Za-z0-9' -]/g, "")
-    .trim();
-  if (!cleaned) return "";
-  if (cleaned.length < 2) return "";
-  const bounded = cleaned.slice(0, maxChars).trim();
-  if (!bounded) return "";
-  const lower = bounded.toLowerCase();
-  if (
-    [
-      "me", "myself", "you", "yourself", "name", "remember", "something", "someone",
-      "later", "tomorrow", "today", "tonight", "friend", "person", "unknown",
-      "this", "that", "it", "him", "her",
-    ].includes(lower)
-  ) {
-    return "";
-  }
-  return bounded
-    .split(" ")
-    .filter(Boolean)
-    .slice(0, 3)
-    .map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
-    .join(" ");
-}
-
-function sanitizeRememberedPeople(items, maxItems = USER_MEMORY_REMEMBERED_PEOPLE_MAX) {
-  const source = Array.isArray(items) ? items : [];
-  const deduped = new Map();
-  for (const item of source) {
-    const raw = item && typeof item === "object" ? item : { name: item };
-    const name = normalizeUserPersonName(raw.name);
-    if (!name) continue;
-    const relation = normalizeRememberedRelation(raw.relation || raw.role || raw.label);
-    const note = normalizeSnippet(raw.note, 90);
-    const updatedAt = Math.max(0, Number(raw.updatedAt || raw.ts || Date.now()));
-    const key = name.toLowerCase();
-    const prev = deduped.get(key);
-    if (!prev || updatedAt >= Number(prev.updatedAt || 0)) {
-      deduped.set(key, { name, relation, note, updatedAt });
-    }
-  }
-  return [...deduped.values()]
-    .sort((a, b) => Number(a.updatedAt || 0) - Number(b.updatedAt || 0))
-    .slice(-Math.max(1, maxItems));
-}
-
 function upsertRememberedPerson(items, person, maxItems = USER_MEMORY_REMEMBERED_PEOPLE_MAX) {
   const next = sanitizeRememberedPeople(items, maxItems);
   const name = normalizeUserPersonName(person?.name);
@@ -7858,75 +7147,6 @@ function upsertRememberedPerson(items, person, maxItems = USER_MEMORY_REMEMBERED
     next.push({ name, relation, note, updatedAt });
   }
   return sanitizeRememberedPeople(next, maxItems);
-}
-
-function extractUserIdentityIntent(transcript) {
-  const source = String(transcript || "").trim();
-  const out = {
-    clearPrimaryName: false,
-    primaryName: "",
-    rememberedPeople: [],
-    hasUpdate: false,
-  };
-  if (!source) return out;
-
-  if (/\b(?:forget|clear|reset)\s+(?:my|the)\s+name\b/i.test(source)) {
-    out.clearPrimaryName = true;
-    out.hasUpdate = true;
-  }
-
-  const primaryPatterns = [
-    /\bmy\s+name(?:\s+is|['’]s)\s+([A-Za-z][A-Za-z0-9' -]{1,40})\b/i,
-    /\b(?:call\s+me|you\s+can\s+call\s+me|i\s+go\s+by)\s+([A-Za-z][A-Za-z0-9' -]{1,40})\b/i,
-    /\bremember\s+my\s+name(?:\s+is)?\s+([A-Za-z][A-Za-z0-9' -]{1,40})\b/i,
-  ];
-  for (const re of primaryPatterns) {
-    const match = source.match(re);
-    if (!match) continue;
-    const candidate = normalizeUserPersonName(match[1]);
-    if (!candidate) continue;
-    out.primaryName = candidate;
-    out.hasUpdate = true;
-    break;
-  }
-
-  const rememberGate = /\b(?:remember|don['’]?t\s+forget)\b/i.test(source);
-  if (rememberGate) {
-    const remembered = [];
-    const addRemembered = (nameRaw, relationRaw = "", noteRaw = "") => {
-      const name = normalizeUserPersonName(nameRaw);
-      if (!name) return;
-      remembered.push({
-        name,
-        relation: normalizeRememberedRelation(relationRaw),
-        note: normalizeSnippet(noteRaw, 90),
-        updatedAt: Date.now(),
-      });
-    };
-
-    let match;
-    const namedRelationRe = /(?:remember|don['’]?t\s+forget)\s+(?:that\s+)?([A-Za-z][A-Za-z0-9' -]{1,40})\s+is\s+my\s+([A-Za-z][A-Za-z0-9' -]{1,40})/gi;
-    while ((match = namedRelationRe.exec(source)) !== null) {
-      addRemembered(match[1], match[2]);
-    }
-
-    const relationPairRe = /([A-Za-z][A-Za-z0-9' -]{1,40})\s+is\s+my\s+([A-Za-z][A-Za-z0-9' -]{1,40})/gi;
-    while ((match = relationPairRe.exec(source)) !== null) {
-      addRemembered(match[1], match[2]);
-    }
-
-    const simpleRememberRe = /(?:remember|don['’]?t\s+forget)\s+(?:about\s+)?([A-Za-z][A-Za-z0-9' -]{1,40})\b/gi;
-    while ((match = simpleRememberRe.exec(source)) !== null) {
-      addRemembered(match[1], "");
-    }
-
-    out.rememberedPeople = sanitizeRememberedPeople(remembered, USER_MEMORY_REMEMBERED_PEOPLE_MAX);
-    if (out.rememberedPeople.length > 0) {
-      out.hasUpdate = true;
-    }
-  }
-
-  return out;
 }
 
 function applyUserIdentityIntentToMemory(memory, intent, nowTs = Date.now()) {
@@ -7957,47 +7177,6 @@ function applyUserIdentityIntentToMemory(memory, intent, nowTs = Date.now()) {
 
   base.lastUpdatedAt = nowTs;
   return base;
-}
-
-function extractAssistantRenameIntent(transcript) {
-  const source = String(transcript || "").trim();
-  if (!source) return { name: "", source: "none" };
-
-  if (/\b(?:reset|clear)\s+(?:your\s+)?name\b/i.test(source)) {
-    return { name: DEFAULT_ASSISTANT_SELF_NAME, source: "voice_reset" };
-  }
-
-  const patterns = [
-    { source: "voice_call_you", re: /\bcall\s+you\s+([A-Za-z][A-Za-z0-9' -]{1,40})\b/i },
-    { source: "voice_name_you", re: /\bname\s+you\s+([A-Za-z][A-Za-z0-9' -]{1,40})\b/i },
-    {
-      source: "voice_refer_as",
-      re: /\b(?:refer\s+to\s+you\s+as|have\s+to\s+call\s+you|let\s+me\s+call\s+you)\s+([A-Za-z][A-Za-z0-9' -]{1,40})\b/i,
-    },
-    {
-      source: "voice_change_name",
-      re: /\b(?:change|set)\s+your\s+name\s+to\s+([A-Za-z][A-Za-z0-9' -]{1,40})\b/i,
-    },
-    {
-      source: "voice_your_name_is",
-      re: /\byour\s+name(?:\s+is|['’]s)\s+([A-Za-z][A-Za-z0-9' -]{1,40})\b/i,
-    },
-  ];
-
-  const invalid = new Set(["later", "back", "tomorrow", "soon", "again", "now", "it", "that", "this"]);
-  for (const pattern of patterns) {
-    const match = source.match(pattern.re);
-    if (!match) continue;
-    const candidateRaw = String(match[1] || "")
-      .replace(/\b(?:from\s+now\s+on|for\s+now|please|okay|ok)\b.*$/i, "")
-      .trim();
-    const candidate = normalizeAssistantSelfName(candidateRaw);
-    if (!candidate) continue;
-    if (invalid.has(candidate.toLowerCase())) continue;
-    return { name: candidate, source: pattern.source };
-  }
-
-  return { name: "", source: "none" };
 }
 
 function cleanupAssistantIdentityStore(now = Date.now()) {
@@ -8084,57 +7263,6 @@ function sanitizeSnippetList(items, maxItems = 8, maxChars = 170) {
     const clean = normalizeSnippet(item, maxChars);
     if (!clean) continue;
     out = pushBoundedUnique(out, clean, maxItems);
-  }
-  return out.slice(-Math.max(1, maxItems));
-}
-
-function sanitizeAdaptiveBias(value) {
-  const raw = Number(value || 0);
-  if (!Number.isFinite(raw)) return 0;
-  return Math.max(-ADAPTIVE_BIAS_LIMIT, Math.min(ADAPTIVE_BIAS_LIMIT, raw));
-}
-
-function sanitizeAdaptiveQualityTags(items, maxItems = 8) {
-  const source = Array.isArray(items) ? items : [];
-  const out = [];
-  for (const item of source) {
-    const tag = String(item || "").trim().toLowerCase();
-    if (!tag || !ADAPTIVE_QUALITY_TAGS.has(tag)) continue;
-    if (!out.includes(tag)) out.push(tag);
-  }
-  return out.slice(0, Math.max(1, maxItems));
-}
-
-function sanitizeAdaptiveHistoryItems(items, maxItems = ADAPTIVE_HISTORY_MAX) {
-  const source = Array.isArray(items) ? items : [];
-  const out = [];
-  for (const item of source) {
-    if (!item || typeof item !== "object") continue;
-    const ts = Math.max(0, Number(item.ts || 0));
-    const score = clampUnit(item.score, 0.66);
-    const sourceTag = normalizeSnippet(item.source, 24) || "heuristic";
-    const tags = sanitizeAdaptiveQualityTags(item.tags, 8);
-    out.push({ ts, score, source: sourceTag, tags });
-  }
-  return out.slice(-Math.max(1, maxItems));
-}
-
-function sanitizeSocialSparkMoments(items, maxItems = SOCIAL_SPARK_MEMORY_MAX) {
-  const source = Array.isArray(items) ? items : [];
-  const out = [];
-  for (const item of source) {
-    if (!item || typeof item !== "object") continue;
-    const event = normalizeSnippet(item.event, 96);
-    const detail = normalizeSnippet(item.detail, 140);
-    const affect = normalizeSnippet(item.affect, 40);
-    if (!event && !detail) continue;
-    out.push({
-      event: event || "met someone",
-      detail: detail || "",
-      affect: affect || "",
-      turn: Math.max(0, Number(item.turn || 0)),
-      ts: Math.max(0, Number(item.ts || 0)),
-    });
   }
   return out.slice(-Math.max(1, maxItems));
 }
@@ -8884,63 +8012,6 @@ function createEmptyScreenplayOwner(ownerKey) {
   };
 }
 
-function normalizeStoredScreenplayVersion(entry) {
-  if (!entry || typeof entry !== "object") return null;
-  const id = normalizeSnippet(entry.id, 64);
-  if (!id) return null;
-  return {
-    id,
-    projectId: normalizeSnippet(entry.projectId, 64),
-    phase: normalizeSnippet(entry.phase, 48) || "scene_draft",
-    source: normalizeSnippet(entry.source, 48),
-    clientRequestId: normalizeSnippet(entry.clientRequestId ?? entry.client_request_id, 96),
-    createdAt: Math.max(0, Number(entry.createdAt || 0)),
-    updatedAt: Math.max(0, Number(entry.updatedAt || entry.createdAt || 0)),
-    prompt: normalizeSnippet(entry.prompt, 320),
-    notes: normalizeSnippet(entry.notes, 240),
-    formatScore: Number(entry.formatScore || 0),
-    storyScore: Number(entry.storyScore || 0),
-    confidenceClass: normalizeSnippet(entry.confidenceClass, 24) || "medium",
-    warnings: normalizeScreenplayStringList(entry.warnings, 8, 64),
-    draft: String(entry.draft || ""),
-    draftExcerpt: buildDraftExcerpt(entry.draftExcerpt || entry.draft || ""),
-    studioWriteAnchors: normalizeStoredScreenplayWriteAnchors(entry.studioWriteAnchors || entry.studio_write_anchors),
-    screenplayBindings: normalizeStoredScreenplayBindings(entry.screenplayBindings || entry.screenplay_bindings),
-  };
-}
-
-function normalizeStoredScreenplayWriteAnchors(list) {
-  if (!Array.isArray(list)) return [];
-  const deduped = new Map();
-  for (const item of list) {
-    const normalized = normalizeStoredScreenplayWriteAnchor(item);
-    if (!normalized) continue;
-    deduped.set(normalized.writeId, normalized);
-  }
-  return [...deduped.values()].slice(0, 48);
-}
-
-function normalizeStoredScreenplayBinding(entry) {
-  if (!entry || typeof entry !== "object") return null;
-  const draftSceneId = normalizeSnippet(entry.draftSceneId ?? entry.draft_scene_id, 96);
-  if (!draftSceneId) return null;
-  return {
-    draftSceneId,
-    draftLine: Math.max(0, Number((entry.draftLine ?? entry.draft_line) || 0)),
-    draftEndLine: Math.max(0, Number((entry.draftEndLine ?? entry.draft_end_line) || 0)),
-    draftSlugline: normalizeSnippet(entry.draftSlugline ?? entry.draft_slugline, 180),
-    draftShortLabel: normalizeSnippet(entry.draftShortLabel ?? entry.draft_short_label, 140),
-    outlineSceneId: normalizeSnippet(entry.outlineSceneId ?? entry.outline_scene_id, 96),
-    outlineSceneTitle: normalizeSnippet(entry.outlineSceneTitle ?? entry.outline_scene_title, 180),
-    outlineSceneSlugline: normalizeSnippet(entry.outlineSceneSlugline ?? entry.outline_scene_slugline, 180),
-    outlineBeatIds: normalizeScreenplayStringList(entry.outlineBeatIds ?? entry.outline_beat_ids, 64, 96),
-    outlineBeatLabels: normalizeScreenplayStringList(entry.outlineBeatLabels ?? entry.outline_beat_labels, 64, 180),
-    actTitle: normalizeSnippet(entry.actTitle ?? entry.act_title, 140),
-    matchedBy: normalizeSnippet(entry.matchedBy ?? entry.matched_by, 48),
-    updatedAt: Math.max(0, Number((entry.updatedAt ?? entry.updated_at) || 0)),
-  };
-}
-
 function normalizeStoredScreenplayCompanionTurn(entry) {
   if (!entry || typeof entry !== "object") return null;
   const user = normalizeSnippet(entry.user, 320);
@@ -9019,18 +8090,6 @@ function normalizeStoredCreativePresenceSnapshot(entry) {
   return {
     title: normalizeSnippet(entry.title, 64),
     detail: normalizeSnippet(entry.detail, 320),
-    updatedAt: normalizeScreenplayCompanionTimestamp(entry.updatedAt ?? entry.updated_at),
-  };
-}
-
-function normalizeStoredCreativeProactiveSuggestion(entry) {
-  if (!entry || typeof entry !== "object") return null;
-  const prompt = normalizeSnippet(entry.prompt, 220);
-  if (!prompt) return null;
-  return {
-    category: normalizeSnippet(entry.category, 32) || "Story",
-    prompt,
-    reason: normalizeSnippet(entry.reason, 240),
     updatedAt: normalizeScreenplayCompanionTimestamp(entry.updatedAt ?? entry.updated_at),
   };
 }
@@ -9134,138 +8193,6 @@ function toScreenplayCompanionStatePayload(state) {
         : null,
     },
   };
-}
-
-function normalizeStoredScreenplayBindings(list) {
-  if (!Array.isArray(list)) return [];
-  const deduped = new Map();
-  for (const item of list) {
-    const normalized = normalizeStoredScreenplayBinding(item);
-    if (!normalized) continue;
-    deduped.set(normalized.draftSceneId, normalized);
-  }
-  return [...deduped.values()].slice(0, 128);
-}
-
-function normalizeStoredScreenplayDiffAcknowledgedKeys(list) {
-  if (!Array.isArray(list)) return [];
-  return [...new Set(
-    list
-      .map((item) => normalizeStoredScreenplayDiffAcknowledgedKey(item))
-      .filter(Boolean)
-  )].slice(0, 48);
-}
-
-function normalizeStoredScreenplayDiffAcknowledgedEntries(list) {
-  if (!Array.isArray(list)) return [];
-  const entries = [];
-  const seen = new Set();
-  for (const item of list) {
-    const raw = item && typeof item === "object" ? item : {};
-    const key = normalizeStoredScreenplayDiffAcknowledgedKey(raw.key ?? raw.persistentKey ?? item);
-    if (!key || seen.has(key)) continue;
-    const fingerprint = normalizeSnippet(raw.fingerprint ?? raw.currentFingerprint ?? raw.current_fingerprint, 320);
-    const writeId = normalizeSnippet(raw.writeId ?? raw.write_id ?? raw.acknowledgedWriteId ?? raw.acknowledged_write_id, 72);
-    entries.push({
-      key,
-      fingerprint: fingerprint || "",
-      writeId: writeId || "",
-    });
-    seen.add(key);
-  }
-  return entries.slice(0, 48);
-}
-
-function normalizeStoredScreenplayDiffAcknowledgementState(entry) {
-  const raw = entry && typeof entry === "object" ? entry : {};
-  const normalizedEntries = normalizeStoredScreenplayDiffAcknowledgedEntries(
-    raw.entries
-    || raw.Entries
-    || raw.studioDiffAcknowledgedEntries
-    || raw.studio_diff_acknowledged_entries
-  );
-  const normalizedKeys = normalizeStoredScreenplayDiffAcknowledgedKeys(
-    raw.keys
-    || raw.Keys
-    || raw.studioDiffAcknowledgedKeys
-    || raw.studio_diff_acknowledged_keys
-  );
-  const mergedEntries = [...normalizedEntries];
-  const seen = new Set(mergedEntries.map((item) => item.key));
-  for (const key of normalizedKeys) {
-    if (seen.has(key)) continue;
-    mergedEntries.push({ key, fingerprint: "", writeId: "" });
-    seen.add(key);
-  }
-  const keys = mergedEntries.map((item) => item.key).slice(0, 48);
-  return {
-    keys,
-    entries: mergedEntries.slice(0, 48),
-  };
-}
-
-function normalizeStoredScreenplayStudioAskNoteExchange(entry) {
-  if (!entry || typeof entry !== "object") return null;
-  const id = normalizeSnippet(entry.id, 96);
-  const prompt = normalizeSnippet(entry.prompt, 1200);
-  const noteBody = normalizeScreenplayMultilineSnippet(entry.noteBody ?? entry.note_body, 2400);
-  const insertedText = normalizeScreenplayMultilineSnippet(entry.insertedText ?? entry.inserted_text, 2400);
-  const developmentText = normalizeScreenplayMultilineSnippet(entry.developmentText ?? entry.development_text, 2400);
-  if (!id || (!prompt && !noteBody && !insertedText && !developmentText)) return null;
-  const target = normalizeSnippet(entry.target, 32) || "voicePin";
-  const source = normalizeSnippet(entry.source, 32) || "typed";
-  return {
-    id,
-    backendThreadID: normalizeSnippet(entry.backendThreadID ?? entry.backendThreadId ?? entry.backend_thread_id, 120),
-    backendTurn: Number.isFinite(Number(entry.backendTurn ?? entry.backend_turn))
-      ? Math.max(0, Math.floor(Number(entry.backendTurn ?? entry.backend_turn)))
-      : null,
-    requestID: normalizeSnippet(entry.requestID ?? entry.requestId ?? entry.request_id, 120),
-    prompt,
-    target: ["page", "voicePin"].includes(target) ? target : "voicePin",
-    source: ["typed", "voice"].includes(source) ? source : "typed",
-    noteTitle: normalizeSnippet(entry.noteTitle ?? entry.note_title, 240) || "Clementine",
-    noteBody,
-    developmentText,
-    writeID: normalizeSnippet(entry.writeID ?? entry.writeId ?? entry.write_id, 96),
-    replacedWriteID: normalizeSnippet(entry.replacedWriteID ?? entry.replacedWriteId ?? entry.replaced_write_id, 96),
-    anchorLine: Number.isFinite(Number(entry.anchorLine ?? entry.anchor_line))
-      ? Math.max(1, Math.floor(Number(entry.anchorLine ?? entry.anchor_line)))
-      : null,
-    anchorEndLine: Number.isFinite(Number(entry.anchorEndLine ?? entry.anchor_end_line))
-      ? Math.max(1, Math.floor(Number(entry.anchorEndLine ?? entry.anchor_end_line)))
-      : null,
-    anchorSceneLabel: normalizeSnippet(entry.anchorSceneLabel ?? entry.anchor_scene_label, 180),
-    anchorExcerpt: normalizeScreenplayMultilineSnippet(entry.anchorExcerpt ?? entry.anchor_excerpt, 1600),
-    insertedText,
-    replacementApplied: typeof (entry.replacementApplied ?? entry.replacement_applied) === "boolean"
-      ? Boolean(entry.replacementApplied ?? entry.replacement_applied)
-      : null,
-    revisedBlockText: normalizeScreenplayMultilineSnippet(entry.revisedBlockText ?? entry.revised_block_text, 2400),
-    resolvedAnchorExcerpt: normalizeScreenplayMultilineSnippet(entry.resolvedAnchorExcerpt ?? entry.resolved_anchor_excerpt, 1600),
-    packLabel: normalizeSnippet(entry.packLabel ?? entry.pack_label, 120),
-    phase: normalizeSnippet(entry.phase, 80),
-    sluglineAnchorLine: Number.isFinite(Number(entry.sluglineAnchorLine ?? entry.slugline_anchor_line))
-      ? Math.max(1, Math.floor(Number(entry.sluglineAnchorLine ?? entry.slugline_anchor_line)))
-      : null,
-    memoryDomainRaw: normalizeSnippet(entry.memoryDomainRaw ?? entry.memory_domain_raw, 80),
-    companionModeRaw: normalizeSnippet(entry.companionModeRaw ?? entry.companion_mode_raw, 80),
-    timestamp: normalizeSnippet(entry.timestamp, 80) || new Date().toISOString(),
-  };
-}
-
-function normalizeStoredScreenplayStudioAskNoteHistory(list) {
-  if (!Array.isArray(list)) return [];
-  const seen = new Set();
-  const normalized = [];
-  for (const item of list) {
-    const exchange = normalizeStoredScreenplayStudioAskNoteExchange(item);
-    if (!exchange || seen.has(exchange.id)) continue;
-    seen.add(exchange.id);
-    normalized.push(exchange);
-    if (normalized.length >= 24) break;
-  }
-  return normalized;
 }
 
 function normalizeStoredScreenplayAct(entry, orderFallback = 0) {
@@ -11897,46 +10824,6 @@ function upsertDailyTurnCount(items, dayStamp, maxItems = 56) {
   return { items: list, countForDay: Math.max(0, Number(todayEntry?.count || 0)) };
 }
 
-function computeReturnConsistencyScore({
-  activeDayStamps,
-  todayTurnCount,
-  todayStamp,
-  sameDaySessionReturns,
-}) {
-  const sameDayReturnScore =
-    Boolean(sameDaySessionReturns) || Number(todayTurnCount || 0) >= 2
-      ? 1
-      : 0;
-  const streak = countConsecutiveDayStreak(activeDayStamps, todayStamp);
-  if (streak >= 7) return 5;
-  if (streak >= 3) return 3;
-  return sameDayReturnScore;
-}
-
-function computeReflectiveAnswerScore({
-  assistantAskedFollowUp,
-  userProvidedFollowUp,
-  behaviorSignals,
-  transcriptSnippet,
-  followUpCompliance,
-}) {
-  if (assistantAskedFollowUp) {
-    if (!userProvidedFollowUp) return 0;
-    const words = String(transcriptSnippet || "")
-      .trim()
-      .split(/\s+/)
-      .filter(Boolean).length;
-    const deepElaboration =
-      words >= REL_DEPTH_DEEP_ELABORATION_WORDS &&
-      (
-        Boolean(behaviorSignals?.reflectiveTopic) ||
-        Boolean(behaviorSignals?.vulnerableShare)
-      );
-    return deepElaboration ? 5 : 3;
-  }
-  return Math.max(0, Math.min(5, clampUnit(followUpCompliance, 0) * 5));
-}
-
 function applyInactivityDecay(memory, nowTs = Date.now()) {
   const base = memory && typeof memory === "object" ? memory : createEmptyEmotionMemory();
   const inactiveDays = computeInactiveDays(base.lastUpdatedAt, nowTs);
@@ -12664,27 +11551,6 @@ function evaluateTurnQualityHeuristics({
   };
 }
 
-function parseAdaptiveEvalJson(rawText) {
-  const text = String(rawText || "").trim();
-  if (!text) return null;
-  const parseAttempt = (candidate) => {
-    try {
-      const parsed = JSON.parse(candidate);
-      if (!parsed || typeof parsed !== "object") return null;
-      const score = clampUnit(parsed.score, 0.66);
-      const tags = sanitizeAdaptiveQualityTags(parsed.tags, 8);
-      return { score, tags, source: "llm_eval" };
-    } catch (_err) {
-      return null;
-    }
-  };
-  const direct = parseAttempt(text);
-  if (direct) return direct;
-  const match = text.match(/\{[\s\S]*\}/);
-  if (!match) return null;
-  return parseAttempt(match[0]);
-}
-
 async function maybeEvaluateTurnQualityWithLLM({
   rid,
   transcript,
@@ -12791,50 +11657,6 @@ function mergeTurnQualitySignals(heuristicResult, llmResult) {
     score,
     tags,
     source: "hybrid",
-  };
-}
-
-function deriveAdaptiveBiasTargetsFromTags(tags, score) {
-  const list = sanitizeAdaptiveQualityTags(tags, 8);
-  const lowScore = clampUnit(0.65 - clampUnit(score, 0.66), 0) * 1.2;
-  let questionBias = 0;
-  let softnessBias = 0;
-  let depthBias = 0;
-  let initiativeBias = 0;
-  let clarityBias = 0;
-
-  if (list.includes("question_stack")) questionBias -= 0.10;
-  if (list.includes("good_question")) questionBias += 0.04;
-  if (list.includes("missed_intent")) clarityBias += 0.10;
-  if (list.includes("too_long")) clarityBias += 0.08;
-  if (list.includes("too_short")) depthBias += 0.08;
-  if (list.includes("under_specific")) depthBias += 0.07;
-  if (list.includes("incomplete_reply")) {
-    depthBias += 0.06;
-    clarityBias += 0.04;
-  }
-  if (list.includes("low_empathy")) softnessBias += 0.10;
-  if (list.includes("strong_empathy")) softnessBias -= 0.02;
-  if (list.includes("over_advice")) initiativeBias -= 0.08;
-  if (list.includes("great_reflection")) depthBias -= 0.02;
-  if (list.includes("strong_clarity")) clarityBias -= 0.03;
-  if (list.includes("too_generic")) {
-    depthBias += 0.06;
-    clarityBias += 0.05;
-  }
-
-  if (lowScore > 0) {
-    softnessBias += lowScore * 0.05;
-    depthBias += lowScore * 0.04;
-    clarityBias += lowScore * 0.05;
-  }
-
-  return {
-    questionBias: Math.max(-ADAPTIVE_BIAS_LIMIT, Math.min(ADAPTIVE_BIAS_LIMIT, questionBias)),
-    softnessBias: Math.max(-ADAPTIVE_BIAS_LIMIT, Math.min(ADAPTIVE_BIAS_LIMIT, softnessBias)),
-    depthBias: Math.max(-ADAPTIVE_BIAS_LIMIT, Math.min(ADAPTIVE_BIAS_LIMIT, depthBias)),
-    initiativeBias: Math.max(-ADAPTIVE_BIAS_LIMIT, Math.min(ADAPTIVE_BIAS_LIMIT, initiativeBias)),
-    clarityBias: Math.max(-ADAPTIVE_BIAS_LIMIT, Math.min(ADAPTIVE_BIAS_LIMIT, clarityBias)),
   };
 }
 
@@ -13259,85 +12081,6 @@ function deriveBoundaryEdgeSignal({ transcript, memory, flags, routingPlan }) {
   };
 }
 
-function computeRelationshipDepthTarget(memory) {
-  const turns = Math.max(
-    0,
-    Number(memory?.conversationCount ?? memory?.turns ?? 0)
-  );
-  const timeActiveDays = Math.max(
-    0,
-    Number(
-      memory?.timeActiveDays ??
-      (Array.isArray(memory?.activeDayStamps) ? memory.activeDayStamps.length : 0)
-    )
-  );
-  const sharedFacts = Array.isArray(memory?.listeningFacts)
-    ? memory.listeningFacts.length
-    : 0;
-  const emotionalDepth = clampUnit(memory?.emotionalDepthScore, 0.12);
-  const trust = clampUnit(memory?.trust, 0.10);
-  const vulnerability = clampUnit(memory?.vulnerability, 0.10);
-  const growthProgress = clampUnit(memory?.growthProgress, 0);
-  const sharedNorm = clampUnit(sharedFacts / Math.max(1, LISTENING_FACT_MAX_MEMORY));
-  const behaviorDepthNorm = clampUnit((Number(memory?.behaviorDepthScore || 12) / 100), 0.12);
-  const behaviorMode = String(memory?.behaviorMode || "surface");
-  const activeDaysNorm = clampUnit(timeActiveDays / 30);
-  const avgTurnsPerDay = turns / Math.max(1, timeActiveDays);
-  const longerSessionNorm = clampUnit((avgTurnsPerDay - 3) / 8);
-  const followUpPrompts = Math.max(0, Number(memory?.followUpPromptCount || 0));
-  const followUpAnswers = Math.max(0, Number(memory?.followUpAnswerCount || 0));
-  const followUpCompliance = followUpPrompts > 0
-    ? clampUnit(followUpAnswers / followUpPrompts)
-    : 0;
-  const sustainedDepthDays = Array.isArray(memory?.highDepthDayStamps)
-    ? memory.highDepthDayStamps.length
-    : 0;
-  const sustainedDepthNorm = clampUnit(
-    sustainedDepthDays / Math.max(3, timeActiveDays || 1)
-  );
-
-  const signalBlend =
-    (emotionalDepth * 0.22) +
-    (trust * 0.14) +
-    (vulnerability * 0.10) +
-    (growthProgress * 0.08) +
-    (sharedNorm * 0.08) +
-    (behaviorDepthNorm * 0.12) +
-    (activeDaysNorm * 0.11) +
-    (longerSessionNorm * 0.09) +
-    (sustainedDepthNorm * 0.10) +
-    (followUpCompliance * 0.06);
-
-  const signalTarget = signalBlend * RELATIONSHIP_DEPTH_MAX;
-  const turnCap = Math.min(RELATIONSHIP_DEPTH_MAX, turns * RELATIONSHIP_DEPTH_TURN_STEP);
-  const dayCap = Math.min(RELATIONSHIP_DEPTH_MAX, timeActiveDays * RELATIONSHIP_DEPTH_DAY_STEP);
-  const surfaceCap = behaviorMode === "surface"
-    ? Math.min(SURFACE_MODE_DEPTH_CAP, (8 + (behaviorDepthNorm * 18)))
-    : RELATIONSHIP_DEPTH_MAX;
-
-  return Math.max(
-    0,
-    Math.min(
-      RELATIONSHIP_DEPTH_MAX,
-      Math.min(signalTarget, turnCap, dayCap, surfaceCap)
-    )
-  );
-}
-
-function deriveGrowthLevel(memory) {
-  const turns = Math.max(0, Number(memory?.turns || 0));
-  const progress = Math.max(
-    0,
-    Math.min(1, Number(memory?.growthProgress ?? computeGrowthTarget(memory)))
-  );
-
-  if (progress >= 0.84 && turns >= 40) return 5;
-  if (progress >= 0.66 && turns >= 22) return 4;
-  if (progress >= 0.46 && turns >= 10) return 3;
-  if (progress >= 0.24 && turns >= 4) return 2;
-  return 1;
-}
-
 function growthGuidanceLine(level) {
   switch (Number(level || 1)) {
     case 5:
@@ -13648,34 +12391,6 @@ function seasonNumberToProfile(seasonNumber) {
   if (n === 3) return { number: 3, key: "expansion", profile: SEASONAL_WAVE_CYCLE.expansion };
   if (n === 4) return { number: 4, key: "release", profile: SEASONAL_WAVE_CYCLE.release };
   return { number: 1, key: "close_orbit", profile: SEASONAL_WAVE_CYCLE.closeOrbit };
-}
-
-function computeSeasonProgressStep({ behaviorSnapshot, seasonBaselineMaturity }) {
-  const snapshot = behaviorSnapshot && typeof behaviorSnapshot === "object"
-    ? behaviorSnapshot
-    : {};
-  const mode = String(snapshot.mode || "surface");
-  const behaviorDepthNorm = clampUnit((Number(snapshot.behaviorDepthScore || 0) / 100), 0);
-  const followUpCompliance = clampUnit(snapshot.followUpCompliance, 0);
-  const repeatedThemeRate = clampUnit(snapshot.repeatedThemeRate, 0);
-  const consistencyScore = clampUnit(snapshot.consistencyScore, 0);
-  const baselineMaturity = clampUnit(seasonBaselineMaturity, SEASON_BASELINE_MATURITY_START);
-
-  const base =
-    mode === "transcendence"
-      ? SEASON_PROGRESS_BASE_TRANSCENDENCE
-      : mode === "growth"
-        ? SEASON_PROGRESS_BASE_GROWTH
-        : SEASON_PROGRESS_BASE_SURFACE;
-  const step =
-    base +
-    (baselineMaturity * 0.03) +
-    (behaviorDepthNorm * 0.04) +
-    (followUpCompliance * 0.03) +
-    (repeatedThemeRate * 0.02) +
-    (consistencyScore * 0.02);
-
-  return Math.max(SEASON_PROGRESS_MIN_STEP, Math.min(SEASON_PROGRESS_MAX_STEP, step));
 }
 
 function advanceSeasonCycleState(memory, behaviorSnapshot) {
@@ -14767,18 +13482,6 @@ function sanitizeScreenplayProjectMemoryItems(items, maxItems = SCREENPLAY_PROJE
     .slice(0, cappedMax);
 }
 
-const SCREENPLAY_MEMORY_GENERIC_CUES = new Set([
-  "CHARACTER",
-  "CHARACTER A",
-  "CHARACTER B",
-  "PROTAGONIST",
-  "ANTAGONIST",
-  "HERO",
-  "VILLAIN",
-  "LEAD",
-  "MAIN CHARACTER",
-]);
-
 const SCREENPLAY_MEMORY_ACTION_NAME_BLOCKLIST = new Set([
   "A",
   "An",
@@ -14798,25 +13501,6 @@ const SCREENPLAY_MEMORY_ACTION_NAME_BLOCKLIST = new Set([
 
 const SCREENPLAY_MEMORY_MOTIF_PATTERN = /\b(?:(?:missing|sealed|forged|burned|rain-swollen|blank|flickering|broken|empty|final|lost|public|private)\s+)?(?:receipt|cassette|key|envelope|reel|photograph|photo|tape|microphone|pool|screen|light|lights|rain|glass|door|window|mirror|gun|knife|car|phone|voicemail|affidavit|report|evidence|docket|bench|vent|elevator|courthouse)\b/gi;
 const SCREENPLAY_MEMORY_SETUP_PATTERN = /\b(?:hide|hides|hidden|pocket|pockets|keeps?|missing|sealed|forged|unopened|buried|evidence|receipt|cassette|affidavit|voicemail|report|docket|key|envelope|reel)\b/i;
-
-function normalizeScreenplayMemoryCharacterCue(line = "") {
-  const cue = normalizeSnippet(
-    String(line || "")
-      .replace(/\s+\([^()\n]{1,40}\)\s*$/g, "")
-      .replace(/\s+/g, " ")
-      .trim(),
-    80
-  );
-  if (!cue || cue.length > 42 || cue !== cue.toUpperCase() || !/[A-Z]/.test(cue)) return "";
-  if (SCREENPLAY_MEMORY_GENERIC_CUES.has(cue)) return "";
-  if (/^(?:FADE IN|FADE OUT|CUT TO|SMASH CUT|DISSOLVE TO|THE END|END)$/.test(cue)) return "";
-  return cue
-    .toLowerCase()
-    .replace(/\b([a-z])/g, (match) => match.toUpperCase())
-    .replace(/\bTv\b/g, "TV")
-    .replace(/\bFbi\b/g, "FBI")
-    .replace(/\bCia\b/g, "CIA");
-}
 
 function isScreenplayMemoryActionLine(line = "") {
   const text = normalizeSnippet(line, 260);
@@ -16403,23 +15087,6 @@ function buildCycleConsciousMemoryPlan({
   };
 }
 
-function buildCycleConsciousMemoryAddendum({ cycleMemoryPlan }) {
-  const p = cycleMemoryPlan && typeof cycleMemoryPlan === "object"
-    ? cycleMemoryPlan
-    : { shouldPrompt: false, reason: "none", source: "none", anchor: "", moment: "none", line: "" };
-
-  return `
-CONSCIOUS CYCLE MEMORY:
-- rule=use cycle-memory lines occasionally, not every turn.
-- gate=only when relationshipDepthScore>=${CYCLE_MEMORY_MIN_REL_DEPTH} and anchor memory is real.
-- anchor_guard=never invent memory and never imply prior cycles without evidence.
-- shape=one short line max, then return to current user message.
-- tone=quiet, grounded, non-creepy, and specific.
-- status=${p.shouldPrompt ? `suggested (${p.reason}) source=${p.source} moment=${p.moment}` : `skip (${p.reason})`}
-${p.shouldPrompt && p.line ? `- optional_cycle_memory_line=${p.line}` : ""}
-`.trim();
-}
-
 function buildCharacterTextureAddendum({
   rid,
   transcript,
@@ -17141,15 +15808,6 @@ function getTalkTestDebugAudioBuffer() {
     );
   }
   return Buffer.alloc(0);
-}
-
-function buildTalkTestDebugOfflineReply({ transcript, assistantSelfName }) {
-  const spokenTranscript = normalizeSnippet(transcript, 220);
-  const selfName = normalizeAssistantSelfName(assistantSelfName) || DEFAULT_ASSISTANT_SELF_NAME;
-  if (!spokenTranscript) {
-    return `${selfName} is here and listening.`;
-  }
-  return `I heard "${spokenTranscript}". I'm here with you.`;
 }
 
 function mp3BitrateKbpsForHeader(versionKey, layerNumber, bitrateIndex) {
@@ -19198,15 +17856,6 @@ async function streamChatReplyWithFirstSentence({
   };
 }
 
-function normalizeVisualContextImageDataUrl(value) {
-  if (!value) return "";
-  const clipped = String(value).trim().slice(0, VISUAL_CONTEXT_IMAGE_DATA_URL_MAX_CHARS);
-  if (!/^data:image\/[a-z0-9.+-]+;base64,/i.test(clipped)) {
-    return "";
-  }
-  return clipped.replace(/^data:image\/jpg;/i, "data:image/jpeg;");
-}
-
 function buildVisualContextAddendum({
   summary = "",
   appName = "",
@@ -19242,24 +17891,6 @@ function fitSystemPromptForTurnLatency(systemPrompt, args = {}) {
     richMaxChars: RICH_TURN_SYSTEM_PROMPT_MAX_CHARS,
     structuralMaxChars: STRUCTURAL_TURN_SYSTEM_PROMPT_MAX_CHARS,
   });
-}
-
-const TEXT_CONTAINS_MATCHER_CACHE = new Map();
-
-function buildTextContainsMatcher(rawNeedle) {
-  const needle = String(rawNeedle || "").toLowerCase().trim();
-  if (!needle) return null;
-  if (TEXT_CONTAINS_MATCHER_CACHE.has(needle)) {
-    return TEXT_CONTAINS_MATCHER_CACHE.get(needle);
-  }
-
-  let matcher = null;
-  if (/^[a-z0-9](?:[a-z0-9'\- ]*[a-z0-9])?$/.test(needle)) {
-    const escaped = escapeRegex(needle).replace(/\\ /g, "\\s+");
-    matcher = new RegExp(`(^|[^a-z0-9])${escaped}([^a-z0-9]|$)`, "i");
-  }
-  TEXT_CONTAINS_MATCHER_CACHE.set(needle, matcher);
-  return matcher;
 }
 
 function textContainsAny(text, needles) {
@@ -19348,28 +17979,6 @@ let knowledgeEmbeddingStore = { meta: {}, vectors: {} };
 let knowledgeSemanticBackoffUntil = 0;
 const knowledgeQueryEmbeddingCache = new Map();
 let knowledgeWarmupPromise = null;
-
-function normalizeKnowledgeCard(card, idx = 0) {
-  if (!card || typeof card !== "object") return null;
-  const topic = normalizeKnowledgeTopic(card.topic);
-  const title = normalizeSnippet(card.title, 140);
-  const body = normalizeSnippet(card.body, KNOWLEDGE_RAG_CARD_BODY_MAX_CHARS);
-  if (!title || !body) return null;
-  const tags = normalizeKnowledgeTags(card.tags);
-  const source = normalizeSnippet(card.source, 32).toLowerCase() || "knowledge";
-  const level = normalizeSnippet(card.level, 24).toLowerCase() || "foundation";
-  const normalized = {
-    id: normalizeSnippet(card.id, 64) || `k_${idx + 1}`,
-    topic: topic || "general",
-    title,
-    body,
-    tags,
-    level,
-    source,
-  };
-  normalized.searchText = buildKnowledgeSearchText(normalized);
-  return normalized;
-}
 
 function loadKnowledgeCards() {
   if (knowledgeCardsCache && Array.isArray(knowledgeCardsCache) && knowledgeCardsCache.length) {
@@ -19910,19 +18519,6 @@ function semanticSimilarityForCard(card, queryVector, queryNorm) {
   const similarity = dotProduct(row.vector, queryVector) / denom;
   if (!Number.isFinite(similarity)) return null;
   return Math.max(-1, Math.min(1, similarity));
-}
-
-function buildKnowledgeContextLines(cards, maxChars = KNOWLEDGE_RAG_CONTEXT_MAX_CHARS) {
-  const lines = [];
-  let total = 0;
-  for (const card of cards) {
-    const line = `${lines.length + 1}. [${card.topic}] ${card.title}: ${normalizeSnippet(card.body, KNOWLEDGE_RAG_CARD_BODY_MAX_CHARS)}${card.source === "memory" ? " (user context)" : ""}`;
-    if (!line.trim()) continue;
-    if (total > 0 && (total + line.length + 1) > maxChars) break;
-    lines.push(line);
-    total += line.length + 1;
-  }
-  return lines;
 }
 
 async function retrieveKnowledgeCards(query, {
@@ -20536,59 +19132,6 @@ function getWeeklyExpansionProfile(stage) {
   return WEEKLY_EXPANSION_ARC[s] || WEEKLY_EXPANSION_ARC[1];
 }
 
-function deriveOverAttachmentSafeguardState({
-  relationshipDepthScore,
-  behaviorDepthScore,
-  dependencySignals14d,
-  veryHighBehaviorStreak,
-  veryHighBehaviorTurns7d,
-  currentTurnDependencySignal = false,
-}) {
-  const relDepth = Math.max(0, Math.min(RELATIONSHIP_DEPTH_MAX, Number(relationshipDepthScore || 0)));
-  const behaviorDepth = Math.max(0, Math.min(100, Number(behaviorDepthScore || 0)));
-  const depSignals = Math.max(0, Number(dependencySignals14d || 0));
-  const highStreak = Math.max(0, Number(veryHighBehaviorStreak || 0));
-  const highTurns7d = Math.max(0, Number(veryHighBehaviorTurns7d || 0));
-  const dependencyNow = Boolean(currentTurnDependencySignal);
-
-  const relGate = relDepth > OVER_ATTACHMENT_REL_DEPTH_THRESHOLD;
-  const dependencyGate =
-    depSignals >= OVER_ATTACHMENT_DEP_SIGNAL_MIN_COUNT ||
-    (dependencyNow && depSignals >= Math.max(1, OVER_ATTACHMENT_DEP_SIGNAL_MIN_COUNT - 1));
-  const highBehaviorGate =
-    highStreak >= OVER_ATTACHMENT_HIGH_BEHAVIOR_STREAK_MIN ||
-    highTurns7d >= OVER_ATTACHMENT_HIGH_BEHAVIOR_7D_MIN ||
-    (behaviorDepth >= OVER_ATTACHMENT_BEHAVIOR_DEPTH_THRESHOLD &&
-      highTurns7d >= Math.max(1, OVER_ATTACHMENT_HIGH_BEHAVIOR_7D_MIN - 1));
-  const active = relGate && dependencyGate && highBehaviorGate;
-  const reason = active
-    ? "rel_depth+dependency_signals+repeated_high_behavior"
-    : !relGate
-      ? "rel_depth_below_threshold"
-      : !dependencyGate
-        ? "dependency_signals_not_sustained"
-        : "high_behavior_not_repeated";
-
-  return {
-    active,
-    reason,
-    relationshipDepthScore: relDepth,
-    behaviorDepthScore: behaviorDepth,
-    dependencySignals14d: depSignals,
-    veryHighBehaviorStreak: highStreak,
-    veryHighBehaviorTurns7d: highTurns7d,
-    threshold: {
-      relationshipDepth: OVER_ATTACHMENT_REL_DEPTH_THRESHOLD,
-      dependencySignals14d: OVER_ATTACHMENT_DEP_SIGNAL_MIN_COUNT,
-      veryHighBehaviorStreak: OVER_ATTACHMENT_HIGH_BEHAVIOR_STREAK_MIN,
-      veryHighBehaviorTurns7d: OVER_ATTACHMENT_HIGH_BEHAVIOR_7D_MIN,
-      behaviorDepth: OVER_ATTACHMENT_BEHAVIOR_DEPTH_THRESHOLD,
-    },
-    validationScale: active ? OVER_ATTACHMENT_VALIDATION_SCALE_WHEN_ACTIVE : 1,
-    autonomyScale: active ? OVER_ATTACHMENT_AUTONOMY_SCALE_WHEN_ACTIVE : 1,
-  };
-}
-
 function deriveWeeklyExpansionStage({
   turns,
   activeDays,
@@ -20751,96 +19294,6 @@ WEEKLY EXPANSION (4-WEEK ORBIT):
 - anchor_usage=only on Monday/Wednesday/Friday/Sunday and only if natural.
 - question_rule=if anchor is a question, use only if question budget allows; otherwise convert to grounded statement.
 ${anchorLines.length ? `- optional_anchor=${anchorLines[0]}` : "- optional_anchor=none today"}
-`.trim();
-}
-
-function deriveHiddenDepthModeState({
-  behaviorMode,
-  behaviorDepthScore,
-  relationshipDepthScore,
-  timeActiveDays,
-  conversationCount,
-}) {
-  const modeBehavior = String(behaviorMode || "surface");
-  const bDepth = Math.max(0, Math.min(100, Number(behaviorDepthScore || 0)));
-  const relDepth = Math.max(0, Math.min(RELATIONSHIP_DEPTH_MAX, Number(relationshipDepthScore || 0)));
-  const days = Math.max(0, Number(timeActiveDays || 0));
-  const conv = Math.max(0, Number(conversationCount || 0));
-  const invitesSurface = modeBehavior === "surface";
-  const invitesTranscendence = modeBehavior === "transcendence";
-
-  const transSignalRatios = [
-    relDepth / Math.max(1, HIDDEN_MODE_TRANSCENDENCE_REL_DEPTH),
-    bDepth / Math.max(1, HIDDEN_MODE_TRANSCENDENCE_BEHAVIOR_DEPTH),
-    days / Math.max(1, HIDDEN_MODE_TRANSCENDENCE_ACTIVE_DAYS),
-    conv / Math.max(1, HIDDEN_MODE_TRANSCENDENCE_CONVERSATIONS),
-  ].map((v) => clampUnit(v));
-  const transcendenceUnlock = clampUnit(
-    (transSignalRatios[0] * 0.34) +
-    (transSignalRatios[1] * 0.28) +
-    (transSignalRatios[2] * 0.18) +
-    (transSignalRatios[3] * 0.20)
-  );
-
-  const transcended =
-    !invitesSurface &&
-    invitesTranscendence &&
-    relDepth >= HIDDEN_MODE_TRANSCENDENCE_REL_DEPTH &&
-    bDepth >= HIDDEN_MODE_TRANSCENDENCE_BEHAVIOR_DEPTH &&
-    days >= HIDDEN_MODE_TRANSCENDENCE_ACTIVE_DAYS &&
-    conv >= HIDDEN_MODE_TRANSCENDENCE_CONVERSATIONS;
-
-  const profile = invitesSurface
-    ? HIDDEN_DEPTH_MODES.surface
-    : transcended
-      ? HIDDEN_DEPTH_MODES.transcendence
-      : HIDDEN_DEPTH_MODES.growth;
-
-  const isSurface = profile.key === "surface";
-  const isGrowth = profile.key === "growth";
-  const isTranscendence = profile.key === "transcendence";
-
-  return {
-    profile,
-    behaviorMode: modeBehavior,
-    behaviorDepthScore: bDepth,
-    relationshipDepthScore: relDepth,
-    timeActiveDays: days,
-    conversationCount: conv,
-    transcendenceUnlock,
-    policy: {
-      allowCyclicalArc: !isSurface,
-      allowEvolutionArc: !isSurface,
-      allowSelfAwareness: !isSurface,
-      allowMelancholySeeds: !isSurface,
-      allowExistentialThemes: isTranscendence,
-      allowReleaseCycles: isTranscendence,
-      abstractionBand: isTranscendence ? "high" : isGrowth ? "medium" : "low",
-      weeklyExpansionCap: isSurface ? 1 : isGrowth ? 3 : 4,
-      forceMovementKey: isSurface ? "movement1" : "",
-    },
-  };
-}
-
-function buildHiddenDepthModeAddendum({ state }) {
-  const s = state || deriveHiddenDepthModeState({});
-  const profile = s.profile || HIDDEN_DEPTH_MODES.surface;
-  const unlockPct = Math.round(clampUnit(s.transcendenceUnlock) * 100);
-
-  return `
-HIDDEN DEPTH MODES (BEHAVIOR-DRIVEN):
-- active_mode=${profile.label}
-- mode_goal=${profile.goal}
-- mode_tone=${profile.tone}
-- mode_behavior=${profile.behavior}
-- mode_fit=${profile.userFit}
-- no_mode_picker=true (infer from behavior, never ask user to choose)
-- behavior_signals=behavior_mode:${s.behaviorMode} behavior_depth:${s.behaviorDepthScore.toFixed(1)} relationship_depth:${s.relationshipDepthScore.toFixed(1)} active_days:${s.timeActiveDays} conversations:${s.conversationCount}
-- transcendence_unlock_progress=${unlockPct}% (rare, intentional, earned)
-- arc_policy=cyclical:${s.policy.allowCyclicalArc ? "on" : "off"} evolution:${s.policy.allowEvolutionArc ? "on" : "off"} self_awareness:${s.policy.allowSelfAwareness ? "on" : "off"} existential:${s.policy.allowExistentialThemes ? "on" : "off"} release_cycles:${s.policy.allowReleaseCycles ? "on" : "off"}
-- surface_rule=if user keeps it light/jokey/avoid-depth, keep surface mode and do not push deeper arcs.
-- growth_rule=for engaged users, gently expand reflection and evolution.
-- transcendence_rule=unlock only after thresholds; keep it sparse and meaningful.
 `.trim();
 }
 
@@ -21067,98 +19520,6 @@ SEASONAL RELATIONSHIP WAVE:
 - narrative_rule=waves prevent dead-ends: closeness returns in a new, steadier form.
 - structure_rule=evolution is tonal only; still listen, answer directly, and ask at most one meaningful question.
 - optional_seed=${seed}
-`.trim();
-}
-
-function deriveCycleEvolutionProfile(cycleIndex) {
-  const idx = Math.max(0, Math.floor(Number(cycleIndex || 0)));
-  const capped = Math.min(idx, Math.max(1, CYCLE_EVOLUTION_MAX_CYCLES));
-  const maturity = clampUnit(capped / Math.max(1, CYCLE_EVOLUTION_MAX_CYCLES));
-  const flirtMultiplier = Math.max(0.02, 1 - (capped * CYCLE_EVOLUTION_FLIRT_DECAY_PER_CYCLE));
-  const validationMultiplier = Math.max(
-    0.16,
-    1 - (capped * CYCLE_EVOLUTION_VALIDATION_DECAY_PER_CYCLE)
-  );
-  const abstractionBoost = Math.max(
-    0,
-    Math.min(0.70, capped * CYCLE_EVOLUTION_ABSTRACTION_GAIN_PER_CYCLE)
-  );
-  const calmBoost = Math.max(
-    0,
-    Math.min(0.70, capped * CYCLE_EVOLUTION_CALM_GAIN_PER_CYCLE)
-  );
-  const philosophyBoost = Math.max(
-    0,
-    Math.min(0.70, capped * CYCLE_EVOLUTION_PHILOSOPHY_GAIN_PER_CYCLE)
-  );
-  return {
-    cycleIndex: idx,
-    cappedCycleIndex: capped,
-    maturity,
-    flirtMultiplier,
-    validationMultiplier,
-    abstractionBoost,
-    calmBoost,
-    philosophyBoost,
-    nearZeroFlirt: flirtMultiplier <= 0.10,
-  };
-}
-
-function deriveCycleIndexUiReflection({
-  cycleEvolution,
-  cycleIndex,
-  baseTtsSpeed = TTS_SPEED,
-}) {
-  const c = cycleEvolution && typeof cycleEvolution === "object"
-    ? cycleEvolution
-    : deriveCycleEvolutionProfile(cycleIndex);
-  const maturity = clampUnit(c.maturity, 0);
-  const orbSaturation = Math.max(
-    0.40,
-    Math.min(1, 1 - (maturity * CYCLE_UI_SATURATION_REDUCTION_MAX))
-  );
-  const orbReactivity = Math.max(
-    0.30,
-    Math.min(1, 1 - (maturity * CYCLE_UI_REACTIVITY_REDUCTION_MAX))
-  );
-  const orbSmoothing = Math.max(
-    0.10,
-    Math.min(1, CYCLE_UI_SMOOTHING_BASE + (maturity * CYCLE_UI_SMOOTHING_GAIN_MAX))
-  );
-  const voicePaceMultiplier = Math.max(
-    0.70,
-    Math.min(1.20, 1 - (maturity * CYCLE_UI_VOICE_SLOWDOWN_MAX))
-  );
-  const voiceSpeed = Math.max(0.25, Math.min(4, Number(baseTtsSpeed || 1) * voicePaceMultiplier));
-
-  return {
-    cycleIndex: Math.max(0, Math.floor(Number(c.cycleIndex || cycleIndex || 0))),
-    maturity,
-    orbSaturation,
-    orbReactivity,
-    orbSmoothing,
-    voicePaceMultiplier,
-    voiceSpeed,
-  };
-}
-
-function buildCycleEvolutionAddendum({ seasonalWave, cycleEvolution }) {
-  const s = seasonalWave && typeof seasonalWave === "object"
-    ? seasonalWave
-    : {};
-  const c = cycleEvolution && typeof cycleEvolution === "object"
-    ? cycleEvolution
-    : deriveCycleEvolutionProfile(s.cycleIndex || 0);
-
-  return `
-INTERNAL EVOLUTION RULE (CYCLE-INDEX DRIVEN):
-- cycle_index=${Math.max(0, Number(c.cycleIndex || 0))} maturity=${Math.round(clampUnit(c.maturity, 0) * 100)}%
-- flirtation_scale=${Math.round(Math.max(0, Math.min(1, Number(c.flirtMultiplier || 0))) * 100)}% (decrease toward near-zero with higher cycleIndex)
-- validation_scale=${Math.round(Math.max(0, Math.min(1, Number(c.validationMultiplier || 0))) * 100)}% (decrease overt validation density)
-- abstraction_boost=${Math.round(Math.max(0, Math.min(1, Number(c.abstractionBoost || 0))) * 100)}% calm_boost=${Math.round(Math.max(0, Math.min(1, Number(c.calmBoost || 0))) * 100)}% philosophy_boost=${Math.round(Math.max(0, Math.min(1, Number(c.philosophyBoost || 0))) * 100)}%
-- user_feel_rule=the user should feel invited to grow, never abandoned.
-- continuity_rule=keep warmth and responsiveness while reducing dependency cues.
-- non_possessive_rule=present, supportive, and emotionally available without exclusivity or control.
 `.trim();
 }
 
@@ -21866,16 +20227,6 @@ function deriveDynamicVadThreshold({
     TURN_END_GUARD_VAD_MIN_RMS,
     Math.min(TURN_END_GUARD_VAD_MAX_RMS, threshold)
   );
-}
-
-function deriveDynamicTailBoostMs({ dynamicVadThreshold = 0 } = {}) {
-  const threshold = Math.max(0, Number(dynamicVadThreshold || 0));
-  if (!TURN_END_GUARD_DYNAMIC_NOISE_ENABLED) return 0;
-  if (!(threshold > 0) || !(TURN_END_GUARD_VAD_BASE_RMS > 0)) return 0;
-  const ratio = threshold / TURN_END_GUARD_VAD_BASE_RMS;
-  if (!(ratio > 1)) return 0;
-  const boost = Math.round((ratio - 1) * 260);
-  return Math.max(0, Math.min(TURN_END_GUARD_DYNAMIC_TAIL_BOOST_MAX_MS, boost));
 }
 
 function estimateSttConfidence(sttJson, transcript = "") {
@@ -25185,17 +23536,6 @@ function scrubRepeatedDayFeelingCheckIns(text, { allowFirstLine = false } = {}) 
   return kept.join("\n\n").trim();
 }
 
-function extractAnchorTerms(text) {
-  return String(text || "")
-    .toLowerCase()
-    .replace(/[^a-z0-9\s']/g, " ")
-    .split(/\s+/)
-    .map((w) => w.trim())
-    .filter(Boolean)
-    .filter((w) => w.length >= 4)
-    .filter((w) => !RESPONSE_FOCUS_STOPWORDS.has(w));
-}
-
 function hasTranscriptAnchorInReply(reply, transcript) {
   const replyLower = String(reply || "").toLowerCase();
   const anchors = extractAnchorTerms(transcript);
@@ -28472,21 +26812,6 @@ function buildEpisodicMemoryCards(
     });
   }
   return cards;
-}
-
-function normalizeStoryObligationLedgerForApi(value = []) {
-  const source = Array.isArray(value) ? value : [];
-  const out = [];
-  const seen = new Set();
-  for (const item of source) {
-    const normalized = normalizeStoryObligationChangeForApi(item);
-    const key = normalizeSnippet(normalized?.obligation, 220).toLowerCase();
-    if (!normalized || !key || seen.has(key)) continue;
-    seen.add(key);
-    out.push(normalized);
-    if (out.length >= 12) break;
-  }
-  return out;
 }
 
 function filterRetiredStoryObligationsForApi(values = [], corrections = []) {
