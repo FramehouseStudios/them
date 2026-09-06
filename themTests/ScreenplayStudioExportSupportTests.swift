@@ -147,12 +147,36 @@ final class ScreenplayStudioExportSupportTests: XCTestCase {
     }
 
 #if !os(macOS)
-    func testIPhoneClipboardReceivesTheEntireDraft() {
-        let previousItems = UIPasteboard.general.items
-        defer { UIPasteboard.general.items = previousItems }
-        let draft = "\nINT. ROOM — DAY\n\nÉLODIE\nHello 👩🏽‍🚀.\n\nLAST LINE\n"
-        XCTAssertTrue(ScreenplayStudioExportSupport.copyDraftToClipboard(draft))
-        XCTAssertEqual(UIPasteboard.general.string, draft)
+    func testIPhoneClipboardReceivesTheEntireDraft() throws {
+        // Own this real UIKit pasteboard; never request paste permission for, or
+        // overwrite, clipboard contents placed there by another app or the user.
+        let pasteboard = UIPasteboard.withUniqueName()
+        defer { UIPasteboard.remove(withName: pasteboard.name) }
+        let draft = "\n  INT. ROOM — DAY\r\n\nÉLODIE\nHello 👩🏽‍🚀. Cafe\u{301}.\n\nLAST LINE\n"
+        XCTAssertTrue(ScreenplayStudioExportSupport.copyDraftToClipboard(draft, to: pasteboard))
+        let copiedDraft = try XCTUnwrap(pasteboard.string)
+        XCTAssertEqual(copiedDraft, draft)
+        // Swift String equality permits Unicode normalization; the bytes must
+        // also preserve the writer's original combining characters and spacing.
+        XCTAssertEqual(Data(copiedDraft.utf8), Data(draft.utf8))
+    }
+
+    func testIPhoneClipboardCopyReplacesOnlyTheChosenPasteboard() throws {
+        let pasteboard = UIPasteboard.withUniqueName()
+        let otherPasteboard = UIPasteboard.withUniqueName()
+        defer {
+            UIPasteboard.remove(withName: pasteboard.name)
+            UIPasteboard.remove(withName: otherPasteboard.name)
+        }
+        pasteboard.string = "Previous copy from this test"
+        otherPasteboard.string = "Unrelated test-owned clipboard"
+        let draft = "FIRST LINE\n\nLAST LINE\n"
+
+        XCTAssertTrue(ScreenplayStudioExportSupport.copyDraftToClipboard(draft, to: pasteboard))
+
+        XCTAssertEqual(pasteboard.numberOfItems, 1)
+        XCTAssertEqual(Data(try XCTUnwrap(pasteboard.string).utf8), Data(draft.utf8))
+        XCTAssertEqual(otherPasteboard.string, "Unrelated test-owned clipboard")
     }
 
     func testExportUsesBackendBytesWithoutPrematureSavedMessage() async throws {

@@ -274,7 +274,7 @@ enum ScreenplayPrintService {
     }
     /// Keep header pagination stable: "1." top-right per Final Draft, not centered.
     static func titlePageLines(for title: String) -> [String] {
-        return [title.uppercased(), "written by", "io.them — Clementine"]
+        return [title.uppercased(), "written by", "THEM — Clementine"]
     }
 
     #if !os(macOS)

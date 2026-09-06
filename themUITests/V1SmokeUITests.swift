@@ -530,21 +530,55 @@ final class V1SmokeUITests: XCTestCase {
         let markdownExport = app.buttons["studio.export.md"]
         XCTAssertTrue(markdownExport.waitForExistence(timeout: writerLoopWait(5)), "Export Copy did not offer Markdown.")
         markdownExport.tap()
-        let cancelExport = app.buttons["Cancel"]
-        XCTAssertTrue(cancelExport.waitForExistence(timeout: writerLoopWait(10)),
+        let pickerFilename = app.textFields["DOCPicker.filenameTextField"]
+        XCTAssertTrue(pickerFilename.waitForExistence(timeout: writerLoopWait(10)),
                       "Real export did not present the native Files picker.\n\(app.debugDescription)")
         let firstPicker = XCTAttachment(screenshot: app.screenshot())
         firstPicker.name = "writer-loop-files-before-cancel.png"
         firstPicker.lifetime = .keepAlways
         add(firstPicker)
+
+        // iOS 26.5 can expose Files' real Cancel as an `Other` instead of a
+        // Button. It can also reopen inside On My iPhone, where the leading
+        // control first navigates back to Browse. Reject the unrelated trailing
+        // overflow element that XCTest can also label Cancel.
+        var cancelExport = leadingHittableElement(identifier: "Cancel", in: app)
+        if cancelExport == nil {
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.12, dy: 0.12)).tap()
+            cancelExport = waitForLeadingHittableElement(
+                identifier: "Cancel",
+                in: app,
+                timeout: writerLoopWait(5)
+            )
+        }
+        guard let cancelExport else {
+            XCTFail("The native Files picker did not expose a real leading Cancel.\n\(app.debugDescription)")
+            return
+        }
         cancelExport.tap()
-        XCTAssertTrue(staticText(containing: "Export cancelled.", in: app).waitForExistence(timeout: writerLoopWait(5)))
+        XCTAssertTrue(waitForHittability(of: exportMenu, timeout: writerLoopWait(8)),
+                      "Cancel did not dismiss the native Files picker.\n\(app.debugDescription)")
+        // Some iOS 26 document-picker dismissals do not deliver SwiftUI's
+        // optional onCancellation callback. The durable contract is that the
+        // picker closes without changing the draft and another real export can
+        // begin immediately; the next assertions prove both outcomes.
         XCTAssertTrue(waitForExactWriterLoopDraft(marker, in: app, timeout: writerLoopWait(5)))
         XCTAssertTrue(revealInStudioDrawer(exportMenu, drawer: rightDrawer, scrollingUp: false, maxSwipes: 8))
         exportMenu.tap()
         XCTAssertTrue(markdownExport.waitForExistence(timeout: writerLoopWait(5)))
         markdownExport.tap()
-        let saveExport = app.buttons["Save"]
+        XCTAssertTrue(pickerFilename.waitForExistence(timeout: writerLoopWait(10)),
+                      "The second export did not present the native Files picker.\n\(app.debugDescription)")
+        let saveExport = element(identifier: "Save", in: app)
+        if !waitForHittability(of: saveExport, timeout: writerLoopWait(2)) {
+            // Browse root has no Save action until a concrete location is
+            // selected. Enter the device-local destination just as a writer
+            // would, then prove the native save itself.
+            let onMyIPhone = element(identifier: "DOC.sidebar.item.On My iPhone", in: app)
+            XCTAssertTrue(waitForHittability(of: onMyIPhone, timeout: writerLoopWait(5)),
+                          "Files exposed neither Save nor the On My iPhone destination.\n\(app.debugDescription)")
+            onMyIPhone.tap()
+        }
         XCTAssertTrue(waitForHittability(of: saveExport, timeout: writerLoopWait(10)),
                       "The second export did not offer native Save.\n\(app.debugDescription)")
         let savePicker = XCTAttachment(screenshot: app.screenshot())
@@ -777,11 +811,15 @@ final class V1SmokeUITests: XCTestCase {
 
         let previous = app.buttons["studio.draft.pages.previous"]
         let next = app.buttons["studio.draft.pages.next"]
-        XCTAssertTrue(revealFrameInStudioDrawer(previous, drawer: drawer, maxSwipes: 12))
+        XCTAssertTrue(revealFrameInStudioDrawer(previous, drawer: drawer, maxSwipes: 12),
+                      "Previous was not fully visible: \(previous.frame), drawer: \(drawer.frame)")
         XCTAssertFalse(previous.isEnabled, "Previous should be disabled on page 1.")
         XCTAssertTrue(next.isEnabled, "Next should be enabled on page 1.")
         XCTAssertGreaterThanOrEqual(next.frame.height, 44)
         next.tap()
+        XCTAssertTrue(waitForRestoreSnapshot(in: app, timeout: 5) { snapshot in
+            intValue(snapshot["current_cursor_line"]) == 56
+        }, "Next did not move the editor cursor to page 2's first line.")
         XCTAssertTrue(
             revealInStudioDrawer(pageTwo, drawer: drawer, scrollingUp: true, maxSwipes: 12),
             "Next did not reveal page 2."
@@ -796,21 +834,41 @@ final class V1SmokeUITests: XCTestCase {
             "The third full-width page card was not reachable."
         )
         pageThree.tap()
+        XCTAssertTrue(waitForRestoreSnapshot(in: app, timeout: 5) { snapshot in
+            intValue(snapshot["current_cursor_line"]) == 111
+        }, "The page 3 card did not move the editor cursor to its first line.")
         XCTAssertTrue(waitForAccessibilityText(in: pageThree, containing: "current page", timeout: 5))
         XCTAssertTrue(revealFullyInStudioDrawer(pageThree, drawer: drawer, maxSwipes: 8))
         retainPagesScreenshot(app, stage: "page-three-current")
 
-        XCTAssertTrue(
-            revealInStudioDrawer(previous, drawer: drawer, scrollingUp: false, maxSwipes: 20),
-            "Previous did not remain reachable after a direct page jump."
-        )
+        // Hittability alone does not establish that the whole target is visible.
+        // Require its actual frame inside the drawer before a single real tap.
+        guard revealFullyInStudioDrawer(previous, drawer: drawer, maxSwipes: 20) else {
+            XCTFail("Previous was not fully visible after a direct page jump: \(previous.frame), drawer: \(drawer.frame)")
+            return
+        }
+        XCTAssertTrue(previous.isEnabled, "Previous should be enabled on page 3.")
+        assertHorizontallyContained(previous, in: drawer, message: "Previous escaped the inspector")
         XCTAssertFalse(next.isEnabled, "Next must be disabled on the final page.")
-        previous.tap()
+        let previousGeometry = XCTAttachment(string:
+            "Previous frame: \(previous.frame); drawer frame: \(drawer.frame); hittable: \(previous.isHittable)")
+        previousGeometry.name = "pages-previous-target-geometry"
+        previousGeometry.lifetime = .keepAlways
+        add(previousGeometry)
+        retainPagesScreenshot(app, stage: "before-previous")
+        previous.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        var previousSnapshot: [String: Any] = [:]
+        XCTAssertTrue(waitForRestoreSnapshot(in: app, timeout: 5) { snapshot in
+            previousSnapshot = snapshot
+            return intValue(snapshot["current_cursor_line"]) == 56
+        }, "Previous did not move the editor cursor to page 2's first line. Snapshot: \(previousSnapshot)")
         XCTAssertTrue(
             revealInStudioDrawer(pageTwo, drawer: drawer, scrollingUp: true, maxSwipes: 12),
             "Previous did not return to page 2."
         )
         XCTAssertTrue(waitForAccessibilityText(in: pageTwo, containing: "current page", timeout: 5))
+        XCTAssertTrue(revealFullyInStudioDrawer(pageTwo, drawer: drawer, maxSwipes: 8))
+        retainPagesScreenshot(app, stage: "previous-returned-page-two")
 #else
         throw XCTSkip("The narrow Pages navigator regression specifically covers iPhone.")
 #endif
@@ -834,7 +892,7 @@ final class V1SmokeUITests: XCTestCase {
         }
         XCTAssertTrue(drawer.waitForExistence(timeout: 8), "The Studio inspector drawer was not available.")
         let themTab = app.buttons["studio.right-panel.them"]
-        XCTAssertTrue(themTab.waitForExistence(timeout: 4), "The io.them inspector tab was missing.")
+        XCTAssertTrue(themTab.waitForExistence(timeout: 4), "The THEM inspector tab was missing.")
         if !themTab.isSelected {
             themTab.tap()
         }
@@ -842,7 +900,7 @@ final class V1SmokeUITests: XCTestCase {
         let openThread = app.buttons["studio.thread.open-full"]
         XCTAssertTrue(
             revealInStudioDrawer(openThread, drawer: drawer, scrollingUp: true, maxSwipes: 12),
-            "The real Working Thread entry point was not reachable in the io.them rail."
+            "The real Working Thread entry point was not reachable in the THEM rail."
         )
         XCTAssertGreaterThanOrEqual(openThread.frame.height, 44, "Working Thread entry point missed its touch target.")
         XCTAssertTrue(waitForAccessibilityValue(of: openThread, equalTo: "1 entry", timeout: 3))
@@ -3372,7 +3430,7 @@ final class V1SmokeUITests: XCTestCase {
                rightToggle.label.localizedCaseInsensitiveContains("Open") {
                 rightToggle.tap()
             }
-            let themTab = app.buttons["io.them"]
+            let themTab = app.buttons["THEM"]
             if themTab.exists, themTab.isHittable, !themTab.isSelected {
                 themTab.tap()
             }
@@ -3390,7 +3448,7 @@ final class V1SmokeUITests: XCTestCase {
                rightToggle.label.localizedCaseInsensitiveContains("Open") {
                 rightToggle.tap()
             }
-            let themTab = app.buttons["io.them"]
+            let themTab = app.buttons["THEM"]
             if themTab.exists, themTab.isHittable, !themTab.isSelected {
                 themTab.tap()
             }
@@ -3685,6 +3743,47 @@ final class V1SmokeUITests: XCTestCase {
             .firstMatch
     }
 
+    private func leadingHittableElement(identifier: String, in app: XCUIApplication) -> XCUIElement? {
+        // Query concrete accessibility classes first. A generic descendant
+        // query can cache Files' unrelated trailing `Other` and never surface
+        // the leading navigation-bar Button that appears one level later.
+        for candidate in [app.buttons[identifier], app.otherElements[identifier]] {
+            if candidate.exists,
+               candidate.isHittable,
+               candidate.frame.midX < app.frame.midX,
+               candidate.frame.midY < app.frame.midY {
+                return candidate
+            }
+        }
+
+        let query = app.descendants(matching: .any).matching(identifier: identifier)
+        for index in 0..<query.count {
+            let candidate = query.element(boundBy: index)
+            if candidate.exists,
+               candidate.isHittable,
+               candidate.frame.midX < app.frame.midX,
+               candidate.frame.midY < app.frame.midY {
+                return candidate
+            }
+        }
+        return nil
+    }
+
+    private func waitForLeadingHittableElement(
+        identifier: String,
+        in app: XCUIApplication,
+        timeout: TimeInterval
+    ) -> XCUIElement? {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if let candidate = leadingHittableElement(identifier: identifier, in: app) {
+                return candidate
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        }
+        return leadingHittableElement(identifier: identifier, in: app)
+    }
+
     private func waitForDisappearance(
         of element: XCUIElement,
         timeout: TimeInterval
@@ -3743,28 +3842,9 @@ final class V1SmokeUITests: XCTestCase {
         drawer: XCUIElement,
         maxSwipes: Int
     ) -> Bool {
-        func isFullyVisible() -> Bool {
-            target.exists &&
-                target.isHittable &&
-                target.frame.minY >= drawer.frame.minY + 8 &&
-                target.frame.maxY <= drawer.frame.maxY - 24
-        }
-
-        if isFullyVisible() {
-            return true
-        }
-        for _ in 0..<maxSwipes {
-            if target.exists, target.frame.minY < drawer.frame.minY + 8 {
-                drawer.swipeDown()
-            } else {
-                drawer.swipeUp()
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.12))
-            if isFullyVisible() {
-                return true
-            }
-        }
-        return isFullyVisible()
+        revealFrameInStudioDrawer(target, drawer: drawer, maxSwipes: maxSwipes)
+            && waitForHittability(of: target, timeout: 2)
+            && revealFrameInStudioDrawer(target, drawer: drawer, maxSwipes: 0)
     }
 
     @discardableResult
@@ -3784,11 +3864,30 @@ final class V1SmokeUITests: XCTestCase {
             return true
         }
         for _ in 0..<maxSwipes {
+#if os(iOS)
+            if target.exists, !target.frame.isEmpty {
+                // Full inertial swipes can repeatedly overshoot a short row in
+                // either direction. Move toward its measured center with a
+                // bounded drag, then stop before releasing the finger.
+                let viewport = drawer.frame
+                let visibleMidY = ((viewport.minY + 8) + (viewport.maxY - 24)) / 2
+                let distance = max(-viewport.height * 0.35,
+                    min(viewport.height * 0.35, visibleMidY - target.frame.midY))
+                let start = drawer.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5))
+                start.press(forDuration: 0.05,
+                            thenDragTo: start.withOffset(CGVector(dx: 0, dy: distance)),
+                            withVelocity: .slow,
+                            thenHoldForDuration: 0.15)
+            } else {
+                drawer.swipeUp()
+            }
+#else
             if target.exists, target.frame.minY < drawer.frame.minY + 8 {
                 drawer.swipeDown()
             } else {
                 drawer.swipeUp()
             }
+#endif
             RunLoop.current.run(until: Date().addingTimeInterval(0.12))
             if isFullyVisible() {
                 return true

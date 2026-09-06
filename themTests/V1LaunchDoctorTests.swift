@@ -60,7 +60,7 @@ final class V1LaunchDoctorTests: XCTestCase {
             generatedAt: Date(timeIntervalSince1970: 0)
         )
 
-        XCTAssertTrue(report.markdown.contains("# io.them V1 Launch Doctor"))
+        XCTAssertTrue(report.markdown.contains("# THEM V1 Launch Doctor"))
         XCTAssertTrue(report.markdown.contains("## Talk Pipeline"))
         XCTAssertTrue(report.markdown.contains("## iOS Release Readiness"))
         XCTAssertTrue(report.markdown.contains("Evidence: Build 128, local backend"))

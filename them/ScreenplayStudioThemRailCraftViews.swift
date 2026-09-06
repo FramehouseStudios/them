@@ -256,7 +256,7 @@ struct ScreenplayStudioCharacterMemoryView: View {
                 .foregroundStyle(Color.herText.opacity(0.70))
                 .fixedSize(horizontal: false, vertical: true)
         case .empty:
-            Text("No character traits saved yet. Dialogue and rendered character cues will teach io.them who belongs in the draft.")
+            Text("No character traits saved yet. Dialogue and rendered character cues will teach THEM who belongs in the draft.")
                 .font(IOThemTypography.UI.captionMedium)
                 .foregroundStyle(Color.herText.opacity(0.66))
                 .fixedSize(horizontal: false, vertical: true)

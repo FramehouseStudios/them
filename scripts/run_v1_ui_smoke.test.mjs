@@ -10,7 +10,12 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
 const script = path.join(repoRoot, "scripts", "run_v1_ui_smoke.sh");
 
-function runSmoke({ xcconfigPath = "", onlyTesting = "themUITests", buildArguments = [] } = {}) {
+function runSmoke({
+  xcconfigPath = "",
+  onlyTesting = "themUITests",
+  buildArguments = [],
+  destination = "platform=iOS Simulator,id=deterministic-v1-ui-smoke",
+} = {}) {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "io-them-v1-ui-smoke-"));
   const log = path.join(tmp, "xcodebuild.args");
   const fakeXcodebuild = path.join(tmp, "xcodebuild");
@@ -22,7 +27,20 @@ function runSmoke({ xcconfigPath = "", onlyTesting = "themUITests", buildArgumen
   ].join("\n"));
   fs.chmodSync(fakeXcodebuild, 0o755);
 
-  const destination = "platform=iOS Simulator,id=deterministic-v1-ui-smoke";
+  const simctlLog = path.join(tmp, "simctl.args");
+  const fakeXcrun = path.join(tmp, "xcrun");
+  fs.writeFileSync(fakeXcrun, [
+    "#!/usr/bin/env bash",
+    "if [[ \"$1\" == \"simctl\" && \"$2\" == \"list\" ]]; then",
+    "  printf '    iPhone 16 Pro (A1B2C3D4-E5F6-47A8-90AB-CDEF12345678) (Shutdown)\\n'",
+    "  exit 0",
+    "fi",
+    "printf '%s\\n' \"$*\" >> \"$XCRUN_CALLS_LOG\"",
+    "exit 0",
+    "",
+  ].join("\n"));
+  fs.chmodSync(fakeXcrun, 0o755);
+
   const result = spawnSync("/bin/bash", [
     script,
     "-resultBundlePath",
@@ -34,9 +52,11 @@ function runSmoke({ xcconfigPath = "", onlyTesting = "themUITests", buildArgumen
       ...process.env,
       XCODEBUILD: fakeXcodebuild,
       XCODEBUILD_CALLS_LOG: log,
+      XCRUN_CALLS_LOG: simctlLog,
       IOS_SIMULATOR_DESTINATION: destination,
       ONLY_TESTING: onlyTesting,
       THEM_UITEST_RESTORE_XCCONFIG_PATH: xcconfigPath,
+      PATH: `${tmp}:${process.env.PATH}`,
     },
     encoding: "utf8",
   });
@@ -44,8 +64,11 @@ function runSmoke({ xcconfigPath = "", onlyTesting = "themUITests", buildArgumen
   const args = fs.existsSync(log)
     ? fs.readFileSync(log, "utf8").trim().split("\n")
     : [];
+  const simctlCalls = fs.existsSync(simctlLog)
+    ? fs.readFileSync(simctlLog, "utf8").trim().split("\n").filter(Boolean)
+    : [];
   fs.rmSync(tmp, { recursive: true, force: true });
-  return { args, destination, result };
+  return { args, destination, result, simctlCalls };
 }
 
 test("[v1-ui-smoke] preserves simulator signing for Keychain coverage", () => {
@@ -91,4 +114,20 @@ test("[v1-ui-smoke] can require the complete signed unit bundle without narrowin
   assert.ok(args.includes("CODE_SIGNING_ALLOWED=YES"));
   assert.ok(args.includes("CODE_SIGNING_REQUIRED=YES"));
   assert.equal(args.includes("CODE_SIGNING_ALLOWED=NO"), false);
+});
+
+test("[v1-ui-smoke] pins a resolved simulator name to the exact booted UDID", () => {
+  const resolvedID = "A1B2C3D4-E5F6-47A8-90AB-CDEF12345678";
+  const { args, result, simctlCalls } = runSmoke({
+    destination: "platform=iOS Simulator,name=iPhone 16 Pro",
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, new RegExp(`destination=platform=iOS Simulator,id=${resolvedID}`));
+  assert.ok(args.includes(`platform=iOS Simulator,id=${resolvedID}`));
+  assert.equal(args.includes("platform=iOS Simulator,name=iPhone 16 Pro"), false);
+  assert.deepEqual(simctlCalls, [
+    `simctl boot ${resolvedID}`,
+    `simctl bootstatus ${resolvedID} -b`,
+  ]);
 });

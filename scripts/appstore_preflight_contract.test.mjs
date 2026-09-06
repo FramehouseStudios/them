@@ -35,6 +35,19 @@ test("[appstore-preflight] performs clean AppIcon source and compiled-product ch
   assert.match(preflight, /fail "Release build succeeded but app bundle was not found/);
 });
 
+test("[appstore-preflight] enforces canonical THEM names in source and compiled release metadata", () => {
+  const project = read("them.xcodeproj/project.pbxproj");
+  const releasePlist = read("them/Info-Release.plist");
+  const preflight = read("scripts/appstore_preflight.sh");
+  assert.match(project, /INFOPLIST_KEY_CFBundleDisplayName = THEM;/);
+  assert.match(project, /INFOPLIST_KEY_CFBundleName = THEM;/);
+  assert.match(releasePlist, /<key>CFBundleDisplayName<\/key>\s*<string>THEM<\/string>/);
+  assert.match(releasePlist, /<key>CFBundleName<\/key>\s*<string>THEM<\/string>/);
+  assert.match(preflight, /plutil -extract CFBundleDisplayName raw/);
+  assert.match(preflight, /plutil -extract CFBundleName raw/);
+  assert.match(preflight, /Release app identifies as THEM/);
+});
+
 test("[release-secret-boundary] app token never enters xcodebuild argv", () => {
   const appstore = read("scripts/appstore_preflight.sh");
   const status = read("scripts/release_config_status.mjs");

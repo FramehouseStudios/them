@@ -8841,9 +8841,20 @@ actor BackendMemoryAPI {
         title: String = "",
         phase: String = "scene_draft",
         targetPages: Int? = nil,
-        linesPerPage: Int = 55
+        linesPerPage: Int = 55,
+        expectedAuthSessionIntentGeneration: Int? = nil
     ) async throws -> BackendReadResult<BackendScreenplayPaginateResponse> {
+        let authIntent = expectedAuthSessionIntentGeneration
+            ?? BackendAuthClient.currentAuthSessionIntentGeneration()
+        func validateAuthIntent() throws {
+            try Task.checkCancellation()
+            guard BackendAuthClient.currentAuthSessionIntentGeneration() == authIntent else {
+                throw BackendMemoryAPIError.server(status: 409, message: "auth_request_superseded")
+            }
+        }
+        try validateAuthIntent()
         _ = try? await bootstrapSession(force: false)
+        try validateAuthIntent()
         let trimmedDraft = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedDraft.isEmpty else {
             throw BackendMemoryAPIError.server(status: 400, message: "draft_required")
@@ -8862,7 +8873,9 @@ actor BackendMemoryAPI {
         }
         request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
 
+        try validateAuthIntent()
         let (data, response) = try await session.data(for: request)
+        try validateAuthIntent()
         guard let http = response as? HTTPURLResponse else {
             throw BackendMemoryAPIError.invalidResponse
         }

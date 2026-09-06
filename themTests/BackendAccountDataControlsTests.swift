@@ -674,15 +674,20 @@ final class BackendAccountDataControlsTests: XCTestCase {
         let original = UserDefaults.standard.object(forKey: key)
         let expected = "thread-check-\(UUID().uuidString)@io.them.invalid"
         let notified = expectation(description: "live auth defaults notification")
-        var notificationWasOnMain = false
+        let delivery = AccountDataControlsNotificationDelivery()
         let observer = NotificationCenter.default.addObserver(
             forName: UserDefaults.didChangeNotification,
             object: UserDefaults.standard,
             queue: nil
         ) { _ in
             guard UserDefaults.standard.string(forKey: key) == expected else { return }
-            notificationWasOnMain = Thread.isMainThread
-            notified.fulfill()
+            // This observes shared defaults, not an exactly-once event. Pending
+            // notifications can also see the new value; validate every delivery
+            // but fulfill the one-shot waiter only for the first matching one.
+            XCTAssertTrue(Thread.isMainThread, "Live auth defaults must notify on the main thread.")
+            if delivery.record(isOnMain: Thread.isMainThread) {
+                notified.fulfill()
+            }
         }
         defer {
             NotificationCenter.default.removeObserver(observer)
@@ -698,7 +703,7 @@ final class BackendAccountDataControlsTests: XCTestCase {
         }
         wait(for: [notified], timeout: 2)
 
-        XCTAssertTrue(notificationWasOnMain)
+        XCTAssertTrue(delivery.allArrivedOnMain)
         XCTAssertEqual(UserDefaults.standard.string(forKey: key), expected)
 #endif
     }
@@ -3020,6 +3025,24 @@ private struct AccountDataControlsHTTPStub {
     let status: Int
     let headers: [String: String]
     let body: Data
+}
+
+private final class AccountDataControlsNotificationDelivery: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+    private var allOnMain = true
+
+    func record(isOnMain: Bool) -> Bool {
+        lock.withLock {
+            count += 1
+            allOnMain = allOnMain && isOnMain
+            return count == 1
+        }
+    }
+
+    var allArrivedOnMain: Bool {
+        lock.withLock { count > 0 && allOnMain }
+    }
 }
 
 private final class AccountDataControlsURLProtocolStub: URLProtocol {

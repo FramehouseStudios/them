@@ -186,7 +186,7 @@ struct AppShell: View {
         .toolbar {
             ToolbarItem(placement: .principal) {
                 VStack(spacing: 2) {
-                    Text("io.them")
+                    Text("THEM")
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(.primary.opacity(0.82))
                     Text(backendBridge.identityLine)
@@ -243,7 +243,7 @@ struct AppShell: View {
                 .tag(section as AppSection?)
         }
         .listStyle(.sidebar)
-        .navigationTitle("io.them")
+        .navigationTitle("THEM")
         .frame(minWidth: 220)
     }
 
@@ -342,7 +342,7 @@ struct ConversationScreen: View {
                         driver.setMicSensitivity(CGFloat(newValue))
                     }
 
-                Text("Hold to speak to io.them")
+                Text("Hold to speak to THEM")
                     .font(.system(size: 15, weight: .regular))
                     .foregroundStyle(.white.opacity(0.62))
 

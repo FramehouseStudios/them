@@ -808,7 +808,7 @@ private struct ScreenplayStudioDraftPageTools: View {
 
             if let estimatedMinutes = presentation.estimatedMinutes {
                 Label(
-                    String(format: "Approximately %.1f minutes on the page", estimatedMinutes),
+                    String(format: "About %.1f minutes of screen time", estimatedMinutes),
                     systemImage: "clock"
                 )
                 .font(IOThemTypography.UI.caption)

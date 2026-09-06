@@ -27,12 +27,10 @@ else
   destination="platform=iOS Simulator,name=${simulator_name}"
 fi
 
-echo "run-v1-ui-smoke: destination=${destination}"
-echo "run-v1-ui-smoke: only-testing=${ONLY_TESTING}"
-
 # Boot the simulator before xcodebuild so a cold boot on a fresh CI runner is
 # not paid inside the first test's launch wait. Idempotent: an already-booted
-# device is left alone. Only possible when the destination names a device.
+# device is left alone. A name-based destination is resolved once and then
+# pinned to that exact UDID so boot and test can never select different clones.
 case "$destination" in
   *"name="*)
     boot_name="${destination##*name=}"
@@ -43,6 +41,7 @@ case "$destination" in
         | head -n 1
     )"
     if [[ -n "$boot_udid" ]]; then
+      destination="platform=iOS Simulator,id=${boot_udid}"
       xcrun simctl boot "$boot_udid" >/dev/null 2>&1 || true
       if xcrun simctl bootstatus "$boot_udid" -b >/dev/null 2>&1; then
         echo "run-v1-ui-smoke: simulator ${boot_udid} booted"
@@ -52,6 +51,9 @@ case "$destination" in
     fi
     ;;
 esac
+
+echo "run-v1-ui-smoke: destination=${destination}"
+echo "run-v1-ui-smoke: only-testing=${ONLY_TESTING}"
 
 build_args=()
 if [[ -n "${THEM_UITEST_RESTORE_XCCONFIG_PATH:-}" ]]; then

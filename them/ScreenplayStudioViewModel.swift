@@ -3441,7 +3441,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
 
         let parsed = Self.parseDevelopmentOutline(prompt: prompt, reply: reply)
         guard !parsed.actTitles.isEmpty || !parsed.beats.isEmpty else {
-            errorText = "Ask io.them for a beat sheet or outline, then try Apply to Outline again."
+            errorText = "Ask THEM for a beat sheet or outline, then try Apply to Outline again."
             return false
         }
 
@@ -4704,7 +4704,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         }
     }
 
-    func refreshBlockSignal(source: String = "io.them") async {
+    func refreshBlockSignal(source: String = "THEM") async {
         guard !IOThemRuntime.isRunningTests else { return }
         guard !isBlockSignalLoading else { return }
         isBlockSignalLoading = true
@@ -4735,7 +4735,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
     }
 
     func refreshCharacterTraits(
-        source: String = "io.them",
+        source: String = "THEM",
         allowDuringTests: Bool = false
     ) async {
         guard !IOThemRuntime.isRunningTests || allowDuringTests else {
@@ -4809,7 +4809,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         }
     }
 
-    func refreshCraftTwists(source: String = "io.them") async {
+    func refreshCraftTwists(source: String = "THEM") async {
         guard !IOThemRuntime.isRunningTests else { return }
         guard !isCraftTwistLoading else { return }
         let context = preferredCraftTwistContext()
@@ -4841,7 +4841,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         }
     }
 
-    func refreshAcceptedCraftTwists(source: String = "io.them") async {
+    func refreshAcceptedCraftTwists(source: String = "THEM") async {
         guard !IOThemRuntime.isRunningTests else { return }
         guard let project = selectedProject else {
             acceptedCraftTwists = []
@@ -6337,15 +6337,24 @@ final class ScreenplayStudioViewModel: ObservableObject {
     private func recomputePagination(for draft: String, source: String) async {
         let refreshID = UUID()
         paginationRefreshID = refreshID
-        let normalized = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalized.isEmpty else {
+        let selectionID = draftSaveSelectionID
+        let authContext = currentStudioAuthContext()
+        let requestedLinesPerPage = linesPerPage
+        let title = selectedProject?.title ?? ""
+        let phase = selectedProject?.lastPhase ?? "scene_draft"
+        func isCurrent() -> Bool {
+            !Task.isCancelled && paginationRefreshID == refreshID && draftSaveSelectionID == selectionID &&
+                authContextIsCurrent(authContext) && requestedLinesPerPage == linesPerPage &&
+                draft == fountainDraft
+        }
+        guard !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            paginationRefreshID = nil
             paginationPages = []
             paginationErrorText = ""
             isPaginationRefreshing = false
             return
         }
 
-        let requestedLinesPerPage = linesPerPage
         isPaginationRefreshing = true
         defer {
             if paginationRefreshID == refreshID {
@@ -6358,11 +6367,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         if IOThemRuntime.isRunningUITests,
            ProcessInfo.processInfo.arguments.contains("--ui-pages-workflow-fixture") {
             await Task.yield()
-            guard paginationRefreshID == refreshID,
-                  requestedLinesPerPage == linesPerPage,
-                  normalized == fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines) else {
-                return
-            }
+            guard isCurrent() else { return }
             paginationPages = Self.paginationPagesForUITesting(
                 draft: draft,
                 linesPerPage: requestedLinesPerPage
@@ -6374,26 +6379,20 @@ final class ScreenplayStudioViewModel: ObservableObject {
 
         do {
             let result = try await StudioCraftResilience.run(source: source) {
-                try await BackendMemoryAPI.shared.paginateScreenplayDraft(
+                guard isCurrent() else { throw CancellationError() }
+                return try await draftAPI.paginateScreenplayDraft(
                     draft: draft,
-                    title: selectedProject?.title ?? "",
-                    phase: selectedProject?.lastPhase ?? "scene_draft",
-                    linesPerPage: requestedLinesPerPage
+                    title: title,
+                    phase: phase,
+                    linesPerPage: requestedLinesPerPage,
+                    expectedAuthSessionIntentGeneration: authContext.sessionIntentGeneration
                 )
             }
-            guard paginationRefreshID == refreshID,
-                  requestedLinesPerPage == linesPerPage,
-                  normalized == fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines) else {
-                return
-            }
+            guard isCurrent() else { return }
             paginationPages = result.payload.pages
             paginationErrorText = ""
         } catch {
-            guard paginationRefreshID == refreshID,
-                  requestedLinesPerPage == linesPerPage,
-                  normalized == fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines) else {
-                return
-            }
+            guard isCurrent() else { return }
             paginationErrorText = StudioCraftResilience.presentedError(
                 error,
                 source: source,
@@ -6403,15 +6402,14 @@ final class ScreenplayStudioViewModel: ObservableObject {
     }
 
     #if DEBUG
-    private static func paginationPagesForUITesting(
+    static func paginationPagesForUITesting(
         draft: String,
         linesPerPage: Int
     ) -> [BackendScreenplayPaginationPage] {
         let normalized = draft
             .replacingOccurrences(of: "\r\n", with: "\n")
             .replacingOccurrences(of: "\r", with: "\n")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalized.isEmpty else { return [] }
+        guard !normalized.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return [] }
 
         let lines = normalized.components(separatedBy: "\n")
         let pageSize = max(24, min(90, linesPerPage))

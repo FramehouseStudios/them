@@ -44,7 +44,7 @@ final class StudioCraftResilienceTests: XCTestCase {
         XCTAssertEqual(
             StudioCraftResilience.presentedError(
                 error,
-                source: "io.them rail",
+                source: "THEM rail",
                 subject: "character memory"
             ),
             ""

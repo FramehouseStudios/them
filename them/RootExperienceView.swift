@@ -566,8 +566,8 @@ enum ClementineVisualContextCapture {
 
     static func permissionStatusText() -> String {
         hasScreenAccess()
-            ? "Screen access granted. io.them can inspect the active window when visual context is enabled."
-            : "Screen access is not granted yet. Enable it to let io.them see the active window."
+            ? "Screen access granted. THEM can inspect the active window when visual context is enabled."
+            : "Screen access is not granted yet. Enable it to let THEM see the active window."
     }
 
     @MainActor
@@ -3733,7 +3733,7 @@ struct RootExperienceView: View {
                         .foregroundColor(.herText.opacity(0.94))
                         .multilineTextAlignment(.center)
 
-                    Text("Tell io.them who you are and the scene you want to hear first.")
+                    Text("Tell THEM who you are and the scene you want to hear first.")
                         .font(.system(size: 13, weight: .regular, design: .default))
                         .foregroundColor(.herText.opacity(0.72))
                         .multilineTextAlignment(.center)
@@ -3878,7 +3878,7 @@ struct RootExperienceView: View {
         magicMomentOnboardingError = ""
         onboardingNameFocused = false
         onboardingSceneFocused = false
-        screenplayDraftBridge.autoInsertStatusText = "io.them is writing the first page..."
+        screenplayDraftBridge.autoInsertStatusText = "THEM is writing the first page..."
         magicMomentPerceivedResponseMs = Date().timeIntervalSince(startedAt) * 1_000
 
         Task { @MainActor in
@@ -5742,7 +5742,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 mode: "page",
                 category: category,
                 title: "Writing On The Page",
-                body: "io.them is in page mode. If io.them pitches a beat you want drafted, say yes, write that and it will put it on the page. Ask for stronger conflict, sharper subtext, a harder reversal, cleaner visuals, or the next beat and she will keep writing directly into the draft.",
+                body: "THEM is in page mode. If THEM pitches a beat you want drafted, say yes, write that and it will put it on the page. Ask for stronger conflict, sharper subtext, a harder reversal, cleaner visuals, or the next beat and she will keep writing directly into the draft.",
                 badge: badge,
                 actionSummary: summary
             )
@@ -5753,7 +5753,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
             screenplayDraftBridge.updateAssistantPin(
                 mode: actionSummary.isEmpty ? "copilot" : "task",
                 category: category,
-                title: actionSummary.isEmpty ? "io.them Voice Pin" : "Copilot And Task Status",
+                title: actionSummary.isEmpty ? "THEM Voice Pin" : "Copilot And Task Status",
                 body: clippedStudioAssistantText(cleanReply),
                 fullBody: cleanReply,
                 badge: badge,
@@ -5767,7 +5767,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 mode: "task",
                 category: category,
                 title: "Studio Task Status",
-                body: "io.them handled a screenplay-related action.",
+                body: "THEM handled a screenplay-related action.",
                 badge: badge,
                 actionSummary: actionSummary
             )
@@ -7651,7 +7651,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
 #if DEBUG || os(macOS)
             setStudioDebugPreferenceString("root_submit_busy", forKey: "studio_debug_root_submit_stage")
 #endif
-            return "io.them is already working on the current turn."
+            return "THEM is already working on the current turn."
         }
         let localCommand = runLocalStudioCommandIfNeeded(
             cleanPrompt,
@@ -8008,7 +8008,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 if shouldWriteToPage {
                     restoreRealtimeStudioDraftPreview()
                 }
-                return "io.them didn't return a Studio reply."
+                return "THEM didn't return a Studio reply."
             }
 
             backendConnectionState = .up
@@ -8108,7 +8108,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
 #if DEBUG || os(macOS)
             setStudioDebugPreferenceString("root_submit_continue_listening", forKey: "studio_debug_root_submit_stage")
 #endif
-            return "Try giving io.them a little more detail."
+            return "Try giving THEM a little more detail."
         } catch {
             typedReplySpeaker.cancel()
             realtimeStudioRenderUserMessage = ""
@@ -8921,7 +8921,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
         screenplayDraftBridge.preferredVersionID = cleanVersion
         screenplayDraftBridge.lastUpdatedAt = Date()
         screenplayDraftBridge.cancelStreamingVoiceTurnPreview()
-        screenplayDraftBridge.autoInsertStatusText = "io.them is preparing the page..."
+        screenplayDraftBridge.autoInsertStatusText = "THEM is preparing the page..."
         return textToInsert
     }
 
@@ -10913,7 +10913,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
         components.scheme = "mailto"
         components.path = supportEmailAddress()
         components.queryItems = [
-            URLQueryItem(name: "subject", value: "io.them Problem Report"),
+            URLQueryItem(name: "subject", value: "THEM Problem Report"),
             URLQueryItem(name: "body", value: body)
         ]
 
@@ -11146,7 +11146,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let data = try encoder.encode(snapshot)
-        let fileName = "io.them-DebugBundle-\(Int(now.timeIntervalSince1970)).json"
+        let fileName = "THEM-DebugBundle-\(Int(now.timeIntervalSince1970)).json"
         let fileURL = FileManager.default.temporaryDirectory.appendingPathComponent(fileName)
         try data.write(to: fileURL, options: [.atomic])
         return fileURL
@@ -11997,7 +11997,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
             let cleanBody = pin.body.trimmingCharacters(in: .whitespacesAndNewlines)
             let cleanFullBody = pin.fullBody.trimmingCharacters(in: .whitespacesAndNewlines)
             let cleanActionSummary = pin.actionSummary.trimmingCharacters(in: .whitespacesAndNewlines)
-            noteTitle = cleanTitle.isEmpty ? "io.them" : cleanTitle
+            noteTitle = cleanTitle.isEmpty ? ThemProductBrand.name : cleanTitle
             noteBody = clippedStudioAssistantText(
                 cleanFullBody.isEmpty ? (cleanBody.isEmpty ? cleanActionSummary : cleanBody) : cleanFullBody,
                 limit: 280
@@ -12649,8 +12649,8 @@ private enum NoteEditStyle: String, CaseIterable, Identifiable {
 
     var actionTitle: String {
         switch self {
-        case .polish: return "Polish With io.them"
-        case .tighten: return "Tighten With io.them"
+        case .polish: return "Polish With THEM"
+        case .tighten: return "Tighten With THEM"
         case .professional: return "Make Professional"
         case .warmer: return "Make Warmer"
         case .summarize: return "Summarize"
@@ -13183,10 +13183,10 @@ private struct NotesPanel: View {
                     .tint(.white.opacity(0.22))
                     .foregroundColor(.herText.opacity(0.92))
             }
-            Text("Save notes directly in-app. Voice notes captured by io.them appear here too.")
+            Text("Save notes directly in-app. Voice notes captured by THEM appear here too.")
                 .font(.system(size: 14, weight: .regular, design: .default))
                 .foregroundColor(.herText.opacity(0.80))
-            Text("io.them can polish, tighten, professionalize, warm up, or summarize notes while keeping the core meaning intact.")
+            Text("THEM can polish, tighten, professionalize, warm up, or summarize notes while keeping the core meaning intact.")
                 .font(.system(size: 12, weight: .regular, design: .default))
                 .foregroundColor(.herText.opacity(0.72))
             if !statusText.isEmpty {
@@ -13215,11 +13215,11 @@ private struct NotesPanel: View {
                 )
 
             VStack(alignment: .leading, spacing: 6) {
-                Text("io.them Edit Style")
+                Text("THEM Edit Style")
                     .font(.system(size: 12, weight: .semibold, design: .default))
                     .foregroundColor(.herText.opacity(0.84))
 
-                Picker("io.them Edit Style", selection: $selectedEditStyle) {
+                Picker("THEM Edit Style", selection: $selectedEditStyle) {
                     ForEach(NoteEditStyle.allCases) { style in
                         Text(style.title).tag(style)
                     }
@@ -13407,7 +13407,7 @@ private struct NotesPanel: View {
                 .tint(.white.opacity(0.24))
             }
 
-            Text("io.them found two likely notes for \"\(pending.ambiguity.targetHint)\". Pick one to keep going.")
+            Text("THEM found two likely notes for \"\(pending.ambiguity.targetHint)\". Pick one to keep going.")
                 .font(.system(size: 12, weight: .regular, design: .default))
                 .foregroundColor(.herText.opacity(0.72))
 
@@ -13510,7 +13510,7 @@ private struct NotesPanel: View {
                 }
             }
 
-            NumberedChoiceHintText(message: "Press 1 to keep the original note or 2 to replace it with io.them's rewrite.")
+            NumberedChoiceHintText(message: "Press 1 to keep the original note or 2 to replace it with THEM's rewrite.")
 
             if let matchContext = preview.matchContext {
                 HStack(spacing: 8) {
@@ -13545,7 +13545,7 @@ private struct NotesPanel: View {
 
             VStack(alignment: .leading, spacing: 10) {
                 rewriteComparisonBlock(title: "Current", text: preview.originalText)
-                rewriteComparisonBlock(title: "io.them", text: preview.revisedText)
+                rewriteComparisonBlock(title: "THEM", text: preview.revisedText)
             }
         }
         .padding(14)
@@ -13633,7 +13633,7 @@ private struct NotesPanel: View {
         do {
             let revised = try await rewriteNoteText(clean, style: selectedEditStyle)
             draftNote = revised
-            statusText = "io.them \(selectedEditStyle.successTitle) the draft note."
+            statusText = "THEM \(selectedEditStyle.successTitle) the draft note."
         } catch {
             statusText = error.localizedDescription
         }
@@ -13670,7 +13670,7 @@ private struct NotesPanel: View {
                 style: style,
                 matchContext: matchContext
             )
-            statusText = "Review io.them's rewrite before replacing the note."
+            statusText = "Review THEM's rewrite before replacing the note."
         } catch {
             statusText = error.localizedDescription
         }
@@ -13688,7 +13688,7 @@ private struct NotesPanel: View {
             throw NSError(
                 domain: "NotesPanel",
                 code: 1,
-                userInfo: [NSLocalizedDescriptionKey: "io.them did not return edited note text."]
+                userInfo: [NSLocalizedDescriptionKey: "THEM did not return edited note text."]
             )
         }
         return revised
@@ -13747,7 +13747,7 @@ TASK:
             style: preview.style
         )
         rewritePreview = nil
-        statusText = "io.them \(preview.style.successTitle) the saved note."
+        statusText = "THEM \(preview.style.successTitle) the saved note."
     }
 
     private func dismissRewritePreview() {
@@ -13770,7 +13770,7 @@ TASK:
         if editingNoteID == lastAppliedRewrite.noteID {
             draftNote = lastAppliedRewrite.originalText
         }
-        statusText = "Restored the version before io.them \(lastAppliedRewrite.style.successTitle) \"\(lastAppliedRewrite.noteTitle)\"."
+        statusText = "Restored the version before THEM \(lastAppliedRewrite.style.successTitle) \"\(lastAppliedRewrite.noteTitle)\"."
         self.lastAppliedRewrite = nil
     }
 
@@ -14809,16 +14809,16 @@ private struct TrustCenterScreen: View {
                             trustBlock(
                                 title: "Non-Manipulative Policy",
                                 lines: [
-                                    "io.them does not encourage emotional exclusivity.",
-                                    "io.them does not present itself as your only source of meaning.",
-                                    "io.them redirects dependency loops toward user agency.",
-                                    "io.them does not claim a human body or human consciousness."
+                                    "THEM does not encourage emotional exclusivity.",
+                                    "THEM does not present itself as your only source of meaning.",
+                                    "THEM redirects dependency loops toward user agency.",
+                                    "THEM does not claim a human body or human consciousness."
                                 ]
                             )
                             trustBlock(
                                 title: "Conversation Boundaries",
                                 lines: [
-                                    "If a loop is detected, io.them names it gently and gives one concrete next step.",
+                                    "If a loop is detected, THEM names it gently and gives one concrete next step.",
                                     "If distress is high, responses shift to calm, specific, stabilizing language.",
                                     "One thoughtful question maximum per reply."
                                 ]
@@ -14857,7 +14857,7 @@ private struct TrustCenterScreen: View {
                 .font(.system(size: isCompact ? 28 : 34, weight: .semibold, design: .default))
                 .foregroundColor(.herText.opacity(0.95))
                 .fixedSize(horizontal: false, vertical: true)
-            Text("How Clementine and io.them are designed to stay emotionally mature, safe, and non-possessive.")
+            Text("How Clementine and THEM are designed to stay emotionally mature, safe, and non-possessive.")
                 .font(.system(size: 15, weight: .regular, design: .default))
                 .foregroundColor(.herText.opacity(0.76))
                 .fixedSize(horizontal: false, vertical: true)
@@ -14925,7 +14925,7 @@ private struct TrustCenterScreen: View {
             .foregroundColor(.herText.opacity(0.92))
             .frame(maxWidth: isCompact ? .infinity : nil, minHeight: 44)
             .accessibilityIdentifier("trust.open-privacy-policy")
-            .accessibilityHint("Opens the io.them privacy policy in your browser.")
+            .accessibilityHint("Opens the THEM privacy policy in your browser.")
     }
 }
 

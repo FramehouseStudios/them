@@ -272,6 +272,18 @@ if xcodebuild \
   ok "Release iPhone build succeeds."
   built_app="$DERIVED_DATA_PATH/Build/Products/Release-iphoneos/them.app"
   if [[ -d "$built_app" ]]; then
+    built_info_plist="$built_app/Info.plist"
+    if [[ -f "$built_info_plist" ]]; then
+      built_display_name="$(plutil -extract CFBundleDisplayName raw -o - "$built_info_plist" 2>/dev/null || true)"
+      built_bundle_name="$(plutil -extract CFBundleName raw -o - "$built_info_plist" 2>/dev/null || true)"
+      if [[ "$built_display_name" == "THEM" && "$built_bundle_name" == "THEM" ]]; then
+        ok "Release app identifies as THEM in CFBundleDisplayName and CFBundleName."
+      else
+        fail "Release app name must be THEM (CFBundleDisplayName=${built_display_name:-missing}, CFBundleName=${built_bundle_name:-missing})."
+      fi
+    else
+      fail "Release app bundle is missing its compiled Info.plist."
+    fi
     leaked_env_count=0
     for forbidden_env in Release.local.env Release.local.env.example Release.local.xcconfig .env .env.local .env.production; do
       if [[ -e "$built_app/$forbidden_env" ]]; then

@@ -7,8 +7,8 @@ struct ScreenplayStudioThemRailOverviewPresentation: Equatable {
     let detail: String
 
     static let standard = ScreenplayStudioThemRailOverviewPresentation(
-        title: "io.them",
-        subtitle: "Keep io.them's instincts, memory, and craft signals together.",
+        title: "THEM",
+        subtitle: "Keep THEM's instincts, memory, and craft signals together.",
         detail: "The rail should feel like one creative partner. Companion context, live asks, and screenplay intelligence now move through the same calmer surface."
     )
 }

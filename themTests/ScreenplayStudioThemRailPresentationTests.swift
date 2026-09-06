@@ -4,10 +4,10 @@ import XCTest
 @MainActor
 final class ScreenplayStudioThemRailPresentationTests: XCTestCase {
     func testOverviewAndSurfaceMixPreserveCanonicalCopyOrderAndCounts() {
-        XCTAssertEqual(ScreenplayStudioThemRailOverviewPresentation.standard.title, "io.them")
+        XCTAssertEqual(ScreenplayStudioThemRailOverviewPresentation.standard.title, "THEM")
         XCTAssertEqual(
             ScreenplayStudioThemRailOverviewPresentation.standard.subtitle,
-            "Keep io.them's instincts, memory, and craft signals together."
+            "Keep THEM's instincts, memory, and craft signals together."
         )
 
         let analytics = ScreenplayCompanionAnalyticsSnapshot(
@@ -34,6 +34,12 @@ final class ScreenplayStudioThemRailPresentationTests: XCTestCase {
 
         let emptySurfaceMix = ScreenplayStudioThemRailPresentationPlanner.surfaceMix(from: .empty)
         XCTAssertEqual(emptySurfaceMix.stats.map(\.value), ["0", "0", "0", "0"])
+    }
+
+    func testProductOwnedLegacyLabelsPresentAsThemWithoutRewritingWriterTitles() {
+        XCTAssertEqual(ThemProductBrand.presentationLabel("io.them"), "THEM")
+        XCTAssertEqual(ThemProductBrand.presentationLabel("io.them Voice Pin"), "THEM Voice Pin")
+        XCTAssertEqual(ThemProductBrand.presentationLabel("io.them: a screenplay"), "io.them: a screenplay")
     }
 
     func testLiveIntentUsesHasContentWhilePreservingRawDisplayRules() {

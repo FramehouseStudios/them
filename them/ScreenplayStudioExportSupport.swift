@@ -70,11 +70,20 @@ enum ScreenplayStudioExportSupport {
         NSPasteboard.general.clearContents()
         return NSPasteboard.general.setString(draft, forType: .string)
 #else
-        // This is a deliberate copy action, not an upload or a cross-device handoff.
-        UIPasteboard.general.setObjects([draft as NSString], localOnly: true, expirationDate: nil)
-        return true
+        return copyDraftToClipboard(draft, to: .general)
 #endif
     }
+
+#if !os(macOS)
+    @MainActor
+    static func copyDraftToClipboard(_ draft: String, to pasteboard: UIPasteboard) -> Bool {
+        // This is a deliberate copy action, not an upload or a cross-device handoff.
+        // A supplied app pasteboard lets tests exercise UIKit without reading or
+        // replacing the writer's unrelated system clipboard contents.
+        pasteboard.setObjects([draft as NSString], localOnly: true, expirationDate: nil)
+        return true
+    }
+#endif
 
 #if os(macOS)
     nonisolated static func makeLocalArtifact(

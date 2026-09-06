@@ -101,8 +101,8 @@ enum HomeMoreDestination: String, CaseIterable, Identifiable {
         case .recap: "Review recent work and conversation context."
         case .trust: "Understand safety, privacy, and reliability."
         case .data: "Manage local and synced information."
-        case .privacy: "Read the io.them privacy policy."
-        case .report: "Share a problem with the io.them team."
+        case .privacy: "Read the THEM privacy policy."
+        case .report: "Share a problem with the THEM team."
         }
     }
 

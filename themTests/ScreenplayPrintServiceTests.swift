@@ -21,6 +21,13 @@ final class ScreenplayPrintServiceTests: XCTestCase {
 
     // MARK: - Page count
 
+    func testTitlePageUsesCurrentProductBrandAndKeepsClementineNamed() {
+        XCTAssertEqual(
+            ScreenplayPrintService.titlePageLines(for: "Night Drive"),
+            ["NIGHT DRIVE", "written by", "THEM — Clementine"]
+        )
+    }
+
     func testShortDraftRendersOnePageAndPageCountMatchesPDF() throws {
         let draft = """
         INT. KITCHEN - DAY

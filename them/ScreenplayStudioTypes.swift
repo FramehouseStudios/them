@@ -1,6 +1,23 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
+enum ThemProductBrand {
+    static let name = "THEM"
+
+    /// Only normalizes metadata labels the app historically owned. Writer
+    /// content and arbitrary project titles must remain byte-for-byte intact.
+    static func presentationLabel(_ value: String) -> String {
+        switch value {
+        case "io.them":
+            return name
+        case "io.them Voice Pin":
+            return "\(name) Voice Pin"
+        default:
+            return value
+        }
+    }
+}
+
 extension ScreenplayStudioScreen {
     enum PromptRoutingMode: String, CaseIterable, Identifiable {
         case automatic
@@ -337,7 +354,7 @@ extension ScreenplayStudioScreen {
             case .beats: return "Beats"
             case .craft: return "Craft"
             case .outline: return "Outline"
-            case .them: return "io.them"
+            case .them: return ThemProductBrand.name
             case .saved: return "Saved"
             }
         }

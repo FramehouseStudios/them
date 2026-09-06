@@ -721,7 +721,7 @@ final class HerVoiceController: ObservableObject {
         let title = restricted ? "Microphone Unavailable" : "Microphone Access Needed"
         let message = restricted
             ? "Microphone access is restricted on this device. Check system restrictions and privacy settings to enable voice conversations."
-            : "Microphone access is off. Enable it in Settings > Privacy > Microphone to talk with io.them."
+            : "Microphone access is off. Enable it in Settings > Privacy > Microphone to talk with THEM."
         micPermissionNotice = MicPermissionNotice(title: title, message: message)
         HerLog.mic.error("mic permission denied restricted=\(restricted)")
     }
