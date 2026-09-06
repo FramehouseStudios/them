@@ -86,6 +86,7 @@ import { mountHealthzRoute } from "./lib/healthz_route.js";
 import { createGracefulShutdown } from "./lib/shutdown.js";
 import { respondScreenplayMarkdown } from "./lib/screenplay_markdown_export.js";
 import { respondScreenplayPDF } from "./lib/screenplay_pdf_export.js";
+import { mountScreenplayExportRoute } from "./lib/screenplay_export_route.js";
 import { normalizeScreenplayOutputContractText } from "./lib/screenplay_output_contract.js";
 import { normalizeStudioTextOutput } from "./lib/studio_text_output.js";
 import {
@@ -31937,15 +31938,6 @@ function buildScreenplayRevisionPayload(baseDraft, draft, revisionColor = "blue"
   };
 }
 
-function escapeXmlText(value) {
-  return String(value || "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&apos;");
-}
-
 // T-decompose-phase2-screenplay-projects: all 12 /screenplay/projects/*
 // routes (5 GET + 7 write) are now in lib/screenplay_projects_routes.js.
 // Phase 2a (PR #192) extracted the GETs. Phase 2b extracts the writes
@@ -32035,86 +32027,9 @@ mountScreenplayCompanionRoutes(app, {
   buildScreenplayRevisionPayload,
 });
 
-app.post("/screenplay/export", express.json({ limit: "2mb" }), (req, res) => {
-  const draft = String(req.body?.draft || "").replace(/\r\n/g, "\n").trim();
-  if (!draft) {
-    return res.status(400).json({ stage: "screenplay_export", error: "draft_required" });
-  }
-  const format = String(req.body?.format || "fountain").trim().toLowerCase();
-  const title = normalizeSnippet(req.body?.title, 160) || "screenplay";
-  const baseName = slugifyForFilename(title, "screenplay");
-  if (format === "fountain" || format === "txt") {
-    const filename = `${baseName}.fountain`;
-    res.setHeader("Content-Type", "text/plain; charset=utf-8");
-    res.setHeader("Content-Disposition", `attachment; filename=\"${filename}\"`);
-    return res.status(200).send(`${draft}\n`);
-  }
-  if (format === "fdx") {
-    const filename = `${baseName}.fdx`;
-    const screenplayParagraphTypeForLine = (trimmed, previousType) => {
-      if (!trimmed) return null;
-      if (/^(INT|EXT|EST|INT\/EXT|I\/E)\./i.test(trimmed)) return "Scene Heading";
-      if (/^(?:CUT TO:|DISSOLVE TO:|SMASH CUT TO:|MATCH CUT TO:|WIPE TO:|INTERCUT WITH:|FADE IN:|FADE IN ON:|FADE OUT:|FADE OUT\.|FADE TO BLACK:|FADE TO BLACK\.|SMASH TO BLACK:|THE END)$/i.test(trimmed)) {
-        return "Transition";
-      }
-      if (/^\([^)\n]+\)$/.test(trimmed)) return "Parenthetical";
-      if (
-        trimmed === trimmed.toUpperCase() &&
-        trimmed.length <= 32 &&
-        /[A-Z]/.test(trimmed) &&
-        !trimmed.includes(":") &&
-        !trimmed.includes(".")
-      ) {
-        return "Character";
-      }
-      if (previousType === "Character" || previousType === "Parenthetical" || previousType === "Dialogue") {
-        return "Dialogue";
-      }
-      return "Action";
-    };
-    let previousType = null;
-    const paragraphs = [];
-    for (const line of draft.split("\n")) {
-      const trimmed = line.trim();
-      if (!trimmed) {
-        previousType = null;
-        continue;
-      }
-      const type = screenplayParagraphTypeForLine(trimmed, previousType);
-      if (!type) continue;
-      paragraphs.push(`    <Paragraph Type="${type}"><Text>${escapeXmlText(line)}</Text></Paragraph>`);
-      previousType = type;
-    }
-    const body = paragraphs.join("\n");
-    const xml = `<?xml version="1.0" encoding="UTF-8" standalone="no" ?>\n<FinalDraft DocumentType="Script" Template="No" Version="1">\n  <Content>\n${body}\n  </Content>\n</FinalDraft>\n`;
-    res.setHeader("Content-Type", "application/vnd.final-draft");
-    res.setHeader("Content-Disposition", `attachment; filename=\"${filename}\"`);
-    return res.status(200).send(xml);
-  }
-  if (format === "pdf") {
-    // T-screenplay-export-pdf: hand-written PDF (Courier 12, Letter,
-    // MORE/CONT'D page breaks, optional title page) via the pure helper
-    // in lib/. A title page is only rendered when the caller sent a
-    // title; the filename fallback "screenplay" never becomes one.
-    const explicitTitle = normalizeSnippet(req.body?.title, 160) || "";
-    const draftDate = normalizeSnippet(req.body?.draft_date, 40) || "";
-    try {
-      return respondScreenplayPDF(res, { draft, title: explicitTitle, baseName, draftDate });
-    } catch (e) {
-      return res.status(500).json({
-        stage: "screenplay_export",
-        error: "pdf_export_failed",
-        message: e?.message || "export failed",
-      });
-    }
-  }
-  if (format === "md" || format === "markdown") {
-    // T-screenplay-export-markdown: line-by-line Markdown projection
-    // of the draft, via the pure helper in lib/.
-    return respondScreenplayMarkdown(res, { draft, baseName });
-  }
-  return res.status(400).json({ stage: "screenplay_export", error: "unsupported_format" });
-});
+// D009: POST /screenplay/export lives in lib/screenplay_export_route.js
+// (fountain / fdx / md / pdf); same error shapes, same headers.
+mountScreenplayExportRoute(app);
 
 // T-decompose-phase0-health-route: /health + /bridge moved into
 // lib/health_route.js. Inline handlers were byte-identical; now
