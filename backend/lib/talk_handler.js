@@ -81,6 +81,7 @@ import {
   resetLowConfidenceRepeatStreak,
   shouldSpeakLowConfidenceRepeatPrompt,
 } from "./low_confidence_repeat_streak.js";
+import { shouldTreatAsLowConfidence } from "./low_confidence_gate.js";
 import { composeTalkSystemPrompt } from "./talk_prompt.js";
 import { runTalkGenerate } from "./talk_generate.js";
 
@@ -2103,8 +2104,15 @@ function createTalkHandler(deps) {
       rawTaskCreateIntent.shouldCreate ||
       rawTaskCompleteIntent.shouldComplete
     );
+    // When the STT supplier returns no per-word/segment scores the confidence
+    // is a word-count heuristic, and every short command would read as
+    // ambiguous; only bounce transcripts that look like echo fragments then.
     const shouldPromptLowConfidenceRepeat =
-      isLikelyAmbiguousLowConfidenceUtterance(transcript, sttConfidence) &&
+      shouldTreatAsLowConfidence({
+        ambiguous: isLikelyAmbiguousLowConfidenceUtterance(transcript, sttConfidence),
+        sttJson,
+        transcript,
+      }) &&
       !hasStrongActionTrigger;
     if (shouldPromptLowConfidenceRepeat) {
       // Echo guard: consecutive low-confidence clips inside a short window are
