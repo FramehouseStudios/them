@@ -109,6 +109,7 @@ import {
 import { mountBlockSignalHistoryRoute } from "./lib/block_signal_history_route.js";
 import { mountScreenplayExportFormatsRoute } from "./lib/screenplay_export_formats_route.js";
 import { mountSessionRoute } from "./lib/session_route.js";
+import { mountVisualContextRoute } from "./lib/visual_context_route.js";
 import { mountOpsRoutesListRoute } from "./lib/ops_routes_list_route.js";
 import { mountOpsMetricsRoute } from "./lib/ops_metrics_route.js";
 import { mountOpsAlertsRoute } from "./lib/ops_alerts_route.js";
@@ -32509,77 +32510,17 @@ mountRealtimeStudioRenderRoutes(app, {
   resolveUserId: (req) => String(req?.authUser?.id || req?.user?.id || req?.userId || "").trim(),
 });
 
-app.post(
-  "/visual/context",
-  backendRateLimiter.middleware("provider"),
-  providerBudgetGuard.middleware("visual_context"),
+// D009: POST /visual/context lives in lib/visual_context_route.js; handler body
+// moved verbatim, middlewares and helpers passed in explicitly.
+mountVisualContextRoute(app, {
+  backendRateLimiter,
+  buildVisualContextAddendum,
+  normalizeVisualContextImageDataUrl,
+  normalizeVisualDescriptor,
+  providerBudgetGuard,
   requireClientTokenForTalk,
-  express.json({ limit: "2mb" }),
-  async (req, res) => {
-    const rid = req.requestId || createRequestId();
-    if (!OPENAI_API_KEY) {
-      return res.status(503).json({
-        stage: "visual_context",
-        error: "OpenAI API key is missing for visual context.",
-      });
-    }
-
-    const imageDataUrl = normalizeVisualContextImageDataUrl(
-      req.body?.image_data_url ?? req.body?.imageDataUrl ?? ""
-    );
-    if (!imageDataUrl) {
-      return res.status(400).json({
-        stage: "visual_context",
-        error: "Visual context image was empty.",
-      });
-    }
-
-    const transcript = normalizeSnippet(
-      req.body?.transcript ?? req.body?.user_message ?? req.body?.userMessage ?? "",
-      2_400
-    );
-    const isScreenplayMode = parseBool(
-      req.body?.is_screenplay_mode ?? req.body?.isScreenplayMode
-    );
-    const appName = normalizeVisualDescriptor(
-      req.body?.app_name ?? req.body?.appName ?? "",
-      80
-    );
-    const windowTitle = normalizeVisualDescriptor(
-      req.body?.window_title ?? req.body?.windowTitle ?? "",
-      140
-    );
-
-    try {
-      const context = await summarizeVisualContextFromImage({
-        imageDataUrl,
-        transcript,
-        isScreenplayMode,
-        appName,
-        windowTitle,
-      });
-      const promptAddendum = buildVisualContextAddendum(context);
-      console.log(
-        `[${rid}] visual_context chars_u=${transcript.length} chars_v=${context.summary.length} app=${context.appName || "unknown"}`
-      );
-      res.setHeader("Cache-Control", "no-store");
-      return res.status(200).json({
-        ok: true,
-        summary: context.summary,
-        prompt_addendum: promptAddendum,
-        app_name: context.appName,
-        window_title: context.windowTitle,
-        source: context.source,
-        captured_at: Date.now(),
-      });
-    } catch (error) {
-      return res.status(Number(error?.status || 502)).json({
-        stage: String(error?.stage || "visual_context"),
-        error: String(error?.message || error || "Visual context failed."),
-      });
-    }
-  }
-);
+  summarizeVisualContextFromImage,
+});
 
 // T-decompose-phase5b3-turn-commit: route moved to
 // lib/realtime_turn_commit_route.js. Byte-identical with the
