@@ -19,6 +19,9 @@ final class DesignSystemGuardTests: XCTestCase {
             "them/MemoriesScreen.swift",
             "them/NumberedChoiceViews.swift",
             "them/RootExperienceView.swift",
+            // D009 I4 moves out of RootExperienceView / ScreenplayStudioScreen: verbatim, not new styling.
+            "them/TasksPanel.swift",
+            "them/ScreenplayStudioScreen+DirectionOneSettings.swift",
             "them/ScreenplayCraftRailView.swift",
             "them/ScreenplayStudioScreen.swift"
         ]
