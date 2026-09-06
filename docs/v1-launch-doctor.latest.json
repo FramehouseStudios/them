@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-05T22:00:00.000Z",
+  "generatedAt": "2026-09-06T06:30:00.000Z",
   "overallStatus": "in_progress",
   "results": [
     {
@@ -7,35 +7,35 @@
       "flow": "talk_pipeline",
       "notes": "Automated proof is current; the human mic/playback smoke on a device against the intended backend is the remaining gate. Hosted-gate writer-loop step is flaky on the runner (PR #448 re-taps Save now); judge hosted red against sibling runs.",
       "status": "in_progress",
-      "updatedAt": "2026-09-05T22:00:00.000Z"
+      "updatedAt": "2026-09-06T06:30:00.000Z"
     },
     {
       "evidence": "2026-09-05 on main 9c74759: deterministic V1 screenplay smoke PASS (Fountain export fixture, ordering, byte determinism); integrated iPhone writer loop test_integrated_iphone_writer_loop_creates_saves_exports_and_restores PASSED locally (create -> type -> Save now -> export -> relaunch -> restore) against a loopback backend; UI smoke: draft conflict keep-mine/load-server, draft tools tabs, saved panel routing passed. FAILED on main: test_all_studio_inspector_tabs_route_to_real_panels_and_report_selection, test_backend_project_restore_loads_seeded_screenplay_session, test_creative_partner_mode_reuse_and_to_page_callbacks (fixes live in unmerged #425).",
       "flow": "screenplay_studio",
       "notes": "In-app create/save/reopen/export manual smoke still owed by a human. Three Studio UI smokes fail on main until #425 (stacked on conflicting #423) is re-landed. Real PDF export now exists behind PR #435; FDX/Fountain/Markdown ship today.",
       "status": "in_progress",
-      "updatedAt": "2026-09-05T22:00:00.000Z"
+      "updatedAt": "2026-09-06T06:30:00.000Z"
     },
     {
       "evidence": "2026-09-05 on main 9c74759: deterministic V1 memory recall smoke PASS (cold state, character record, recall, determinism, isolation); UI smoke: test_memory_recall_includes_a_mentioned_character, test_pending_screenplay_question_appears_in_memories_and_opens_studio, test_restored_screenplay_question_can_be_answered_or_skipped, test_canon_clarification_is_visible_in_companion_and_studio passed.",
       "flow": "creative_memory",
       "notes": "App-level character continuity smoke with Data Controls visible to the human tester still owed. Account export/delete (T-account-deletion-and-export) is still in review and is a store-submission gate.",
       "status": "in_progress",
-      "updatedAt": "2026-09-05T22:00:00.000Z"
+      "updatedAt": "2026-09-06T06:30:00.000Z"
     },
     {
       "evidence": "2026-09-05 on main 9c74759: deterministic V1 realtime failover smoke PASS (primary_ok, primary_fail_fallback_ok, primary_fail_fallback_fail, pinned_provider_fail) and realtime learned-answer voice smoke ok (answer learned, pending question cleared, grounding refreshed, next turn gated until grounded); UI smoke: test_realtime_fallback_does_not_crash_companion and test_realtime_network_faults_resolve_exactly_once passed.",
       "flow": "realtime",
       "notes": "In-app primary-provider plus forced-failure/degraded-mode manual smoke still owed; needs live provider credentials.",
       "status": "in_progress",
-      "updatedAt": "2026-09-05T22:00:00.000Z"
+      "updatedAt": "2026-09-06T06:30:00.000Z"
     },
     {
-      "evidence": "2026-09-05 on main 9c74759: signed iOS V1 UI smoke on iPhone 17 Pro simulator executed 35 tests: 22 passed, 4 failed (inspector tab routing, backend project restore, creative-partner mode reuse, remembered-login Keychain relaunch), 8 skipped. GitHub Actions billing block that started 08:46 UTC is cleared; Backend tests, evaluate and docker-build are green on open PRs. Required writer-loop gate step is a runner coin flip (same tree passes and fails minutes apart); PR #448 addresses it in the test.",
+      "evidence": "2026-09-05 on main 9c74759: signed iOS V1 UI smoke on iPhone 17 Pro simulator executed 35 tests: 22 passed, 4 failed (inspector tab routing, backend project restore, creative-partner mode reuse, remembered-login Keychain relaunch), 8 skipped. GitHub Actions billing block that started 08:46 UTC is cleared; Backend tests, evaluate and docker-build are green on open PRs. Required writer-loop gate step is a runner coin flip (same tree passes and fails minutes apart); PR #448 addresses it in the test. 2026-09-06 backend hosting: https://api.them.io answers HTTP 302 -> https://introvert.com/?domain=them.io (domain parking, verified with a manual-redirect fetch). scripts/release_config_status.mjs only checks the BACKEND_URL string; the default-on live backend health step (scripts/live_backend_health.mjs) fails on exactly this redirect, so scripts/run_release_preflight.sh cannot end GREEN until a real backend is deployed at that host. Independently verified on the codex/T-writer-beta-integration merge 32cd6aa3: Release iPhone build OK, bundle CFBundleDisplayName/CFBundleName THEM (id io.them.them), PrivacyInfo.xcprivacy present, app icons present, no env file in the bundle, backend suite 2707/2707, iOS unit target 877/877, god-file gate negative. A reported 'preflight green' on that merge could only have come from a run that skipped the live backend check.",
       "flow": "release_readiness",
-      "notes": "Unpassed on purpose until Apple team/signing, production APP_TOKEN_RELEASE, an exported Launch Doctor proof from a human run, and human approval exist. Four failing UI smokes and the flaky required gate must be green before external review.",
+      "notes": "Unpassed on purpose until Apple team/signing, production APP_TOKEN_RELEASE, an exported Launch Doctor proof from a human run, and human approval exist. Four failing UI smokes and the flaky required gate must be green before external review. External blocker owned by a human: point api.them.io at a deployed backend (registrar + Render deploy) or change BACKEND_URL; until then the release preflight is PARTIAL at best. The wrapper now prints a GREEN/PARTIAL gate summary so partial runs cannot be reported as green.",
       "status": "in_progress",
-      "updatedAt": "2026-09-05T22:00:00.000Z"
+      "updatedAt": "2026-09-06T06:30:00.000Z"
     }
   ],
   "schemaVersion": 1,

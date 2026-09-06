@@ -1,6 +1,6 @@
 # io.them V1 Launch Doctor
 
-- Generated: 2026-09-05T22:00:00.000Z
+- Generated: 2026-09-06T06:30:00.000Z
 - Overall: in_progress
 - Passed: 0/5
 - Failed: 0
@@ -51,6 +51,6 @@ In-app primary-provider plus forced-failure/degraded-mode manual smoke still owe
 - Status: in_progress
 - Goal: Confirm release config, signed preflight, and Launch Doctor proof are ready before TestFlight or external review.
 - Pass criteria: Release config is real, preflight is green, Launch Doctor proof is exported, and human sign-off is recorded before TestFlight/external review.
-- Evidence: 2026-09-05 on main 9c74759: signed iOS V1 UI smoke on iPhone 17 Pro simulator executed 35 tests: 22 passed, 4 failed (inspector tab routing, backend project restore, creative-partner mode reuse, remembered-login Keychain relaunch), 8 skipped. GitHub Actions billing block that started 08:46 UTC is cleared; Backend tests, evaluate and docker-build are green on open PRs. Required writer-loop gate step is a runner coin flip (same tree passes and fails minutes apart); PR #448 addresses it in the test.
+- Evidence: 2026-09-05 on main 9c74759: signed iOS V1 UI smoke on iPhone 17 Pro simulator executed 35 tests: 22 passed, 4 failed (inspector tab routing, backend project restore, creative-partner mode reuse, remembered-login Keychain relaunch), 8 skipped. GitHub Actions billing block that started 08:46 UTC is cleared; Backend tests, evaluate and docker-build are green on open PRs. Required writer-loop gate step is a runner coin flip (same tree passes and fails minutes apart); PR #448 addresses it in the test. 2026-09-06 backend hosting: https://api.them.io answers HTTP 302 -> https://introvert.com/?domain=them.io (domain parking, verified with a manual-redirect fetch). scripts/release_config_status.mjs only checks the BACKEND_URL string; the default-on live backend health step (scripts/live_backend_health.mjs) fails on exactly this redirect, so scripts/run_release_preflight.sh cannot end GREEN until a real backend is deployed at that host. Independently verified on the codex/T-writer-beta-integration merge 32cd6aa3: Release iPhone build OK, bundle CFBundleDisplayName/CFBundleName THEM (id io.them.them), PrivacyInfo.xcprivacy present, app icons present, no env file in the bundle, backend suite 2707/2707, iOS unit target 877/877, god-file gate negative. A reported 'preflight green' on that merge could only have come from a run that skipped the live backend check.
 
-Unpassed on purpose until Apple team/signing, production APP_TOKEN_RELEASE, an exported Launch Doctor proof from a human run, and human approval exist. Four failing UI smokes and the flaky required gate must be green before external review.
+Unpassed on purpose until Apple team/signing, production APP_TOKEN_RELEASE, an exported Launch Doctor proof from a human run, and human approval exist. Four failing UI smokes and the flaky required gate must be green before external review. External blocker owned by a human: point api.them.io at a deployed backend (registrar + Render deploy) or change BACKEND_URL; until then the release preflight is PARTIAL at best. The wrapper now prints a GREEN/PARTIAL gate summary so partial runs cannot be reported as green.
