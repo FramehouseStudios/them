@@ -20,7 +20,10 @@ final class DesignSystemGuardTests: XCTestCase {
             "them/NumberedChoiceViews.swift",
             "them/RootExperienceView.swift",
             "them/ScreenplayCraftRailView.swift",
-            "them/ScreenplayStudioScreen.swift"
+            "them/ScreenplayStudioScreen.swift",
+            // D009 I4 moves: verbatim extractions from allowlisted god-files, not new styling.
+            "them/ScreenplayStudioScreen+ActionPreviewDiffRow.swift",
+            "them/TrustCenterScreen.swift"
         ]
 
         let files = try swiftFiles(
