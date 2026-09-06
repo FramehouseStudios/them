@@ -172,3 +172,59 @@ test("[run-release-preflight] checks the exact privacy URL shipped in Info-Relea
   assert.match(scriptSource, /PRIVACY_POLICY_URL.*does not match the URL shipped in Info-Release\.plist/);
   assert.match(scriptSource, /--url="\$\{shipped_privacy_url\}"/);
 });
+
+test("[run-release-preflight] records every gate and prints a PARTIAL/GREEN summary", () => {
+  const gates = [
+    ["voice-latency", "RUN_VOICE_LATENCY_GATE"],
+    ["voice-network-fault", "RUN_VOICE_NETWORK_FAULT_GATE"],
+    ["writer-block-quality", "RUN_WRITER_BLOCK_QUALITY_GATE"],
+    ["live-studio-story-quality", "RUN_LIVE_STUDIO_STRUCTURAL_CANARY"],
+    ["studio-instinct-writer-block", "RUN_STUDIO_INSTINCT_WRITER_BLOCK_GATE"],
+    ["v1-ui-smoke", "RUN_V1_UI_SMOKE_GATE"],
+    ["live-backend-health", "RUN_LIVE_BACKEND_CHECK"],
+    ["public-privacy-policy", "RUN_PUBLIC_RELEASE_SURFACE_CHECK"],
+  ];
+  for (const [name, flag] of gates) {
+    assert.match(scriptSource, new RegExp(`record_gate_ran "${name}"`), name);
+    assert.match(scriptSource, new RegExp(`record_gate_skipped "${name}" ${flag} 1`), name);
+  }
+  assert.match(scriptSource, /record_gate_skipped "mac-desktop-preflight" RUN_MAC_DESKTOP_PREFLIGHT 0/);
+  assert.match(scriptSource, /record_gate_ran "appstore-preflight"/);
+  assert.match(scriptSource, /print_preflight_summary\n*$/);
+  assert.match(scriptSource, /PARTIAL: default-on gate\(s\) were skipped/);
+});
+
+test("[run-release-preflight] summary helpers say PARTIAL only when a default-on gate is skipped", () => {
+  const start = scriptSource.indexOf("# Gate bookkeeping");
+  const end = scriptSource.indexOf('if [[ -e "${RELEASE_ENV_FILE}"');
+  assert.ok(start > 0 && end > start, "gate bookkeeping helpers must precede env loading");
+  const helpers = scriptSource.slice(start, end);
+
+  const runHelpers = (body) => spawnSync("bash", ["-c", `set -euo pipefail\n${helpers}\n${body}`], {
+    cwd: repoRoot,
+    encoding: "utf8",
+    env: { ...process.env, RUN_LIVE_BACKEND_CHECK: "0", RUN_MAC_DESKTOP_PREFLIGHT: "0" },
+  });
+
+  const green = runHelpers(
+    'record_gate_ran "v1-ui-smoke"\nrecord_gate_skipped "mac-desktop-preflight" RUN_MAC_DESKTOP_PREFLIGHT 0\nprint_preflight_summary',
+  );
+  assert.equal(green.status, 0, green.stderr);
+  assert.match(green.stdout, /ran:\s+v1-ui-smoke/);
+  assert.match(green.stdout, /skipped:\s+mac-desktop-preflight \(RUN_MAC_DESKTOP_PREFLIGHT=0\)/);
+  assert.match(green.stdout, /GREEN: every default-on gate ran and passed/);
+  assert.doesNotMatch(green.stdout, /PARTIAL/);
+
+  const partial = runHelpers(
+    'record_gate_ran "v1-ui-smoke"\nrecord_gate_skipped "live-backend-health" RUN_LIVE_BACKEND_CHECK 1\nprint_preflight_summary',
+  );
+  assert.equal(partial.status, 0, partial.stderr);
+  assert.match(partial.stdout, /skipped:\s+live-backend-health \(RUN_LIVE_BACKEND_CHECK=0\)/);
+  assert.match(partial.stdout, /PARTIAL: default-on gate\(s\) were skipped; this run does not prove release readiness/);
+  assert.doesNotMatch(partial.stdout, /GREEN/);
+
+  const empty = runHelpers("print_preflight_summary");
+  assert.equal(empty.status, 0, empty.stderr);
+  assert.match(empty.stdout, /ran:\s+\(none\)/);
+  assert.match(empty.stdout, /skipped:\s+\(none\)/);
+});

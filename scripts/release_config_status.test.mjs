@@ -336,3 +336,19 @@ test("[run-release-preflight] skips live backend and desktop preflight when conf
   assert.doesNotMatch(r.stdout, /Live Backend Health/);
   assert.doesNotMatch(r.stdout, /Mac Desktop Preflight/);
 });
+
+test("[release-config-status] backend URL check names itself a string check, not proof of hosting", () => {
+  const r = run(["--json", "--no-xcodebuild"], {
+    DEVELOPMENT_TEAM_ID: "",
+    BACKEND_URL: "https://api.them.io",
+    APP_TOKEN_RELEASE: "",
+    OPENAI_API_KEY: "",
+  });
+  const payload = JSON.parse(r.stdout);
+  const backendCheck = payload.checks.find((check) => check.id === "backend-url");
+  assert.ok(backendCheck, "backend-url check present");
+  assert.equal(backendCheck.ok, true);
+  assert.match(backendCheck.message, /non-local HTTPS URL/);
+  assert.match(backendCheck.message, /reachability is proven by the live backend health step/);
+  assert.doesNotMatch(backendCheck.message, /is hosted/);
+});
