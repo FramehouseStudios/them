@@ -1,0 +1,48 @@
+# Muse audit 2026-09-05 §4: dependency freshness was manual. Weekly PRs for
+# backend npm deps, GitHub Actions, and the backend Docker base image.
+# Majors for express / redis / multer are parked until after V1 (D009 F5),
+# so only patch/minor updates flow for those; security advisories still
+# open PRs regardless of these ignores.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /backend
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: America/Los_Angeles
+    open-pull-requests-limit: 5
+    groups:
+      backend-patch-minor:
+        update-types: ["minor", "patch"]
+    ignore:
+      - dependency-name: express
+        update-types: ["version-update:semver-major"]
+      - dependency-name: redis
+        update-types: ["version-update:semver-major"]
+      - dependency-name: multer
+        update-types: ["version-update:semver-major"]
+    labels: ["dependencies", "backend"]
+    commit-message:
+      prefix: "deps(backend)"
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: America/Los_Angeles
+    labels: ["dependencies", "ci"]
+    commit-message:
+      prefix: "deps(actions)"
+  - package-ecosystem: docker
+    directory: /backend
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: America/Los_Angeles
+    labels: ["dependencies", "docker"]
+    commit-message:
+      prefix: "deps(docker)"
