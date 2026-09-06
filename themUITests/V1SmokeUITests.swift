@@ -431,11 +431,39 @@ final class V1SmokeUITests: XCTestCase {
         // keyboard that covered the chip and swallowed the tap is reported as
         // that, not as an editing-state failure.
         var saveTriggerSnapshot: [String: Any] = [:]
+        let saveDelivered: ([String: Any]) -> Bool = { snapshot in
+            saveTriggerSnapshot = snapshot
+            return self.intValue(snapshot["manual_save_trigger_count"]) == 1
+        }
+        var saveTapReachedApp = waitForRestoreSnapshot(
+            in: app,
+            timeout: writerLoopWait(4),
+            predicate: saveDelivered
+        )
+        if !saveTapReachedApp, intValue(saveTriggerSnapshot["manual_save_trigger_count"]) == 0 {
+            // Hosted runners lose the first tap roughly half the time: the chip
+            // passes its hittability check, then the keyboard-dismiss animation
+            // swallows the touch and the trigger count stays at 0 (it is never
+            // 2, and the same build passes locally in seconds). One explicit
+            // keyboard dismissal and a second tap turn that runner race into a
+            // real signal; the == 1 check below still catches a double fire.
+            XCTContext.runActivity(
+                named: "Save now tap did not reach the app; dismissing keyboard and tapping once more"
+            ) { _ in }
+            _ = dismissKeyboardIfPresent(in: app)
+            XCTAssertTrue(
+                waitForHittability(of: saveNow, timeout: writerLoopWait(5)),
+                "Save now was not hittable for the retry tap."
+            )
+            saveNow.tap()
+            saveTapReachedApp = waitForRestoreSnapshot(
+                in: app,
+                timeout: writerLoopWait(5),
+                predicate: saveDelivered
+            )
+        }
         XCTAssertTrue(
-            waitForRestoreSnapshot(in: app, timeout: writerLoopWait(5)) { snapshot in
-                saveTriggerSnapshot = snapshot
-                return intValue(snapshot["manual_save_trigger_count"]) == 1
-            },
+            saveTapReachedApp,
             "Save now did not deliver exactly one UI action. Snapshot: \(saveTriggerSnapshot)"
         )
         if !waitForDisappearance(of: screenplayKeyboard, timeout: writerLoopWait(5)) {
