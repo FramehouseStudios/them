@@ -1,6 +1,6 @@
 # docs/schemas — INDEX
 
-Canonical envelope and record schemas for the io.them backend.
+Canonical envelope and record schemas for the THEM backend.
 Each doc captures the field set, access-control posture, owner,
 invariants, and compatibility rules for one envelope or record.
 

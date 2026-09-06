@@ -1,4 +1,4 @@
-# io.them backend .dockerignore.
+# THEM backend .dockerignore.
 #
 # Anything listed here is NEVER copied into the image. Goals:
 #   1. Keep image small (no node_modules, no test artifacts).

@@ -2,7 +2,7 @@
 
 ## Goal
 
-Writers can keep the default io.them voice or connect **ElevenLabs BYOK** and pick a voice from their own library (including clones).
+Writers can keep the default THEM voice or connect **ElevenLabs BYOK** and pick a voice from their own library (including clones).
 
 ## Router
 
@@ -55,4 +55,3 @@ spoken text
 - iOS stores BYOK key in Keychain; `/talk` receives `X-Tts-Provider: elevenlabs_byok` + `X-ElevenLabs-Api-Key` + `X-ElevenLabs-Voice-Id` only when the writer opts in.
 - Do not change `INTERACTIVE_TTS_PROVIDER` default (`openai`) as a side effect of BYOK work.
 - BYOK audio is billed to the user's ElevenLabs account (`walletBillable=false`).
-

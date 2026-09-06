@@ -492,9 +492,9 @@ test("[pre-flight] accepts outbox schema docs matching the canonical store shape
 
 test("[pre-flight] flags generated TestFlight preflight drift", () => {
   const tmp = tempRepo();
-  writeManualQaGenerator(tmp, "# io.them V1 TestFlight Preflight\n\nfresh\n");
+  writeManualQaGenerator(tmp, "# THEM V1 TestFlight Preflight\n\nfresh\n");
   fs.mkdirSync(path.join(tmp, "docs"), { recursive: true });
-  fs.writeFileSync(path.join(tmp, "docs", "testflight-v1-preflight.md"), "# io.them V1 TestFlight Preflight\n\nstale\n");
+  fs.writeFileSync(path.join(tmp, "docs", "testflight-v1-preflight.md"), "# THEM V1 TestFlight Preflight\n\nstale\n");
   const r = runIn(tmp);
   assert.match(r.stderr, /generated-testflight-preflight-drift/);
   assert.match(r.stderr, /v1_manual_qa_checklist\.mjs --write=docs\/testflight-v1-preflight\.md/);
@@ -504,7 +504,7 @@ test("[pre-flight] flags generated TestFlight preflight drift", () => {
 
 test("[pre-flight] accepts generated TestFlight preflight artifact in sync", () => {
   const tmp = tempRepo();
-  const body = "# io.them V1 TestFlight Preflight\n\nfresh\n";
+  const body = "# THEM V1 TestFlight Preflight\n\nfresh\n";
   writeManualQaGenerator(tmp, body);
   fs.mkdirSync(path.join(tmp, "docs"), { recursive: true });
   fs.writeFileSync(path.join(tmp, "docs", "testflight-v1-preflight.md"), body);

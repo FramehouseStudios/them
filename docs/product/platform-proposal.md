@@ -1,4 +1,4 @@
-# io.them Platform Proposal
+# THEM Platform Proposal
 
 > Engineering/product proposal derived from product-lead material supplied on
 > 2026-08-30. It describes a recommended path, not a replacement for accepted
@@ -9,7 +9,7 @@
 
 ## Executive north star
 
-io.them is the native writing environment between “I have an idea” and “I have
+THEM is the native writing environment between “I have an idea” and “I have
 usable pages.” The writer owns the work, the page is authoritative, generated
 material is reviewable, creative context survives, and failures remain
 understandable and recoverable.
@@ -113,4 +113,3 @@ The highest remaining V1 risk is not the absence of more features. It is whether
 the core loop remains trustworthy during real mobile interruptions, network
 changes, voice inaccuracies, and long sessions. Expansion should follow
 measured reliability and writer retention—not precede them.
-

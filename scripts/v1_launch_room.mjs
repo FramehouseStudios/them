@@ -77,6 +77,10 @@ function extractOpenDecisionTitles(markdown) {
   return [...section.matchAll(/^###\s+(.+)$/gm)].map((match) => match[1].trim());
 }
 
+function currentBrandProse(value) {
+  return String(value || "").replace(/\bio\.them\b(?![./])/gi, "THEM");
+}
+
 function summarizeReleaseProof(markdown) {
   if (!markdown) return null;
   const result = markdown.match(/^(?:Result:|Failed:)\s+(.+)$/m)?.[1]?.replace(/[`.]/g, "") || "unknown";
@@ -98,7 +102,10 @@ function summarizeReleaseProof(markdown) {
     }
   }
   if (active) blockers.push(active.trim());
-  return { result, blockers };
+  return {
+    result: currentBrandProse(result),
+    blockers: blockers.map(currentBrandProse),
+  };
 }
 
 function isHumanActionGated(pr) {
@@ -358,7 +365,7 @@ function releaseLocalConfigLine(status) {
 
 function textOutput(state) {
   const out = [];
-  out.push("io.them V1 Launch Room");
+  out.push("THEM V1 Launch Room");
   out.push("");
   out.push(`V1: ${state.v1.done}/${state.v1.total} (${state.v1.pct}%)`);
   for (const pillar of state.pillars) {

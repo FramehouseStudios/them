@@ -42,8 +42,8 @@ async function main() {
   }
   const body = await response.text();
   if (body.length < 200) throw new Error("public surface content is too short to be a real policy page");
-  if (!/privacy/i.test(body) || !/\bio\.them\b/i.test(body)) {
-    throw new Error("public surface does not identify io.them and its privacy policy");
+  if (!/privacy/i.test(body) || !/\bTHEM\b/.test(body)) {
+    throw new Error("public surface does not identify THEM and its privacy policy");
   }
   if (/(domain\s+(?:is\s+)?parked|domain\s+for\s+sale|introvert\.com)/i.test(body)) {
     throw new Error("public surface is a parked-domain page");

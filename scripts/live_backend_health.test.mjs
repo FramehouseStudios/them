@@ -38,7 +38,7 @@ function sendJSON(res, status, body) {
   res.end(JSON.stringify(body));
 }
 
-test("[live-backend-health] accepts a live io.them health surface with token", async () => {
+test("[live-backend-health] accepts a live THEM health surface with token", async () => {
   await withServer((req, res) => {
     if (req.url === "/healthz") return sendJSON(res, 200, { ok: true, persistence: "ok" });
     if (req.url === "/api/version") {

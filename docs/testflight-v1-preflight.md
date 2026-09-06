@@ -1,4 +1,4 @@
-# io.them V1 TestFlight Preflight
+# THEM V1 TestFlight Preflight
 
 This artifact names the V1 proof a human should run before TestFlight or external review. It does not claim human signoff; it makes the signoff path explicit.
 
@@ -103,7 +103,7 @@ Goal: real release config -> live public surfaces -> signed iPhone archive -> ex
 1. Create the ignored Release.local.env from the checked-in template.
 2. Fill in DEVELOPMENT_TEAM_ID, production APP_TOKEN_RELEASE, and OPENAI_API_KEY; keep the file mode 600.
 3. Deploy the production backend with Postgres, every migration, the canonical auth-store marker, one V1 backend instance, and real DATABASE_URL, JWT_SECRET, OPENAI_API_KEY, APP_TOKEN, AUTH_APPLE_AUDIENCE, APP_STORE_ISSUER_ID, APP_STORE_KEY_ID, APP_STORE_PRIVATE_KEY, and APP_STORE_BUNDLE_ID; APP_TOKEN must match APP_TOKEN_RELEASE. App Store secrets are set in the Render dashboard, not in them/Release.local.env.
-4. Publish https://api.them.io and the exact privacy URL shipped in Info-Release.plist, then confirm both return direct HTTP 200 io.them content without redirects or parked-domain material.
+4. Publish https://api.them.io and the exact privacy URL shipped in Info-Release.plist, then confirm both return direct HTTP 200 THEM content without redirects or parked-domain material.
 5. Review the checked-in dedicated iOS entitlement containing com.apple.developer.applesignin = [Default], enable Sign in with Apple for io.them.them in the Apple portal, regenerate provisioning, and verify iphoneos Release still resolves to them/them-iOS.entitlements.
 6. Review and approve the Email Address declaration in PrivacyInfo.xcprivacy, approve or replace the generated AppIcon, and complete App Store privacy/export-compliance metadata.
 7. Add GitHub Actions secrets APP_TOKEN_RELEASE and DEVELOPMENT_TEAM_ID, verify OPENAI_API_KEY, then run scripts/run_release_preflight.sh without disabling any gate and require the rc-* workflow to pass.

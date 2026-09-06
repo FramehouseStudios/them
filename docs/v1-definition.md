@@ -1,4 +1,4 @@
-# io.them V1 Definition
+# THEM V1 Definition
 
 This is the operative V1 target until the human product lead changes it.
 Every PR must either close a V1 checklist item, unblock one, or clearly say
@@ -16,7 +16,7 @@ ADR.
 
 ## V1 Promise
 
-A writer can open io.them on a phone, speak or type a messy creative impulse,
+A writer can open THEM on a phone, speak or type a messy creative impulse,
 and get a properly formatted screenplay page within 60 seconds. The page can
 be edited, saved, exported, and improved with a companion that remembers the
 writer's characters, tone, recent themes, and current creative friction.

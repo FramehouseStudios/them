@@ -1,4 +1,4 @@
-# io.them iPhone TestFlight Submission Checklist
+# THEM iPhone TestFlight Submission Checklist
 
 Last updated: 2026-08-30
 
@@ -9,6 +9,7 @@ cp them/Release.local.env.example them/Release.local.env
 chmod 600 them/Release.local.env
 ```
 - Fill `DEVELOPMENT_TEAM_ID`, `APP_TOKEN_RELEASE`, and `OPENAI_API_KEY` in `them/Release.local.env`.
+- Confirm the customer-facing App Store Connect name is exactly `THEM`; keep the existing bundle identifier and StoreKit product identifiers unchanged.
 - Keep `BACKEND_URL=https://api.them.io` unless the hosted release backend changes.
 - Confirm `PRIVACY_POLICY_URL` and `SUPPORT_EMAIL` values in `them/Info-Release.plist` are production values.
 - Do not put production values in tracked `Config.xcconfig`, screenshots, tickets, or chat. The generated `Release.local.xcconfig` is ignored, mode 600, and explicitly excluded from every app target.
@@ -24,7 +25,7 @@ chmod 600 them/Release.local.env
 ## 3. Privacy + Policy
 - Publish the privacy policy page at the exact URL in `them/Info-Release.plist`; release preflight rejects redirects, parked pages, and workflow-variable mismatches.
 - Deploy the backend with Postgres, all migrations, the canonical auth-store marker, one V1 instance, and real `DATABASE_URL`, `JWT_SECRET`, `OPENAI_API_KEY`, `APP_TOKEN`, and `AUTH_APPLE_AUDIENCE`. The backend `APP_TOKEN` must match the app's `APP_TOKEN_RELEASE`.
-- Attach DNS so the exact Release `BACKEND_URL` serves direct healthy `/healthz` and `/api/version` io.them responses.
+- Attach DNS so the exact Release `BACKEND_URL` serves direct healthy `/healthz` and `/api/version` THEM responses.
 - Ensure App Store Connect Privacy answers match `them/PrivacyInfo.xcprivacy`.
 - Include Audio Data, User Content, and Email Address as app-functionality data types.
 - Confirm the privacy policy names the active AI provider paths: OpenAI and, when enabled, ElevenLabs.
@@ -32,6 +33,7 @@ chmod 600 them/Release.local.env
 - Confirm in-app data controls work: clear history and clear memories.
 
 ## 4. Build + Preflight
+- Require the compiled Release app to report both `CFBundleDisplayName=THEM` and `CFBundleName=THEM`; `appstore_preflight.sh` checks the built artifact.
 - Run the backend/app quality gate first:
 ```bash
 ./scripts/quality_gate.sh

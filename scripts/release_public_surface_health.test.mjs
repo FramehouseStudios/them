@@ -34,7 +34,7 @@ async function withServer(handler, body) {
 test("[release-public-surface] accepts a canonical policy page", async () => {
   await withServer((_req, res) => {
     res.writeHead(200, { "Content-Type": "text/html" });
-    res.end(`<html><title>io.them Privacy Policy</title><body>${"io.them privacy choices and data controls. ".repeat(12)}</body></html>`);
+    res.end(`<html><title>THEM Privacy Policy</title><body>${"THEM privacy choices and data controls. ".repeat(12)}</body></html>`);
   }, ({ code, stdout, stderr }) => {
     assert.equal(code, 0, stderr);
     assert.match(stdout, /Public release surface is live/);
@@ -57,6 +57,6 @@ test("[release-public-surface] rejects an unrelated privacy page containing only
     res.end(`<html><title>Privacy Policy</title><body>${"We respect users and never share data with them. ".repeat(12)}</body></html>`);
   }, ({ code, stderr }) => {
     assert.equal(code, 1);
-    assert.match(stderr, /does not identify io\.them/);
+    assert.match(stderr, /does not identify THEM/);
   });
 });

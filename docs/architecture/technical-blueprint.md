@@ -1,4 +1,4 @@
-# io.them Technical Architecture Blueprint
+# THEM Technical Architecture Blueprint
 
 > Recommended implementation reference derived from product-lead material
 > supplied on 2026-08-30 and normalized against the current repository. Accepted
@@ -7,7 +7,7 @@
 
 ## Architecture decision
 
-Build io.them as a native iPhone application with a focused SwiftUI client and
+Build THEM as a native iPhone application with a focused SwiftUI client and
 screenplay-domain packages, backed by a modular Node.js/Express API, PostgreSQL
 as the production system of record, and optional Redis coordination. Keep model
 and realtime access behind server-side adapters. Treat the accepted page as the
@@ -153,4 +153,3 @@ exported without unexplained loss; ownership isolation survives adversarial
 tests; provider failure cannot corrupt the accepted page; memory is inspectable
 and correctable; clean-machine quality/release gates pass; and a skeptical
 writer trusts the app with a real scene.
-

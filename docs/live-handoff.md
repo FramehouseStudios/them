@@ -1,6 +1,6 @@
 # Project Live Handoff
 
-This is the current repo-facing handoff for io.them. Historical helper-lane logs have been collapsed into project-owned status so future work starts from the real app, the current repository state, and the active GitHub queue.
+This is the current repo-facing handoff for THEM. Historical helper-lane logs have been collapsed into project-owned status so future work starts from the real app, the current repository state, and the active GitHub queue.
 
 ## Current State
 

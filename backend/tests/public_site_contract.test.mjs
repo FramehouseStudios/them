@@ -7,11 +7,15 @@ const privacyPage = readFileSync(new URL("../../site/privacy/index.html", import
 const releasePlist = readFileSync(new URL("../../them/Info-Release.plist", import.meta.url), "utf8");
 
 test("[public-site] landing page exposes the canonical privacy and support routes", () => {
+  assert.match(landingPage, /<title>THEM<\/title>/);
+  assert.match(landingPage, /<p class="eyebrow">THEM<\/p>/);
   assert.match(landingPage, /href="\/privacy\/"/);
   assert.match(landingPage, /mailto:support@them\.io/);
 });
 
 test("[public-site] privacy page covers stored writing, AI processing, and user choices", () => {
+  assert.match(privacyPage, /<title>Privacy Policy — THEM<\/title>/);
+  assert.match(privacyPage, /aria-label="Back to THEM home">THEM<\/a>/);
   assert.match(privacyPage, /Screenplay drafts, prompts, notes, and project content/);
   assert.match(privacyPage, /OpenAI and ElevenLabs/);
   assert.match(privacyPage, /We do not sell personal data/);

@@ -1,7 +1,7 @@
 # docs/schemas — canonical response envelope schemas
 
 This directory is the **single source of truth** for the JSON
-response envelopes io.them's backend produces and io.them's iOS
+response envelopes THEM's backend produces and THEM's iOS
 client consumes. Each file documents one envelope: its schema
 version, its field set, its access-control posture, and which
 agent owns it.

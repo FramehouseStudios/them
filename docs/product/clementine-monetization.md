@@ -44,7 +44,7 @@ Alias: `POST /talk/wallet/credit` mounts the same handler for talk-adjacent clie
 
 `them.io` marketing DNS may still be parked. **Verify+credit still requires a live API host** (Render default — see `backend/DEPLOY.md` / `render.yaml`).
 
-- Prefer `https://api.them.io` once the custom domain returns io.them `/healthz` directly (no parked redirect).
+- Prefer `https://api.them.io` once the custom domain serves the THEM backend's `/healthz` response directly (no parked redirect).
 - Until DNS is clean, point the app / TestFlight `BACKEND_URL` at the **Render service URL** so IAP credit can complete.
 - Do not ship Stripe Checkout inside iOS for these unlocks (D011).
 
@@ -76,7 +76,7 @@ Wiring: `createPostgresWalletPersistence` (dedicated tables) or `createAdapterWa
 
 ## App Store Connect setup
 
-1. Create In-App Purchases under the io.them iOS app (bundle id must match `APP_STORE_BUNDLE_ID`).
+1. Create In-App Purchases under the THEM iOS app (bundle id must match `APP_STORE_BUNDLE_ID`).
 2. Add products whose Product IDs match `pack_catalog` `productId` values (start with the three examples above).
 3. Choose Consumable (recommended for re-buyable turn packs) or Non-Consumable per product strategy.
 4. Set pricing, localization (“Companion + Page turns” / weeks framing — never TPM).

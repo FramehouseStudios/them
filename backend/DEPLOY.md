@@ -1,4 +1,4 @@
-# io.them backend — deploy recipe
+# THEM backend — deploy recipe
 
 This is the single source of truth for deploying the backend. It assumes the
 image is built from [`backend/Dockerfile`](Dockerfile) and the production

@@ -1,7 +1,7 @@
-# Idempotency-Key — io.them backend client contract
+# Idempotency-Key — THEM backend client contract
 
 This is the client-facing contract for retry-safe POST/PUT/PATCH
-requests against the io.them backend. The primary consumer is the
+requests against the THEM backend. The primary consumer is the
 iOS offline outbox (`T-ios-offline-outbox`), but the same contract
 applies to any HTTP client that retries on transport failure.
 

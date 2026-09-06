@@ -81,6 +81,6 @@ test("[v1-manual-qa] --write creates a reusable markdown artifact", () => {
   const r = run([`--write=${rel}`]);
   assert.equal(r.status, 0, r.stderr);
   const body = fs.readFileSync(out, "utf8");
-  assert.match(body, /^# io\.them V1 TestFlight Preflight/);
+  assert.match(body, /^# THEM V1 TestFlight Preflight/);
   assert.match(body, /Generated from `scripts\/v1_manual_qa_checklist\.mjs`/);
 });

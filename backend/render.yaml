@@ -1,4 +1,4 @@
-# Render Blueprint for the io.them backend.
+# Render Blueprint for the THEM backend.
 #
 # This file is one valid deploy target. The Dockerfile is host-agnostic, so the
 # same image runs on Fly, ECS, Cloud Run, or Kubernetes if Render is replaced.

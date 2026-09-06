@@ -1,4 +1,4 @@
-# io.them Quality Gate
+# THEM Quality Gate
 
 Last updated: 2026-08-28
 

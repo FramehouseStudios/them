@@ -1,4 +1,4 @@
-# io.them V1 Launch Doctor
+# THEM V1 Launch Doctor
 
 The V1 Launch Doctor is the in-app smoke recorder for the last manual checks
 before TestFlight or external review.

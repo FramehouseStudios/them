@@ -43,7 +43,7 @@ const flows = [
     pillar: "memory",
     flags: ["memory", "creative-memory", "creative_memory"],
     promptNames: ["creative memory"],
-    goal: "Confirm io.them remembers safe creative context and exposes enough shape to diagnose memory.",
+    goal: "Confirm THEM remembers safe creative context and exposes enough shape to diagnose memory.",
     passCriteria: "Memory improves continuity, diagnostics are readable, and privacy-gated export/delete behavior is understood.",
   },
   {
@@ -269,7 +269,7 @@ function makeReport(args) {
 
 function markdown(report) {
   const lines = [];
-  lines.push("# io.them V1 Launch Doctor");
+  lines.push("# THEM V1 Launch Doctor");
   lines.push("");
   lines.push(`- Generated: ${report.generatedAt}`);
   lines.push(`- Overall: ${report.overallStatus}`);

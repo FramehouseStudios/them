@@ -5,7 +5,7 @@
 **V1 pillar**: ios
 **V1 effect**: closes the App Store / privacy compliance gap. Apple
 requires both account deletion and data export for any app that
-collects personal information. io.them collects user-authored
+collects personal information. THEM collects user-authored
 screenplays, voice transcripts, character mentions, and email
 addresses — all personal. Without these endpoints, V1 cannot pass
 App Store review.

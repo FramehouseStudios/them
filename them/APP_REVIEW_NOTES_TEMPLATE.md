@@ -2,7 +2,7 @@
 
 Use this as your App Review Notes in App Store Connect.
 
-io.them is a voice conversation assistant.
+THEM is a voice conversation assistant.
 
 Microphone usage:
 - The app requests microphone access only when the user starts talking.

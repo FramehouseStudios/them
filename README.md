@@ -1,4 +1,4 @@
-# io.them
+# THEM
 
 > A voice-first AI screenplay studio that turns creative intent into production-ready pages.
 
@@ -8,7 +8,7 @@
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-111111?logo=postgresql&logoColor=white)
 ![Status](https://img.shields.io/badge/status-V1%20release%20candidate-6d4aff)
 
-io.them is a native writing environment for screenwriters who think in fragments, images, performances, and spoken ideas—not only in finished pages. Its creative companion, Clementine, helps a writer move from voice or text to correctly structured screenplay material while preserving project context, character intent, tone, and authorship.
+THEM is a native writing environment for screenwriters who think in fragments, images, performances, and spoken ideas—not only in finished pages. Its creative companion, Clementine, helps a writer move from voice or text to correctly structured screenplay material while preserving project context, character intent, tone, and authorship.
 
 The product principle is deliberately demanding: the technology should disappear quickly enough for the writer to stay inside the scene.
 
@@ -194,4 +194,4 @@ Relevant references: [`docs/schemas/INDEX.md`](docs/schemas/INDEX.md), [`docs/op
 
 Every visible control must perform a useful action, explain why it is unavailable, or be removed. Generated work must remain reviewable. Failure states must be understandable. The app should help a writer reach a usable scene faster without asking them to manage the machinery behind it.
 
-That standard—not the presence of AI—is what defines io.them.
+That standard—not the presence of AI—is what defines THEM.

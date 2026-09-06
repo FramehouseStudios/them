@@ -1,4 +1,4 @@
-# io.them Launch Plan
+# THEM Launch Plan
 
 The active plan is now the free-first two-week schedule:
 

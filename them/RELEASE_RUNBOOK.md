@@ -1,4 +1,4 @@
-# io.them Release Runbook
+# THEM Release Runbook
 
 Last updated: 2026-08-28
 
@@ -11,6 +11,7 @@ chmod 600 them/Release.local.env
 ```
 
 - Fill `DEVELOPMENT_TEAM_ID`, `APP_TOKEN_RELEASE`, and `OPENAI_API_KEY` in `them/Release.local.env`.
+- Confirm the customer-facing App Store Connect name is exactly `THEM`; keep the existing bundle identifier and StoreKit product identifiers unchanged.
 - Keep `BACKEND_URL=https://api.them.io` unless the hosted release backend changes.
 - Keep `PRIVACY_POLICY_URL` identical to the URL shipped in `them/Info-Release.plist`.
 - Check secret-safe release config status:
@@ -28,6 +29,8 @@ scripts/run_release_preflight.sh
 This wrapper proves Clementine's adaptive writer-block rescue, the locally
 signed iPhone-simulator V1 UI suite (including Keychain relaunch), the exact live backend and
 privacy-policy surfaces, and the iPhone App Store preflight path.
+The built-artifact inspection also requires `CFBundleDisplayName` and
+`CFBundleName` to resolve to `THEM`.
 It defaults the full quality gate on and refuses to source a symlink,
 non-regular file, or release env file that is not mode 600. It also persists
 the validated backend origin into the ignored Xcode include so Organizer
@@ -114,7 +117,7 @@ Automation stops until a release owner:
 1. Reviews and approves the branch's Email Address declaration in `PrivacyInfo.xcprivacy` plus the Tier-3 auth/release PR.
 2. Enables Sign in with Apple for `io.them.them` in the Apple Developer portal, confirms the checked-in `them-iOS.entitlements` capability is approved for the App ID, and regenerates provisioning. The iPhone target already wires this dedicated file; do not replace it with the macOS sandbox entitlement file.
 3. Deploys the backend using `backend/DEPLOY.md`: provision Postgres, apply every migration, deliberately establish the canonical auth-store marker, keep V1 at one instance, and set `DATABASE_URL`, `JWT_SECRET`, `OPENAI_API_KEY`, `APP_TOKEN`, and `AUTH_APPLE_AUDIENCE`. Backend `APP_TOKEN` must match app `APP_TOKEN_RELEASE`.
-4. Publishes `https://api.them.io` and the privacy URL in `Info-Release.plist` as direct HTTP 200 io.them surfaces without redirects or parked-domain content.
+4. Publishes `https://api.them.io` and the privacy URL in `Info-Release.plist` as direct HTTP 200 THEM surfaces without redirects or parked-domain content.
 5. Supplies the Apple Team ID and repository secrets named above without committing or pasting them into tickets. `APP_TOKEN_RELEASE` ships inside the app and is extractable, so it is an app-install identifier—not a user secret or sole authorization boundary.
 6. Approves/replaces the generated icon and completes App Store privacy, export-compliance, screenshots, URLs, review-contact, and App Review account metadata.
 7. Produces a signed archive, runs Validate App, installs the TestFlight build on a physical iPhone, verifies real Apple and email authentication plus Keychain opt-in/opt-out, completes the five manual flows, exports Launch Doctor proof, and records signoff. The DEBUG `.invalid` credentials are not a production or Apple-login account.

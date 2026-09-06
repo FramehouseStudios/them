@@ -2,7 +2,7 @@
 
 **Status**: implemented on `main` by merge #416; two-device smoke added by
 merge #418. Verified on the current Codex maintenance branch.
-**Owner**: io.them project; Codex implementation maintenance.
+**Owner**: THEM project; Codex implementation maintenance.
 **V1 pillar**: infra
 **V1 effect**: typing in the Studio editor on one device appears on the same
 account's other devices as it is typed. The concrete ask: type on the macOS

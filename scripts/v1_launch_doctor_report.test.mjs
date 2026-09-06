@@ -51,7 +51,9 @@ test("[v1-launch-doctor-report] writes explicit flow statuses without inventing 
   assert.equal(report.results.find((result) => result.flow === "realtime").status, "not_started");
   assert.equal(report.results.find((result) => result.flow === "realtime").evidence, "Not run yet.");
   assert.equal(report.results.find((result) => result.flow === "release_readiness").evidence, "Missing them/Release.local.env.");
-  assert.match(fs.readFileSync(jsonPath.replace(/\.json$/, ".md"), "utf8"), /Export failed after save/);
+  const markdown = fs.readFileSync(jsonPath.replace(/\.json$/, ".md"), "utf8");
+  assert.match(markdown, /^# THEM V1 Launch Doctor/m);
+  assert.match(markdown, /Export failed after save/);
 });
 
 test("[v1-launch-doctor-report] parses the manual QA result block", () => {

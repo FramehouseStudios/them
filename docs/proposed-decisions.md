@@ -95,13 +95,13 @@ Each entry is in ADR form ready to paste. The `Status` field is `proposed` here;
 
 ---
 
-## D??? — D001 amendment: them.io is the hosted domain for the io.them product
+## D??? — D001 amendment: them.io is the hosted domain for THEM
 
 - **Date:** 2026-05-09 (amendment proposed 2026-09-04)
 - **Status:** proposed
 - **Source:** `DECISIONS.md:D001`, supervisor naming-drift review (claude/pii-safe-request-logs)
-- **Context:** `DECISIONS.md:D001` declares `io.them` as the canonical product name. Audits flagged `them.io` hosts (`api.them.io`, `them.io/privacy`, `support@them.io`, `privacy@them.io`) as competing names. `them` is not a TLD, so `io.them` cannot be a hostname.
-- **Decision:** The canonical hosted domain remains `them.io`. Hostnames, URLs, and emails that use `them.io` are infrastructure for the `io.them` product, not competing product names. User-facing surfaces (README, App Store metadata, display name, onboarding) must still use `io.them`.
+- **Context:** `DECISIONS.md:D001` historically declared `io.them` as the canonical product name; the human's current direction names the visible product **THEM**. Audits flagged `them.io` hosts (`api.them.io`, `them.io/privacy`, `support@them.io`, `privacy@them.io`) as potentially competing names. `them` is not a TLD, so neither `THEM` nor the historical `io.them` spelling can be a hostname.
+- **Decision:** The canonical hosted domain remains `them.io`. Hostnames, URLs, and emails that use `them.io` are infrastructure for the THEM product, not competing product names. User-facing surfaces (README, App Store metadata, display name, onboarding) must use `THEM`.
 - **Consequences:** No URL, email, or hostname change is required to satisfy `D001`. A domain migration to a different host would require a separate accepted decision and rollout.
 
 ---
@@ -134,4 +134,3 @@ After acceptance, this `proposed-decisions.md` file can be deleted; new proposal
 - **Context:** Page/scriptwriting quality was not yet measurable against the owner bar (smartest creative writer craft). Clementine voice eval (D008) covers companion voice, not page craft.
 - **Decision (working):** Ship Page craft eval v1 with a six-dimension rubric, heuristic scorer (CI), optional model judge behind env flag, and synthetic PASS/FAIL Fountain fixtures. Multi-pass revise product is deferred to F2 and will consume this scorer.
 - **Consequences:** backend/evals/page_craft/* and eval:page-craft enter the heuristic CI path. No god-file refactors in F1.
-

@@ -1,4 +1,4 @@
-# DECISIONS.md — io.them
+# DECISIONS.md — THEM
 
 Product and architecture decisions. The human owns this file. Codex may propose changes, but accepted decisions require explicit human direction.
 
@@ -16,7 +16,7 @@ Each entry follows the ADR pattern:
 ## D001 — `io.them` is the canonical product name
 
 - **Date:** 2026-05-09
-- **Status:** accepted
+- **Status:** superseded by D015
 - **Context:** The codebase had several parallel identities: `Framehouse` for parent collateral, `them` for the app folder, `io.them` for the product, `Clementine` for the companion, and legacy internal names in older Swift files. User-facing identity was undeclared.
 - **Decision:** The canonical product name is **`io.them`**. Internal code identifiers may remain where rename cost exceeds benefit, but no user-visible surface should introduce a competing product name.
 - **Consequences:** README, app display name, App Store metadata, marketing copy, onboarding, and launch proof should use `io.them`.
@@ -161,3 +161,11 @@ Each entry follows the ADR pattern:
 - **Context:** The human explicitly directed that the orb remain part of the app no matter how the surrounding experience evolves, and that Clementine remain the named creative companion.
 - **Decision:** The orb remains the visual heart of io.them, and Clementine remains its named, emotionally intelligent screenwriting companion. Navigation, accessibility, responsive layout, state communication, and interaction affordances around them may be redesigned, but neither may be removed, renamed, hidden behind generic assistant language, or reduced to decorative branding.
 - **Consequences:** Home and Studio improvements must clarify what Clementine is doing and what the writer can do next while preserving the orb as the primary presence. Product-copy and presentation tests should guard both anchors against accidental regression.
+
+## D015 — `THEM` is the canonical visible product name
+
+- **Date:** 2026-09-06
+- **Status:** accepted
+- **Context:** The human explicitly directed the project and installed app to be called **THEM**, dropping the visible `io.` prefix. D001's earlier `io.them` identity no longer matches the intended product presentation.
+- **Decision:** The canonical user-facing product and app name is **THEM**. Clementine remains the named creative companion and the orb remains the visual heart of the product. Compatibility-critical technical identifiers stay stable, including the `io.them.them` bundle ID, Keychain services, persistence/defaults keys, StoreKit product IDs, backend domains, email domains, accessibility identifiers, repository paths, target/module names, and historical evidence.
+- **Consequences:** Shipping UI, app metadata, public site, generated release artifacts, active documentation, and App Store-facing copy use **THEM**. Exact legacy product-owned metadata labels are normalized when presented, without rewriting screenplay content or user-created titles. Prior accepted decisions that use `io.them` in product-facing prose are interpreted as **THEM**; their technical identifiers retain their original values.

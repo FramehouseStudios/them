@@ -1,4 +1,4 @@
-# io.them Founder Product Brief
+# THEM Founder Product Brief
 
 > Product-direction reference supplied by the product lead on 2026-08-30.
 > This document explains intent and sequencing. It does not override
@@ -9,7 +9,7 @@
 
 ## Product in one sentence
 
-io.them is a voice-first AI screenplay studio that helps writers move from
+THEM is a voice-first AI screenplay studio that helps writers move from
 spoken or fragmented creative intent to production-ready pages while preserving
 authorship, project context, and control.
 
@@ -23,7 +23,7 @@ for the writer to remain inside the creative moment.
 
 ## Founder vision
 
-io.them should make the highest-friction parts of screenwriting feel nearly
+THEM should make the highest-friction parts of screenwriting feel nearly
 invisible:
 
 - capture a spoken beat, performance note, or structural idea without losing
@@ -41,7 +41,7 @@ is candidate material until the writer accepts it.
 
 The recommended first customer is a professional or serious emerging
 screenwriter who already captures ideas on mobile and works in fragmented
-sessions. This gives io.them a focused individual-ownership model and a fast
+sessions. This gives THEM a focused individual-ownership model and a fast
 feedback loop before adding writers-room complexity.
 
 The initial promise is concrete: capture a spoken idea, shape it into real
@@ -67,7 +67,7 @@ restore or retry path.
 
 ## Product boundaries
 
-io.them owns the screenplay-native experience, reconciliation rules,
+THEM owns the screenplay-native experience, reconciliation rules,
 authorization boundaries, memory model, exports, and recovery behavior.
 Apple and AI/realtime providers supply platform capabilities behind owned
 interfaces.
@@ -134,5 +134,4 @@ Keep these configurable until the product lead explicitly decides them:
 Tests and a device build are necessary but insufficient. The product is first
 meaningfully proved when a working screenwriter captures a real idea, shapes it
 into correctly formatted pages, returns later with the important context intact,
-exports a useful document, and chooses io.them again for subsequent work.
-
+exports a useful document, and chooses THEM again for subsequent work.

@@ -19,7 +19,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
 
 const artifact = {
-  title: "io.them V1 TestFlight Preflight",
+  title: "THEM V1 TestFlight Preflight",
   generatedBy: "scripts/v1_manual_qa_checklist.mjs",
   v1StatusCommand: "npm run v1:status",
   automatedProof: [
@@ -114,7 +114,7 @@ const artifact = {
         "Create the ignored Release.local.env from the checked-in template.",
         "Fill in DEVELOPMENT_TEAM_ID, production APP_TOKEN_RELEASE, and OPENAI_API_KEY; keep the file mode 600.",
         "Deploy the production backend with Postgres, every migration, the canonical auth-store marker, one V1 backend instance, and real DATABASE_URL, JWT_SECRET, OPENAI_API_KEY, APP_TOKEN, AUTH_APPLE_AUDIENCE, APP_STORE_ISSUER_ID, APP_STORE_KEY_ID, APP_STORE_PRIVATE_KEY, and APP_STORE_BUNDLE_ID; APP_TOKEN must match APP_TOKEN_RELEASE. App Store secrets are set in the Render dashboard, not in them/Release.local.env.",
-        "Publish https://api.them.io and the exact privacy URL shipped in Info-Release.plist, then confirm both return direct HTTP 200 io.them content without redirects or parked-domain material.",
+        "Publish https://api.them.io and the exact privacy URL shipped in Info-Release.plist, then confirm both return direct HTTP 200 THEM content without redirects or parked-domain material.",
         "Review the checked-in dedicated iOS entitlement containing com.apple.developer.applesignin = [Default], enable Sign in with Apple for io.them.them in the Apple portal, regenerate provisioning, and verify iphoneos Release still resolves to them/them-iOS.entitlements.",
         "Review and approve the Email Address declaration in PrivacyInfo.xcprivacy, approve or replace the generated AppIcon, and complete App Store privacy/export-compliance metadata.",
         "Add GitHub Actions secrets APP_TOKEN_RELEASE and DEVELOPMENT_TEAM_ID, verify OPENAI_API_KEY, then run scripts/run_release_preflight.sh without disabling any gate and require the rc-* workflow to pass.",

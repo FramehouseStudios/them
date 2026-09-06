@@ -2,10 +2,10 @@
 
 ## Decision
 
-io.them uses OpenDraft as a bounded interoperability reference, not as a codebase
+THEM uses OpenDraft as a bounded interoperability reference, not as a codebase
 or architectural dependency. The useful lesson is that a writer-owned screenplay
 must survive movement between tools without silently changing element meaning.
-That principle fits io.them's native SwiftUI client, Node backend, and existing
+That principle fits THEM's native SwiftUI client, Node backend, and existing
 Fountain/FDX surface; OpenDraft's alternate application stack does not.
 
 Review snapshot:
@@ -17,7 +17,7 @@ Review snapshot:
 
 No OpenDraft runtime, dependency, UI, source file, or substantial source excerpt
 is vendored here. The implementation in this repository was written against the
-public Fountain/FDX formats and pinned with io.them-owned regression tests.
+public Fountain/FDX formats and pinned with THEM-owned regression tests.
 
 ## Adopted now
 
@@ -43,9 +43,9 @@ These are additive document fields. Existing action, character, dialogue,
 transition, section, synopsis, title-page, and endpoint envelope behavior remains
 compatible.
 
-## Already present in io.them
+## Already present in THEM
 
-io.them already had the valuable product foundations that motivated the review:
+THEM already had the valuable product foundations that motivated the review:
 
 - Fountain import and export
 - FDX export
@@ -59,7 +59,7 @@ topology would make recovery and correctness harder, not better.
 
 ## Parked behind product triggers
 
-The following ideas are useful, but they should enter io.them only through a
+The following ideas are useful, but they should enter THEM only through a
 separate design, threat-model, and acceptance-test pass:
 
 | Idea | Trigger before implementation |
@@ -78,10 +78,10 @@ separate design, threat-model, and acceptance-test pass:
 - A plugin system: expands the trust boundary before the core V1 surface needs it.
 - A collaboration server: premature until collaborative editing is an accepted
   product requirement with an ownership and privacy model.
-- A no-account product model: conflicts with io.them's intentional authenticated
+- A no-account product model: conflicts with THEM's intentional authenticated
   project, family, and personal-memory boundaries.
 - Marketing claims as engineering evidence: only executable tests and observed
-  io.them behavior are accepted as proof.
+  THEM behavior are accepted as proof.
 
 ## Known degradation
 

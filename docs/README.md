@@ -1,4 +1,4 @@
-# io.them Documentation Guide
+# THEM Documentation Guide
 
 The repository keeps product direction, accepted decisions, implementation
 contracts, and release evidence separate so proposals do not silently become
@@ -28,4 +28,3 @@ Product/architecture references use evidence labels and explicit proposal
 banners. If a proposal materially changes pricing, privacy, ownership,
 retention, training, platforms, or collaboration, record a proposed decision
 and obtain product-lead acceptance before implementing it as policy.
-

@@ -4,7 +4,7 @@ This protocol is superseded by [AGENTS.md](../AGENTS.md), [DECISIONS.md](../DECI
 
 ## Current Rule
 
-io.them now uses one live project workflow:
+THEM now uses one live project workflow:
 
 1. The human is product lead and final authority for product direction, release credentials, App Store/privacy answers, and destructive GitHub actions.
 2. Codex is the active implementation owner.

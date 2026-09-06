@@ -48,7 +48,8 @@ test("[v1-launch-room] --json exposes V1 status and launch lanes", () => {
 test("[v1-launch-room] support role prints one deep backend task", () => {
   const r = run(["--role=support"]);
   assert.equal(r.status, 0, r.stderr);
-  assert.match(r.stdout, /^io\.them V1 Launch Room/);
+  assert.match(r.stdout, /^THEM V1 Launch Room/);
+  assert.doesNotMatch(r.stdout, /\bio\.them\b(?![./])/i);
   assert.match(r.stdout, /Support Launch Options/);
   assert.match(r.stdout, /Do now: Manual smoke blockers/);
   assert.doesNotMatch(r.stdout, /Human Launch Options/);

@@ -1,4 +1,4 @@
-# io.them V1 Launch Doctor
+# THEM V1 Launch Doctor
 
 - Generated: 2026-05-28T20:30:00.000Z
 - Overall: not_started
@@ -29,7 +29,7 @@ Next proof is the in-app Screenplay Studio manual smoke against the intended bac
 
 - Pillar: memory
 - Status: not_started
-- Goal: Confirm io.them remembers safe creative context and exposes enough shape to diagnose memory.
+- Goal: Confirm THEM remembers safe creative context and exposes enough shape to diagnose memory.
 - Pass criteria: Memory improves continuity, diagnostics are readable, and privacy-gated export/delete behavior is understood.
 - Evidence: 2026-05-28 deterministic V1 memory recall smoke passed: character mention persisted, prompt-ready recall returned JUNE with voice/tags, reads stayed deterministic, and user isolation held. Automated iOS V1 UI smoke passed via scripts/run_v1_ui_smoke.sh on iPhone 17 Pro, including memory recall. App mention/recall/Data Controls manual flow has not been rerun in Launch Doctor.
 

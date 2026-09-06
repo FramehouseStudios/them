@@ -3,7 +3,7 @@
 // scripts/live_backend_health.mjs
 //
 // Secret-safe live backend gate for release and desktop sanity checks.
-// It proves the configured URL is a real io.them backend, not a parked
+// It proves the configured URL is a real THEM backend, not a parked
 // domain, Render "no-server" route, gateway HTML page, or localhost value.
 
 const DEFAULT_BASE_URL = "https://api.them.io";
@@ -99,7 +99,7 @@ function classifyBadResponse(response, bodySnippet) {
     return `Backend URL redirects unexpectedly to ${location || "another location"}.`;
   }
   if (/text\/html/i.test(contentType) || /^</.test(bodySnippet)) {
-    return "Backend returned HTML instead of the io.them JSON API.";
+    return "Backend returned HTML instead of the THEM JSON API.";
   }
   return "";
 }
@@ -183,7 +183,7 @@ async function checkApiVersion(baseURL, opts) {
       id: "api-version",
       ok: true,
       status: response.status,
-      message: "/api/version is served by io.them and is app-token protected.",
+      message: "/api/version is served by THEM and is app-token protected.",
       url,
       tokenSource: token.source,
     };

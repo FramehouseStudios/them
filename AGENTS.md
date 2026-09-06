@@ -1,8 +1,8 @@
-# AGENTS.md — io.them Operating System
+# AGENTS.md — THEM Operating System
 
 ## North Star
 
-> io.them is a mobile-first AI screenplay studio built around a living creative companion. It helps writers turn voice, fragments, and emotional impulses into properly formatted scenes — fast — while learning their style, characters, tone, and creative habits over time.
+> THEM is a mobile-first AI screenplay studio built around a living creative companion. It helps writers turn voice, fragments, and emotional impulses into properly formatted scenes — fast — while learning their style, characters, tone, and creative habits over time.
 
 Every change should move the app closer to a stable, usable, emotionally cinematic writing experience.
 
