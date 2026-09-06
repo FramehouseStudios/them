@@ -3065,14 +3065,14 @@ const creativeMemoryStore = createCreativeMemoryStore({
 // memory if any is present. No-op for cold users - the memory block is
 // omitted rather than serialized as null/empty (see prompt_assembly.js).
 // T21: append a craft-context block to the system prompt for
-// screenplay page-write turns. Defaults to the "save-the-cat" framework
+// screenplay page-write and mentor turns. Defaults to the "three-act" framework
 // when the request does not specify a preference; production wiring of
 // per-project framework selection lives in T22's stored reports +
 // Codex-side BackendClient (T19).
 function appendCraftContextToSystem(systemPrompt, { req } = {}) {
   if (String(systemPrompt || "").includes(CRAFT_BLOCK_OPEN)) return systemPrompt;
   const requested = String(req?.body?.craft_framework_id || "").trim();
-  const frameworkId = requested || "save-the-cat";
+  const frameworkId = requested || "three-act";
   const block = buildCraftContextBlock({ framework: frameworkId });
   if (!block) return systemPrompt;
   return `${systemPrompt}\n\n${block}`;
@@ -24573,7 +24573,7 @@ function buildTurnPlanner({
     "difference between",
     "compare",
     "history of",
-    "movie",
+    "movie", "screenplay", "slugline", "parenthetical", "inciting incident", "plot point", "midpoint", "act two", "act break", "final image", "logline",
     "art history",
     "philosophy",
     "learning science",

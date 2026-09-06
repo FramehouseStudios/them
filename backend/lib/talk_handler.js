@@ -3308,7 +3308,9 @@ function createTalkHandler(deps) {
     // craft-context block describing the active framework (and, when
     // available, the user's coverage state). Cheap and additive: the
     // LLM gets structural awareness without changing any other path.
-    const systemBase = isScreenplayPageWriteTurn
+    // Mentor turns get it too, so structure talk cites the same beats and
+    // page targets the page writer works from.
+    const systemBase = (isScreenplayPageWriteTurn || mentorTurn)
       ? appendCraftContextToSystem(systemBaseWithMemory, { req })
       : systemBaseWithMemory;
     const assistantSelfNameAddendum = `
