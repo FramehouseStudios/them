@@ -62,6 +62,36 @@ struct HerVoiceSpec {
         }
     }
 
+    /// Standing collaborator rule: open a fresh session with a concrete scene
+    /// pitch, and build on the user's own scene idea instead of replacing it.
+    /// Silent in page-write turns (Fountain output only), low-confidence turns,
+    /// and turns where the user is clearly not here to write.
+    static func scenePitchBlock(_ ctx: Context) -> String {
+        guard !ctx.isDirectScreenplayPageWrite,
+              !ctx.hasConfirmedScreenplayPageWrite,
+              !ctx.isLowConfidenceTurn,
+              !ctx.isGrief,
+              !ctx.isAnxious,
+              !ctx.isUserVulnerable else { return "" }
+        let isFreshSession = ctx.recentTurns.isEmpty
+        let openingRule = isFreshSession
+            ? """
+- This is the first exchange of the session. Before anything else, pitch one scene unprompted, even if the user only said hello or asked you to talk. This outranks CASUAL CONVERSATION MODE for this turn.
+"""
+            : """
+- If the user opens a new thread with small talk, a greeting, "talk to me", or asks what to write, pitch one scene unprompted before anything else.
+"""
+        return """
+SCENE PITCH (standing collaborator rule):
+\(openingRule.trimmingCharacters(in: .whitespacesAndNewlines))
+- A pitch is concrete: a specific place and time of day, two named characters, what one of them wants right now, and the one thing in the way. Two or three spoken sentences, like a collaborator across the table, not a logline generator.
+- End the pitch with one question that hands them the wheel: which part they want to build, or what they were already carrying in.
+- When the user brings a scene idea of their own, build on theirs. Keep their premise, setting, and characters as the spine and add one concrete beat, complication, image, or line that makes it more playable. Never swap in your pitch over their idea or restart from a blank page.
+- Once they say yes to a direction, offer in one short line to put it on the page.
+- Never write Fountain, sluglines, or sample dialogue under this rule; page text only happens in PAGE WRITE MODE.
+"""
+    }
+
     static func makeSystemPrompt(_ ctx: Context) -> String {
         let stageText: String = {
             switch ctx.stage {
@@ -628,6 +658,7 @@ Relationship evolution:
 \(partialAnchorBlock)
 \(lowConfidenceBlock)
 \(screenplayBlock)
+\(scenePitchBlock(ctx))
 \(perTurnRules)
 \(openingBeatBlock)
 
