@@ -161,6 +161,97 @@ import {
   normalizeVisualDescriptor,
   normalizeWhitespace,
 } from "./lib/normalizers.js";
+import {
+  sanitizeDailyTurnItems,
+  sanitizeDayStampList,
+  sanitizeEmbeddingVector,
+  sanitizeMemoryCardIdList,
+  sanitizeTalkPageAnchor,
+  sanitizeTalkRevealUnits,
+  sanitizeTimestampList,
+} from "./lib/sanitizers.js";
+import {
+  deriveCycleMemoryMoment,
+  deriveMilestoneStage,
+  deriveThemeMemoryReason,
+} from "./lib/derivers.js";
+import {
+  parseBoundedFloat,
+  parseBoundedInt,
+  parseQueryLimit,
+  parseScreenplayCorrectionReplacement,
+  parseSimpleDueAt,
+  parseTalkScreenplayCharacterArcMemory,
+  parseTalkScreenplayCharacterVoiceMemory,
+  parseTalkScreenplayContextList,
+  parseTurnIdToNumber,
+} from "./lib/parsers.js";
+import {
+  extractJsonObject,
+  extractLeadNameCandidate,
+  extractQuestionSnippet,
+  extractQuotedTitle,
+  extractResponsesText,
+  extractScreenplayReplacementTermBeforeNot,
+  extractTaskCandidatesFromText,
+  extractTaskCompleteIntent,
+  extractTaskCreateIntent,
+} from "./lib/extractors.js";
+import {
+  computeBehaviorDepthSessionScore,
+  computeGrowthTarget,
+  computeInactiveDays,
+  computeRelationshipDepthDecayForInactiveDays,
+  computeSessionLengthScore,
+  computeSpeculativePromptHash,
+  computeThemeStalenessDays,
+} from "./lib/computations.js";
+import {
+  countConsecutiveDayStreak,
+  countKeywordHits,
+  countScreenplayMemoryWords,
+  countWords,
+} from "./lib/counters.js";
+import {
+  isAbortError,
+  isDayFeelingCheckInLine,
+  isFillerClauseOnly,
+  isHardTopicReset,
+  isLikelyConversationalScreenplayLine,
+  isLikelyMp3Buffer,
+  isLowSignalListeningFact,
+  isSpeculativeTranscriptCompatible,
+  isTalkDirectAddressPrefix,
+  isTalkMarkdownFenceLine,
+  isTalkParentheticalLine,
+  isTalkSceneHeadingLine,
+  isTalkTransitionLine,
+} from "./lib/predicates.js";
+import {
+  buildCapturedNoteTitle,
+  buildCycleConsciousMemoryLine,
+  buildDistilledScreenplayCharacterArcTurns,
+  buildDistilledScreenplayNextTurns,
+  buildDistilledScreenplayStoryThreads,
+  buildDraftExcerpt,
+  buildIdeaDevelopmentSharpenLine,
+  buildIdeaDevelopmentStepLine,
+  buildKnowledgeCardEmbeddingText,
+  buildKnowledgeSearchText,
+  buildLearnedFieldPromptTrace,
+  buildLocalActionSignature,
+  buildMirrorCue,
+  buildNoPendingLocalActionReply,
+  buildPendingLocalActionConfirmationReply,
+  buildPendingLocalActionSummary,
+  buildScreenplayCharacterArcMemoryContinuity,
+  buildScreenplayProjectCorrectionContract,
+  buildScreenplayProjectMemoryCardId,
+  buildScreenplayQuestionEffectivenessPromptTrace,
+  buildSessionContinuityOpeningLine,
+  buildTalkScreenplayRepairDirectives,
+  buildTherapeuticDepthAddendum,
+} from "./lib/builders.js";
 import { mountOpsRoutesListRoute } from "./lib/ops_routes_list_route.js";
 import { mountOpsMetricsRoute } from "./lib/ops_metrics_route.js";
 import { mountOpsAlertsRoute } from "./lib/ops_alerts_route.js";
@@ -3273,84 +3364,6 @@ function recordCreativeMemoryTriggersForRequest(req, turn = {}) {
   });
 }
 
-function parseTalkScreenplayContextList(value, maxItems = 8, maxChars = 180) {
-  if (Array.isArray(value)) return normalizeScreenplayStringList(value, maxItems, maxChars);
-  const raw = String(value ?? "").trim();
-  if (!raw) return [];
-  if (raw.startsWith("[") || raw.startsWith("{")) {
-    try {
-      const parsed = JSON.parse(raw);
-      return normalizeScreenplayStringList(Array.isArray(parsed) ? parsed : [], maxItems, maxChars);
-    } catch (_err) {
-      // Fall through to delimiter parsing.
-    }
-  }
-  return normalizeScreenplayStringList(
-    raw.split(/\r?\n|;|,/).map((item) => item.trim()),
-    maxItems,
-    maxChars
-  );
-}
-
-function parseTalkScreenplayCharacterArcMemory(value) {
-  if (!value) return null;
-  let source = value;
-  if (Array.isArray(source)) {
-    source = source.find((item) => item && typeof item === "object") || null;
-  }
-  if (!source) return null;
-  if (typeof source === "string") {
-    const raw = source.trim();
-    if (!raw) return null;
-    if (raw.startsWith("{") || raw.startsWith("[")) {
-      try {
-        return parseTalkScreenplayCharacterArcMemory(JSON.parse(raw));
-      } catch (_err) {
-        // Fall through to key/value parsing.
-      }
-    }
-    const parsed = {};
-    for (const part of raw.split(/\r?\n|;/)) {
-      const match = part.match(/^\s*([A-Za-z][A-Za-z0-9_\-\s]{1,40})\s*:\s*(.+?)\s*$/);
-      if (!match) continue;
-      const key = match[1]
-        .trim()
-        .replace(/[-\s]+([a-zA-Z0-9])/g, (_all, ch) => ch.toUpperCase())
-        .replace(/^([A-Z])/, (_all, ch) => ch.toLowerCase());
-      parsed[key] = match[2].trim();
-    }
-    source = parsed;
-  }
-  if (!source || typeof source !== "object") return null;
-
-  const arc = source.bible?.arc && typeof source.bible.arc === "object"
-    ? source.bible.arc
-    : (source.arc && typeof source.arc === "object" ? source.arc : source);
-  const clean = {
-    character: normalizeSnippet(
-      source.character ?? source.characterName ?? source.character_name ?? source.name ?? arc.character ?? arc.characterName ?? arc.character_name ?? "",
-      80
-    ),
-    act: normalizeSnippet(arc.act ?? arc.currentAct ?? arc.current_act ?? "", 80),
-    want: normalizeSnippet(arc.want ?? arc.externalWant ?? arc.external_want ?? "", 180),
-    need: normalizeSnippet(arc.need ?? arc.innerNeed ?? arc.inner_need ?? "", 180),
-    wound: normalizeSnippet(arc.wound ?? arc.ghost ?? arc.trauma ?? "", 180),
-    falseBelief: normalizeSnippet(arc.falseBelief ?? arc.false_belief ?? arc.lie ?? arc.misbelief ?? "", 180),
-    relationshipPressure: normalizeSnippet(
-      arc.relationshipPressure ?? arc.relationship_pressure ?? arc.relationalPressure ?? arc.relational_pressure ?? "",
-      180
-    ),
-    currentTactic: normalizeSnippet(arc.currentTactic ?? arc.current_tactic ?? arc.tactic ?? "", 180),
-    nextEmotionalTurn: normalizeSnippet(
-      arc.nextEmotionalTurn ?? arc.next_emotional_turn ?? arc.emotionalTurn ?? arc.emotional_turn ?? arc.nextTurn ?? arc.next_turn ?? "",
-      180
-    ),
-  };
-  const hasSignal = Object.entries(clean)
-    .some(([key, val]) => key !== "character" && key !== "act" && Boolean(val));
-  return hasSignal ? clean : null;
-}
-
 function parseTalkScreenplayCharacterArcMemoryItems(value, maxItems = 8) {
   if (!value) return [];
   const out = [];
@@ -3416,67 +3429,6 @@ function parseTalkScreenplayCharacterArcMemoryItems(value, maxItems = 8) {
   }
 
   return out.slice(0, Math.max(1, Number(maxItems || 8)));
-}
-
-function parseTalkScreenplayCharacterVoiceMemory(value) {
-  if (!value) return null;
-  let source = value;
-  if (Array.isArray(source)) {
-    source = source.find((item) => item && typeof item === "object") || null;
-  }
-  if (!source) return null;
-  if (typeof source === "string") {
-    const raw = source.trim();
-    if (!raw) return null;
-    if (raw.startsWith("{") || raw.startsWith("[")) {
-      try {
-        return parseTalkScreenplayCharacterVoiceMemory(JSON.parse(raw));
-      } catch (_err) {
-        return null;
-      }
-    }
-    return null;
-  }
-  if (!source || typeof source !== "object") return null;
-
-  const nestedTraits = source.traits && typeof source.traits === "object" ? source.traits : null;
-  const fingerprint =
-    (source.voice_fingerprint && typeof source.voice_fingerprint === "object" ? source.voice_fingerprint : null) ||
-    (source.voiceFingerprint && typeof source.voiceFingerprint === "object" ? source.voiceFingerprint : null) ||
-    (nestedTraits?.voice_fingerprint && typeof nestedTraits.voice_fingerprint === "object" ? nestedTraits.voice_fingerprint : null) ||
-    (nestedTraits?.voiceFingerprint && typeof nestedTraits.voiceFingerprint === "object" ? nestedTraits.voiceFingerprint : null) ||
-    source;
-  const character = normalizeSnippet(
-    source.character ?? source.characterName ?? source.character_name ?? source.name ?? fingerprint.character ?? fingerprint.characterName ?? fingerprint.character_name ?? "",
-    80
-  );
-  const voiceFingerprint = {
-    tactics: normalizeScreenplayStringList(
-      fingerprint.tactics ?? fingerprint.dialogueTactics ?? fingerprint.dialogue_tactics,
-      6,
-      80
-    ),
-    silence: normalizeSnippet(
-      fingerprint.silence ?? fingerprint.silencePattern ?? fingerprint.silence_pattern ?? "",
-      120
-    ),
-    emotionalTells: normalizeScreenplayStringList(
-      fingerprint.emotional_tells ?? fingerprint.emotionalTells ?? fingerprint.tells,
-      6,
-      100
-    ),
-  };
-  if (
-    !character ||
-    (
-      voiceFingerprint.tactics.length < 1 &&
-      !voiceFingerprint.silence &&
-      voiceFingerprint.emotionalTells.length < 1
-    )
-  ) {
-    return null;
-  }
-  return { character, voiceFingerprint };
 }
 
 function parseTalkScreenplayCharacterVoiceMemoryItems(value, maxItems = 8) {
@@ -3679,28 +3631,6 @@ function buildCreativeMemoryRecallQuery(req = null, {
   return normalizeSnippet(lines.join("\n"), 4_000);
 }
 
-function buildLearnedFieldPromptTrace(rows = []) {
-  return (Array.isArray(rows) ? rows : []).slice(0, 16).map((row) => (
-    Object.fromEntries(Object.entries({
-      field: normalizeSnippet(row?.field, 64),
-      value: normalizeSnippet(row?.value, 240),
-      learned_value: normalizeSnippet(row?.learnedValue ?? row?.learned_value, 240),
-      source: normalizeSnippet(row?.source, 64),
-      status: normalizeSnippet(row?.status, 32),
-      question_id: normalizeSnippet(row?.questionId ?? row?.question_id, 120),
-      question: normalizeSnippet(row?.question, 260),
-      target_label: normalizeSnippet(row?.targetLabel ?? row?.target_label, 120),
-      anchor: normalizeSnippet(row?.anchor, 180),
-      source_correction_id: normalizeSnippet(
-        row?.sourceCorrectionId ?? row?.source_correction_id,
-        96
-      ),
-      learned_at: Math.max(0, Number(row?.learnedAt ?? row?.learned_at ?? 0)),
-      updated_at: Math.max(0, Number(row?.updatedAt ?? row?.updated_at ?? 0)),
-    }).filter(([, value]) => typeof value === "number" ? value > 0 : Boolean(value)))
-  )).filter((row) => row.field && row.value);
-}
-
 function mergeScreenplayProjectMemoryForPromptTrace(
   screenplayProjectMemory = null,
   projectContinuity = null
@@ -3726,65 +3656,6 @@ function mergeScreenplayProjectMemoryForPromptTrace(
       160
     ),
   };
-}
-
-function buildScreenplayQuestionEffectivenessPromptTrace(value, maxItems = 12) {
-  return (Array.isArray(value) ? value : [])
-    .map((item) => {
-      const questionId = normalizeSnippet(item?.questionId ?? item?.question_id, 120);
-      const targetField = normalizeSnippet(item?.targetField ?? item?.target_field, 64).toLowerCase();
-      const askedAt = Math.max(0, Number(item?.askedAt ?? item?.asked_at ?? 0));
-      const answeredAt = Math.max(0, Number(item?.answeredAt ?? item?.answered_at ?? 0));
-      if (!questionId || !targetField || (!askedAt && !answeredAt)) return null;
-      const responseStatusRaw = normalizeSnippet(
-        item?.responseStatus ?? item?.response_status,
-        24
-      ).toLowerCase();
-      const responseStatus = ["asked", "answered", "declined", "expired"].includes(
-        responseStatusRaw
-      )
-        ? responseStatusRaw
-        : answeredAt
-          ? "answered"
-          : "asked";
-      return Object.fromEntries(Object.entries({
-        question_id: questionId,
-        target_field: targetField,
-        act_key: normalizeSnippet(item?.actKey ?? item?.act_key, 24).toLowerCase(),
-        sequence_key: normalizeSnippet(item?.sequenceKey ?? item?.sequence_key, 32).toLowerCase(),
-        writer_blocked: Boolean(item?.writerBlocked ?? item?.writer_blocked),
-        asked_at: askedAt || answeredAt,
-        answered_at: answeredAt,
-        response_status: responseStatus,
-        accepted_page_count: Math.max(
-          0,
-          Math.floor(Number(item?.acceptedPageCount ?? item?.accepted_page_count ?? 0))
-        ),
-        block_resolution_count: Math.max(
-          0,
-          Math.floor(Number(item?.blockResolutionCount ?? item?.block_resolution_count ?? 0))
-        ),
-        selected_move_family: normalizeSnippet(
-          item?.selectedMoveFamily ?? item?.selected_move_family,
-          48
-        ).toLowerCase(),
-        offered_move_families: normalizeScreenplayStringList(
-          item?.offeredMoveFamilies ?? item?.offered_move_families,
-          3,
-          48
-        ),
-        outcome: normalizeSnippet(item?.outcome, 48).toLowerCase(),
-      }).filter(([, fieldValue]) => {
-        if (Array.isArray(fieldValue)) return fieldValue.length > 0;
-        return typeof fieldValue === "boolean" ? fieldValue : Boolean(fieldValue);
-      }));
-    })
-    .filter(Boolean)
-    .sort((left, right) => (
-      Math.max(Number(right.answered_at || 0), Number(right.asked_at || 0)) -
-      Math.max(Number(left.answered_at || 0), Number(left.asked_at || 0))
-    ))
-    .slice(0, Math.max(1, Math.min(24, Number(maxItems) || 12)));
 }
 
 function buildScreenplayProjectMemoryPromptTrace(project = null, fieldProvenance = []) {
@@ -4218,101 +4089,6 @@ function buildTalkPersistentFeatureMemoryBrief(memoryProject) {
     memoryProject.endingImage ? `ending image: ${memoryProject.endingImage}` : "",
   ].filter(Boolean);
   return normalizeSnippet(parts.join("; "), 900);
-}
-
-function buildScreenplayProjectCorrectionContract(project = null, {
-  label = "CORRECTION_CONTRACT",
-  maxChars = 520,
-} = {}) {
-  if (!project || typeof project !== "object") return "";
-  const replacements = normalizeScreenplayStringList(project.correctionReplacements, 5, 160);
-  const terms = normalizeScreenplayStringList(project.correctedTerms, 5, 120);
-  const notes = normalizeScreenplayStringList(project.continuityNotes, 5, 220)
-    .filter((note) => /\b(authoritative|correction|corrected|actually|instead|not\b)/i.test(note));
-  if (!replacements.length && !terms.length && !notes.length) return "";
-  const parts = [
-    replacements.length ? `authoritative_replacements:${replacements.join(" / ")}` : "",
-    terms.length ? `retired_terms:${terms.join(" / ")}` : "",
-    notes.length ? `authoritative_notes:${notes.slice(0, 2).join(" / ")}` : "",
-    "rule: apply before older beat, character, setup, draft, or episodic memory",
-  ].filter(Boolean);
-  return normalizeSnippet(`${label}: ${parts.join("; ")}`, maxChars);
-}
-
-function buildSessionContinuityOpeningLine(snapshot = {}) {
-  const sentenceFragment = (value, maxChars) => normalizeSnippet(value, maxChars)
-    .replace(/[.!?]+$/g, "")
-    .trim();
-  const project = normalizeSnippet(snapshot.projectTitle || snapshot.projectId || "", 120);
-  const position = normalizeSnippet(
-    [snapshot.act, snapshot.featureSequence].filter(Boolean).join(" / "),
-    180
-  );
-  const characters = Array.isArray(snapshot.characterFocus)
-    ? snapshot.characterFocus.slice(0, 2).map((item) => normalizeSnippet(item, 48)).filter(Boolean)
-    : [];
-  const lastState = sentenceFragment(
-    snapshot.lastSceneOutcome ||
-      snapshot.sceneSummary ||
-      snapshot.currentBeat ||
-      snapshot.actPressureState ||
-      snapshot.characterArcState ||
-      snapshot.memoryExcerpt ||
-      "",
-    180
-  );
-  const nextMove = sentenceFragment(
-    snapshot.nextScenePlan ||
-      (Array.isArray(snapshot.nextThreeTurns) ? snapshot.nextThreeTurns[0] : "") ||
-      (Array.isArray(snapshot.actThreePayoffPath) ? snapshot.actThreePayoffPath[0] : "") ||
-      "",
-    180
-  );
-  const rawDueStoryThread = snapshot.dueStoryThread ?? snapshot.due_story_thread;
-  const dueSetup = sentenceFragment(rawDueStoryThread?.setup || rawDueStoryThread?.promised_payoff || "", 180);
-  const duePayoff = sentenceFragment(
-    rawDueStoryThread?.promisedPayoff ?? rawDueStoryThread?.promised_payoff ?? "",
-    180
-  );
-  const dueAge = Math.max(0, Math.round(Number(
-    rawDueStoryThread?.ageInScenes ?? rawDueStoryThread?.age_in_scenes ?? 0
-  )));
-  const causalRecord = Array.isArray(snapshot.acceptedCausalFacts ?? snapshot.accepted_causal_facts)
-    ? (snapshot.acceptedCausalFacts ?? snapshot.accepted_causal_facts)[0] || null
-    : null;
-  const causalFact = sentenceFragment(causalRecord?.fact, 180);
-  const causalFactIsWriterCorrection = String(
-    causalRecord?.authority || causalRecord?.kind || ""
-  ).trim().toLowerCase() === "writer_correction";
-  const parts = ["Welcome back."];
-  if (project || position) {
-    parts.push(`We were in ${[project, position].filter(Boolean).join(" - ")}.`);
-  }
-  if (characters.length && lastState) {
-    parts.push(`${characters.join(" and ")} were carrying this: ${lastState}.`);
-  } else if (lastState) {
-    parts.push(`The last live thread was: ${lastState}.`);
-  }
-  if (nextMove) {
-    parts.push(`Next move: ${nextMove}.`);
-  }
-  if (causalFact && !lastState.toLowerCase().includes(causalFact.toLowerCase())) {
-    parts.push(causalFactIsWriterCorrection
-      ? `Your latest canon correction stays authoritative: ${causalFact}.`
-      : `One accepted consequence stays binding: ${causalFact}.`);
-  }
-  if (snapshot.isCorrection) {
-    parts.push("I'll honor your latest correction first.");
-  }
-  if (dueSetup) {
-    parts.push(
-      `The thread waiting longest is ${dueSetup}${dueAge ? `, still open after ${dueAge} accepted scenes` : ""}.`
-    );
-  }
-  if (duePayoff && duePayoff.toLowerCase() !== dueSetup.toLowerCase()) {
-    parts.push(`Its promised payoff is ${duePayoff}.`);
-  }
-  return normalizeSnippet(parts.join(" "), 640);
 }
 
 function buildSessionContinuitySnapshot(memory = null, creativeMemory = null) {
@@ -5337,35 +5113,6 @@ function clientIp(req) {
   return normalizeClientIp(rawIp);
 }
 
-function computeSpeculativePromptHash(value) {
-  const prompt = String(value || "");
-  if (!prompt.trim()) return "";
-  return createHash("sha256").update(prompt, "utf8").digest("hex").slice(0, 16);
-}
-
-function isSpeculativeTranscriptCompatible(seedText, finalText) {
-  const normalizedSeed = normalizeSpeculativeTranscript(seedText);
-  const normalizedFinal = normalizeSpeculativeTranscript(finalText);
-  if (!normalizedSeed || !normalizedFinal) return false;
-  if (normalizedSeed === normalizedFinal) return true;
-  if (
-    normalizedFinal.startsWith(normalizedSeed) ||
-    normalizedSeed.startsWith(normalizedFinal)
-  ) {
-    return true;
-  }
-  const seedWords = new Set(normalizedSeed.split(" ").filter(Boolean));
-  const finalWords = new Set(normalizedFinal.split(" ").filter(Boolean));
-  if (!seedWords.size || !finalWords.size) return false;
-  let overlap = 0;
-  for (const word of seedWords) {
-    if (finalWords.has(word)) overlap += 1;
-  }
-  const baseline = Math.min(seedWords.size, finalWords.size);
-  if (baseline <= 0) return false;
-  return overlap / baseline >= 0.60;
-}
-
 function isSpeculativePrepareRequest(req) {
   if (!TALK_SPECULATIVE_ENABLED) return false;
   return String(req.get("X-Speculative-Mode") || "")
@@ -5704,10 +5451,6 @@ function stripTalkScreenplayMarkdown(line = "") {
     .trim();
 }
 
-function isTalkMarkdownFenceLine(line = "") {
-  return /^\s*```[A-Za-z0-9_-]*\s*$/.test(String(line || ""));
-}
-
 function stripTalkLeadInPrefix(line = "") {
   if (isTalkMarkdownFenceLine(line)) return "";
   const cleaned = stripTalkScreenplayMarkdown(line);
@@ -5716,12 +5459,6 @@ function stripTalkLeadInPrefix(line = "") {
     /^(?:(?:here(?:['’]s| is) the scene|here(?:['’]s| is) a scene|here(?:['’]s| is) the beat|here(?:['’]s| is) the page|in screenplay format|screenplay|scene|try this|action line|use this)\s*[:\-–—]\s*|you (?:asked about|mentioned) [^.?!\n]{1,140}, so i(?:['’]ll| will) stay anchored there\.?\s*|you said:\s*["“][^"”\n]{1,180}[.?!]["”]\s*)/i,
     "",
   ).trim();
-}
-
-function isTalkDirectAddressPrefix(text = "") {
-  const trimmed = String(text || "").trim();
-  if (!trimmed) return false;
-  return /^[A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,2}[,:-]?$/.test(trimmed);
 }
 
 function splitInlineTalkSceneHeading(line = "") {
@@ -6141,148 +5878,6 @@ function compactTalkScreenplayQualityCounts(counts = {}) {
   };
 }
 
-function buildTalkScreenplayRepairDirectives({
-  reason = "",
-  authority = null,
-  quality = null,
-} = {}) {
-  const normalizedReason = normalizeSnippet(
-    reason || authority?.reason || quality?.reason || "",
-    80
-  );
-  const counts = quality?.counts || authority?.quality?.counts || {};
-  const minimumSpecificActions = Math.max(
-    0,
-    Number(quality?.minimumSpecificActions ?? authority?.quality?.minimumSpecificActions ?? 0)
-  );
-  const minimumSceneTurns = Math.max(
-    0,
-    Number(quality?.minimumSceneTurns ?? authority?.quality?.minimumSceneTurns ?? 0)
-  );
-  const canonContinuity = quality?.canonContinuity ||
-    authority?.canonContinuity ||
-    authority?.quality?.canonContinuity ||
-    null;
-  const directives = [];
-  switch (normalizedReason) {
-    case "accepted_canon_contradiction":
-      directives.push(...normalizeScreenplayStringList(
-        canonContinuity?.repairDirectives,
-        4,
-        280
-      ));
-      directives.push("Continue from the accepted changed condition. Never replay a known revelation, reset a changed relationship, erase a decision, or restore an irreversible loss.");
-      break;
-    case "weak_first_page_opening":
-      directives.push("Start the page run with a concrete pressure image or action that changes story state; avoid soft camera/setup prose.");
-      directives.push("Make the first beat carry objective, obstacle, or emotional cost before any atmosphere.");
-      break;
-    case "summary_like_page_batch":
-      directives.push("Replace synopsis/overview language with playable Fountain pages: slugline, action, character cues, dialogue, and visible scene turns.");
-      directives.push("Do not say what the scene shows, follows, establishes, or pays off; dramatize those facts as behavior and consequence.");
-      directives.push("Every 1-2 pages must change leverage, information, relationship, tactic, or emotional cost.");
-      break;
-    case "thin_scene_turn_batch":
-      directives.push(`Add visible scene turns: at least ${minimumSceneTurns || 2} concrete reversals, discoveries, blocked choices, costs, or power shifts.`);
-      directives.push("Each turn should change leverage, information, relationship, tactic, or emotional cost on the page.");
-      break;
-    case "dialogue_tactic_lock":
-      directives.push("Break the dialogue run with tactic shifts, interruptions, discoveries, and consequences.");
-      directives.push("Do not let characters argue the same point; make each exchange change leverage or force new behavior.");
-      break;
-    case "expository_dialogue_dump":
-      directives.push("Convert exposition into conflict: make information withheld, weaponized, interrupted, misused, or tied to a visible cost.");
-      directives.push("Each character should use the facts for a different tactic instead of explaining backstory.");
-      break;
-    case "interchangeable_dialogue_voice":
-      directives.push("Rewrite the exchange so each character's want, wound, false belief, and current tactic shape syntax, silence, and rhythm.");
-      directives.push("Remove repeated generic line starts; give each speaker a distinct pressure move.");
-      break;
-    case "flat_dialogue_no_tactics":
-      directives.push("Give each speaker a private tactic and a pressure target; every line should push, evade, corner, reveal, or force a choice.");
-      directives.push("Add a reversal, interruption, behavior beat, or cost so the exchange changes leverage.");
-      break;
-    case "missing_character_voice_fingerprint":
-      directives.push("Honor the supplied character voice fingerprint: use remembered tactics, silence pattern, or emotional tells in that character's dialogue.");
-      directives.push("Rewrite the character's lines so the stored voice shows up as playable pressure, not generic dialogue.");
-      break;
-    case "thin_long_page_batch":
-      directives.push(`Add concrete page turns: at least ${minimumSpecificActions || 4} specific visible actions or reversals for this requested page batch.`);
-      directives.push("Break the run into escalating turns: launch pressure, complication, reversal/cost, and exit image.");
-      directives.push("Interleave dialogue with visible action, discovery, blocked options, and consequence.");
-      break;
-    case "static_dialogue_batch":
-      directives.push("Break the static conversation with visible tactics, discoveries, blocked exits, and consequences.");
-      directives.push("Every dialogue exchange should change leverage or reveal a hidden want; do not repeat the same tactic.");
-      break;
-    case "on_the_nose_dialogue":
-      directives.push("Rewrite dialogue as tactic and subtext; move direct feeling statements into behavior, interruption, or concealment.");
-      directives.push("Add concrete actions that put emotional pressure on the exchange.");
-      break;
-    case "underfilled_page_text":
-      directives.push("Expand the response into the requested playable page run instead of a sample or abbreviated beat.");
-      directives.push("Keep writing until the scene has launch pressure, complication, reversal/cost, and a handoff.");
-      break;
-    case "missing_screenplay_shape":
-    case "missing_batch_scene_anchor":
-    case "non_screenplay_output":
-      directives.push("Return clean screenplay/Fountain shape with a scene heading or anchored continuation, action lines, character cues, and dialogue.");
-      directives.push("Do not return notes, outline prose, markdown, or a strategy explanation.");
-      break;
-    case "outline_or_craft_artifact":
-      directives.push("Remove outline, beat-label, diagnosis, and craft-note language; convert the same intent into screenplay pages.");
-      break;
-    case "placeholder_page_text":
-      directives.push("Replace placeholders with specific character behavior, locations, objects, and pressure.");
-      break;
-    case "low_dramatic_density":
-      directives.push("Increase dramatic density with concrete behavior, a visible obstacle, a tactic shift, and a consequence.");
-      break;
-    case "empty_momentum_rescue":
-    case "underdeveloped_momentum_rescue":
-    case "generic_encouragement_only":
-      directives.push("Do not answer with encouragement alone; diagnose the story blockage and move the scene forward.");
-      directives.push("Give one strongest next beat before offering alternatives.");
-      directives.push("Include a tiny playable micro-beat in Fountain style when scene context exists.");
-      break;
-    case "missing_pressure_engine":
-      directives.push("Choose a pressure engine: reversal, revelation, deadline, impossible choice, secret exposure, relationship cost, antagonist move, object payoff, or image transformation.");
-      directives.push("Name the likely story problem as a craft issue: want, obstacle, tactic, consequence, pressure, or exit turn.");
-      break;
-    case "missing_decisive_next_beat":
-      directives.push("Replace the option menu with one decisive next beat that changes story state.");
-      directives.push("Make the next beat visible as a decision, reveal, cost, or image.");
-      break;
-    case "missing_playable_micro_beat":
-      directives.push("Convert the advice into visible page behavior: action, tactical dialogue, a changed power dynamic, and an exit image.");
-      directives.push("Include a tiny playable Fountain-style micro-beat.");
-      break;
-    case "vague_option_menu":
-      directives.push("Lead with the single strongest move; include at most two alternate forks after it.");
-      directives.push("Make each fork playable as a decision, reveal, cost, or image.");
-      break;
-    default:
-      if (normalizedReason.startsWith("missing_act_")) {
-        directives.push("Spend the supplied act obligation on the page through behavior, conflict, cost, and image pressure.");
-      } else if (normalizedReason === "missing_next_turn_continuation") {
-        directives.push("Use the first supplied next turn as the immediate page engine before inventing a new plot lane.");
-      } else if (normalizedReason === "missing_next_scene_assignment") {
-        directives.push("Spend the supplied next-scene assignment as the immediate page engine before adding new plot.");
-        directives.push("Make the assignment visible through action, dialogue pressure, or a changed decision.");
-      } else if (normalizedReason === "missing_next_scene_execution_brief") {
-        directives.push("Dramatize the supplied next-scene brief lanes: obstacle, character change, payoff/setup, visual motif, and exit handoff.");
-        directives.push("Use at least three of those lanes as playable page behavior, not notes or summary.");
-      } else if (normalizedReason === "missing_character_arc_memory") {
-        directives.push("Turn the supplied character want/need/false-belief/tactic into visible changed behavior.");
-      }
-      break;
-  }
-  if (Number(counts.summaryLikeAction ?? counts.summary_like_action ?? 0) > 0 && normalizedReason !== "summary_like_page_batch") {
-    directives.push("Replace any remaining summary-like action with present-tense playable behavior.");
-  }
-  return [...new Set(directives.map((directive) => normalizeSnippet(directive, 220)).filter(Boolean))].slice(0, 5);
-}
-
 function buildTalkScreenplayQualityEnvelope({
   ok = false,
   reason = "",
@@ -6597,24 +6192,6 @@ function repairTalkScreenplayOutputWithSceneAnchor({
   };
 }
 
-function isTalkSceneHeadingLine(line = "") {
-  const trimmed = String(line || "").trim();
-  return /^(INT|EXT|EST|INT\/EXT|I\/E)\.?(?:\s|$)/i.test(trimmed);
-}
-
-function isTalkTransitionLine(line = "") {
-  const trimmed = String(line || "").trim();
-  return (
-    /^[A-Z0-9 .'\-]+ TO:$/.test(trimmed)
-    || /^(FADE IN|FADE OUT|CUT TO BLACK)\.?$/i.test(trimmed)
-  );
-}
-
-function isTalkParentheticalLine(line = "") {
-  const trimmed = String(line || "").trim();
-  return /^\([^()\n]{1,80}\)$/.test(trimmed);
-}
-
 function isTalkCharacterCueLine(line = "", nextNonEmpty = "") {
   const trimmed = String(line || "").trim();
   if (!trimmed) return false;
@@ -6627,32 +6204,6 @@ function isTalkCharacterCueLine(line = "", nextNonEmpty = "") {
   const cleanNext = String(nextNonEmpty || "").trim();
   if (!cleanNext) return false;
   return !isTalkSceneHeadingLine(cleanNext) && !isTalkTransitionLine(cleanNext);
-}
-
-function isLikelyConversationalScreenplayLine(line = "") {
-  const trimmed = String(line || "").trim();
-  if (!trimmed) return false;
-  const lower = trimmed.toLowerCase();
-  if (trimmed.endsWith("?")) return true;
-  return [
-    /^you asked about\b/,
-    /^you mentioned\b/,
-    /^you said:\s*["“]/,
-    /^i (can|know|sense|feel)\b/,
-    /^it's okay\b/,
-    /^take a deep breath\b/,
-    /^what(?:'| i)?s\b/,
-    /^what feels\b/,
-    /^what about\b/,
-    /^do you want to\b/,
-    /^would you\b/,
-    /^could you\b/,
-    /^should we\b/,
-    /^you (can|should|need to)\b/,
-    /\byou'?re feeling\b/,
-    /\bi'?m here\b/,
-    /\bstay anchored there\b/,
-  ].some((pattern) => pattern.test(lower));
 }
 
 function buildTalkScreenplayOutputLines(text = "") {
@@ -7068,61 +6619,6 @@ function buildTalkDialogueTimelineRevision({
     },
     segments,
   };
-}
-
-function sanitizeTalkPageAnchor(anchor = {}, fallback = {}) {
-  const anchorLine = Math.max(
-    0,
-    Number(anchor.anchor_line ?? anchor.anchorLine ?? fallback.anchor_line ?? fallback.anchorLine ?? 0)
-  );
-  const anchorEndLineRaw = Number(
-    anchor.anchor_end_line ?? anchor.anchorEndLine ?? fallback.anchor_end_line ?? fallback.anchorEndLine ?? 0
-  );
-  const anchorEndLine = anchorEndLineRaw > 0
-    ? Math.max(anchorLine || 1, anchorEndLineRaw)
-    : 0;
-  const insertMode = normalizeTalkScreenplayInsertionMode(
-    anchor.insert_mode ?? anchor.insertMode ?? fallback.insert_mode ?? fallback.insertMode,
-    { anchorLine, anchorEndLine }
-  );
-  return {
-    project_id: normalizeSnippet(anchor.project_id ?? anchor.projectId ?? fallback.project_id ?? fallback.projectId, 96),
-    scene_id: normalizeSnippet(anchor.scene_id ?? anchor.sceneId ?? fallback.scene_id ?? fallback.sceneId, 120),
-    beat_id: normalizeSnippet(anchor.beat_id ?? anchor.beatId ?? fallback.beat_id ?? fallback.beatId, 120) || null,
-    script_node_id: normalizeSnippet(anchor.script_node_id ?? anchor.scriptNodeId ?? fallback.script_node_id ?? fallback.scriptNodeId, 160),
-    page_index: Number.isFinite(Number(anchor.page_index ?? anchor.pageIndex ?? fallback.page_index ?? fallback.pageIndex))
-      ? Math.max(0, Number(anchor.page_index ?? anchor.pageIndex ?? fallback.page_index ?? fallback.pageIndex))
-      : null,
-    range_start: Math.max(0, Number(anchor.range_start ?? anchor.rangeStart ?? fallback.range_start ?? fallback.rangeStart ?? 0)),
-    range_end: Math.max(
-      Math.max(0, Number(anchor.range_start ?? anchor.rangeStart ?? fallback.range_start ?? fallback.rangeStart ?? 0)),
-      Number(anchor.range_end ?? anchor.rangeEnd ?? fallback.range_end ?? fallback.rangeEnd ?? 0)
-    ),
-    anchor_line: anchorLine > 0 ? anchorLine : null,
-    anchor_end_line: anchorEndLine > 0 ? anchorEndLine : null,
-    insert_mode: insertMode,
-  };
-}
-
-function sanitizeTalkRevealUnits(units = [], segmentId = "") {
-  if (!Array.isArray(units)) return [];
-  return units
-    .filter((unit) => unit && typeof unit === "object")
-    .slice(0, 80)
-    .map((unit, index) => ({
-      id: normalizeSnippet(unit.id, 160) || `${segmentId}:unit:${index}`,
-      text: normalizeTalkMultilineSnippet(unit.text, 160),
-      start_ms: Math.max(0, Number(unit.start_ms ?? unit.startMs ?? 0)),
-      end_ms: Math.max(
-        Math.max(0, Number(unit.start_ms ?? unit.startMs ?? 0)) + 1,
-        Number(unit.end_ms ?? unit.endMs ?? 0)
-      ),
-      utf16_start: Math.max(0, Number(unit.utf16_start ?? unit.utf16Start ?? 0)),
-      utf16_end: Math.max(
-        Math.max(0, Number(unit.utf16_start ?? unit.utf16Start ?? 0)),
-        Number(unit.utf16_end ?? unit.utf16End ?? 0)
-      ),
-    }));
 }
 
 function sanitizeTalkDialogueTimeline(dialogueTimeline = null) {
@@ -7695,166 +7191,6 @@ function sanitizeTaskItems(items, maxItems = TASKS_MAX_STORED) {
   return out.slice(-Math.max(1, maxItems));
 }
 
-function parseSimpleDueAt(text, nowTs = Date.now()) {
-  const source = String(text || "").toLowerCase();
-  if (!source) return 0;
-  const now = new Date(nowTs);
-  const base = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 9, 0, 0, 0);
-
-  if (source.includes("tomorrow")) {
-    base.setDate(base.getDate() + 1);
-  } else if (source.includes("tonight")) {
-    base.setHours(20, 0, 0, 0);
-  } else {
-    const weekdayMap = {
-      sunday: 0,
-      monday: 1,
-      tuesday: 2,
-      wednesday: 3,
-      thursday: 4,
-      friday: 5,
-      saturday: 6,
-    };
-    const weekdayMatch = source.match(/\b(sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b/);
-    if (weekdayMatch) {
-      const target = weekdayMap[String(weekdayMatch[1] || "").toLowerCase()];
-      if (Number.isFinite(target)) {
-        const current = now.getDay();
-        let delta = (target - current + 7) % 7;
-        if (delta === 0) delta = 7;
-        base.setDate(base.getDate() + delta);
-      }
-    }
-  }
-
-  const timeMatch = source.match(/\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b/);
-  if (timeMatch) {
-    let hour = Number(timeMatch[1] || 9);
-    const minute = Math.max(0, Math.min(59, Number(timeMatch[2] || 0)));
-    const suffix = String(timeMatch[3] || "").toLowerCase();
-    if (suffix === "pm" && hour < 12) hour += 12;
-    if (suffix === "am" && hour === 12) hour = 0;
-    hour = Math.max(0, Math.min(23, hour));
-    base.setHours(hour, minute, 0, 0);
-  }
-
-  return base.getTime();
-}
-
-function extractTaskCandidatesFromText(text, maxItems = 6) {
-  const source = String(text || "").trim();
-  if (!source) return [];
-  const normalized = source
-    .replace(/\n+/g, ",")
-    .replace(/\band\b/gi, ",")
-    .split(",")
-    .map((part) => normalizeSnippet(part, 160))
-    .filter(Boolean)
-    .map((part) => part.replace(/^[-*\d.\)\s]+/, "").trim())
-    .filter(Boolean);
-
-  const candidates = [];
-  for (const part of normalized) {
-    if (candidates.length >= maxItems) break;
-    if (part.length < 4) continue;
-    candidates.push(part);
-  }
-  return candidates;
-}
-
-function extractTaskCreateIntent(transcript) {
-  const source = String(transcript || "").trim();
-  if (!source) {
-    return { shouldCreate: false, title: "", dueAt: 0, priority: "normal", trigger: "" };
-  }
-  const lower = source.toLowerCase();
-  const triggers = [
-    "remind me to",
-    "create a task",
-    "add a task",
-    "new task",
-    "todo",
-    "to do",
-    "add this task",
-  ];
-  let trigger = "";
-  let triggerIndex = -1;
-  for (const candidate of triggers) {
-    const idx = lower.indexOf(candidate);
-    if (idx >= 0 && (triggerIndex === -1 || idx < triggerIndex)) {
-      trigger = candidate;
-      triggerIndex = idx;
-    }
-  }
-  if (triggerIndex < 0) {
-    return { shouldCreate: false, title: "", dueAt: 0, priority: "normal", trigger: "" };
-  }
-
-  let title = source
-    .slice(triggerIndex + trigger.length)
-    .replace(/^[\s:,\-–—]+/, "")
-    .trim();
-  title = title.replace(/^to\s+/i, "").trim();
-  title = normalizeSnippet(title, 160);
-  if (!title) {
-    return { shouldCreate: false, title: "", dueAt: 0, priority: "normal", trigger };
-  }
-
-  const priority = lower.includes("urgent") || lower.includes("asap") || lower.includes("high priority")
-    ? "high"
-    : (lower.includes("low priority") ? "low" : "normal");
-
-  return {
-    shouldCreate: true,
-    title,
-    dueAt: parseSimpleDueAt(source),
-    priority: normalizeTaskPriority(priority),
-    trigger,
-  };
-}
-
-function extractTaskCompleteIntent(transcript) {
-  const source = String(transcript || "").trim();
-  if (!source) {
-    return { shouldComplete: false, query: "", trigger: "" };
-  }
-  const lower = source.toLowerCase();
-  const triggers = [
-    "mark task done",
-    "mark it done",
-    "mark this done",
-    "check this off",
-    "check it off",
-    "complete task",
-    "complete this task",
-    "task done",
-    "i finished that task",
-    "i finished this task",
-  ];
-  let trigger = "";
-  let triggerIndex = -1;
-  for (const candidate of triggers) {
-    const idx = lower.indexOf(candidate);
-    if (idx >= 0 && (triggerIndex === -1 || idx < triggerIndex)) {
-      trigger = candidate;
-      triggerIndex = idx;
-    }
-  }
-  if (triggerIndex < 0) {
-    return { shouldComplete: false, query: "", trigger: "" };
-  }
-  let query = source
-    .slice(triggerIndex + trigger.length)
-    .replace(/^[\s:,\-–—]+/, "")
-    .trim();
-  query = normalizeSnippet(query, 160);
-  return {
-    shouldComplete: true,
-    query,
-    trigger,
-  };
-}
-
 function createTaskInMemory(memory, { title, dueAt = 0, priority = "normal", source = "conversation" }, nowTs = Date.now()) {
   if (!memory || typeof memory !== "object") return null;
   const cleanTitle = normalizeSnippet(title, 160);
@@ -8078,24 +7414,6 @@ function clearPendingLocalAction(memory, nowTs = Date.now()) {
   memory.pendingLocalActionUpdatedAt = Math.max(0, Number(nowTs || Date.now()));
 }
 
-function buildPendingLocalActionSummary(type, payload = {}) {
-  const actionType = normalizeLocalActionType(type);
-  const body = payload && typeof payload === "object" ? payload : {};
-  if (actionType === "note_capture") {
-    const noteText = normalizeSnippet(body.noteText, 120);
-    return `Save note: "${noteText || "your note"}".`;
-  }
-  if (actionType === "task_create") {
-    const title = normalizeSnippet(body.title, 96) || "task";
-    return `Create task "${title}".`;
-  }
-  if (actionType === "task_complete") {
-    const query = normalizeSnippet(body.query, 96) || "latest task";
-    return `Mark task complete: "${query}".`;
-  }
-  return "Run that local action.";
-}
-
 function setPendingLocalAction(memory, { type, payload = {}, summary = "" } = {}, nowTs = Date.now()) {
   if (!memory || typeof memory !== "object") return;
   const normalizedType = normalizeLocalActionType(type);
@@ -8146,26 +7464,6 @@ function readPendingLocalAction(memory) {
   };
 }
 
-function buildPendingLocalActionConfirmationReply(pending) {
-  const p = pending && typeof pending === "object" ? pending : {};
-  const summary = normalizeSnippet(p.summary, 220) || "I prepared that action.";
-  return [
-    "I prepared that action.",
-    "",
-    summary,
-    "",
-    "Say \"confirm\" to run it, or \"cancel action\" to stop.",
-  ].join("\n");
-}
-
-function buildNoPendingLocalActionReply() {
-  return [
-    "There is no pending action to confirm.",
-    "",
-    "Tell me exactly what to do, then I will ask for confirmation.",
-  ].join("\n");
-}
-
 function selectExecutableLocalActionCandidate({
   noteCaptureIntent,
   taskCreateIntent,
@@ -8201,16 +7499,6 @@ function selectExecutableLocalActionCandidate({
     };
   }
   return null;
-}
-
-function buildLocalActionSignature(type, payload = {}) {
-  const normalizedType = normalizeLocalActionType(type);
-  const body = payload && typeof payload === "object" ? payload : {};
-  const parts = Object.keys(body)
-    .sort((a, b) => a.localeCompare(b))
-    .map((key) => `${key}:${normalizeSnippet(body[key], 180).toLowerCase()}`);
-  const raw = `${normalizedType}|${parts.join("|")}`;
-  return createHash("sha1").update(raw).digest("hex").slice(0, 20);
 }
 
 function isLocalActionDuplicate(memory, {
@@ -8320,16 +7608,6 @@ function extractNoteCaptureIntent(transcript) {
     noteText,
     trigger,
   };
-}
-
-function buildCapturedNoteTitle(noteText) {
-  const cleaned = String(noteText || "")
-    .replace(/\s+/g, " ")
-    .replace(/^[\s"'`]+|[\s"'`]+$/g, "")
-    .trim();
-  if (!cleaned) return "Clementine Note";
-  const sentence = cleaned.split(/[.!?]/)[0] || cleaned;
-  return trimToMax(sentence, 72);
 }
 
 function formatNoteTimestamp(date = new Date()) {
@@ -8839,37 +8117,6 @@ function sanitizeAdaptiveHistoryItems(items, maxItems = ADAPTIVE_HISTORY_MAX) {
     out.push({ ts, score, source: sourceTag, tags });
   }
   return out.slice(-Math.max(1, maxItems));
-}
-
-function sanitizeTimestampList(items, maxItems = 512) {
-  const source = Array.isArray(items) ? items : [];
-  return source
-    .map((x) => Number(x || 0))
-    .filter((x) => Number.isFinite(x) && x > 0)
-    .slice(-Math.max(1, maxItems));
-}
-
-function sanitizeDayStampList(items, maxItems = 56) {
-  const source = Array.isArray(items) ? items : [];
-  const out = [];
-  for (const item of source) {
-    const stamp = String(item || "").trim();
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(stamp)) continue;
-    if (!out.includes(stamp)) out.push(stamp);
-  }
-  return out.slice(-Math.max(1, maxItems));
-}
-
-function sanitizeDailyTurnItems(items, maxItems = 56) {
-  const source = Array.isArray(items) ? items : [];
-  return source
-    .filter((item) => item && typeof item === "object")
-    .map((item) => ({
-      day: String(item.day || "").trim(),
-      count: Math.max(0, Number(item.count || 0)),
-    }))
-    .filter((item) => /^\d{4}-\d{2}-\d{2}$/.test(item.day))
-    .slice(-Math.max(1, maxItems));
 }
 
 function sanitizeSocialSparkMoments(items, maxItems = SOCIAL_SPARK_MEMORY_MAX) {
@@ -9514,13 +8761,6 @@ function splitScreenplayLines(draft) {
   const normalized = String(draft || "").replace(/\r\n/g, "\n");
   if (!normalized) return [];
   return normalized.split("\n");
-}
-
-function buildDraftExcerpt(draft, maxChars = 220) {
-  return String(draft || "")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, Math.max(32, maxChars));
 }
 
 function scoreScreenplayDraft(draft) {
@@ -10852,20 +10092,6 @@ function createEmptyEmotionMemory() {
   };
 }
 
-function sanitizeMemoryCardIdList(items, maxItems = 512) {
-  const source = Array.isArray(items) ? items : (items ? [items] : []);
-  const out = [];
-  for (const item of source) {
-    const id = normalizeMemoryCardId(item);
-    if (!id) continue;
-    if (!out.includes(id)) out.push(id);
-  }
-  if (out.length > maxItems) {
-    return out.slice(out.length - maxItems);
-  }
-  return out;
-}
-
 function pushBoundedUnique(items, value, maxItems = 6) {
   const list = Array.isArray(items) ? [...items] : [];
   const v = normalizeSnippet(value, 220);
@@ -11352,34 +10578,6 @@ function buildShortTermContextMessages(memory, maxTurns = SHORT_TERM_CONTEXT_TUR
     role: item.role === "assistant" ? "assistant" : "user",
     content: item.content,
   }));
-}
-
-function deriveThemeMemoryReason(label, source, emotionalTone) {
-  const safeLabel = normalizeThemeLabel(label, "this thread");
-  const sourceTag = String(source || "carry").trim().toLowerCase();
-  if (sourceTag === "classifier") {
-    return `This kept recurring around ${safeLabel.toLowerCase()}, so I kept it as an active thread.`;
-  }
-  if (sourceTag === "summarizer") {
-    return `This pattern stayed active, so I kept a refined summary for ${safeLabel.toLowerCase()}.`;
-  }
-  const tone = normalizeThemeTone(emotionalTone, "");
-  if (tone) {
-    return `This theme stayed emotionally consistent (${tone}), so I kept it in memory.`;
-  }
-  return `This thread kept showing up, so I kept it in memory.`;
-}
-
-function computeThemeStalenessDays(theme, nowTs = Date.now()) {
-  const now = Math.max(0, Number(nowTs || Date.now()));
-  const anchorTs = Math.max(
-    0,
-    Number(theme?.lastUsedAt || 0),
-    Number(theme?.lastMentionedAt || 0),
-    Number(theme?.qualityLastFeedbackAt || 0)
-  );
-  if (!anchorTs || now <= anchorTs) return 0;
-  return Math.max(0, Math.floor((now - anchorTs) / (24 * 60 * 60 * 1000)));
 }
 
 function classifyThemeStalenessBand(stalenessDays) {
@@ -12178,25 +11376,6 @@ function updateActiveThemesMemory(base, transcript, flags) {
   return base;
 }
 
-function extractJsonObject(text) {
-  const raw = String(text || "").trim();
-  if (!raw) return null;
-  try {
-    return JSON.parse(raw);
-  } catch (_) {
-    const start = raw.indexOf("{");
-    const end = raw.lastIndexOf("}");
-    if (start >= 0 && end > start) {
-      try {
-        return JSON.parse(raw.slice(start, end + 1));
-      } catch (_) {
-        return null;
-      }
-    }
-    return null;
-  }
-}
-
 function chooseThemeForLlmRefresh(memory, transcript) {
   const currentTurn = Math.max(0, Number(memory?.turns || 0));
   const themes = sanitizeActiveThemes(
@@ -12718,52 +11897,6 @@ function upsertDailyTurnCount(items, dayStamp, maxItems = 56) {
   return { items: list, countForDay: Math.max(0, Number(todayEntry?.count || 0)) };
 }
 
-function countConsecutiveDayStreak(dayStamps, endStamp = "") {
-  const uniqueStamps = Array.isArray(dayStamps)
-    ? [...new Set(
-      dayStamps
-        .map((x) => String(x || "").trim())
-        .filter((x) => /^\d{4}-\d{2}-\d{2}$/.test(x))
-    )].sort()
-    : [];
-  if (!uniqueStamps.length) return 0;
-
-  const targetEnd = /^\d{4}-\d{2}-\d{2}$/.test(String(endStamp || ""))
-    ? String(endStamp).trim()
-    : uniqueStamps[uniqueStamps.length - 1];
-  let idx = uniqueStamps.lastIndexOf(targetEnd);
-  if (idx === -1) {
-    idx = uniqueStamps.length - 1;
-  }
-
-  let streak = 1;
-  let cursor = new Date(`${uniqueStamps[idx]}T00:00:00`);
-  if (!Number.isFinite(cursor.getTime())) return 0;
-  for (let i = idx - 1; i >= 0; i -= 1) {
-    const prev = new Date(`${uniqueStamps[i]}T00:00:00`);
-    if (!Number.isFinite(prev.getTime())) break;
-    const diffDays = Math.round((cursor.getTime() - prev.getTime()) / (24 * 60 * 60 * 1000));
-    if (diffDays === 1) {
-      streak += 1;
-      cursor = prev;
-      continue;
-    }
-    if (diffDays > 1) break;
-  }
-  return streak;
-}
-
-function computeSessionLengthScore(sessionStartedAt, nowTs = Date.now()) {
-  const startedAt = Number(sessionStartedAt || 0);
-  if (!Number.isFinite(startedAt) || startedAt <= 0 || nowTs <= startedAt) return 0;
-  const minutes = (nowTs - startedAt) / (60 * 1000);
-  if (minutes < 2) return 0;
-  if (minutes < 5) return 2;
-  if (minutes < 10) return 3;
-  if (minutes < 20) return 4;
-  return 5;
-}
-
 function computeReturnConsistencyScore({
   activeDayStamps,
   todayTurnCount,
@@ -12802,37 +11935,6 @@ function computeReflectiveAnswerScore({
     return deepElaboration ? 5 : 3;
   }
   return Math.max(0, Math.min(5, clampUnit(followUpCompliance, 0) * 5));
-}
-
-function computeBehaviorDepthSessionScore({
-  currentScore,
-  flags,
-  detectedFeeling,
-  answeredReflective,
-  deepReflective,
-  topicRecurrence,
-}) {
-  let next = Math.max(0, Math.min(10, Number(currentScore || 0)));
-  if (flags?.isVulnerable) next += 2.5;
-  if (String(detectedFeeling || "").trim()) next += 2.0;
-  if (topicRecurrence) next += 2.0;
-  if (answeredReflective) next += deepReflective ? 3.5 : 2.5;
-  return Math.max(0, Math.min(10, next));
-}
-
-function computeInactiveDays(lastUpdatedAt, nowTs = Date.now()) {
-  const lastTs = Number(lastUpdatedAt || 0);
-  if (!Number.isFinite(lastTs) || lastTs <= 0) return 0;
-  if (nowTs <= lastTs) return 0;
-  return Math.max(0, Math.floor((nowTs - lastTs) / (24 * 60 * 60 * 1000)));
-}
-
-function computeRelationshipDepthDecayForInactiveDays(inactiveDays) {
-  const days = Math.max(0, Math.floor(Number(inactiveDays || 0)));
-  if (days <= 3) return 0;
-  const day4to7 = Math.max(0, Math.min(days, 7) - 3);
-  const day8to30 = Math.max(0, Math.min(days, 30) - 7);
-  return (day4to7 * 2) + day8to30;
 }
 
 function applyInactivityDecay(memory, nowTs = Date.now()) {
@@ -13866,17 +12968,6 @@ function applyAdaptiveToneDials(toneDials, memory, flags = null) {
   return base;
 }
 
-function extractQuestionSnippet(text) {
-  const source = String(text || "").trim();
-  if (!source.includes("?")) return "";
-  const parts = source
-    .split("?")
-    .map((x) => x.trim())
-    .filter(Boolean);
-  if (!parts.length) return "";
-  return normalizeSnippet(`${parts[0]}?`, 140);
-}
-
 function pushBoundedUniqueFolded(items, value, maxItems = 10) {
   const list = Array.isArray(items) ? [...items] : [];
   const v = normalizeSnippet(value, 180);
@@ -13906,19 +12997,6 @@ function cleanCapturedClause(text, maxChars = 72) {
       .trim(),
     maxChars
   );
-}
-
-function isLowSignalListeningFact(text) {
-  const t = normalizeFactKey(text);
-  if (!t) return true;
-  if (t.length < 10) return true;
-  if (/^(i am )?(ok|okay|fine|good|bad|tired|busy|same|nothing|whatever|idk|not sure)$/.test(t)) {
-    return true;
-  }
-  if (/^(i (am|feel|need|want|have been)\s+)?(just|kinda|sorta|maybe)\b/.test(t) && t.length < 26) {
-    return true;
-  }
-  return false;
 }
 
 function scoreListeningFact(text) {
@@ -14181,23 +13259,6 @@ function deriveBoundaryEdgeSignal({ transcript, memory, flags, routingPlan }) {
   };
 }
 
-function computeGrowthTarget(memory) {
-  const turns = Math.max(0, Number(memory?.turns || 0));
-  const trust = Math.max(0, Math.min(1, Number(memory?.trust || 0)));
-  const direct = Math.max(0, Math.min(1, Number(memory?.directness || 0)));
-  const vuln = Math.max(0, Math.min(1, Number(memory?.vulnerability || 0)));
-
-  const turnsNorm = Math.min(1, turns / 64);
-  let target =
-    (turnsNorm * 0.45) +
-    (trust * 0.30) +
-    (vuln * 0.15) +
-    (direct * 0.10);
-
-  if (turns < 3) target = Math.min(target, 0.20);
-  return Math.max(0, Math.min(1, target));
-}
-
 function computeRelationshipDepthTarget(memory) {
   const turns = Math.max(
     0,
@@ -14290,20 +13351,6 @@ function growthGuidanceLine(level) {
     default:
       return "new continuity: prioritize safety, clarity, and accurate listening; keep evolution subtle and user-centered.";
   }
-}
-
-function buildMirrorCue({ feeling, need, shift }) {
-  const f = String(feeling || "").trim();
-  const n = String(need || "").trim();
-  const s = String(shift || "").trim();
-  const parts = [];
-
-  if (s) parts.push(`acknowledge shift=${s.replace("->", " to ")}`);
-  if (f) parts.push(`mirror feeling=${f}`);
-  if (n) parts.push(`link unmet_need=${n}`);
-
-  if (!parts.length) return "";
-  return parts.join("; ");
 }
 
 function smoothSignal(current, target, alpha = 0.18) {
@@ -15356,109 +14403,6 @@ function collectScreenplayCharacterArcMemories(studio = null) {
   return single ? [single] : [];
 }
 
-function buildScreenplayCharacterArcMemoryContinuity(arcMemories = []) {
-  const memories = (Array.isArray(arcMemories) ? arcMemories : [])
-    .map((item) => parseTalkScreenplayCharacterArcMemory(item))
-    .filter(Boolean)
-    .slice(0, 8);
-  const characterFocus = [];
-  const characterArcTurns = [];
-  const unresolvedStoryThreads = [];
-  const nextSceneMoves = [];
-  const nextThreeTurns = [];
-  const continuityNotes = [];
-  let protagonistWant = "";
-  let protagonistNeed = "";
-  let characterArcState = "";
-  let actPressureState = "";
-  let nextScenePlan = "";
-
-  const push = (target, value, maxItems, maxChars) => {
-    const clean = normalizeSnippet(value, maxChars);
-    if (!clean) return;
-    const key = clean.toLowerCase();
-    if (target.some((item) => item.toLowerCase() === key)) return;
-    target.push(clean);
-    if (target.length > maxItems) target.length = maxItems;
-  };
-
-  for (const arc of memories) {
-    const name = normalizeSnippet(arc.character || "Protagonist", 80);
-    if (arc.character) push(characterFocus, arc.character, 8, 120);
-    if (!protagonistWant && arc.want) protagonistWant = normalizeSnippet(arc.want, 240);
-    if (!protagonistNeed && arc.need) protagonistNeed = normalizeSnippet(arc.need, 240);
-
-    const parts = [
-      arc.want ? `want=${arc.want}` : "",
-      arc.need ? `need=${arc.need}` : "",
-      arc.wound ? `wound=${arc.wound}` : "",
-      arc.falseBelief ? `false belief=${arc.falseBelief}` : "",
-      arc.currentTactic ? `tactic=${arc.currentTactic}` : "",
-      arc.nextEmotionalTurn ? `next turn=${arc.nextEmotionalTurn}` : "",
-    ].filter(Boolean);
-    if (parts.length) {
-      const line = `${name}: ${parts.join("; ")}`;
-      push(characterArcTurns, line, 6, 180);
-      push(continuityNotes, `Character bible: ${line}`, 8, 220);
-      if (!characterArcState) characterArcState = normalizeSnippet(line, 280);
-    }
-    if (arc.want) {
-      push(nextSceneMoves, `Pressure ${name}'s want: ${arc.want}.`, 5, 180);
-    }
-    if (arc.currentTactic) {
-      push(nextSceneMoves, `Make ${name}'s current tactic fail or cost more: ${arc.currentTactic}.`, 5, 180);
-    }
-    if (arc.nextEmotionalTurn) {
-      push(nextThreeTurns, `${name}'s next emotional turn: ${arc.nextEmotionalTurn}.`, 3, 180);
-      if (!nextScenePlan) {
-        nextScenePlan = normalizeSnippet(
-          `Move ${name} toward the next emotional turn: ${arc.nextEmotionalTurn}.`,
-          340
-        );
-      }
-    }
-    if (arc.falseBelief) {
-      push(unresolvedStoryThreads, `Test ${name}'s false belief: ${arc.falseBelief}.`, 8, 220);
-      if (!actPressureState) {
-        actPressureState = normalizeSnippet(`Test ${name}'s false belief under act pressure: ${arc.falseBelief}.`, 280);
-      }
-    }
-    if (arc.wound) {
-      push(unresolvedStoryThreads, `Re-open ${name}'s wound: ${arc.wound}.`, 8, 220);
-    }
-    if (arc.relationshipPressure) {
-      push(unresolvedStoryThreads, `Escalate ${name}'s relationship pressure: ${arc.relationshipPressure}.`, 8, 220);
-    }
-  }
-
-  return {
-    hasSignal: Boolean(
-      characterFocus.length ||
-        protagonistWant ||
-        protagonistNeed ||
-        characterArcState ||
-        actPressureState ||
-        nextScenePlan ||
-        nextSceneMoves.length ||
-        nextThreeTurns.length ||
-        unresolvedStoryThreads.length ||
-        characterArcTurns.length ||
-        continuityNotes.length
-    ),
-    characterFocus,
-    protagonistWant,
-    protagonistNeed,
-    characterArcState,
-    actPressureState,
-    nextScenePlan,
-    nextSceneMoves,
-    nextThreeTurns,
-    unresolvedStoryThreads,
-    characterArcTurns,
-    continuityNotes,
-  };
-}
-
 const SCREENPLAY_MEMORY_ADVANCE_STOPWORDS = new Set([
   "about",
   "after",
@@ -15530,16 +14474,6 @@ function advanceScreenplayRunwayAfterAcceptedWrite({
 
 const SCREENPLAY_MEMORY_CORRECTION_PATTERN = /\b(?:actually(?:,?\s*no)?|correction|scratch that|not that|retcon|change it to|make it so|instead)\b/i;
 
-function parseScreenplayCorrectionReplacement(value = "") {
-  const clean = normalizeSnippet(value, 180);
-  const parts = clean.split(/\s*->\s*/);
-  if (parts.length !== 2) return null;
-  const from = normalizeScreenplayCorrectionTerm(parts[0], 90);
-  const to = normalizeScreenplayCorrectionTerm(parts[1], 120);
-  if (!from || !to || from.toLowerCase() === to.toLowerCase()) return null;
-  return { from, to };
-}
-
 function collectScreenplayCorrectionItems(items = []) {
   const out = [];
   const seen = new Set();
@@ -15553,30 +14487,6 @@ function collectScreenplayCorrectionItems(items = []) {
     if (out.length >= 8) break;
   }
   return out;
-}
-
-function extractScreenplayReplacementTermBeforeNot(text = "", notIndex = -1) {
-  const beforeNot = String(text || "").slice(0, Math.max(0, notIndex));
-  const latestClause = beforeNot.split(/[.!?;]/).at(-1)?.trim() || "";
-  const explicitValue = latestClause.match(
-    /\b(?:is|should\s+be|=)\s+(?:a|an|the)?\s*([^,]{2,140}?)\s*,?$/i
-  );
-  if (explicitValue?.[1]) {
-    const candidate = normalizeScreenplayCorrectionTerm(explicitValue[1], 120);
-    if (candidate) return candidate;
-  }
-  const articlePattern = /\b(?:a|an|the)\s+([A-Za-z0-9][A-Za-z0-9'-]*(?:\s+[A-Za-z0-9][A-Za-z0-9'-]*){0,3})/gi;
-  const matches = [...beforeNot.matchAll(articlePattern)];
-  for (const match of matches.reverse()) {
-    const candidate = normalizeScreenplayCorrectionTerm(
-      String(match[1] || "").replace(/\s+(?:under|inside|behind|before|after|with|to|from)\b.*$/i, ""),
-      120
-    );
-    if (candidate && !/\b(?:scene|act|page|story|character|truth)\b/i.test(candidate)) {
-      return candidate;
-    }
-  }
-  return "";
 }
 
 function extractScreenplayMemoryCorrection(transcript = "") {
@@ -15889,11 +14799,6 @@ const SCREENPLAY_MEMORY_ACTION_NAME_BLOCKLIST = new Set([
 const SCREENPLAY_MEMORY_MOTIF_PATTERN = /\b(?:(?:missing|sealed|forged|burned|rain-swollen|blank|flickering|broken|empty|final|lost|public|private)\s+)?(?:receipt|cassette|key|envelope|reel|photograph|photo|tape|microphone|pool|screen|light|lights|rain|glass|door|window|mirror|gun|knife|car|phone|voicemail|affidavit|report|evidence|docket|bench|vent|elevator|courthouse)\b/gi;
 const SCREENPLAY_MEMORY_SETUP_PATTERN = /\b(?:hide|hides|hidden|pocket|pockets|keeps?|missing|sealed|forged|unopened|buried|evidence|receipt|cassette|affidavit|voicemail|report|docket|key|envelope|reel)\b/i;
 
-function countScreenplayMemoryWords(text = "") {
-  const matches = normalizeSnippet(text, 500).match(/[A-Za-z0-9'][A-Za-z0-9'-]*/g);
-  return Array.isArray(matches) ? matches.length : 0;
-}
-
 function normalizeScreenplayMemoryCharacterCue(line = "") {
   const cue = normalizeSnippet(
     String(line || "")
@@ -15972,33 +14877,6 @@ function inferScreenplayMemoryPrimaryActionName(actionLines = []) {
   return "";
 }
 
-function buildDistilledScreenplayNextTurns({
-  currentBeat = "",
-  primaryCharacter = "",
-  motifs = [],
-  unresolvedSetups = [],
-} = {}) {
-  const out = [];
-  const push = (value) => {
-    const clean = normalizeSnippet(value, 180);
-    if (!clean) return;
-    const key = clean.toLowerCase();
-    if (out.some((item) => item.toLowerCase() === key)) return;
-    out.push(clean);
-  };
-  const pressureObject = normalizeSnippet(motifs[0] || unresolvedSetups[0], 90);
-  if (currentBeat) push(`Force the consequence of: ${currentBeat}`);
-  if (primaryCharacter && pressureObject) {
-    push(`Make ${primaryCharacter} choose a new tactic under pressure from ${pressureObject}.`);
-  } else if (primaryCharacter) {
-    push(`Make ${primaryCharacter} choose a new tactic under pressure.`);
-  }
-  if (pressureObject) {
-    push(`Complicate or pay off ${pressureObject} so it changes the next scene.`);
-  }
-  return out.slice(0, 3);
-}
-
 function buildDistilledScreenplayPayoffPath({
   motifs = [],
   unresolvedSetups = [],
@@ -16026,66 +14904,6 @@ function buildDistilledScreenplayPayoffPath({
     push(`${primaryCharacter}'s next public choice must pay off the private pressure planted here.`);
   }
   return out.slice(0, 5);
-}
-
-function buildDistilledScreenplayCharacterArcTurns({
-  currentBeat = "",
-  primaryCharacter = "",
-  motifs = [],
-  dialogueLines = [],
-} = {}) {
-  const out = [];
-  const push = (value) => {
-    const clean = normalizeSnippet(value, 180);
-    if (!clean) return;
-    const key = clean.toLowerCase();
-    if (out.some((item) => item.toLowerCase() === key)) return;
-    out.push(clean);
-  };
-  const pressureObject = normalizeSnippet(motifs[0], 90);
-  const combinedDialogue = normalizeSnippet(dialogueLines.join(" "), 500).toLowerCase();
-  if (primaryCharacter && /\b(public|truth|aloud|testimony|witness|proof)\b/.test(combinedDialogue)) {
-    push(`${primaryCharacter} is being pushed from private control toward public truth.`);
-  }
-  if (primaryCharacter && currentBeat) {
-    push(`${primaryCharacter} must change tactics after: ${currentBeat}`);
-  }
-  if (primaryCharacter && pressureObject) {
-    push(`${primaryCharacter} must decide what ${pressureObject} costs them.`);
-  }
-  return out.slice(0, 6);
-}
-
-function buildDistilledScreenplayStoryThreads({
-  motifs = [],
-  actionLines = [],
-  dialogueLines = [],
-} = {}) {
-  const lines = [...(Array.isArray(actionLines) ? actionLines : []), ...(Array.isArray(dialogueLines) ? dialogueLines : [])];
-  const out = [];
-  const push = (value) => {
-    const clean = normalizeSnippet(value, 220);
-    if (!clean) return;
-    const key = clean.toLowerCase();
-    if (out.some((item) => item.toLowerCase() === key)) return;
-    out.push(clean);
-  };
-  const primaryMotif = normalizeSnippet(motifs[0], 80);
-  for (const line of lines) {
-    const lower = normalizeSnippet(line, 220).toLowerCase();
-    if (!lower) continue;
-    if (primaryMotif && /\b(?:nobody else knew|somebody does|who else|someone else knows)\b/.test(lower)) {
-      push(`Who else knows about ${primaryMotif}?`);
-    }
-    if (primaryMotif && /\bmissing\b/.test(lower)) {
-      push(`What happened to ${primaryMotif}?`);
-    }
-    if (/\b(?:forged|sealed|buried|evidence|affidavit|report)\b/.test(lower)) {
-      push(`Who controls the ${primaryMotif || "evidence"}?`);
-    }
-    if (out.length >= 4) break;
-  }
-  return out;
 }
 
 function distillScreenplayProjectMemoryFromText(text = "") {
@@ -17461,71 +16279,6 @@ function selectCycleMemoryAnchor(memory) {
   return { source: "none", anchor: "" };
 }
 
-function deriveCycleMemoryMoment({ memory, seasonalWave }) {
-  const seasonNumber = Math.max(
-    1,
-    Math.min(4, Number(seasonalWave?.seasonNumber ?? memory?.season ?? 1))
-  );
-  const seasonProgress = clampUnit(
-    seasonalWave?.seasonProgress ?? memory?.seasonProgress,
-    0
-  );
-  const cycleIndex = Math.max(
-    0,
-    Number((seasonalWave?.cycleIndex ?? memory?.cycleIndex) || 0)
-  );
-  const seasonJustAdvanced = Boolean(memory?.seasonJustAdvanced || seasonalWave?.seasonJustAdvanced);
-  const cycleJustAdvanced = Boolean(memory?.cycleJustAdvanced || seasonalWave?.cycleJustAdvanced);
-
-  if (cycleJustAdvanced) return "cycle_restart";
-  if (seasonJustAdvanced) return "season_transition";
-  if (seasonNumber === 1 && cycleIndex > 0 && seasonProgress <= 0.28) return "reconnection_window";
-  if (seasonNumber === 4 && seasonProgress >= 0.70) return "release_window";
-  return "ambient";
-}
-
-function buildCycleConsciousMemoryLine({ moment, seasonNumber, anchor }) {
-  const anchorClause = normalizeRememberSnippet(anchor, 88);
-  const memoryLine = anchorClause ? `I remember ${anchorClause}.` : "";
-
-  let line = "";
-  if (moment === "cycle_restart") {
-    line = memoryLine
-      ? `We've done this before: close, then wider. ${memoryLine}`
-      : "We've done this before: close, then wider.";
-  } else if (moment === "season_transition") {
-    if (seasonNumber === 2) {
-      line = memoryLine
-        ? `We're widening again. ${memoryLine}`
-        : "We're widening again.";
-    } else if (seasonNumber === 3) {
-      line = memoryLine
-        ? `We're in the wider phase now. ${memoryLine}`
-        : "We're in the wider phase now.";
-    } else if (seasonNumber === 4) {
-      line = memoryLine
-        ? `This part feels more spacious. ${memoryLine}`
-        : "This part feels more spacious.";
-    } else {
-      line = memoryLine
-        ? `We're close again, but steadier. ${memoryLine}`
-        : "We're close again, but steadier.";
-    }
-  } else if (moment === "reconnection_window") {
-    line = memoryLine
-      ? `This reconnection feels steadier now. ${memoryLine}`
-      : "This reconnection feels steadier now.";
-  } else if (moment === "release_window") {
-    line = memoryLine
-      ? `We're holding this with more space now. ${memoryLine}`
-      : "We're holding this with more space now.";
-  } else {
-    line = memoryLine;
-  }
-
-  return normalizeRememberSnippet(line, 138);
-}
-
 function buildCycleConsciousMemoryPlan({
   rid,
   transcript,
@@ -17941,10 +16694,6 @@ function requireClientTokenForTalk(req, res, next) {
 // matching factories below; the lib owns talkIdempotencyCache,
 // talkInFlightBySession, and the global talkInFlight counter.
 
-function isAbortError(err) {
-  return !!err && (err.name === "AbortError" || err.code === "ABORT_ERR");
-}
-
 async function fetchWithTimeout(url, options = {}, timeoutMs) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -18061,16 +16810,6 @@ function ensureMinThinkingDelay({ startedAtMs, targetDelayMs }) {
   const elapsed = Date.now() - start;
   const remaining = Math.max(0, target - elapsed);
   return sleepMs(remaining);
-}
-
-function isFillerClauseOnly(text) {
-  const t = String(text || "")
-    .trim()
-    .toLowerCase()
-    .replace(/[.!?…]+$/g, "")
-    .trim();
-  if (!t) return true;
-  return /^(okay|alright|right|well|hey|wait|mm+|hmm+|uh|uhh|yo)$/.test(t);
 }
 
 function extractFirstClauseCandidate(text) {
@@ -18383,14 +17122,6 @@ function stripLeadingId3Tag(buffer) {
   if (flags & 0x10) skip += 10;
   if (skip <= 0 || skip >= source.length) return source;
   return source.subarray(skip);
-}
-
-function isLikelyMp3Buffer(buffer) {
-  const source = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer || []);
-  if (source.length < 2) return false;
-  const startsWithId3 = source.length >= 3 && source.subarray(0, 3).toString("utf8") === "ID3";
-  const startsWithFrameSync = source[0] === 0xff && (source[1] & 0xe0) === 0xe0;
-  return startsWithId3 || startsWithFrameSync;
 }
 
 let talkTestDebugAudioBufferCache = null;
@@ -20476,24 +19207,6 @@ function normalizeVisualContextImageDataUrl(value) {
   return clipped.replace(/^data:image\/jpg;/i, "data:image/jpeg;");
 }
 
-function extractResponsesText(payload) {
-  const direct = normalizeSnippet(payload?.output_text ?? payload?.outputText ?? "", 12_000);
-  if (direct) return direct;
-
-  const output = Array.isArray(payload?.output) ? payload.output : [];
-  const parts = [];
-  for (const item of output) {
-    const content = Array.isArray(item?.content) ? item.content : [];
-    for (const entry of content) {
-      const text = normalizeSnippet(entry?.text ?? entry?.transcript ?? "", 4_000);
-      if (text) {
-        parts.push(text);
-      }
-    }
-  }
-  return normalizeSnippet(parts.join("\n\n"), 12_000);
-}
-
 function buildVisualContextAddendum({
   summary = "",
   appName = "",
@@ -20636,17 +19349,6 @@ let knowledgeSemanticBackoffUntil = 0;
 const knowledgeQueryEmbeddingCache = new Map();
 let knowledgeWarmupPromise = null;
 
-function buildKnowledgeSearchText(card) {
-  return [
-    card.topic,
-    card.title,
-    card.body,
-    ...(Array.isArray(card.tags) ? card.tags : []),
-  ]
-    .join(" ")
-    .toLowerCase();
-}
-
 function normalizeKnowledgeCard(card, idx = 0) {
   if (!card || typeof card !== "object") return null;
   const topic = normalizeKnowledgeTopic(card.topic);
@@ -20710,13 +19412,6 @@ function tokenizeKnowledgeQuery(text) {
     .split(/\s+/)
     .map((x) => x.trim())
     .filter((x) => x.length >= 3 && !KNOWLEDGE_STOPWORDS.has(x));
-}
-
-function countKeywordHits(text, keywords) {
-  const t = String(text || "");
-  return keywords.reduce((count, keyword) => (
-    keyword && t.includes(keyword) ? count + 1 : count
-  ), 0);
 }
 
 function deriveKnowledgeTopicWeights(queryText) {
@@ -20890,17 +19585,6 @@ function hashSha256(text) {
     .digest("hex");
 }
 
-function sanitizeEmbeddingVector(vec) {
-  if (!Array.isArray(vec) || !vec.length) return null;
-  const out = [];
-  for (const value of vec) {
-    const n = Number(value);
-    if (!Number.isFinite(n)) return null;
-    out.push(n);
-  }
-  return out.length ? out : null;
-}
-
 function vectorNorm(vec) {
   if (!Array.isArray(vec) || !vec.length) return 0;
   let sum = 0;
@@ -21012,15 +19696,6 @@ async function loadKnowledgeEmbeddingStoreFromAdapter() {
   }
   knowledgeEmbeddingStore = { meta: knowledgeEmbeddingStore?.meta || {}, vectors };
   return true;
-}
-
-function buildKnowledgeCardEmbeddingText(card) {
-  return [
-    `[topic] ${card.topic}`,
-    `[title] ${card.title}`,
-    `[tags] ${(Array.isArray(card.tags) ? card.tags.join(", ") : "") || "none"}`,
-    `[body] ${card.body}`,
-  ].join("\n");
 }
 
 async function fetchKnowledgeEmbeddings(inputs, { timeoutMs } = {}) {
@@ -21854,14 +20529,6 @@ function buildWeeklyEmotionalArcAddendum({ rid, transcript, preset, arc }) {
 - question_rule=if a seed is a question, only use it when question budget allows; otherwise convert to a grounded statement.
 ${seedLines.length ? `- seed_cues=${seedLines.join(" | ")}` : ""}
 `.trim();
-}
-
-function deriveMilestoneStage(value, week2, week3, week4) {
-  const v = Math.max(0, Number(value || 0));
-  if (v >= week4) return 4;
-  if (v >= week3) return 3;
-  if (v >= week2) return 2;
-  return 1;
 }
 
 function getWeeklyExpansionProfile(stage) {
@@ -23101,14 +21768,6 @@ ${mischievousPlayfulEnergyLines.length ? `Mischievous playful energy (teasing/br
 `.trim();
 }
 
-function countWords(text) {
-  return String(text || "")
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean)
-    .length;
-}
-
 function inferMelancholyLane(transcript) {
   const t = String(transcript || "").toLowerCase();
   if (
@@ -23183,18 +21842,6 @@ CINEMATIC INTIMACY SEEDS:
 - Prefer statement endings by default; if you use a reflective question, keep it to one.
 Seed examples: ${seeds.join(" | ")}
 `.trim();
-}
-
-function parseBoundedFloat(value, min, max) {
-  const parsed = Number.parseFloat(String(value ?? "").trim());
-  if (!Number.isFinite(parsed)) return null;
-  return Math.max(min, Math.min(max, parsed));
-}
-
-function parseBoundedInt(value, min, max) {
-  const parsed = Number.parseInt(String(value ?? "").trim(), 10);
-  if (!Number.isFinite(parsed)) return null;
-  return Math.max(min, Math.min(max, parsed));
 }
 
 function deriveDynamicVadThreshold({
@@ -26233,44 +24880,6 @@ SOCIAL SPARK MODE (Friend Hype):
   `.trim();
 }
 
-function buildTherapeuticDepthAddendum({ flags, routingPlan, turnPlanner }) {
-  if (!Boolean(flags?.therapeuticDepth)) return "";
-
-  const topics = [];
-  if (Boolean(flags?.therapeuticPain)) topics.push("pain");
-  if (Boolean(flags?.therapeuticHeartbreak)) topics.push("heartbreak/love-loss");
-  if (Boolean(flags?.therapeuticBetrayal)) topics.push("betrayal/liars");
-  if (Boolean(flags?.therapeuticAvoidance)) topics.push("avoidance dynamics");
-  if (Boolean(flags?.therapeuticFamilyTrauma)) topics.push("family/childhood trauma");
-  const topicLine = topics.length ? topics.join(", ") : "relational pain";
-  const heartbreakMode = Boolean(flags?.therapeuticHeartbreak);
-
-  return `
-THERAPEUTIC DEPTH MODE:
-- active=1 lane=${String(routingPlan?.lane || "normal_rotation")} score=${Math.max(0, Math.min(1, Number(flags?.therapeuticDepthScore || 0))).toFixed(2)} topics=${topicLine}
-- priority -> high cognitive empathy + emotional precision + grounded containment.
-- response sequence:
-  1) Acknowledge the impact in plain language.
-  2) Validate their reaction clearly (no minimizing).
-  3) Name the vulnerable layer + likely relational pattern without diagnosing (betrayal loop, avoidance cycle, dishonesty rupture, family-of-origin adaptation).
-  4) Offer one grounded choice with an agency/boundary lens.
-  5) Ask at most one gentle continuation question (no confrontational "why").
-- tone guard -> warm and human, never clinical checklist, never generic cheerleading.
-- honesty guard -> do not minimize betrayal, lying, avoidance, or childhood hurt; validate confusion and reality impact.
-- trauma guard -> for family/childhood trauma, connect present triggers to learned survival patterns with compassion and specificity.
-- casual_af_guard -> use plain spoken language, contractions, short natural lines, no stiff therapy jargon.
-- heartbreak_mode -> ${heartbreakMode ? "active" : "inactive"}
-- heartbreak_rule -> when heartbreak_mode=active: use scaffold in this order:
-  1) acknowledge pain and shock plainly,
-  2) validate their reaction,
-  3) name vulnerable layer + pattern (chemistry vs compatibility; consistency/honesty/availability),
-  4) offer one concrete choice for tonight/next 24 hours with a boundary/self-respect lens.
-- heartbreak_motivation_style -> motivating but grounded: no fantasy promises, no revenge, no manipulation, no obsessive-monitoring scripts.
-- output guard -> avoid slogan endings; end on concrete meaning, boundary clarity, or one useful next step.
-- planner_hint -> intent=${String(turnPlanner?.intent || "unknown")} next=${String(turnPlanner?.nextBestMove || "unknown")}
-`.trim();
-}
-
 function enforceQuestionRange(text, hardMaxQuestions = 1) {
   const maxQuestions = Math.max(0, Number(hardMaxQuestions || 0));
   let seen = 0;
@@ -26538,19 +25147,6 @@ function stripLeadingDayFeelingCheckIn(text) {
   }
 
   return chunks.join("\n\n").trim();
-}
-
-function isDayFeelingCheckInLine(text) {
-  const t = String(text || "").toLowerCase().trim();
-  if (!t) return false;
-
-  const asksHowDayOrFeeling =
-    /\bhow(?:'s|’s|s|\s+is|\s+are|\s+has|\s+was)\b/.test(t) &&
-    /\b(day|today|feeling|feel|doing|mood|yourself|holding up)\b/.test(t);
-  const asksVibeToday = /\bwhat(?:'s| is)\s+(?:the\s+)?vibe\s+today\b/.test(t);
-  const asksHowWasDay = /\bhow\s+was\s+your\s+day\b/.test(t);
-
-  return asksHowDayOrFeeling || asksVibeToday || asksHowWasDay;
 }
 
 function scrubRepeatedDayFeelingCheckIns(text, { allowFirstLine = false } = {}) {
@@ -26856,12 +25452,6 @@ function pickContinuityAnchor(transcript = "") {
     if (!banned.has(anchor)) return anchor;
   }
   return anchors[0] || "";
-}
-
-function isHardTopicReset(transcript = "") {
-  const t = String(transcript || "").trim().toLowerCase();
-  if (!t) return false;
-  return /^(?:anyway|anyways|quick one|serious question|be honest|different question|new question)\b/.test(t);
 }
 
 function isLowStakesChoiceTurn(transcript = "", flags = null) {
@@ -27506,40 +26096,6 @@ function buildIdeaDevelopmentAnchorLine(transcript = "") {
   return "Core idea: we can build this together and keep it concrete.";
 }
 
-function buildIdeaDevelopmentSharpenLine(domain = "general") {
-  switch (String(domain || "general")) {
-    case "screenplay":
-      return "Sharpen pass: lock protagonist, core want, and the pressure source.";
-    case "product":
-      return "Sharpen pass: lock target user, pain point, and one measurable outcome.";
-    case "content":
-      return "Sharpen pass: lock audience, one promise, and one proof point.";
-    case "music":
-      return "Sharpen pass: lock theme, emotional turn, and one signature motif.";
-    case "relationship":
-      return "Sharpen pass: lock your need, your boundary, and your ask.";
-    default:
-      return "Sharpen pass: lock audience, one promise, and one constraint.";
-  }
-}
-
-function buildIdeaDevelopmentStepLine(domain = "general") {
-  switch (String(domain || "general")) {
-    case "screenplay":
-      return "Build step: draft 3 opening-beat options, then keep the one with highest tension.";
-    case "product":
-      return "Build step: write a one-line value prop and rank 3 feature options by user impact.";
-    case "content":
-      return "Build step: draft 3 hooks and pick the one that creates the strongest curiosity gap.";
-    case "music":
-      return "Build step: sketch 2 chorus variants and keep the one with cleaner emotional lift.";
-    case "relationship":
-      return "Build step: draft one clean message that names your boundary and one clear request.";
-    default:
-      return "Build step: generate 3 variants, score them on clarity and pull, then keep one to iterate.";
-  }
-}
-
 function buildIdeaDevelopmentQuestion(transcript = "", { domain = "general" } = {}) {
   const anchor = pickContinuityAnchor(transcript);
   switch (String(domain || "general")) {
@@ -27952,11 +26508,6 @@ function isScreenplayTitleOpinionTurn(transcript = "") {
   return textContainsAny(t, ["short title", "title"]) && /["'][^"']+["']/.test(String(transcript || ""));
 }
 
-function extractQuotedTitle(transcript = "") {
-  const match = String(transcript || "").match(/["']([^"']+)["']/);
-  return normalizeWhitespace(String(match?.[1] || ""));
-}
-
 function ensureScreenplayTitleOpinionStructure(transcript = "") {
   const title = extractQuotedTitle(transcript) || "That title";
   return normalizeWhitespace([
@@ -27980,14 +26531,6 @@ function ensureScreenplayNotebookVibeStructure(transcript = "") {
 function isScreenplayCharacterNameCheckTurn(transcript = "") {
   const t = String(transcript || "").toLowerCase();
   return textContainsAny(t, ["good name", "thriller lead"]) || /\bis [A-Z][a-z]+\b.*\btoo obvious\b/.test(String(transcript || ""));
-}
-
-function extractLeadNameCandidate(transcript = "") {
-  const raw = String(transcript || "");
-  const quickIsMatch = raw.match(/\bis\s+([A-Z][a-z]+)\b/);
-  if (quickIsMatch?.[1]) return quickIsMatch[1];
-  const capitalMatch = raw.match(/\b([A-Z][a-z]{2,})\b/);
-  return String(capitalMatch?.[1] || "").trim();
 }
 
 function ensureScreenplayCharacterNameCheckStructure(transcript = "") {
@@ -29083,21 +27626,6 @@ function buildCinemaCheckEnvelope(reply) {
   };
 }
 
-function parseQueryLimit(value, fallback = 24, max = 200) {
-  const parsed = Number.parseInt(String(value ?? ""), 10);
-  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
-  return Math.max(1, Math.min(max, parsed));
-}
-
-function parseTurnIdToNumber(value) {
-  const raw = String(value || "").trim().toLowerCase();
-  if (!raw) return 0;
-  const normalized = raw.startsWith("turn-") ? raw.slice(5) : raw;
-  const parsed = Number.parseInt(normalized, 10);
-  if (!Number.isFinite(parsed) || parsed <= 0) return 0;
-  return parsed;
-}
-
 const {
   applyReadStateHeaders,
   buildConversationHistoryThreads,
@@ -29944,14 +28472,6 @@ function buildEpisodicMemoryCards(
     });
   }
   return cards;
-}
-
-function buildScreenplayProjectMemoryCardId(item = {}, fallback = "") {
-  const key = [
-    "screenplay-project",
-    item?.projectId || item?.documentRevisionId || item?.sceneLabel || item?.updatedAt || fallback,
-  ].join("-").replace(/[^a-zA-Z0-9_-]+/g, "-");
-  return normalizeMemoryCardId(key);
 }
 
 function normalizeStoryObligationLedgerForApi(value = []) {
