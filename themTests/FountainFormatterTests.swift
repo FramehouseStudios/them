@@ -219,4 +219,24 @@ final class FountainFormatterTests: XCTestCase {
         XCTAssertFalse(out.contains("HE waits"), out)
         XCTAssertTrue(out.contains("FRANK steps closer"), "a real first appearance is still promoted: \(out)")
     }
+
+    func test_terse_dialogue_under_a_cue_is_not_a_page_integrity_issue() {
+        let draft = """
+        INT. KITCHEN - NIGHT
+
+        FRANK
+        I kept the receipt.
+
+        MARA (O.S.)
+        For what?
+
+        FRANK
+        (beat)
+        The ring.
+
+        Can you help me with this scene?
+        """
+        let issues = FountainFormatter.screenplayIntegrityIssues(in: draft)
+        XCTAssertEqual(issues.map(\.preview), ["Can you help me with this scene?"], "\(issues)")
+    }
 }

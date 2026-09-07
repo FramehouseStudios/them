@@ -198,6 +198,9 @@ public enum FountainFormatter {
             guard !trimmedLines.isEmpty else { return }
 
             let blockText = trimmedLines.joined(separator: "\n")
+            // A cue followed by anything is a speech, however terse the line
+            // ("For what?" / "The ring."); never treat it as companion prose.
+            if trimmedLines.count >= 2, isCharacterCueLine(trimmedLines[0]) { return }
             guard !isStrongStudioPageWriteCandidate(blockText, allowActionOnly: true) else { return }
 
             let conversationalCount = trimmedLines.filter { isLikelyConversationalLine($0) }.count
@@ -1389,10 +1392,11 @@ public enum FountainFormatter {
         guard lines.count >= 2 else { return false }
         for index in 0..<(lines.count - 1) {
             let current = lines[index]
+            guard isCharacterCueLine(current) else { continue }
             let next = lines[index + 1]
-            if isCharacterCueLine(current), !next.hasPrefix("(") {
-                return true
-            }
+            if !next.hasPrefix("(") { return true }
+            // Cue, then a parenthetical such as (O.S.) or (beat), then dialogue.
+            if index + 2 < lines.count, !lines[index + 2].hasPrefix("(") { return true }
         }
         return false
     }
