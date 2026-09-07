@@ -78,6 +78,7 @@ import { createMuseAwareChatSupplier } from "./clementine/muse_provider.js";
 import { isShortFilmBetaEnabled } from "./clementine/short_film_beta.js";
 import { parseShortFilmIntent } from "./clementine/short_film_intent.js";
 import { buildLivePaperPayload } from "./clementine/studio_live_paper.js";
+import { applyClementineTalkHeaders } from "./clementine/talk_clementine_headers.js";
 import { composeTalkSystemPrompt } from "./talk_prompt.js";
 import { runTalkGenerate } from "./talk_generate.js";
 
@@ -3230,6 +3231,15 @@ function createTalkHandler(deps) {
           res.setHeader("x-dialogue-timeline", encodeURIComponent(dialogueTimelineJson));
         }
       }
+      // Clementine headers: x-suggestion / x-uncertainty / x-collab-cursor (D009, no index.js growth)
+      try {
+        const _clemProject = (typeof memoryProject !== "undefined" && memoryProject && typeof memoryProject === "object") ? memoryProject : (typeof studioMeta === "object" && studioMeta ? studioMeta : {});
+        const _clemDraft = String((typeof screenplayDraftText !== "undefined" ? screenplayDraftText : "") || talkScreenplayOutput?.text || "");
+        const _clemParsed = (typeof shortFilmParsed !== "undefined" ? shortFilmParsed : null) || null;
+        const _clemQuality = talkScreenplayOutput?.quality || null;
+        const _clemCursor = req.body?.collabCursor ?? req.body?.collab_cursor ?? null;
+        applyClementineTalkHeaders(res, { project: _clemProject, draft: _clemDraft, parsed: _clemParsed, quality: _clemQuality, collabCursor: _clemCursor });
+      } catch (_) {}
       commitTalkIdempotencySuccess(req, {
         statusCode: 200,
         headers: captureTalkResponseHeaders(res),
@@ -5046,6 +5056,15 @@ ${directorOutputRule}
         res.setHeader("x-screenplay-cues", encodeURIComponent(screenplayCuesJson));
       }
     }
+    // Clementine headers: x-suggestion / x-uncertainty / x-collab-cursor (D009, no index.js growth)
+    try {
+      const _clemProject2 = (typeof memoryProject !== "undefined" && memoryProject && typeof memoryProject === "object") ? memoryProject : (typeof studioMeta === "object" && studioMeta ? studioMeta : {});
+      const _clemDraft2 = String((typeof screenplayDraftText !== "undefined" ? screenplayDraftText : "") || talkScreenplayOutput?.text || "");
+      const _clemParsed2 = (typeof shortFilmParsed !== "undefined" ? shortFilmParsed : null) || null;
+      const _clemQuality2 = talkScreenplayOutput?.quality || null;
+      const _clemCursor2 = req.body?.collabCursor ?? req.body?.collab_cursor ?? null;
+      applyClementineTalkHeaders(res, { project: _clemProject2, draft: _clemDraft2, parsed: _clemParsed2, quality: _clemQuality2, collabCursor: _clemCursor2 });
+    } catch (_) {}
     res.setHeader("x-reply-repaired", replyRepaired ? "1" : "0");
     res.setHeader("x-tts-provider", encodeURIComponent(ttsProviderUsed));
     res.setHeader(
