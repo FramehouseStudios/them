@@ -80,9 +80,7 @@ async function runTalkGenerate({
   }
 
   // Beta short-film: flag-gated, before multipass. Gate on page-write turn, not flag alone — chat must never return Fountain.
-  const isPageWriteForBeta =
-    String(req.clementine?.lane || "").toLowerCase() === "page" ||
-    String(req.clementine?.screenplayTarget || "").toLowerCase() === "page";
+  const isPageWriteForBeta = String(req.clementine?.lane || "").toLowerCase() === "page";
   if (isShortFilmBetaEnabled(process.env) && isPageWriteForBeta) {
     const betaParsed = parseShortFilmIntent(talkGenerationTranscript || "");
     if (betaParsed) {
@@ -95,24 +93,34 @@ async function runTalkGenerate({
         baseSystem: system,
         chatModelPlan,
       });
-      // Studio quality gate — hard issues > 0 → one repair pass like normal lane
+      // Studio quality gate — use existing gate with reply/transcript/body/systemPrompt and one repair pass
       try {
-        const quality = await enforceStudioScreenplayQuality({ draft, source: "short_film_beta" });
-        if (quality && Array.isArray(quality.hardIssues) && quality.hardIssues.length > 0) {
-          // One repair pass via same lane with repair context
-          const repaired = await runShortFilmLane({
-            req,
-            parsed: betaParsed,
-            chatSupplier,
-            signal: pageAbort,
-            baseSystem: system,
-            chatModelPlan,
-          });
-          draft = repaired.draft;
-          usage = repaired.usage;
+        const qualityResult = await enforceStudioScreenplayQuality({
+          reply: draft,
+          transcript: talkGenerationTranscript,
+          body: req.body,
+          systemPrompt: system,
+          renderRepair: async ({ repairPrompt, systemPrompt: repairSystem }) => {
+            const repaired = await runShortFilmLane({
+              req,
+              parsed: betaParsed,
+              chatSupplier,
+              signal: pageAbort,
+              baseSystem: repairSystem || `${system}\n\n${repairPrompt}`,
+              chatModelPlan,
+            });
+            return repaired.draft;
+          },
+        });
+        if (qualityResult && typeof qualityResult.reply === "string") {
+          draft = qualityResult.reply;
+          // usage stays from first generation; quality gate does not change token count
+          if (qualityResult.quality && !qualityResult.ok) {
+            logger?.warn?.(`[${rid}] short_film_quality_repaired ok=${qualityResult.ok} reason=${qualityResult.quality?.reason || ""}`);
+          }
         }
       } catch (_) {
-        // Non-blocking: return draft even if quality gate fails
+        // Non-blocking: return draft even if quality gate throws
       }
       // Commit wallet like normal path (~127, ~201) — beta pages are not free
       if (typeof req.clementine?.commitWallet === "function") {

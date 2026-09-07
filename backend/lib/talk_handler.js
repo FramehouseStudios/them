@@ -1802,16 +1802,7 @@ function createTalkHandler(deps) {
       8_000
     );
     const studioMeta = sanitizeStudioTurnMetadata(req.body || null);
-    // Beta short-film: if flag on, no target sent, and current utterance parses as short-film, make it a page-write turn
-    if (
-      isShortFilmBetaEnabled(process.env) &&
-      !String(studioMeta?.screenplayTarget || "").trim() &&
-      parseShortFilmIntent(String(req.body?.text || req.body?.debug_transcript || req.body?.transcript || screenplayGenerationTranscript || clientTranscriptOverride || "")) 
-    ) {
-      studioMeta.screenplayTarget = "page";
-      studioMeta.screenplayPromptSource = "short_film_beta";
-    }
-    const isScreenplayPageWriteTurn =
+    let isScreenplayPageWriteTurn =
       String(studioMeta?.screenplayTarget || "").trim().toLowerCase() === "page";
     const talkTestDebugOfflineScreenplayMode = TALK_TEST_DEBUG_OFFLINE_ENABLED &&
       isScreenplayPageWriteTurn &&
@@ -2039,6 +2030,16 @@ function createTalkHandler(deps) {
         activeSession.memory = previousMemory;
         activeSession.memory = await persistTalkMemory(previousMemory, Date.now());
       }
+    }
+    // Beta short-film: after STT, if flag on, no target, and transcript parses, promote to page-write (real voice turn)
+    if (
+      isShortFilmBetaEnabled(process.env) &&
+      !String(studioMeta?.screenplayTarget || "").trim() &&
+      parseShortFilmIntent(transcript)
+    ) {
+      studioMeta.screenplayTarget = "page";
+      studioMeta.screenplayPromptSource = "short_film_beta";
+      isScreenplayPageWriteTurn = true;
     }
     const forcedErrorStageRaw = TALK_TEST_DEBUG_FAILURE_ENABLED
       ? normalizeSnippet(
