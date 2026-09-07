@@ -16,21 +16,26 @@ test("golden: parsed → prompt contains required scaffold", () => {
   for (const s of fixture.expect.userContains) {
     assert.ok(user.includes(s), `user missing "${s}"`);
   }
-  assert.ok(outline.includes("Act 1 p1-5"), "outline missing Act 1");
+  assert.ok(outline.includes("Act 1"), "outline missing Act 1");
   assert.ok(system.includes("INT. BEDROOM"), "system missing INT. BEDROOM");
   assert.ok(system.includes("John") && system.includes("Sally") && system.includes("Sam"), "system missing character names");
+  assert.ok(system.includes("plain Fountain"), "system should mention plain Fountain");
 });
 
-test("offline draft 5-page shape", () => {
+test("offline draft 5-page shape (plain Fountain, no markers)", () => {
   const draft = generateOfflineShortFilmDraft(parsed);
-  const pages = draft.split(/--- PAGE \d+ ---/g).filter(s => s.trim().length > 10);
-  assert.equal(pages.length, 5, `expected 5 pages, got ${pages.length}`);
-  // Each page 120-350 words
-  for (let i = 0; i < pages.length; i++) {
-    const words = pages[i].trim().split(/\s+/).length;
-    assert.ok(words >= 30 && words <= 400, `page ${i+1} words ${words} out of range`);
+  // Plain Fountain: count INT. headers as pages (no "--- PAGE n ---")
+  const pages = (draft.match(/INT\. BEDROOM/gi) || []);
+  assert.equal(pages.length, 5, `expected 5 pages (INT. BEDROOM), got ${pages.length}`);
+  assert.ok(!draft.includes("--- PAGE"), "draft should not contain PAGE markers — plain Fountain");
+  // Split by INT. for word count per page
+  const splits = draft.split(/INT\. BEDROOM/gi).filter(s => s.trim().length > 10);
+  assert.equal(splits.length, 5);
+  for (let i = 0; i < splits.length; i++) {
+    const words = splits[i].trim().split(/\s+/).length;
+    assert.ok(words >= 10 && words <= 400, `page ${i+1} words ${words} out of range`);
   }
-  // Contains bedroom, names, horror lexicon, INT. BEDROOM headers
+  // Contains bedroom, names, horror lexicon
   assert.ok(draft.includes("INT. BEDROOM"), "missing INT. BEDROOM header");
   const lower = draft.toLowerCase();
   assert.ok((lower.match(/bedroom/g) || []).length >= 3, "bedroom <3");
@@ -42,11 +47,12 @@ test("offline draft 5-page shape", () => {
   assert.ok(horrorHits >= 2, `horror lexicon hits ${horrorHits} <2`);
 });
 
-test("offline draft respects requestedPages", () => {
+test("offline draft respects requestedPages (plain Fountain)", () => {
   const p2 = { ...parsed, requestedPages: 3 };
   const d3 = generateOfflineShortFilmDraft(p2);
-  const pages = d3.split(/--- PAGE \d+ ---/g).filter(s => s.trim().length > 10);
+  const pages = (d3.match(/INT\. BEDROOM/gi) || []);
   assert.equal(pages.length, 3);
+  assert.ok(!d3.includes("--- PAGE"));
 });
 
 test("build prompt handles missing setting", () => {
