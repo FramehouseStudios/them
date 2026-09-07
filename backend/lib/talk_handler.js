@@ -3183,6 +3183,8 @@ function createTalkHandler(deps) {
           // Also keep per-field headers for lightweight clients (Bridge can use either)
           if (_livePaper.logline) res.setHeader("x-live-paper-logline", encodeURIComponent(_livePaper.logline.slice(0, 500)));
           if (_livePaper.synopsis) res.setHeader("x-live-paper-synopsis", encodeURIComponent(_livePaper.synopsis.slice(0, 2000)));
+          if (_livePaper.beats40) try { res.setHeader("x-live-paper-beats40", encodeURIComponent(JSON.stringify(_livePaper.beats40).slice(0, 4000))); } catch {}
+          if (_livePaper.beatCount) res.setHeader("x-live-paper-beat-count", String(_livePaper.beatCount));
         }
         res.setHeader("x-live-paper-available", "1");
       } catch (_) {
@@ -3214,6 +3216,8 @@ function createTalkHandler(deps) {
           // Also keep per-field headers for lightweight clients (Bridge can use either)
           if (_livePaper.logline) res.setHeader("x-live-paper-logline", encodeURIComponent(_livePaper.logline.slice(0, 500)));
           if (_livePaper.synopsis) res.setHeader("x-live-paper-synopsis", encodeURIComponent(_livePaper.synopsis.slice(0, 2000)));
+          if (_livePaper.beats40) try { res.setHeader("x-live-paper-beats40", encodeURIComponent(JSON.stringify(_livePaper.beats40).slice(0, 4000))); } catch {}
+          if (_livePaper.beatCount) res.setHeader("x-live-paper-beat-count", String(_livePaper.beatCount));
         }
         res.setHeader("x-live-paper-available", "1");
       } catch (_) {

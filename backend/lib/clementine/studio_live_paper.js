@@ -67,6 +67,7 @@ function normalizeCharacterContexts(raw) {
 }
 
 import { paginateFountainDraft } from "./page_flip.js";
+import { getFeatureBeats } from "./feature_structure_knowledge.js";
 
 export function buildLivePaperPayload(project, opts = {}) {
   if (!project || typeof project !== "object" || Array.isArray(project)) {
@@ -86,7 +87,16 @@ export function buildLivePaperPayload(project, opts = {}) {
   } catch {}
   const totalPages = pages.length || Math.max(1, Number(opts.currentPage) || 1);
   const currentPage = Math.max(1, Math.min(totalPages, Number(opts.currentPage) || 1));
-  return { logline, synopsis, beats, characterContexts, pages, totalPages, currentPage, projectId: String(project.id || "") };
+  // Feature 40-beat scaffold for 60p+ (D009)
+  let beats40 = null;
+  try {
+    const tp = Number(opts.totalPages ?? project?.totalPages ?? totalPages);
+    if (tp >= 60) {
+      const fb = getFeatureBeats({ genre: opts.genre || project?.genre || "horror", totalPages: tp });
+      beats40 = fb.beats40 || null;
+    }
+  } catch {}
+  return { logline, synopsis, beats, beats40, beatCount: beats40 ? 40 : beats.length, characterContexts, pages, totalPages, currentPage, projectId: String(project.id || "") };
 }
 
 export default { buildLivePaperPayload };
