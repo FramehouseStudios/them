@@ -199,8 +199,9 @@ function ruleCharacterCueCaps(lines, text, suggestions) {
     if (!cueCore) continue;
     if (/[.!?,;…]["'’”]*$/.test(cueCore)) continue;
     if (cueCore.split(/\s+/).length > 5) continue;
-    // A cue starts with a capital letter, not a lowercase word or a bracket.
-    if (!/^[A-Z]/.test(trimmed)) continue;
+    // A cue starts with a letter (a lowercase "june" is exactly the miss
+    // this rule exists for), not a bracket or a digit.
+    if (!/^[A-Za-z]/.test(trimmed)) continue;
     // Heuristic: line is followed by what looks like dialogue (next non-blank
     // line is mixed-case sentence-shape).
     let nextIdx = i + 1;
