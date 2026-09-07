@@ -31953,6 +31953,7 @@ function escapeXmlText(value) {
 // are passed as deps so the route file is independently testable.
 // See docs/specs/T-decompose-backend-index.md.
 mountScreenplayProjectsRoutes(app, {
+  ifNoneMatchStateHit,
   commitScreenplayOwnerMutation,
   getOrCreateScreenplayOwnerRecord,
   getScreenplayProjectRecord,

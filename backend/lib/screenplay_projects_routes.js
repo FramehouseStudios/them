@@ -81,6 +81,8 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
     buildScreenplayEnvelope,
     buildScreenplayReadMeta,
     applyReadStateHeaders,
+    // Optional: If-None-Match short-circuit for the project-list poll.
+    ifNoneMatchStateHit = null,
     // Payload serializers
     toScreenplayProjectPayload,
     toScreenplayOutlinePayload,
@@ -632,6 +634,14 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
     const includeVersions = parseBool(req.query?.include_versions);
     const includeDrafts = parseBool(req.query?.include_drafts);
     const limit = Math.max(1, Math.min(96, parsePositiveInt(req.query?.limit, 24)));
+    const readMeta = buildScreenplayReadMeta(req, owner);
+    // Phones poll this list every few seconds as the cross-device fallback;
+    // an unchanged owner state answers 304 with no body.
+    if (typeof ifNoneMatchStateHit === "function" && ifNoneMatchStateHit(req, readMeta.etag, readMeta.stateVersion)) {
+      applyReadStateHeaders(res, readMeta);
+      res.setHeader("Cache-Control", "no-store");
+      return res.status(304).end();
+    }
     const payloadProjects = [...(owner.projects || [])]
       .sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0))
       .slice(0, limit)
@@ -640,7 +650,7 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
         includeDrafts,
         versionLimit: includeVersions ? 12 : 0,
       }));
-    applyReadStateHeaders(res, buildScreenplayReadMeta(req, owner));
+    applyReadStateHeaders(res, readMeta);
     res.setHeader("Cache-Control", "no-store");
     return res.status(200).json(buildScreenplayEnvelope(req, owner, {
       stage: "screenplay_projects",
