@@ -96,6 +96,46 @@ Hello.
   assert.ok(!rules(r.suggestions).includes("character_cue_caps"));
 });
 
+test("[character_cue_caps] does not flag short dialogue, action lines or speech continuations", () => {
+  const text = `INT. KITCHEN - NIGHT
+
+MARA stands at the sink.
+She does not turn around.
+
+MARA
+You said you would call.
+I waited up.
+
+FRANK
+I did call.
+Twice.
+
+He waits.
+She does not move.
+
+Rain.
+`;
+  const r = lintScreenplay({ text });
+  assert.deepEqual(
+    r.suggestions.filter((x) => x.rule === "character_cue_caps").map((x) => x.excerpt),
+    [],
+  );
+});
+
+test("[character_cue_caps] still flags a mixed-case cue with an extension in cue position", () => {
+  const text = `INT. ROOM - NIGHT
+
+June (V.O.)
+Hello there.
+
+Frank
+Again.
+`;
+  const r = lintScreenplay({ text });
+  const hits = r.suggestions.filter((x) => x.rule === "character_cue_caps").map((x) => x.excerpt);
+  assert.deepEqual(hits, ["June (V.O.)", "Frank"]);
+});
+
 // ---------- parenthetical_density ----------
 
 test("[parenthetical_density] flags long parentheticals", () => {
