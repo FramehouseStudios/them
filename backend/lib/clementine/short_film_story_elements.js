@@ -76,8 +76,9 @@ function buildBeats({ parsed, project }) {
         { id: "b14", page: 14, label: "Finale Confrontation", text: `Chase at speed; the midnight clock, the door, the listening shadow.` },
         { id: "b15", page: 15, label: "Final Image", text: `Mirror of opening, cost paid, ${chars.join(", ")} changed or gone.` },
       ];
-      const merged = [...kbBeats.slice(0,4), ...rest].slice(0, Math.max(5, Math.min(30, total)));
-      return merged.map((b,i)=>({ ...b, id:`b${i+1}`, page:i+1, genre: kb.genre, tone: tones, motif: kb.motif }));
+      // For 90p, space pages across 90: page = round((i+1)*total/15) so Final Image = total
+      const sliced = [...kbBeats.slice(0,4), ...rest].slice(0, Math.max(5, Math.min(30, total)));
+      return sliced.map((b,i)=>({ ...b, id:`b${i+1}`, page: total>30 ? Math.round(((i+1)*total)/sliced.length) : i+1, genre: kb.genre, tone: tones, motif: kb.motif }));
     }
   } catch {}
   // 15 beats for 15p = 1 per page; for 5p delivery first 5 are written now, rest are roadmap
@@ -98,8 +99,9 @@ function buildBeats({ parsed, project }) {
     { id: "b14", page: 14, label: "Finale Confrontation", text: `Chase at speed; the midnight clock, the door, the listening shadow.` },
     { id: "b15", page: 15, label: "Final Image", text: `Mirror of opening, cost paid, ${chars.join(", ")} changed or gone.` },
   ];
-  // Slice to totalPages, attach genre/tone hint
-  return allBeats.slice(0, Math.max(5, Math.min(30, total))).map((b)=>({ ...b, genre, tone: tones }));
+  // Slice to totalPages, attach genre/tone hint — for 90p space pages proportionally
+  const baseSliced = allBeats.slice(0, Math.max(5, Math.min(30, total)));
+  return baseSliced.map((b,i)=>({ ...b, page: total>30 ? Math.round(((i+1)*total)/baseSliced.length) : b.page, genre, tone: tones }));
 }
 
 function attachStoryElements(project, parsed) {
