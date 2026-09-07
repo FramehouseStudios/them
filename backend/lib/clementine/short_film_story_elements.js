@@ -4,6 +4,7 @@
 // No backend/index.js growth.
 
 import { getThreeActBeats } from "./story_structure_knowledge.js";
+import { getFeatureBeats } from "./feature_structure_knowledge.js";
 
 function trimToString(v) { return v == null ? "" : String(v).trim(); }
 
@@ -43,9 +44,12 @@ function buildBeats({ parsed, project }) {
   const setting = trimToString(parsed?.setting || "bedroom");
   const chars = Array.isArray(parsed?.characters) ? parsed.characters : (project?.characters || []).map((c)=>c.name);
   const tones = parsed?.influences?.tones?.join(", ") || trimToString(parsed?.influences?.directors?.[0]) || genre;
-  // Try knowledge-driven beats per genre/tone/mood
+  // Try knowledge-driven beats per genre/tone/mood — feature-aware 15-90p
   try {
-    const kb = getThreeActBeats({ genre, tone: parsed?.influences?.tones?.[0] || genre, mood: parsed?.mood || "", influences: parsed?.influences });
+    const tone0 = parsed?.influences?.tones?.[0] || genre;
+    const kb = total > 30
+      ? getFeatureBeats({ genre, tone: tone0, mood: parsed?.mood || "", totalPages: total, influences: parsed?.influences })
+      : getThreeActBeats({ genre, tone: tone0, mood: parsed?.mood || "", influences: parsed?.influences });
     if (kb && Array.isArray(kb.acts)) {
       // Expand 3-act scaffold (6 strings) into 15 page beats with character/setting
       const actBeats = [...kb.acts[0].beats, ...kb.acts[1].beats, ...kb.acts[2].beats];
@@ -72,8 +76,9 @@ function buildBeats({ parsed, project }) {
         { id: "b14", page: 14, label: "Finale Confrontation", text: `Chase at speed; the midnight clock, the door, the listening shadow.` },
         { id: "b15", page: 15, label: "Final Image", text: `Mirror of opening, cost paid, ${chars.join(", ")} changed or gone.` },
       ];
-      const merged = [...kbBeats.slice(0,4), ...rest].slice(0, Math.max(5, Math.min(30, total)));
-      return merged.map((b,i)=>({ ...b, id:`b${i+1}`, page:i+1, genre: kb.genre, tone: tones, motif: kb.motif }));
+      // For 90p, space pages across 90: page = round((i+1)*total/15) so Final Image = total
+      const sliced = [...kbBeats.slice(0,4), ...rest].slice(0, Math.max(5, Math.min(30, total)));
+      return sliced.map((b,i)=>({ ...b, id:`b${i+1}`, page: total>30 ? Math.round(((i+1)*total)/sliced.length) : i+1, genre: kb.genre, tone: tones, motif: kb.motif }));
     }
   } catch {}
   // 15 beats for 15p = 1 per page; for 5p delivery first 5 are written now, rest are roadmap
@@ -94,8 +99,9 @@ function buildBeats({ parsed, project }) {
     { id: "b14", page: 14, label: "Finale Confrontation", text: `Chase at speed; the midnight clock, the door, the listening shadow.` },
     { id: "b15", page: 15, label: "Final Image", text: `Mirror of opening, cost paid, ${chars.join(", ")} changed or gone.` },
   ];
-  // Slice to totalPages, attach genre/tone hint
-  return allBeats.slice(0, Math.max(5, Math.min(30, total))).map((b)=>({ ...b, genre, tone: tones }));
+  // Slice to totalPages, attach genre/tone hint — for 90p space pages proportionally
+  const baseSliced = allBeats.slice(0, Math.max(5, Math.min(30, total)));
+  return baseSliced.map((b,i)=>({ ...b, page: total>30 ? Math.round(((i+1)*total)/baseSliced.length) : b.page, genre, tone: tones }));
 }
 
 function attachStoryElements(project, parsed) {
