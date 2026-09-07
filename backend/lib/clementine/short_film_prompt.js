@@ -19,6 +19,12 @@ function buildShortFilmPrompt(parsed) {
   const chars = Array.isArray(parsed?.characters) ? parsed.characters : [];
   const charLine = chars.length ? `Characters: ${chars.join(", ")}.` : "";
   const charNames = chars.join(", ");
+  const influences = parsed?.influences || { directors: [], writers: [], tones: [] };
+  const influenceLine = [
+    influences.directors?.length ? `Directors: ${influences.directors.join(", ")}.` : "",
+    influences.writers?.length ? `Writers: ${influences.writers.join(", ")}.` : "",
+    influences.tones?.length ? `Tones: ${influences.tones.join(", ")}.` : "",
+  ].filter(Boolean).join(" ");
 
   const outline = [
     `${total}-page outline scaffold (3 acts):`,
@@ -32,6 +38,7 @@ function buildShortFilmPrompt(parsed) {
     `You are Clementine writing Fountain screenplay pages.`,
     `Owner bar: distinct character voice, subtext, want/obstacle/cost, motif image echo, anti-cliché, playable format.`,
     `Constraints: Genre=${genre}. Single location INT. ${setting.toUpperCase()}. Must use ${chars.length} characters: ${charNames}.`,
+    influenceLine,
     `Total length ${total} pages (delivering ${req} pages now). This turn writes exactly ${req} pages.`,
     `Output only Fountain screenplay text — plain Fountain, no PAGE markers, no preamble, no logline.`,
     outline,
