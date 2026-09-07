@@ -115,11 +115,15 @@ function ensureShortFilmProject({
 }
 
 import { ensureCharacterContexts } from "./short_film_character_context.js";
+import { attachStoryElements } from "./short_film_story_elements.js";
 
 function ensureShortFilmProjectWithContexts(opts = {}) {
   const res = ensureShortFilmProject(opts);
   try {
     ensureCharacterContexts(res.project, opts.parsed);
+  } catch {}
+  try {
+    attachStoryElements(res.project, opts.parsed);
   } catch {}
   return res;
 }
