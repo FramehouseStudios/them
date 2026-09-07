@@ -75,6 +75,8 @@ import {
   isPageCancelledError,
 } from "./clementine/page_abort.js";
 import { createMuseAwareChatSupplier } from "./clementine/muse_provider.js";
+import { isShortFilmBetaEnabled } from "./clementine/short_film_beta.js";
+import { parseShortFilmIntent } from "./clementine/short_film_intent.js";
 import { composeTalkSystemPrompt } from "./talk_prompt.js";
 import { runTalkGenerate } from "./talk_generate.js";
 
@@ -1800,6 +1802,15 @@ function createTalkHandler(deps) {
       8_000
     );
     const studioMeta = sanitizeStudioTurnMetadata(req.body || null);
+    // Beta short-film: if flag on, no target sent, and current utterance parses as short-film, make it a page-write turn
+    if (
+      isShortFilmBetaEnabled(process.env) &&
+      !String(studioMeta?.screenplayTarget || "").trim() &&
+      parseShortFilmIntent(String(req.body?.text || req.body?.debug_transcript || req.body?.transcript || screenplayGenerationTranscript || clientTranscriptOverride || "")) 
+    ) {
+      studioMeta.screenplayTarget = "page";
+      studioMeta.screenplayPromptSource = "short_film_beta";
+    }
     const isScreenplayPageWriteTurn =
       String(studioMeta?.screenplayTarget || "").trim().toLowerCase() === "page";
     const talkTestDebugOfflineScreenplayMode = TALK_TEST_DEBUG_OFFLINE_ENABLED &&

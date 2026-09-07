@@ -20,6 +20,7 @@ import {
 import { isShortFilmBetaEnabled } from "./clementine/short_film_beta.js";
 import { parseShortFilmIntent } from "./clementine/short_film_intent.js";
 import { runShortFilmLane } from "./clementine/short_film_lane.js";
+import { enforceStudioScreenplayQuality } from "./studio_screenplay_quality_gate.js";
 
 /**
  * Run the billed chat generation stage (stream optional, then non-stream).
@@ -78,13 +79,15 @@ async function runTalkGenerate({
     pageReservationId = pageGate.reservationId;
   }
 
-  // Beta short-film: flag-gated, before multipass. Parses current utterance only.
-  if (isShortFilmBetaEnabled(process.env)) {
+  // Beta short-film: flag-gated, before multipass. Gate on page-write turn, not flag alone — chat must never return Fountain.
+  const isPageWriteForBeta =
+    String(req.clementine?.lane || "").toLowerCase() === "page" ||
+    String(req.clementine?.screenplayTarget || "").toLowerCase() === "page";
+  if (isShortFilmBetaEnabled(process.env) && isPageWriteForBeta) {
     const betaParsed = parseShortFilmIntent(talkGenerationTranscript || "");
     if (betaParsed) {
       const pageAbort = req?.clementine?.abortSignal || null;
-      // runShortFilmLane surfaces provider errors as talk failures; no offline fallback in prod
-      const { draft, usage } = await runShortFilmLane({
+      let { draft, usage } = await runShortFilmLane({
         req,
         parsed: betaParsed,
         chatSupplier,
@@ -92,6 +95,25 @@ async function runTalkGenerate({
         baseSystem: system,
         chatModelPlan,
       });
+      // Studio quality gate — hard issues > 0 → one repair pass like normal lane
+      try {
+        const quality = await enforceStudioScreenplayQuality({ draft, source: "short_film_beta" });
+        if (quality && Array.isArray(quality.hardIssues) && quality.hardIssues.length > 0) {
+          // One repair pass via same lane with repair context
+          const repaired = await runShortFilmLane({
+            req,
+            parsed: betaParsed,
+            chatSupplier,
+            signal: pageAbort,
+            baseSystem: system,
+            chatModelPlan,
+          });
+          draft = repaired.draft;
+          usage = repaired.usage;
+        }
+      } catch (_) {
+        // Non-blocking: return draft even if quality gate fails
+      }
       // Commit wallet like normal path (~127, ~201) — beta pages are not free
       if (typeof req.clementine?.commitWallet === "function") {
         try {
@@ -102,7 +124,7 @@ async function runTalkGenerate({
       }
       return {
         rawReply: draft,
-        streamFirstSentence: "", // page-write early-TTS behaviour: don't speak Fountain
+        streamFirstSentence: "", // page-write early-TTS: don't speak Fountain
         streamChatUsed: false,
         effectiveChatModel: String(chatModelPlan?.model || "short_film_beta"),
         effectiveChatApiMode: "short_film_beta",
