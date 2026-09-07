@@ -1854,7 +1854,11 @@ final class ScreenplayStudioViewModel: ObservableObject {
         await refreshPendingScreenplayQuestion()
     }
 
-    func refreshPendingScreenplayQuestion() async {
+    /// `force` re-bootstraps the session to read the pending question fresh.
+    /// Pass `false` from tick-driven callers: a forced bootstrap mints a new
+    /// session every time, and doing that on a periodic notification made
+    /// the app create a session every 5 seconds while the Studio sat idle.
+    func refreshPendingScreenplayQuestion(force: Bool = true) async {
         guard !IOThemRuntime.isRunningTests else { return }
         let selectedID = selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !selectedID.isEmpty else {
@@ -1862,7 +1866,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
             return
         }
         do {
-            let session = try await BackendMemoryAPI.shared.bootstrapSession(force: true)
+            let session = try await BackendMemoryAPI.shared.bootstrapSession(force: force)
             let pending = session.pendingScreenplayQuestion
             let pendingProjectID = pending?.projectId.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             let queuedQuestionIDs = await OfflineTalkOutbox.shared
