@@ -564,25 +564,9 @@ struct ScreenplayStudioDraftIntegrityWarningSection: View {
                 .font(IOThemTypography.UI.microRegular)
                 .foregroundStyle(Color.herText.opacity(0.58))
 
-            HStack(spacing: 8) {
-                Button("Jump") {
-                    actions.onReview(issue)
-                }
-                .buttonStyle(.bordered)
-                .accessibilityIdentifier("studio.draft.integrity.jump.\(issue.startLine)-\(issue.endLine)")
-
-                Button("Move to Pin") {
-                    actions.onMoveToPin(issue)
-                }
-                .buttonStyle(.bordered)
-                .accessibilityIdentifier("studio.draft.integrity.move.\(issue.startLine)-\(issue.endLine)")
-
-                Button("Remove") {
-                    actions.onRemove(issue)
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(.orange.opacity(0.28))
-                .accessibilityIdentifier("studio.draft.integrity.remove.\(issue.startLine)-\(issue.endLine)")
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) { issueButtons(issue) }
+                VStack(alignment: .leading, spacing: 8) { issueButtons(issue) }
             }
         }
         .padding(10)
@@ -594,6 +578,33 @@ struct ScreenplayStudioDraftIntegrityWarningSection: View {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .stroke(Color.orange.opacity(0.16), lineWidth: 1)
         )
+    }
+}
+
+extension ScreenplayStudioDraftIntegrityWarningSection {
+    @ViewBuilder
+    fileprivate func issueButtons(_ issue: ScreenplayPageIntegrityIssue) -> some View {
+        Button("Jump") {
+            actions.onReview(issue)
+        }
+        .buttonStyle(.bordered)
+        .fixedSize()
+        .accessibilityIdentifier("studio.draft.integrity.jump.\(issue.startLine)-\(issue.endLine)")
+
+        Button("Move to Pin") {
+            actions.onMoveToPin(issue)
+        }
+        .buttonStyle(.bordered)
+        .fixedSize()
+        .accessibilityIdentifier("studio.draft.integrity.move.\(issue.startLine)-\(issue.endLine)")
+
+        Button("Remove") {
+            actions.onRemove(issue)
+        }
+        .buttonStyle(.borderedProminent)
+        .tint(.orange.opacity(0.28))
+        .fixedSize()
+        .accessibilityIdentifier("studio.draft.integrity.remove.\(issue.startLine)-\(issue.endLine)")
     }
 }
 
@@ -629,33 +640,9 @@ struct ScreenplayStudioPageIntegrityBanner: View {
 
             Spacer(minLength: 0)
 
-            HStack(spacing: 8) {
-                Button("Review") {
-                    if let primaryIssue {
-                        actions.onReview(primaryIssue)
-                    } else {
-                        actions.onOpenInspector()
-                    }
-                }
-                .buttonStyle(.bordered)
-
-                if issues.count > 1 {
-                    Button("Move all to Pin", action: actions.onMoveAllToPin)
-                        .buttonStyle(.bordered)
-                }
-
-                if let primaryIssue {
-                    Button("Move to Pin") {
-                        actions.onMoveToPin(primaryIssue)
-                    }
-                    .buttonStyle(.bordered)
-
-                    Button("Remove") {
-                        actions.onRemove(primaryIssue)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(.orange.opacity(0.28))
-                }
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) { bannerButtons(primaryIssue) }
+                VStack(alignment: .trailing, spacing: 8) { bannerButtons(primaryIssue) }
             }
         }
         .padding(.horizontal, 12)
@@ -1095,5 +1082,41 @@ private struct ScreenplayStudioDraftSnapshotTools: View {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .fill(Color.white.opacity(0.12))
         )
+    }
+}
+
+extension ScreenplayStudioPageIntegrityBanner {
+    @ViewBuilder
+    fileprivate func bannerButtons(_ primaryIssue: ScreenplayPageIntegrityIssue?) -> some View {
+        Button("Review") {
+            if let primaryIssue {
+                actions.onReview(primaryIssue)
+            } else {
+                actions.onOpenInspector()
+            }
+        }
+        .buttonStyle(.bordered)
+        .fixedSize()
+
+        if issues.count > 1 {
+            Button("Move all to Pin", action: actions.onMoveAllToPin)
+                .buttonStyle(.bordered)
+                .fixedSize()
+        }
+
+        if let primaryIssue {
+            Button("Move to Pin") {
+                actions.onMoveToPin(primaryIssue)
+            }
+            .buttonStyle(.bordered)
+            .fixedSize()
+
+            Button("Remove") {
+                actions.onRemove(primaryIssue)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(.orange.opacity(0.28))
+            .fixedSize()
+        }
     }
 }

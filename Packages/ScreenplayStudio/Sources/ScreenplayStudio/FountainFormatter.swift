@@ -1543,6 +1543,16 @@ public enum FountainFormatter {
         return names
     }
 
+    /// Sentence starters that look like a Name followed by a verb but never
+    /// introduce a character ("He waits." must not become "HE waits.").
+    private static let nonNameSentenceStarters: Set<String> = [
+        "he", "she", "they", "it", "we", "you", "i", "one", "someone", "somebody",
+        "everyone", "everybody", "nobody", "no one", "anyone", "anybody", "each",
+        "the", "a", "an", "this", "that", "these", "those", "there", "here",
+        "then", "now", "later", "meanwhile", "suddenly", "outside", "inside",
+        "silence", "beat", "nothing", "everything", "something", "both", "all",
+    ]
+
     private static func detectActionIntroductionCandidates(in text: String) -> [String] {
         let patterns = [
             #"(^|[.!?]\s+)([A-Z][a-z'’-]+(?:\s+[A-Z][a-z'’-]+){0,2})(?=\s*,\s*\d{1,2}\b)"#,
@@ -1558,6 +1568,7 @@ public enum FountainFormatter {
                 guard let matchRange = Range(match.range(at: 2), in: text) else { continue }
                 let candidate = String(text[matchRange]).trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !candidate.isEmpty else { continue }
+                guard !nonNameSentenceStarters.contains(candidate.lowercased()) else { continue }
                 guard !isLikelyLocationLikeName(candidate) else { continue }
                 if !matches.contains(candidate) {
                     matches.append(candidate)
