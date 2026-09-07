@@ -17,6 +17,9 @@ import {
   shouldRunPageMultipass,
   runTalkGeneratePageMultipass,
 } from "./clementine/page_multipass.js";
+import { isShortFilmBetaEnabled } from "./clementine/short_film_beta.js";
+import { parseShortFilmIntent } from "./clementine/short_film_intent.js";
+import { runShortFilmLane } from "./clementine/short_film_lane.js";
 
 /**
  * Run the billed chat generation stage (stream optional, then non-stream).
@@ -73,6 +76,42 @@ async function runTalkGenerate({
     const pageGate = gatePageGeneration(req.clementine);
     pageAbortSignal = pageGate.signal;
     pageReservationId = pageGate.reservationId;
+  }
+
+  // Beta short-film: flag-gated, before multipass. Parses current utterance only.
+  if (isShortFilmBetaEnabled(process.env)) {
+    const betaParsed = parseShortFilmIntent(talkGenerationTranscript || "");
+    if (betaParsed) {
+      const pageAbort = req?.clementine?.abortSignal || null;
+      // runShortFilmLane surfaces provider errors as talk failures; no offline fallback in prod
+      const { draft, usage } = await runShortFilmLane({
+        req,
+        parsed: betaParsed,
+        chatSupplier,
+        signal: pageAbort,
+        baseSystem: system,
+        chatModelPlan,
+      });
+      // Commit wallet like normal path (~127, ~201) — beta pages are not free
+      if (typeof req.clementine?.commitWallet === "function") {
+        try {
+          req.clementine.commitWallet(Math.max(0, Number(usage.outputTokens || 0)));
+        } catch (walletErr) {
+          logger?.warn?.(`[${rid}] wallet_commit_failed ${walletErr?.message || walletErr}`);
+        }
+      }
+      return {
+        rawReply: draft,
+        streamFirstSentence: "", // page-write early-TTS behaviour: don't speak Fountain
+        streamChatUsed: false,
+        effectiveChatModel: String(chatModelPlan?.model || "short_film_beta"),
+        effectiveChatApiMode: "short_film_beta",
+        effectiveChatReasoningEffort: "low",
+        chatModelFallbackUsed: false,
+        effectiveChatUsage: { inputTokens: 0, outputTokens: usage.outputTokens, reasoningTokens: 0, totalTokens: usage.outputTokens },
+        chatMs: Date.now() - chatStart,
+      };
+    }
   }
 
   // F2: Page multipass (Plan→Draft→Critique→Revise). Flag-gated; thin hook.
