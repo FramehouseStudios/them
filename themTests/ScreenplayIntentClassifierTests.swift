@@ -51,3 +51,49 @@ final class ScreenplayIntentClassifierTests: XCTestCase {
         XCTAssertFalse(HerDirectorContext.build(from: store, userText: "I had a rough morning.").isAskingForStoryHelp)
     }
 }
+
+final class DialogueNotesModeTests: XCTestCase {
+    func test_dialogue_notes_are_recognized() {
+        for text in [
+            "Notes on this line: I'm so angry at you right now.",
+            "Does this line work? He says: I'm scared we're going to lose the house.",
+            "Is this exchange too on the nose?",
+            "Here's my line. She says: You betrayed me.",
+            "Marcus says: for the cup.",
+        ] {
+            XCTAssertTrue(ScreenplayIntentClassifier.asksForDialogueNotes(text), text)
+        }
+        for text in ["Write the next scene.", "Punch up this exchange.", "My sister says hi.", "What should happen after the midpoint?"] {
+            XCTAssertFalse(ScreenplayIntentClassifier.asksForDialogueNotes(text), text)
+        }
+    }
+
+    func test_director_context_and_studio_overlay_carry_the_notes_mode() {
+        let director = HerDirectorContext.build(from: HerEvolutionStore.shared, userText: "Notes on this line: I'm so angry at you.")
+        XCTAssertTrue(director.isDialogueNotesPrompt)
+        var ctx = HerVoiceSpec.Context(
+            stage: 1, depthScore: 0, romanceTension: 0, personaPreset: .clementine,
+            isLoveTopic: false, preferredName: "", subtleMemoryCue: "",
+            canUseRomanticAmbiguity: false, canInitiateVulnerability: false,
+            optionalOpeningBeat: nil, isScreenplayMode: true,
+            screenplayPhaseHint: "", screenplayPackHint: "", screenplayDraftExcerpt: "INT. PORCH - NIGHT",
+            screenplayGenre: .drama, isAskingForStoryHelp: true, isSynopsisFocused: false,
+            isOutlineFocused: false, isStoryDirectionPrompt: false, isCharacterFocused: false,
+            isClimax: false, isOpeningOrClosing: false, isLongFormScreenplayRequest: false,
+            isDirectScreenplayPageWrite: false, hasConfirmedScreenplayPageWrite: false,
+            confirmedScreenplayStoryDirection: "", isUserVulnerable: false, isUserPlayful: false,
+            isUserDirect: false, isNostalgic: false, hasCommitmentSignals: false,
+            hasRomanticChemistrySignals: false, isLowEnergyAnalytical: false, isGrief: false,
+            isAnxious: false, isCelebrating: false, recentTurns: [],
+            partialTranscriptHint: "notes on this line", voicedRatio: 0.8,
+            speechAgeSeconds: 2.5, hasStrongPartial: true
+        )
+        XCTAssertFalse(ctx.isDialogueNotesPrompt, "defaults off so existing call sites are unchanged")
+        ctx.isDialogueNotesPrompt = true
+        let prompt = HerVoiceSpec.makeSystemPrompt(ctx)
+        XCTAssertTrue(prompt.contains("DIALOGUE NOTES MODE:"))
+        XCTAssertTrue(prompt.contains("exactly one rewritten line in quotes"))
+        XCTAssertFalse(prompt.contains("STORY ADVICE MODE:"), "notes mode replaces story advice for this turn")
+        XCTAssertFalse(prompt.contains("PAGE WRITE MODE:"))
+    }
+}

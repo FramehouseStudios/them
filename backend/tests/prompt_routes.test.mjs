@@ -238,6 +238,8 @@ test("POST /screenplay/prompt/build carries rewrite, scene-doctor, and dialogue 
       ["Replace that line with something sharper.", "rewrite_scene", "Preserve the writer's intention"],
       ["Scene doctor this kitchen confrontation and tell me what's not working.", "scene_doctor", "highest-leverage fix"],
       ["Punch up this exchange so it has more subtext.", "dialogue_punchup", "silently repair the weakest line"],
+      ["Notes on this line: I'm so angry at you right now.", "dialogue_notes", "one rewritten line in quotes"],
+      ["Does this line work? She says: I love you and I always have.", "dialogue_notes", "never praise a line that announces its feeling"],
       ["Help me finish this feature-length screenplay.", "finish_feature", "Operate at feature scale"],
       ["Help me write the whole feature from Act 1 through Act 2 into Act 3.", "finish_feature", "Locate the current act/sequence"],
       ["Help me write act three of my feature screenplay.", "finish_feature", "next three turns"],

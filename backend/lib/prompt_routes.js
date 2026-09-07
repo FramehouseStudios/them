@@ -262,6 +262,7 @@ const SCREENPLAY_MEMORY_ROUTE_INTENTS = new Set([
   "outline_structure",
   "character_development",
   "dialogue_punchup",
+  "dialogue_notes",
   "emotional_continuity",
   "pacing_pass",
   "finish_feature",
@@ -357,7 +358,7 @@ function screenplayTaskCanUsePersistentMemory(task, hint = "") {
   if (!SCREENPLAY_MEMORY_ROUTE_INTENTS.has(intent)) return false;
   const lowerHint = String(hint || "").toLowerCase();
   if (!lowerHint.trim()) return false;
-  if (["continue_script", "finish_feature", "write_scene", "rewrite_scene", "scene_doctor", "dialogue_punchup"].includes(intent)) {
+  if (["continue_script", "finish_feature", "write_scene", "rewrite_scene", "scene_doctor", "dialogue_punchup", "dialogue_notes"].includes(intent)) {
     return true;
   }
   return /\b(screenplay|script|scene|pages?|act|feature|movie|film|draft|dialogue|beat|sequence|fountain|character|ending|outline|story|emotional continuity|pacing)\b/.test(lowerHint);

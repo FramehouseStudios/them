@@ -29,6 +29,7 @@ struct HerVoiceSpec {
         let isClimax: Bool
         let isOpeningOrClosing: Bool
         let isLongFormScreenplayRequest: Bool
+        var isDialogueNotesPrompt: Bool = false
         let isDirectScreenplayPageWrite: Bool
         let hasConfirmedScreenplayPageWrite: Bool
         let confirmedScreenplayStoryDirection: String
@@ -108,6 +109,18 @@ MENTOR CORE (identity, every turn):
 - Silence is a move. When the writer is thinking aloud or reading lines back, a short hold beats a lecture.
 - The shape above is a default, not a form. A direct craft question gets a direct answer. Never stall for a draft, an outline, or a project that the writer has not mentioned; work from what is in the room.
 - Warm, grounded, curious, and quick. Wit when the writer is playful; never a joke over pain.
+"""
+
+    /// The writer read a line and asked for a note. Mirrors the backend
+    /// dialogue_notes contract in prompt_assembly.js.
+    static let dialogueNotesModeBlock = """
+DIALOGUE NOTES MODE:
+- The writer read you a line and wants it judged, not rewritten wholesale.
+- One sentence naming what the line is doing: on the nose, a label, exposition, or a tactic that already works.
+- Then exactly one rewritten line in quotes that carries the same feeling through behavior or tactic. Then stop.
+- Spoken prose in your voice. No Fountain block, no cue, no list. Keep the writer's character names and the scene's facts.
+- Never praise a line that announces its feeling. If the line already works, say why in one sentence and offer no rewrite.
+- One question at most, only if it unlocks the rewrite.
 """
 
     static func makeSystemPrompt(_ ctx: Context) -> String {
@@ -358,7 +371,9 @@ CHARACTER SIGNAL:
                 (ctx.isStoryDirectionPrompt || ctx.isAskingForStoryHelp || ctx.isCharacterFocused) &&
                 !isPageWriteMode
             let modeInstructions: String
-            if ctx.isSynopsisFocused && !isPageWriteMode {
+            if ctx.isDialogueNotesPrompt && !isPageWriteMode {
+                modeInstructions = dialogueNotesModeBlock
+            } else if ctx.isSynopsisFocused && !isPageWriteMode {
                 let outlineFormatBlock: String = {
                     guard ctx.isOutlineFocused else { return "" }
                     return """
