@@ -130,26 +130,29 @@ async function runTalkGenerate({
           logger?.warn?.(`[${rid}] wallet_commit_failed ${walletErr?.message || walletErr}`);
         }
       }
-      // Short-film project id — id-only, attach to clementine so talk_handler can emit x-screenplay-project-id without growing backend/index.js
+      // Short-film project id + per-character contexts — singular project holds isolated memory per character
       try {
         const ownerRecord = req.clementine?.screenplayOwnerRecord || req.screenplayOwnerRecord || null;
         if (ownerRecord) {
-          const { ensureShortFilmProject, createShortFilmVersion } = await import("./clementine/short_film_store.js");
-          const { project } = ensureShortFilmProject({ ownerRecord, parsed: betaParsed, now: Date.now() });
+          const { ensureShortFilmProjectWithContexts, createShortFilmVersion } = await import("./clementine/short_film_store.js");
+          const { project } = ensureShortFilmProjectWithContexts({ ownerRecord, parsed: betaParsed, now: Date.now() });
           const version = createShortFilmVersion({ draft, parsed: betaParsed, now: Date.now() });
           if (!Array.isArray(project.versions)) project.versions = [];
           project.versions.push(version);
           project.activeVersionId = version.id;
           project.updatedAt = Date.now();
           // Best-effort persistence via injected committer if available (tests inject, prod has screenplay_store)
+          // Attach project for lane prompt per-character block (simultaneous paper, isolated memory)
+          req.clementine = req.clementine || {};
+          req.clementine.screenplayProjectForPrompt = project;
           const committer = req.clementine?.commitScreenplayOwnerMutation || req.commitScreenplayOwnerMutation;
           if (typeof committer === "function" && ownerRecord.ownerKey) {
             try {
               await committer({
                 ownerKey: ownerRecord.ownerKey,
                 mutate: async (next) => {
-                  // Mirror the in-memory mutation for CAS persistence
-                  const { ensureShortFilmProject: ensure2, createShortFilmVersion: ver2 } = await import("./clementine/short_film_store.js");
+                  // Mirror the in-memory mutation for CAS persistence (with contexts)
+                  const { ensureShortFilmProjectWithContexts: ensure2, createShortFilmVersion: ver2 } = await import("./clementine/short_film_store.js");
                   const { project: p2 } = ensure2({ ownerRecord: next, parsed: betaParsed, now: Date.now() });
                   const v2 = ver2({ draft, parsed: betaParsed, now: Date.now() });
                   if (!Array.isArray(p2.versions)) p2.versions = [];
