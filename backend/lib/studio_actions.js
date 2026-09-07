@@ -47,6 +47,56 @@ function labelsOf(value, limit = 40) {
   return value.map((v) => String(v ?? "").replace(/\s+/g, " ").trim()).filter(Boolean).slice(0, limit);
 }
 
+const COVERAGE_PILLARS = ["structure", "pacing", "dialogue", "character", "format"];
+
+function clampScore(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return null;
+  return Math.round(Math.max(0, Math.min(10, n)) * 10) / 10;
+}
+
+/// The compact summary of the read the phone already showed the writer
+/// (from POST /screenplay/coverage). Null when the phone sent none.
+export function parseCoverageSummary(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  const grade = String(raw.grade ?? "").trim().toUpperCase().slice(0, 1);
+  const verdict = String(raw.verdict ?? "").trim().toLowerCase();
+  const overall = clampScore(raw.overall);
+  if (!/^[A-F]$/.test(grade) || !["recommend", "consider", "pass"].includes(verdict) || overall === null) return null;
+  const pillars = {};
+  for (const key of COVERAGE_PILLARS) {
+    const score = clampScore(raw.pillars?.[key]);
+    if (score !== null) pillars[key] = score;
+  }
+  return Object.freeze({
+    grade,
+    verdict,
+    overall,
+    pageCount: Math.max(0, Math.trunc(Number(raw.page_count ?? raw.pageCount) || 0)),
+    sceneCount: Math.max(0, Math.trunc(Number(raw.scene_count ?? raw.sceneCount) || 0)),
+    pillars: Object.freeze(pillars),
+    missing: labelsOf(raw.missing, 2),
+    move: String(raw.move ?? "").replace(/\s+/g, " ").trim().slice(0, 240),
+  });
+}
+
+/// Prompt block so her conversation quotes the read the writer is looking at
+/// instead of inventing a second opinion. Empty when there is no read.
+export function buildCoverageReadBlock(caps) {
+  const c = caps?.coverage;
+  if (!c) return "";
+  const pillarText = COVERAGE_PILLARS.filter((k) => k in c.pillars).map((k) => `${k} ${c.pillars[k]}`).join(", ");
+  const lowest = COVERAGE_PILLARS.filter((k) => k in c.pillars).sort((a, b) => c.pillars[a] - c.pillars[b])[0] || "";
+  return [
+    "YOUR READ OF THE PAGES (the coverage you already gave the writer on the Craft tab; quote it, never recompute or contradict it):",
+    `- ${c.pageCount} page${c.pageCount === 1 ? "" : "s"}, ${c.sceneCount} scene${c.sceneCount === 1 ? "" : "s"}. Grade ${c.grade}, verdict ${c.verdict}, ${c.overall} of 10 overall.`,
+    pillarText ? `- Pillars: ${pillarText}.${lowest ? ` Lowest: ${lowest}.` : ""}` : "",
+    c.missing.length ? `- Missing: ${c.missing.join(" ")}` : "",
+    c.move ? `- The move you named: ${c.move}` : "",
+    "- When the writer asks how the script is doing, what to fix first, or what you think of the pages, answer from this read: name the grade and the lowest pillar, then the move. Do not invent other scores.",
+  ].filter(Boolean).join("\n");
+}
+
 export function parseStudioCapabilities(raw) {
   let obj = raw;
   if (typeof raw === "string") {
@@ -61,6 +111,7 @@ export function parseStudioCapabilities(raw) {
   const revisionColors = listOf(obj.revision_colors ?? obj.revisionColors, REVISION_COLORS, [...REVISION_COLORS]);
   const sceneLabels = labelsOf(obj.scene_labels ?? obj.sceneLabels);
   const beatLabels = labelsOf(obj.beat_labels ?? obj.beatLabels);
+  const coverage = parseCoverageSummary(obj.coverage);
   const currentTab = String(obj.current_tab ?? obj.currentTab ?? "").trim().toLowerCase();
   const currentSection = String(obj.current_draft_tools_section ?? obj.currentDraftToolsSection ?? "").trim().toLowerCase();
   return Object.freeze({
@@ -71,6 +122,7 @@ export function parseStudioCapabilities(raw) {
     revisionColors,
     sceneLabels,
     beatLabels,
+    coverage,
     currentTab: tabs.includes(currentTab) ? currentTab : "",
     currentDraftToolsSection: draftToolsSections.includes(currentSection) ? currentSection : "",
     hasProject: Boolean(obj.has_project ?? obj.hasProject),

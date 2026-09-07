@@ -6,6 +6,8 @@ import {
   extractStudioActions,
   inferSpokenActions,
   encodeStudioActionsHeader,
+  parseCoverageSummary,
+  buildCoverageReadBlock,
   STUDIO_TABS,
   REVISION_COLORS,
   MAX_ACTIONS_PER_TURN,
@@ -129,4 +131,31 @@ test("beats: spoken phrases infer a named beat and an undo, never twice for one 
   const undo = extractStudioActions("Okay. I'll undo the last page write now.", caps);
   assert.deepEqual(undo.actions, [{ type: "undo_last_page_write", source: "spoken" }]);
   assert.deepEqual(inferSpokenActions("Which beat do you want to change? I'll pull up the Midpoint beat.").map((a) => a.type), ["choose_beat"]);
+});
+
+test("coverage: a summary from the phone becomes a read block; junk or absence becomes nothing", () => {
+  const withRead = parseStudioCapabilities(JSON.stringify({
+    tabs: ["draft", "beats", "craft", "outline", "them", "saved"],
+    has_draft: true,
+    studio_open: true,
+    coverage: {
+      grade: "c", verdict: "CONSIDER", overall: 6.6, page_count: 12, scene_count: 9,
+      pillars: { structure: 4, pacing: 8, dialogue: 9.1, character: 4.8, format: 9.3 },
+      missing: ["Too few pages to read an act shape.", "MARA carries 67% of the lines; nobody pushes back.", "third is dropped"],
+      move: "Give FRANK a want of his own in the next scene.",
+    },
+  }));
+  assert.equal(withRead.coverage.grade, "C");
+  assert.equal(withRead.coverage.verdict, "consider");
+  assert.equal(withRead.coverage.missing.length, 2);
+  const block = buildCoverageReadBlock(withRead);
+  assert.match(block, /^YOUR READ OF THE PAGES/);
+  assert.match(block, /12 pages, 9 scenes\. Grade C, verdict consider, 6\.6 of 10 overall\./);
+  assert.match(block, /Pillars: structure 4, pacing 8, dialogue 9\.1, character 4\.8, format 9\.3\. Lowest: structure\./);
+  assert.match(block, /The move you named: Give FRANK a want of his own/);
+  assert.equal(caps.coverage, null);
+  assert.equal(buildCoverageReadBlock(caps), "");
+  assert.equal(parseCoverageSummary({ grade: "Z", verdict: "consider", overall: 5 }), null);
+  assert.equal(parseCoverageSummary({ grade: "B", verdict: "maybe", overall: 5 }), null);
+  assert.equal(parseCoverageSummary("nope"), null);
 });

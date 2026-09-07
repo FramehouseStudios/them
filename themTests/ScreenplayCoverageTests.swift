@@ -60,4 +60,22 @@ final class ScreenplayCoverageTests: XCTestCase {
         ScreenplayCoveragePresentation.requestSpeech("   ", center: center)
         XCTAssertEqual(received, ["Here's my read."])
     }
+
+    @MainActor
+    func test_snapshot_carries_the_compact_coverage_summary_for_her_turns() throws {
+        let report = try decodeSample()
+        StudioOutlineRegistry.shared.coverageSummary = StudioCoverageSummary(report: report)
+        defer { StudioOutlineRegistry.shared.coverageSummary = nil }
+        var snapshot = StudioCapabilitiesSnapshot()
+        snapshot.coverage = StudioOutlineRegistry.shared.coverageSummary
+        let data = try XCTUnwrap(snapshot.json().data(using: .utf8))
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let coverage = try XCTUnwrap(object["coverage"] as? [String: Any])
+        XCTAssertEqual(coverage["grade"] as? String, "C")
+        XCTAssertEqual(coverage["verdict"] as? String, "consider")
+        XCTAssertEqual(coverage["page_count"] as? Int, 1)
+        XCTAssertEqual((coverage["pillars"] as? [String: Double])?["dialogue"] ?? 0, 9.1, accuracy: 0.001)
+        XCTAssertEqual((coverage["missing"] as? [String])?.count, 1)
+        XCTAssertNil(StudioCapabilitiesSnapshot().coverage)
+    }
 }
