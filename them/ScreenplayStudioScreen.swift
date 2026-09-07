@@ -79,11 +79,11 @@ struct ScreenplayStudioScreen: View {
     @State private var navigatorShowHidden: Bool = false
     @State private var navigatorNewFolderName: String = ""
     @State private var navigatorDropIsTargeted: Bool = false
-    @State private var isDirectionOneSidebarVisible = true
+    @State var isDirectionOneSidebarVisible = true
     @State private var isDirectionOneCompactLayout = false
     @State private var directionOneWorkspaceMode: DirectionOneWorkspaceMode = .draft
-    @State private var directionOneRightPanelTab: DirectionOneRightPanelTab = .them
-    @State private var isDirectionOneRightRailExpanded = true
+    @State var directionOneRightPanelTab: DirectionOneRightPanelTab = .them
+    @State var isDirectionOneRightRailExpanded = true
     @State private var isDirectionOneComposerExpanded = false
     @State private var showingDirectionOneSettings = false
     @State private var lastVoiceFeedback: String = ""
@@ -118,9 +118,9 @@ struct ScreenplayStudioScreen: View {
     @State private var isRestoringInspectorWorkspaceState = false
     @State private var beatComposerProvenance: BeatProvenanceSource = .manual
     @State private var shouldRestoreInspectorWorkspaceOnNextOutlineChange = false
-    @State private var selectedSidebarSection: SidebarSection = .projects
+    @State var selectedSidebarSection: SidebarSection = .projects
     @State private var selectedInspectorSection: InspectorSection = .comments
-    @State private var selectedDraftToolsSection: DraftToolsSection = .pages
+    @State var selectedDraftToolsSection: DraftToolsSection = .pages
     @State private var queuedIntelligenceFixes: [IntelligenceFixQueueItem] = []
     @State private var lastAppliedIntelligenceFixBatch: IntelligenceFixBatchSnapshot?
     @State private var studioAppliedMemoryCorrectionDraft = ""
@@ -551,6 +551,9 @@ Replace is best when this file should become the script you edit. Append is safe
 
     private var studioLifecycleBoundView: some View {
         studioLifecycleInteractionBoundView
+            .onReceive(NotificationCenter.default.publisher(for: .themStudioActionRequested)) { notification in
+                handleStudioActionNotification(notification)
+            }
             .onReceive(NotificationCenter.default.publisher(for: .themTurnCommitted)) { notification in
                 guard let event = BackendTurnCommittedEvent(notification: notification) else { return }
                 handleStudioTurnCommittedEvent(event)
@@ -9028,31 +9031,6 @@ Current draft version:
         }
     }
 
-    private func screenplayPageStatusChip(
-        title: String,
-        systemImage: String,
-        tint: Color,
-        fill: Color,
-        stroke: Color
-    ) -> some View {
-        HStack(spacing: 6) {
-            Image(systemName: systemImage)
-                .font(.system(size: 10, weight: .semibold, design: .default))
-                .foregroundStyle(tint)
-            Text(title)
-                .font(.system(size: 10, weight: .semibold, design: .default))
-                .foregroundStyle(tint)
-        }
-        .padding(.horizontal, 9)
-        .padding(.vertical, 5)
-        .background(fill)
-        .overlay(
-            Capsule()
-                .stroke(stroke, lineWidth: 1)
-        )
-        .clipShape(Capsule())
-    }
-
     private func screenplayPageActionChipButton(
         title: String,
         systemImage: String,
@@ -12404,7 +12382,7 @@ Return revised screenplay lines only.
             : "Sidebar hidden."
     }
 
-    private func toggleDirectionOneRightRailVisibility() {
+    func toggleDirectionOneRightRailVisibility() {
         let nextIsVisible = !isDirectionOneRightRailExpanded
         #if os(iOS)
         if isDirectionOneCompactLayout, nextIsVisible {
@@ -12465,7 +12443,7 @@ Return revised screenplay lines only.
         }
     }
 
-    private func triggerStudioManualSave(revealSavedTab: Bool = true) {
+    func triggerStudioManualSave(revealSavedTab: Bool = true) {
         #if DEBUG
         if IOThemRuntime.isRunningUITests {
             uiTestManualSaveTriggerCount += 1
@@ -13015,7 +12993,7 @@ Return revised screenplay lines only.
         return nil
     }
 
-    private func submitStudioPromptText(
+    func submitStudioPromptText(
         _ rawText: String,
         displayText: String? = nil,
         source: StudioPromptSource = .typed,
