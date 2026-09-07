@@ -102,7 +102,7 @@ struct ScreenplayStudioScreen: View {
     @State private var showingDraftImportChoice = false
     @State private var showingDraftFileImporter = false
     @State private var hoveredDirectionOneDraftShortcut: DirectionOneDraftShortcut?
-    @State private var selectedBeatInspectorID: String = ""
+    @State var selectedBeatInspectorID: String = ""
     @State private var draggedBeatID: String?
     @State private var draggedActID: String?
     @State private var draggedSceneID: String?
@@ -860,6 +860,7 @@ Replace is best when this file should become the script you edit. Append is safe
                 }
             }
             .onChange(of: vm.outline) { _, _ in
+                StudioOutlineRegistry.shared.update(beats: vm.outline.beats)
                 if shouldRestoreInspectorWorkspaceOnNextOutlineChange {
                     shouldRestoreInspectorWorkspaceOnNextOutlineChange = false
                     restoreInspectorWorkspaceState()

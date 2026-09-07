@@ -17,6 +17,7 @@ const caps = parseStudioCapabilities(JSON.stringify({
   sidebar_sections: ["projects", "files"],
   revision_colors: ["white", "blue", "pink", "yellow", "green", "goldenrod", "buff", "salmon", "cherry"],
   scene_labels: ["INT. KITCHEN - NIGHT", "EXT. PORCH - DAWN", "INT. DINER - NIGHT"],
+  beat_labels: ["Opening image", "Inciting incident", "Midpoint", "All is lost"],
   current_tab: "them",
   has_project: true,
   has_draft: true,
@@ -105,4 +106,27 @@ test("[studio-actions] limits, dedupe, and disabled capabilities", () => {
   assert.deepEqual(off.actions, [], "no capabilities → nothing executes, but tags never reach the voice");
   assert.equal(encodeStudioActionsHeader([]), "");
   assert.equal(REVISION_COLORS[2], "pink");
+});
+
+test("beats: capabilities carry beat labels and the controls block lists them", () => {
+  assert.deepEqual(caps.beatLabels, ["Opening image", "Inciting incident", "Midpoint", "All is lost"]);
+  const block = buildStudioControlsBlock(caps);
+  assert.match(block, /Beats on the outline: "Opening image", "Inciting incident", "Midpoint", "All is lost"\./);
+  assert.match(block, /choose_beat beat="Midpoint"/);
+});
+
+test("beats: choose_beat with a known beat selects it; an unknown beat still opens the Beats tab", () => {
+  const known = extractStudioActions("Let's fix the midpoint. [[studio: choose_beat beat=\"midpoint\"]]", caps);
+  assert.deepEqual(known.actions, [{ type: "choose_beat", beat: "Midpoint", source: "tag" }]);
+  assert.equal(known.spokenText, "Let's fix the midpoint.");
+  const unknown = extractStudioActions("Which beat do you want to change? [[studio: choose_beat beat=\"Dark night\"]]", caps);
+  assert.deepEqual(unknown.actions, [{ type: "choose_beat", source: "tag" }]);
+});
+
+test("beats: spoken phrases infer a named beat and an undo, never twice for one type", () => {
+  const spoken = extractStudioActions("I'll pull up the Inciting incident beat so we can look at it together.", caps);
+  assert.deepEqual(spoken.actions, [{ type: "choose_beat", beat: "Inciting incident", source: "spoken" }]);
+  const undo = extractStudioActions("Okay. I'll undo the last page write now.", caps);
+  assert.deepEqual(undo.actions, [{ type: "undo_last_page_write", source: "spoken" }]);
+  assert.deepEqual(inferSpokenActions("Which beat do you want to change? I'll pull up the Midpoint beat.").map((a) => a.type), ["choose_beat"]);
 });

@@ -9,6 +9,7 @@ struct BackendStudioAction: Codable, Equatable, Hashable {
     var color: String?
     var scope: String?
     var scene: String?
+    var beat: String?
     var source: String?
 
     static let supportedTypes: Set<String> = [
@@ -32,6 +33,21 @@ enum StudioActionParser {
     }
 }
 
+/// The outline's beat labels, published by the Studio screen whenever the
+/// outline changes, so the capabilities snapshot can offer them to her even
+/// though the live-draft bridge does not carry the outline.
+@MainActor
+final class StudioOutlineRegistry {
+    static let shared = StudioOutlineRegistry()
+    var beatLabels: [String] = []
+
+    func update(beats: [BackendScreenplayBeat]) {
+        beatLabels = beats
+            .map { $0.label.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+    }
+}
+
 /// What the Studio offers right now, sent with every talk turn so the backend
 /// can let her operate only what exists.
 struct StudioCapabilitiesSnapshot: Codable, Equatable {
@@ -40,6 +56,7 @@ struct StudioCapabilitiesSnapshot: Codable, Equatable {
     var sidebarSections: [String] = ScreenplayStudioScreen.SidebarSection.allCases.map(\.rawValue)
     var revisionColors: [String] = ["white", "blue", "pink", "yellow", "green", "goldenrod", "buff", "salmon", "cherry"]
     var sceneLabels: [String] = []
+    var beatLabels: [String] = []
     var currentTab: String = ""
     var hasProject: Bool = false
     var hasDraft: Bool = false
@@ -51,6 +68,7 @@ struct StudioCapabilitiesSnapshot: Codable, Equatable {
         case sidebarSections = "sidebar_sections"
         case revisionColors = "revision_colors"
         case sceneLabels = "scene_labels"
+        case beatLabels = "beat_labels"
         case currentTab = "current_tab"
         case hasProject = "has_project"
         case hasDraft = "has_draft"
@@ -64,6 +82,7 @@ struct StudioCapabilitiesSnapshot: Codable, Equatable {
             .filter { !$0.isEmpty }
         var snapshot = StudioCapabilitiesSnapshot()
         snapshot.sceneLabels = Array(labels.prefix(40))
+        snapshot.beatLabels = Array(StudioOutlineRegistry.shared.beatLabels.prefix(40))
         snapshot.currentTab = currentTab
         snapshot.hasProject = !bridge.preferredProjectID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         snapshot.hasDraft = !draft.isEmpty
