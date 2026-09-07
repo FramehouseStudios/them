@@ -1466,6 +1466,20 @@ struct BackendTalkResponseMetadata {
     let creativeMemoryTrace: BackendTalkCreativeMemoryTrace
     let screenplayTrace: BackendTalkScreenplayTrace
     let reply: String?
+    // Clementine headers (D009) — consumed from x-suggestion/x-uncertainty/x-collab-cursor/x-samantha-presence/x-presence-history
+    let suggestion: String?
+    let uncertainty: Double?
+    let collabCursor: BackendCollabCursor?
+    let samanthaPresence: String?
+    let presenceHistory: [String]
+    let presenceBargeAt: Int?
+    let presenceBargeReason: String?
+}
+
+struct BackendCollabCursor: Codable, Equatable {
+    let page: Int
+    let line: Int
+    let character: String?
 }
 
 
@@ -4710,6 +4724,7 @@ final class BackendClient {
                 )
                 let screenplayTrace = self.parseScreenplayTrace(from: http)
                 let creativeMemoryTrace = self.parseCreativeMemoryTrace(from: http)
+                let clem = self.parseClementineHeaders(from: http)
                 if let pageReservationHeader = self.parseOptionalHeaderString(
                     http,
                     field: "x-clementine-page-reservation"
@@ -4736,7 +4751,14 @@ final class BackendClient {
                     dialogueTimeline: self.parseDialogueTimeline(from: http),
                     creativeMemoryTrace: creativeMemoryTrace,
                     screenplayTrace: screenplayTrace,
-                    reply: self.parseOptionalHeaderString(http, field: "x-reply")
+                    reply: self.parseOptionalHeaderString(http, field: "x-reply"),
+                    suggestion: clem.suggestion,
+                    uncertainty: clem.uncertainty,
+                    collabCursor: clem.collabCursor,
+                    samanthaPresence: clem.samanthaPresence,
+                    presenceHistory: clem.presenceHistory,
+                    presenceBargeAt: clem.presenceBargeAt,
+                    presenceBargeReason: clem.presenceBargeReason
                 )
                 if let onResponseMetadataReady, http.statusCode == 200 {
                     DispatchQueue.main.async {
@@ -6771,6 +6793,25 @@ final class BackendClient {
             return nil
         }
         return try? JSONDecoder().decode(BackendTalkDialogueTimelineRevision.self, from: data)
+    }
+
+    // Clementine D009 headers (no god-file growth: helpers only)
+    private func parseClementineHeaders(from response: HTTPURLResponse?) -> (suggestion: String?, uncertainty: Double?, collabCursor: BackendCollabCursor?, samanthaPresence: String?, presenceHistory: [String], presenceBargeAt: Int?, presenceBargeReason: String?) {
+        let suggestion = parseOptionalHeaderString(response, field: "x-suggestion")
+        let uncertaintyRaw = parseOptionalHeaderString(response, field: "x-uncertainty")
+        let uncertainty = uncertaintyRaw.flatMap { Double($0) }
+        let collabCursor: BackendCollabCursor? = {
+            guard let raw = parseOptionalHeaderString(response, field: "x-collab-cursor"), let data = raw.data(using: .utf8) else { return nil }
+            return try? JSONDecoder().decode(BackendCollabCursor.self, from: data)
+        }()
+        let samanthaPresence = parseOptionalHeaderString(response, field: "x-samantha-presence")
+        let presenceHistory: [String] = {
+            guard let raw = parseOptionalHeaderString(response, field: "x-presence-history"), let data = raw.data(using: .utf8) else { return [] }
+            return (try? JSONDecoder().decode([String].self, from: data)) ?? []
+        }()
+        let presenceBargeAt = parseHeaderInt(response, field: "x-presence-barge-at", default: 0, min: 0, max: 9_000_000_000_000) > 0 ? parseHeaderInt(response, field: "x-presence-barge-at", default: 0, min: 0, max: 9_000_000_000_000) : nil
+        let presenceBargeReason = parseOptionalHeaderString(response, field: "x-presence-barge-reason")
+        return (suggestion, uncertainty, collabCursor, samanthaPresence, presenceHistory, presenceBargeAt, presenceBargeReason)
     }
 
     private func parseDelimitedHeader(
