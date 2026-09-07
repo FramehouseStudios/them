@@ -130,10 +130,13 @@ Hello there.
 
 Frank
 Again.
+
+june
+And again.
 `;
   const r = lintScreenplay({ text });
   const hits = r.suggestions.filter((x) => x.rule === "character_cue_caps").map((x) => x.excerpt);
-  assert.deepEqual(hits, ["June (V.O.)", "Frank"]);
+  assert.deepEqual(hits, ["June (V.O.)", "Frank", "june"]);
 });
 
 // ---------- parenthetical_density ----------
