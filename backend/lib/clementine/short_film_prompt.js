@@ -127,20 +127,20 @@ function generateOfflineShortFilmDraft(parsed) {
   const pages = [];
   for (let i = 1; i <= req; i++) {
     pages.push([
-      `INT. ${setting}`,
+      `INT. ${setting} - PAGE ${i}`,
       ``,
-      `The room holds its breath. A whisper clings to the dark.`,
+      `The room holds its breath. A whisper clings to the dark. (p${i})`,
       ``,
       `${c1.toUpperCase()}`,
-      `We shouldn't have stayed.`,
+      `We shouldn't have stayed. — ${i}`,
       ``,
       `${c2.toUpperCase()}`,
-      `The bedroom remembers what we tried to forget.`,
+      `The bedroom remembers what we tried to forget. — ${i}`,
       ``,
       `${c3.toUpperCase()}`,
-      `Listen — the shadow by the door is listening too.`,
+      `Listen — the shadow by the door is listening too. — ${i}`,
       ``,
-      `They move around the ${setting.toLowerCase()}, fear tightening as blood thins the night.`,
+      `They move around the ${setting.toLowerCase()}, fear tightening as blood thins the night. — ${i}`,
       ``,
     ].join("\n"));
   }
