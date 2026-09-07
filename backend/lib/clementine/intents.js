@@ -19,6 +19,8 @@ const INTENT = Object.freeze({
   PAGE_REWRITE: "page_rewrite",
   PLAN: "plan",
   THINK_HARD: "think_hard",
+  STORY_HELP: "story_help",
+  PITCH: "pitch",
   UNKNOWN: "unknown",
 });
 
@@ -68,6 +70,21 @@ function classifyIntent(utterance, hints = {}) {
     return INTENT.PLAN;
   }
 
+  // Story help (mentor lane): stuck, flat, "what should happen", notes on a
+  // line. Checked before comfort so writer's block reads as the story asking
+  // for pressure, not as distress.
+  if (/\b(stuck|writer'?s? block|feels (flat|thin|slow|off)|not working|what('?s| is) (missing|wrong)|what (should|would|could) happen|what comes next|where (does|should) (this|it|the story|act \w+) go|help me (figure|find|fix)|any ideas|notes on|is this (scene|working)|does this (scene|work))\b/.test(text)
+    || (/\b(help me|how (do|should) i|what (should|would) (she|he|they|i))\b/.test(text)
+      && /\b(scene|script|screenplay|story|act|midpoint|climax|ending|opening|beat|outline|character|dialogue|line|page)\b/.test(text))) {
+    return INTENT.STORY_HELP;
+  }
+
+  // Pitch (fresh conversation openers with no page cue): she offers a scene.
+  if (hints?.fresh === true
+    && /^(hi|hey|hello|yo|morning|good (morning|evening|afternoon)|talk to me|let'?s (write|talk|go)|what should we (write|do)( today)?|give me (a scene|anything|something)|i('?ve| have) got nothing|i'?m here|what do you (want|have)|i have nothing)\b/.test(text)) {
+    return INTENT.PITCH;
+  }
+
   // Companion-ish
   if (/\b(remember|recall|what did i|my character|last time)\b/.test(text)) {
     return INTENT.RECALL;
@@ -78,7 +95,7 @@ function classifyIntent(utterance, hints = {}) {
   if (/\b(tease|roast|playful|banter)\b/.test(text)) {
     return INTENT.TEASE;
   }
-  if (/\b(comfort|i'?m stuck|writer'?s? block|anxious|overwhelmed)\b/.test(text)) {
+  if (/\b(comfort|anxious|overwhelmed|can'?t cope|falling apart)\b/.test(text)) {
     return INTENT.COMFORT;
   }
   if (/^(hi|hey|hello|yo|gm|good (morning|evening|night)|how('?s| is) it going)\b/.test(text)

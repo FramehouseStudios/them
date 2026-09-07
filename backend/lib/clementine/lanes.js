@@ -35,6 +35,9 @@ const INTENT_LANE_MAP = Object.freeze({
   [INTENT.PAGE_REWRITE]: { lane: LANE.PAGE, effort: EFFORT.LOW },
   [INTENT.PLAN]: { lane: LANE.DEEP, effort: EFFORT.MEDIUM },
   [INTENT.THINK_HARD]: { lane: LANE.DEEP, effort: EFFORT.MEDIUM },
+  // Mentor turns: story help thinks (Deep, low); a pitch is spoken (Companion, low).
+  [INTENT.STORY_HELP]: { lane: LANE.DEEP, effort: EFFORT.LOW },
+  [INTENT.PITCH]: { lane: LANE.COMPANION, effort: EFFORT.LOW },
 });
 
 /**
