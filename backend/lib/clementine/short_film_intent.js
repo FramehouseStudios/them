@@ -4,6 +4,9 @@
 //  one location, in a bedroom, three characters, one John, one Sally, one Sam. Write first five pages."
 // Returns { totalPages, requestedPages, genre, setting, characters } or null.
 
+const parseCache = new Map();
+const PARSE_CACHE_MAX = 128;
+
 function trimToString(v) {
   return v === null || v === undefined ? "" : String(v).trim();
 }
@@ -214,6 +217,8 @@ function parseCharacters(text) {
 function parseShortFilmIntent(utterance) {
   const text = String(utterance ?? "");
   if (!text.trim()) return null;
+  const cacheKey = text.trim().toLowerCase().slice(0, 512);
+  if (parseCache.has(cacheKey)) return parseCache.get(cacheKey);
   const lower = text.toLowerCase();
   // Must look like short-film request — accept "short film" or page count + genre
   if (!lower.includes("short film") && !lower.includes("short-film") && !lower.includes("shortfilm")) return null;
@@ -230,7 +235,7 @@ function parseShortFilmIntent(utterance) {
   if (genre == null) return null;
   if (!characters || characters.length === 0) return null;
 
-  return {
+  const result = {
     totalPages,
     requestedPages: requestedPages ?? totalPages,
     genre: genre.toLowerCase(),
@@ -238,6 +243,12 @@ function parseShortFilmIntent(utterance) {
     characters,
     influences,
   };
+  if (parseCache.size >= PARSE_CACHE_MAX) {
+    const firstKey = parseCache.keys().next().value;
+    parseCache.delete(firstKey);
+  }
+  parseCache.set(cacheKey, result);
+  return result;
 }
 
 export {
