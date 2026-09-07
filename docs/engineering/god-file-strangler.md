@@ -26,6 +26,8 @@ God files concentrate risk. Splitting them by line number usually breaks auth fl
 
 **Team rule:** new backend features land under `backend/lib/...` using `mountX(app, deps)` (or equivalent). Growing `index.js` requires a one-line PR justification.
 
+**Current owners (D009, `backend/index.js` 33626):** `lib/clementine` — `short_film_{beta,intent,prompt,lane,store,character_context,intent_llm,story_elements,feature_structure_knowledge,story_structure_knowledge,craft_cards,page_flip,visual_pagination,studio_actions,coverage,studio_live_paper,memory_persist,dual_channel,chess_edit,samantha_{presence,intuition,voice},inspector_ux,stream_helpers}` + `lib/visual_context_route`, `lib/normalizers`, `lib/limits`; flag `CLEMENTINE_SHORT_FILM_BETA` (D016, `short_film_beta.js`) gates 5→90p lane, id-only store + `x-screenplay-project-id`, canary `RUN_BETA_SHORT_FILM_CANARY` default 0.
+
 ## iOS sequence
 
 | ID | Seam | Done when |
