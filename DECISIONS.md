@@ -153,3 +153,14 @@ Each entry follows the ADR pattern:
   2. When Muse is enabled, plan/critique **prefer OpenAI cheap** via `preferProvider: "openai"`; draft/revise/repair stay on Muse Standard at elevated effort. Do **not** force Muse on globally or enable multipass by default.
   3. Wire through DI in `page_multipass_routing.js` + `runTalkGeneratePageMultipass`; tests inject fakes and assert per-stage model/effort (no live API).
 - **Consequences:** See `docs/product/page-multipass.md`. F4 owns memory bible / calibration residuals. Production keeps `CLEMENTINE_PAGE_MULTIPASS=0` until validated.
+
+## D016 — Beta short-film mode (voice → 5 of 15, flag-gated)
+
+- **Date:** 2026-09-06
+- **Status:** proposed
+- **Context:** Beta testers want to speak a single short-film brief — "15 pages, horror, one location bedroom, three characters John Sally Sam, write first five pages" — and get 5 screenplay pages without babysitting a custom prompt. This must not regress V1 Page/Companion behavior or violate D009 god-file strangler.
+- **Decision:**
+  1. Ship behind **`CLEMENTINE_SHORT_FILM_BETA=0`** (default off). When on, voice utterance containing `short film` + `pages` + parseable `genre/setting/characters` classifies as `SHORT_FILM_BETA` (Page lane, `low` effort).
+  2. M1 is PR1 only: flag (`short_film_beta.js`), pure parser (`short_film_intent.js` → `{totalPages,requestedPages,genre,setting,characters}`), 3-line gate in `intents.js:35` + `lanes.js` mapping to `Page`. No store/prompt/lane/wallet changes in M1.
+  3. Follow-on PRs (prompt, lane/wallet, store/bridge, evals) stay additive under `backend/lib/clementine/`, never `backend/index.js`.
+- **Consequences:** Flag off → same utterance → `UNKNOWN`/legacy (no side effects). Flag on → beta intent verified by parser tests + offline eval. See `docs/product/short-film-beta.md`. Strangler check: `git diff --stat backend/index.js` stays empty for M1.

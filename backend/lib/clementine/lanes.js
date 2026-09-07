@@ -33,6 +33,7 @@ const INTENT_LANE_MAP = Object.freeze({
   [INTENT.PAGE_EDIT]: { lane: LANE.PAGE, effort: EFFORT.LOW },
   [INTENT.PAGE_CONTINUE]: { lane: LANE.PAGE, effort: EFFORT.LOW },
   [INTENT.PAGE_REWRITE]: { lane: LANE.PAGE, effort: EFFORT.LOW },
+  [INTENT.SHORT_FILM_BETA]: { lane: LANE.PAGE, effort: EFFORT.LOW },
   [INTENT.PLAN]: { lane: LANE.DEEP, effort: EFFORT.MEDIUM },
   [INTENT.THINK_HARD]: { lane: LANE.DEEP, effort: EFFORT.MEDIUM },
 });
