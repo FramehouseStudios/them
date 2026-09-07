@@ -140,4 +140,20 @@ export function getSevenPointBeats({ genre, tone, mood, influences } = {}) {
   return { ...base, framework: "7pt", sevenPoint: SEVEN_POINT.map((title,i)=>({ title, order:i+1, act: i<2?"Setup":i<5?"Confrontation":"Resolution" })) };
 }
 
-export { GENRE_BEATS, TONE_HINTS, MOOD_HINTS, SEVEN_POINT, closestGenre, getThreeActBeats };
+const SEQUENCE_8 = Object.freeze([
+  { seq: 1, title: "Status Quo & Inciting", turn: "want revealed", setpiece: "opening image", pages: "1-11" },
+  { seq: 2, title: "Debate & Break", turn: "choice", setpiece: "threshold crossing", pages: "12-22" },
+  { seq: 3, title: "B Story & Fun", turn: "promise", setpiece: "setpiece 1", pages: "23-33" },
+  { seq: 4, title: "Midpoint", turn: "false win/loss", setpiece: "midpoint setpiece p45", pages: "34-45" },
+  { seq: 5, title: "Bad Guys Close In", turn: "pressure", setpiece: "pinch 2", pages: "46-56" },
+  { seq: 6, title: "All Is Lost", turn: "cost", setpiece: "whiff of death", pages: "57-67" },
+  { seq: 7, title: "Finale Gather & Execute", turn: "gather team", setpiece: "final setpiece", pages: "68-78" },
+  { seq: 8, title: "Final Image & Tag", turn: "scar kept", setpiece: "final image", pages: "79-90" },
+]);
+export function getSequenceBeats({ genre, tone, mood, influences, totalPages=90 } = {}) {
+  const base = getThreeActBeats({ genre, tone, mood, influences });
+  const tp = Math.max(15, Math.min(90, Math.round(Number(totalPages)||90)));
+  return { ...base, framework: "8seq", sequences: SEQUENCE_8.map(s=> ({ ...s, pageStart: Math.round(((s.seq-1)/8)*tp)+1, pageEnd: Math.round((s.seq/8)*tp) })) };
+}
+
+export { GENRE_BEATS, TONE_HINTS, MOOD_HINTS, SEVEN_POINT, SEQUENCE_8, closestGenre, getThreeActBeats };
