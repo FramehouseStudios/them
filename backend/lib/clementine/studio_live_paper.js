@@ -66,9 +66,11 @@ function normalizeCharacterContexts(raw) {
   return out;
 }
 
-export function buildLivePaperPayload(project) {
+import { paginateFountainDraft } from "./page_flip.js";
+
+export function buildLivePaperPayload(project, opts = {}) {
   if (!project || typeof project !== "object" || Array.isArray(project)) {
-    return { logline: "", synopsis: "", beats: [], characterContexts: {} };
+    return { logline: "", synopsis: "", beats: [], characterContexts: {}, pages: [], totalPages: 0, currentPage: 1 };
   }
   const logline = clampString(project.logline ?? project.screenplayLogline ?? project.screenplay_logline ?? "", 280);
   const synopsis = clampString(project.synopsis ?? project.screenplaySynopsis ?? project.screenplay_synopsis ?? project.summary ?? project.overview ?? "", 4000);
@@ -76,7 +78,15 @@ export function buildLivePaperPayload(project) {
   // accept both camel and snake
   const rawContexts = project.characterContexts ?? project.character_contexts ?? project.character_context ?? project.characterContext ?? project.characterVoiceContexts ?? {};
   const characterContexts = normalizeCharacterContexts(rawContexts);
-  return { logline, synopsis, beats, characterContexts };
+  // Flip-through: paginate draft if available (latest version draft or opts.draft)
+  const draft = String(opts.draft || project?.versions?.[0]?.draft || project?.latestDraft || "");
+  let pages = [];
+  try {
+    if (draft) pages = paginateFountainDraft(draft);
+  } catch {}
+  const totalPages = pages.length || Math.max(1, Number(opts.currentPage) || 1);
+  const currentPage = Math.max(1, Math.min(totalPages, Number(opts.currentPage) || 1));
+  return { logline, synopsis, beats, characterContexts, pages, totalPages, currentPage, projectId: String(project.id || "") };
 }
 
 export default { buildLivePaperPayload };
