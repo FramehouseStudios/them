@@ -4047,6 +4047,12 @@ ${directorOutputRule}
       chatModelFallbackUsed = generated.chatModelFallbackUsed;
       effectiveChatUsage = generated.effectiveChatUsage;
       chatMs = generated.chatMs;
+      if (generated.screenplayProjectId && !studioMeta.screenplayProjectId) {
+        studioMeta.screenplayProjectId = generated.screenplayProjectId;
+      }
+      if (req.clementine?.screenplayProjectId && !studioMeta.screenplayProjectId) {
+        studioMeta.screenplayProjectId = req.clementine.screenplayProjectId;
+      }
     }
 
     const forceDayFeelingOpener = shouldForceSessionCheckInOpener({
