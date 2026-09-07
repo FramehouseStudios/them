@@ -367,7 +367,7 @@ struct ScreenplayStudioScreen: View {
             .onReceive(
                 NotificationCenter.default.publisher(for: .themOfflineTalkOutboxUpdated)
             ) { _ in
-                Task { await vm.refreshPendingScreenplayQuestion() }
+                Task { await vm.refreshPendingScreenplayQuestion(force: false) }
             }
             .onReceive(
                 NotificationCenter.default.publisher(for: .themScreenplayQuestionResolved)

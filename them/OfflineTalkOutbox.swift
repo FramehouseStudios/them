@@ -547,7 +547,14 @@ actor OfflineTalkOutbox {
         publish(snapshotFor(entries))
     }
 
+    /// The last snapshot handed to observers. An idle drain (nothing due)
+    /// produces the same snapshot every health tick; posting it again made
+    /// every screen listening for outbox changes do real work every 5 s.
+    private var lastPublishedSnapshot: OfflineTalkOutboxSnapshot?
+
     private func publish(_ snapshot: OfflineTalkOutboxSnapshot) {
+        guard snapshot != lastPublishedSnapshot else { return }
+        lastPublishedSnapshot = snapshot
         DispatchQueue.main.async {
             NotificationCenter.default.post(
                 name: .themOfflineTalkOutboxUpdated,
