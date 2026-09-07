@@ -1,6 +1,8 @@
 // Short-film prompt builder + deterministic offline draft (PR2).
-// Builds system+user prompt for 5-page horror bedroom with 3 chars, and
-// a deterministic Fountain draft when OPENAI_API_KEY absent (CI offline).
+// Builds system+user prompt for any genre/tone/mood 3-act, with per-character memory.
+// Uses story_structure_knowledge when available, falls back to generic scaffold.
+
+import { getThreeActBeats } from "./story_structure_knowledge.js";
 
 const promptCache = new Map();
 const PROMPT_CACHE_MAX = 64;
@@ -32,13 +34,29 @@ function buildShortFilmPrompt(parsed, opts = {}) {
     influences.tones?.length ? `Tones: ${influences.tones.join(", ")}.` : "",
   ].filter(Boolean).join(" ");
 
-  const outline = [
-    `${total}-page outline scaffold (3 acts):`,
-    `Act 1 SETUP — ${genre} in ${setting}, introduce ${charNames}, inciting pressure.`,
-    `Act 2 CONFRONTATION — tension escalates, want/obstacle/cost sharpens.`,
-    `Act 3 RESOLUTION — payoff, image echo, cost paid.`,
-    `This request delivers the first ${req} pages.`,
-  ].join("\n");
+  // Omniscient 3-act beats via knowledge (tone/mood + influences)
+  let structure = null;
+  try {
+    structure = getThreeActBeats({ genre, tone: influences.tones?.[0] || "", mood: parsed?.mood || "", influences });
+  } catch {}
+  const outline = structure
+    ? [
+        `${total}-page outline — 3-act beats (${structure.genre}${structure.rawGenre!==structure.genre?` ← ${parsed.genre}`:""}):`,
+        `Act 1 Setup — ${structure.acts[0].beats.join(" / ")} — introduce ${charNames} in ${setting}`,
+        `Act 2 Confrontation — ${structure.acts[1].beats.join(" / ")}`,
+        `Act 3 Resolution — ${structure.acts[2].beats.join(" / ")} — motif: ${structure.motif}`,
+        structure.voiceHints ? `Voice: ${structure.voiceHints}` : "",
+        structure.imageEcho ? `Image: ${structure.imageEcho}` : "",
+        structure.directorHint || "",
+        `This request delivers the first ${req} pages.`,
+      ].filter(Boolean).join("\n")
+    : [
+        `${total}-page outline scaffold (3 acts):`,
+        `Act 1 SETUP — ${genre} in ${setting}, introduce ${charNames}, inciting pressure.`,
+        `Act 2 CONFRONTATION — tension escalates, want/obstacle/cost sharpens.`,
+        `Act 3 RESOLUTION — payoff, image echo, cost paid.`,
+        `This request delivers the first ${req} pages.`,
+      ].join("\n");
 
   // Per-character voices/memory snapshot (singular project, individual context)
   let characterBlock = "";

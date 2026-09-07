@@ -1,6 +1,9 @@
 // Logline + synopsis + 3-act beats for singular project.
 // Clementine writes these autonomously per genre/tone/mood + per-character memory.
+// Uses story_structure_knowledge when available for genre-omniscient beats.
 // No backend/index.js growth.
+
+import { getThreeActBeats } from "./story_structure_knowledge.js";
 
 function trimToString(v) { return v == null ? "" : String(v).trim(); }
 
@@ -40,6 +43,39 @@ function buildBeats({ parsed, project }) {
   const setting = trimToString(parsed?.setting || "bedroom");
   const chars = Array.isArray(parsed?.characters) ? parsed.characters : (project?.characters || []).map((c)=>c.name);
   const tones = parsed?.influences?.tones?.join(", ") || trimToString(parsed?.influences?.directors?.[0]) || genre;
+  // Try knowledge-driven beats per genre/tone/mood
+  try {
+    const kb = getThreeActBeats({ genre, tone: parsed?.influences?.tones?.[0] || genre, mood: parsed?.mood || "", influences: parsed?.influences });
+    if (kb && Array.isArray(kb.acts)) {
+      // Expand 3-act scaffold (6 strings) into 15 page beats with character/setting
+      const actBeats = [...kb.acts[0].beats, ...kb.acts[1].beats, ...kb.acts[2].beats];
+      const labels = ["Opening Image","Theme Stated","Set-Up","Inciting Incident","Debate","Break into Two","B Story","Fun and Games","Midpoint","Bad Guys Close In","All Is Lost","Dark Night","Finale Setup","Finale Confrontation","Final Image"];
+      const kbBeats = actBeats.slice(0, 6).map((t,i)=>({ id:`kb${i+1}`, label: labels[i] || `Beat ${i+1}`, text: `${t} — ${kb.motif} in ${setting} with ${chars.slice(0,2).join(" & ")}` }));
+      // Fill remainder with full 15-beat template so every page has a beat (genre-omniscient)
+      const template = [
+        { id: "b1", page: 1, label: "Opening Image", text: `INT. ${setting.toUpperCase()} — ${kb.motif} (${tones}).` },
+        { id: "b2", page: 2, label: "Theme Stated", text: `${chars[0] || "Alex"} says what the film is really about, ${chars[1] || "Maya"} doesn't hear it yet.` },
+        { id: "b3", page: 3, label: "Set-Up", text: `Introduce ${chars.join(", ")} each with distinct voice; want/obstacle seeded.` },
+        { id: "b4", page: 4, label: "Inciting Incident", text: `The ${setting} remembers — whisper, shadow, or fake-set glitch forces a choice before midnight.` },
+      ];
+      // Merge: first 4 from kb+template, then remainder 11 so 15 total ends with Final Image
+      const rest = [
+        { id: "b5", page: 5, label: "Debate", text: `Should we stay? ${chars.slice(0,2).join(" vs ")} — cost of leaving named.` },
+        { id: "b6", page: 6, label: "Break into Two", text: `Decision made; they step deeper into ${setting}.` },
+        { id: "b7", page: 7, label: "B Story", text: `${chars[1] || "Maya"} and ${chars[2] || "Jonah"} share a truth; motif ${kb.motif} returns.` },
+        { id: "b8", page: 8, label: "Fun and Games", text: `Chase begins — ${setting} corridors, three locations at once, promise of the premise.` },
+        { id: "b9", page: 9, label: "Midpoint", text: `False victory or false defeat; the fake set reveals it's watching.` },
+        { id: "b10", page: 10, label: "Bad Guys Close In", text: `Want vs need sharpens; each character's pressure +1.` },
+        { id: "b11", page: 11, label: "All Is Lost", text: `Whisper becomes answer; someone must be left behind.` },
+        { id: "b12", page: 12, label: "Dark Night", text: `Quiet image echo; ${chars[0] || "Alex"} chooses need over want.` },
+        { id: "b13", page: 13, label: "Finale Setup", text: `Plan to trick the ${setting} — or trick each other.` },
+        { id: "b14", page: 14, label: "Finale Confrontation", text: `Chase at speed; the midnight clock, the door, the listening shadow.` },
+        { id: "b15", page: 15, label: "Final Image", text: `Mirror of opening, cost paid, ${chars.join(", ")} changed or gone.` },
+      ];
+      const merged = [...kbBeats.slice(0,4), ...rest].slice(0, Math.max(5, Math.min(30, total)));
+      return merged.map((b,i)=>({ ...b, id:`b${i+1}`, page:i+1, genre: kb.genre, tone: tones, motif: kb.motif }));
+    }
+  } catch {}
   // 15 beats for 15p = 1 per page; for 5p delivery first 5 are written now, rest are roadmap
   const allBeats = [
     { id: "b1", page: 1, label: "Opening Image", text: `INT. ${setting.toUpperCase()} — the room holds its breath (${tones}).` },
