@@ -17,20 +17,28 @@ function defaultVoiceFor(name, idx, genre) {
 
 function buildCharacterContexts({ characters, genre, setting, influences = {} } = {}) {
   const chars = Array.isArray(characters) ? characters.map((c) => trimToString(c)).filter(Boolean) : [];
-  return chars.map((name, idx) => ({
-    name,
-    description: `${name} — ${trimToString(setting) || "bedroom"} ${trimToString(genre) || "horror"} voice, distinct want/obstacle/cost`,
-    voice: defaultVoiceFor(name, idx, genre),
-    backstory: `${name} carries a secret tied to ${trimToString(setting) || "the location"}; cost is ${idx === 0 ? "leaving before answer" : idx === 1 ? "being remembered" : "listening too closely"}`,
-    influences: {
-      directors: Array.isArray(influences.directors) ? influences.directors.slice(0, 3) : [],
-      writers: Array.isArray(influences.writers) ? influences.writers.slice(0, 3) : [],
-      tones: Array.isArray(influences.tones) ? influences.tones.slice(0, 3) : [],
-    },
-    arcState: { position: "setup", want: `stay/leave ${trimToString(setting) || "bedroom"}`, need: "be seen", pressure: 0 },
-    memory: [], // last 6 lines for this character: [{ role, text, page }]
-    updatedAt: Date.now(),
-  }));
+  return chars.map((name, idx) => {
+    const want = idx === 0 ? `prove ${trimToString(setting)||"bedroom"} is safe` : idx === 1 ? `be remembered by ${trimToString(setting)||"the room"}` : `listen without being heard`;
+    const need = idx === 0 ? "admit fear" : idx === 1 ? "let go" : "speak";
+    const flaw = idx === 0 ? "control" : idx === 1 ? "attachment" : "silence";
+    const ghost = `${name}'s ghost: ${trimToString(setting)||"bedroom"} memory from age ${12+idx*2}, cost is ${idx === 0 ? "leaving before answer" : idx === 1 ? "being remembered" : "listening too closely"}`;
+    return {
+      name,
+      description: `${name} — ${trimToString(setting) || "bedroom"} ${trimToString(genre) || "horror"} voice, distinct want/obstacle/cost`,
+      voice: defaultVoiceFor(name, idx, genre),
+      backstory: ghost,
+      ghost,
+      want, need, flaw,
+      influences: {
+        directors: Array.isArray(influences.directors) ? influences.directors.slice(0, 3) : [],
+        writers: Array.isArray(influences.writers) ? influences.writers.slice(0, 3) : [],
+        tones: Array.isArray(influences.tones) ? influences.tones.slice(0, 3) : [],
+      },
+      arcState: { position: "setup", want, need, flaw, ghost, pressure: 0 },
+      memory: [], // last 6 lines for this character: [{ role, text, page }]
+      updatedAt: Date.now(),
+    };
+  });
 }
 
 function ensureCharacterContexts(project, parsed) {
