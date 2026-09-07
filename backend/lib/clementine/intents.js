@@ -6,6 +6,8 @@
 // Template short-circuit lives in reflex_classifier.js (no Spark). Later:
 // optional on-device CoreML / server Glimmer without changing this enum surface.
 
+import { parseShortFilmIntent } from "./short_film_intent.js";
+
 const INTENT = Object.freeze({
   GREETING: "greeting",
   CHECK_IN: "check_in",
@@ -19,6 +21,7 @@ const INTENT = Object.freeze({
   PAGE_REWRITE: "page_rewrite",
   PLAN: "plan",
   THINK_HARD: "think_hard",
+  SHORT_FILM_BETA: "short_film_beta",
   UNKNOWN: "unknown",
 });
 
@@ -35,6 +38,21 @@ function normalizeText(input) {
 function classifyIntent(utterance, hints = {}) {
   const forced = String(hints?.intent || "").trim().toLowerCase();
   if (forced && INTENT_VALUES.includes(forced)) return forced;
+
+  // Short-film beta — flag-gated, additive, no V1 regression when flag off.
+  try {
+    const betaFlag = String(process.env.CLEMENTINE_SHORT_FILM_BETA || "").trim().toLowerCase();
+    const betaEnabled = betaFlag === "1" || betaFlag === "true" || betaFlag === "yes" || betaFlag === "on";
+    if (betaEnabled) {
+      const raw = String(utterance ?? "");
+      if (raw.toLowerCase().includes("short film") && raw.toLowerCase().includes("pages")) {
+        const parsed = parseShortFilmIntent(raw);
+        if (parsed) return INTENT.SHORT_FILM_BETA;
+      }
+    }
+  } catch (_e) {
+    // Fall through to normal classification on any import/parse error.
+  }
 
   const text = normalizeText(utterance);
   if (!text) return INTENT.SILENCE;
