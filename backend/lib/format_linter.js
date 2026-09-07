@@ -189,6 +189,18 @@ function ruleCharacterCueCaps(lines, text, suggestions) {
     if (trimmed.length < 2 || trimmed.length > 40) continue;
     if (/:$/.test(trimmed)) continue;
     if (startsWithSceneHeadingPrefix(trimmed.toUpperCase())) continue;
+    // Only a line in cue position can be a cue: first line of the page or
+    // preceded by a blank line. A short line inside a speech or an action
+    // block ("I did call." / "He waits.") is never a cue.
+    if (i > 0 && lines[i - 1].trim()) continue;
+    // Cues do not end in sentence punctuation and are a few words long.
+    // Ignore a trailing extension such as (V.O.) or (CONT'D) for both checks.
+    const cueCore = trimmed.replace(/\s*\([^)]*\)\s*$/, "");
+    if (!cueCore) continue;
+    if (/[.!?,;…]["'’”]*$/.test(cueCore)) continue;
+    if (cueCore.split(/\s+/).length > 5) continue;
+    // A cue starts with a capital letter, not a lowercase word or a bracket.
+    if (!/^[A-Z]/.test(trimmed)) continue;
     // Heuristic: line is followed by what looks like dialogue (next non-blank
     // line is mixed-case sentence-shape).
     let nextIdx = i + 1;
