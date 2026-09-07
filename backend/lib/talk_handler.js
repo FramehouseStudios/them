@@ -3238,7 +3238,8 @@ function createTalkHandler(deps) {
         const _clemParsed = (typeof shortFilmParsed !== "undefined" ? shortFilmParsed : null) || null;
         const _clemQuality = talkScreenplayOutput?.quality || null;
         const _clemCursor = req.body?.collabCursor ?? req.body?.collab_cursor ?? null;
-        applyClementineTalkHeaders(res, { project: _clemProject, draft: _clemDraft, parsed: _clemParsed, quality: _clemQuality, collabCursor: _clemCursor });
+        const _clemOwnerKey = String(req.authUser?.id || req.userId || req.body?.ownerKey || "") || (typeof ownerKey !== "undefined" ? String(ownerKey) : "");
+        applyClementineTalkHeaders(res, { project: _clemProject, draft: _clemDraft, parsed: _clemParsed, quality: _clemQuality, collabCursor: _clemCursor, ownerKey: _clemOwnerKey });
       } catch (_) {}
       commitTalkIdempotencySuccess(req, {
         statusCode: 200,
@@ -5056,14 +5057,15 @@ ${directorOutputRule}
         res.setHeader("x-screenplay-cues", encodeURIComponent(screenplayCuesJson));
       }
     }
-    // Clementine headers: x-suggestion / x-uncertainty / x-collab-cursor (D009, no index.js growth)
+    // Clementine headers: x-suggestion / x-uncertainty / x-collab-cursor + presence/voice (D009, no index.js growth)
     try {
       const _clemProject2 = (typeof memoryProject !== "undefined" && memoryProject && typeof memoryProject === "object") ? memoryProject : (typeof studioMeta === "object" && studioMeta ? studioMeta : {});
       const _clemDraft2 = String((typeof screenplayDraftText !== "undefined" ? screenplayDraftText : "") || talkScreenplayOutput?.text || "");
       const _clemParsed2 = (typeof shortFilmParsed !== "undefined" ? shortFilmParsed : null) || null;
       const _clemQuality2 = talkScreenplayOutput?.quality || null;
       const _clemCursor2 = req.body?.collabCursor ?? req.body?.collab_cursor ?? null;
-      applyClementineTalkHeaders(res, { project: _clemProject2, draft: _clemDraft2, parsed: _clemParsed2, quality: _clemQuality2, collabCursor: _clemCursor2 });
+      const _clemOwnerKey2 = String(req.authUser?.id || req.userId || req.body?.ownerKey || "") || (typeof ownerKey !== "undefined" ? String(ownerKey) : "");
+      applyClementineTalkHeaders(res, { project: _clemProject2, draft: _clemDraft2, parsed: _clemParsed2, quality: _clemQuality2, collabCursor: _clemCursor2, ownerKey: _clemOwnerKey2 });
     } catch (_) {}
     res.setHeader("x-reply-repaired", replyRepaired ? "1" : "0");
     res.setHeader("x-tts-provider", encodeURIComponent(ttsProviderUsed));

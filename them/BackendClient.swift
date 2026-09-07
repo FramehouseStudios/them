@@ -1466,7 +1466,7 @@ struct BackendTalkResponseMetadata {
     let creativeMemoryTrace: BackendTalkCreativeMemoryTrace
     let screenplayTrace: BackendTalkScreenplayTrace
     let reply: String?
-    // Clementine headers (D009) — consumed from x-suggestion/x-uncertainty/x-collab-cursor/x-samantha-presence/x-presence-history
+    // Clementine headers (D009) — consumed from x-suggestion/x-uncertainty/x-collab-cursor/x-samantha-presence/x-presence-history/x-voice-learn/x-vuln-ask
     let suggestion: String?
     let uncertainty: Double?
     let collabCursor: BackendCollabCursor?
@@ -1474,6 +1474,9 @@ struct BackendTalkResponseMetadata {
     let presenceHistory: [String]
     let presenceBargeAt: Int?
     let presenceBargeReason: String?
+    let voiceLearn: String?
+    let vulnAsk: String?
+    let vulnOptions: [String]
 }
 
 struct BackendCollabCursor: Codable, Equatable {
@@ -4758,7 +4761,10 @@ final class BackendClient {
                     samanthaPresence: clem.samanthaPresence,
                     presenceHistory: clem.presenceHistory,
                     presenceBargeAt: clem.presenceBargeAt,
-                    presenceBargeReason: clem.presenceBargeReason
+                    presenceBargeReason: clem.presenceBargeReason,
+                    voiceLearn: clem.voiceLearn,
+                    vulnAsk: clem.vulnAsk,
+                    vulnOptions: clem.vulnOptions
                 )
                 if let onResponseMetadataReady, http.statusCode == 200 {
                     DispatchQueue.main.async {
@@ -6796,7 +6802,7 @@ final class BackendClient {
     }
 
     // Clementine D009 headers (no god-file growth: helpers only)
-    private func parseClementineHeaders(from response: HTTPURLResponse?) -> (suggestion: String?, uncertainty: Double?, collabCursor: BackendCollabCursor?, samanthaPresence: String?, presenceHistory: [String], presenceBargeAt: Int?, presenceBargeReason: String?) {
+    private func parseClementineHeaders(from response: HTTPURLResponse?) -> (suggestion: String?, uncertainty: Double?, collabCursor: BackendCollabCursor?, samanthaPresence: String?, presenceHistory: [String], presenceBargeAt: Int?, presenceBargeReason: String?, voiceLearn: String?, vulnAsk: String?, vulnOptions: [String]) {
         let suggestion = parseOptionalHeaderString(response, field: "x-suggestion")
         let uncertaintyRaw = parseOptionalHeaderString(response, field: "x-uncertainty")
         let uncertainty = uncertaintyRaw.flatMap { Double($0) }
@@ -6811,7 +6817,13 @@ final class BackendClient {
         }()
         let presenceBargeAt = parseHeaderInt(response, field: "x-presence-barge-at", default: 0, min: 0, max: 9_000_000_000_000) > 0 ? parseHeaderInt(response, field: "x-presence-barge-at", default: 0, min: 0, max: 9_000_000_000_000) : nil
         let presenceBargeReason = parseOptionalHeaderString(response, field: "x-presence-barge-reason")
-        return (suggestion, uncertainty, collabCursor, samanthaPresence, presenceHistory, presenceBargeAt, presenceBargeReason)
+        let voiceLearn = parseOptionalHeaderString(response, field: "x-voice-learn")
+        let vulnAsk = parseOptionalHeaderString(response, field: "x-vuln-ask")
+        let vulnOptions: [String] = {
+            guard let raw = parseOptionalHeaderString(response, field: "x-vuln-options"), let data = raw.data(using: .utf8) else { return [] }
+            return (try? JSONDecoder().decode([String].self, from: data)) ?? []
+        }()
+        return (suggestion, uncertainty, collabCursor, samanthaPresence, presenceHistory, presenceBargeAt, presenceBargeReason, voiceLearn, vulnAsk, vulnOptions)
     }
 
     private func parseDelimitedHeader(
