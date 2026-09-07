@@ -15,9 +15,21 @@ export function updateWriterVoiceProfile(ownerKey, { voice, cadence, sample } = 
   const p = getWriterVoiceProfile(ownerKey);
   if (voice) p.voice = String(voice);
   if (cadence) p.cadence = String(cadence);
-  if (sample) { p.history.push(String(sample).slice(0,120)); if (p.history.length>20) p.history.shift(); }
+  if (sample) {
+    p.history.push(String(sample).slice(0,120)); if (p.history.length>20) p.history.shift();
+    // lexicon learn: top 5 writer words (simple frequency over history)
+    const words = p.history.join(" ").toLowerCase().match(/[a-z]{3,}/g) || [];
+    const freq = new Map();
+    for (const w of words) freq.set(w, (freq.get(w)||0)+1);
+    p.lexicon = [...freq.entries()].sort((a,b)=>b[1]-a[1]).slice(0,5).map(([w])=>w);
+  }
   p.learned = Math.min(10, p.learned+1);
   return p;
+}
+
+export function getLexicon(ownerKey) {
+  const p = getWriterVoiceProfile(ownerKey);
+  return Array.isArray(p.lexicon) ? [...p.lexicon] : [];
 }
 
 export function shouldAsk({ draft, confidence = 0.7 } = {}) {

@@ -115,6 +115,14 @@ function coerceCoverage(coverage) {
   return null;
 }
 
+export function revertToProvenance({ history, target }) {
+  const h = Array.isArray(history) ? [...history] : [];
+  const t = normalizeProvenanceKind(target);
+  const idx = h.lastIndexOf(t);
+  if (idx === -1) return { history: h, reverted: false, target: t };
+  return { history: h.slice(0, idx+1), reverted: true, target: t, truncated: h.slice(idx+1) };
+}
+
 export function buildInspectorUXPayload({
   projectId = "",
   draft = "",
