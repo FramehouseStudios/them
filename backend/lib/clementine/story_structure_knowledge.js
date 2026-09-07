@@ -134,4 +134,10 @@ function getThreeActBeats({ genre, tone, mood, influences } = {}) {
   };
 }
 
-export { GENRE_BEATS, TONE_HINTS, MOOD_HINTS, closestGenre, getThreeActBeats };
+const SEVEN_POINT = Object.freeze(["Hook","Inciting Incident","Plot Turn 1","Midpoint","Pinch Point 2","Plot Turn 2","Resolution"]);
+export function getSevenPointBeats({ genre, tone, mood, influences } = {}) {
+  const base = getThreeActBeats({ genre, tone, mood, influences });
+  return { ...base, framework: "7pt", sevenPoint: SEVEN_POINT.map((title,i)=>({ title, order:i+1, act: i<2?"Setup":i<5?"Confrontation":"Resolution" })) };
+}
+
+export { GENRE_BEATS, TONE_HINTS, MOOD_HINTS, SEVEN_POINT, closestGenre, getThreeActBeats };
