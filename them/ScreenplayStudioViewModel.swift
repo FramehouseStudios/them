@@ -4363,7 +4363,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
             )
             coverageReport = result.payload
             coverageErrorText = ""
-            infoText = "Clementine's read: \(result.payload.grade), \(result.payload.verdict.lowercased())."
+            let readLine = "Clementine's read: \(result.payload.grade), \(result.payload.verdict.lowercased())."
+            infoText = infoText.isEmpty ? readLine : "\(infoText) \(readLine)"
             if speak {
                 ScreenplayCoveragePresentation.requestSpeech(result.payload.spoken)
             }
