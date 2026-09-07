@@ -83,14 +83,26 @@ extension ScreenplayStudioScreen {
             )
         case "choose_beat":
             revealInspector(.beats)
-            vm.infoText = "Which beat do you want to change?"
+            let wanted = (action.beat ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            if !wanted.isEmpty,
+               let beat = vm.outline.beats.first(where: { $0.label.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == wanted }) {
+                selectedBeatInspectorID = beat.id
+                vm.infoText = "\(beat.label) is selected. Tell her what to change."
+            } else {
+                vm.infoText = "Which beat do you want to change?"
+            }
         case "jump_to_scene":
             guard let label = action.scene, let scene = liveDraftBridge.sceneSnapshotMatching(label) else { return }
             liveDraftBridge.jumpToLine(scene.line)
             liveDraftBridge.highlightLineRange(startLine: scene.line, endLine: scene.endLine)
             vm.infoText = "Jumped to \(scene.shortLabel.isEmpty ? scene.slugline : scene.shortLabel)."
         case "undo_last_page_write":
-            vm.infoText = "Undo the last page write from the Draft tools."
+            guard liveDraftBridge.lastCommittedWrite != nil else {
+                vm.infoText = "There isn't a recent page write to undo yet."
+                return
+            }
+            liveDraftBridge.requestStudioAction(.undoLastPageWrite)
+            vm.infoText = "Undoing the most recent page write."
         default:
             break
         }

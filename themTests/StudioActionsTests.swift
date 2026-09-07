@@ -76,4 +76,31 @@ final class StudioActionsTests: XCTestCase {
         XCTAssertEqual(StudioActionDispatcher.dispatch([BackendStudioAction(type: "nope")], studioOpen: false, openStudio: { opened += 1 }, center: center), 0)
         XCTAssertEqual(opened, 0)
     }
+
+    func test_capabilities_json_carries_outline_beat_labels_and_actions_decode_a_beat() throws {
+        var snapshot = StudioCapabilitiesSnapshot()
+        snapshot.beatLabels = ["Opening image", "Midpoint"]
+        let data = try XCTUnwrap(snapshot.json().data(using: .utf8))
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertEqual(object["beat_labels"] as? [String], ["Opening image", "Midpoint"])
+
+        let json = #"[{"type":"choose_beat","beat":"Midpoint","source":"tag"},{"type":"undo_last_page_write","source":"spoken"}]"#
+        let encoded = json.addingPercentEncoding(withAllowedCharacters: .alphanumerics)!
+        let actions = StudioActionParser.parse(headerValue: encoded)
+        XCTAssertEqual(actions.map(\.type), ["choose_beat", "undo_last_page_write"])
+        XCTAssertEqual(actions.first?.beat, "Midpoint")
+    }
+
+    @MainActor
+    func test_outline_registry_keeps_trimmed_nonempty_beat_labels() throws {
+        let json = #"[{"id":"b1","label":"  Opening image "},{"id":"b2","label":"   "},{"id":"b3","label":"Midpoint"}]"#
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        let beats = try decoder.decode([BackendScreenplayBeat].self, from: Data(json.utf8))
+        let registry = StudioOutlineRegistry.shared
+        registry.update(beats: beats)
+        XCTAssertEqual(registry.beatLabels, ["Opening image", "Midpoint"])
+        registry.update(beats: [])
+        XCTAssertEqual(registry.beatLabels, [])
+    }
 }

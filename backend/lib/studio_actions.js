@@ -60,6 +60,7 @@ export function parseStudioCapabilities(raw) {
   const sidebarSections = listOf(obj.sidebar_sections ?? obj.sidebarSections, SIDEBAR_SECTIONS, [...SIDEBAR_SECTIONS]);
   const revisionColors = listOf(obj.revision_colors ?? obj.revisionColors, REVISION_COLORS, [...REVISION_COLORS]);
   const sceneLabels = labelsOf(obj.scene_labels ?? obj.sceneLabels);
+  const beatLabels = labelsOf(obj.beat_labels ?? obj.beatLabels);
   const currentTab = String(obj.current_tab ?? obj.currentTab ?? "").trim().toLowerCase();
   const currentSection = String(obj.current_draft_tools_section ?? obj.currentDraftToolsSection ?? "").trim().toLowerCase();
   return Object.freeze({
@@ -69,6 +70,7 @@ export function parseStudioCapabilities(raw) {
     sidebarSections,
     revisionColors,
     sceneLabels,
+    beatLabels,
     currentTab: tabs.includes(currentTab) ? currentTab : "",
     currentDraftToolsSection: draftToolsSections.includes(currentSection) ? currentSection : "",
     hasProject: Boolean(obj.has_project ?? obj.hasProject),
@@ -82,17 +84,22 @@ export function buildStudioControlsBlock(caps) {
   const scenes = caps.sceneLabels.length
     ? caps.sceneLabels.slice(0, 12).map((s) => `"${s}"`).join(", ") + (caps.sceneLabels.length > 12 ? ", …" : "")
     : "(no scenes yet)";
+  const beats = caps.beatLabels.length
+    ? caps.beatLabels.slice(0, 16).map((b) => `"${b}"`).join(", ") + (caps.beatLabels.length > 16 ? ", …" : "")
+    : "(no beats on the outline yet)";
   return [
     "STUDIO CONTROLS (you can operate the app; the writer hears you and sees it happen):",
     `- Tabs: ${caps.tabs.join(", ")}${caps.currentTab ? ` (open now: ${caps.currentTab})` : ""}. Draft tools: ${caps.draftToolsSections.join(", ")}. Sidebar: ${caps.sidebarSections.join(", ")}.`,
     `- Revision colors, in production order: ${caps.revisionColors.join(", ")}.`,
     `- Scenes on the page: ${scenes}.`,
+    `- Beats on the outline: ${beats}.`,
     `- Project open: ${caps.hasProject ? "yes" : "no"}. Draft present: ${caps.hasDraft ? "yes" : "no"}. Studio open: ${caps.studioOpen ? "yes" : "no"}.`,
     "- When you commit to doing one of these, say it plainly in the reply, then end the reply with one tag per action, each on its own line, exactly in this form:",
     "  [[studio: open_tab tab=beats]]  [[studio: open_draft_tools section=revisions]]  [[studio: open_sidebar section=projects]]",
     "  [[studio: save_draft]]  [[studio: save_revision color=pink]]  [[studio: start_rewrite scope=scene]]",
-    "  [[studio: choose_beat]]  [[studio: jump_to_scene scene=\"INT. KITCHEN - NIGHT\"]]  [[studio: undo_last_page_write]]",
-    "- Only tag what you actually said you will do this turn. Use only the tabs, sections, colors, and scene labels listed above; if the writer asks for something not on the list, say so instead of tagging. A question is never a tag, except choose_beat, which opens the Beats tab while you ask which beat to change.",
+    "  [[studio: choose_beat]]  [[studio: choose_beat beat=\"Midpoint\"]]  [[studio: jump_to_scene scene=\"INT. KITCHEN - NIGHT\"]]  [[studio: undo_last_page_write]]",
+    "- Only tag what you actually said you will do this turn. Use only the tabs, sections, colors, scene labels, and beat labels listed above; if the writer asks for something not on the list, say so instead of tagging. A question is never a tag, except choose_beat, which opens the Beats tab while you ask which beat to change; with beat=… it selects that beat so the writer can say what to change.",
+    "- undo_last_page_write only when the writer asks to undo, remove, or revert the last page you wrote.",
     "- Tags are stripped before your voice is heard; never read them aloud or mention them.",
   ].join("\n");
 }
@@ -110,13 +117,17 @@ function parseArgs(raw) {
   return args;
 }
 
-function matchScene(label, caps) {
+function matchLabel(label, list) {
   const needle = String(label || "").replace(/\s+/g, " ").trim().toLowerCase();
   if (!needle) return "";
-  const exact = caps.sceneLabels.find((s) => s.toLowerCase() === needle);
+  const exact = list.find((s) => s.toLowerCase() === needle);
   if (exact) return exact;
-  const contains = caps.sceneLabels.filter((s) => s.toLowerCase().includes(needle) || needle.includes(s.toLowerCase()));
+  const contains = list.filter((s) => s.toLowerCase().includes(needle) || needle.includes(s.toLowerCase()));
   return contains.length === 1 ? contains[0] : "";
+}
+
+function matchScene(label, caps) {
+  return matchLabel(label, caps.sceneLabels);
 }
 
 function validate(type, args, caps) {
@@ -159,8 +170,12 @@ function validate(type, args, caps) {
       }
       return { ok: true, action };
     }
-    case "choose_beat":
-      return { ok: true, action: { type: t } };
+    case "choose_beat": {
+      // A beat she names must exist on the outline; an unknown or missing
+      // beat still opens the Beats tab so the question lands somewhere.
+      const beat = args.beat ? matchLabel(args.beat, caps.beatLabels) : "";
+      return { ok: true, action: beat ? { type: t, beat } : { type: t } };
+    }
     case "jump_to_scene": {
       const scene = matchScene(args.scene, caps);
       if (!scene) return { ok: false, reason: `unknown_scene:${args.scene || "none"}` };
@@ -178,6 +193,8 @@ const SPOKEN_PATTERNS = [
   { type: "start_rewrite", re: /\b(?:i'?ll|let me|i'?m going to|i will|i can|let'?s)\s+(?:start|begin|do|take|run)\s+(?:a |the |another )?(?:full )?rewrite\b/i, args: () => ({ scope: "scene" }) },
   { type: "save_revision", re: new RegExp(`\\b(?:sav(?:e|ing)|mark(?:ing)?|log(?:ging)?|fil(?:e|ing))\\s+(?:a |the |this |these |your )?(?:revision|revised pages?|pages?|pass)\\s+(?:in|as)\\s+(${COLOR_ALT})\\b`, "i"), args: (m) => ({ color: m[1].toLowerCase() }) },
   { type: "choose_beat", re: /\bwhich\s+(?:story(?:line)?\s+)?(?:beat|scene)\s+(?:would you like|do you want|should we)\s+to\s+(?:change|rework|revise|fix|rewrite|move)\b/i, args: () => ({}) },
+  { type: "choose_beat", re: /\b(?:pull(?:ing)? up|open(?:ing)?|select(?:ing)?|jump(?:ing)? to)\s+(?:the\s+)?["“]?([A-Za-z][^"”\n.,;:]{1,50}?)["”]?\s+beat\b/i, args: (m) => ({ beat: m[1].trim() }) },
+  { type: "undo_last_page_write", re: /\b(?:i'?ll|let me|i'?m going to|i will|let'?s)\s+(?:undo|remove|revert|pull back|take back)\s+(?:the |that |this )?(?:last |latest |most recent )?(?:page write|page|write|pages? i (?:just )?wrote)\b/i, args: () => ({}) },
   { type: "open_tab", re: /\b(?:open(?:ing)?|pull(?:ing)? up|switch(?:ing)? to|bring(?:ing)? up)\s+(?:the\s+)?(draft|beats|craft|outline|saved)\s+(?:tab|panel)\b/i, args: (m) => ({ tab: m[1].toLowerCase() }) },
   { type: "open_draft_tools", re: /\b(?:open(?:ing)?|pull(?:ing)? up|switch(?:ing)? to|bring(?:ing)? up)\s+(?:the\s+)?(pages|revisions|snapshots)\b/i, args: (m) => ({ section: m[1].toLowerCase() }) },
   { type: "save_draft", re: /\b(?:sav(?:e|ing))\s+(?:the |this |your )?draft\b/i, args: () => ({}) },
@@ -186,6 +203,7 @@ const SPOKEN_PATTERNS = [
 export function inferSpokenActions(text) {
   const found = [];
   for (const spec of SPOKEN_PATTERNS) {
+    if (found.some((f) => f.type === spec.type)) continue;
     const m = spec.re.exec(String(text || ""));
     if (m) found.push({ type: spec.type, args: spec.args(m), inferred: true });
   }
