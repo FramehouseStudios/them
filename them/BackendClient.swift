@@ -1466,6 +1466,7 @@ struct BackendTalkResponseMetadata {
     let creativeMemoryTrace: BackendTalkCreativeMemoryTrace
     let screenplayTrace: BackendTalkScreenplayTrace
     let reply: String?
+    var studioActions: [BackendStudioAction] = []
 }
 
 
@@ -4504,6 +4505,13 @@ final class BackendClient {
                 body.appendString(String(projectId.prefix(96)))
                 body.appendString("\r\n")
             }
+            let studioCapabilities = studioMetadata.studioCapabilitiesJSON.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !studioCapabilities.isEmpty {
+                body.appendString("--\(boundary)\r\n")
+                body.appendString("Content-Disposition: form-data; name=\"studio_capabilities\"\r\n\r\n")
+                body.appendString(String(studioCapabilities.prefix(6000)))
+                body.appendString("\r\n")
+            }
             let documentRevisionId = studioMetadata.screenplayDocumentRevisionId.trimmingCharacters(in: .whitespacesAndNewlines)
             if !documentRevisionId.isEmpty {
                 body.appendString("--\(boundary)\r\n")
@@ -4736,7 +4744,8 @@ final class BackendClient {
                     dialogueTimeline: self.parseDialogueTimeline(from: http),
                     creativeMemoryTrace: creativeMemoryTrace,
                     screenplayTrace: screenplayTrace,
-                    reply: self.parseOptionalHeaderString(http, field: "x-reply")
+                    reply: self.parseOptionalHeaderString(http, field: "x-reply"),
+                    studioActions: StudioActionParser.parse(headerValue: http.value(forHTTPHeaderField: "x-studio-actions"))
                 )
                 if let onResponseMetadataReady, http.statusCode == 200 {
                     DispatchQueue.main.async {
