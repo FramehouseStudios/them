@@ -2,6 +2,9 @@
 // Builds system+user prompt for 5-page horror bedroom with 3 chars, and
 // a deterministic Fountain draft when OPENAI_API_KEY absent (CI offline).
 
+const promptCache = new Map();
+const PROMPT_CACHE_MAX = 64;
+
 function trimToString(v) {
   return v === null || v === undefined ? "" : String(v).trim();
 }
@@ -12,6 +15,8 @@ function trimToString(v) {
  * @returns {{system:string,user:string,outline:string}}
  */
 function buildShortFilmPrompt(parsed) {
+  const key = JSON.stringify([parsed?.totalPages, parsed?.requestedPages, parsed?.genre, parsed?.setting, parsed?.characters, parsed?.influences]);
+  if (promptCache.has(key)) return promptCache.get(key);
   const total = Number(parsed?.totalPages) || 15;
   const req = Number(parsed?.requestedPages) || 5;
   const genre = trimToString(parsed?.genre) || "horror";
@@ -49,10 +54,17 @@ function buildShortFilmPrompt(parsed) {
     `Write the first ${req} pages of a ${total}-page ${genre} short film.`,
     `One location: ${setting} (INT. ${setting.toUpperCase()}).`,
     charLine,
+    influenceLine ? `Influences: ${influenceLine}` : "",
     `Deliver exactly ${req} pages of plain Fountain.`,
-  ].join(" ");
+  ].filter(Boolean).join(" ");
 
-  return { system, user, outline };
+  const result = { system, user, outline };
+  if (promptCache.size >= PROMPT_CACHE_MAX) {
+    const firstKey = promptCache.keys().next().value;
+    promptCache.delete(firstKey);
+  }
+  promptCache.set(key, result);
+  return result;
 }
 
 /**
