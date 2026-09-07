@@ -47,6 +47,7 @@ struct HerDirectorContext {
     let isClimax: Bool
     let isOpeningOrClosing: Bool
     let isLongFormScreenplayRequest: Bool
+    let isDialogueNotesPrompt: Bool
 }
 
 extension HerDirectorContext {
@@ -333,7 +334,8 @@ extension HerDirectorContext {
             isCharacterFocused: isCharacterFocused,
             isClimax: isClimax,
             isOpeningOrClosing: isOpeningOrClosing,
-            isLongFormScreenplayRequest: isLongFormScreenplayRequest
+            isLongFormScreenplayRequest: isLongFormScreenplayRequest,
+            isDialogueNotesPrompt: ScreenplayIntentClassifier.asksForDialogueNotes(userText)
         )
     }
 }

@@ -66,6 +66,19 @@ enum ScreenplayIntentClassifier {
         return characterCues.contains { t.contains($0) }
     }
 
+    /// The writer read a line and wants it judged: notes on it, does it work,
+    /// is it on the nose, or "she says:" followed by the line.
+    static func asksForDialogueNotes(_ text: String) -> Bool {
+        let t = normalize(text)
+        let lineWords = [" line ", " lines ", " exchange ", " dialogue ", " speech ", " monologue ", " confession ", " apology "]
+        let mentionsLine = lineWords.contains { t.contains($0) }
+        let noteCues = [" notes on ", " note on ", " thoughts on ", " feedback on ", " opinion on ", " take on ", " does this ", " is this ", " on the nose ", " read this ", " check this ", " look at this ", " hear this ", " here's my ", " here is my ", " this is my ", " try this "]
+        if mentionsLine, noteCues.contains(where: { t.contains($0) }) { return true }
+        // "She says: ..." with a quoted or colon-introduced line.
+        if text.range(of: #"\b(she|he|they|[A-Z][a-z]+) says:"#, options: .regularExpression) != nil { return true }
+        return t.contains(" on the nose ")
+    }
+
     /// Keep filmmaker mode on when the script is already in the room or the
     /// conversation has been about it, and the new turn touches story at all.
     static func shouldStayInFilmmakerMode(
