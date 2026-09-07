@@ -246,7 +246,8 @@ function createPageLaneTalkAdapter({
     // --- Reflex short-circuit (before wallet / Spark) ---
     // greetings / thanks / check-ins / acks / soft silence via templates.
     // See talk_edge_adapter.js + reflex_lane.js. No CoreML / Glimmer yet.
-    const earlyLane = resolveTalkLane(utterance, hints);
+    const freshConversation = peekConversationFreshness(req);
+    const earlyLane = resolveTalkLane(utterance, { ...hints, fresh: freshConversation });
     const reflexHit = tryTalkEdgeReflex({
       text: utterance,
       laneInfo: earlyLane,

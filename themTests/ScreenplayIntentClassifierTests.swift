@@ -1,0 +1,53 @@
+import XCTest
+@testable import them
+
+final class ScreenplayIntentClassifierTests: XCTestCase {
+    func test_story_help_is_recognized_from_pattern_families_not_exact_phrases() {
+        let yes = [
+            "Talk to me about a scene.",
+            "I don't know where act two goes.",
+            "Is this scene working?",
+            "My ending feels flat.",
+            "What should happen after the midpoint?",
+            "Give me an idea for the opening.",
+            "Notes on this line: I'm so angry at you.",
+            "Help me fix the climax.",
+            "I'm stuck on the second act.",
+            "Walk me through the first plot point.",
+        ]
+        for text in yes { XCTAssertTrue(ScreenplayIntentClassifier.asksForStoryHelp(text), text) }
+        let no = [
+            "I had a rough morning.",
+            "What should I make for dinner?",
+            "How are you?",
+            "Tell me about your day.",
+            "My sister is visiting this weekend.",
+        ]
+        for text in no { XCTAssertFalse(ScreenplayIntentClassifier.asksForStoryHelp(text), text) }
+    }
+
+    func test_character_questions_need_a_character_and_a_cue() {
+        XCTAssertTrue(ScreenplayIntentClassifier.asksAboutCharacter("Why does she stay with him?"))
+        XCTAssertTrue(ScreenplayIntentClassifier.asksAboutCharacter("My protagonist feels flat."))
+        XCTAssertTrue(ScreenplayIntentClassifier.asksAboutCharacter("What does the antagonist want?"))
+        XCTAssertFalse(ScreenplayIntentClassifier.asksAboutCharacter("She called me back finally."))
+        XCTAssertFalse(ScreenplayIntentClassifier.asksAboutCharacter("The character limit on the field is 40."))
+    }
+
+    func test_filmmaker_mode_sticks_when_the_script_is_in_the_room_or_recently_discussed() {
+        let turns: [(user: String, assistant: String)] = [(user: "the diner scene", assistant: "Let him refill the coffee.")]
+        XCTAssertTrue(ScreenplayIntentClassifier.shouldStayInFilmmakerMode(text: "What about the ending?", recentTurns: turns, hasScriptInRoom: false))
+        XCTAssertTrue(ScreenplayIntentClassifier.shouldStayInFilmmakerMode(text: "Should she leave the page early?", recentTurns: [], hasScriptInRoom: true))
+        XCTAssertFalse(ScreenplayIntentClassifier.shouldStayInFilmmakerMode(text: "What about lunch?", recentTurns: turns, hasScriptInRoom: true), "story-free small talk stays companion")
+        XCTAssertFalse(ScreenplayIntentClassifier.shouldStayInFilmmakerMode(text: "The ending of that movie was wild", recentTurns: [], hasScriptInRoom: false), "no script in the room, no recent script talk")
+        XCTAssertTrue(ScreenplayIntentClassifier.shouldStayInFilmmakerMode(text: "I'm stuck on the second act.", recentTurns: [], hasScriptInRoom: false), "a direct ask always counts")
+    }
+
+    func test_director_context_uses_the_classifier_for_story_help_and_character() {
+        let store = HerEvolutionStore.shared
+        XCTAssertTrue(HerDirectorContext.build(from: store, userText: "Talk to me about a scene.").isAskingForStoryHelp)
+        XCTAssertTrue(HerDirectorContext.build(from: store, userText: "My ending feels flat.").isAskingForStoryHelp)
+        XCTAssertTrue(HerDirectorContext.build(from: store, userText: "Why does she stay with him?").isCharacterFocused)
+        XCTAssertFalse(HerDirectorContext.build(from: store, userText: "I had a rough morning.").isAskingForStoryHelp)
+    }
+}

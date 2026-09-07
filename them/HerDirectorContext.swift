@@ -254,8 +254,9 @@ extension HerDirectorContext {
             "suggest something", "help me with", "what would make this better",
             "synopsis", "logline", "treatment", "premise", "outline", "beat sheet"
         ]) || isSynopsisFocused || isStoryDirectionPrompt
+            || ScreenplayIntentClassifier.asksForStoryHelp(userText)
 
-        let isCharacterFocused = affirmedAny([
+        let isCharacterFocused = ScreenplayIntentClassifier.asksAboutCharacter(userText) || affirmedAny([
             "character wants", "she wants", "he wants", "they want",
             "her backstory", "his backstory", "their backstory",
             "what motivates", "why does she", "why does he",
