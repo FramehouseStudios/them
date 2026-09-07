@@ -141,3 +141,53 @@ test("[D009-B3] runTalkGenerate maps page abort to cancelled error", async () =>
     (err) => isPageCancelledError(err) && Number(err.status) === 409
   );
 });
+
+test("[PR3] runTalkGenerate short-film beta commits wallet with usage.outputTokens", async () => {
+  const commits = [];
+  const req = {
+    clementine: {
+      lane: "Page",
+      commitWallet: (n) => commits.push(n),
+    },
+  };
+  const prev = process.env.CLEMENTINE_SHORT_FILM_BETA;
+  process.env.CLEMENTINE_SHORT_FILM_BETA = "1";
+  // Fake supplier that returns a short-film draft
+  const chatSupplier = makeChatSupplier({
+    chatImpl: async () => ({
+      text: "INT. BEDROOM\n\nJOHN\nHello.\n\nSALLY\nHi.\n\nSAM\nHey.",
+      usage: { outputTokens: 123 },
+      model: "test-model",
+      apiMode: "chat_completions",
+      reasoningEffort: "low",
+      fallbackUsed: false,
+      response: { ok: true, status: 200 },
+      rawText: JSON.stringify({ choices: [{ message: { content: "INT. BEDROOM\n\nJOHN\nHello." } }] }),
+    }),
+  });
+
+  try {
+    const result = await runTalkGenerate({
+      req,
+      rid: "r-beta",
+      logger: { log() {}, warn() {} },
+      chatSupplier,
+      useChatStreaming: false,
+      system: "You are Clementine. Persona + contract.",
+      shortTermContextMessages: [],
+      talkGenerationTranscript: "Hey Clementine, I want to write a short film today 15 pages, genre will be horror film, one location, in a bedroom, three characters, one John, one Sally, one Sam. Write the first five pages and we'll go from there.",
+      chatMessages: [{ role: "user", content: "Hey Clementine, I want to write a short film today 15 pages, genre will be horror film, one location, in a bedroom, three characters, one John, one Sally, one Sam. Write the first five pages and we'll go from there." }],
+      chatModelPlan: { model: "test-model", apiMode: "chat_completions", reasoningEffort: "low", fallbackModel: null },
+      chatTemperature: 0.7,
+      chatMaxTokens: 4000,
+      chatStart: Date.now(),
+    });
+
+    assert.ok(result.rawReply.includes("INT. BEDROOM"), "should return short-film draft");
+    assert.deepEqual(commits, [123], "commitWallet should be called once with usage.outputTokens");
+    assert.equal(result.streamFirstSentence, "", "page-write should not use early TTS");
+  } finally {
+    if (prev === undefined) delete process.env.CLEMENTINE_SHORT_FILM_BETA;
+    else process.env.CLEMENTINE_SHORT_FILM_BETA = prev;
+  }
+});
