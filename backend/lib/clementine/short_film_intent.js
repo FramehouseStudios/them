@@ -89,6 +89,25 @@ function parseGenre(text) {
   return null;
 }
 
+function parseTitle(text) {
+  const t = String(text || "");
+  // "title is Orbit Fake" / 'title: "Orbit Fake"' / "called Orbit Fake" / "title is: Orbit"
+  const patterns = [
+    /title\s+is\s+["']?([^"'.!?,\n]{2,40})["']?/i,
+    /title\s*:\s*["']?([^"'.!?,\n]{2,40})["']?/i,
+    /called\s+["']([^"']{2,40})["']/i,
+    /titled\s+["']?([^"'.!?,\n]{2,40})["']?/i,
+  ];
+  for (const re of patterns) {
+    const m = t.match(re);
+    if (m) {
+      const raw = m[1].trim().replace(/^["']|["']$/g, "").trim();
+      if (raw.length >= 2 && raw.length <= 60 && !/^(horror|comedy|drama|thriller|sci-fi|short|film|pages?)$/i.test(raw)) return raw;
+    }
+  }
+  return null;
+}
+
 function parseInfluences(text) {
   const lower = text.toLowerCase();
   const directors = [];
@@ -230,6 +249,7 @@ function parseShortFilmIntent(utterance) {
   const setting = parseSetting(text);
   const characters = parseCharacters(text);
   const influences = parseInfluences(text);
+  const title = parseTitle(text);
 
   if (totalPages == null) return null;
   if (genre == null) return null;
@@ -242,6 +262,7 @@ function parseShortFilmIntent(utterance) {
     setting: setting ? setting.toLowerCase() : null,
     characters,
     influences,
+    title,
   };
   if (parseCache.size >= PARSE_CACHE_MAX) {
     const firstKey = parseCache.keys().next().value;
@@ -258,4 +279,5 @@ export {
   parseGenre,
   parseSetting,
   parseCharacters,
+  parseTitle,
 };
