@@ -41,10 +41,11 @@ function buildShortFilmProject({
   if (!Array.isArray(outline.scenes)) outline.scenes = [];
   if (!Array.isArray(outline.beats)) outline.beats = [];
   const id = typeof createScreenplayId === "function" ? createScreenplayId("project") : defaultCreateScreenplayId("project");
+  const title = trimToString(parsed.title) || `Untitled ${genre} short`;
   return {
     id: String(id),
     ownerKey: trimToString(ownerKey),
-    title: `Untitled ${genre} short`,
+    title,
     logline: `${genre} in a single ${setting} with ${chars.join(", ") || "ensemble"}`,
     setting,
     tone: genre,
