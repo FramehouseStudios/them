@@ -53,6 +53,7 @@ const EXPECTED = [
   ["/screenplay/projects/:projectId/version", "POST"],
   ["/screenplay/prompt/build", "POST"],
   ["/screenplay/paginate", "POST"],
+  ["/screenplay/coverage", "POST"],
   ["/screenplay/revision-colors", "POST"],
   ["/screenplay/export", "POST"],
   ["/history/annotate_turn", "POST"],
