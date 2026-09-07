@@ -124,6 +124,13 @@ final class V1SmokeUITests: XCTestCase {
         assertRememberedLoginRestored(in: app)
 
         let remember = app.switches["profile-auth-remember-me"]
+        // On a phone the toggle row can sit just past the bottom edge of the
+        // account sheet: XCUITest still reports it hittable, but a center tap
+        // lands outside the screen. Scroll it fully into the window first.
+        XCTAssertTrue(
+            scrollFullyIntoWindow(remember, in: app),
+            "Remember me toggle could not be scrolled fully on screen: \(remember.frame) in \(app.frame)"
+        )
         remember.tap()
         XCTAssertTrue(waitForSwitch(remember, toBeOn: false), "Remember me did not turn off.")
         app.terminate()
@@ -631,14 +638,29 @@ final class V1SmokeUITests: XCTestCase {
 
         for route in routes {
             let tab = app.buttons["studio.right-panel.\(route.tab)"]
-            XCTAssertTrue(tab.waitForExistence(timeout: 8), "Missing \(route.tab) inspector tab")
+            // The tab grid sits at the top of a lazy drawer. Revealing the
+            // previous panel scrolls the grid out of the accessibility
+            // hierarchy, so bring it back before tapping and check the
+            // selected state before this panel's reveal scrolls it away again.
+            XCTAssertTrue(
+                tab.waitForExistence(timeout: 8)
+                    || revealInStudioDrawer(tab, drawer: drawer, scrollingUp: false, maxSwipes: 16),
+                "Missing \(route.tab) inspector tab"
+            )
+            XCTAssertTrue(
+                revealInStudioDrawer(tab, drawer: drawer, scrollingUp: false, maxSwipes: 16),
+                "The \(route.tab) inspector tab could not be scrolled into view"
+            )
             tab.tap()
+            XCTAssertTrue(
+                waitForSelection(of: tab, timeout: 3),
+                "The \(route.tab) tab did not report its selected state"
+            )
             let panel = element(identifier: route.panel, in: app)
             XCTAssertTrue(
                 revealInStudioDrawer(panel, drawer: drawer, scrollingUp: true, maxSwipes: 16),
                 "The \(route.tab) tab did not reveal its working panel"
             )
-            XCTAssertTrue(tab.isSelected, "The \(route.tab) tab did not report its selected state")
 
             if route.tab == "outline" {
                 let nextSceneWrite = app.buttons["studio.feature-compass.move.next-scene.write"]
@@ -659,18 +681,78 @@ final class V1SmokeUITests: XCTestCase {
             (shortcut: "saved", panel: "studio.saved.panel"),
         ]
 
-        for route in shortcuts {
-            let shortcut = app.buttons["studio.draft-shortcut.\(route.shortcut)"]
-            XCTAssertTrue(shortcut.waitForExistence(timeout: 8), "Missing \(route.shortcut) draft shortcut")
-            shortcut.tap()
+        XCTAssertTrue(
+            element(identifier: "studio.surface", in: app).waitForExistence(timeout: 10),
+            "Studio did not open for the header shortcut test.\n\(app.debugDescription)"
+        )
+        let firstShortcut = app.buttons["studio.draft-shortcut.\(shortcuts[0].shortcut)"]
+        let rightToggle = app.buttons["studio.sidebar.right.toggle"]
+        let usesCompactHeader = !firstShortcut.waitForExistence(timeout: 4) && rightToggle.exists
+
+        if usesCompactHeader {
+            // The phone header has no room for the shortcut dots. The same
+            // destinations must stay reachable through the inspector drawer's
+            // Draft tools and Saved tab, so verify that route instead of
+            // skipping the phone.
+            let rightDrawer = element(identifier: "studio.sidebar.right.drawer", in: app)
+            if !rightDrawer.waitForExistence(timeout: 2) {
+                rightToggle.tap()
+                XCTAssertTrue(rightDrawer.waitForExistence(timeout: 4), "The inspector drawer did not open")
+            }
+            let draftTab = app.buttons["studio.right-panel.draft"]
             XCTAssertTrue(
-                app.descendants(matching: .any)[route.panel].waitForExistence(timeout: 4),
-                "The \(route.shortcut) shortcut did not reveal its destination"
+                revealInStudioDrawer(draftTab, drawer: rightDrawer, scrollingUp: false, maxSwipes: 8),
+                "Missing draft inspector tab"
             )
-            XCTAssertTrue(shortcut.isSelected, "The \(route.shortcut) shortcut did not report its selected state")
+            draftTab.tap()
+            XCTAssertTrue(waitForSelection(of: draftTab, timeout: 3))
+            let compactRoutes = [
+                (tab: "studio.draft.tools.pages", panel: "studio.draft.page-tools"),
+                (tab: "studio.draft.tools.revisions", panel: "studio.draft.revision-tools"),
+                (tab: "studio.draft.tools.snapshots", panel: "studio.draft.snapshot-tools"),
+            ]
+            for route in compactRoutes {
+                let tab = app.buttons[route.tab]
+                XCTAssertTrue(
+                    revealInStudioDrawer(tab, drawer: rightDrawer, scrollingUp: false, maxSwipes: 8),
+                    "Missing \(route.tab) draft tool tab on the phone header route"
+                )
+                tab.tap()
+                XCTAssertTrue(
+                    app.descendants(matching: .any)[route.panel].waitForExistence(timeout: 4),
+                    "The \(route.tab) tab did not reveal its destination"
+                )
+            }
+            let savedTab = app.buttons["studio.right-panel.saved"]
+            XCTAssertTrue(
+                revealInStudioDrawer(savedTab, drawer: rightDrawer, scrollingUp: false, maxSwipes: 8),
+                "Missing saved inspector tab"
+            )
+            savedTab.tap()
+            XCTAssertTrue(waitForSelection(of: savedTab, timeout: 3), "The saved tab did not report its selected state")
+            XCTAssertTrue(
+                app.descendants(matching: .any)["studio.saved.panel"].waitForExistence(timeout: 4),
+                "The saved tab did not reveal its destination"
+            )
+        } else {
+            for route in shortcuts {
+                let shortcut = app.buttons["studio.draft-shortcut.\(route.shortcut)"]
+                XCTAssertTrue(shortcut.waitForExistence(timeout: 8), "Missing \(route.shortcut) draft shortcut")
+                shortcut.tap()
+                XCTAssertTrue(
+                    app.descendants(matching: .any)[route.panel].waitForExistence(timeout: 4),
+                    "The \(route.shortcut) shortcut did not reveal its destination"
+                )
+                XCTAssertTrue(shortcut.isSelected, "The \(route.shortcut) shortcut did not report its selected state")
+            }
         }
 
         let filesTab = app.buttons["studio.sidebar.files"]
+        if !filesTab.waitForExistence(timeout: 2) {
+            let leftToggle = app.buttons["studio.sidebar.left.toggle"]
+            XCTAssertTrue(leftToggle.waitForExistence(timeout: 4), "Missing project drawer toggle")
+            leftToggle.tap()
+        }
         XCTAssertTrue(filesTab.waitForExistence(timeout: 4))
         filesTab.tap()
         XCTAssertTrue(app.buttons["Open Folder"].waitForExistence(timeout: 4))
@@ -3358,6 +3440,41 @@ final class V1SmokeUITests: XCTestCase {
 #else
         return true
 #endif
+    }
+
+    /// Scrolls the nearest scrollable ancestor until the element's whole frame
+    /// lies inside the app window. `isHittable` is true for a partially
+    /// visible control, but a center tap on one that hangs off the bottom
+    /// edge never reaches it.
+    @discardableResult
+    private func scrollFullyIntoWindow(
+        _ element: XCUIElement,
+        in app: XCUIApplication,
+        margin: CGFloat = 12,
+        maxSwipes: Int = 6
+    ) -> Bool {
+        func isFullyOnScreen() -> Bool {
+            let frame = element.frame
+            let window = app.frame
+            return element.exists &&
+                frame.minY >= window.minY + margin &&
+                frame.maxY <= window.maxY - margin
+        }
+        if isFullyOnScreen() { return true }
+        for _ in 0..<maxSwipes {
+            let frame = element.frame
+            let window = app.frame
+            let overflow = frame.maxY - (window.maxY - margin)
+            let underflow = (window.minY + margin) - frame.minY
+            let distance = overflow > 0 ? overflow : -max(underflow, 0)
+            guard distance != 0 else { break }
+            let anchor = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.6))
+            let target = anchor.withOffset(CGVector(dx: 0, dy: -min(max(distance, -220), 220)))
+            anchor.press(forDuration: 0.05, thenDragTo: target)
+            RunLoop.current.run(until: Date().addingTimeInterval(0.3))
+            if isFullyOnScreen() { return true }
+        }
+        return isFullyOnScreen()
     }
 
     private func waitForSelection(
