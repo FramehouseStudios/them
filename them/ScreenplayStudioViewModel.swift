@@ -4352,6 +4352,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         guard !draft.isEmpty else {
             coverageReport = nil
             coverageErrorText = ""
+            StudioOutlineRegistry.shared.coverageSummary = nil
             return
         }
         isCoverageRefreshing = true
@@ -4363,6 +4364,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
             )
             coverageReport = result.payload
             coverageErrorText = ""
+            StudioOutlineRegistry.shared.coverageSummary = StudioCoverageSummary(report: result.payload)
             let readLine = "Clementine's read: \(result.payload.grade), \(result.payload.verdict.lowercased())."
             infoText = infoText.isEmpty ? readLine : "\(infoText) \(readLine)"
             if speak {

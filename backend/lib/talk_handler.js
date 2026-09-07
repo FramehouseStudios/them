@@ -86,6 +86,7 @@ import { isMentorTurn, elevateChatModelPlanForMentorTurn } from "./mentor_turn.j
 import {
   parseStudioCapabilities,
   buildStudioControlsBlock,
+  buildCoverageReadBlock,
   extractStudioActions,
   encodeStudioActionsHeader,
   HEADER_NAME as STUDIO_ACTIONS_HEADER,
@@ -3888,6 +3889,8 @@ ${directorOutputRule}
     }
     if (studioCapabilities.enabled && (mentorTurn || screenplayContextActive) && !isScreenplayPageWriteTurn) {
       directorAddendum = appendDirectorAddendum(directorAddendum, buildStudioControlsBlock(studioCapabilities));
+      const coverageReadBlock = buildCoverageReadBlock(studioCapabilities);
+      if (coverageReadBlock) directorAddendum = appendDirectorAddendum(directorAddendum, coverageReadBlock);
     }
 
     // ---- talk_prompt stage: compose system prompt ----
