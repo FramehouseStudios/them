@@ -77,6 +77,7 @@ import {
 import { createMuseAwareChatSupplier } from "./clementine/muse_provider.js";
 import { isShortFilmBetaEnabled } from "./clementine/short_film_beta.js";
 import { parseShortFilmIntent } from "./clementine/short_film_intent.js";
+import { buildLivePaperPayload } from "./clementine/studio_live_paper.js";
 import { composeTalkSystemPrompt } from "./talk_prompt.js";
 import { runTalkGenerate } from "./talk_generate.js";
 
@@ -3154,6 +3155,68 @@ function createTalkHandler(deps) {
         if (screenplayOutputJson.length <= 5000) {
           res.setHeader("x-screenplay-output", encodeURIComponent(screenplayOutputJson));
         }
+      }
+      // Studio Live Paper — D009 strangler: project.logline/synopsis/beats/characterContexts via pure helper
+      try {
+        const _livePaperSource = (() => {
+          // Prefer merged studioMeta + memory project if available
+          const base = typeof studioMeta === "object" && studioMeta ? studioMeta : {};
+          const mem = (typeof memoryProject !== "undefined" && memoryProject && typeof memoryProject === "object") ? memoryProject : {};
+          // Also check creativeMemoryTrace project memory
+          const traceMem = (typeof creativeMemoryTrace !== "undefined" && creativeMemoryTrace?.screenplay_project_memory) ? creativeMemoryTrace.screenplay_project_memory : {};
+          return {
+            logline: base.screenplayLogline ?? base.logline ?? mem.logline ?? traceMem.logline ?? "",
+            synopsis: base.screenplaySynopsis ?? base.synopsis ?? mem.synopsis ?? traceMem.synopsis ?? "",
+            beats: base.screenplayBeatSequence ?? base.beats ?? mem.beats ?? mem.beatSequence ?? traceMem.beats ?? [],
+            characterContexts: base.screenplayCharacterContexts ?? base.characterContexts ?? mem.characterContexts ?? traceMem.characterContexts ?? base.character_contexts ?? {},
+          };
+        })();
+        const _livePaper = buildLivePaperPayload(_livePaperSource);
+        // Embed into output for Bridge fallback (non-breaking)
+        if (talkScreenplayOutput && typeof talkScreenplayOutput === "object" && !_livePaper.__embedded) {
+          talkScreenplayOutput.livePaper = _livePaper;
+        }
+        const _livePaperJson = JSON.stringify(_livePaper);
+        if (_livePaperJson.length <= 8000) {
+          res.setHeader("x-live-paper", encodeURIComponent(_livePaperJson));
+          // Also keep per-field headers for lightweight clients (Bridge can use either)
+          if (_livePaper.logline) res.setHeader("x-live-paper-logline", encodeURIComponent(_livePaper.logline.slice(0, 500)));
+          if (_livePaper.synopsis) res.setHeader("x-live-paper-synopsis", encodeURIComponent(_livePaper.synopsis.slice(0, 2000)));
+        }
+        res.setHeader("x-live-paper-available", "1");
+      } catch (_) {
+        try { res.setHeader("x-live-paper-available", "0"); } catch (_) {}
+      }
+      // Studio Live Paper — D009 strangler: project.logline/synopsis/beats/characterContexts via pure helper
+      try {
+        const _livePaperSource = (() => {
+          // Prefer merged studioMeta + memory project if available
+          const base = typeof studioMeta === "object" && studioMeta ? studioMeta : {};
+          const mem = (typeof memoryProject !== "undefined" && memoryProject && typeof memoryProject === "object") ? memoryProject : {};
+          // Also check creativeMemoryTrace project memory
+          const traceMem = (typeof creativeMemoryTrace !== "undefined" && creativeMemoryTrace?.screenplay_project_memory) ? creativeMemoryTrace.screenplay_project_memory : {};
+          return {
+            logline: base.screenplayLogline ?? base.logline ?? mem.logline ?? traceMem.logline ?? "",
+            synopsis: base.screenplaySynopsis ?? base.synopsis ?? mem.synopsis ?? traceMem.synopsis ?? "",
+            beats: base.screenplayBeatSequence ?? base.beats ?? mem.beats ?? mem.beatSequence ?? traceMem.beats ?? [],
+            characterContexts: base.screenplayCharacterContexts ?? base.characterContexts ?? mem.characterContexts ?? traceMem.characterContexts ?? base.character_contexts ?? {},
+          };
+        })();
+        const _livePaper = buildLivePaperPayload(_livePaperSource);
+        // Embed into output for Bridge fallback (non-breaking)
+        if (talkScreenplayOutput && typeof talkScreenplayOutput === "object" && !_livePaper.__embedded) {
+          talkScreenplayOutput.livePaper = _livePaper;
+        }
+        const _livePaperJson = JSON.stringify(_livePaper);
+        if (_livePaperJson.length <= 8000) {
+          res.setHeader("x-live-paper", encodeURIComponent(_livePaperJson));
+          // Also keep per-field headers for lightweight clients (Bridge can use either)
+          if (_livePaper.logline) res.setHeader("x-live-paper-logline", encodeURIComponent(_livePaper.logline.slice(0, 500)));
+          if (_livePaper.synopsis) res.setHeader("x-live-paper-synopsis", encodeURIComponent(_livePaper.synopsis.slice(0, 2000)));
+        }
+        res.setHeader("x-live-paper-available", "1");
+      } catch (_) {
+        try { res.setHeader("x-live-paper-available", "0"); } catch (_) {}
       }
       if (Array.isArray(talkScreenplayCues) && talkScreenplayCues.length) {
         const screenplayCuesJson = JSON.stringify(talkScreenplayCues);
