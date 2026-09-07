@@ -202,4 +202,21 @@ final class FountainFormatterTests: XCTestCase {
 
         XCTAssertEqual(result, "(beat)")
     }
+
+    func test_pasted_action_pronouns_are_not_promoted_to_character_names() {
+        let raw = """
+        INT. KITCHEN - NIGHT
+
+        MARA stands at the sink. She does not turn around.
+
+        MARA
+        Not me.
+
+        He waits. She does not move. Then Frank steps closer.
+        """
+        let out = FountainFormatter.normalizePastedScreenplayBlock(raw, existingDraft: "")
+        XCTAssertTrue(out.contains("He waits. She does not move."), out)
+        XCTAssertFalse(out.contains("HE waits"), out)
+        XCTAssertTrue(out.contains("FRANK steps closer"), "a real first appearance is still promoted: \(out)")
+    }
 }

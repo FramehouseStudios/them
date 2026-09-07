@@ -4384,6 +4384,11 @@ final class ScreenplayStudioViewModel: ObservableObject {
 
     func loadCraftReport(force: Bool = false) async {
         guard !isCraftLoading else { return }
+        // Frameworks are project-independent; load them so the picker works
+        // before a project exists instead of reading "backend unavailable".
+        if craftFrameworks.isEmpty {
+            try? await ensureCraftFrameworksLoaded()
+        }
         guard let project = selectedProject else {
             craftReport = nil
             craftErrorText = ""
