@@ -147,3 +147,38 @@ test("empty utterance → null", () => {
   assert.equal(parseShortFilmIntent(""), null);
   assert.equal(parseShortFilmIntent(null), null);
 });
+
+// PR-E probes — five phrasings from review: singular page, >15, without "character", all genres/directors/writers/tones
+test("probe: 15 page singular", () => {
+  const p = parseShortFilmIntent("Hey Clementine, I want to write a short film today 15 page, genre will be horror film, one location, in a bedroom, three characters, one John, one Sally, one Sam. Write the first five pages.");
+  assert.equal(p.totalPages, 15);
+  assert.equal(p.genre, "horror");
+});
+
+test("probe: twenty pages (word number >15)", () => {
+  const p = parseShortFilmIntent("Hey Clementine, short film twenty pages, genre sci-fi, one location bedroom, three characters John, Sally and Sam, write first five pages");
+  assert.equal(p.totalPages, 20);
+  assert.equal(p.genre, "sci-fi");
+  assert.deepEqual(p.characters, ["John","Sally","Sam"]);
+});
+
+test("probe: list without character word", () => {
+  const p = parseShortFilmIntent("Hey Clementine, I want to write a short film today 15 pages, genre horror, one location bedroom, John, Sally and Sam. Write first five pages.");
+  assert.equal(p.totalPages, 15);
+  assert.deepEqual(p.characters, ["John","Sally","Sam"]);
+});
+
+test("probe: short list without character, no first pages (defaults to total)", () => {
+  const p = parseShortFilmIntent("Hey Clementine, short film 15 pages, genre horror, one location bedroom, John, Sally and Sam");
+  assert.equal(p.totalPages, 15);
+  assert.deepEqual(p.characters, ["John","Sally","Sam"]);
+  assert.equal(p.requestedPages, 15);
+});
+
+test("probe: open genre + director/writer/tone influences", () => {
+  const p = parseShortFilmIntent("Hey Clementine, I want to write a short film today 15 pages, genre fantasy, one location bedroom, three characters, one John, one Sally, one Sam. It should feel like del Toro and writer Charlie Kaufman, tone gritty. Write first five pages.");
+  assert.equal(p.genre, "fantasy");
+  assert.ok(p.influences.directors.some(d => d.toLowerCase().includes("toro")));
+  assert.ok(p.influences.writers.includes("Charlie Kaufman"));
+  assert.ok(p.influences.tones.includes("gritty"));
+});
