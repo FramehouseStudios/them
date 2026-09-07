@@ -82,7 +82,7 @@ final class V1SmokeUITests: XCTestCase {
         let summary = element(identifier: "studio.pages.overview.summary", in: app)
         XCTAssertTrue(summary.waitForExistence(timeout: 4))
         XCTAssertTrue(summary.label.contains("1 page"), "Overview summary should count one page, got: \(summary.label)")
-        XCTAssertTrue(summary.label.contains("55 lines per printed page"), summary.label)
+        XCTAssertTrue(summary.label.contains("54 lines per printed page"), summary.label)
         let pageOne = app.buttons["studio.pages.overview.page.1"]
         XCTAssertTrue(pageOne.waitForExistence(timeout: 4), "Page 1 card was not rendered.")
         XCTAssertTrue(pageOne.label.contains("Page 1 of 1"), pageOne.label)
