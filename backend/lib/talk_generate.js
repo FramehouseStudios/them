@@ -130,6 +130,42 @@ async function runTalkGenerate({
           logger?.warn?.(`[${rid}] wallet_commit_failed ${walletErr?.message || walletErr}`);
         }
       }
+      // Short-film project id — id-only, attach to clementine so talk_handler can emit x-screenplay-project-id without growing backend/index.js
+      try {
+        const ownerRecord = req.clementine?.screenplayOwnerRecord || req.screenplayOwnerRecord || null;
+        if (ownerRecord) {
+          const { ensureShortFilmProject, createShortFilmVersion } = await import("./clementine/short_film_store.js");
+          const { project } = ensureShortFilmProject({ ownerRecord, parsed: betaParsed, now: Date.now() });
+          const version = createShortFilmVersion({ draft, parsed: betaParsed, now: Date.now() });
+          if (!Array.isArray(project.versions)) project.versions = [];
+          project.versions.push(version);
+          project.activeVersionId = version.id;
+          project.updatedAt = Date.now();
+          // Best-effort persistence via injected committer if available (tests inject, prod has screenplay_store)
+          const committer = req.clementine?.commitScreenplayOwnerMutation || req.commitScreenplayOwnerMutation;
+          if (typeof committer === "function" && ownerRecord.ownerKey) {
+            try {
+              await committer({
+                ownerKey: ownerRecord.ownerKey,
+                mutate: async (next) => {
+                  // Mirror the in-memory mutation for CAS persistence
+                  const { ensureShortFilmProject: ensure2, createShortFilmVersion: ver2 } = await import("./clementine/short_film_store.js");
+                  const { project: p2 } = ensure2({ ownerRecord: next, parsed: betaParsed, now: Date.now() });
+                  const v2 = ver2({ draft, parsed: betaParsed, now: Date.now() });
+                  if (!Array.isArray(p2.versions)) p2.versions = [];
+                  p2.versions.push(v2);
+                  p2.activeVersionId = v2.id;
+                  p2.updatedAt = Date.now();
+                },
+              });
+            } catch (_) {}
+          }
+          req.clementine = req.clementine || {};
+          req.clementine.screenplayProjectId = project.id;
+          // Also stash on return for talk_handler to pick up without req mutation reliance
+          req.clementine._shortFilmProjectId = project.id;
+        }
+      } catch (_) {}
       return {
         rawReply: draft,
         streamFirstSentence: "", // page-write early-TTS: don't speak Fountain
@@ -140,6 +176,7 @@ async function runTalkGenerate({
         chatModelFallbackUsed: false,
         effectiveChatUsage: { inputTokens: 0, outputTokens: usage.outputTokens, reasoningTokens: 0, totalTokens: usage.outputTokens },
         chatMs: Date.now() - chatStart,
+        screenplayProjectId: req.clementine?.screenplayProjectId || req.clementine?._shortFilmProjectId || "",
       };
     }
   }
