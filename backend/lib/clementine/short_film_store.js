@@ -113,4 +113,14 @@ function ensureShortFilmProject({
   return { project: proj, created: true };
 }
 
-export { buildShortFilmProject, createShortFilmVersion, ensureShortFilmProject };
+import { ensureCharacterContexts } from "./short_film_character_context.js";
+
+function ensureShortFilmProjectWithContexts(opts = {}) {
+  const res = ensureShortFilmProject(opts);
+  try {
+    ensureCharacterContexts(res.project, opts.parsed);
+  } catch {}
+  return res;
+}
+
+export { buildShortFilmProject, createShortFilmVersion, ensureShortFilmProject, ensureShortFilmProjectWithContexts };

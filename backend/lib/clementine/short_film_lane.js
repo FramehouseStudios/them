@@ -32,8 +32,10 @@ async function runShortFilmLane({ req, parsed, chatSupplier = null, signal = nul
     throw err;
   }
 
+  // Per-character context from singular project (if caller attached project)
+  const projectForPrompt = req?.clementine?.screenplayProjectForPrompt || req?.screenplayProjectForPrompt || null;
   // Use caller's assembled system (already persona + withOutputContract) + short-film block
-  const { system: shortSystem, user } = buildShortFilmPrompt(parsed);
+  const { system: shortSystem, user } = buildShortFilmPrompt(parsed, { project: projectForPrompt });
   const system = baseSystem ? `${baseSystem}\n\n${shortSystem}` : shortSystem;
 
   let draft = "";

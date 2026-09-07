@@ -14,8 +14,9 @@ function trimToString(v) {
  * @param {{totalPages:number,requestedPages:number,genre:string,setting:string,characters:string[]}} parsed
  * @returns {{system:string,user:string,outline:string}}
  */
-function buildShortFilmPrompt(parsed) {
-  const key = JSON.stringify([parsed?.totalPages, parsed?.requestedPages, parsed?.genre, parsed?.setting, parsed?.characters, parsed?.influences]);
+function buildShortFilmPrompt(parsed, opts = {}) {
+  const project = opts.project || null;
+  const key = JSON.stringify([parsed?.totalPages, parsed?.requestedPages, parsed?.genre, parsed?.setting, parsed?.characters, parsed?.influences, project?.characterContexts?.map((c)=>`${c.name}:${c.voice}:${c.memory?.length||0}`).join("|")||""]);
   if (promptCache.has(key)) return promptCache.get(key);
   const total = Number(parsed?.totalPages) || 15;
   const req = Number(parsed?.requestedPages) || 5;
@@ -39,11 +40,22 @@ function buildShortFilmPrompt(parsed) {
     `This request delivers the first ${req} pages.`,
   ].join("\n");
 
+  // Per-character voices/memory snapshot (singular project, individual context)
+  let characterBlock = "";
+  if (project && Array.isArray(project.characterContexts) && project.characterContexts.length) {
+    const lines = project.characterContexts.map((c) => {
+      const mem = Array.isArray(c.memory) ? c.memory.slice(-2).map((m)=>`"${m.text}"`).join(" | ") : "";
+      return `${c.name} — voice ${c.voice}, backstory: ${c.backstory}${mem?` | recent: ${mem}`:""}`;
+    });
+    characterBlock = `Per-character context (same project, isolated memory):\n${lines.join("\n")}`;
+  }
+
   const system = [
     `You are Clementine writing Fountain screenplay pages.`,
     `Owner bar: distinct character voice, subtext, want/obstacle/cost, motif image echo, anti-cliché, playable format.`,
     `Constraints: Genre=${genre}. Single location INT. ${setting.toUpperCase()}. Must use ${chars.length} characters: ${charNames}.`,
     influenceLine,
+    characterBlock,
     `Total length ${total} pages (delivering ${req} pages now). This turn writes exactly ${req} pages.`,
     `Output only Fountain screenplay text — plain Fountain, no PAGE markers, no preamble, no logline.`,
     outline,
