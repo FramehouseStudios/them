@@ -21,6 +21,7 @@ import { isShortFilmBetaEnabled } from "./clementine/short_film_beta.js";
 import { parseShortFilmIntent } from "./clementine/short_film_intent.js";
 import { runShortFilmLane } from "./clementine/short_film_lane.js";
 import { enforceStudioScreenplayQuality } from "./studio_screenplay_quality_gate.js";
+import { resolveShortFilmIntent } from "./clementine/short_film_intent_llm.js";
 
 /**
  * Run the billed chat generation stage (stream optional, then non-stream).
@@ -82,7 +83,12 @@ async function runTalkGenerate({
   // Beta short-film: flag-gated, before multipass. Gate on page-write turn, not flag alone — chat must never return Fountain.
   const isPageWriteForBeta = String(req.clementine?.lane || "").toLowerCase() === "page";
   if (isShortFilmBetaEnabled(process.env) && isPageWriteForBeta) {
-    const betaParsed = parseShortFilmIntent(talkGenerationTranscript || "");
+    let betaParsed = parseShortFilmIntent(talkGenerationTranscript || "");
+    if (!betaParsed) {
+      try {
+        betaParsed = await resolveShortFilmIntent(talkGenerationTranscript || "", { chatSupplier });
+      } catch {}
+    }
     if (betaParsed) {
       const pageAbort = req?.clementine?.abortSignal || null;
       let { draft, usage } = await runShortFilmLane({
