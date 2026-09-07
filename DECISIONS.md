@@ -154,7 +154,7 @@ Each entry follows the ADR pattern:
   3. Wire through DI in `page_multipass_routing.js` + `runTalkGeneratePageMultipass`; tests inject fakes and assert per-stage model/effort (no live API).
 - **Consequences:** See `docs/product/page-multipass.md`. F4 owns memory bible / calibration residuals. Production keeps `CLEMENTINE_PAGE_MULTIPASS=0` until validated.
 
-## D014 — Beta short-film mode (voice → 5 of 15, flag-gated)
+## D016 — Beta short-film mode (voice → 5 of 15, flag-gated)
 
 - **Date:** 2026-09-06
 - **Status:** proposed

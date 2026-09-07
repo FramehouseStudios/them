@@ -7,6 +7,7 @@
 // optional on-device CoreML / server Glimmer without changing this enum surface.
 
 import { parseShortFilmIntent } from "./short_film_intent.js";
+import { isShortFilmBetaEnabled } from "./short_film_beta.js";
 
 const INTENT = Object.freeze({
   GREETING: "greeting",
@@ -41,9 +42,7 @@ function classifyIntent(utterance, hints = {}) {
 
   // Short-film beta — flag-gated, additive, no V1 regression when flag off.
   try {
-    const betaFlag = String(process.env.CLEMENTINE_SHORT_FILM_BETA || "").trim().toLowerCase();
-    const betaEnabled = betaFlag === "1" || betaFlag === "true" || betaFlag === "yes" || betaFlag === "on";
-    if (betaEnabled) {
+    if (isShortFilmBetaEnabled(process.env)) {
       const raw = String(utterance ?? "");
       if (raw.toLowerCase().includes("short film") && raw.toLowerCase().includes("pages")) {
         const parsed = parseShortFilmIntent(raw);
