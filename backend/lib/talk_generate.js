@@ -173,6 +173,26 @@ async function runTalkGenerate({
           req.clementine.screenplayProjectId = project.id;
           // Also stash on return for talk_handler to pick up without req mutation reliance
           req.clementine._shortFilmProjectId = project.id;
+          // Simultaneous paper: push per-character lines from draft into isolated memory (best engineer: parse uppercase headers)
+          try {
+            const { pushCharacterMemory } = await import("./clementine/short_film_character_context.js");
+            const lines = String(draft).split("\n");
+            let current = null;
+            for (const raw of lines) {
+              const up = raw.trim();
+              if (!up) continue;
+              // Character header is all-caps 2-20 chars (JOHN, SALLY, ALEX)
+              if (/^[A-Z][A-Z \-'0-9]{1,30}$/.test(up) && up === up.toUpperCase() && !up.startsWith("INT.") && !up.startsWith("EXT.")) {
+                const name = up.split(" ")[0];
+                // verify name is in parsed characters (case-insensitive)
+                if (parsed.characters?.some((c)=> String(c).toUpperCase()===name)) current = name;
+                else current = null;
+              } else if (current) {
+                pushCharacterMemory(project, { name: current, text: up, page: 1 });
+                // keep current until next header
+              }
+            }
+          } catch {}
         }
       } catch (_) {}
       return {

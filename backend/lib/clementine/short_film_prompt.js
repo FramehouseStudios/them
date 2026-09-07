@@ -3,6 +3,8 @@
 // Uses story_structure_knowledge when available, falls back to generic scaffold.
 
 import { getThreeActBeats } from "./story_structure_knowledge.js";
+import { selectCraftCards } from "./craft_cards.js";
+import { getFeatureBeats } from "./feature_structure_knowledge.js";
 
 const promptCache = new Map();
 const PROMPT_CACHE_MAX = 64;
@@ -34,10 +36,19 @@ function buildShortFilmPrompt(parsed, opts = {}) {
     influences.tones?.length ? `Tones: ${influences.tones.join(", ")}.` : "",
   ].filter(Boolean).join(" ");
 
-  // Omniscient 3-act beats via knowledge (tone/mood + influences)
+  // Omniscient 3-act beats via knowledge (tone/mood + influences), feature-aware 15-90p
   let structure = null;
   try {
-    structure = getThreeActBeats({ genre, tone: influences.tones?.[0] || "", mood: parsed?.mood || "", influences });
+    const tone0 = influences.tones?.[0] || "";
+    structure = total > 30
+      ? getFeatureBeats({ genre, tone: tone0, mood: parsed?.mood || "", totalPages: total, influences })
+      : getThreeActBeats({ genre, tone: tone0, mood: parsed?.mood || "", influences });
+  } catch {}
+  let craftBlock = "";
+  try {
+    const cards = selectCraftCards({ genre, tone: influences.tones?.[0] || "" });
+    const top = cards.slice(0, 2);
+    craftBlock = `Craft (selected for ${genre}/${influences.tones?.[0] || "tone"}):\n${top.map((c)=>`${c.title} — ${c.want} / ${c.cost} (motif: ${c.motif})`).join("\n")}`;
   } catch {}
   const outline = structure
     ? [
@@ -74,7 +85,8 @@ function buildShortFilmPrompt(parsed, opts = {}) {
     `Constraints: Genre=${genre}. Single location INT. ${setting.toUpperCase()}. Must use ${chars.length} characters: ${charNames}.`,
     influenceLine,
     characterBlock,
-    `Total length ${total} pages (delivering ${req} pages now). This turn writes exactly ${req} pages.`,
+    craftBlock,
+    `Total length ${total} pages (delivering ${req} pages now). This turn writes exactly ${req} pages.${total>30?` Feature act splits: Act1 ${structure?.acts?.[0]?.pages||23}p / Act2 ${structure?.acts?.[1]?.pages||45}p / Act3 ${structure?.acts?.[2]?.pages||22}p.`:""}`,
     `Output only Fountain screenplay text — plain Fountain, no PAGE markers, no preamble, no logline.`,
     outline,
     charLine,
