@@ -304,16 +304,19 @@ export const CRAFT_CARDS = [
   },
 ];
 
+const TONE_SYNONYMS = Object.freeze({ dark: ["dark", "tense"], tense: ["tense", "dark"] });
+
 export function selectCraftCards({ genre, tone } = {}) {
   const g = genre ? String(genre).trim().toLowerCase() : null;
   const t = tone ? String(tone).trim().toLowerCase() : null;
   if (!g && !t) return [...CRAFT_CARDS];
+  const tAliases = t && TONE_SYNONYMS[t] ? TONE_SYNONYMS[t] : (t ? [t] : []);
   const scored = CRAFT_CARDS.map((c) => {
     let score = 0;
     const gl = c.genres.map((x) => x.toLowerCase());
     const tl = c.tones.map((x) => x.toLowerCase());
     if (g && gl.includes(g)) score += 2;
-    if (t && tl.includes(t)) score += 2;
+    if (t && tAliases.some((a) => tl.includes(a))) score += 2;
     // bonus if card is universal-ish (covers 3+ genres) when no direct match fallback handled elsewhere
     return { c, score };
   });

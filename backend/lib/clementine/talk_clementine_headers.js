@@ -1,7 +1,8 @@
-// talk_clementine_headers — D009 strangler: x-suggestion / x-uncertainty / x-collab-cursor for talk_handler.
+// talk_clementine_headers — D009 strangler: x-suggestion / x-uncertainty / x-collab-cursor + samantha presence for talk_handler.
 // No backend/index.js growth. Pure helpers, tested via talk_handler + unit test.
 // Wire: talk_handler calls applyClementineTalkHeaders(res, { project, draft, parsed, quality, collabCursor }).
 import { shouldSuggest, buildSuggestion } from "./samantha_intuition.js";
+import { getSamanthaPresence } from "./samantha_presence.js";
 
 function toTrimmed(v) { return String(v||"").trim(); }
 
@@ -41,6 +42,15 @@ export function buildCollabCursorHeader({ collabCursor, project, draft } = {}) {
   return JSON.stringify(payload);
 }
 
+export function buildPresenceHeaders({ project } = {}) {
+  try {
+    const p = getSamanthaPresence(project);
+    const state = String(p?.state || "idle");
+    const hist = Array.isArray(p?.history) ? p.history.slice(-20) : [];
+    return { state, history: hist, lastBargeInAt: p?.lastBargeInAt || null, lastBargeInReason: p?.lastBargeInReason || null };
+  } catch { return { state: "idle", history: [] }; }
+}
+
 export function applyClementineTalkHeaders(res, { project, draft, parsed, quality, collabCursor } = {}) {
   const suggestion = buildSuggestionHeader({ project, draft, parsed });
   if (suggestion) {
@@ -55,6 +65,14 @@ export function applyClementineTalkHeaders(res, { project, draft, parsed, qualit
     const enc = encodeURIComponent(cursorJson.slice(0, 500));
     res.setHeader("x-collab-cursor", enc);
   }
+  // Samantha presence 20-history (header-wired)
+  try {
+    const pres = buildPresenceHeaders({ project });
+    res.setHeader("x-samantha-presence", encodeURIComponent(String(pres.state).slice(0, 40)));
+    if (pres.history.length) res.setHeader("x-presence-history", encodeURIComponent(JSON.stringify(pres.history).slice(0, 800)));
+    if (pres.lastBargeInAt) res.setHeader("x-presence-barge-at", String(pres.lastBargeInAt));
+    if (pres.lastBargeInReason) res.setHeader("x-presence-barge-reason", encodeURIComponent(String(pres.lastBargeInReason).slice(0, 80)));
+  } catch {}
 }
 
 export default { buildSuggestionHeader, buildUncertaintyHeader, buildCollabCursorHeader, applyClementineTalkHeaders };
