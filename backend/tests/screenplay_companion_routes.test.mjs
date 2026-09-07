@@ -404,3 +404,20 @@ test("[screenplay-companion-routes] POST /revision-colors rejects empty draft wi
     assert.equal(r.body.error, "draft_required");
   });
 });
+
+test("[screenplay-companion-routes] POST /coverage returns Clementine's read; empty draft is 400", async () => {
+  await withTestServer(defaultDeps(), async (baseURL) => {
+    const draft = ["INT. KITCHEN - NIGHT", "", "JUNE sets the cup down.", "", "JUNE", "You left the porch light on. Again.", "", "MARCUS", "It's cheaper than a lock."].join("\n");
+    const r = await postJson(baseURL, "/screenplay/coverage", { draft, title: "Porch Light" });
+    assert.equal(r.status, 200);
+    assert.equal(r.body.stage, "screenplay_coverage");
+    assert.equal(r.body.title, "Porch Light");
+    assert.ok(["A", "B", "C", "D", "F"].includes(r.body.grade));
+    assert.ok(["RECOMMEND", "CONSIDER", "PASS"].includes(r.body.verdict));
+    assert.deepEqual(Object.keys(r.body.pillars), ["structure", "pacing", "dialogue", "character", "format"]);
+    assert.match(r.body.spoken, /Here's my read/);
+    const empty = await postJson(baseURL, "/screenplay/coverage", { draft: "" });
+    assert.equal(empty.status, 400);
+    assert.equal(empty.body.error, "draft_required");
+  });
+});

@@ -1382,6 +1382,11 @@ struct RootExperienceView: View {
                         showOfflineTalkOutboxBanner(status)
                     }
                 }
+                .onReceive(NotificationCenter.default.publisher(for: .themClementineSpeakRequested)) { notification in
+                    guard let text = ScreenplayCoveragePresentation.speechText(from: notification) else { return }
+                    promptSpeaker.stop()
+                    promptSpeaker.speak(text)
+                }
                 .onReceive(NotificationCenter.default.publisher(for: .themOpenStudioRequested)) { _ in
                     handleWorkspaceNavigationCommand(.openStudio)
                 }
