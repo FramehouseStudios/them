@@ -34,6 +34,10 @@ npm run eval:mentor-golden:live     # needs OPENAI_API_KEY: each case is answere
 Reports go to `/tmp/them-smoke/mentor-golden/report.json` (`MENTOR_GOLDEN_REPORT`
 overrides). `--only=<id|category>` narrows a run.
 
+The live half also runs on a schedule: `.github/workflows/mentor-golden-live.yml`
+(Mondays 14:17 UTC, and on demand with an optional `only` input). It needs the
+`OPENAI_API_KEY` secret and uploads the report as an artifact for 90 days.
+
 ## The prompt it measures
 
 `docs/persona/mentor-core.txt` is the one source of truth for her identity. The
