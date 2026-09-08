@@ -25,6 +25,7 @@ struct ScreenplayStudioScreen: View {
     var canTalk: Bool
     var talkStatusText: String
     var talkIsActive: Bool
+    var livePartialTranscript: String
     var debugVoicePartialStableSeconds: Double
     var debugVoicePartialStabilityWindowSeconds: Double
     var isSubmittingPrompt: Bool
@@ -42,6 +43,7 @@ struct ScreenplayStudioScreen: View {
         canTalk: Bool,
         talkStatusText: String,
         talkIsActive: Bool,
+        livePartialTranscript: String,
         debugVoicePartialStableSeconds: Double,
         debugVoicePartialStabilityWindowSeconds: Double,
         isSubmittingPrompt: Bool,
@@ -58,6 +60,7 @@ struct ScreenplayStudioScreen: View {
         self.canTalk = canTalk
         self.talkStatusText = talkStatusText
         self.talkIsActive = talkIsActive
+        self.livePartialTranscript = livePartialTranscript
         self.debugVoicePartialStableSeconds = debugVoicePartialStableSeconds
         self.debugVoicePartialStabilityWindowSeconds = debugVoicePartialStabilityWindowSeconds
         self.isSubmittingPrompt = isSubmittingPrompt
@@ -2459,11 +2462,54 @@ private var directionOneColumnSurface: some View {
 
 @ViewBuilder
 private func directionOneHeader(usesDrawers: Bool) -> some View {
-    if usesDrawers {
-        directionOneCompactHeader
-    } else {
-        directionOneExpandedHeader
+    VStack(spacing: 0) {
+        if usesDrawers {
+            directionOneCompactHeader
+        } else {
+            directionOneExpandedHeader
+        }
+
+        if !cleanLivePartialTranscript.isEmpty {
+            directionOneLiveTranscriptCaption
+        }
     }
+}
+
+private var cleanLivePartialTranscript: String {
+    livePartialTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
+}
+
+private var directionOneLiveTranscriptCaption: some View {
+    HStack(spacing: 7) {
+        Image(systemName: "waveform")
+            .font(.system(size: 10, weight: .semibold))
+            .foregroundStyle(Color.accentColor.opacity(0.86))
+            .accessibilityHidden(true)
+
+        Text("Hearing:")
+            .font(.system(size: 11, weight: .semibold, design: .default))
+            .foregroundStyle(directionOneChromeText.opacity(0.88))
+            .fixedSize(horizontal: true, vertical: false)
+
+        Text(cleanLivePartialTranscript)
+            .font(.system(size: 11, weight: .regular, design: .default))
+            .foregroundStyle(directionOneChromeSecondaryText)
+            .lineLimit(1)
+            .truncationMode(.head)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+    .padding(.horizontal, 12)
+    .padding(.vertical, 6)
+    .background(directionOneChromePanelSoft.opacity(0.98))
+    .overlay(alignment: .bottom) {
+        Rectangle()
+            .fill(directionOneChromeStroke.opacity(0.45))
+            .frame(height: 1)
+    }
+    .accessibilityElement(children: .ignore)
+    .accessibilityLabel("Clementine is hearing")
+    .accessibilityValue(cleanLivePartialTranscript)
+    .accessibilityIdentifier("studio.voice.partial-transcript")
 }
 
 private var directionOneExpandedHeader: some View {

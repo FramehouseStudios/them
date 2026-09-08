@@ -3870,6 +3870,7 @@ struct RootExperienceView: View {
             canTalk: canStartTalk,
             talkStatusText: studioTalkStatusText,
             talkIsActive: studioTalkIsActive,
+            livePartialTranscript: livePartialTranscript,
             debugVoicePartialStableSeconds: voice.debugPartialStableSeconds,
             debugVoicePartialStabilityWindowSeconds: voice.debugPartialStabilityWindowSeconds,
             isSubmittingPrompt: isTurnSubmitting,

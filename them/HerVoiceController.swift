@@ -18,7 +18,9 @@ enum ClementineVoiceSettings {
     static let voiceSpeedKey = "clementine_voice_speed"
 
     static func vadSensitivity(defaults: UserDefaults = .standard) -> Double {
-        let raw = defaults.object(forKey: vadSensitivityKey) as? Double ?? 0.62
+        let raw = (defaults.object(forKey: vadSensitivityKey) as? NSNumber)?.doubleValue
+            ?? (defaults.object(forKey: "orb_mic_sensitivity") as? NSNumber)?.doubleValue
+            ?? 0.62
         return min(max(raw, 0), 1)
     }
 
@@ -482,16 +484,9 @@ final class HerVoiceController: ObservableObject {
     private let retriggerCooldownSeconds: TimeInterval = 0.25
     private let pendingRequestTimeoutSeconds: TimeInterval = 20
     private let maxCaptureSeconds: TimeInterval = 28
-    private let bargeInMinHoldSeconds: TimeInterval = 0.012
-    private let bargeInGraceAfterPlaybackStartSeconds: TimeInterval = 0.012
-    private let bargeInThresholdScale: Float = 0.92
-    private let bargeInNoiseMultiplier: Float = 1.65
-    private let bargeInMinAbsoluteRMS: Float = 0.0028
-    private let bargeInImmediateAbsoluteRMS: Float = 0.0042
-    private let bargeInDeltaFromPlaybackBaseline: Float = 0.0009
-    private let bargeInImmediateDeltaFromPlaybackBaseline: Float = 0.0016
-    private let bargeInMinConsecutiveLoudFrames: Int = 1
-    private let bargeInBaselineCalibrationWindowSeconds: TimeInterval = 0.45
+    private let bargeInMinHoldSeconds: TimeInterval = 0.12
+    private let bargeInGraceAfterPlaybackStartSeconds: TimeInterval = 0.45
+    private let bargeInBaselineCalibrationWindowSeconds: TimeInterval = 0.65
 
     private var speechStartedAt: Date?
     private var lastLoudAt: Date?
@@ -504,7 +499,6 @@ final class HerVoiceController: ObservableObject {
     private var smoothedRMS: Float = 0
     private var assistantPlaybackStartedAt: Date?
     private var assistantPlaybackBaselineRMS: Float = 0
-    private var assistantPlaybackBaselineSamples: Int = 0
     private var bargeInCandidateStartedAt: Date?
     private var consecutiveLoudFrames: Int = 0
     private var silenceQualifiedSince: Date?
@@ -611,7 +605,6 @@ final class HerVoiceController: ObservableObject {
         debugPartialStableSeconds = 0
         assistantPlaybackStartedAt = Date()
         assistantPlaybackBaselineRMS = max(0.0016, noiseFloorRMS, smoothedRMS)
-        assistantPlaybackBaselineSamples = 0
         bargeInCandidateStartedAt = nil
         consecutiveLoudFrames = 0
         silenceQualifiedSince = nil
@@ -623,7 +616,6 @@ final class HerVoiceController: ObservableObject {
         pendingRequestDeadline = nil
         assistantPlaybackStartedAt = nil
         assistantPlaybackBaselineRMS = 0
-        assistantPlaybackBaselineSamples = 0
         bargeInCandidateStartedAt = nil
         consecutiveLoudFrames = 0
         silenceQualifiedSince = nil
@@ -637,7 +629,6 @@ final class HerVoiceController: ObservableObject {
         pendingRequestDeadline = nil
         assistantPlaybackStartedAt = nil
         assistantPlaybackBaselineRMS = 0
-        assistantPlaybackBaselineSamples = 0
         bargeInCandidateStartedAt = nil
         consecutiveLoudFrames = 0
         silenceQualifiedSince = nil
@@ -681,7 +672,6 @@ final class HerVoiceController: ObservableObject {
         pendingRequestDeadline = nil
         assistantPlaybackStartedAt = nil
         assistantPlaybackBaselineRMS = 0
-        assistantPlaybackBaselineSamples = 0
         bargeInCandidateStartedAt = nil
         consecutiveLoudFrames = 0
         silenceQualifiedSince = nil
@@ -866,7 +856,6 @@ final class HerVoiceController: ObservableObject {
                 mode = .armedListening
                 assistantPlaybackStartedAt = nil
                 assistantPlaybackBaselineRMS = 0
-                assistantPlaybackBaselineSamples = 0
                 bargeInCandidateStartedAt = nil
                 consecutiveLoudFrames = 0
                 // Continue this frame through normal capture path below.
@@ -874,27 +863,20 @@ final class HerVoiceController: ObservableObject {
                 if assistantPlaying {
                     let assistantSample = max(noiseFloorRMS, smoothedRMS)
                     let elapsedSincePlaybackStart = now.timeIntervalSince(assistantPlaybackStartedAt ?? now)
-                    if elapsedSincePlaybackStart <= bargeInBaselineCalibrationWindowSeconds {
-                        if assistantPlaybackBaselineSamples <= 0 {
-                            assistantPlaybackBaselineRMS = assistantSample
-                        } else {
-                            assistantPlaybackBaselineRMS =
-                                (assistantPlaybackBaselineRMS * 0.90) + (assistantSample * 0.10)
-                        }
-                        assistantPlaybackBaselineSamples += 1
+                    let isCalibrating = elapsedSincePlaybackStart <= bargeInBaselineCalibrationWindowSeconds
+                    if isCalibrating {
+                        assistantPlaybackBaselineRMS = ClementineVADPolicy.playbackBaseline(
+                            current: assistantPlaybackBaselineRMS,
+                            observedRMS: assistantSample,
+                            isCalibrating: true
+                        )
                     }
                 }
                 let elapsedSincePlaybackStart = now.timeIntervalSince(assistantPlaybackStartedAt ?? now)
-                let playbackBaselineThreshold = assistantPlaybackBaselineRMS + bargeInDeltaFromPlaybackBaseline
-                let dynamicFloor = max(
-                    dynamicStartThreshold * bargeInThresholdScale,
-                    0.0024
-                )
-                let bargeInThreshold = max(
-                    dynamicFloor,
-                    noiseFloorRMS * bargeInNoiseMultiplier,
-                    bargeInMinAbsoluteRMS,
-                    playbackBaselineThreshold
+                let bargeInThreshold = ClementineVADPolicy.bargeInThreshold(
+                    dynamicStartThreshold: dynamicStartThreshold,
+                    noiseFloorRMS: noiseFloorRMS,
+                    playbackBaselineRMS: assistantPlaybackBaselineRMS
                 )
                 let highEnough = smoothedRMS >= bargeInThreshold
                 if elapsedSincePlaybackStart >= bargeInGraceAfterPlaybackStartSeconds, highEnough {
@@ -902,18 +884,21 @@ final class HerVoiceController: ObservableObject {
                         bargeInCandidateStartedAt = now
                     }
                     let holdTime = now.timeIntervalSince(bargeInCandidateStartedAt ?? now)
-                    let immediateCut = smoothedRMS >= max(
-                        bargeInImmediateAbsoluteRMS,
-                        assistantPlaybackBaselineRMS + bargeInImmediateDeltaFromPlaybackBaseline
-                    ) && consecutiveLoudFrames >= 1
-                    let heldCut = holdTime >= bargeInMinHoldSeconds && consecutiveLoudFrames >= bargeInMinConsecutiveLoudFrames
-                    if immediateCut || heldCut {
+                    if ClementineVADPolicy.shouldInterruptPlayback(
+                        elapsedSincePlaybackStart: elapsedSincePlaybackStart,
+                        graceSeconds: bargeInGraceAfterPlaybackStartSeconds,
+                        candidateHoldSeconds: holdTime,
+                        requiredHoldSeconds: bargeInMinHoldSeconds,
+                        consecutiveLoudFrames: consecutiveLoudFrames,
+                        rms: smoothedRMS,
+                        threshold: bargeInThreshold,
+                        playbackBaselineRMS: assistantPlaybackBaselineRMS
+                    ) {
                         let baselineAtCut = assistantPlaybackBaselineRMS
                         stopAssistantPlayback?()
                         onBargeInDetected?()
                         assistantPlaybackStartedAt = nil
                         assistantPlaybackBaselineRMS = 0
-                        assistantPlaybackBaselineSamples = 0
                         hasPendingUtterance = false
                         pendingRequestDeadline = nil
                         mode = .capturingSpeech
@@ -928,7 +913,7 @@ final class HerVoiceController: ObservableObject {
                         utteranceFrames.removeAll(keepingCapacity: true)
                         utteranceFrames.append(contentsOf: frames)
                         HerLog.mic.info(
-                            "BARGE-IN while assistantSpeaking assistantPlaying=\(assistantPlaying) hold=\(holdTime) rms=\(self.smoothedRMS) threshold=\(bargeInThreshold) baseline=\(baselineAtCut) immediate=\(immediateCut)"
+                            "BARGE-IN while assistantSpeaking assistantPlaying=\(assistantPlaying) hold=\(holdTime) rms=\(self.smoothedRMS) threshold=\(bargeInThreshold) baseline=\(baselineAtCut)"
                         )
                         bargeInCandidateStartedAt = nil
                     }
@@ -1168,14 +1153,18 @@ final class HerVoiceController: ObservableObject {
 
     private func updateNoiseFloor(with rms: Float) {
         guard mode != .capturingSpeech, mode != .assistantSpeaking else { return }
-        let clamped = max(0.00005, min(0.05, rms))
-        if clamped > (dynamicStartThreshold * 1.25) { return }
-        noiseFloorRMS = (noiseFloorRMS * 0.92) + (clamped * 0.08)
+        noiseFloorRMS = ClementineVADPolicy.updatedNoiseFloor(
+            current: noiseFloorRMS,
+            observedRMS: rms
+        )
     }
 
     private func computeDynamicStartThreshold() -> Float {
-        let floorBased = max(noiseFloorRMS * 2.9, baseStartThreshold * 0.80)
-        return min(max(floorBased, 0.0042), 0.022)
+        ClementineVADPolicy.startThreshold(
+            noiseFloorRMS: noiseFloorRMS,
+            baseThreshold: baseStartThreshold,
+            sensitivity: ClementineVoiceSettings.vadSensitivity()
+        )
     }
 
     private func currentPartialStableSeconds(partialLength: Int, now: Date) -> TimeInterval {
