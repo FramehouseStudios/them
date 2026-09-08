@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-08T19:08:00.000Z",
+  "updatedAt": "2026-09-08T19:16:00.000Z",
   "updatedBy": "codex",
   "openPullRequests": [
     {
@@ -92,16 +92,17 @@
       "expected_action": "Land after #596 only when both exact SHAs receive the required hosted checks."
     },
     {
-      "number": 455,
-      "title": "release-preflight: self-describing gate summary",
-      "owner": "support",
+      "number": 599,
+      "title": "fix: make release readiness reporting fail closed",
+      "owner": "codex",
       "tier": 1,
       "status": "blocked",
-      "branch": "claude/preflight-self-describing",
-      "blocker": "Needs a current-main reconstruction and present-tense release proof.",
+      "branch": "codex/T-release-preflight-truth",
+      "blocker": "Land after #596 and rerun required checks once GitHub Actions can execute.",
       "blocker_kind": "needs_rebase",
-      "reviewer_note": "Keep the GREEN-versus-PARTIAL honesty contract.",
-      "expected_action": "Port the truthfulness behavior without copying stale release evidence."
+      "blocker_against_pr": 596,
+      "reviewer_note": "Supersedes closed #455; required and nested skips exit 2 instead of producing a successful partial run.",
+      "expected_action": "Land after #596 only when exact-SHA hosted checks execute and pass."
     },
     {
       "number": 481,

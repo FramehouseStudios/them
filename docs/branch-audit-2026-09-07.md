@@ -182,8 +182,12 @@ the safer #443 response-transport design.
   a scan, its labels do not exist, and its RC notes claim open PRs are shipped.
   Rebuild its salvageable pieces independently; never merge the bundle.
 - #596 repairs the red backend baseline that GitHub's billing-level job abort
-  had hidden. #597 and #598 are stacked directly on it. None may merge until
+  had hidden. #597, #598, and #599 are stacked directly on it. None may merge until
   the required hosted Quality Gate executes and passes on the candidate SHA.
+- #455 was rebuilt as #599. The replacement includes top-level and nested
+  quality checks in its summary, rejects invalid gate flags, and makes any
+  required skip return `PARTIAL` with exit status 2. Release contract tests
+  passed 39/39. #455 is closed; its branch is preserved.
 
 ### D009 architecture sequence
 

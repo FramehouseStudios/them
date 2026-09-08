@@ -21,6 +21,7 @@ The current backend safety train is separate and stacked in this order:
 1. #596 — restore the green backend baseline.
 2. #597 — context-aware, Fountain-correct character-cue linting.
 3. #598 — parser-backed child-process safety guard.
+4. #599 — fail-closed, self-describing release preflight.
 
 All three have clean local full-suite evidence. They remain blocked on the
 same hosted Actions failure and must not merge around it.
@@ -47,19 +48,17 @@ Studio chain. The exhaustive keep/port/retire decision is in the branch audit.
 Until the app train lands, support work is limited to one fresh, small branch
 from current `main` at a time. Priority order:
 
-1. Port #455's truthful GREEN-versus-PARTIAL release-preflight presentation,
-   excluding dated evidence.
-2. Rebuild #456 only as independent changes: Dependabot with real labels;
+1. Rebuild #456 only as independent changes: Dependabot with real labels;
    reproducible third-party notices; a real private security-reporting channel;
    a proven current gitleaks workflow; and CodeQL only after GitHub Code
    Security is enabled. Never reuse its stale RC notes.
-3. After the app train, port only #481's session-churn tip and tests, then only
+2. After the app train, port only #481's session-churn tip and tests, then only
    #482's owner-scoped ETag tip.
-4. Begin the D009 backend sequence with #461 alone only after the above work is
+3. Begin the D009 backend sequence with #461 alone only after the above work is
    reviewed.
 
-#460 and #477 are complete as stronger successors #598 and #597. Their source
-PRs are closed and their branches are preserved. #456 is closed after review:
+#455, #460, and #477 are complete as stronger successors #599, #598, and #597.
+Their source PRs are closed and their branches are preserved. #456 is closed after review:
 its reporting channel was unavailable, both security workflows had failed,
 and its release notes claimed unmerged features were shipped.
 
