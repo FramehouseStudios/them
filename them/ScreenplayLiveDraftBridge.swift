@@ -8676,70 +8676,6 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
     }
 }
 
-struct CursorInsertTextEditor: View {
-    @Binding var text: String
-    @Binding var activeScreenplayElement: ScreenplayEditorElement
-    @Binding var insertionRequest: ScreenplayInsertionRequest?
-    @Binding var lineJumpRequest: ScreenplayLineJumpRequest?
-    @Binding var lineHighlightRequest: ScreenplayLineHighlightRequest?
-    @Binding var anchoredTextRectRequest: ScreenplayAnchoredTextRectRequest?
-    @Binding var anchoredTextRectSnapshot: ScreenplayAnchoredTextRectSnapshot?
-    @Binding var editorFocusRequest: ScreenplayEditorFocusRequest?
-    @Binding var editorActionRequest: ScreenplayEditorActionRequest?
-    @Binding var editorSelection: ScreenplayEditorSelectionSnapshot?
-    @Binding var currentCursorLine: Int
-    @Binding var lastCommittedWrite: ScreenplayCommittedWrite?
-    @Binding var pendingReplacementTarget: ScreenplayPendingReplacementTarget?
-    @Binding var submittedReplacementTarget: ScreenplayPendingReplacementTarget?
-    var onUserEdit: (() -> Void)? = nil
-
-    private var screenplayFont: Font {
-        .custom("Courier", size: 12)
-    }
-
-    var body: some View {
-        #if os(macOS)
-        MacCursorInsertTextEditor(
-            text: $text,
-            activeScreenplayElement: $activeScreenplayElement,
-            insertionRequest: $insertionRequest,
-            lineJumpRequest: $lineJumpRequest,
-            lineHighlightRequest: $lineHighlightRequest,
-            anchoredTextRectRequest: $anchoredTextRectRequest,
-            anchoredTextRectSnapshot: $anchoredTextRectSnapshot,
-            editorFocusRequest: $editorFocusRequest,
-            editorActionRequest: $editorActionRequest,
-            editorSelection: $editorSelection,
-            currentCursorLine: $currentCursorLine,
-            lastCommittedWrite: $lastCommittedWrite,
-            pendingReplacementTarget: $pendingReplacementTarget,
-            submittedReplacementTarget: $submittedReplacementTarget,
-            onUserEdit: onUserEdit
-        )
-        #elseif os(iOS)
-        IOSCursorInsertTextEditor(
-            text: $text,
-            activeScreenplayElement: $activeScreenplayElement,
-            insertionRequest: $insertionRequest,
-            lineJumpRequest: $lineJumpRequest,
-            lineHighlightRequest: $lineHighlightRequest,
-            anchoredTextRectRequest: $anchoredTextRectRequest,
-            anchoredTextRectSnapshot: $anchoredTextRectSnapshot,
-            editorFocusRequest: $editorFocusRequest,
-            editorActionRequest: $editorActionRequest,
-            editorSelection: $editorSelection,
-            currentCursorLine: $currentCursorLine,
-            lastCommittedWrite: $lastCommittedWrite,
-            pendingReplacementTarget: $pendingReplacementTarget,
-            submittedReplacementTarget: $submittedReplacementTarget,
-            onUserEdit: onUserEdit
-        )
-        #else
-        EmptyView()
-        #endif
-    }
-}
-
 #if os(macOS)
 private final class HollywoodScreenplayTextView: NSTextView {
     var draftProvider: () -> String = { "" }
@@ -8798,7 +8734,7 @@ private func hollywoodScreenplayEditorFont() -> NSFont {
     NSFont(name: "Courier", size: 12) ?? NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
 }
 
-private struct MacCursorInsertTextEditor: NSViewRepresentable {
+struct MacCursorInsertTextEditor: NSViewRepresentable {
     @Binding var text: String
     @Binding var activeScreenplayElement: ScreenplayEditorElement
     @Binding var insertionRequest: ScreenplayInsertionRequest?
@@ -10659,7 +10595,7 @@ private struct MacCursorInsertTextEditor: NSViewRepresentable {
 #endif
 
 #if os(iOS)
-private final class HollywoodScreenplayUITextView: UITextView {
+final class HollywoodScreenplayUITextView: UITextView {
     var draftProvider: () -> String = { "" }
     var onElementShortcut: ((ScreenplayEditorElement) -> Void)?
     var onCycleElement: ((Bool) -> Void)?
@@ -10813,7 +10749,7 @@ enum ScreenplayDeferredPublicationGate {
     }
 }
 
-private struct IOSCursorInsertTextEditor: UIViewRepresentable {
+struct IOSCursorInsertTextEditor: UIViewRepresentable {
     @Binding var text: String
     @Binding var activeScreenplayElement: ScreenplayEditorElement
     @Binding var insertionRequest: ScreenplayInsertionRequest?
@@ -10829,6 +10765,8 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
     @Binding var pendingReplacementTarget: ScreenplayPendingReplacementTarget?
     @Binding var submittedReplacementTarget: ScreenplayPendingReplacementTarget?
     var onUserEdit: (() -> Void)? = nil
+    var canSaveDraft = false
+    var onSaveDraft: (() -> Void)? = nil
 
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
@@ -10867,6 +10805,22 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
         textView.onLayoutWidthChange = { [weak coordinator = context.coordinator] width in
             coordinator?.updateEditorLayout(width: width)
         }
+        let keyboardToolbar = UIToolbar()
+        keyboardToolbar.sizeToFit()
+        let saveDraftItem = UIBarButtonItem(
+            title: "Save draft",
+            style: .prominent,
+            target: context.coordinator,
+            action: #selector(Coordinator.saveDraftFromKeyboard)
+        )
+        saveDraftItem.accessibilityIdentifier = "studio.draft.keyboard-save"
+        saveDraftItem.isEnabled = canSaveDraft
+        keyboardToolbar.items = [
+            UIBarButtonItem(systemItem: .flexibleSpace),
+            saveDraftItem,
+        ]
+        textView.inputAccessoryView = keyboardToolbar
+        context.coordinator.saveDraftItem = saveDraftItem
         context.coordinator.beginRepresentableUpdate()
         defer { context.coordinator.endRepresentableUpdate() }
         context.coordinator.textView = textView
@@ -10898,6 +10852,7 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
             )
         }
         context.coordinator.textView = uiView
+        context.coordinator.saveDraftItem?.isEnabled = canSaveDraft
         uiView.draftProvider = { uiView.text ?? "" }
         uiView.onElementShortcut = { element in
             context.coordinator.applyShortcutElement(element)
@@ -10986,6 +10941,7 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
 
         var parent: IOSCursorInsertTextEditor
         weak var textView: UITextView?
+        weak var saveDraftItem: UIBarButtonItem?
         var lastKnownActiveElement: ScreenplayEditorElement
         var isApplyingProgrammaticChange = false
         var lastAppliedInsertionID: UUID?
@@ -11040,6 +10996,11 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
             self.parent = parent
             self.lastKnownActiveElement = parent.activeScreenplayElement
             self.lastKnownTextSnapshot = parent.text
+        }
+
+        @objc func saveDraftFromKeyboard() {
+            guard parent.canSaveDraft else { return }
+            parent.onSaveDraft?()
         }
 
         func beginRepresentableUpdate() {
