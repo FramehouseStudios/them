@@ -12,10 +12,10 @@ The release path uses ignored, mode-600 local inputs:
 
 - `them/Release.local.env` is the operator input.
 - `scripts/run_release_preflight.sh` rejects symlinks, non-regular files, and any `Release.local.env` mode other than 600 before sourcing it. Its full quality gate defaults on.
-- The wrapper ends with a `[release-preflight] Gate summary` block listing every gate that ran and every gate skipped (with the `RUN_*` flag that skipped it). The last line is `GREEN` only when every default-on gate ran; if any default-on gate was skipped it prints `PARTIAL`, so a preflight report must quote that line rather than calling a partial run green.
-- `release_config_status.mjs` only checks that `BACKEND_URL` is a non-local HTTPS string. Reachability (including the parked-domain 302 that `https://api.them.io` currently returns) is proven or failed by the live backend health step, which runs by default.
+- The wrapper ends with a `[release-preflight] Gate summary` block listing every gate that ran and every gate skipped (with the `RUN_*` flag that skipped it). The last line is `GREEN` only when every required iPhone gate ran; if any required gate was skipped it prints `PARTIAL` and exits 2, so automation cannot mistake an incomplete run for release proof.
+- `release_config_status.mjs` only checks that `BACKEND_URL` is a non-local HTTPS string. Reachability and product identity are proven or failed by the live backend health step, which runs by default.
 - `scripts/release_config_status.mjs` now enforces the wrapper's `OPENAI_API_KEY` requirement and reports only redacted source/length metadata. Missing, placeholder, short, whitespace/control-containing, and shell-precedence cases are covered.
-- `scripts/write_release_xcconfig.mjs` validates and atomically writes the Team ID, app token, and hosted HTTPS backend origin to ignored `them/Release.local.xcconfig` immediately before Xcode inspection/build. This keeps a later Organizer archive on the same backend that preflight checked.
+- `scripts/write_release_xcconfig.mjs` validates and atomically writes the Team ID, app token, and non-local HTTPS backend origin to ignored `them/Release.local.xcconfig` immediately before Xcode inspection/build. This keeps a later Organizer archive on the same backend that preflight checked.
 - `Release.local.xcconfig` is an exact synchronized-folder membership exception, is excluded from all four target configurations, and is a hard-fail artifact if present in the built app.
 - `APP_TOKEN_RELEASE` is never passed in `xcodebuild` argv. It is shipped as app configuration and is extractable, so user authentication—not this shared value—is the authorization boundary.
 
@@ -38,7 +38,7 @@ Result: `fail=2`, `warn=0`.
 Passing checks included:
 
 - iPhone-only Release platforms and device family.
-- Bundle identifier, injected Team ID, hosted backend, app token, privacy URL, support email, and microphone purpose string.
+- Bundle identifier, injected Team ID, configured non-local backend URL, app token, privacy URL, support email, and microphone purpose string.
 - Audio Data/User Content privacy declarations with tracking disabled.
 - Assigned 1024×1024 opaque PNG AppIcon.
 - Dedicated `them/them-iOS.entitlements` wiring for iPhone device and simulator builds, with `com.apple.developer.applesignin = [Default]` and no macOS sandbox keys.
@@ -51,7 +51,7 @@ The two remaining failures are expected and human-owned:
 - `DEVELOPMENT_TEAM_ID` is not present in ignored local release input.
 - `APP_TOKEN_RELEASE` is not present in ignored local release input.
 
-The companion release-config status is separately blocked on four items: the missing protected env file, `DEVELOPMENT_TEAM_ID`, `APP_TOKEN_RELEASE`, and `OPENAI_API_KEY`. The checked-in Release backend URL remains hosted and HTTPS. This is intentional parity with the full wrapper, which cannot run enabled paid/live gates without the OpenAI key.
+The companion release-config status is separately blocked on four items: the missing protected env file, `DEVELOPMENT_TEAM_ID`, `APP_TOKEN_RELEASE`, and `OPENAI_API_KEY`. The checked-in Release backend URL is a non-local HTTPS string, but that alone does not prove it serves THEM. This is intentional parity with the full wrapper, whose live backend gate verifies reachability and identity and whose paid/live gates require the OpenAI key.
 
 Focused release/security contracts passed, including mode-600/symlink rejection before secrets are sourced, canonical-policy success, unrelated-page rejection, and redirect rejection through localhost HTTP fixtures. The live production checks remain a human deployment blocker: on 2026-08-30 both `https://api.them.io/healthz` and `https://them.io/privacy` redirected to `https://introvert.com/?domain=them.io` instead of returning direct io.them responses.
 

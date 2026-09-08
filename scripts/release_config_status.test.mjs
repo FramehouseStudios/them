@@ -352,3 +352,9 @@ test("[release-config-status] backend URL check names itself a string check, not
   assert.match(backendCheck.message, /reachability is proven by the live backend health step/);
   assert.doesNotMatch(backendCheck.message, /is hosted/);
 });
+
+test("[appstore-preflight] does not claim URL shape proves a hosted backend", () => {
+  const source = fs.readFileSync(path.join(repoRoot, "scripts", "appstore_preflight.sh"), "utf8");
+  assert.match(source, /reachability is not checked here/);
+  assert.doesNotMatch(source, /Release backend URL is hosted/);
+});

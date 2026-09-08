@@ -199,7 +199,7 @@ if is_placeholder "$backend_url"; then
 elif [[ "$backend_url" == http://127.0.0.1* || "$backend_url" == http://localhost* || "$backend_url" == https://127.0.0.1* || "$backend_url" == https://localhost* ]]; then
   fail "BACKEND_URL points to localhost in Release. Use hosted API URL."
 else
-  ok "Release backend URL is hosted: $backend_url"
+  ok "Release backend URL is configured as non-local: $backend_url (reachability is not checked here)"
 fi
 
 if is_placeholder "$app_token"; then
