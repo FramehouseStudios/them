@@ -22,6 +22,11 @@ import { parseShortFilmIntent } from "./clementine/short_film_intent.js";
 import { runShortFilmLane } from "./clementine/short_film_lane.js";
 import { enforceStudioScreenplayQuality } from "./studio_screenplay_quality_gate.js";
 import { resolveShortFilmIntent } from "./clementine/short_film_intent_llm.js";
+import {
+  applyCharacterDialogueMemories,
+  extractCharacterDialogueMemories,
+  prepareShortFilmPromptProject,
+} from "./clementine/short_film_dialogue_memory.js";
 
 /**
  * Run the billed chat generation stage (stream optional, then non-stream).
@@ -91,6 +96,7 @@ async function runTalkGenerate({
     }
     if (betaParsed) {
       const pageAbort = req?.clementine?.abortSignal || null;
+      await prepareShortFilmPromptProject({ req, parsed: betaParsed });
       let { draft, usage } = await runShortFilmLane({
         req,
         parsed: betaParsed,
@@ -147,6 +153,11 @@ async function runTalkGenerate({
           project.versions.push(version);
           project.activeVersionId = version.id;
           project.updatedAt = Date.now();
+          const dialogueMemories = extractCharacterDialogueMemories({
+            draft,
+            characters: betaParsed.characters,
+          });
+          applyCharacterDialogueMemories(project, dialogueMemories);
           // Best-effort persistence via injected committer if available (tests inject, prod has screenplay_store)
           // Attach project for lane prompt per-character block (simultaneous paper, isolated memory)
           req.clementine = req.clementine || {};
@@ -165,36 +176,21 @@ async function runTalkGenerate({
                   p2.versions.push(v2);
                   p2.activeVersionId = v2.id;
                   p2.updatedAt = Date.now();
+                  applyCharacterDialogueMemories(p2, dialogueMemories);
                 },
               });
-            } catch (_) {}
+            } catch (error) {
+              logger?.warn?.(`[${rid}] short_film_owner_commit_failed ${error?.message || error}`);
+            }
           }
           req.clementine = req.clementine || {};
           req.clementine.screenplayProjectId = project.id;
           // Also stash on return for talk_handler to pick up without req mutation reliance
           req.clementine._shortFilmProjectId = project.id;
-          // Simultaneous paper: push only immediate dialogue after header (not action lines)
-          try {
-            const { pushCharacterMemory } = await import("./clementine/short_film_character_context.js");
-            const lines = String(draft).split("\n");
-            let current = null;
-            let expectDialogue = false;
-            for (const raw of lines) {
-              const up = raw.trim();
-              if (!up) { expectDialogue = false; continue; }
-              if (/^[A-Z][A-Z \-'0-9]{1,30}$/.test(up) && up === up.toUpperCase() && !up.startsWith("INT.") && !up.startsWith("EXT.")) {
-                const name = up.split(" ")[0];
-                if (parsed.characters?.some((c)=> String(c).toUpperCase()===name)) { current = name; expectDialogue = true; }
-                else { current = null; expectDialogue = false; }
-              } else if (current && expectDialogue) {
-                // Immediate dialogue line after header — push once then wait for next header
-                pushCharacterMemory(project, { name: current, text: up, page: 1 });
-                expectDialogue = false;
-              }
-            }
-          } catch {}
         }
-      } catch (_) {}
+      } catch (error) {
+        logger?.warn?.(`[${rid}] short_film_persistence_failed ${error?.message || error}`);
+      }
       return {
         rawReply: draft,
         streamFirstSentence: "", // page-write early-TTS: don't speak Fountain

@@ -198,3 +198,94 @@ test("[PR3] runTalkGenerate short-film beta commits wallet with usage.outputToke
     else process.env.CLEMENTINE_SHORT_FILM_BETA = prev;
   }
 });
+
+test("short-film talk generation persists dialogue memory and wires it into the next prompt", async () => {
+  const previous = process.env.CLEMENTINE_SHORT_FILM_BETA;
+  process.env.CLEMENTINE_SHORT_FILM_BETA = "1";
+  const transcript = "Hey Clementine, I want to write a short film today 15 pages, genre will be horror film, one location, in a bedroom, three characters, one John, one Sally, one Sam. Write the first one page and we'll go from there.";
+  const draft = [
+    "INT. BEDROOM - NIGHT",
+    "",
+    "John drives the brass key into the bedroom lock as footsteps close behind him.",
+    "",
+    "JOHN",
+    "We shouldn't have stayed.",
+    "",
+    "Sally blocks the door with the suitcase before the lock can release.",
+    "",
+    "SALLY",
+    "Then stop treating the door like a question.",
+    "",
+    "Sam tears the false floor plan from the wall and exposes a second room beneath it.",
+    "",
+    "SAM",
+    "The house drew us in before we arrived.",
+    "",
+    "John snaps the key. The broken half falls through the keyhole, and the footsteps stop.",
+  ].join("\n");
+  const durableOwner = { ownerKey: "user:roundtrip", projects: [], activeProjectId: "" };
+  const warnings = [];
+  let commitCalls = 0;
+  const commitScreenplayOwnerMutation = async ({ mutate }) => {
+    commitCalls += 1;
+    await mutate(durableOwner);
+    return { committed: true };
+  };
+
+  try {
+    const firstOwner = structuredClone(durableOwner);
+    await runTalkGenerate({
+      req: {
+        clementine: {
+          lane: "Page",
+          screenplayOwnerRecord: firstOwner,
+          commitScreenplayOwnerMutation,
+        },
+      },
+      rid: "memory-first",
+      logger: { log() {}, warn(message) { warnings.push(message); } },
+      chatSupplier: makeChatSupplier({
+        chatImpl: async () => ({ text: draft, usage: { outputTokens: 100 } }),
+      }),
+      talkGenerationTranscript: transcript,
+      chatMessages: [{ role: "user", content: transcript }],
+      chatModelPlan: { model: "test", apiMode: "chat_completions", reasoningEffort: "low" },
+    });
+
+    const storedProject = durableOwner.projects[0];
+    assert.deepEqual(warnings, []);
+    assert.equal(commitCalls, 1, "the generated draft should execute one owner mutation");
+    assert.ok(storedProject, "the owner mutation should persist the generated project");
+    const john = storedProject.characterContexts.find((context) => context.name === "John");
+    assert.ok(john.memory.length > 0, "the durable owner should receive extracted dialogue");
+    assert.equal(john.memory[0].text, "We shouldn't have stayed.");
+    assert.ok(john.memory.every((memory) => !memory.text.startsWith("INT.")));
+
+    let secondSystem = "";
+    await runTalkGenerate({
+      req: {
+        screenplayOwnerRecord: durableOwner,
+        clementine: {
+          lane: "Page",
+          commitScreenplayOwnerMutation,
+        },
+      },
+      rid: "memory-second",
+      logger: { log() {}, warn() {} },
+      chatSupplier: makeChatSupplier({
+        chatImpl: async ({ messages }) => {
+          secondSystem = messages.find((message) => message.role === "system")?.content || "";
+          return { text: draft, usage: { outputTokens: 100 } };
+        },
+      }),
+      talkGenerationTranscript: transcript,
+      chatMessages: [{ role: "user", content: transcript }],
+      chatModelPlan: { model: "test", apiMode: "chat_completions", reasoningEffort: "low" },
+    });
+    assert.ok(secondSystem.includes("Per-character context"));
+    assert.ok(secondSystem.includes(`recent: "${john.memory[0].text}"`));
+  } finally {
+    if (previous === undefined) delete process.env.CLEMENTINE_SHORT_FILM_BETA;
+    else process.env.CLEMENTINE_SHORT_FILM_BETA = previous;
+  }
+});
