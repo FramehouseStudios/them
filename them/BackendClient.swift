@@ -1466,7 +1466,7 @@ struct BackendTalkResponseMetadata {
     let creativeMemoryTrace: BackendTalkCreativeMemoryTrace
     let screenplayTrace: BackendTalkScreenplayTrace
     let reply: String?
-    // Clementine headers (D009) — consumed from x-suggestion/x-uncertainty/x-collab-cursor/x-samantha-presence/x-presence-history/x-voice-learn/x-vuln-ask
+    // Clementine headers (D009) — consumed from x-suggestion/x-uncertainty/x-collab-cursor/x-samantha-presence/x-presence-history/x-voice-learn/x-vuln-ask + x-research-* (nightly brief, samantha is clementine)
     let suggestion: String?
     let uncertainty: Double?
     let collabCursor: BackendCollabCursor?
@@ -1477,6 +1477,13 @@ struct BackendTalkResponseMetadata {
     let voiceLearn: String?
     let vulnAsk: String?
     let vulnOptions: [String]
+    let researchBrief: String?
+    let researchStrengths: String?
+    let researchWeaknesses: String?
+    let researchExercise: String?
+    let researchExerciseTitle: String?
+    let researchNextHint: String?
+    let researchCitations: String?
 }
 
 struct BackendCollabCursor: Codable, Equatable {
@@ -4728,6 +4735,7 @@ final class BackendClient {
                 let screenplayTrace = self.parseScreenplayTrace(from: http)
                 let creativeMemoryTrace = self.parseCreativeMemoryTrace(from: http)
                 let clem = self.parseClementineHeaders(from: http)
+                let research = self.parseResearchBriefHeaders(from: http)
                 if let pageReservationHeader = self.parseOptionalHeaderString(
                     http,
                     field: "x-clementine-page-reservation"
@@ -4764,7 +4772,14 @@ final class BackendClient {
                     presenceBargeReason: clem.presenceBargeReason,
                     voiceLearn: clem.voiceLearn,
                     vulnAsk: clem.vulnAsk,
-                    vulnOptions: clem.vulnOptions
+                    vulnOptions: clem.vulnOptions,
+                    researchBrief: research.brief,
+                    researchStrengths: research.strengths,
+                    researchWeaknesses: research.weaknesses,
+                    researchExercise: research.exercise,
+                    researchExerciseTitle: research.exerciseTitle,
+                    researchNextHint: research.nextHint,
+                    researchCitations: research.citations
                 )
                 if let onResponseMetadataReady, http.statusCode == 200 {
                     DispatchQueue.main.async {
@@ -6802,6 +6817,18 @@ final class BackendClient {
     }
 
     // Clementine D009 headers (no god-file growth: helpers only)
+    // Research brief headers x-research-* wired via script_research/headers.js (samantha is clementine)
+    private func parseResearchBriefHeaders(from response: HTTPURLResponse?) -> (brief: String?, strengths: String?, weaknesses: String?, exercise: String?, exerciseTitle: String?, nextHint: String?, citations: String?) {
+        let brief = parseOptionalHeaderString(response, field: "x-research-brief")
+        let strengths = parseOptionalHeaderString(response, field: "x-research-strengths")
+        let weaknesses = parseOptionalHeaderString(response, field: "x-research-weaknesses")
+        let exercise = parseOptionalHeaderString(response, field: "x-research-exercise")
+        let exerciseTitle = parseOptionalHeaderString(response, field: "x-research-exercise-title")
+        let nextHint = parseOptionalHeaderString(response, field: "x-research-next-hint")
+        let citations = parseOptionalHeaderString(response, field: "x-research-citations")
+        return (brief, strengths, weaknesses, exercise, exerciseTitle, nextHint, citations)
+    }
+
     private func parseClementineHeaders(from response: HTTPURLResponse?) -> (suggestion: String?, uncertainty: Double?, collabCursor: BackendCollabCursor?, samanthaPresence: String?, presenceHistory: [String], presenceBargeAt: Int?, presenceBargeReason: String?, voiceLearn: String?, vulnAsk: String?, vulnOptions: [String]) {
         let suggestion = parseOptionalHeaderString(response, field: "x-suggestion")
         let uncertaintyRaw = parseOptionalHeaderString(response, field: "x-uncertainty")
