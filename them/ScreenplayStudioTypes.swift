@@ -1,6 +1,60 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
+struct ScreenplayStudioVoiceWorkspaceContext: Equatable {
+    enum Workspace: String, CaseIterable {
+        case draft
+        case beats
+        case craft
+        case outline
+        case clementine = "them"
+        case saved
+    }
+
+    let workspace: Workspace
+    let title: String
+    let promptInstruction: String
+
+    var talkAccessibilityHint: String {
+        "Clementine will listen with \(title) context."
+    }
+
+    func applying(to basePrompt: String) -> String {
+        "\(basePrompt)\n\nSTUDIO WORKSPACE CONTEXT:\n\(promptInstruction)"
+    }
+
+    static let draft = Self(
+        workspace: .draft,
+        title: "Draft",
+        promptInstruction: "The writer is in the Draft workspace. Ground the response in the current screenplay text and page position. Discuss or navigate freely, but only change screenplay text when the writer clearly asks to write or revise it and the established page-write flow accepts the action."
+    )
+    static let beats = Self(
+        workspace: .beats,
+        title: "Beats",
+        promptInstruction: "The writer is in the Beats workspace. Prioritize story turns, scene objectives, beat order, and gaps. Explain suggestions conversationally. Any structural mutation must remain a proposed action until the app presents its existing confirmation step."
+    )
+    static let craft = Self(
+        workspace: .craft,
+        title: "Craft",
+        promptInstruction: "The writer is in the Craft workspace. Prioritize evidence-backed feedback about structure, character, conflict, pacing, and continuity. Do not invent analysis results or change the draft unless the writer explicitly asks."
+    )
+    static let outline = Self(
+        workspace: .outline,
+        title: "Outline",
+        promptInstruction: "The writer is in the Outline workspace. Prioritize acts, scenes, objectives, and their relationship to the draft. Any structural mutation must remain a proposed action until the app presents its existing confirmation step."
+    )
+    static let clementine = Self(
+        workspace: .clementine,
+        title: "Clementine",
+        promptInstruction: "The writer is in Clementine's collaboration workspace. Respond as a concise creative partner, using relevant project memory while clearly separating conversation from changes to the screenplay."
+    )
+    static let saved = Self(
+        workspace: .saved,
+        title: "Saved",
+        promptInstruction: "The writer is in the Saved workspace. Prioritize save status, versions, recovery, and export questions. Never claim to restore, replace, delete, or export anything unless the app has completed that explicit user action."
+    )
+}
+
 extension ScreenplayStudioScreen {
     enum PromptRoutingMode: String, CaseIterable, Identifiable {
         case automatic
@@ -337,8 +391,19 @@ extension ScreenplayStudioScreen {
             case .beats: return "Beats"
             case .craft: return "Craft"
             case .outline: return "Outline"
-            case .them: return "io.them"
+            case .them: return "Clementine"
             case .saved: return "Saved"
+            }
+        }
+
+        var voiceWorkspaceContext: ScreenplayStudioVoiceWorkspaceContext {
+            switch self {
+            case .draft: return .draft
+            case .beats: return .beats
+            case .craft: return .craft
+            case .outline: return .outline
+            case .them: return .clementine
+            case .saved: return .saved
             }
         }
 

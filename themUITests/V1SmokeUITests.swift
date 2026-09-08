@@ -634,12 +634,12 @@ final class V1SmokeUITests: XCTestCase {
         defer { app.terminate() }
 
         let routes = [
-            (tab: "draft", panel: "studio.draft.tools.pages"),
-            (tab: "beats", panel: "studio.beats.save"),
-            (tab: "craft", panel: "studio.craft.panel"),
-            (tab: "outline", panel: "studio.feature-compass.move.next-scene.write"),
-            (tab: "them", panel: "studio.them.panel"),
-            (tab: "saved", panel: "studio.saved.save"),
+            (tab: "draft", context: "Draft", panel: "studio.draft.tools.pages"),
+            (tab: "beats", context: "Beats", panel: "studio.beats.save"),
+            (tab: "craft", context: "Craft", panel: "studio.craft.panel"),
+            (tab: "outline", context: "Outline", panel: "studio.feature-compass.move.next-scene.write"),
+            (tab: "them", context: "Clementine", panel: "studio.them.panel"),
+            (tab: "saved", context: "Saved", panel: "studio.saved.save"),
         ]
         let drawer = element(identifier: "studio.sidebar.right.drawer", in: app)
 
@@ -662,6 +662,14 @@ final class V1SmokeUITests: XCTestCase {
                 waitForSelection(of: tab, timeout: 3),
                 "The \(route.tab) tab did not report its selected state"
             )
+            let compactTalk = app.buttons["studio.compact.talk"]
+            let expandedTalk = app.buttons["studio.talk"]
+            let talk = compactTalk.exists ? compactTalk : expandedTalk
+            XCTAssertTrue(talk.waitForExistence(timeout: 3), "Clementine voice was missing from \(route.tab)")
+            XCTAssertTrue(
+                ((talk.value as? String) ?? "").localizedCaseInsensitiveContains("\(route.context) context"),
+                "Clementine voice did not receive \(route.context) context"
+            )
             let panel = element(identifier: route.panel, in: app)
             XCTAssertTrue(
                 revealInStudioDrawer(panel, drawer: drawer, scrollingUp: true, maxSwipes: 16),
@@ -674,6 +682,42 @@ final class V1SmokeUITests: XCTestCase {
                 XCTAssertTrue(nextSceneWrite.label.hasPrefix("Write "))
             }
         }
+    }
+
+    func test_studio_live_write_mode_is_explicit_and_changes_clementine_action() {
+        let app = launchApp(openStudio: true, openExportTools: true, structuralSeed: true)
+        defer { app.terminate() }
+
+        let settings = app.buttons["studio.settings"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 10), "Studio settings were unavailable.")
+        settings.tap()
+
+        let toggle = app.buttons["studio.live-write.toggle"]
+        XCTAssertTrue(
+            toggle.waitForExistence(timeout: 5),
+            "Studio settings did not expose the explicit Live Write mode.\n\(app.debugDescription)"
+        )
+        if (toggle.value as? String) != "Enabled" {
+            toggle.tap()
+        }
+        let enabled = NSPredicate(format: "value == 'Enabled'")
+        XCTAssertEqual(
+            XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: enabled, object: toggle)], timeout: 3),
+            .completed,
+            "Live Write did not report its enabled state."
+        )
+        app.swipeDown()
+
+        XCTAssertTrue(
+            element(identifier: "studio.live-write.status", in: app).waitForExistence(timeout: 5),
+            "The enabled Live Write mode did not remain visibly identifiable."
+        )
+
+        let compactTalk = app.buttons["studio.compact.talk"]
+        let expandedTalk = app.buttons["studio.talk"]
+        let talk = compactTalk.exists ? compactTalk : expandedTalk
+        XCTAssertTrue(talk.waitForExistence(timeout: 5))
+        XCTAssertEqual(talk.label, "Start Live Write")
     }
 
     func test_studio_header_shortcuts_and_project_drawer_tabs_reveal_their_destinations() {
@@ -2977,7 +3021,7 @@ final class V1SmokeUITests: XCTestCase {
                rightToggle.label.localizedCaseInsensitiveContains("Open") {
                 rightToggle.tap()
             }
-            let themTab = app.buttons["io.them"]
+            let themTab = app.buttons["Clementine"]
             if themTab.exists, themTab.isHittable, !themTab.isSelected {
                 themTab.tap()
             }
@@ -2995,7 +3039,7 @@ final class V1SmokeUITests: XCTestCase {
                rightToggle.label.localizedCaseInsensitiveContains("Open") {
                 rightToggle.tap()
             }
-            let themTab = app.buttons["io.them"]
+            let themTab = app.buttons["Clementine"]
             if themTab.exists, themTab.isHittable, !themTab.isSelected {
                 themTab.tap()
             }
