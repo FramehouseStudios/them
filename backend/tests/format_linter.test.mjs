@@ -139,6 +139,59 @@ And again.
   assert.deepEqual(hits, ["June (V.O.)", "Frank", "june"]);
 });
 
+test("[character_cue_caps] preserves forced Fountain case and flags unforced Unicode names", () => {
+  const text = `INT. ROOM - NIGHT
+
+@June (V.O.)
+I am still here.
+
+Élodie
+Moi aussi.
+`;
+  const r = lintScreenplay({ text });
+  const hits = r.suggestions.filter((x) => x.rule === "character_cue_caps");
+  assert.deepEqual(hits.map((x) => x.excerpt), ["Élodie"]);
+  assert.deepEqual(hits.map((x) => x.suggestion), ["Try: 'ÉLODIE'"]);
+});
+
+test("[character_cue_caps] accepts uppercase forced, accented, and caseless cues", () => {
+  const text = `INT. ROOM - NIGHT
+
+@JUNE (V.O.)
+I am still here.
+
+ÉLODIE
+Moi aussi.
+
+李明
+我也在。
+`;
+  const r = lintScreenplay({ text });
+  assert.deepEqual(r.suggestions.filter((x) => x.rule === "character_cue_caps"), []);
+});
+
+test("[character_cue_caps] uppercases only the name and preserves a valid extension", () => {
+  const text = `INT. ROOM - NIGHT
+
+Hans (on the radio)
+Can you hear me?
+`;
+  const r = lintScreenplay({ text });
+  const hit = r.suggestions.find((x) => x.rule === "character_cue_caps");
+  assert.equal(hit?.suggestion, "Try: 'HANS (on the radio)'");
+});
+
+test("[parenthetical_count] recognizes forced and mixed-extension character cues", () => {
+  for (const cue of ["@McCLANE", "HANS (on the radio)", "李明"]) {
+    const text = `${cue}\n(quietly)\n(to himself)\nStill here.\n`;
+    const r = lintScreenplay({ text });
+    assert.ok(
+      r.suggestions.some((x) => x.rule === "parenthetical_count"),
+      `expected ${cue} to be recognized as a character cue`,
+    );
+  }
+});
+
 // ---------- parenthetical_density ----------
 
 test("[parenthetical_density] flags long parentheticals", () => {
