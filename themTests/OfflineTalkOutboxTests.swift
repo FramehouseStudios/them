@@ -65,6 +65,85 @@ final class OfflineTalkOutboxTests: XCTestCase {
         XCTAssertEqual(entries, [])
     }
 
+    func testIdleAndNotDueDrainsDoNotPublishOutboxChanges() async throws {
+        let recorder = OfflineTalkOutboxSnapshotRecorder()
+        let outbox = OfflineTalkOutbox(
+            storageDirectory: directory,
+            snapshotPublisher: recorder.record
+        )
+
+        let empty = await outbox.drainDue()
+        XCTAssertEqual(empty, .empty)
+        XCTAssertEqual(recorder.snapshots, [])
+
+        var request = URLRequest(url: URL(string: "https://them.test/talk")!)
+        request.httpMethod = "POST"
+        request.setValue("multipart/form-data; boundary=test", forHTTPHeaderField: "Content-Type")
+        request.setValue("idem-not-due", forHTTPHeaderField: "X-Idempotency-Key")
+        let queued = try await outbox.enqueue(
+            request: request,
+            body: Data("queued".utf8),
+            reason: "offline"
+        )
+        XCTAssertEqual(recorder.snapshots, [queued.snapshot])
+
+        let notDue = await outbox.drainDue(now: Date(timeIntervalSince1970: 0))
+        XCTAssertEqual(notDue, queued.snapshot)
+        XCTAssertEqual(recorder.snapshots, [queued.snapshot])
+    }
+
+    func testDueDrainPublishesOnlyRealStateTransitions() async throws {
+        let recorder = OfflineTalkOutboxSnapshotRecorder()
+        let outbox = OfflineTalkOutbox(
+            storageDirectory: directory,
+            snapshotPublisher: recorder.record
+        )
+        var request = URLRequest(url: URL(string: "https://them.test/talk")!)
+        request.httpMethod = "POST"
+        request.setValue("multipart/form-data; boundary=test", forHTTPHeaderField: "Content-Type")
+        request.setValue("idem-transitions", forHTTPHeaderField: "X-Idempotency-Key")
+        _ = try await outbox.enqueue(
+            request: request,
+            body: Data("queued".utf8),
+            reason: "offline"
+        )
+
+        _ = await outbox.drainDue(now: Date().addingTimeInterval(10)) { _ in
+            OfflineTalkOutboxSendResult(statusCode: 200)
+        }
+
+        XCTAssertEqual(recorder.snapshots.count, 3)
+        XCTAssertEqual(recorder.snapshots[0].pendingCount, 1)
+        XCTAssertEqual(recorder.snapshots[1].inflightCount, 1)
+        XCTAssertEqual(recorder.snapshots[2], .empty)
+    }
+
+    func testSameCountQueueMutationStillPublishes() async throws {
+        let recorder = OfflineTalkOutboxSnapshotRecorder()
+        let outbox = OfflineTalkOutbox(
+            storageDirectory: directory,
+            snapshotPublisher: recorder.record
+        )
+        var request = URLRequest(url: URL(string: "https://them.test/talk")!)
+        request.httpMethod = "POST"
+        request.setValue("multipart/form-data; boundary=test", forHTTPHeaderField: "Content-Type")
+        request.setValue("idem-same-count", forHTTPHeaderField: "X-Idempotency-Key")
+
+        _ = try await outbox.enqueue(
+            request: request,
+            body: Data("queued".utf8),
+            reason: "offline"
+        )
+        _ = try await outbox.enqueue(
+            request: request,
+            body: Data("queued".utf8),
+            reason: "offline"
+        )
+
+        XCTAssertEqual(recorder.snapshots.count, 2)
+        XCTAssertEqual(recorder.snapshots.map(\.pendingCount), [1, 1])
+    }
+
     func testQuestionResolutionSurvivesRelaunchAndSuppressesOnlyActiveQuestion() async throws {
         let outbox = OfflineTalkOutbox(storageDirectory: directory)
         var request = URLRequest(
@@ -252,5 +331,22 @@ final class OfflineTalkOutboxTests: XCTestCase {
         XCTAssertEqual(cleared.parkedCount, 0)
         entries = await outbox.allEntries()
         XCTAssertEqual(entries, [])
+    }
+}
+
+private final class OfflineTalkOutboxSnapshotRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storedSnapshots: [OfflineTalkOutboxSnapshot] = []
+
+    var snapshots: [OfflineTalkOutboxSnapshot] {
+        lock.lock()
+        defer { lock.unlock() }
+        return storedSnapshots
+    }
+
+    func record(_ snapshot: OfflineTalkOutboxSnapshot) {
+        lock.lock()
+        storedSnapshots.append(snapshot)
+        lock.unlock()
     }
 }

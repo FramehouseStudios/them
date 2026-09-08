@@ -135,6 +135,7 @@ actor OfflineTalkOutbox {
     }
 
     typealias Transport = (URLRequest) async throws -> OfflineTalkOutboxSendResult
+    typealias SnapshotPublisher = (OfflineTalkOutboxSnapshot) -> Void
 
     static let shared = OfflineTalkOutbox(storageDirectory: defaultStorageDirectory())
 
@@ -151,16 +152,30 @@ actor OfflineTalkOutbox {
     private let manifestURL: URL
     private let blobsDirectory: URL
     private let fileManager: FileManager
+    private let snapshotPublisher: SnapshotPublisher
     private var didLoad = false
     private var entries: [OfflineTalkOutboxEntry] = []
     private var networkMonitor: NWPathMonitor?
     private let networkMonitorQueue = DispatchQueue(label: "io.them.offline-talk-outbox.network")
 
-    init(storageDirectory: URL, fileManager: FileManager = .default) {
+    init(
+        storageDirectory: URL,
+        fileManager: FileManager = .default,
+        snapshotPublisher: SnapshotPublisher? = nil
+    ) {
         self.storageDirectory = storageDirectory
         self.manifestURL = storageDirectory.appendingPathComponent("queue.jsonl")
         self.blobsDirectory = storageDirectory.appendingPathComponent("blobs", isDirectory: true)
         self.fileManager = fileManager
+        self.snapshotPublisher = snapshotPublisher ?? { snapshot in
+            DispatchQueue.main.async {
+                NotificationCenter.default.post(
+                    name: .themOfflineTalkOutboxUpdated,
+                    object: nil,
+                    userInfo: snapshot.notificationUserInfo
+                )
+            }
+        }
     }
 
     func startNetworkMonitoring() {
@@ -334,9 +349,7 @@ actor OfflineTalkOutbox {
             publishSnapshot()
         }
 
-        let nextSnapshot = snapshotFor(entries)
-        publish(nextSnapshot)
-        return nextSnapshot
+        return snapshotFor(entries)
     }
 
     func deleteParkedEntries() throws -> OfflineTalkOutboxSnapshot {
@@ -548,13 +561,7 @@ actor OfflineTalkOutbox {
     }
 
     private func publish(_ snapshot: OfflineTalkOutboxSnapshot) {
-        DispatchQueue.main.async {
-            NotificationCenter.default.post(
-                name: .themOfflineTalkOutboxUpdated,
-                object: nil,
-                userInfo: snapshot.notificationUserInfo
-            )
-        }
+        snapshotPublisher(snapshot)
     }
 
     private func statusSortKey(_ status: OfflineTalkOutboxStatus) -> Int {
