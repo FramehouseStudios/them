@@ -1,5 +1,6 @@
 // LivePaperStreamView — types pages as they arrive (P1 live paper stream, not gated)
 import SwiftUI
+import ScreenplayStudio
 
 struct LivePaperStreamView: View {
     let pages: [String]
@@ -8,12 +9,12 @@ struct LivePaperStreamView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(typedText).font(.system(.body, design: .monospaced)).lineLimit(nil)
+            Text(typedText).font(IOThemTypography.UI.monoPrompt).lineLimit(nil)
                 .animation(.easeInOut(duration: 0.15), value: typedText)
             HStack {
-                Text("\(typedPage+1)/\(pages.count)").font(.caption2)
+                Text("\(typedPage+1)/\(pages.count)").font(IOThemTypography.UI.microRegular)
                 Spacer()
-                Button("Next chunk") { advance() }.font(.caption2)
+                Button("Next chunk") { advance() }.font(IOThemTypography.UI.microRegular)
             }
         }
         .onAppear { typedText = pages.first ?? "" }
