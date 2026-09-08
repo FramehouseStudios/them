@@ -32,6 +32,7 @@ final class ScreenplayPreciseEditStudioSession: ObservableObject {
     @Published private(set) var presentation: Presentation = .idle
     private static let transactions = ScreenplayPreciseEditTransactionCoordinator()
     private var preparationGeneration: UUID?
+    private var activeTransactionID: UUID?
     private var suppressNextTurnBasedAudio = false
     private var turnBasedAudioSuppressionExpiresAt = Date.distantPast
 
@@ -80,15 +81,22 @@ final class ScreenplayPreciseEditStudioSession: ObservableObject {
         let command = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
         let generation = UUID()
         preparationGeneration = generation
+        activeTransactionID = transactionID
         presentation = .preparing(command: command)
         Task { @MainActor [weak self] in
             guard let self else { return }
+            await Self.transactions.protect(transactionID)
             let result = await Self.transactions.prepare(intent: intent, snapshot: snapshot)
-            guard preparationGeneration == generation else { return }
+            guard preparationGeneration == generation else {
+                await Self.transactions.discard(transactionID)
+                return
+            }
             switch result {
             case let .success(preview):
                 presentation = .preview(preview)
             case let .failure(error):
+                activeTransactionID = nil
+                await Self.transactions.discard(transactionID)
                 presentation = .failed(message: Self.message(for: error))
             }
         }
@@ -167,10 +175,13 @@ final class ScreenplayPreciseEditStudioSession: ObservableObject {
     }
 
     func cancel() {
+        let transactionID = activeTransactionID
         preparationGeneration = nil
+        activeTransactionID = nil
         suppressNextTurnBasedAudio = false
         turnBasedAudioSuppressionExpiresAt = .distantPast
         presentation = .idle
+        if let transactionID { Task { await Self.transactions.discard(transactionID) } }
     }
 
     static func snapshot(projectID: String, baseVersionID: String, draft: String) -> ScreenplayPreciseEditDocumentSnapshot {

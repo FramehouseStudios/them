@@ -121,7 +121,24 @@ actor ScreenplayPreciseEditTransactionCoordinator {
         var undoReceipt: ScreenplayPreciseEditUndoReceipt?
     }
 
+    private let retentionLimit: Int
     private var records: [UUID: Record] = [:]
+    private var retentionOrder: [UUID] = []
+    private var protectedTransactionIDs: Set<UUID> = []
+
+    init(retentionLimit: Int = 128) {
+        self.retentionLimit = max(1, retentionLimit)
+    }
+
+    func protect(_ transactionID: UUID) {
+        protectedTransactionIDs.insert(transactionID)
+    }
+
+    func discard(_ transactionID: UUID) {
+        records.removeValue(forKey: transactionID)
+        retentionOrder.removeAll { $0 == transactionID }
+        protectedTransactionIDs.remove(transactionID)
+    }
 
     func prepare(
         intent: ScreenplayPreciseEditIntent,
@@ -171,6 +188,8 @@ actor ScreenplayPreciseEditTransactionCoordinator {
             confirmationDigest: ScreenplayPreciseEditHash.sha256(digestMaterial)
         )
         records[intent.transactionID] = Record(intent: intent, preview: preview)
+        retentionOrder.append(intent.transactionID)
+        evictOldestRecordsIfNeeded()
         return .success(preview)
     }
 
@@ -353,5 +372,17 @@ actor ScreenplayPreciseEditTransactionCoordinator {
         }
         if let mutation = record.mutation { return .localApplied(mutation) }
         return .awaitingConfirmation(record.preview)
+    }
+
+    func retainedTransactionCount() -> Int {
+        records.count
+    }
+
+    private func evictOldestRecordsIfNeeded() {
+        while records.count > retentionLimit,
+              let index = retentionOrder.firstIndex(where: { !protectedTransactionIDs.contains($0) }) {
+            let transactionID = retentionOrder.remove(at: index)
+            records.removeValue(forKey: transactionID)
+        }
     }
 }

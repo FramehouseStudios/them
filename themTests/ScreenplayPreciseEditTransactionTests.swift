@@ -225,6 +225,62 @@ final class ScreenplayPreciseEditTransactionTests: XCTestCase {
         XCTAssertEqual(try results.0.get(), try results.1.get())
     }
 
+    func testRetentionEvictsOldestTransactionsAtConfiguredCap() async throws {
+        let coordinator = ScreenplayPreciseEditTransactionCoordinator(retentionLimit: 2)
+        let ids = (0..<3).map { _ in UUID() }
+        for id in ids {
+            _ = try await coordinator.prepare(intent: makeIntent(id: id), snapshot: makeSnapshot()).get()
+        }
+        let count = await coordinator.retainedTransactionCount()
+        let oldestState = await coordinator.state(for: ids[0])
+        let middleState = await coordinator.state(for: ids[1])
+        let newestState = await coordinator.state(for: ids[2])
+        XCTAssertEqual(count, 2)
+        XCTAssertNil(oldestState)
+        XCTAssertNotNil(middleState)
+        XCTAssertNotNil(newestState)
+    }
+
+    func testRepeatedTransactionRemainsIdempotentWhileRetained() async throws {
+        let coordinator = ScreenplayPreciseEditTransactionCoordinator(retentionLimit: 2)
+        let id = UUID()
+        let intent = makeIntent(id: id)
+        let first = try await coordinator.prepare(intent: intent, snapshot: makeSnapshot()).get()
+        _ = try await coordinator.prepare(intent: makeIntent(id: UUID()), snapshot: makeSnapshot()).get()
+        let repeated = try await coordinator.prepare(intent: intent, snapshot: makeSnapshot(draft: draft + "\nLater")).get()
+        let count = await coordinator.retainedTransactionCount()
+        XCTAssertEqual(first, repeated)
+        XCTAssertEqual(count, 2)
+    }
+
+    func testDiscardRemovesCancelledTransaction() async throws {
+        let coordinator = ScreenplayPreciseEditTransactionCoordinator(retentionLimit: 2)
+        let id = UUID()
+        _ = try await coordinator.prepare(intent: makeIntent(id: id), snapshot: makeSnapshot()).get()
+        await coordinator.discard(id)
+        let state = await coordinator.state(for: id)
+        let count = await coordinator.retainedTransactionCount()
+        XCTAssertNil(state)
+        XCTAssertEqual(count, 0)
+    }
+
+    func testRetentionNeverEvictsProtectedActiveTransaction() async throws {
+        let coordinator = ScreenplayPreciseEditTransactionCoordinator(retentionLimit: 2)
+        let activeID = UUID()
+        await coordinator.protect(activeID)
+        let activePreview = try await coordinator.prepare(intent: makeIntent(id: activeID), snapshot: makeSnapshot()).get()
+        let evictedID = UUID()
+        _ = try await coordinator.prepare(intent: makeIntent(id: evictedID), snapshot: makeSnapshot()).get()
+        let newestID = UUID()
+        _ = try await coordinator.prepare(intent: makeIntent(id: newestID), snapshot: makeSnapshot()).get()
+        let activeState = await coordinator.state(for: activeID)
+        let evictedState = await coordinator.state(for: evictedID)
+        let newestState = await coordinator.state(for: newestID)
+        XCTAssertEqual(activeState, .awaitingConfirmation(activePreview))
+        XCTAssertNil(evictedState)
+        XCTAssertNotNil(newestState)
+    }
+
     private func assertApplyFailure(
         _ expected: ScreenplayPreciseEditTransactionError,
         mutation: (ScreenplayPreciseEditPreview, ScreenplayPreciseEditDocumentSnapshot) -> (ScreenplayPreciseEditConfirmation, ScreenplayPreciseEditDocumentSnapshot)
@@ -248,6 +304,10 @@ final class ScreenplayPreciseEditTransactionTests: XCTestCase {
 
     private func makeIntent(save: Bool = false) -> ScreenplayPreciseEditIntent {
         ScreenplayPreciseEditIntent(transactionID: transactionID, page: 1, dialogueOrdinal: 1, character: "JOHN", replacementText: "New words.", saveRequested: save)
+    }
+
+    private func makeIntent(id: UUID) -> ScreenplayPreciseEditIntent {
+        ScreenplayPreciseEditIntent(transactionID: id, page: 1, dialogueOrdinal: 1, character: "JOHN", replacementText: "New words.", saveRequested: false)
     }
 
     private func makeSnapshot(
