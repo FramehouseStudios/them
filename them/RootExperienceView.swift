@@ -2613,8 +2613,6 @@ struct RootExperienceView: View {
         )
     }
     #endif
-
-
     private func ensurePageInterruptService() -> ClementinePageInterruptService {
         if let existing = pageInterruptService {
             return existing
@@ -2729,6 +2727,7 @@ struct RootExperienceView: View {
         }
         voice.onFinalTranscript = { transcript in
             if studioLiveWriteEnabled, isStudioSurfaceActive { finalizeLiveWriteTranscript(transcript) }
+            else if isStudioSurfaceActive { _ = ScreenplayPreciseEditStudioSession.shared.interceptFinalTranscript(transcript, source: .turnBased, bridge: screenplayDraftBridge) }
         }
         voice.onSpeechProgressSnapshot = { audioSnapshot, partial, speechAge in
             guard !studioLiveWriteEnabled else { return }
@@ -2772,6 +2771,7 @@ struct RootExperienceView: View {
         }
         voice.onUtteranceReady = { wavData in
             hideReplyEcho()
+            if ScreenplayPreciseEditStudioSession.shared.consumeTurnBasedAudioSuppression() { isThinking = false; voice.acceptUtteranceAndContinueListening(); return }
             if studioLiveWriteEnabled {
                 isThinking = false
                 voice.acceptUtteranceAndContinueListening()
@@ -2788,7 +2788,6 @@ struct RootExperienceView: View {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) {
                 isThinking = false
             }
-
             guard inFlightTalkTask == nil else { return }
             inFlightTalkTask = Task {
                 await sendUtterance(wavData)
@@ -2899,6 +2898,8 @@ struct RootExperienceView: View {
         realtimeTransport.onUserTranscriptFinal = { finalTranscript in
             let cleaned = finalTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !cleaned.isEmpty else { return }
+            if !studioLiveWriteEnabled, isStudioSurfaceActive, ScreenplayPreciseEditStudioSession.shared.interceptFinalTranscript(cleaned, source: .realtime, bridge: screenplayDraftBridge) {
+                realtimeTransport.interruptAssistant(); livePartialTranscript = ""; clearRealtimeRecoveryTurn(); return }
             let preparedPrompt = buildPreparedTurnPrompt(
                 confirmedTranscript: cleaned,
                 partialHint: cleaned,
@@ -2982,7 +2983,6 @@ struct RootExperienceView: View {
             }
         }
     }
-
     private func handleContentViewDisappear() {
 #if DEBUG
         #if os(macOS)

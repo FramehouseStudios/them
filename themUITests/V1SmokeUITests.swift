@@ -331,6 +331,33 @@ final class V1SmokeUITests: XCTestCase {
         XCTAssertTrue(staticText(containing: "Saved", in: app).waitForExistence(timeout: 6))
     }
 
+    func test_precise_voice_edit_previews_confirms_and_undoes_exact_line() {
+        let replacement = "I can absolutely do this."
+        let app = launchApp(
+            openStudio: true,
+            structuralSeed: true,
+            preciseEditCommand: "Page 1, first line by Lucy, replace it with \(replacement)"
+        )
+        defer { app.terminate() }
+
+        XCTAssertTrue(element(identifier: "studio.precise-edit.overlay", in: app).waitForExistence(timeout: 10))
+        XCTAssertTrue(staticText(containing: "I can do this.", in: app).exists)
+        XCTAssertTrue(staticText(containing: replacement, in: app).exists)
+        XCTAssertTrue(app.buttons["studio.precise-edit.cancel"].exists)
+        let confirm = app.buttons["studio.precise-edit.confirm"]
+        XCTAssertTrue(confirm.waitForExistence(timeout: 4))
+        confirm.tap()
+        XCTAssertTrue(waitForDraft(in: app, containing: replacement, timeout: 8))
+        XCTAssertTrue(app.staticTexts["studio.precise-edit.status"].waitForExistence(timeout: 4))
+        XCTAssertEqual(app.staticTexts["studio.precise-edit.status"].label, "Applied locally")
+
+        let undo = app.buttons["studio.precise-edit.undo"]
+        XCTAssertTrue(undo.waitForExistence(timeout: 4))
+        undo.tap()
+        XCTAssertTrue(waitForDraft(in: app, containing: "I can do this.", timeout: 8))
+        XCTAssertEqual(app.staticTexts["studio.precise-edit.status"].label, "Edit undone")
+    }
+
     @MainActor
     func test_integrated_iphone_writer_loop_creates_saves_exports_and_restores() async throws {
 #if os(iOS)
@@ -2847,6 +2874,7 @@ final class V1SmokeUITests: XCTestCase {
         autoSubmitPagePrompt: String? = nil,
         autoSubmitVoicePinPrompt: String? = nil,
         autoSubmitVoiceSourcePrompt: String? = nil,
+        preciseEditCommand: String? = nil,
         restoreProjectID: String? = nil,
         restoreVersionID: String? = nil,
         restoreLoadToken: Int? = nil,
@@ -2954,6 +2982,9 @@ final class V1SmokeUITests: XCTestCase {
         }
         if let autoSubmitVoiceSourcePrompt {
             arguments.append(contentsOf: ["--ui-auto-submit-voice-source-prompt", autoSubmitVoiceSourcePrompt])
+        }
+        if let preciseEditCommand {
+            arguments.append(contentsOf: ["--ui-precise-edit-command", preciseEditCommand])
         }
         if let restoreProjectID {
             arguments.append(contentsOf: ["-studio_debug_load_project_id", restoreProjectID])

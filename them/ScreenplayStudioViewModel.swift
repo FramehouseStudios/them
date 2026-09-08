@@ -4098,6 +4098,96 @@ final class ScreenplayStudioViewModel: ObservableObject {
         await saveCurrentDraft(source: "studio_manual")
     }
 
+    func commitPreciseVoiceEdit(
+        _ mutation: ScreenplayPreciseEditMutationReceipt
+    ) async -> ScreenplayPreciseEditStudioCommitOutcome {
+        let projectID = selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let versionID = latestVersionID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard projectID == mutation.projectID else { return .failed("The active project changed before confirmation.") }
+        guard versionID == mutation.baseVersionID else { return .failed("The saved draft version changed before confirmation.") }
+        guard ScreenplayPreciseEditHash.sha256(fountainDraft) == mutation.beforeDraftHash,
+              ScreenplayPreciseEditHash.sha256(mutation.updatedDraft) == mutation.afterDraftHash else {
+            return .failed("The page changed before the edit could be applied.")
+        }
+
+        isHydratingDraft = true
+        fountainDraft = mutation.updatedDraft
+        isHydratingDraft = false
+        isManualDraftEditing = false
+        lastManualDraftEditAt = .distantPast
+        hasUnsavedDraftChanges = true
+        autosaveStatusText = mutation.saveRequested ? "Securing precise edit..." : "Precise edit applied locally"
+        persistLocalDraftRecovery(
+            projectId: projectID,
+            draft: mutation.updatedDraft,
+            baseVersionId: versionID,
+            dirty: true
+        )
+        ScreenplayLiveDraftBridge.shared.draftText = mutation.updatedDraft
+        guard mutation.saveRequested else { return .localApplied }
+        guard let request = makeDraftSaveRequest(
+            draft: mutation.updatedDraft,
+            source: "studio_precise_voice_edit",
+            notes: "Precise voice edit",
+            baseVersionOverride: versionID,
+            requestID: mutation.transactionID.uuidString.lowercased()
+        ) else {
+            return .receipt(.init(
+                transactionID: mutation.transactionID,
+                projectID: projectID,
+                savedDraftHash: mutation.afterDraftHash,
+                outcome: .failed(reason: "No active project is available for saving.")
+            ))
+        }
+        do {
+            try await draftSaveOutbox.enqueuePreservingRequestIdentity(request.outboxEntry)
+            autosaveStatusText = "Queued locally - reconnecting"
+            infoText = "Your precise edit is secured in the local save queue."
+            await refreshDraftSaveOutboxStatus()
+            Task { await resumeQueuedDraftSavesIfNeeded(force: true) }
+            return .receipt(.init(
+                transactionID: mutation.transactionID,
+                projectID: projectID,
+                savedDraftHash: mutation.afterDraftHash,
+                outcome: .queued(durableQueueID: request.id)
+            ))
+        } catch {
+            autosaveStatusText = "Precise edit saved locally"
+            errorText = "The edit is on this device, but its save queue failed: \(error.localizedDescription)"
+            return .receipt(.init(
+                transactionID: mutation.transactionID,
+                projectID: projectID,
+                savedDraftHash: mutation.afterDraftHash,
+                outcome: .failed(reason: error.localizedDescription)
+            ))
+        }
+    }
+
+    func commitPreciseVoiceEditUndo(
+        _ undo: ScreenplayPreciseEditUndoReceipt
+    ) -> Bool {
+        guard selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines) == undo.projectID,
+              latestVersionID.trimmingCharacters(in: .whitespacesAndNewlines) == undo.baseVersionID,
+              ScreenplayPreciseEditHash.sha256(fountainDraft) == undo.appliedDraftHash,
+              ScreenplayPreciseEditHash.sha256(undo.restoredDraft) == undo.restoredDraftHash else {
+            return false
+        }
+        isHydratingDraft = true
+        fountainDraft = undo.restoredDraft
+        isHydratingDraft = false
+        isManualDraftEditing = false
+        hasUnsavedDraftChanges = true
+        autosaveStatusText = "Precise edit undone locally"
+        persistLocalDraftRecovery(
+            projectId: undo.projectID,
+            draft: undo.restoredDraft,
+            baseVersionId: undo.baseVersionID,
+            dirty: true
+        )
+        ScreenplayLiveDraftBridge.shared.draftText = undo.restoredDraft
+        return true
+    }
+
     #if DEBUG
     func applyStructuralUITestDraft(_ draft: String, versionID: String) {
         let normalizedDraft = draft.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -5631,14 +5721,15 @@ final class ScreenplayStudioViewModel: ObservableObject {
         draft: String,
         source: String,
         notes: String,
-        baseVersionOverride: String?
+        baseVersionOverride: String?,
+        requestID: String? = nil
     ) -> DraftSaveRequest? {
         guard let project = selectedProject else { return nil }
         let ownerUserId = BackendAuthClient.currentAuthSessionState().user?.userId
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let authContext = currentStudioAuthContext()
         return DraftSaveRequest(
-            id: UUID().uuidString.lowercased(),
+            id: requestID ?? UUID().uuidString.lowercased(),
             projectId: project.id,
             ownerUserId: ownerUserId,
             draft: draft,

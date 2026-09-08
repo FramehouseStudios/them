@@ -14,7 +14,6 @@ struct ScreenplayStudioScreen: View {
     private static let crossDeviceRefreshTimer = Timer
         .publish(every: 3, on: .main, in: .common)
         .autoconnect()
-
     @Environment(\.openURL) private var openURL
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
     var onDone: () -> Void
@@ -72,9 +71,9 @@ struct ScreenplayStudioScreen: View {
         self.onSubmitPrompt = onSubmitPrompt
         self.shouldRoutePromptToPage = shouldRoutePromptToPage
     }
-
     @StateObject private var vm = ScreenplayStudioViewModel()
     @StateObject private var creativeInstincts = StudioCreativeInstinctsModel()
+    @StateObject private var preciseEditSession = ScreenplayPreciseEditStudioSession.shared
     @AppStorage("studio_debug_overlay_enabled") private var studioDebugOverlayEnabled = false
     @State private var navigatorRootURL: URL?
     @State private var navigatorCurrentURL: URL?
@@ -358,7 +357,6 @@ struct ScreenplayStudioScreen: View {
     @State private var studioCommandReturnKeyMonitor: Any?
     #endif
 #endif
-
     var body: some View {
         studioConfiguredView
             .accessibilityElement(children: .contain)
@@ -410,6 +408,7 @@ struct ScreenplayStudioScreen: View {
                         .accessibilityIdentifier("studio.restore.snapshot")
                 }
                 #endif
+                ScreenplayPreciseEditConfirmationOverlay(session: preciseEditSession, viewModel: vm)
             }
     }
 
@@ -14826,6 +14825,7 @@ Look at the city.
         if arguments.contains("--ui-open-commandbar") {
             openStudioCommandBar()
         }
+        preciseEditSession.interceptUITestCommand(arguments, bridge: liveDraftBridge)
         applyUITestCompanionSignalFixtureIfNeeded(arguments)
         applyUITestDraftConflictFixtureIfNeeded()
         applyUITestPendingScreenplayQuestionFixtureIfNeeded()

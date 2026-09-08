@@ -126,6 +126,20 @@ actor ScreenplayDraftSaveOutbox {
 
     @discardableResult
     func enqueue(_ entry: ScreenplayDraftSaveOutboxEntry) throws -> ScreenplayDraftSaveOutboxSnapshot {
+        try enqueue(entry, deduplicateEquivalentDraft: true)
+    }
+
+    @discardableResult
+    func enqueuePreservingRequestIdentity(
+        _ entry: ScreenplayDraftSaveOutboxEntry
+    ) throws -> ScreenplayDraftSaveOutboxSnapshot {
+        try enqueue(entry, deduplicateEquivalentDraft: false)
+    }
+
+    private func enqueue(
+        _ entry: ScreenplayDraftSaveOutboxEntry,
+        deduplicateEquivalentDraft: Bool
+    ) throws -> ScreenplayDraftSaveOutboxSnapshot {
         try loadIfNeeded()
         guard entry.draft.utf8.count <= Self.maxDraftBytes else {
             throw BackendMemoryAPIError.server(status: 413, message: "screenplay_draft_too_large")
@@ -140,7 +154,7 @@ actor ScreenplayDraftSaveOutbox {
             publish(nextSnapshot)
             return nextSnapshot
         }
-        if entries.contains(where: { existing in
+        if deduplicateEquivalentDraft, entries.contains(where: { existing in
             existing.projectId == entry.projectId &&
                 existing.ownerUserId == entry.ownerUserId &&
                 existing.status != .parked &&
