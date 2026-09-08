@@ -4798,27 +4798,25 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         autoInsertStatusText = "io.them is writing..."
     }
 
-    func commitStreamingVoiceTurn(
+    @discardableResult func commitStreamingVoiceTurn(
         _ rawText: String,
         pack: String,
         phase: String,
         projectId: String,
         versionId: String,
         userTranscript: String = "",
-        forceInsert: Bool = false
-    ) {
+        forceInsert: Bool = false, requestID: UUID? = nil
+    ) -> UUID? {
         let text = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else {
             cancelStreamingVoiceTurnPreview()
-            return
+            return nil
         }
-
         let normalizedPack = pack.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedPhase = phase.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedProject = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedVersion = versionId.trimmingCharacters(in: .whitespacesAndNewlines)
         let key = [text, normalizedPack, normalizedPhase, normalizedProject, normalizedVersion].joined(separator: "|")
-
         if key != lastIngestKey {
             lastIngestKey = key
         }
@@ -4831,22 +4829,25 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         preferredVersionID = normalizedVersion
         lastUpdatedAt = Date()
         streamingPreviewText = text
-
         if autoInsertEnabled || forceInsert {
-            pendingInsertion = ScreenplayInsertionRequest(
+            let request = ScreenplayInsertionRequest(
+                id: requestID ?? UUID(),
                 text: text,
                 mode: .streamCommit,
                 replacementTarget: currentInsertionReplacementTarget()
             )
+            pendingInsertion = request
             autoInsertStatusText = ""
+            isStreamingDraftPreviewActive = false
+            streamingPreviewBaseDraft = ""
+            return request.id
         } else {
             autoInsertStatusText = ""
         }
-
         isStreamingDraftPreviewActive = false
         streamingPreviewBaseDraft = ""
+        return nil
     }
-
     func cancelStreamingVoiceTurnPreview() {
         cancelStream()
         guard isStreamingDraftPreviewActive else { return }
@@ -4856,7 +4857,6 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         pendingInsertion = ScreenplayInsertionRequest(text: "", mode: .streamCancel)
         autoInsertStatusText = ""
     }
-
     func streamInsert(_ text: String) {
         _ = cancelActiveSyncedVoiceInsert(notifyCancellation: false, reason: .other)
         streamTask?.cancel()
@@ -8826,7 +8826,7 @@ struct MacCursorInsertTextEditor: NSViewRepresentable {
             context.coordinator.applyActiveElementFromBinding(activeScreenplayElement)
         }
 
-        if !context.coordinator.isApplyingProgrammaticChange, textView.string != text {
+        if !context.coordinator.isApplyingProgrammaticChange, textView.string != text, context.coordinator.shouldApplyAuthoritativeTextUpdate(text) {
             let previousSelection = textView.selectedRange()
             context.coordinator.isApplyingProgrammaticChange = true
             textView.string = text
@@ -9002,6 +9002,15 @@ struct MacCursorInsertTextEditor: NSViewRepresentable {
         }
 
         private func interruptStreamingInsertForUserEditIfNeeded() {
+            if streamingPreviewRange != nil {
+                ScreenplayLiveDraftBridge.shared.debugTraceReplacementTarget(kind: "streaming-preview-manual-edit-interrupt", target: parent.pendingReplacementTarget ?? parent.submittedReplacementTarget, detail: "Cancelled the provisional page preview after a user edit and preserved the writer's current text.")
+                _ = ScreenplayLiveDraftBridge.shared.cancelStreamPreservingCurrentDraft(reason: .manualTyping)
+                parent.insertionRequest = nil
+                parent.pendingReplacementTarget = nil
+                parent.submittedReplacementTarget = nil
+                resetStreamingPreviewState()
+                return
+            }
             if voiceRevealContentRange != nil {
                 ScreenplayLiveDraftBridge.shared.debugTraceReplacementTarget(
                     kind: "voice-reveal-manual-edit-interrupt",
@@ -9657,7 +9666,6 @@ struct MacCursorInsertTextEditor: NSViewRepresentable {
             textView.setSelectedRange(NSRange(location: caretLocation, length: 0))
             isApplyingProgrammaticChange = false
             synchronizeParagraphElementsWithCurrentText(in: textView)
-            parent.text = nextText
             updateCurrentCursorLine()
             streamingPreviewRange = nextRange
             refreshAnchoredTextRectSnapshot()
@@ -10003,6 +10011,16 @@ struct MacCursorInsertTextEditor: NSViewRepresentable {
             streamingPreviewSuffix = ""
             streamingPreviewBaseText = ""
             streamingPreviewReplacementTarget = nil
+        }
+
+        func shouldApplyAuthoritativeTextUpdate(_ authoritativeText: String) -> Bool {
+            guard streamingPreviewRange != nil else { return true }
+            if authoritativeText == streamingPreviewBaseText {
+                return false
+            }
+            _ = ScreenplayLiveDraftBridge.shared.cancelStreamPreservingCurrentDraft(reason: .cancel)
+            resetStreamingPreviewState()
+            return true
         }
 
         private func resetStreamingInsertState() {
@@ -10843,7 +10861,8 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
             context.coordinator.applyActiveElementFromBinding(activeScreenplayElement)
         }
 
-        if !context.coordinator.isApplyingProgrammaticChange, uiView.text != text {
+        if !context.coordinator.isApplyingProgrammaticChange, uiView.text != text,
+           context.coordinator.shouldApplyAuthoritativeTextUpdate(text) {
             let previousSelection = uiView.selectedRange
             context.coordinator.isApplyingProgrammaticChange = true
             uiView.text = text
@@ -11370,21 +11389,19 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
         private func interruptStreamingInsertForUserEditIfNeeded() {
             let hadStreamingInsert = streamingInsertRange != nil
             let hadVoiceReveal = voiceRevealContentRange != nil
-            guard hadStreamingInsert || hadVoiceReveal else { return }
+            let hadStreamingPreview = streamingPreviewRange != nil
+            guard hadStreamingInsert || hadVoiceReveal || hadStreamingPreview else { return }
             let replacementTarget = parent.pendingReplacementTarget ?? parent.submittedReplacementTarget
             traceReplacementTarget(
-                kind: hadVoiceReveal
-                    ? "ios-voice-reveal-manual-edit-interrupt"
-                    : "ios-streaming-lines-manual-edit-interrupt",
+                kind: hadStreamingPreview ? "ios-streaming-preview-manual-edit-interrupt" : (hadVoiceReveal ? "ios-voice-reveal-manual-edit-interrupt" : "ios-streaming-lines-manual-edit-interrupt"),
                 target: replacementTarget,
-                detail: hadVoiceReveal
-                    ? "Cancelled voice reveal after a user edit to preserve the current draft."
-                    : "Cancelled streamed line insertion after a user edit to preserve the current draft."
+                detail: hadStreamingPreview ? "Cancelled the provisional page preview after a user edit and preserved the writer's current text." : (hadVoiceReveal ? "Cancelled voice reveal after a user edit to preserve the current draft." : "Cancelled streamed line insertion after a user edit to preserve the current draft.")
             )
             _ = ScreenplayLiveDraftBridge.shared.cancelStreamPreservingCurrentDraft(reason: .manualTyping)
             publishInsertionRequest(nil)
             publishPendingReplacementTarget(nil)
             publishSubmittedReplacementTarget(nil)
+            if hadStreamingPreview { resetStreamingPreviewState() }
             resetStreamingInsertState()
             clearVoiceRevealPresentation(in: textView, preserveCurrentText: true)
         }
@@ -12029,7 +12046,6 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
             textView.selectedRange = NSRange(location: caretLocation, length: 0)
             isApplyingProgrammaticChange = false
             synchronizeParagraphElementsWithCurrentText(in: textView)
-            publishText(nextText, requestID: request.id)
             updateCurrentCursorLine()
             streamingPreviewRange = nextRange
             refreshAnchoredTextRectSnapshot()
@@ -12318,7 +12334,6 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
             textView.selectedRange = NSRange(location: caretLocation, length: 0)
             isApplyingProgrammaticChange = false
             synchronizeParagraphElementsWithCurrentText(in: textView)
-            publishText(nextText)
             updateCurrentCursorLine()
             resetStreamingPreviewState()
             refreshAnchoredTextRectSnapshot()
@@ -12377,6 +12392,16 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
             streamingPreviewSuffix = ""
             streamingPreviewBaseText = ""
             streamingPreviewReplacementTarget = nil
+        }
+
+        func shouldApplyAuthoritativeTextUpdate(_ authoritativeText: String) -> Bool {
+            guard streamingPreviewRange != nil else { return true }
+            if authoritativeText == streamingPreviewBaseText {
+                return false
+            }
+            _ = ScreenplayLiveDraftBridge.shared.cancelStreamPreservingCurrentDraft(reason: .cancel)
+            resetStreamingPreviewState()
+            return true
         }
 
         private func resetStreamingInsertState() {

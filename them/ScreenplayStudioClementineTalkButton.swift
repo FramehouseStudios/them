@@ -10,6 +10,7 @@ struct ScreenplayStudioClementineTalkButton: View {
     let isActive: Bool
     let canTalk: Bool
     let statusText: String
+    let isLiveWriteMode: Bool
     let workspace: ScreenplayStudioVoiceWorkspaceContext
     let textColor: Color
     let secondaryTextColor: Color
@@ -28,15 +29,23 @@ struct ScreenplayStudioClementineTalkButton: View {
         }
         .buttonStyle(.plain)
         .disabled(!canTalk && !isActive)
-        .accessibilityLabel(isActive ? "Stop Clementine" : "Talk to Clementine")
+        .accessibilityLabel(
+            isActive
+                ? (isLiveWriteMode ? "Stop Live Write" : "Stop Clementine")
+                : (isLiveWriteMode ? "Start Live Write" : "Talk to Clementine")
+        )
         .accessibilityHint(workspace.talkAccessibilityHint)
         .accessibilityValue("\(workspace.title) context. \(statusText)")
         .accessibilityIdentifier(style == .compact ? "studio.compact.talk" : "studio.talk")
-        .help(isActive ? "Stop Clementine" : "Talk to Clementine from \(workspace.title)")
+        .help(
+            isActive
+                ? (isLiveWriteMode ? "Stop Live Write" : "Stop Clementine")
+                : (isLiveWriteMode ? "Start Live Write from \(workspace.title)" : "Talk to Clementine from \(workspace.title)")
+        )
     }
 
     private var compactLabel: some View {
-        Image(systemName: isActive ? "stop.fill" : "waveform")
+        Image(systemName: isActive ? "stop.fill" : (isLiveWriteMode ? "square.and.pencil" : "waveform"))
             .font(.system(size: 12, weight: .semibold))
             .foregroundStyle(
                 isActive
@@ -66,7 +75,7 @@ struct ScreenplayStudioClementineTalkButton: View {
                         : (canTalk ? Color.white.opacity(0.92) : Color.herStudioActiveFill.opacity(0.30))
                 )
                 .frame(width: 8, height: 8)
-            Text(isActive ? "Stop" : "Talk")
+            Text(isActive ? "Stop" : (isLiveWriteMode ? "Live Write" : "Talk"))
                 .font(.system(size: 11, weight: .semibold, design: .default))
         }
         .foregroundStyle(

@@ -684,6 +684,42 @@ final class V1SmokeUITests: XCTestCase {
         }
     }
 
+    func test_studio_live_write_mode_is_explicit_and_changes_clementine_action() {
+        let app = launchApp(openStudio: true, openExportTools: true, structuralSeed: true)
+        defer { app.terminate() }
+
+        let settings = app.buttons["studio.settings"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 10), "Studio settings were unavailable.")
+        settings.tap()
+
+        let toggle = app.buttons["studio.live-write.toggle"]
+        XCTAssertTrue(
+            toggle.waitForExistence(timeout: 5),
+            "Studio settings did not expose the explicit Live Write mode.\n\(app.debugDescription)"
+        )
+        if (toggle.value as? String) != "Enabled" {
+            toggle.tap()
+        }
+        let enabled = NSPredicate(format: "value == 'Enabled'")
+        XCTAssertEqual(
+            XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: enabled, object: toggle)], timeout: 3),
+            .completed,
+            "Live Write did not report its enabled state."
+        )
+        app.swipeDown()
+
+        XCTAssertTrue(
+            element(identifier: "studio.live-write.status", in: app).waitForExistence(timeout: 5),
+            "The enabled Live Write mode did not remain visibly identifiable."
+        )
+
+        let compactTalk = app.buttons["studio.compact.talk"]
+        let expandedTalk = app.buttons["studio.talk"]
+        let talk = compactTalk.exists ? compactTalk : expandedTalk
+        XCTAssertTrue(talk.waitForExistence(timeout: 5))
+        XCTAssertEqual(talk.label, "Start Live Write")
+    }
+
     func test_studio_header_shortcuts_and_project_drawer_tabs_reveal_their_destinations() {
         let app = launchApp(openStudio: true, openExportTools: true, structuralSeed: true)
         defer { app.terminate() }

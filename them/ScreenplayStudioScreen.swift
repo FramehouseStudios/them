@@ -26,6 +26,7 @@ struct ScreenplayStudioScreen: View {
     var talkStatusText: String
     var talkIsActive: Bool
     var livePartialTranscript: String
+    @Binding var liveWriteEnabled: Bool
     var debugVoicePartialStableSeconds: Double
     var debugVoicePartialStabilityWindowSeconds: Double
     var isSubmittingPrompt: Bool
@@ -44,6 +45,7 @@ struct ScreenplayStudioScreen: View {
         talkStatusText: String,
         talkIsActive: Bool,
         livePartialTranscript: String,
+        liveWriteEnabled: Binding<Bool>,
         debugVoicePartialStableSeconds: Double,
         debugVoicePartialStabilityWindowSeconds: Double,
         isSubmittingPrompt: Bool,
@@ -61,6 +63,7 @@ struct ScreenplayStudioScreen: View {
         self.talkStatusText = talkStatusText
         self.talkIsActive = talkIsActive
         self.livePartialTranscript = livePartialTranscript
+        self._liveWriteEnabled = liveWriteEnabled
         self.debugVoicePartialStableSeconds = debugVoicePartialStableSeconds
         self.debugVoicePartialStabilityWindowSeconds = debugVoicePartialStabilityWindowSeconds
         self.isSubmittingPrompt = isSubmittingPrompt
@@ -1201,7 +1204,10 @@ Replace is best when this file should become the script you edit. Append is safe
             }
             .onChange(of: liveDraftBridge.lastCommittedWrite) { _, committedWrite in
                 guard let committedWrite else { return }
-                vm.adoptCommittedPageWriteIfNeeded(committedWrite)
+                vm.adoptCommittedPageWriteIfNeeded(
+                    committedWrite,
+                    deferRemoteSave: liveWriteEnabled
+                )
                 if suppressLastCommittedWriteAutoReveal {
                     suppressLastCommittedWriteAutoReveal = false
                     publishDebugStudioDiffState()
@@ -2469,47 +2475,17 @@ private func directionOneHeader(usesDrawers: Bool) -> some View {
             directionOneExpandedHeader
         }
 
-        if !cleanLivePartialTranscript.isEmpty {
-            directionOneLiveTranscriptCaption
+        if !livePartialTranscript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || liveWriteEnabled {
+            ClementineStudioVoiceCaption(
+                partialTranscript: livePartialTranscript,
+                isListening: talkIsActive,
+                textColor: directionOneChromeText,
+                secondaryTextColor: directionOneChromeSecondaryText,
+                panelColor: directionOneChromePanelSoft,
+                strokeColor: directionOneChromeStroke
+            )
         }
     }
-}
-
-private var cleanLivePartialTranscript: String {
-    livePartialTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
-}
-
-private var directionOneLiveTranscriptCaption: some View {
-    HStack(spacing: 7) {
-        Image(systemName: "waveform")
-            .font(.system(size: 10, weight: .semibold))
-            .foregroundStyle(Color.accentColor.opacity(0.86))
-            .accessibilityHidden(true)
-
-        Text("Hearing:")
-            .font(.system(size: 11, weight: .semibold, design: .default))
-            .foregroundStyle(directionOneChromeText.opacity(0.88))
-            .fixedSize(horizontal: true, vertical: false)
-
-        Text(cleanLivePartialTranscript)
-            .font(.system(size: 11, weight: .regular, design: .default))
-            .foregroundStyle(directionOneChromeSecondaryText)
-            .lineLimit(1)
-            .truncationMode(.head)
-            .frame(maxWidth: .infinity, alignment: .leading)
-    }
-    .padding(.horizontal, 12)
-    .padding(.vertical, 6)
-    .background(directionOneChromePanelSoft.opacity(0.98))
-    .overlay(alignment: .bottom) {
-        Rectangle()
-            .fill(directionOneChromeStroke.opacity(0.45))
-            .frame(height: 1)
-    }
-    .accessibilityElement(children: .ignore)
-    .accessibilityLabel("Clementine is hearing")
-    .accessibilityValue(cleanLivePartialTranscript)
-    .accessibilityIdentifier("studio.voice.partial-transcript")
 }
 
 private var directionOneExpandedHeader: some View {
@@ -2744,6 +2720,8 @@ private var directionOneHeaderSettingsButton: some View {
             )
     }
     .buttonStyle(.plain)
+    .accessibilityLabel("Studio settings")
+    .accessibilityIdentifier("studio.settings")
     .popover(isPresented: $showingDirectionOneSettings, arrowEdge: .top) {
         directionOneSettingsPopover
     }
@@ -2774,6 +2752,7 @@ private var directionOneCompactTalkButton: some View {
         isActive: talkIsActive,
         canTalk: canTalk,
         statusText: talkStatusText,
+        isLiveWriteMode: liveWriteEnabled,
         workspace: directionOneRightPanelTab.voiceWorkspaceContext,
         textColor: directionOneChromeText,
         secondaryTextColor: directionOneChromeSecondaryText,
@@ -2812,6 +2791,7 @@ private var directionOneTalkButton: some View {
         isActive: talkIsActive,
         canTalk: canTalk,
         statusText: talkStatusText,
+        isLiveWriteMode: liveWriteEnabled,
         workspace: directionOneRightPanelTab.voiceWorkspaceContext,
         textColor: directionOneChromeText,
         secondaryTextColor: directionOneChromeSecondaryText,
@@ -2907,6 +2887,15 @@ private var directionOneScriptEditor: some View {
                         studioPerceivedPageSkeleton
                             .padding(.top, 18)
                             .padding(.trailing, 18)
+                    }
+                }
+                .overlay(alignment: .bottomLeading) {
+                    if liveWriteEnabled,
+                       !streamingAssistantReply.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        ClementineLiveWritePreview(
+                            screenplay: streamingAssistantReply,
+                            textColor: directionOneChromeText
+                        )
                     }
                 }
             }
@@ -4514,6 +4503,11 @@ private func refreshStudioCreativeInstincts(
             Toggle("Auto-insert voice turns", isOn: $liveDraftBridge.autoInsertEnabled)
                 .font(.system(size: 12, weight: .regular, design: .default))
                 .toggleStyle(.switch)
+
+            ClementineLiveWriteSetting(
+                isEnabled: $liveWriteEnabled,
+                secondaryTextColor: directionOneChromeSecondaryText
+            )
 
             Toggle("Autosave draft", isOn: $vm.autosaveEnabled)
                 .font(.system(size: 12, weight: .regular, design: .default))

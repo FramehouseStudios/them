@@ -1963,7 +1963,10 @@ final class ScreenplayStudioViewModel: ObservableObject {
     }
 
     @discardableResult
-    func adoptCommittedPageWriteIfNeeded(_ committedWrite: ScreenplayCommittedWrite) -> Bool {
+    func adoptCommittedPageWriteIfNeeded(
+        _ committedWrite: ScreenplayCommittedWrite,
+        deferRemoteSave: Bool = false
+    ) -> Bool {
         guard committedWrite.isAuthoritativeWrite else { return false }
         let bridge = ScreenplayLiveDraftBridge.shared
         let committedProjectID = ScreenplayLiveDraftBridge.resolvedCommittedWriteProjectID(
@@ -1997,6 +2000,12 @@ final class ScreenplayStudioViewModel: ObservableObject {
             baseVersionId: latestVersionID,
             dirty: true
         )
+        if deferRemoteSave {
+            autosaveStatusText = autosaveEnabled
+                ? "Live Write — saving after this passage..."
+                : "Live Write passage stored locally — autosave is off."
+            return true
+        }
         let saveIntent = resolvedDraftSaveIntent(for: committedDraft)
         Task {
             await saveCurrentDraft(

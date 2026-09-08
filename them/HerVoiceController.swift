@@ -469,6 +469,7 @@ final class HerVoiceController: ObservableObject {
     var isAssistantPlaying: (() -> Bool)?
     var onBargeInDetected: (() -> Void)?
     var onPartialTranscript: ((String) -> Void)?
+    var onFinalTranscript: ((String) -> Void)?
 
     /// Fired every ~300ms during active speech capture.
     /// Carries: current WAV snapshot bytes, current partial transcript, seconds of speech so far.
@@ -566,6 +567,9 @@ final class HerVoiceController: ObservableObject {
             self.partialTranscript = text
             self.onPartialTranscript?(text)
         }
+        partialTranscriber.onFinal = { [weak self] text in
+            self?.onFinalTranscript?(text)
+        }
     }
 
     // MARK: - Public API
@@ -656,6 +660,14 @@ final class HerVoiceController: ObservableObject {
         guard mode != .idle, mode != .muted else { return }
         HerLog.mic.info("resume requested mode=\(String(describing: self.mode), privacy: .public)")
         startContinuousListening()
+    }
+
+    func acceptUtteranceAndContinueListening() {
+        markRequestFailed()
+        speechStartedAt = nil
+        lastLoudAt = nil
+        utteranceFrames.removeAll(keepingCapacity: true)
+        HerLog.mic.info("utterance accepted -> continuous listening resumed")
     }
 
     func teardown() {
@@ -1015,6 +1027,11 @@ final class HerVoiceController: ObservableObject {
             if shouldFinalizeBySilence || shouldFinalizeByDuration {
                 if hasPendingUtterance { return }
                 hasPendingUtterance = true
+                // Speech recognition otherwise keeps one cumulative transcript
+                // for the lifetime of the audio engine. Start a fresh recognition
+                // request at every VAD boundary so the next spoken passage cannot
+                // replay words that were already handed to Live Write.
+                partialTranscriber.finishCurrentUtteranceAndRestart(fallbackText: capturedPartial)
                 pendingRequestDeadline = now.addingTimeInterval(pendingRequestTimeoutSeconds)
                 cooldownUntil = now.addingTimeInterval(retriggerCooldownSeconds)
                 let partialLength = capturedPartial.count
