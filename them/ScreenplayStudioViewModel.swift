@@ -3406,7 +3406,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
 
         let parsed = Self.parseDevelopmentOutline(prompt: prompt, reply: reply)
         guard !parsed.actTitles.isEmpty || !parsed.beats.isEmpty else {
-            errorText = "Ask io.them for a beat sheet or outline, then try Apply to Outline again."
+            errorText = "Ask Clementine for a beat sheet or outline, then try Apply to Outline again."
             return false
         }
 

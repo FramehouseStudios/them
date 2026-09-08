@@ -634,12 +634,12 @@ final class V1SmokeUITests: XCTestCase {
         defer { app.terminate() }
 
         let routes = [
-            (tab: "draft", panel: "studio.draft.tools.pages"),
-            (tab: "beats", panel: "studio.beats.save"),
-            (tab: "craft", panel: "studio.craft.panel"),
-            (tab: "outline", panel: "studio.feature-compass.move.next-scene.write"),
-            (tab: "them", panel: "studio.them.panel"),
-            (tab: "saved", panel: "studio.saved.save"),
+            (tab: "draft", context: "Draft", panel: "studio.draft.tools.pages"),
+            (tab: "beats", context: "Beats", panel: "studio.beats.save"),
+            (tab: "craft", context: "Craft", panel: "studio.craft.panel"),
+            (tab: "outline", context: "Outline", panel: "studio.feature-compass.move.next-scene.write"),
+            (tab: "them", context: "Clementine", panel: "studio.them.panel"),
+            (tab: "saved", context: "Saved", panel: "studio.saved.save"),
         ]
         let drawer = element(identifier: "studio.sidebar.right.drawer", in: app)
 
@@ -661,6 +661,14 @@ final class V1SmokeUITests: XCTestCase {
             XCTAssertTrue(
                 waitForSelection(of: tab, timeout: 3),
                 "The \(route.tab) tab did not report its selected state"
+            )
+            let compactTalk = app.buttons["studio.compact.talk"]
+            let expandedTalk = app.buttons["studio.talk"]
+            let talk = compactTalk.exists ? compactTalk : expandedTalk
+            XCTAssertTrue(talk.waitForExistence(timeout: 3), "Clementine voice was missing from \(route.tab)")
+            XCTAssertTrue(
+                ((talk.value as? String) ?? "").localizedCaseInsensitiveContains("\(route.context) context"),
+                "Clementine voice did not receive \(route.context) context"
             )
             let panel = element(identifier: route.panel, in: app)
             XCTAssertTrue(
@@ -2977,7 +2985,7 @@ final class V1SmokeUITests: XCTestCase {
                rightToggle.label.localizedCaseInsensitiveContains("Open") {
                 rightToggle.tap()
             }
-            let themTab = app.buttons["io.them"]
+            let themTab = app.buttons["Clementine"]
             if themTab.exists, themTab.isHittable, !themTab.isSelected {
                 themTab.tap()
             }
@@ -2995,7 +3003,7 @@ final class V1SmokeUITests: XCTestCase {
                rightToggle.label.localizedCaseInsensitiveContains("Open") {
                 rightToggle.tap()
             }
-            let themTab = app.buttons["io.them"]
+            let themTab = app.buttons["Clementine"]
             if themTab.exists, themTab.isHittable, !themTab.isSelected {
                 themTab.tap()
             }
