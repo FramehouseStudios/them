@@ -3,7 +3,7 @@ import SwiftUI
 // ScreenplayStudio Inspector UX shim — D009 strangler
 // Keeps ScreenplayStudioScreen.swift at 17438 lines; no edits to god file.
 // Provides inspector tabs provenance payload consumed by
-// ScreenplayStudioScreen via InspectorUX. Mirrors lib/clementine/inspector_ux.js
+// ScreenplayStudioScreen via InspectorUX. Mirrors backend/lib/clementine/inspector_ux.js
 // which wires studio_actions + coverage to inspector tabs provenance.
 
 // MARK: - Models

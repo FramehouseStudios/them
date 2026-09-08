@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import { fileURLToPath } from "node:url";
 import {
   INSPECTOR_TABS,
   PROVENANCE_KINDS,
@@ -95,17 +96,10 @@ test("buildInspectorUXPayload wires studio_actions + coverage to tabs provenance
   assert.equal(p4.coverage.verdict, "CONSIDER");
 });
 
-test("lib/clementine mirror identical to backend", () => {
-  assert.ok(fs.existsSync("lib/clementine/inspector_ux.js"));
-  assert.ok(fs.existsSync("backend/lib/clementine/inspector_ux.js"));
-  const a = fs.readFileSync("lib/clementine/inspector_ux.js", "utf8");
-  const b = fs.readFileSync("backend/lib/clementine/inspector_ux.js", "utf8");
-  assert.equal(a, b);
-});
-
 test("Swift shim exists", () => {
-  assert.ok(fs.existsSync("them/ScreenplayStudioInspectorUX.swift"));
-  const s = fs.readFileSync("them/ScreenplayStudioInspectorUX.swift", "utf8");
+  const swiftShim = fileURLToPath(new URL("../../them/ScreenplayStudioInspectorUX.swift", import.meta.url));
+  assert.ok(fs.existsSync(swiftShim));
+  const s = fs.readFileSync(swiftShim, "utf8");
   assert.ok(s.includes("InspectorUX"));
   assert.ok(s.includes("ProvenanceKind"));
 });

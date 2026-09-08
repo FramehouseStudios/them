@@ -53,7 +53,9 @@ describe("presence-craft-feature-next", () => {
   });
 
   it("god file gate unaffected", () => {
-    // sanity: craft_cards still exports 20 cards
-    assert.equal(CRAFT_CARDS.length, 20);
+    // Keep the accepted 30-card catalog stable without reviving the obsolete
+    // 20-card invariant from before the craft expansion.
+    assert.equal(CRAFT_CARDS.length, 30);
+    assert.equal(new Set(CRAFT_CARDS.map((card) => card.id)).size, 30);
   });
 });
