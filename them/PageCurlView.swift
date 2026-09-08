@@ -1,6 +1,7 @@
 // PageCurlView — curl animation for flip-through (P0, not gated)
 // Uses dragged page curl effect over page_flip paginated draft.
 import SwiftUI
+import ScreenplayStudio
 
 struct PageCurlView: View {
     let pages: [String]
@@ -13,7 +14,7 @@ struct PageCurlView: View {
                 Text("No pages").foregroundStyle(.secondary)
             } else {
                 Text(pages[current])
-                    .font(.system(.body, design: .monospaced))
+                    .font(IOThemTypography.UI.monoPrompt)
                     .padding(12)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                     .background(Color.white)
@@ -30,7 +31,7 @@ struct PageCurlView: View {
                 HStack {
                     Button("Prev") { if current > 0 { current -= 1 } }.disabled(current==0)
                     Spacer()
-                    Text("\(current+1)/\(pages.count)").font(.caption2)
+                    Text("\(current+1)/\(pages.count)").font(IOThemTypography.UI.microRegular)
                     Spacer()
                     Button("Next") { if current < pages.count-1 { current += 1 } }.disabled(current==pages.count-1)
                 }.padding(.horizontal, 12).padding(.bottom, 6)
