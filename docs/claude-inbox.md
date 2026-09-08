@@ -26,6 +26,8 @@ from #596 so unrelated safety changes remain independently reviewable:
 5. #600 — safe Dependabot configuration reconstructed from #456.
 6. #602 — pinned Node 24 LTS runtime across local, CI, and Docker surfaces.
 7. #603 — explicit, clock-free FDX title metadata reconstructed from #442.
+8. #604 — canonical APP_TOKEN_RELEASE wiring for the full Quality Gate.
+9. #605 — no-op outbox notification suppression reconstructed from #481.
 
 The implementation successors have clean local relevant-suite evidence. They
 remain blocked on the same hosted Actions failure and must not merge around it.
@@ -36,9 +38,9 @@ Studio chain. The exhaustive keep/port/retire decision is in the branch audit.
 
 ## Hard gates
 
-- Required GitHub Actions jobs currently abort before running because of the
-  account billing/spending-limit block. No implementation merge until the
-  exact candidate SHA receives the required green checks.
+- GitHub Actions billing was restored on September 8 and jobs now execute.
+  #596 is the first corrected baseline run. No implementation merge until the
+  exact candidate SHA receives the complete required green checks.
 - Render correctly refuses the newer production build while
   `APP_STORE_ISSUER_ID`, `APP_STORE_KEY_ID`, and `APP_STORE_PRIVATE_KEY` are
   absent. Do not weaken the fail-closed guard or redeploy the candidate.
@@ -56,8 +58,8 @@ from current `main` at a time. Priority order:
    reproducible third-party notices; a real private security-reporting channel;
    a proven current gitleaks workflow; and CodeQL only after GitHub Code
    Security is enabled. Never reuse its stale RC notes.
-2. After the app train, port only #481's session-churn tip and tests, then only
-   #482's owner-scoped ETag tip.
+2. #481 is closed and safely reconstructed as #605 without its stale-cache
+   change. After the app train, review only #482's owner-scoped ETag tip.
 3. Begin the D009 backend sequence with #461 alone only after the above work is
    reviewed.
 
@@ -66,6 +68,8 @@ from current `main` at a time. Priority order:
 #456 is closed after review: its reporting channel was unavailable, both
 security workflows had failed, and its release notes claimed unmerged features
 were shipped. Its safe Dependabot slice now lives independently in #600.
+#436 is also closed: it had no producer, wrote an internal TODO marker into
+screenplay text, and its advertised answer action did not resolve that marker.
 
 Do not merge #435 merely because its ordinary checks are green: adversarial
 review reproduced nontermination, silent content loss, Unicode corruption,

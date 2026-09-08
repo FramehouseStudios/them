@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-08T19:31:29.000Z",
+  "updatedAt": "2026-09-08T19:47:58.000Z",
   "updatedBy": "codex",
   "openPullRequests": [
     {
@@ -10,10 +10,10 @@
       "tier": 1,
       "status": "blocked",
       "branch": "codex/T-writer-beta-files-picker",
-      "blocker": "Required GitHub Actions jobs do not start because of the account billing/spending-limit block.",
-      "blocker_kind": "needs_human",
+      "blocker": "Await the corrected baseline and rerun the required hosted checks on the exact candidate SHA.",
+      "blocker_kind": "needs_rebase",
       "reviewer_note": "Current-main scoped work with strong local signed iPhone and macOS evidence; first branch in the landing train.",
-      "expected_action": "Restore Actions execution, polish the PR description, and rerun exact-SHA hosted checks."
+      "expected_action": "Rebase after the baseline repair lands and rerun exact-SHA hosted checks."
     },
     {
       "number": 591,
@@ -60,10 +60,10 @@
       "tier": 1,
       "status": "blocked",
       "branch": "codex/T-main-backend-baseline-repair",
-      "blocker": "Required GitHub Actions jobs abort before running because of the account billing/spending-limit block.",
-      "blocker_kind": "needs_human",
-      "reviewer_note": "Fixes three genuine main-branch test failures; local backend suite passes 2,739/2,739 with two intentional skips.",
-      "expected_action": "Restore Actions execution and rerun the exact candidate SHA before merge."
+      "blocker": "Required hosted Quality Gate is executing on exact SHA 715ff30.",
+      "blocker_kind": "needs_test_fix",
+      "reviewer_note": "Fixes three genuine backend test failures plus a current-main Xcode 26 inspector compile failure; backend suite and signed iPhone build pass locally.",
+      "expected_action": "Merge only if the complete required hosted gate passes on SHA 715ff30."
     },
     {
       "number": 597,
@@ -144,16 +144,30 @@
       "expected_action": "Land after #596 only when the exact SHA receives required hosted checks."
     },
     {
-      "number": 481,
-      "title": "ios: stop minting a backend session every five seconds",
-      "owner": "support",
-      "tier": 2,
+      "number": 604,
+      "title": "ci: use canonical release token in Quality Gate",
+      "owner": "codex",
+      "tier": 1,
       "status": "blocked",
-      "branch": "claude/session-churn-fix",
-      "blocker": "The unique fix is the tip of a 25-commit cumulative Studio stack.",
-      "blocker_kind": "needs_scope_narrowing",
-      "reviewer_note": "High-value reliability/performance behavior; never merge the inherited stack.",
-      "expected_action": "Port only the tip and its outbox tests after the active app train lands."
+      "branch": "codex/T-quality-gate-release-token",
+      "blocker": "Land after #596, then rerun the full main workflow with live secret-backed gates.",
+      "blocker_kind": "needs_rebase",
+      "blocker_against_pr": 596,
+      "reviewer_note": "Maps canonical APP_TOKEN_RELEASE into the backend runtime variable APP_TOKEN and guards the contract with tests.",
+      "expected_action": "Require exact-SHA hosted checks, merge after #596, then dispatch the complete main Quality Gate."
+    },
+    {
+      "number": 605,
+      "title": "fix: stop idle outbox session churn",
+      "owner": "codex",
+      "tier": 1,
+      "status": "blocked",
+      "branch": "codex/T-outbox-idle-session-churn",
+      "blocker": "Land after #596 and require exact-SHA hosted checks.",
+      "blocker_kind": "needs_rebase",
+      "blocker_against_pr": 596,
+      "reviewer_note": "Safe reconstruction of closed #481; removes only false idle notifications and preserves forced fresh reads for genuine outbox changes.",
+      "expected_action": "Verify the full signed iOS gate, then rebase behind the active app train before landing if needed."
     },
     {
       "number": 482,
@@ -207,12 +221,6 @@
     }
   ],
   "blockers": [
-    {
-      "id": "github-actions-billing",
-      "owner": "human",
-      "summary": "Required GitHub Actions jobs abort before executing because account payments failed or the Actions spending limit must be increased. No implementation merge while required checks cannot run.",
-      "since": "2026-09-07"
-    },
     {
       "id": "render-app-store-secrets",
       "owner": "human",
