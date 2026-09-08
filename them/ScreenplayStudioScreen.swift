@@ -5127,7 +5127,7 @@ private var projectsSidebarContent: some View {
         vm.paginationPages.map { page in
             ScreenplayStudioPaginationPagePresentation(
                 page: page,
-                thumbnailLines: ScreenplayStudioDraftToolsPresentationPlanner.paginationThumbnailLines(
+                previewLines: ScreenplayStudioDraftToolsPresentationPlanner.paginationPreviewLines(
                     for: page,
                     draft: vm.fountainDraft
                 ),
@@ -14565,7 +14565,7 @@ The door closes softly. That is worse than a slam.
         guard studioDebugSeedStructuralToken != lastAppliedStudioDebugSeedStructuralToken else { return }
         lastAppliedStudioDebugSeedStructuralToken = studioDebugSeedStructuralToken
 
-        let sampleDraft = """
+        let sampleDraft = ScreenplayStudioDraftToolsPresentationPlanner.resolvedPaginationUITestDraft(arguments: ProcessInfo.processInfo.arguments, fallback: """
 INT. DINER - NIGHT
 LUCY
 I can do this.
@@ -14578,7 +14578,7 @@ Frank stares at the sink.
 INT. ROOF - SUNSET
 JESS
 Look at the city.
-"""
+""")
 
         let now = Date().timeIntervalSince1970 * 1000
         let project = BackendScreenplayProjectSummary(

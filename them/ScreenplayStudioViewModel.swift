@@ -1624,6 +1624,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
     @Published var isPaginationRefreshing: Bool = false
     @Published var paginationErrorText: String = ""
     @Published var linesPerPage: Int = 55
+    private var paginationRefreshID: UUID?
     @Published var revisionColor: String = "blue"
     @Published var revisionSummary: BackendScreenplayRevisionSummary?
     @Published var revisionRanges: [BackendScreenplayRevisionRange] = []
@@ -6165,28 +6166,65 @@ final class ScreenplayStudioViewModel: ObservableObject {
     }
 
     private func recomputePagination(for draft: String, source: String) async {
+        let refreshID = UUID()
+        paginationRefreshID = refreshID
         let normalized = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalized.isEmpty else {
             paginationPages = []
             paginationErrorText = ""
+            isPaginationRefreshing = false
             return
         }
 
+        let requestedLinesPerPage = linesPerPage
         isPaginationRefreshing = true
-        defer { isPaginationRefreshing = false }
+        defer {
+            if paginationRefreshID == refreshID {
+                paginationRefreshID = nil
+                isPaginationRefreshing = false
+            }
+        }
+
+        #if DEBUG
+        if IOThemRuntime.isRunningUITests,
+           ProcessInfo.processInfo.arguments.contains("--ui-pages-workflow-fixture") {
+            await Task.yield()
+            guard paginationRefreshID == refreshID,
+                  requestedLinesPerPage == linesPerPage,
+                  normalized == fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines) else {
+                return
+            }
+            paginationPages = Self.paginationPagesForUITesting(
+                draft: draft,
+                linesPerPage: requestedLinesPerPage
+            )
+            paginationErrorText = ""
+            return
+        }
+        #endif
+
         do {
             let result = try await StudioCraftResilience.run(source: source) {
                 try await BackendMemoryAPI.shared.paginateScreenplayDraft(
                     draft: draft,
                     title: selectedProject?.title ?? "",
                     phase: selectedProject?.lastPhase ?? "scene_draft",
-                    linesPerPage: linesPerPage
+                    linesPerPage: requestedLinesPerPage
                 )
             }
-            guard normalized == fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines) else { return }
+            guard paginationRefreshID == refreshID,
+                  requestedLinesPerPage == linesPerPage,
+                  normalized == fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines) else {
+                return
+            }
             paginationPages = result.payload.pages
             paginationErrorText = ""
         } catch {
+            guard paginationRefreshID == refreshID,
+                  requestedLinesPerPage == linesPerPage,
+                  normalized == fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines) else {
+                return
+            }
             paginationErrorText = StudioCraftResilience.presentedError(
                 error,
                 source: source,
@@ -6194,6 +6232,35 @@ final class ScreenplayStudioViewModel: ObservableObject {
             )
         }
     }
+
+    #if DEBUG
+    private static func paginationPagesForUITesting(
+        draft: String,
+        linesPerPage: Int
+    ) -> [BackendScreenplayPaginationPage] {
+        let normalized = draft
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else { return [] }
+
+        let lines = normalized.components(separatedBy: "\n")
+        let pageSize = max(24, min(90, linesPerPage))
+        return stride(from: 0, to: lines.count, by: pageSize).enumerated().map { pageIndex, startIndex in
+            let endIndex = min(lines.count, startIndex + pageSize)
+            let pageLines = Array(lines[startIndex..<endIndex])
+            let estimate = (Double(pageLines.count) / 55.0 * 100.0).rounded() / 100.0
+            return BackendScreenplayPaginationPage(
+                page: pageIndex + 1,
+                startLine: startIndex + 1,
+                endLine: endIndex,
+                lineCount: pageLines.count,
+                preview: String(pageLines.joined(separator: " ").prefix(140)),
+                estMinutes: estimate
+            )
+        }
+    }
+    #endif
 
     private func recomputeRevision(for draft: String, source: String) async {
         let normalized = draft.trimmingCharacters(in: .whitespacesAndNewlines)
