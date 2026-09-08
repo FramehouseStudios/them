@@ -255,11 +255,11 @@ enum ScreenplayFeatureActionCommand: String, Codable, Equatable {
     var successMessage: String {
         switch self {
         case .writeNextScene:
-            return "Asked io.them to write the next feature scene."
+            return "Asked Clementine to write the next feature scene."
         case .outlineNextThreeTurns:
-            return "Asked io.them to draft the next three feature turns."
+            return "Asked Clementine to draft the next three feature turns."
         case .mapFeatureRoadmap:
-            return "Asked io.them to map the feature from Act I to Act III."
+            return "Asked Clementine to map the feature from Act I to Act III."
         }
     }
 

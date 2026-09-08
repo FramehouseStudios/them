@@ -1723,32 +1723,6 @@ struct ScreenplayCharacterVoiceMemoryCacheSnapshot: Codable, Equatable {
     }
 }
 
-struct ScreenplayStudioUserPrompt: Identifiable, Equatable {
-    enum Source: String, Codable, Equatable {
-        case typed
-        case voice
-    }
-
-    enum Target: String, Codable, Equatable {
-        case page
-        case voicePin
-    }
-
-    enum MemoryDomain: String, Codable, Equatable {
-        case project
-        case companion
-        case mixed
-    }
-
-    let id: UUID
-    let text: String
-    let requestID: String?
-    let source: Source
-    let target: Target
-    let memoryDomain: MemoryDomain
-    let recordedAt: Date
-}
-
 enum StudioMemoryDomain: String, CaseIterable, Identifiable, Codable {
     case project
     case companion
@@ -2949,6 +2923,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         }
     }
     @Published var latestVoiceTurn: String = ""
+    @Published var activeStudioVoiceWorkspace = ScreenplayStudioVoiceWorkspaceContext.clementine
     @Published var latestPack: String = ""
     @Published var latestPhase: String = ""
     @Published var latestUserTranscript: String = ""

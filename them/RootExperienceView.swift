@@ -3888,6 +3888,9 @@ struct RootExperienceView: View {
             }
         )
         .id(studioAccountIdentityGeneration)
+        .onChange(of: screenplayDraftBridge.activeStudioVoiceWorkspace.workspace) { _, _ in
+            refreshLiveClementineWorkspaceInstructions()
+        }
         .ignoresSafeArea()
     }
 
@@ -4283,18 +4286,6 @@ struct RootExperienceView: View {
         return cleanExisting + "\n\n" + cleanInsertion
     }
 
-    private struct PreparedTurnPrompt {
-        let directorText: String
-        let partialHint: String
-        let useScreenplayMode: Bool
-        let shouldWriteToPage: Bool
-        let shouldAutoOpenStudio: Bool
-        let memoryDomain: StudioMemoryDomain
-        let director: HerDirectorContext
-        let companionSignals: CreativeCompanionSignalState
-        let baseSystemPrompt: String
-    }
-
     private func studioMemoryDomain(
         for userText: String,
         preferredTarget: ScreenplayStudioScreen.PromptRoutingMode = .automatic
@@ -4376,17 +4367,6 @@ struct RootExperienceView: View {
     }
 
 #if DEBUG
-    private struct DebugStudioPromptStubReply {
-        let target: ScreenplayStudioUserPrompt.Target
-        let pack: String
-        let phase: String
-        let projectID: String
-        let versionID: String
-        let noteTitle: String
-        let noteBody: String
-        let insertedText: String
-    }
-
     private var debugStudioPromptTransportMode: String {
 #if DEBUG
         if IOThemRuntime.isRunningUITests {
@@ -5089,7 +5069,7 @@ You're okay. Let's slow it down for one beat and get our footing back. Pick the 
             recentTurns: recentTurns,
             sourceText: directorText
         )
-        let baseSystemPrompt = ScreenplayPromptBuilder.makeLocalPersonaPrompt(
+        let personaPrompt = ScreenplayPromptBuilder.makeLocalPersonaPrompt(
             context: promptContext,
             speakingPace: clementineSpeakingPace,
             memoryDomain: memoryDomain,
@@ -5097,6 +5077,9 @@ You're okay. Let's slow it down for one beat and get our footing back. Pick the 
             companionInstruction: screenplayDraftBridge.companionMode.promptInstruction,
             companionSignals: companionSignals
         )
+        let baseSystemPrompt = useScreenplayModeForTurn
+            ? screenplayDraftBridge.activeStudioVoiceWorkspace.applying(to: personaPrompt)
+            : personaPrompt
 
         return PreparedTurnPrompt(
             directorText: directorText,
@@ -5877,7 +5860,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 mode: "page",
                 category: category,
                 title: "Writing On The Page",
-                body: "io.them is in page mode. If io.them pitches a beat you want drafted, say yes, write that and it will put it on the page. Ask for stronger conflict, sharper subtext, a harder reversal, cleaner visuals, or the next beat and she will keep writing directly into the draft.",
+                body: "Clementine is in page mode. If Clementine pitches a beat you want drafted, say yes, write that and it will put it on the page. Ask for stronger conflict, sharper subtext, a harder reversal, cleaner visuals, or the next beat and she will keep writing directly into the draft.",
                 badge: badge,
                 actionSummary: summary
             )
@@ -5888,7 +5871,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
             screenplayDraftBridge.updateAssistantPin(
                 mode: actionSummary.isEmpty ? "copilot" : "task",
                 category: category,
-                title: actionSummary.isEmpty ? "io.them Voice Pin" : "Copilot And Task Status",
+                title: actionSummary.isEmpty ? "Clementine Voice Pin" : "Copilot And Task Status",
                 body: clippedStudioAssistantText(cleanReply),
                 fullBody: cleanReply,
                 badge: badge,
@@ -5902,7 +5885,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 mode: "task",
                 category: category,
                 title: "Studio Task Status",
-                body: "io.them handled a screenplay-related action.",
+                body: "Clementine handled a screenplay-related action.",
                 badge: badge,
                 actionSummary: actionSummary
             )
@@ -7950,7 +7933,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
             sourceText: directorText
         )
         screenplayDraftBridge.applyCompanionSignalState(companionSignals, persist: false)
-        let baseSystemPrompt = ScreenplayPromptBuilder.makeLocalPersonaPrompt(
+        let personaPrompt = ScreenplayPromptBuilder.makeLocalPersonaPrompt(
             context: promptContext,
             speakingPace: clementineSpeakingPace,
             memoryDomain: memoryDomain,
@@ -7958,6 +7941,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
             companionInstruction: screenplayDraftBridge.companionMode.promptInstruction,
             companionSignals: companionSignals
         )
+        let baseSystemPrompt = screenplayDraftBridge.activeStudioVoiceWorkspace.applying(to: personaPrompt)
 #if DEBUG || os(macOS)
         setStudioDebugPreferenceString("root_prompt_build_started", forKey: "studio_debug_root_submit_stage")
 #endif
@@ -11012,6 +10996,24 @@ Write this approved story direction directly into screenplay pages now. Maintain
         )
     }
 
+    @MainActor
+    private func refreshLiveClementineWorkspaceInstructions() {
+        speculativeTalk.cancel()
+        guard isStudioSurfaceActive,
+              voiceTransportMode == .realtimePreview,
+              realtimeTransport.isLive else { return }
+        let context = screenplayDraftBridge.activeStudioVoiceWorkspace
+        Task { @MainActor in
+            let instructions = await buildRealtimeBootstrapSystemPrompt(isScreenplayMode: true)
+            guard realtimeTransport.isLive,
+                  screenplayDraftBridge.activeStudioVoiceWorkspace == context else { return }
+            _ = realtimeTransport.updateInstructions(
+                instructions,
+                revision: "studio-workspace|\(context.workspace.rawValue)"
+            )
+        }
+    }
+
     private func shouldSkipVisualContextForStudioDraftTurn(
         isScreenplayMode: Bool,
         shouldWriteToPage: Bool
@@ -11825,18 +11827,6 @@ Write this approved story direction directly into screenplay pages now. Maintain
         ].joined(separator: " ")
     }
 #endif
-
-    @MainActor
-    private struct StudioDialogueAnchorMetadata {
-        let startLine: Int?
-        let endLine: Int?
-        let sceneLabel: String
-        let draftSceneID: String
-        let outlineSceneID: String
-        let outlineBeatIDs: [String]
-        let scriptNodeID: String
-        let documentRevisionID: String
-    }
 
     @MainActor
     private func resolvedStudioDialogueAnchorMetadata(
