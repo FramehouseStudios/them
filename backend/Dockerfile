@@ -1,6 +1,8 @@
-# io.them backend image.
+# THEM backend image.
 #
-# Targets Node 22 to match the GitHub Actions matrix in .github/workflows.
+# Targets the same supported Node 24 LTS patch as GitHub Actions. The
+# multi-platform digest prevents an upstream tag from changing underneath a
+# reviewed release while retaining native amd64 and arm64 images.
 # Build once, run anywhere that supports OCI images (Render, Fly, ECS, etc.).
 # The image does NOT bake secrets — `assertProductionEnv` enforces that
 # DATABASE_URL, JWT_SECRET, OPENAI_API_KEY, APP_TOKEN, AUTH_APPLE_AUDIENCE,
@@ -10,20 +12,18 @@
 # them/Release.local.env.
 
 # ----- Stage 1: install production dependencies in isolation -----
-FROM node:20-alpine AS deps
+FROM node:24.20.0-alpine@sha256:e67514e5d0f6c46656005e1b693b2ec9d52e80b641307de684d4a015ba7a4eaf AS deps
 WORKDIR /app
 
 # Copy only manifest first so Docker can cache `npm ci` across source changes.
 COPY package.json package-lock.json ./
 
-# `npm ci --omit=dev` would skip devDependencies, but the io.them backend
-# currently ships its eval/test harness alongside the runtime and only
-# declares production dependencies in package.json. `npm ci` is still the
-# right call for reproducibility.
+# Install only runtime dependencies in the production layer. Test and parser
+# tooling remain development-only and never enter the deployed image.
 RUN npm ci --omit=dev
 
 # ----- Stage 2: runtime image -----
-FROM node:20-alpine AS runtime
+FROM node:24.20.0-alpine@sha256:e67514e5d0f6c46656005e1b693b2ec9d52e80b641307de684d4a015ba7a4eaf AS runtime
 
 # Minimal hardening: run as a non-root user and pick up tini for clean
 # signal handling (so SIGTERM from the orchestrator reaches Node, which

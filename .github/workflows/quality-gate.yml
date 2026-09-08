@@ -100,7 +100,7 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version-file: backend/.node-version
 
       - name: Check god-file growth vs base
         run: node scripts/check_god_files.mjs
@@ -116,7 +116,7 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version-file: backend/.node-version
           cache: npm
           cache-dependency-path: backend/package-lock.json
 
@@ -203,7 +203,7 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version-file: backend/.node-version
           cache: npm
           cache-dependency-path: backend/package-lock.json
 
