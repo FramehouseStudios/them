@@ -524,9 +524,52 @@ final class V1SmokeUITests: XCTestCase {
         let markdownExport = app.buttons["studio.export.md"]
         XCTAssertTrue(markdownExport.waitForExistence(timeout: writerLoopWait(5)), "Export Copy did not offer Markdown.")
         markdownExport.tap()
+        let pickerFilename = app.textFields["DOCPicker.filenameTextField"]
         XCTAssertTrue(
-            staticText(containing: expectedMarkdownFilename, in: app).waitForExistence(timeout: writerLoopWait(10)),
-            "Markdown export did not report its .md artifact."
+            pickerFilename.waitForExistence(timeout: writerLoopWait(10)),
+            "Real export did not present the native Files picker.\n\(app.debugDescription)"
+        )
+        let firstPicker = XCTAttachment(screenshot: app.screenshot())
+        firstPicker.name = "writer-loop-files-before-cancel.png"
+        firstPicker.lifetime = .keepAlways
+        add(firstPicker)
+
+        XCTAssertTrue(
+            dismissNativeFilesExporter(in: app, filenameField: pickerFilename),
+            "Cancel did not dismiss the native Files picker.\n\(app.debugDescription)"
+        )
+        XCTAssertTrue(waitForExactWriterLoopDraft(marker, in: app, timeout: writerLoopWait(5)))
+
+        XCTAssertTrue(revealInStudioDrawer(exportMenu, drawer: rightDrawer, scrollingUp: false, maxSwipes: 8))
+        exportMenu.tap()
+        XCTAssertTrue(markdownExport.waitForExistence(timeout: writerLoopWait(5)))
+        markdownExport.tap()
+        XCTAssertTrue(
+            pickerFilename.waitForExistence(timeout: writerLoopWait(10)),
+            "The second export did not present the native Files picker.\n\(app.debugDescription)"
+        )
+        let saveExport = element(identifier: "Save", in: app)
+        if !waitForHittability(of: saveExport, timeout: writerLoopWait(2)) {
+            let onMyIPhone = element(identifier: "DOC.sidebar.item.On My iPhone", in: app)
+            XCTAssertTrue(
+                waitForHittability(of: onMyIPhone, timeout: writerLoopWait(5)),
+                "Files exposed neither Save nor the On My iPhone destination.\n\(app.debugDescription)"
+            )
+            onMyIPhone.tap()
+        }
+        XCTAssertTrue(
+            waitForHittability(of: saveExport, timeout: writerLoopWait(10)),
+            "The second export did not offer native Save.\n\(app.debugDescription)"
+        )
+        let savePicker = XCTAttachment(screenshot: app.screenshot())
+        savePicker.name = "writer-loop-files-before-save.png"
+        savePicker.lifetime = .keepAlways
+        add(savePicker)
+        saveExport.tap()
+        XCTAssertTrue(
+            staticText(containing: "Saved " + expectedMarkdownFilename, in: app)
+                .waitForExistence(timeout: writerLoopWait(10)),
+            "Markdown export did not confirm the native Files save.\n\(app.debugDescription)"
         )
         app.terminate()
 
@@ -3275,6 +3318,31 @@ final class V1SmokeUITests: XCTestCase {
         app.staticTexts
             .matching(NSPredicate(format: "label CONTAINS[c] %@", text))
             .firstMatch
+    }
+
+    private func dismissNativeFilesExporter(
+        in app: XCUIApplication,
+        filenameField: XCUIElement
+    ) -> Bool {
+        // A picker can reopen inside a concrete folder. Return to Browse first;
+        // the root-level close glyph is then always in the leading 44-point slot.
+        let backToBrowse = app.buttons["BackButton"]
+        if backToBrowse.exists,
+           backToBrowse.isHittable,
+           backToBrowse.frame.midX < app.frame.midX {
+            backToBrowse.tap()
+            _ = filenameField.waitForExistence(timeout: writerLoopWait(3))
+        }
+
+        // On hosted iOS 26 runners the visible X has no stable accessibility
+        // identifier, while an unrelated trailing element is transiently named
+        // Cancel. Tapping the native navigation bar's leading control avoids
+        // caching that stale element and follows the control the writer sees.
+        let leadingClose = app.coordinate(
+            withNormalizedOffset: CGVector(dx: 0.095, dy: 0.126)
+        )
+        leadingClose.tap()
+        return waitForDisappearance(of: filenameField, timeout: writerLoopWait(8))
     }
 
     private func element(identifier: String, in app: XCUIApplication) -> XCUIElement {

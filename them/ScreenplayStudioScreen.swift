@@ -68,6 +68,7 @@ struct ScreenplayStudioScreen: View {
     }
 
     @StateObject private var vm = ScreenplayStudioViewModel()
+    @StateObject private var exportCoordinator = ScreenplayStudioExportCoordinator()
     @StateObject private var creativeInstincts = StudioCreativeInstinctsModel()
     @AppStorage("studio_debug_overlay_enabled") private var studioDebugOverlayEnabled = false
     @State private var navigatorRootURL: URL?
@@ -496,6 +497,7 @@ struct ScreenplayStudioScreen: View {
 
     private var studioConfiguredView: some View {
         studioPresentationBoundView
+            .modifier(ScreenplayStudioExportPresentation(coordinator: exportCoordinator))
             .confirmationDialog(
                 "Import Draft",
                 isPresented: $showingDraftImportChoice,
@@ -845,6 +847,7 @@ Replace is best when this file should become the script you edit. Append is safe
     private var studioInspectorWorkspaceBoundView: some View {
         studioProjectStateBoundView
             .onChange(of: vm.selectedProjectID) { _, _ in
+                exportCoordinator.invalidateIfContextChanged()
                 restoreInspectorWorkspaceState()
                 publishDebugStudioDiffState()
                 creativeInstincts.activate(
@@ -17312,36 +17315,29 @@ Look at the city.
 
     @MainActor
     private func studioExportDependencies() -> ScreenplayStudioExportSupport.Dependencies {
-        ScreenplayStudioExportSupport.Dependencies(
+        let projectID = vm.selectedProjectID
+        return ScreenplayStudioExportSupport.Dependencies(
             draft: vm.fountainDraft,
             projectTitle: vm.selectedProject?.title,
             navigatorCurrentURL: navigatorCurrentURL,
             isRunningUITests: IOThemRuntime.isRunningUITests,
-            refreshFormatLint: { source in
-                await vm.refreshFormatLint(source: source)
-            },
-            exportFromBackend: { format in
-                try await vm.exportArtifact(format: format)
-            },
-            setInfo: { message in
-                vm.infoText = message
-            },
-            setError: { message in
-                vm.errorText = message
-            },
+            refreshFormatLint: { await vm.refreshFormatLint(source: $0) },
+            exportFromBackend: { try await vm.exportArtifact(format: $0) },
+            setInfo: { vm.infoText = $0 },
+            setError: { vm.errorText = $0 },
             noteSavedDirectory: { directoryURL in
                 navigatorCurrentURL = directoryURL
                 refreshNavigatorEntries()
             },
-            openURL: { url in
-                openURL(url)
-            }
+            isCurrentContext: { vm.selectedProjectID == projectID },
+            copyToClipboard: { ScreenplayStudioExportSupport.copyDraftToClipboard($0) },
+            openURL: { openURL($0, completion: $1) }
         )
     }
 
     @MainActor
     private func exportCurrentDraft(format: String) async {
-        await ScreenplayStudioExportSupport.exportCurrentDraft(
+        await exportCoordinator.export(
             format: format,
             deps: studioExportDependencies()
         )
