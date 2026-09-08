@@ -3108,8 +3108,8 @@ final class V1SmokeUITests: XCTestCase {
         containing text: String,
         timeout: TimeInterval
     ) -> Bool {
-        let surface = app.otherElements["studio.draft.surface"]
-        let snapshot = app.staticTexts["studio.draft.snapshot"]
+        let surface = element(identifier: "studio.draft.surface", in: app)
+        let snapshot = element(identifier: "studio.draft.snapshot", in: app)
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
             if snapshot.exists {
@@ -3148,7 +3148,7 @@ final class V1SmokeUITests: XCTestCase {
     }
 
     private func accessibleDraftText(in app: XCUIApplication) -> String {
-        let snapshot = app.staticTexts["studio.draft.snapshot"]
+        let snapshot = element(identifier: "studio.draft.snapshot", in: app)
         if snapshot.exists {
             if let value = snapshot.value as? String, !value.isEmpty {
                 return value
@@ -3157,7 +3157,8 @@ final class V1SmokeUITests: XCTestCase {
                 return snapshot.label
             }
         }
-        let surface = app.otherElements["studio.draft.surface"]
+        let surface = element(identifier: "studio.draft.surface", in: app)
+        guard surface.exists else { return "" }
         return surface.value as? String ?? ""
     }
 
