@@ -166,6 +166,25 @@ the safer #443 response-transport design.
 | `linter-cue-false-positive` (#477) | Corrects cue-position/case false positives. | Port this focused branch instead of its cumulative script-coverage parent. |
 | `fdx-export-pure-date-revision` (#442) | Keeps conversion clock-free and defaults dates at the route boundary. | Port atomically with frozen-input/date precedence tests. |
 
+### Execution update — September 8, 2026
+
+- #460 was rebuilt as #598. The replacement recursively parses every backend
+  JavaScript source and tests ESM, CommonJS, namespace, dynamic-import, and
+  `shell: true` bypasses. Focused guard 3/3 and full backend suite 2,742/2,742
+  passed, with two intentional skips. #460 is closed; its branch is preserved.
+- #477 was rebuilt as #597. The replacement keeps the cue-position fix and
+  adds canonical Fountain forced-cue behavior, mixed-case extensions, dual
+  dialogue, and Unicode/caseless names. Focused tests 30/30 and full backend
+  suite 2,745/2,745 passed, with two intentional skips. #477 is closed; its
+  branch is preserved.
+- #456 is closed without a direct successor. Its private-reporting link does
+  not work for this repository, both security workflows failed before proving
+  a scan, its labels do not exist, and its RC notes claim open PRs are shipped.
+  Rebuild its salvageable pieces independently; never merge the bundle.
+- #596 repairs the red backend baseline that GitHub's billing-level job abort
+  had hidden. #597 and #598 are stacked directly on it. None may merge until
+  the required hosted Quality Gate executes and passes on the candidate SHA.
+
 ### D009 architecture sequence
 
 Rebuild in this order: `d009-session-route` (#461) →

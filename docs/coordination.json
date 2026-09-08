@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-08T04:13:37.000Z",
+  "updatedAt": "2026-09-08T19:08:00.000Z",
   "updatedBy": "codex",
   "openPullRequests": [
     {
@@ -54,16 +54,42 @@
       "expected_action": "Rebuild the unique first-run behavior on current main and reverify the complete writer loop."
     },
     {
-      "number": 460,
-      "title": "backend: child_process no-shell guard test",
-      "owner": "support",
+      "number": 596,
+      "title": "test: restore green backend baseline",
+      "owner": "codex",
       "tier": 1,
       "status": "blocked",
-      "branch": "claude/child-process-no-shell-guard",
-      "blocker": "Small valuable guard is 67 commits behind and hosted checks cannot execute.",
+      "branch": "codex/T-main-backend-baseline-repair",
+      "blocker": "Required GitHub Actions jobs abort before running because of the account billing/spending-limit block.",
+      "blocker_kind": "needs_human",
+      "reviewer_note": "Fixes three genuine main-branch test failures; local backend suite passes 2,739/2,739 with two intentional skips.",
+      "expected_action": "Restore Actions execution and rerun the exact candidate SHA before merge."
+    },
+    {
+      "number": 597,
+      "title": "fix: make screenplay cue linting context-aware",
+      "owner": "codex",
+      "tier": 1,
+      "status": "blocked",
+      "branch": "codex/T-linter-cue-production",
+      "blocker": "Land after #596 and rerun required checks once GitHub Actions can execute.",
       "blocker_kind": "needs_rebase",
-      "reviewer_note": "Highest-priority support security port.",
-      "expected_action": "Recreate the invariant test from current main; do not stack on stale support branches."
+      "blocker_against_pr": 596,
+      "reviewer_note": "Supersedes closed #477; preserves Claude's useful core while honoring canonical Fountain and Unicode cue syntax.",
+      "expected_action": "Land after #596 only when both exact SHAs receive the required hosted checks."
+    },
+    {
+      "number": 598,
+      "title": "test: enforce backend child-process safety",
+      "owner": "codex",
+      "tier": 1,
+      "status": "blocked",
+      "branch": "codex/T-child-process-safety-guard",
+      "blocker": "Land after #596 and rerun required checks once GitHub Actions can execute.",
+      "blocker_kind": "needs_rebase",
+      "blocker_against_pr": 596,
+      "reviewer_note": "Supersedes closed #460 with recursive AST coverage and tested ESM, CommonJS, namespace, dynamic-import, and shell bypass detection.",
+      "expected_action": "Land after #596 only when both exact SHAs receive the required hosted checks."
     },
     {
       "number": 455,
@@ -76,18 +102,6 @@
       "blocker_kind": "needs_rebase",
       "reviewer_note": "Keep the GREEN-versus-PARTIAL honesty contract.",
       "expected_action": "Port the truthfulness behavior without copying stale release evidence."
-    },
-    {
-      "number": 456,
-      "title": "repo security and hygiene audit items",
-      "owner": "support",
-      "tier": 2,
-      "status": "blocked",
-      "branch": "claude/repo-hygiene-audit-items",
-      "blocker": "Security automation and dated release notes are mixed together.",
-      "blocker_kind": "needs_scope_narrowing",
-      "reviewer_note": "Durable security policy/scans are useful; time-sensitive RC notes are stale.",
-      "expected_action": "Split security automation from release notes and validate workflow permissions."
     },
     {
       "number": 481,
