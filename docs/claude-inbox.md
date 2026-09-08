@@ -1,55 +1,77 @@
-# Claude Inbox
+# Support inbox
 
-Short handoff for the Claude/support lane. Read after `AGENTS.md`, `TASKS.md`,
-`DECISIONS.md`, and `docs/coordination.json`. Codex owns this file per
-`AGENTS.md`; the support lane created it on 2026-09-05 because `AGENTS.md` and
-`docs/README.md` referenced it and it did not exist.
+Snapshot: September 7, 2026. Read `AGENTS.md`, `DECISIONS.md`,
+`docs/coordination.json`, and `docs/branch-audit-2026-09-07.md` first.
 
-Start with:
+## Current product lane
+
+The next milestone is a dependable, production-configured iPhone writer beta.
+The visible app name is **THEM** under D015. Clementine remains the named
+creative companion and the orb remains the product's visual heart under D014.
+
+The only current app landing train is:
+
+1. #590 — dependable iPhone Files export.
+2. #591 — narrow-width Pages navigator.
+3. #592 — Clementine voice across all six Studio tabs.
+4. Reconstruct #422's authenticated first-run behavior after #592.
+
+Do not open or extend another cumulative product stack. Do not merge, rebase,
+or revive #445, the 36-PR `clementine/smooth-*` chain, or the 15-feature Claude
+Studio chain. The exhaustive keep/port/retire decision is in the branch audit.
+
+## Hard gates
+
+- Required GitHub Actions jobs currently abort before running because of the
+  account billing/spending-limit block. No implementation merge until the
+  exact candidate SHA receives the required green checks.
+- Render correctly refuses the newer production build while
+  `APP_STORE_ISSUER_ID`, `APP_STORE_KEY_ID`, and `APP_STORE_PRIVATE_KEY` are
+  absent. Do not weaken the fail-closed guard or redeploy the candidate.
+- Printing remains Release-off by default, opt-in, and protected by its hard
+  kill switch.
+- Production credentials, DNS/privacy proof, physical-device/provider
+  acceptance, and TestFlight signoff remain separate human/release gates.
+
+## What support should do next
+
+Until the app train lands, support work is limited to one fresh, small branch
+from current `main` at a time. Priority order:
+
+1. Recreate #460's `child_process` no-shell invariant test.
+2. Port #455's truthful GREEN-versus-PARTIAL release-preflight presentation,
+   excluding dated evidence.
+3. Split #456's durable security policy/scans from its stale RC notes and
+   verify workflow permissions.
+4. After the app train, port only #481's session-churn tip and tests, then only
+   #482's owner-scoped ETag tip.
+5. Begin the D009 backend sequence with #461 alone only after the above work is
+   reviewed.
+
+Do not merge #435 merely because its ordinary checks are green: adversarial
+review reproduced nontermination, silent content loss, Unicode corruption,
+incomplete continuation cues, and ineffective page limits. Do not enable
+#443/#444 until next-beat batches have owner/project/version/request identity,
+stale invalidation, stable retry identity, honest cost copy, and signed
+iPhone-width proof. Do not merge #431 until ghost ownership, grammar,
+cancellation, lifecycle invalidation, and narrow layout are corrected.
+
+## Reporting contract
+
+Every proposed port must state:
+
+- the exact source commit and the current-main commit it becomes;
+- the V1 outcome;
+- what inherited stack content was deliberately excluded;
+- focused tests and full relevant gate results;
+- whether required GitHub checks actually executed.
+
+Use:
 
 ```bash
 node scripts/agent_next.mjs --role=support
 node scripts/coordination_state.mjs read
 ```
 
-## Current Snapshot (2026-09-05)
-
-Merged this week: #416 live typing between devices, #417 sprint security
-rescue, #418 two-device UI smoke, #419 Quality Gate de-flake, #421 resilient
-cross-device live drafts. GitHub Actions is running again after the
-2026-09-03 billing block.
-
-Open, in order of what unblocks launch:
-
-| PR | Owner | Gate | What it needs |
-| --- | --- | --- | --- |
-| [#424](https://github.com/FramehouseStudios/them/pull/424) | support | tier 3, human merge | Boot-level IAP fail-closed (D011), `knowledge_cards.json` shipped in the image, `MUSE_MODEL` knob. Local suite 2518/0 fail; GitHub checks green, Quality Gate pending. After merge, set the four `APP_STORE_*` values in Render or production boot refuses by design. |
-| [#425](https://github.com/FramehouseStudios/them/pull/425) | support | stacked on #423 | Six V1 smoke fixes. Lands after #423. |
-| [#423](https://github.com/FramehouseStudios/them/pull/423) | support | needs rebase | Carries Codex's 41 unpushed keychain commits; conflicting with main until `codex/T-ios-keychain-token-migration` lands. |
-| [#422](https://github.com/FramehouseStudios/them/pull/422) | codex | tier 3, human | Authenticated first-run resume. |
-| [#420](https://github.com/FramehouseStudios/them/pull/420) | support | draft | Quality Gate PR-cost reduction; human decides on opt-in iOS smokes. |
-
-Human-owned before launch: `render-app-store-secrets` blocker; the
-`v1-release-preflight-config` blocker (Team ID, release token,
-`scripts/run_release_preflight.sh` with the quality gate on); accept or reject
-the D001 and D011 entries in `docs/proposed-decisions.md`.
-
-Branch hygiene: `claude/pii-safe-request-logs` is a stale sprint snapshot cut
-before #417. Its PII redaction is on main as #372, its backend work landed via
-#417, and its three newest commits moved to #424. Do not merge main into it
-(nine conflicting files including `backend/index.js`). Delete only after a
-salvage audit of its iOS tree and human clearance.
-
-Known local hazard: the main checkout on the release Mac carries ~411
-untracked iCloud conflict copies named `<file> 2.<ext>` (TASKS.md T01). The
-Xcode project uses synchronized folder groups, so the ` 2.swift` copies are
-compiled and break the iOS build. Human-owned cleanup; not ignored by
-`.gitignore` on main.
-
-## What the support lane does next
-
-1. Nothing net-new until #424 is merged and the Render secrets exist.
-2. Backend-only follow-ups when asked: the D008 golden-set eval for
-   `muse-spark-1.3` once a Meta key is provided; client handling of the
-   fail-closed IAP credit path.
-3. Keep every claim verified by a local run; paste the summary line.
+No production mutation, branch deletion, PR closure, or merge is authorized by
+this inbox alone.
