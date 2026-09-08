@@ -6165,8 +6165,9 @@ final class ScreenplayStudioViewModel: ObservableObject {
     }
 
     private func recomputePagination(for draft: String, source: String) async {
-        let normalized = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalized.isEmpty else {
+        let documentFingerprint = fingerprint(for: draft)
+        let paginationSource = FountainPaginationSource.make(from: draft)
+        guard paginationSource.shouldPaginate else {
             paginationPages = []
             paginationErrorText = ""
             return
@@ -6177,14 +6178,23 @@ final class ScreenplayStudioViewModel: ObservableObject {
         do {
             let result = try await StudioCraftResilience.run(source: source) {
                 try await BackendMemoryAPI.shared.paginateScreenplayDraft(
-                    draft: draft,
+                    draft: paginationSource.scriptText,
                     title: selectedProject?.title ?? "",
                     phase: selectedProject?.lastPhase ?? "scene_draft",
                     linesPerPage: linesPerPage
                 )
             }
-            guard normalized == fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines) else { return }
-            paginationPages = result.payload.pages
+            guard documentFingerprint == fingerprint(for: fountainDraft) else { return }
+            paginationPages = result.payload.pages.map { page in
+                BackendScreenplayPaginationPage(
+                    page: page.page,
+                    startLine: paginationSource.documentLine(forScriptLine: page.startLine),
+                    endLine: paginationSource.documentLine(forScriptLine: page.endLine),
+                    lineCount: page.lineCount,
+                    preview: page.preview,
+                    estMinutes: page.estMinutes
+                )
+            }
             paginationErrorText = ""
         } catch {
             paginationErrorText = StudioCraftResilience.presentedError(
