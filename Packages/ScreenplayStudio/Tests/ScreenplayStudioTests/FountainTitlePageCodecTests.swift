@@ -28,6 +28,7 @@ import Testing
     #expect(parts.titlePage?.authors == ["Anaïs Núñez", "李 明"])
     #expect(parts.titlePage?.draftDate == "September 8, 2026")
     #expect(parts.titlePage?.contact == "writer@example.com")
+    #expect(parts.screenplayBodyStartLine == 12)
     #expect(parts.scriptPageText == "INT. OBSERVATORY - NIGHT\n\nThe dome opens.")
 }
 
@@ -142,7 +143,20 @@ import Testing
     let parts = FountainTitlePageCodec.parse(body)
 
     #expect(parts.titlePage == nil)
+    #expect(parts.screenplayBodyStartLine == 1)
     #expect(parts.scriptPageText == body)
+}
+
+@Test func screenplayElementInferenceExcludesTitleMetadata() {
+    let document = "Title:\n    ASHES\nCredit:\n    Written by\n\nINT. ROOM - NIGHT\n\nMARA\nStay."
+
+    let elements = ScreenplayEditorElement.inferredScreenplaySequence(for: document)
+
+    #expect(elements.count == 4)
+    #expect(elements[0] == .sceneHeading)
+    #expect(elements[1] == nil)
+    #expect(elements[2] == .character)
+    #expect(elements[3] == .dialogue)
 }
 
 private func fnv1a64(_ data: Data) -> UInt64 {

@@ -48,6 +48,7 @@ public struct FountainTitlePage: Equatable, Sendable {
 public struct FountainDocumentParts: Equatable, Sendable {
     public let titlePage: FountainTitlePage?
     public let screenplayBody: String
+    public let screenplayBodyStartLine: Int?
     public let lineEnding: String
 
     public var hasTitlePage: Bool { titlePage != nil }
@@ -76,6 +77,7 @@ public enum FountainTitlePageCodec {
             return FountainDocumentParts(
                 titlePage: nil,
                 screenplayBody: document,
+                screenplayBodyStartLine: document.isEmpty ? nil : 1,
                 lineEnding: lineEnding
             )
         }
@@ -129,6 +131,7 @@ public enum FountainTitlePageCodec {
             return FountainDocumentParts(
                 titlePage: nil,
                 screenplayBody: document,
+                screenplayBodyStartLine: document.isEmpty ? nil : 1,
                 lineEnding: lineEnding
             )
         }
@@ -136,6 +139,9 @@ public enum FountainTitlePageCodec {
         return FountainDocumentParts(
             titlePage: parsedTitlePage,
             screenplayBody: body,
+            screenplayBodyStartLine: bodyStart.map { start in
+                physicalLines.firstIndex(where: { $0.start == start }).map { $0 + 1 }
+            } ?? nil,
             lineEnding: lineEnding
         )
     }

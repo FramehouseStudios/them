@@ -46,6 +46,71 @@ final class ScreenplayPrintServiceTests: XCTestCase {
         XCTAssertNil(ScreenplayPrintService.pageCount(of: Data("not a pdf".utf8)))
     }
 
+    func testTitleOnlyDraftRendersOneUnnumberedTitlePage() throws {
+        let draft = """
+        Title:
+            ASHES
+        Credit:
+            Written by
+        Author:
+            Zoë Chen
+        """
+
+        let pdf = try ScreenplayPrintService.makePDF(draft: draft, title: "Ashes")
+        let document = try XCTUnwrap(PDFDocument(data: pdf))
+        let titlePage = document.page(at: 0)?.string ?? ""
+
+        XCTAssertEqual(document.pageCount, 1)
+        XCTAssertTrue(titlePage.contains("ASHES"))
+        XCTAssertTrue(titlePage.contains("Written by"))
+        XCTAssertTrue(titlePage.contains("Zoë Chen"))
+        XCTAssertFalse(titlePage.contains("1."))
+        XCTAssertEqual(ScreenplayPrintService.pageCountEstimate(for: draft), 0)
+        XCTAssertFalse(ScreenplayDraftGate.hasFormatErrors(draft: draft))
+    }
+
+    func testTitlePageIsSeparateAndBodyStartsAtScreenplayPageOne() throws {
+        let draft = """
+        Title:
+            ASHES
+        Credit:
+            Written by
+        Author:
+            Zoë Chen
+
+        INT. MOTEL ROOM - NIGHT
+
+        Rain needles the glass.
+        """
+
+        let pdf = try ScreenplayPrintService.makePDF(draft: draft, title: "Ashes")
+        let document = try XCTUnwrap(PDFDocument(data: pdf))
+        let titlePage = document.page(at: 0)?.string ?? ""
+        let firstScriptPage = document.page(at: 1)?.string ?? ""
+
+        XCTAssertEqual(document.pageCount, 2)
+        XCTAssertTrue(titlePage.contains("ASHES"))
+        XCTAssertFalse(titlePage.contains("INT. MOTEL ROOM"))
+        XCTAssertFalse(titlePage.contains("1."))
+        XCTAssertTrue(firstScriptPage.contains("1."))
+        XCTAssertTrue(firstScriptPage.contains("INT. MOTEL ROOM - NIGHT"))
+        XCTAssertFalse(firstScriptPage.contains("Title:"))
+        XCTAssertEqual(ScreenplayPrintService.pageCountEstimate(for: draft), 1)
+    }
+
+    func testDraftWithoutTitlePageKeepsSingleScriptPageBehavior() throws {
+        let draft = "INT. KITCHEN - DAY\n\nA kettle screams."
+
+        let pdf = try ScreenplayPrintService.makePDF(draft: draft, title: "Kitchen")
+        let document = try XCTUnwrap(PDFDocument(data: pdf))
+        let page = document.page(at: 0)?.string ?? ""
+
+        XCTAssertEqual(document.pageCount, 1)
+        XCTAssertTrue(page.contains("INT. KITCHEN - DAY"))
+        XCTAssertFalse(page.contains("Kitchen"))
+        XCTAssertEqual(ScreenplayPrintService.pageCountEstimate(for: draft), 1)
+    }
+
     // MARK: - MORE / CONT'D across a forced dialogue break
 
     func testMoreAndContdAppearAcrossDialoguePageBreak() throws {
