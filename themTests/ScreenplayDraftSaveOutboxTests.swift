@@ -44,6 +44,16 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
         XCTAssertEqual(stored.map(\.id), ["save-once"])
     }
 
+    func testIdentityPreservingEnqueueKeepsDistinctTransactionRequestIDs() async throws {
+        let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        try await store.enqueuePreservingRequestIdentity(makeEntry(id: "transaction-1", draft: "Same draft"))
+        try await store.enqueuePreservingRequestIdentity(makeEntry(id: "transaction-2", draft: "Same draft"))
+        try await store.enqueuePreservingRequestIdentity(makeEntry(id: "transaction-1", draft: "Same draft"))
+
+        let stored = try await store.entriesForTesting()
+        XCTAssertEqual(stored.map(\.id), ["transaction-1", "transaction-2"])
+    }
+
     func testSnapshotCountsOnlyTheCurrentAccount() async throws {
         let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
         try await store.enqueue(makeEntry(id: "my-save"))

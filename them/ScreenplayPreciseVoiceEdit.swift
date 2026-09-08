@@ -350,8 +350,9 @@ nonisolated enum ScreenplayPreciseEditResolver {
         var index = 0
         while index < pageLines.count {
             let cue = pageLines[index]
-            let followsBlankLine = index == 0 || pageLines[index - 1].text.trimmingCharacters(in: .whitespaces).isEmpty
-            guard followsBlankLine, let character = normalizedCue(cue.text) else { index += 1; continue }
+            let priorLine = index == 0 ? "" : pageLines[index - 1].text.trimmingCharacters(in: .whitespaces)
+            let followsBlockBoundary = index == 0 || priorLine.isEmpty || isStructuralLine(priorLine)
+            guard followsBlockBoundary, let character = normalizedCue(cue.text) else { index += 1; continue }
             var cursor = index + 1
             while cursor < pageLines.count, isParenthetical(pageLines[cursor].text) { cursor += 1 }
             let dialogueStart = cursor

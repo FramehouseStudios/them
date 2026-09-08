@@ -106,6 +106,15 @@ final class ScreenplayPreciseVoiceEditTests: XCTestCase {
         XCTAssertEqual(anchor.startLine, 57)
     }
 
+    func testResolverAcceptsCharacterCueImmediatelyAfterSceneHeading() throws {
+        let draft = "INT. DINER - NIGHT\nLUCY\nI can do this."
+        let intent = try parsed("page 1, first line by Lucy, replace with I can absolutely do this.")
+        guard case let .resolved(anchor) = resolve(intent, draft: draft) else {
+            return XCTFail("Expected the Fountain cue after a scene heading to resolve")
+        }
+        XCTAssertEqual(anchor.expectedOldText, "I can do this.")
+    }
+
     func testResolverDoesNotReachAcrossSpokenPageBoundary() throws {
         let prefix = (1...54).map { "action \($0)" }.joined(separator: "\n")
         let draft = prefix + "\nJOHN\nDialogue begins on page two."
