@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-08T19:47:58.000Z",
+  "updatedAt": "2026-09-08T20:15:00.000Z",
   "updatedBy": "codex",
   "openPullRequests": [
     {
@@ -60,10 +60,10 @@
       "tier": 1,
       "status": "blocked",
       "branch": "codex/T-main-backend-baseline-repair",
-      "blocker": "Required hosted Quality Gate is executing on exact SHA 715ff30.",
+      "blocker": "Required hosted Quality Gate run 34272801038 is executing on exact SHA e3cb72a after the design-token repair.",
       "blocker_kind": "needs_test_fix",
-      "reviewer_note": "Fixes three genuine backend test failures plus a current-main Xcode 26 inspector compile failure; backend suite and signed iPhone build pass locally.",
-      "expected_action": "Merge only if the complete required hosted gate passes on SHA 715ff30."
+      "reviewer_note": "Fixes three genuine backend test failures, the current-main Xcode 26 inspector compile failure, and the design-token test regression; backend, god-file, and early Quality Gate steps pass on the exact hosted candidate.",
+      "expected_action": "Merge only if the complete required hosted gate passes on SHA e3cb72a."
     },
     {
       "number": 597,
@@ -150,7 +150,7 @@
       "tier": 1,
       "status": "blocked",
       "branch": "codex/T-quality-gate-release-token",
-      "blocker": "Land after #596, then rerun the full main workflow with live secret-backed gates.",
+      "blocker": "Its required Quality Gate failed in the iOS unit step before #596's design-token repair; rebase after #596 and rerun the exact candidate.",
       "blocker_kind": "needs_rebase",
       "blocker_against_pr": 596,
       "reviewer_note": "Maps canonical APP_TOKEN_RELEASE into the backend runtime variable APP_TOKEN and guards the contract with tests.",
@@ -163,11 +163,24 @@
       "tier": 1,
       "status": "blocked",
       "branch": "codex/T-outbox-idle-session-churn",
-      "blocker": "Land after #596 and require exact-SHA hosted checks.",
+      "blocker": "Its required Quality Gate failed in the iOS unit step before #596's design-token repair; rebase after #596 and rerun the exact candidate.",
       "blocker_kind": "needs_rebase",
       "blocker_against_pr": 596,
       "reviewer_note": "Safe reconstruction of closed #481; removes only false idle notifications and preserves forced fresh reads for genuine outbox changes.",
       "expected_action": "Verify the full signed iOS gate, then rebase behind the active app train before landing if needed."
+    },
+    {
+      "number": 606,
+      "title": "docs: archive obsolete root prompt artifacts",
+      "owner": "codex",
+      "tier": 2,
+      "status": "blocked",
+      "branch": "codex/T-archive-root-prompts",
+      "blocker": "The hosted Quality Gate is still executing on exact SHA 70ac03d; backend and god-file jobs passed.",
+      "blocker_kind": "needs_test_fix",
+      "blocker_against_pr": 596,
+      "reviewer_note": "Current reconstruction supersedes closed #466; preserves every historical blob and Git history while clearly marking archived prompts as non-operative reference material. Hosted backend and god-file jobs pass.",
+      "expected_action": "Require complete exact-SHA hosted checks and land only after #596."
     },
     {
       "number": 482,
@@ -181,18 +194,6 @@
       "blocker_against_pr": 481,
       "reviewer_note": "Conditional polling must stay owner-scoped and invalidate correctly.",
       "expected_action": "Port only the ETag tip after reconstructed session churn."
-    },
-    {
-      "number": 435,
-      "title": "backend: real PDF screenplay export",
-      "owner": "support",
-      "tier": 3,
-      "status": "blocked",
-      "branch": "claude/backend-pdf-export",
-      "blocker": "Prior review reproduced nontermination, content loss, Unicode corruption, incomplete cues, and ineffective page limits.",
-      "blocker_kind": "needs_test_fix",
-      "reviewer_note": "Passing unit checks do not override adversarial layout failures.",
-      "expected_action": "Add progress/content-conservation invariants, explicit limits, Unicode safety, route tests, and rendered-PDF inspection."
     },
     {
       "number": 443,
