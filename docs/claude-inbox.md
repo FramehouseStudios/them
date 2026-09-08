@@ -16,15 +16,19 @@ The only current app landing train is:
 3. #592 — Clementine voice across all six Studio tabs.
 4. Reconstruct #422's authenticated first-run behavior after #592.
 
-The current backend safety train is separate and stacked in this order:
+The current backend safety train is separate. Each successor branches directly
+from #596 so unrelated safety changes remain independently reviewable:
 
 1. #596 — restore the green backend baseline.
 2. #597 — context-aware, Fountain-correct character-cue linting.
 3. #598 — parser-backed child-process safety guard.
 4. #599 — fail-closed, self-describing release preflight.
+5. #600 — safe Dependabot configuration reconstructed from #456.
+6. #602 — pinned Node 24 LTS runtime across local, CI, and Docker surfaces.
+7. #603 — explicit, clock-free FDX title metadata reconstructed from #442.
 
-All three have clean local full-suite evidence. They remain blocked on the
-same hosted Actions failure and must not merge around it.
+The implementation successors have clean local relevant-suite evidence. They
+remain blocked on the same hosted Actions failure and must not merge around it.
 
 Do not open or extend another cumulative product stack. Do not merge, rebase,
 or revive #445, the 36-PR `clementine/smooth-*` chain, or the 15-feature Claude
@@ -57,10 +61,11 @@ from current `main` at a time. Priority order:
 3. Begin the D009 backend sequence with #461 alone only after the above work is
    reviewed.
 
-#455, #460, and #477 are complete as stronger successors #599, #598, and #597.
-Their source PRs are closed and their branches are preserved. #456 is closed after review:
-its reporting channel was unavailable, both security workflows had failed,
-and its release notes claimed unmerged features were shipped.
+#442, #455, #460, and #477 are complete as stronger successors #603, #599,
+#598, and #597. Their source PRs are closed and their branches are preserved.
+#456 is closed after review: its reporting channel was unavailable, both
+security workflows had failed, and its release notes claimed unmerged features
+were shipped. Its safe Dependabot slice now lives independently in #600.
 
 Do not merge #435 merely because its ordinary checks are green: adversarial
 review reproduced nontermination, silent content loss, Unicode corruption,
