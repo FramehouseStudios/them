@@ -337,7 +337,6 @@ struct ScreenplayStudioScreen: View {
     @State private var didApplyUITestLaunchActions = false
     @State private var didApplyUITestDraftConflictFixture = false
     @State private var didApplyUITestSaveNetworkFault = false
-    @State private var uiTestSaveNetworkFaultStage = "waiting_for_project"
     @State private var didResolveUITestPendingQuestionFixture = false
     @State private var trackedStudioDebugProjectLoadToken: Int = 0
     @State private var trackedStudioDebugProjectLoadRequestedProjectID = ""
@@ -429,9 +428,6 @@ struct ScreenplayStudioScreen: View {
             "conflict_project_id": vm.conflictState?.projectId ?? "",
             "conflict_server_version_id": vm.conflictState?.serverVersionId ?? "",
             "conflict_fixture_applied": didApplyUITestDraftConflictFixture,
-            "save_network_fault_applied": didApplyUITestSaveNetworkFault,
-            "save_network_fault_stage": uiTestSaveNetworkFaultStage,
-            "initial_load_settled": studioDebugInitialLoadSettled,
             "loaded_draft_project_id": vm.debugLoadedDraftProjectID,
             "load_project_token": trackedStudioDebugProjectLoadToken,
             "load_project_ack_token": studioDebugLoadProjectAckToken,
@@ -14569,21 +14565,7 @@ The door closes softly. That is worse than a slam.
         guard studioDebugSeedStructuralToken != lastAppliedStudioDebugSeedStructuralToken else { return }
         lastAppliedStudioDebugSeedStructuralToken = studioDebugSeedStructuralToken
 
-        let sampleDraft: String
-        if ProcessInfo.processInfo.arguments.contains("--ui-pages-workflow-fixture") {
-            sampleDraft = (1...20).flatMap { sceneNumber in
-                [
-                    "INT. STORY ROOM \(sceneNumber) - DAY",
-                    "MARA",
-                    "Page navigator beat \(sceneNumber) begins.",
-                    "Mara marks the next turn on the wall.",
-                    "JUNE",
-                    "Then we follow it before the light changes.",
-                ]
-            }
-            .joined(separator: "\n")
-        } else {
-            sampleDraft = """
+        let sampleDraft = ScreenplayStudioDraftToolsPresentationPlanner.resolvedPaginationUITestDraft(arguments: ProcessInfo.processInfo.arguments, fallback: """
 INT. DINER - NIGHT
 LUCY
 I can do this.
@@ -14596,8 +14578,7 @@ Frank stares at the sink.
 INT. ROOF - SUNSET
 JESS
 Look at the city.
-"""
-        }
+""")
 
         let now = Date().timeIntervalSince1970 * 1000
         let project = BackendScreenplayProjectSummary(
@@ -14933,20 +14914,7 @@ Look at the city.
               ) else {
             return
         }
-        // The explicit debug project load can outlive the initial Studio task.
-        // Do not consume this one-shot fixture while the view model has no draft.
-        guard studioDebugInitialLoadSettled,
-              !studioDebugProjectLoadInFlight,
-              vm.selectedProject != nil,
-              !vm.selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              ScreenplayStudioPostHydrationRestorePolicy.canRestoreWorkspace(
-                  selectedProjectID: vm.selectedProjectID,
-                  loadedProjectID: vm.selectedProject?.id,
-                  loadedDraftProjectID: vm.debugLoadedDraftProjectID,
-                  isLoading: vm.isLoading
-              ) else { return }
         didApplyUITestSaveNetworkFault = true
-        uiTestSaveNetworkFaultStage = "saving_offline"
         let offlineBaseURL = uiTestLaunchArgumentValue(
             "--ui-screenplay-save-network-fault-url",
             in: arguments
@@ -14955,7 +14923,6 @@ Look at the city.
             marker: marker,
             offlineBaseURL: offlineBaseURL
         )
-        uiTestSaveNetworkFaultStage = "save_returned"
         publishDebugStudioDiffState()
     }
 

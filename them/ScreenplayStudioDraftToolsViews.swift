@@ -188,6 +188,24 @@ enum ScreenplayStudioDraftRevisionTint: Equatable {
 }
 
 enum ScreenplayStudioDraftToolsPresentationPlanner {
+    static var paginationUITestDraft: String {
+        (1...20).flatMap { sceneNumber in
+            [
+                "INT. STORY ROOM \(sceneNumber) - DAY",
+                "MARA",
+                "Page navigator beat \(sceneNumber) begins.",
+                "Mara marks the next turn on the wall.",
+                "JUNE",
+                "Then we follow it before the light changes.",
+            ]
+        }
+        .joined(separator: "\n")
+    }
+
+    static func resolvedPaginationUITestDraft(arguments: [String], fallback: String) -> String {
+        arguments.contains("--ui-pages-workflow-fixture") ? paginationUITestDraft : fallback
+    }
+
     static func visibleIntegrityIssues(
         _ issues: [ScreenplayPageIntegrityIssue],
         limit: Int = 4
@@ -808,7 +826,7 @@ private struct ScreenplayStudioDraftPageTools: View {
 
             if let estimatedMinutes = presentation.estimatedMinutes {
                 Label(
-                    String(format: "Approximately %.1f minutes on the page", estimatedMinutes),
+                    String(format: "Estimated screen time: %.1f minutes", estimatedMinutes),
                     systemImage: "clock"
                 )
                 .font(IOThemTypography.UI.caption)

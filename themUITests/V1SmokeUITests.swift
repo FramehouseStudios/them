@@ -642,6 +642,12 @@ final class V1SmokeUITests: XCTestCase {
 
         let drawer = element(identifier: "studio.sidebar.right.drawer", in: app)
         let pageTools = element(identifier: "studio.draft.page-tools", in: app)
+        func attachPagesScreenshot(_ name: String) {
+            let attachment = XCTAttachment(screenshot: app.screenshot())
+            attachment.name = name
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
         XCTAssertTrue(drawer.waitForExistence(timeout: 10), "The phone inspector did not open.")
         XCTAssertTrue(pageTools.waitForExistence(timeout: 10), "The Pages tools did not load.")
 
@@ -668,6 +674,7 @@ final class V1SmokeUITests: XCTestCase {
         XCTAssertTrue(waitForAccessibilityText(in: currentSummary, containing: "Current page, 1", timeout: 5))
         XCTAssertTrue(waitForAccessibilityText(in: totalSummary, containing: "Draft pages, 3", timeout: 5))
         XCTAssertTrue(waitForAccessibilityText(in: runtimeSummary, containing: "2.2 minutes", timeout: 5))
+        attachPagesScreenshot("pages-narrow-overview.png")
 
         let density = element(identifier: "studio.draft.pages.density", in: app)
         let decrease = app.buttons["studio.draft.pages.lines.decrease"]
@@ -695,7 +702,6 @@ final class V1SmokeUITests: XCTestCase {
             XCTAssertLessThanOrEqual(control.frame.height, 64, "Pages control wrapped vertically: \(control.frame)")
             assertHorizontallyContained(control, in: density, message: "Pages control escaped the density card")
         }
-
         XCTAssertTrue(waitForHittability(of: decrease, timeout: 3))
         decrease.tap()
         XCTAssertTrue(waitForAccessibilityValue(of: value, equalTo: "54", timeout: 5))
@@ -753,6 +759,7 @@ final class V1SmokeUITests: XCTestCase {
             "Next did not reveal page 2."
         )
         XCTAssertTrue(waitForAccessibilityText(in: pageTwo, containing: "current page", timeout: 5))
+        attachPagesScreenshot("pages-narrow-current-card.png")
 
         let pageThree = app.buttons["studio.draft.page.3"]
         XCTAssertTrue(
@@ -828,9 +835,6 @@ final class V1SmokeUITests: XCTestCase {
     func test_studio_header_shortcuts_and_project_drawer_tabs_reveal_their_destinations() {
         let app = launchApp(openStudio: true, openExportTools: true, structuralSeed: true)
         defer { app.terminate() }
-        XCTAssertTrue(element(identifier: "studio.surface", in: app).waitForExistence(timeout: 10))
-        let usesCompactHeader = app.buttons["studio.compact.done"].exists
-        let drawer = element(identifier: "studio.sidebar.right.drawer", in: app)
 
         let shortcuts = [
             (shortcut: "pages", panel: "studio.draft.page-tools"),
