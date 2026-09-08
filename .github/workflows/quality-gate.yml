@@ -76,7 +76,7 @@ on:
     secrets:
       OPENAI_API_KEY:
         required: false
-      APP_TOKEN:
+      APP_TOKEN_RELEASE:
         required: false
 
 permissions:
@@ -147,7 +147,9 @@ jobs:
       RUN_ALERT: ${{ github.event_name == 'pull_request' && '0' || (inputs.run_alert && '1' || '0') }}
       RUN_LOAD: ${{ github.event_name == 'pull_request' && '0' || (inputs.run_load && '1' || '0') }}
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-      APP_TOKEN: ${{ secrets.APP_TOKEN }}
+      # APP_TOKEN_RELEASE is the operator-owned app credential. The backend
+      # gates consume it under their runtime name, APP_TOKEN.
+      APP_TOKEN: ${{ secrets.APP_TOKEN_RELEASE }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -162,7 +164,7 @@ jobs:
           fi
           if [[ "${RUN_SPECULATIVE_REUSE_GATE}" == "1" || "${RUN_SMOKE}" == "1" || "${RUN_ALERT}" == "1" ]]; then
             if [[ -z "${APP_TOKEN:-}" ]]; then
-              missing+=("APP_TOKEN")
+              missing+=("APP_TOKEN_RELEASE")
             fi
           fi
           if (( ${#missing[@]} > 0 )); then

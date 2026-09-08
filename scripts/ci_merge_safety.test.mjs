@@ -25,6 +25,13 @@ test("[ci-merge-safety] complete backend tests gate pull requests and main pushe
   assert.doesNotMatch(backendJob, /OPENAI_API_KEY|APP_TOKEN|secrets\./);
 });
 
+test("[ci-merge-safety] quality gate maps the canonical release token into backend gates", () => {
+  assert.match(qualityGate, /^\s+APP_TOKEN_RELEASE:\n\s+required: false/m);
+  assert.match(qualityGate, /APP_TOKEN: \$\{\{ secrets\.APP_TOKEN_RELEASE \}\}/);
+  assert.match(qualityGate, /missing\+=\("APP_TOKEN_RELEASE"\)/);
+  assert.doesNotMatch(qualityGate, /secrets\.APP_TOKEN(?:\s|\})/);
+});
+
 test("[ci-merge-safety] persistence changes exercise the migration workflow on PRs and main", () => {
   assert.match(migrationsCheck, /^\s+pull_request:\n\s+paths:/m);
   assert.match(migrationsCheck, /^\s+push:\n\s+branches:\n\s+- main\n\s+paths:/m);
