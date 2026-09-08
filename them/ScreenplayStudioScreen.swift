@@ -2888,7 +2888,9 @@ private var directionOneScriptEditor: some View {
                     lastCommittedWrite: $liveDraftBridge.lastCommittedWrite,
                     pendingReplacementTarget: $liveDraftBridge.pendingReplacementTarget,
                     submittedReplacementTarget: $liveDraftBridge.submittedReplacementTarget,
-                    onUserEdit: vm.noteManualDraftEdit
+                    onUserEdit: vm.noteManualDraftEdit, canSaveDraft: vm.selectedProject != nil &&
+                        vm.hasUnsavedDraftChanges && !vm.isSaving && !vm.fountainDraft.isEmpty,
+                    onSaveDraft: { triggerStudioManualSave() }
                 )
                 .overlay(alignment: .topLeading) {
                     focusedPageDiffAnchoredOverlay
@@ -2945,11 +2947,6 @@ private var directionOneScriptEditor: some View {
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .shadow(color: Color.black.opacity(0.08), radius: 14, x: 0, y: 8)
     }
-
-
-
-
-
 
     private func studioCompanionMetaPill(_ label: String, value: String) -> some View {
         HStack(spacing: 4) {
