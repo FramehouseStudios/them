@@ -1,55 +1,109 @@
-# Claude Inbox
+# Support inbox
 
-Short handoff for the Claude/support lane. Read after `AGENTS.md`, `TASKS.md`,
-`DECISIONS.md`, and `docs/coordination.json`. Codex owns this file per
-`AGENTS.md`; the support lane created it on 2026-09-05 because `AGENTS.md` and
-`docs/README.md` referenced it and it did not exist.
+Snapshot: September 8, 2026. Read `AGENTS.md`, `DECISIONS.md`,
+`docs/coordination.json`, and `docs/branch-audit-2026-09-07.md` first.
 
-Start with:
+## Current product lane
+
+The next milestone is a dependable, production-configured iPhone writer beta.
+The visible app name is **THEM** under D015. Clementine remains the named
+creative companion and the orb remains the product's visual heart under D014.
+
+The only current app landing train is:
+
+1. #590 — dependable iPhone Files export.
+2. #591 — narrow-width Pages navigator.
+3. #592 — Clementine voice across all six Studio tabs.
+4. Reconstruct #422's authenticated first-run behavior after #592.
+
+The current backend safety train is separate. Each successor branches directly
+from #596 so unrelated safety changes remain independently reviewable:
+
+1. #596 — restore the green backend baseline.
+2. #597 — context-aware, Fountain-correct character-cue linting.
+3. #598 — parser-backed child-process safety guard.
+4. #599 — fail-closed, self-describing release preflight.
+5. #600 — safe Dependabot configuration reconstructed from #456.
+6. #602 — pinned Node 24 LTS runtime across local, CI, and Docker surfaces.
+7. #603 — explicit, clock-free FDX title metadata reconstructed from #442.
+8. #604 — canonical APP_TOKEN_RELEASE wiring for the full Quality Gate.
+9. #605 — no-op outbox notification suppression reconstructed from #481.
+10. #606 — archive obsolete root prompts, reconstructed from closed #466.
+
+The implementation successors have clean local relevant-suite evidence. Hosted
+Actions now execute, but each exact candidate must complete its own required
+gate after rebasing onto the corrected baseline; do not merge around a failed,
+pending, or superseded run.
+
+Do not open or extend another cumulative product stack. Do not merge, rebase,
+or revive #445, the 36-PR `clementine/smooth-*` chain, or the 15-feature Claude
+Studio chain. The exhaustive keep/port/retire decision is in the branch audit.
+
+## Hard gates
+
+- GitHub Actions billing was restored on September 8 and jobs now execute.
+  #596's design-token repair is running the complete required gate on exact SHA
+  `e3cb72a` in run 34272801038. No implementation merge until that exact
+  candidate receives the complete required green checks.
+- Render correctly refuses the newer production build while
+  `APP_STORE_ISSUER_ID`, `APP_STORE_KEY_ID`, and `APP_STORE_PRIVATE_KEY` are
+  absent. Do not weaken the fail-closed guard or redeploy the candidate.
+- Printing remains Release-off by default, opt-in, and protected by its hard
+  kill switch.
+- Production credentials, DNS/privacy proof, physical-device/provider
+  acceptance, and TestFlight signoff remain separate human/release gates.
+
+## What support should do next
+
+Until the app train lands, support work is limited to one fresh, small branch
+from current `main` at a time. Priority order:
+
+1. Rebuild #456 only as independent changes: Dependabot with real labels;
+   reproducible third-party notices; a real private security-reporting channel;
+   a proven current gitleaks workflow; and CodeQL only after GitHub Code
+   Security is enabled. Never reuse its stale RC notes.
+2. #481 is closed and safely reconstructed as #605 without its stale-cache
+   change. After the app train, review only #482's owner-scoped ETag tip.
+3. Reconstruct the D009 backend sequence one independently mergeable,
+   domain-owned slice at a time. #461–#465 are closed after architecture audit;
+   do not revive their stale cumulative stack.
+
+#442, #455, #460, and #477 are complete as stronger successors #603, #599,
+#598, and #597. Their source PRs are closed and their branches are preserved.
+#456 is closed after review: its reporting channel was unavailable, both
+security workflows had failed, and its release notes claimed unmerged features
+were shipped. Its safe Dependabot slice now lives independently in #600.
+#436 is also closed: it had no producer, wrote an internal TODO marker into
+screenplay text, and its advertised answer action did not resolve that marker.
+#466 is closed and superseded by #606, which preserves the historical prompt
+contents and Git history while clarifying that the archived files are not live
+instructions. #431 is closed after product audit; its raw speech ghost should
+return only as a global, responsive Clementine hearing state with lifecycle and
+transport parity. #435 is closed after a P0 pagination audit reproduced a
+nonterminating export path and content-integrity failures. #461–#465 are closed
+after architecture audit; future extraction work must have shape-aware
+dependencies, live route coverage, domain ownership, and current proof.
+
+#443/#444 remain under audit. Do not enable them until next-beat batches have
+owner/project/version/request identity, stale invalidation, stable retry
+identity, honest cost copy, and signed iPhone-width proof.
+
+## Reporting contract
+
+Every proposed port must state:
+
+- the exact source commit and the current-main commit it becomes;
+- the V1 outcome;
+- what inherited stack content was deliberately excluded;
+- focused tests and full relevant gate results;
+- whether required GitHub checks actually executed.
+
+Use:
 
 ```bash
 node scripts/agent_next.mjs --role=support
 node scripts/coordination_state.mjs read
 ```
 
-## Current Snapshot (2026-09-05)
-
-Merged this week: #416 live typing between devices, #417 sprint security
-rescue, #418 two-device UI smoke, #419 Quality Gate de-flake, #421 resilient
-cross-device live drafts. GitHub Actions is running again after the
-2026-09-03 billing block.
-
-Open, in order of what unblocks launch:
-
-| PR | Owner | Gate | What it needs |
-| --- | --- | --- | --- |
-| [#424](https://github.com/FramehouseStudios/them/pull/424) | support | tier 3, human merge | Boot-level IAP fail-closed (D011), `knowledge_cards.json` shipped in the image, `MUSE_MODEL` knob. Local suite 2518/0 fail; GitHub checks green, Quality Gate pending. After merge, set the four `APP_STORE_*` values in Render or production boot refuses by design. |
-| [#425](https://github.com/FramehouseStudios/them/pull/425) | support | stacked on #423 | Six V1 smoke fixes. Lands after #423. |
-| [#423](https://github.com/FramehouseStudios/them/pull/423) | support | needs rebase | Carries Codex's 41 unpushed keychain commits; conflicting with main until `codex/T-ios-keychain-token-migration` lands. |
-| [#422](https://github.com/FramehouseStudios/them/pull/422) | codex | tier 3, human | Authenticated first-run resume. |
-| [#420](https://github.com/FramehouseStudios/them/pull/420) | support | draft | Quality Gate PR-cost reduction; human decides on opt-in iOS smokes. |
-
-Human-owned before launch: `render-app-store-secrets` blocker; the
-`v1-release-preflight-config` blocker (Team ID, release token,
-`scripts/run_release_preflight.sh` with the quality gate on); accept or reject
-the D001 and D011 entries in `docs/proposed-decisions.md`.
-
-Branch hygiene: `claude/pii-safe-request-logs` is a stale sprint snapshot cut
-before #417. Its PII redaction is on main as #372, its backend work landed via
-#417, and its three newest commits moved to #424. Do not merge main into it
-(nine conflicting files including `backend/index.js`). Delete only after a
-salvage audit of its iOS tree and human clearance.
-
-Known local hazard: the main checkout on the release Mac carries ~411
-untracked iCloud conflict copies named `<file> 2.<ext>` (TASKS.md T01). The
-Xcode project uses synchronized folder groups, so the ` 2.swift` copies are
-compiled and break the iOS build. Human-owned cleanup; not ignored by
-`.gitignore` on main.
-
-## What the support lane does next
-
-1. Nothing net-new until #424 is merged and the Render secrets exist.
-2. Backend-only follow-ups when asked: the D008 golden-set eval for
-   `muse-spark-1.3` once a Meta key is provided; client handling of the
-   fail-closed IAP credit path.
-3. Keep every claim verified by a local run; paste the summary line.
+No production mutation, branch deletion, PR closure, or merge is authorized by
+this inbox alone.
