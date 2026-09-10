@@ -20,6 +20,10 @@ import {
   LIVE_DRAFT_OPS_BODY_LIMIT,
   mountScreenplayLiveDraftRoutes,
 } from "../lib/screenplay_live_draft_routes.js";
+import {
+  SCREENPLAY_DRAFT_HASH_VERSION,
+  hashCanonicalScreenplayDraft,
+} from "../lib/screenplay_draft_receipt_protocol.js";
 
 // ---------- hub: pure helpers ----------
 
@@ -146,13 +150,38 @@ test("[live-draft] replaceText + announceVersion follow the mirror", () => {
   assert.equal(malformed.reason, "bad_text");
   assert.equal(hub.snapshot(key).text, "new text", "malformed snapshot never mutates the channel");
 
-  const staleVersion = hub.announceVersion(key, { deviceId: "mac", versionId: "v10", checksum: "deadbeef" });
+  const staleVersion = hub.announceVersion(key, {
+    deviceId: "mac",
+    versionId: "v10",
+    checksum: "deadbeef",
+    draftHashVersion: SCREENPLAY_DRAFT_HASH_VERSION,
+    draftHash: hashCanonicalScreenplayDraft("new text"),
+  });
   assert.equal(staleVersion.ok, false);
   assert.equal(staleVersion.reason, "checksum_mismatch");
-  const ok = hub.announceVersion(key, { deviceId: "mac", versionId: "v10", checksum: liveDraftChecksum("new text") });
+  const ok = hub.announceVersion(key, {
+    deviceId: "mac",
+    versionId: "v10",
+    checksum: liveDraftChecksum("new text"),
+    draftHashVersion: SCREENPLAY_DRAFT_HASH_VERSION,
+    draftHash: hashCanonicalScreenplayDraft("new text"),
+  });
   assert.equal(ok.ok, true);
   assert.equal(hub.snapshot(key).version_id, "v10");
   assert.equal(hub.announceVersion(key, { deviceId: "mac", versionId: "" }).reason, "version_id_required");
+  assert.equal(
+    hub.announceVersion(key, { deviceId: "mac", versionId: "v11", checksum: liveDraftChecksum("new text") }).reason,
+    "draft_hash_version_required"
+  );
+  assert.equal(
+    hub.announceVersion(key, {
+      deviceId: "mac",
+      versionId: "v11",
+      draftHashVersion: SCREENPLAY_DRAFT_HASH_VERSION,
+      draftHash: hashCanonicalScreenplayDraft("new text"),
+    }).reason,
+    "checksum_required"
+  );
 });
 
 test("[live-draft] channel seeds preserve complete UTF-16 characters", () => {
@@ -272,6 +301,7 @@ function makeStore() {
 function defaultDeps(overrides = {}) {
   const owners = makeStore();
   return {
+    _owners: owners,
     hub: createLiveDraftHub(),
     getOrCreateScreenplayOwnerRecord: (req) => owners.get(String(req.authUser?.id || "")) || null,
     getScreenplayProjectRecord: (owner, id) => owner?.projects?.find((p) => p.id === id) || null,
@@ -550,7 +580,8 @@ test("[live-draft] rate limit surfaces as 429", async () => {
 });
 
 test("[live-draft] snapshot push and version announce fan out", async () => {
-  await withServer(defaultDeps(), async (ctx) => {
+  const deps = defaultDeps();
+  await withServer(deps, async (ctx) => {
     const { baseURL } = ctx;
     const phone = await openStream(ctx, "/screenplay/projects/proj-1/live/stream?device_id=phone");
     await phone.next("hello");
@@ -572,19 +603,57 @@ test("[live-draft] snapshot push and version announce fan out", async () => {
     const staleVersion = await postJson(baseURL, "/screenplay/projects/proj-1/live/version", {
       device_id: "mac", version_id: "v2", checksum: "00000000",
     });
-    assert.equal(staleVersion.status, 409);
+    assert.equal(staleVersion.status, 404, "a nonexistent version is rejected before its checksum matters");
+    const project = deps._owners.get("user-1").projects.find((item) => item.id === "proj-1");
+    const persistedDraft = "INT. ROOM - DAY\n\nMara waits.\n\nShe leaves.";
+    project.versions.unshift({ id: "v2", draft: persistedDraft, updatedAt: 20 });
+    project.activeVersionId = "v2";
     const announced = await postJson(baseURL, "/screenplay/projects/proj-1/live/version", {
       device_id: "mac", version_id: "v2", checksum: pushed.body.checksum,
     });
     assert.equal(announced.status, 200);
     assert.equal(announced.body.version_id, "v2");
+    assert.equal(announced.body.draft_hash_version, SCREENPLAY_DRAFT_HASH_VERSION);
+    assert.equal(announced.body.draft_hash, hashCanonicalScreenplayDraft(persistedDraft));
     const versionEvent = await phone.next("version");
     assert.equal(versionEvent.version_id, "v2");
     assert.equal(versionEvent.checksum, pushed.body.checksum);
+    assert.equal(versionEvent.draft_hash_version, SCREENPLAY_DRAFT_HASH_VERSION);
+    assert.equal(versionEvent.draft_hash, hashCanonicalScreenplayDraft(persistedDraft));
 
     const snap = await getJson(baseURL, "/screenplay/projects/proj-1/live/snapshot");
     assert.equal(snap.body.version_id, "v2");
     assert.equal(snap.body.seeded, false);
+  });
+});
+
+test("[live-draft] version announce requires the current persisted draft and exact channel", async () => {
+  const deps = defaultDeps();
+  const project = deps._owners.get("user-1").projects.find((item) => item.id === "proj-1");
+  await withServer(deps, async ({ baseURL }) => {
+    const checksum = liveDraftChecksum("INT. ROOM - DAY\n\nMara waits.");
+    const missingChecksum = await postJson(baseURL, "/screenplay/projects/proj-1/live/version", {
+      device_id: "mac", version_id: "v1",
+    });
+    assert.equal(missingChecksum.status, 400);
+    assert.equal(missingChecksum.body.error, "checksum_required");
+
+    project.versions.push({ id: "v0", draft: "OLDER", updatedAt: 1 });
+    const historical = await postJson(baseURL, "/screenplay/projects/proj-1/live/version", {
+      device_id: "mac", version_id: "v0", checksum,
+    });
+    assert.equal(historical.status, 409);
+    assert.equal(historical.body.error, "version_not_current");
+
+    project.versions.unshift({ id: "v2", draft: "DIFFERENT PERSISTED TEXT", updatedAt: 20 });
+    project.activeVersionId = "v2";
+    const mismatched = await postJson(baseURL, "/screenplay/projects/proj-1/live/version", {
+      device_id: "mac", version_id: "v2", checksum,
+    });
+    assert.equal(mismatched.status, 409);
+    assert.equal(mismatched.body.error, "persisted_version_mismatch");
+    const key = deps.hub.channelKey("user-1", "proj-1");
+    assert.equal(deps.hub.snapshot(key).version_id, "v1", "rejections never mutate or broadcast a version");
   });
 });
 

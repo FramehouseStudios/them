@@ -1949,11 +1949,23 @@ final class ScreenplayStudioViewModel: ObservableObject {
     /// The device that typed the current text saved it as `versionID`. Adopt
     /// that id as our base so the next local edit does not conflict, and mark
     /// the page saved without issuing a duplicate save.
-    func adoptRemoteLiveVersion(_ versionID: String, projectID: String, draftChecksum: String) {
+    func adoptRemoteLiveVersion(
+        _ versionID: String,
+        projectID: String,
+        draftChecksum: String,
+        draftHashVersion: String,
+        draftHash: String
+    ) {
         let cleanVersionID = versionID.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !cleanVersionID.isEmpty,
-              ScreenplayProjectScopedState.matches(projectID, selectedProjectId: selectedProjectID),
-              LiveDraftText.checksum(fountainDraft) == draftChecksum else {
+        guard LiveDraftPersistedVersionProof.matches(
+            versionID: cleanVersionID,
+            projectID: projectID,
+            selectedProjectID: selectedProjectID,
+            draft: fountainDraft,
+            liveChecksum: draftChecksum,
+            draftHashVersion: draftHashVersion,
+            draftHash: draftHash
+        ) else {
             return
         }
         latestVersionID = cleanVersionID
