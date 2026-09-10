@@ -49,6 +49,11 @@ import {
   normalizeOutlineMutationReceipts,
   normalizeOutlineRevision,
 } from "./screenplay_outline_protocol.js";
+import {
+  SCREENPLAY_DRAFT_HASH_VERSION,
+  canonicalizeScreenplayDraft,
+  hashCanonicalScreenplayDraft,
+} from "./screenplay_draft_receipt_protocol.js";
 
 const SAFE_OUTLINE_COLLECTION_LIMITS = Object.freeze({
   acts: 32,
@@ -1539,7 +1544,10 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
       return res.status(404).json({ stage: "screenplay_version", error: "project_not_found" });
     }
     const now = Date.now();
-    const draft = String(req.body?.draft || "").replace(/\r\n/g, "\n").trim();
+    const draftInput = req.body?.draft;
+    const draft = typeof draftInput === "string"
+      ? canonicalizeScreenplayDraft(draftInput)
+      : "";
     if (!draft) {
       return res.status(400).json({ stage: "screenplay_version", error: "draft_required" });
     }
@@ -1553,6 +1561,8 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
     const conflictStrategy = String(req.body?.conflict_strategy || "reject_if_stale").trim().toLowerCase();
     const latestVersion = getLatestScreenplayVersion(project);
     const currentVersionId = project.activeVersionId || latestVersion?.id || "";
+    const currentVersion = (project.versions || [])
+      .find((item) => item.id === currentVersionId) || latestVersion || null;
     const replayedVersion = clientRequestId
       ? (project.versions || []).find((item) => item.clientRequestId === clientRequestId)
       : null;
@@ -1568,7 +1578,7 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
           replayed: false,
         }));
       }
-      const requestMatches = String(replayedVersion.draft || "").replace(/\r\n/g, "\n").trim() === draft;
+      const requestMatches = canonicalizeScreenplayDraft(replayedVersion.draft) === draft;
       const replayWasSuperseded = Boolean(currentVersionId && currentVersionId !== replayedVersion.id);
       applyReadStateHeaders(res, buildScreenplayReadMeta(req, owner));
       return res.status(requestMatches && !replayWasSuperseded ? 200 : 409).json(buildScreenplayEnvelope(req, owner, {
@@ -1578,6 +1588,9 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
           : "client_request_id_reused",
         created_project: false,
         project_id: project.id,
+        client_request_id: clientRequestId,
+        draft_hash_version: SCREENPLAY_DRAFT_HASH_VERSION,
+        draft_hash: hashCanonicalScreenplayDraft(replayedVersion.draft),
         version_id: replayedVersion.id,
         version: toScreenplayVersionPayload(replayedVersion, { includeDraft: true }),
         project: toScreenplayProjectPayload(project, { includeVersions: true, includeDrafts: true, versionLimit: 24 }),
@@ -1587,7 +1600,7 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
         warnings: replayedVersion.warnings || [],
         base_version_id: baseVersionId,
         server_version_id: currentVersionId,
-        server_version: latestVersion ? toScreenplayVersionPayload(latestVersion, { includeDraft: true }) : null,
+        server_version: currentVersion ? toScreenplayVersionPayload(currentVersion, { includeDraft: true }) : null,
         conflict: !requestMatches || replayWasSuperseded,
         replayed: requestMatches,
       }));
@@ -1604,16 +1617,19 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
         status: "conflict",
         created_project: false,
         project_id: project.id,
+        client_request_id: clientRequestId,
+        draft_hash_version: SCREENPLAY_DRAFT_HASH_VERSION,
+        draft_hash: currentVersion ? hashCanonicalScreenplayDraft(currentVersion.draft) : "",
         version_id: currentVersionId,
-        version: latestVersion ? toScreenplayVersionPayload(latestVersion, { includeDraft: true }) : null,
+        version: currentVersion ? toScreenplayVersionPayload(currentVersion, { includeDraft: true }) : null,
         project: toScreenplayProjectPayload(project, { includeVersions: true, includeDrafts: true, versionLimit: 24 }),
-        format_score: Number(latestVersion?.formatScore || 0),
-        story_score: Number(latestVersion?.storyScore || 0),
-        confidence_class: latestVersion?.confidenceClass || "medium",
-        warnings: latestVersion?.warnings || [],
+        format_score: Number(currentVersion?.formatScore || 0),
+        story_score: Number(currentVersion?.storyScore || 0),
+        confidence_class: currentVersion?.confidenceClass || "medium",
+        warnings: currentVersion?.warnings || [],
         base_version_id: baseVersionId,
         server_version_id: currentVersionId,
-        server_version: latestVersion ? toScreenplayVersionPayload(latestVersion, { includeDraft: true }) : null,
+        server_version: currentVersion ? toScreenplayVersionPayload(currentVersion, { includeDraft: true }) : null,
         conflict: true,
         replayed: false,
       }));
@@ -1697,6 +1713,9 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
       status: "saved",
       created_project: false,
       project_id: committedProject.id,
+      client_request_id: clientRequestId,
+      draft_hash_version: SCREENPLAY_DRAFT_HASH_VERSION,
+      draft_hash: hashCanonicalScreenplayDraft(committedVersion.draft),
       version_id: committedVersion.id,
       version: toScreenplayVersionPayload(committedVersion, { includeDraft: true }),
       project: toScreenplayProjectPayload(committedProject, {

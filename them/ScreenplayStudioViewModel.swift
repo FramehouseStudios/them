@@ -1408,6 +1408,15 @@ final class ScreenplayStudioViewModel: ObservableObject {
             )
         }
 
+        var receiptKey: ScreenplayDraftSaveReceiptKey {
+            ScreenplayDraftSaveReceiptKey(
+                ownerUserId: ownerUserId,
+                projectId: projectId,
+                clientRequestId: id,
+                draft: draft
+            )
+        }
+
         func rebased(on serverVersionId: String) -> DraftSaveRequest {
             DraftSaveRequest(
                 id: id,
@@ -5666,7 +5675,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
     func resumeQueuedDraftSavesIfNeeded(force: Bool = false) async {
         guard !isDraftSaveInFlight,
               !isSaving,
-              !isStreamingDraftPreviewActive else {
+              !isStreamingDraftPreviewActive,
+              conflictState == nil else {
             return
         }
         let projectId = selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -5885,10 +5895,13 @@ final class ScreenplayStudioViewModel: ObservableObject {
             case .canonicalVersion(let serverVersion):
                 guard authContextIsCurrent(request.authContext) else { return false }
                 let serverDraft = serverVersion.draft ?? ""
-                if fingerprint(for: serverDraft) == fingerprint(for: request.draft) {
-                    try? await draftSaveOutbox.markSucceeded(
-                        id: request.id,
-                        serverVersionId: serverVersion.id
+                if ScreenplayDraftSaveCanonicalization.serverSHA256(serverDraft)
+                    == ScreenplayDraftSaveCanonicalization.serverSHA256(request.draft) {
+                    try await draftSaveOutbox.markSuperseded(
+                        key: request.receiptKey,
+                        serverVersionId: serverVersion.id,
+                        serverDraft: serverDraft,
+                        reasonCode: "already_saved_elsewhere"
                     )
                     latestVersionID = serverVersion.id
                     lastSavedDraftFingerprint = fingerprint(for: request.draft)
@@ -5928,9 +5941,11 @@ final class ScreenplayStudioViewModel: ObservableObject {
                     baseVersionId: "",
                     surfaceCandidate: false
                 )
-                try? await draftSaveOutbox.removeAll(
-                    projectId: request.projectId,
-                    ownerUserId: request.ownerUserId
+                _ = try await draftSaveOutbox.markConflict(
+                    activeKey: request.receiptKey,
+                    serverVersionId: serverVersion.id,
+                    serverDraft: serverDraft,
+                    reasonCode: "version_created_elsewhere"
                 )
                 return false
             }
@@ -6002,9 +6017,11 @@ final class ScreenplayStudioViewModel: ObservableObject {
                     baseVersionId: baseVersionId.isEmpty ? latestVersionID : baseVersionId,
                     surfaceCandidate: false
                 )
-                try? await draftSaveOutbox.removeAll(
-                    projectId: request.projectId,
-                    ownerUserId: request.ownerUserId
+                _ = try await draftSaveOutbox.markConflict(
+                    activeKey: request.receiptKey,
+                    serverVersionId: serverVersionId,
+                    serverDraft: result.payload.serverVersion?.draft ?? "",
+                    reasonCode: result.payload.status ?? "stale_version"
                 )
                 return false
             }
@@ -6014,15 +6031,17 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 selectedProject = nextProject
                 selectedProjectID = nextProject.id
             }
-            let nextVersionId = (result.payload.versionId ?? result.payload.version?.id ?? "")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !nextVersionId.isEmpty else {
-                throw BackendMemoryAPIError.invalidResponse
-            }
-            try? await draftSaveOutbox.markSucceeded(
-                id: request.id,
-                serverVersionId: nextVersionId
+            let proof = try ScreenplayDraftSaveAcknowledgement.validate(
+                result.payload,
+                projectId: request.projectId,
+                clientRequestId: request.id,
+                requestedDraft: request.draft
             )
+            _ = try await draftSaveOutbox.markAccepted(
+                key: request.receiptKey,
+                proof: proof
+            )
+            let nextVersionId = proof.versionId
             latestVersionID = nextVersionId
             if let savedAnchors = result.payload.version?.studioWriteAnchors {
                 studioWriteAnchors = savedAnchors.filter { anchor in
@@ -6094,6 +6113,20 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 draft: fountainDraft,
                 baseVersionId: request.baseVersionId
             )
+            if error is ScreenplayDraftSaveReceiptPersistenceError {
+                await draftSaveOutbox.recoverInflightAfterReceiptPersistenceFailure(
+                    id: request.id,
+                    error: error.localizedDescription
+                )
+                shouldQueuePendingDraftSaveAfterFailure = true
+                if conflictState == nil {
+                    autosaveStatusText = "Saved locally - confirmation pending"
+                    infoText = "Your draft is safe on this device. THEM will verify the server result again."
+                }
+                errorText = ""
+                await refreshDraftSaveOutboxStatus()
+                return false
+            }
             if ScreenplayDraftSaveRetryPolicy.shouldRetry(error) {
                 shouldQueuePendingDraftSaveAfterFailure = true
                 try? await draftSaveOutbox.markRetryable(
@@ -6104,8 +6137,9 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 infoText = "Your draft is safe on this device and will save when the connection returns."
                 errorText = ""
             } else {
-                try? await draftSaveOutbox.markParked(
-                    id: request.id,
+                _ = try? await draftSaveOutbox.markRejected(
+                    key: request.receiptKey,
+                    reasonCode: Self.draftSaveRejectionCode(for: error),
                     error: error.localizedDescription
                 )
                 autosaveStatusText = ScreenplayDraftSaveRecoveryPresentationPolicy.failureStatus(source: request.source)
@@ -6118,6 +6152,20 @@ final class ScreenplayStudioViewModel: ObservableObject {
             await refreshDraftSaveOutboxStatus()
             return false
         }
+    }
+
+    private static func draftSaveRejectionCode(for error: Error) -> String {
+        if let acknowledgement = error as? ScreenplayDraftSaveAcknowledgementError {
+            return "invalid_acknowledgement_\(String(describing: acknowledgement))"
+        }
+        if case let BackendMemoryAPIError.server(status, message) = error {
+            let code = message
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+                .replacingOccurrences(of: #"[^a-z0-9_]+"#, with: "_", options: .regularExpression)
+            return "http_\(status)_\(code)"
+        }
+        return "permanent_save_rejection"
     }
 
     private func emptyBaseDraftSavePreflight(

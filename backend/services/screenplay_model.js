@@ -1287,6 +1287,7 @@ function toScreenplayVersionPayload(version, { includeDraft = true } = {}) {
   return {
     id: version.id,
     project_id: version.projectId || "",
+    client_request_id: version.clientRequestId || "",
     phase: version.phase || "scene_draft",
     source: version.source || "",
     created_at: Math.max(0, Number(version.createdAt || 0)),
