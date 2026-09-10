@@ -10,6 +10,7 @@ struct ScreenplayStudioDraftDocumentPresentation {
     static let fallbackStatusText = "Save status will appear here after your first edit."
 
     let isSaving: Bool
+    let isDraftEmpty: Bool
     let exportItems: [ScreenplayExportMenuItem]
     let autosaveStatusText: String
     let exportFormatsErrorText: String
@@ -126,6 +127,7 @@ struct ScreenplayStudioDraftIntegrityActions {
 struct ScreenplayStudioDraftToolsActions {
     let onSaveNow: () -> Void
     let onImport: () -> Void
+    let onOpenTableRead: () -> Void
     let onExport: (String) -> Void
     let onRefreshExportFormats: () -> Void
     let onOpenGoogleDocs: () -> Void
@@ -442,6 +444,7 @@ private struct ScreenplayStudioDraftDocumentControls: View {
         VStack(spacing: 8) {
             saveButton
             importButton
+            tableReadButton
             exportMenu
         }
     }
@@ -472,6 +475,19 @@ private struct ScreenplayStudioDraftDocumentControls: View {
         .controlSize(.regular)
         .accessibilityIdentifier("studio.draft.document.import")
         .accessibilityHint("Imports a screenplay file into this draft")
+    }
+
+    private var tableReadButton: some View {
+        Button(action: actions.onOpenTableRead) {
+            Label("Listen in Table Read", systemImage: "headphones")
+                .font(IOThemTypography.UI.calloutStrong)
+                .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.regular)
+        .disabled(presentation.isDraftEmpty)
+        .accessibilityIdentifier("studio.draft.document.table-read")
+        .accessibilityHint("Opens an on-device table read with character voices and synchronized lines")
     }
 
     private var exportMenu: some View {

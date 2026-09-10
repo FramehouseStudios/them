@@ -629,6 +629,68 @@ final class V1SmokeUITests: XCTestCase {
         XCTAssertTrue(app.descendants(matching: .any)["studio.draft.page-tools"].waitForExistence(timeout: 4))
     }
 
+    func test_table_read_opens_from_document_and_exposes_working_phone_controls() {
+        let app = launchApp(openStudio: true, openExportTools: true, structuralSeed: true)
+        defer { app.terminate() }
+
+        XCTAssertTrue(
+            element(identifier: "studio.surface", in: app).waitForExistence(timeout: 10),
+            "Studio did not open for the Table Read test.\n\(app.debugDescription)"
+        )
+
+        let drawer = element(identifier: "studio.sidebar.right.drawer", in: app)
+        let tableRead = app.buttons["studio.draft.document.table-read"]
+        XCTAssertTrue(drawer.waitForExistence(timeout: 4))
+        XCTAssertTrue(
+            revealInStudioDrawer(tableRead, drawer: drawer, scrollingUp: true, maxSwipes: 12),
+            "The Document panel did not reveal its Table Read action."
+        )
+        XCTAssertTrue(tableRead.label.localizedCaseInsensitiveContains("Table Read"))
+        XCTAssertGreaterThan(tableRead.frame.width, 180, "Table Read should remain a full-width phone action.")
+        tableRead.tap()
+
+        XCTAssertTrue(
+            element(identifier: "studio.table-read.sheet", in: app).waitForExistence(timeout: 5),
+            "Table Read did not open.\n\(app.debugDescription)"
+        )
+        let currentLine = element(identifier: "studio.table-read.current-line", in: app)
+        let previous = app.buttons["studio.table-read.previous"]
+        let playPause = app.buttons["studio.table-read.play-pause"]
+        let next = app.buttons["studio.table-read.next"]
+        let speed = element(identifier: "studio.table-read.speed", in: app)
+        XCTAssertTrue(currentLine.waitForExistence(timeout: 4))
+        XCTAssertTrue(previous.exists)
+        XCTAssertTrue(playPause.exists)
+        XCTAssertTrue(next.exists)
+        XCTAssertTrue(speed.exists)
+        XCTAssertFalse(previous.isEnabled)
+        XCTAssertTrue(next.isEnabled)
+        XCTAssertEqual(playPause.label, "Play")
+
+        let firstTranscriptLine = app.buttons["studio.table-read.line.0"]
+        let secondTranscriptLine = app.buttons["studio.table-read.line.1"]
+        XCTAssertTrue(firstTranscriptLine.waitForExistence(timeout: 4))
+        XCTAssertEqual(firstTranscriptLine.value as? String, "Current line")
+
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "table-read-readable-phone-width.png"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+
+        next.tap()
+        XCTAssertTrue(secondTranscriptLine.waitForExistence(timeout: 4))
+        XCTAssertEqual(secondTranscriptLine.value as? String, "Current line")
+        XCTAssertNotEqual(firstTranscriptLine.value as? String, "Current line")
+
+        playPause.tap()
+        XCTAssertTrue(
+            app.buttons["studio.table-read.play-pause"].waitForExistence(timeout: 2),
+            "The playback control disappeared after starting the read."
+        )
+        XCTAssertEqual(app.buttons["studio.table-read.play-pause"].label, "Pause")
+        app.buttons["studio.table-read.play-pause"].tap()
+    }
+
     func test_all_studio_inspector_tabs_route_to_real_panels_and_report_selection() {
         let app = launchApp(openStudio: true, openExportTools: true, structuralSeed: true)
         defer { app.terminate() }

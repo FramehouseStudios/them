@@ -168,6 +168,7 @@ final class ScreenplayStudioDraftToolsPresentationTests: XCTestCase {
 
         let document = ScreenplayStudioDraftDocumentPresentation(
             isSaving: false,
+            isDraftEmpty: false,
             exportItems: [],
             autosaveStatusText: "",
             exportFormatsErrorText: "Format service unavailable.",
@@ -180,6 +181,7 @@ final class ScreenplayStudioDraftToolsPresentationTests: XCTestCase {
 
         let savedDocument = ScreenplayStudioDraftDocumentPresentation(
             isSaving: false,
+            isDraftEmpty: false,
             exportItems: [],
             autosaveStatusText: "Autosaved",
             exportFormatsErrorText: "",
@@ -190,6 +192,7 @@ final class ScreenplayStudioDraftToolsPresentationTests: XCTestCase {
 
         let pendingDocument = ScreenplayStudioDraftDocumentPresentation(
             isSaving: false,
+            isDraftEmpty: false,
             exportItems: [],
             autosaveStatusText: "Sync pending",
             exportFormatsErrorText: "",
@@ -200,6 +203,7 @@ final class ScreenplayStudioDraftToolsPresentationTests: XCTestCase {
 
         let savingDocument = ScreenplayStudioDraftDocumentPresentation(
             isSaving: true,
+            isDraftEmpty: false,
             exportItems: [],
             autosaveStatusText: "Autosaved",
             exportFormatsErrorText: "",

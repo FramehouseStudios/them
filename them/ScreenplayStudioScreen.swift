@@ -69,6 +69,7 @@ struct ScreenplayStudioScreen: View {
 
     @StateObject private var vm = ScreenplayStudioViewModel()
     @StateObject private var creativeInstincts = StudioCreativeInstinctsModel()
+    @StateObject private var tableReadPlayer = ScreenplayTableReadPlayer()
     @AppStorage("studio_debug_overlay_enabled") private var studioDebugOverlayEnabled = false
     @State private var navigatorRootURL: URL?
     @State private var navigatorCurrentURL: URL?
@@ -101,6 +102,7 @@ struct ScreenplayStudioScreen: View {
     @State private var pendingDraftImportSourceName: String = ""
     @State private var showingDraftImportChoice = false
     @State private var showingDraftFileImporter = false
+    @State private var showingTableRead = false
     @State private var hoveredDirectionOneDraftShortcut: DirectionOneDraftShortcut?
     @State private var selectedBeatInspectorID: String = ""
     @State private var draggedBeatID: String?
@@ -537,6 +539,14 @@ Replace is best when this file should become the script you edit. Append is safe
                 case .failure(let error):
                     vm.errorText = error.localizedDescription
                 }
+            }
+            .sheet(isPresented: $showingTableRead) {
+                ScreenplayTableReadView(
+                    player: tableReadPlayer,
+                    draft: vm.fountainDraft,
+                    title: vm.selectedProject?.title ?? "Untitled Screenplay",
+                    projectID: vm.selectedProjectID
+                )
             }
     }
 
@@ -5089,6 +5099,7 @@ private var projectsSidebarContent: some View {
         return ScreenplayStudioDraftToolsPresentation(
             document: ScreenplayStudioDraftDocumentPresentation(
                 isSaving: vm.isSaving,
+                isDraftEmpty: isDraftEmpty,
                 exportItems: vm.screenplayExportMenuItems,
                 autosaveStatusText: vm.autosaveStatusText,
                 exportFormatsErrorText: vm.screenplayExportFormatsErrorText,
@@ -5178,6 +5189,9 @@ private var projectsSidebarContent: some View {
             onImport: {
                 importDraftDocument()
             },
+            onOpenTableRead: {
+                showingTableRead = true
+            },
             onExport: { format in
                 Task { await exportCurrentDraft(format: format) }
             },
@@ -5208,25 +5222,6 @@ private var projectsSidebarContent: some View {
             }
         )
     }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
     private var beatsInspectorContent: some View {
         ScreenplayStudioBeatsInspectorLayout(
