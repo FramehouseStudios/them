@@ -7,6 +7,10 @@ import { test } from "node:test";
 import express from "express";
 
 import { mountScreenplayProjectsRoutes } from "../lib/screenplay_projects_routes.js";
+import {
+  SCREENPLAY_DRAFT_HASH_VERSION,
+  hashCanonicalScreenplayDraft,
+} from "../lib/screenplay_draft_receipt_protocol.js";
 
 function defaultOwner() {
   return {
@@ -132,7 +136,13 @@ function defaultDeps(overrides = {}) {
     buildDraftExcerpt: (draft, _len) => String(draft).slice(0, 50),
     toScreenplayScenePayload: (s) => ({ id: s.id, heading: s.heading || "" }),
     toScreenplayBeatPayload: (b) => ({ id: b.id, label: b.label || "" }),
-    toScreenplayVersionPayload: (v, _opts) => ({ id: v.id, draft: v.draft || "", source: v.source || "" }),
+    toScreenplayVersionPayload: (v, _opts) => ({
+      id: v.id,
+      project_id: v.projectId || "",
+      client_request_id: v.clientRequestId || "",
+      draft: v.draft || "",
+      source: v.source || "",
+    }),
     normalizeScreenplayStringList: (v, _max, _itemMax) => (Array.isArray(v) ? v.filter((x) => typeof x === "string") : []),
     normalizeScreenplayPhaseValue: (v) => (typeof v === "string" && v ? v : "scene_draft"),
     normalizeStoredScreenplayThreadViewState: (v) => v || null,
@@ -1499,13 +1509,21 @@ test("[screenplay-projects-routes] POST /comments rejects empty body with 400", 
 
 test("[screenplay-projects-routes] POST /version saves a draft and returns 201", async () => {
   await withTestServer(defaultDeps(), async (baseURL) => {
+    const draft = "  FADE IN:\r\n\r\nINT. ROOM - DAY\r\n\r\nAction.  ";
     const r = await postJson(baseURL, "/screenplay/projects/p1/version", {
-      draft: "FADE IN:\n\nINT. ROOM - DAY\n\nAction.",
+      draft,
+      client_request_id: "save-receipt-001",
     });
     assert.equal(r.status, 201);
     assert.equal(r.body.status, "saved");
     assert.ok(r.body.version_id);
     assert.equal(r.body.conflict, false);
+    assert.equal(r.body.client_request_id, "save-receipt-001");
+    assert.equal(r.body.draft_hash_version, SCREENPLAY_DRAFT_HASH_VERSION);
+    assert.equal(r.body.draft_hash, hashCanonicalScreenplayDraft(draft));
+    assert.equal(r.body.version.client_request_id, "save-receipt-001");
+    assert.equal(r.body.version.project_id, "p1");
+    assert.equal(r.body.server_version.client_request_id, "save-receipt-001");
   });
 });
 
@@ -1594,6 +1612,11 @@ test("[screenplay-projects-routes] POST /version replays a committed client requ
     assert.equal(replay.body.status, "replayed");
     assert.equal(replay.body.replayed, true);
     assert.equal(replay.body.version_id, first.body.version_id);
+    assert.equal(replay.body.client_request_id, body.client_request_id);
+    assert.equal(replay.body.draft_hash_version, SCREENPLAY_DRAFT_HASH_VERSION);
+    assert.equal(replay.body.draft_hash, hashCanonicalScreenplayDraft(body.draft));
+    assert.equal(replay.body.version.client_request_id, body.client_request_id);
+    assert.equal(replay.body.server_version.client_request_id, body.client_request_id);
     assert.equal(project.versions.length, 2);
     assert.equal(project.versions[0].clientRequestId, "device-save-001");
   });
@@ -1675,9 +1698,10 @@ test("[screenplay-projects-routes] POST /version responds with its committed sna
 test("[screenplay-projects-routes] POST /version rejects a reused client request with different content", async () => {
   const deps = defaultDeps();
   const project = deps._owner.projects.find((p) => p.id === "p1");
+  const firstDraft = "FADE IN:\n\nINT. ROOM - DAY\n\nFirst draft.";
   await withTestServer(deps, async (baseURL) => {
     const first = await postJson(baseURL, "/screenplay/projects/p1/version", {
-      draft: "FADE IN:\n\nINT. ROOM - DAY\n\nFirst draft.",
+      draft: firstDraft,
       client_request_id: "device-save-reused",
     });
     const versionCountAfterFirstSave = project.versions.length;
@@ -1691,6 +1715,11 @@ test("[screenplay-projects-routes] POST /version rejects a reused client request
     assert.equal(reused.body.status, "client_request_id_reused");
     assert.equal(reused.body.replayed, false);
     assert.equal(reused.body.conflict, true);
+    assert.equal(reused.body.client_request_id, "device-save-reused");
+    assert.equal(reused.body.draft_hash_version, SCREENPLAY_DRAFT_HASH_VERSION);
+    assert.equal(reused.body.draft_hash, hashCanonicalScreenplayDraft(firstDraft));
+    assert.equal(reused.body.version_id, first.body.version_id);
+    assert.equal(reused.body.version.id, first.body.version_id);
     assert.equal(project.versions.length, versionCountAfterFirstSave);
   });
 });
@@ -1705,12 +1734,16 @@ test("[screenplay-projects-routes] POST /version rejects stale base_version_id w
       draft: "FADE IN:\n\nINT. ROOM - NIGHT\n\nChanged.",
       base_version_id: "client_stale",
       conflict_strategy: "reject_if_stale",
+      client_request_id: "stale-save-001",
     });
     assert.equal(r.status, 409);
     assert.equal(r.body.status, "conflict");
     assert.equal(r.body.conflict, true);
     assert.equal(r.body.base_version_id, "client_stale");
     assert.equal(r.body.server_version_id, "server_current");
+    assert.equal(r.body.client_request_id, "stale-save-001");
+    assert.equal(r.body.draft_hash_version, SCREENPLAY_DRAFT_HASH_VERSION);
+    assert.equal(r.body.draft_hash, hashCanonicalScreenplayDraft("Current server draft."));
   });
 });
 
@@ -1731,6 +1764,32 @@ test("[screenplay-projects-routes] strict version save rejects a missing base on
     assert.equal(r.body.base_version_id, "");
     assert.equal(r.body.server_version_id, "server_current");
     assert.equal(project.versions.length, 1);
+  });
+});
+
+test("[screenplay-projects-routes] stale conflict identifies the active version when history order differs", async () => {
+  const deps = defaultDeps();
+  const project = deps._owner.projects.find((p) => p.id === "p1");
+  project.activeVersionId = "active_version";
+  project.versions = [
+    { id: "newest_history", projectId: "p1", draft: "Newest history draft." },
+    { id: "active_version", projectId: "p1", draft: "Active server draft." },
+  ];
+
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, "/screenplay/projects/p1/version", {
+      draft: "Client draft.",
+      base_version_id: "stale_version",
+      conflict_strategy: "reject_if_stale",
+      client_request_id: "active-version-conflict",
+    });
+
+    assert.equal(r.status, 409);
+    assert.equal(r.body.version_id, "active_version");
+    assert.equal(r.body.version.id, "active_version");
+    assert.equal(r.body.server_version_id, "active_version");
+    assert.equal(r.body.server_version.id, "active_version");
+    assert.equal(r.body.draft_hash, hashCanonicalScreenplayDraft("Active server draft."));
   });
 });
 
@@ -1776,5 +1835,15 @@ test("[screenplay-projects-routes] POST /version rejects empty draft with 400", 
     const r = await postJson(baseURL, "/screenplay/projects/p1/version", { draft: "  " });
     assert.equal(r.status, 400);
     assert.equal(r.body.error, "draft_required");
+  });
+});
+
+test("[screenplay-projects-routes] POST /version rejects non-string drafts", async () => {
+  await withTestServer(defaultDeps(), async (baseURL) => {
+    for (const draft of [0, false, { text: "not a draft" }]) {
+      const r = await postJson(baseURL, "/screenplay/projects/p1/version", { draft });
+      assert.equal(r.status, 400);
+      assert.equal(r.body.error, "draft_required");
+    }
   });
 });
