@@ -274,11 +274,15 @@ nonisolated struct LiveDraftVersionPayload: Decodable, Equatable, Sendable {
     let deviceId: String
     let versionId: String
     let checksum: String
+    let draftHashVersion: String
+    let draftHash: String
 
     enum CodingKeys: String, CodingKey {
         case seq, checksum
         case deviceId = "device_id"
         case versionId = "version_id"
+        case draftHashVersion = "draft_hash_version"
+        case draftHash = "draft_hash"
     }
 }
 
@@ -436,6 +440,27 @@ nonisolated enum LiveDraftSyncPolicy {
     }
 }
 
+nonisolated enum LiveDraftPersistedVersionProof {
+    static func matches(
+        versionID: String,
+        projectID: String,
+        selectedProjectID: String,
+        draft: String,
+        liveChecksum: String,
+        draftHashVersion: String,
+        draftHash: String
+    ) -> Bool {
+        let cleanProjectID = projectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanSelectedProjectID = selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !versionID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+            !cleanProjectID.isEmpty &&
+            cleanProjectID == cleanSelectedProjectID &&
+            LiveDraftText.checksum(draft) == liveChecksum &&
+            draftHashVersion == ScreenplayDraftSaveCanonicalization.hashVersion &&
+            draftHash == ScreenplayDraftSaveCanonicalization.serverSHA256(draft)
+    }
+}
+
 enum LiveDraftSyncStatus: Equatable {
     case idle
     case connecting
@@ -461,7 +486,13 @@ protocol LiveDraftEditorBinding: AnyObject {
     var liveDraftTextPublisher: AnyPublisher<String, Never> { get }
     @discardableResult
     func applyRemoteLiveDraft(_ text: String, projectID: String, sourceDeviceID: String) -> Bool
-    func adoptRemoteLiveVersion(_ versionID: String, projectID: String, draftChecksum: String)
+    func adoptRemoteLiveVersion(
+        _ versionID: String,
+        projectID: String,
+        draftChecksum: String,
+        draftHashVersion: String,
+        draftHash: String
+    )
     /// Bring the line another device is typing on into view.
     func revealRemoteEditLine(_ line: Int)
 }
@@ -713,7 +744,13 @@ final class ScreenplayLiveDraftSyncService: ObservableObject {
         case "version":
             guard let payload = try? decoder.decode(LiveDraftVersionPayload.self, from: data) else { return }
             guard payload.deviceId != deviceID else { return }
-            editor?.adoptRemoteLiveVersion(payload.versionId, projectID: projectID, draftChecksum: payload.checksum)
+            editor?.adoptRemoteLiveVersion(
+                payload.versionId,
+                projectID: projectID,
+                draftChecksum: payload.checksum,
+                draftHashVersion: payload.draftHashVersion,
+                draftHash: payload.draftHash
+            )
         case "presence":
             guard let payload = try? decoder.decode(LiveDraftPresencePayload.self, from: data) else { return }
             peerDeviceIDs = payload.devices.filter { $0 != deviceID }

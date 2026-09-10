@@ -367,16 +367,25 @@ function createLiveDraftHub({
     return { ok: true, seq: channel.seq, checksum: nextChecksum, unchanged, event };
   }
 
-  function announceVersion(key, { deviceId, versionId, checksum = "" } = {}) {
+  function announceVersion(
+    key,
+    { deviceId, versionId, checksum = "", draftHashVersion = "", draftHash = "" } = {}
+  ) {
     const channel = get(key);
     if (!channel) return { ok: false, reason: "channel_missing", seq: 0, checksum: "", text: "" };
     const device = normalizeLiveDraftDeviceId(deviceId);
     if (!device) return rejection(channel, "device_id_required");
     const version = normalizeLiveDraftVersionId(versionId);
     if (!version) return rejection(channel, "version_id_required");
+    const proofVersion = String(draftHashVersion || "").trim();
+    const proofHash = String(draftHash || "").trim().toLowerCase();
+    if (!proofVersion) return rejection(channel, "draft_hash_version_required");
+    if (!/^[a-f0-9]{64}$/.test(proofHash)) return rejection(channel, "draft_hash_required");
+    const liveChecksum = String(checksum || "").trim();
+    if (!liveChecksum) return rejection(channel, "checksum_required");
     // A version announcement is only meaningful for the text the channel
     // currently mirrors. A stale announcement is dropped, not broadcast.
-    if (checksum && String(checksum) !== channel.checksum) return rejection(channel, "checksum_mismatch");
+    if (liveChecksum !== channel.checksum) return rejection(channel, "checksum_mismatch");
     channel.versionId = version;
     touch(channel);
     const event = {
@@ -385,6 +394,8 @@ function createLiveDraftHub({
       device_id: device,
       version_id: version,
       checksum: channel.checksum,
+      draft_hash_version: proofVersion,
+      draft_hash: proofHash,
       ts: channel.updatedAt,
     };
     broadcast(channel, event);

@@ -183,6 +183,48 @@ final class ScreenplayLiveDraftPolicyTests: XCTestCase {
         XCTAssertFalse(LiveDraftDeviceIdentity.isValid("bad id with spaces"))
         XCTAssertFalse(LiveDraftDeviceIdentity.isValid(""))
     }
+
+    func testPersistedVersionProofRequiresExactProjectLiveTextAndCanonicalHash() {
+        let draft = "  INT. ROOM - DAY\r\n\r\nMARA waits.  "
+        let checksum = LiveDraftText.checksum(draft)
+        let hash = ScreenplayDraftSaveCanonicalization.serverSHA256(draft)
+        XCTAssertTrue(LiveDraftPersistedVersionProof.matches(
+            versionID: "v2",
+            projectID: "project-1",
+            selectedProjectID: "project-1",
+            draft: draft,
+            liveChecksum: checksum,
+            draftHashVersion: ScreenplayDraftSaveCanonicalization.hashVersion,
+            draftHash: hash
+        ))
+        XCTAssertFalse(LiveDraftPersistedVersionProof.matches(
+            versionID: "v2",
+            projectID: "project-2",
+            selectedProjectID: "project-1",
+            draft: draft,
+            liveChecksum: checksum,
+            draftHashVersion: ScreenplayDraftSaveCanonicalization.hashVersion,
+            draftHash: hash
+        ))
+        XCTAssertFalse(LiveDraftPersistedVersionProof.matches(
+            versionID: "v2",
+            projectID: "project-1",
+            selectedProjectID: "project-1",
+            draft: draft + " Changed",
+            liveChecksum: checksum,
+            draftHashVersion: ScreenplayDraftSaveCanonicalization.hashVersion,
+            draftHash: hash
+        ))
+        XCTAssertFalse(LiveDraftPersistedVersionProof.matches(
+            versionID: "v2",
+            projectID: "project-1",
+            selectedProjectID: "project-1",
+            draft: draft,
+            liveChecksum: checksum,
+            draftHashVersion: "unknown",
+            draftHash: hash
+        ))
+    }
 }
 
 // MARK: - Service tests
@@ -194,7 +236,12 @@ private final class FakeLiveDraftEditor: LiveDraftEditorBinding {
     var latestVersionID = "v1"
     var appliedRemoteTexts: [String] = []
     var appliedSourceDevices: [String] = []
-    var adoptedVersions: [(versionID: String, checksum: String)] = []
+    var adoptedVersions: [(
+        versionID: String,
+        checksum: String,
+        draftHashVersion: String,
+        draftHash: String
+    )] = []
     var revealedLines: [Int] = []
 
     init(projectID: String, text: String) {
@@ -220,8 +267,14 @@ private final class FakeLiveDraftEditor: LiveDraftEditorBinding {
         revealedLines.append(line)
     }
 
-    func adoptRemoteLiveVersion(_ versionID: String, projectID: String, draftChecksum: String) {
-        adoptedVersions.append((versionID, draftChecksum))
+    func adoptRemoteLiveVersion(
+        _ versionID: String,
+        projectID: String,
+        draftChecksum: String,
+        draftHashVersion: String,
+        draftHash: String
+    ) {
+        adoptedVersions.append((versionID, draftChecksum, draftHashVersion, draftHash))
     }
 }
 
@@ -395,9 +448,15 @@ final class ScreenplayLiveDraftSyncServiceTests: XCTestCase {
         await waitUntil { editor.text == "phone wins" }
         XCTAssertEqual(editor.appliedRemoteTexts.last, "phone wins")
 
-        transport.emit("version", #"{"seq":5,"device_id":"ios-phone","version_id":"v9","checksum":"\#(LiveDraftText.checksum("phone wins"))"}"#)
+        let savedDraft = "phone wins"
+        let savedHash = ScreenplayDraftSaveCanonicalization.serverSHA256(savedDraft)
+        transport.emit("version", #"{"seq":5,"device_id":"ios-phone","version_id":"v9","checksum":"\#(LiveDraftText.checksum(savedDraft))"}"#)
+        try? await Task.sleep(nanoseconds: 50_000_000)
+        XCTAssertTrue(editor.adoptedVersions.isEmpty, "legacy announcements without a persistence proof fail closed")
+        transport.emit("version", #"{"seq":5,"device_id":"ios-phone","version_id":"v9","checksum":"\#(LiveDraftText.checksum(savedDraft))","draft_hash_version":"\#(ScreenplayDraftSaveCanonicalization.hashVersion)","draft_hash":"\#(savedHash)"}"#)
         await waitUntil { !editor.adoptedVersions.isEmpty }
         XCTAssertEqual(editor.adoptedVersions.first?.versionID, "v9")
+        XCTAssertEqual(editor.adoptedVersions.first?.draftHash, savedHash)
         service.detach()
     }
 

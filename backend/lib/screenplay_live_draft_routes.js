@@ -38,6 +38,11 @@ import {
   normalizeLiveDraftDeviceId,
   normalizeLiveDraftVersionId,
 } from "./live_draft_hub.js";
+import {
+  SCREENPLAY_DRAFT_HASH_VERSION,
+  canonicalizeScreenplayDraft,
+  hashCanonicalScreenplayDraft,
+} from "./screenplay_draft_receipt_protocol.js";
 
 const LIVE_DRAFT_OPS_BODY_LIMIT = "512kb";
 const LIVE_DRAFT_SNAPSHOT_BODY_LIMIT = "2mb";
@@ -137,7 +142,7 @@ function mountScreenplayLiveDraftRoutes(app, deps = {}) {
       res.status(503).json({ stage: STAGE, error: "live_channel_unavailable" });
       return null;
     }
-    return { key, projectId: project.id };
+    return { key, projectId: project.id, project };
   }
 
   function deviceIdFrom(req, res, source) {
@@ -154,6 +159,8 @@ function mountScreenplayLiveDraftRoutes(app, deps = {}) {
     switch (reason) {
       case "stale_base":
       case "checksum_mismatch":
+      case "version_not_current":
+      case "persisted_version_mismatch":
         return 409;
       case "rate_limited":
         return 429;
@@ -333,10 +340,50 @@ function mountScreenplayLiveDraftRoutes(app, deps = {}) {
       if (!resolved) return;
       const deviceId = deviceIdFrom(req, res, req.body);
       if (!deviceId) return;
+      const versionId = normalizeLiveDraftVersionId(req.body?.version_id ?? req.body?.versionId ?? "");
+      if (!versionId) {
+        res.setHeader("Cache-Control", "no-store");
+        return res.status(400).json({ stage: STAGE, error: "version_id_required", request_id: rid });
+      }
+      const requestedChecksum = String(req.body?.checksum ?? "").trim();
+      if (!requestedChecksum) {
+        res.setHeader("Cache-Control", "no-store");
+        return res.status(400).json({ stage: STAGE, error: "checksum_required", request_id: rid });
+      }
+      const persistedVersion = (resolved.project.versions || [])
+        .find((item) => item?.id === versionId) || null;
+      if (!persistedVersion) {
+        res.setHeader("Cache-Control", "no-store");
+        return res.status(404).json({
+          stage: STAGE,
+          error: "version_not_found",
+          request_id: rid,
+          project_id: resolved.projectId,
+        });
+      }
+      const currentVersion = seedVersionFor(resolved.project);
+      if (!currentVersion || currentVersion.id !== versionId) {
+        return respondRejection(res, resolved.projectId, rid, {
+          reason: "version_not_current",
+          ...hub.snapshot(resolved.key),
+        });
+      }
+      const snapshot = hub.snapshot(resolved.key);
+      const persistedDraft = canonicalizeScreenplayDraft(persistedVersion.draft);
+      const mirroredDraft = canonicalizeScreenplayDraft(snapshot.text);
+      if (persistedDraft !== mirroredDraft) {
+        return respondRejection(res, resolved.projectId, rid, {
+          reason: "persisted_version_mismatch",
+          ...snapshot,
+        });
+      }
+      const draftHash = hashCanonicalScreenplayDraft(persistedDraft);
       const result = hub.announceVersion(resolved.key, {
         deviceId,
-        versionId: req.body?.version_id ?? req.body?.versionId ?? "",
-        checksum: String(req.body?.checksum ?? "").trim(),
+        versionId,
+        checksum: requestedChecksum,
+        draftHashVersion: SCREENPLAY_DRAFT_HASH_VERSION,
+        draftHash,
       });
       if (!result.ok) return respondRejection(res, resolved.projectId, rid, result);
       res.setHeader("Cache-Control", "no-store");
@@ -348,6 +395,8 @@ function mountScreenplayLiveDraftRoutes(app, deps = {}) {
         seq: result.seq,
         checksum: result.checksum,
         version_id: result.event.version_id,
+        draft_hash_version: result.event.draft_hash_version,
+        draft_hash: result.event.draft_hash,
       });
     }
   );
