@@ -10,6 +10,26 @@ final class BackendAuthDebugSessionPolicyTests: XCTestCase {
         "THEM_UITEST_CLIENT_TOKEN": " client-token ",
     ]
 
+    func testResumeFixtureActivationIsSynchronizedAndProcessLocal() {
+        let currentProcess = BackendAuthResumeFixtureActivationStore()
+
+        XCTAssertFalse(currentProcess.isActivated)
+        DispatchQueue.concurrentPerform(iterations: 100) { _ in
+            currentProcess.activate()
+            _ = currentProcess.isActivated
+        }
+        XCTAssertTrue(currentProcess.isActivated)
+
+        let relaunchedProcess = BackendAuthResumeFixtureActivationStore()
+        XCTAssertFalse(
+            relaunchedProcess.isActivated,
+            "A new app process must fail closed instead of inheriting a prior fixture activation"
+        )
+
+        currentProcess.deactivate()
+        XCTAssertFalse(currentProcess.isActivated)
+    }
+
     func testAutomationSessionOverrideRequiresExactDebugLaunchMarker() {
         XCTAssertNil(BackendAuthDebugSessionPolicy.automationSessionOverride(
             arguments: ["them"],
@@ -58,6 +78,34 @@ final class BackendAuthDebugSessionPolicyTests: XCTestCase {
         XCTAssertFalse(override.sessionState.refreshTokenPresent)
     }
 
+    func testUITestResumeFixtureIsProcessLocalAndFailsClosed() throws {
+        let completeArguments = [
+            "them",
+            "--ui-testing",
+            "--ui-enforce-production-auth",
+            "--ui-auth-resume-fixture",
+        ]
+        XCTAssertNil(
+            BackendAuthDebugSessionPolicy.uiTestAuthenticationResumeFixtureOverride(
+                arguments: completeArguments,
+                isActivated: false
+            )
+        )
+        let override = try XCTUnwrap(
+            BackendAuthDebugSessionPolicy.uiTestAuthenticationResumeFixtureOverride(
+                arguments: completeArguments,
+                isActivated: true
+            )
+        )
+        XCTAssertTrue(override.sessionState.isAuthenticated)
+        XCTAssertNil(
+            BackendAuthDebugSessionPolicy.uiTestAuthenticationResumeFixtureOverride(
+                arguments: ["them", "--ui-auth-resume-fixture"],
+                isActivated: true
+            )
+        )
+    }
+
     func testAutomationSessionBootstrapIdentityRemainsProcessLocal() {
         XCTAssertFalse(BackendAuthDebugSessionPolicy.shouldPersistSessionBootstrapIdentity(
             arguments: ["them", "--studio-eval"],
@@ -75,6 +123,50 @@ final class BackendAuthDebugSessionPolicyTests: XCTestCase {
             arguments: ["them", "--studio-eval"],
             environment: [:]
         ))
+        XCTAssertFalse(BackendAuthDebugSessionPolicy.shouldPersistSessionBootstrapIdentity(
+            arguments: [
+                "them",
+                "--ui-testing",
+                "--ui-enforce-production-auth",
+                "--ui-auth-resume-fixture",
+            ],
+            environment: [:],
+            isResumeFixtureActivated: true
+        ))
+    }
+
+    func testUITestResumeFixtureBootstrapNeverPersistsIdentity() throws {
+        let override = try XCTUnwrap(
+            BackendAuthDebugSessionPolicy.resolvedAutomationSessionOverride(
+                arguments: [
+                    "them",
+                    "--ui-testing",
+                    "--ui-enforce-production-auth",
+                    "--ui-auth-resume-fixture",
+                ],
+                environment: [:],
+                isResumeFixtureActivated: true
+            )
+        )
+        var persistenceCalls = 0
+        let accepted = BackendAuthDebugSessionPolicy.commitSessionBootstrapIdentity(
+            automationOverride: override,
+            responseUserID: override.userID
+        ) {
+            persistenceCalls += 1
+            return true
+        }
+
+        XCTAssertTrue(accepted)
+        XCTAssertEqual(persistenceCalls, 0)
+        XCTAssertFalse(BackendAuthDebugSessionPolicy.commitSessionBootstrapIdentity(
+            automationOverride: override,
+            responseUserID: "different-user"
+        ) {
+            persistenceCalls += 1
+            return true
+        })
+        XCTAssertEqual(persistenceCalls, 0)
     }
 
     func testSyntheticDebugUserRequiresSignedInTokenAndUserID() {

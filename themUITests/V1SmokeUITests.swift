@@ -170,6 +170,158 @@ final class V1SmokeUITests: XCTestCase {
         XCTAssertTrue(waitForDraft(in: app, containing: "INT. KITCHEN - DAY", timeout: 10))
     }
 
+    func test_first_run_preserves_scene_while_authentication_is_required() throws {
+#if os(iOS)
+        let app = launchApp(
+            skipOnboarding: false,
+            enforceProductionAuth: true
+        )
+        defer { app.terminate() }
+
+        let name = "Ava"
+        let scene = "A woman finds a blue key under a motel door."
+        let nameField = textInput("onboarding.name.field", in: app)
+        XCTAssertTrue(nameField.waitForExistence(timeout: 8))
+        nameField.tap()
+        nameField.typeText(name)
+
+        let sceneField = textInput("onboarding.scene.field", in: app)
+        XCTAssertTrue(sceneField.waitForExistence(timeout: 3))
+        sceneField.tap()
+        sceneField.typeText(scene)
+
+        let startButton = app.buttons["onboarding.start-page"]
+        XCTAssertTrue(startButton.waitForExistence(timeout: 3))
+        XCTAssertEqual(startButton.label, "Sign in & Start Page")
+        startButton.tap()
+
+        XCTAssertTrue(
+            app.staticTexts["Sign in to io.them"].waitForExistence(timeout: 6),
+            "The signed-out first-page action did not stop at the account gate.\n\(app.debugDescription)"
+        )
+        XCTAssertFalse(
+            element(identifier: "studio.surface", in: app).exists,
+            "Studio opened before the writer authenticated."
+        )
+
+        let doneButton = app.buttons["profile-account-done"]
+        XCTAssertTrue(doneButton.waitForExistence(timeout: 3))
+        doneButton.tap()
+
+        XCTAssertTrue(nameField.waitForExistence(timeout: 4))
+        XCTAssertEqual(nameField.value as? String, name)
+        XCTAssertEqual(sceneField.value as? String, scene)
+        XCTAssertTrue(app.buttons["onboarding.start-page"].waitForExistence(timeout: 2))
+#else
+        throw XCTSkip("The exact first-run authentication boundary is covered on iPhone.")
+#endif
+    }
+
+    func test_first_run_resumes_original_scene_once_after_authentication() throws {
+#if os(iOS)
+        let app = launchApp(
+            skipOnboarding: false,
+            enforceProductionAuth: true,
+            authResumeFixture: true
+        )
+        defer { app.terminate() }
+
+        let name = "Ava"
+        let scene = "A woman finds a blue key under a motel door."
+        let nameField = textInput("onboarding.name.field", in: app)
+        XCTAssertTrue(nameField.waitForExistence(timeout: 8))
+        nameField.tap()
+        nameField.typeText(name)
+
+        let sceneField = textInput("onboarding.scene.field", in: app)
+        XCTAssertTrue(sceneField.waitForExistence(timeout: 3))
+        sceneField.tap()
+        sceneField.typeText(scene)
+        app.buttons["onboarding.start-page"].tap()
+
+        let completeSignIn = app.buttons["profile-auth-complete-resume-fixture"]
+        XCTAssertTrue(
+            completeSignIn.waitForExistence(timeout: 6),
+            "The automation-only account completion control was unavailable.\n\(app.debugDescription)"
+        )
+        for _ in 0..<5 where !completeSignIn.isHittable {
+            app.swipeUp()
+        }
+        XCTAssertTrue(completeSignIn.isHittable)
+        completeSignIn.tap()
+
+        XCTAssertTrue(waitForDraft(in: app, containing: "INT. KITCHEN - DAY", timeout: 10))
+        let proof = element(identifier: "onboarding.auth-resume.proof", in: app)
+        XCTAssertTrue(
+            waitForAccessibilityText(
+                identifier: "onboarding.auth-resume.proof",
+                containing: scene,
+                in: app,
+                timeout: 5
+            ),
+            "The resumed request did not retain the writer’s original scene."
+        )
+        RunLoop.current.run(until: Date().addingTimeInterval(0.5))
+        let proofLabel = proof.label
+        XCTAssertTrue(proofLabel.contains("Magic moment submissions 1."), proofLabel)
+        XCTAssertFalse(proofLabel.contains("Request ."), proofLabel)
+#else
+        throw XCTSkip("The signed-in first-run resume fixture is covered on iPhone.")
+#endif
+    }
+
+    func test_first_run_resumes_voice_once_after_authentication() throws {
+#if os(iOS)
+        let app = launchApp(
+            skipOnboarding: false,
+            enforceProductionAuth: true,
+            authResumeFixture: true
+        )
+        defer { app.terminate() }
+
+        let nameField = textInput("onboarding.name.field", in: app)
+        XCTAssertTrue(nameField.waitForExistence(timeout: 8))
+        nameField.tap()
+        nameField.typeText("Ava")
+
+        let voiceButton = app.buttons["onboarding.voice-to-scene"]
+        XCTAssertTrue(voiceButton.waitForExistence(timeout: 3))
+        XCTAssertEqual(voiceButton.label, "Sign in & Use Voice")
+        voiceButton.tap()
+
+        let completeSignIn = app.buttons["profile-auth-complete-resume-fixture"]
+        XCTAssertTrue(
+            completeSignIn.waitForExistence(timeout: 6),
+            "The automation-only account completion control was unavailable.\n\(app.debugDescription)"
+        )
+        for _ in 0..<5 where !completeSignIn.isHittable {
+            app.swipeUp()
+        }
+        XCTAssertTrue(completeSignIn.isHittable)
+        completeSignIn.tap()
+
+        XCTAssertTrue(
+            element(identifier: "studio.surface", in: app).waitForExistence(timeout: 10),
+            "Voice onboarding did not resume into Studio after authentication."
+        )
+        XCTAssertTrue(
+            waitForAccessibilityText(
+                identifier: "onboarding.auth-resume.proof",
+                containing: "Voice starts 1.",
+                in: app,
+                timeout: 5
+            ),
+            "The original voice intent did not resume exactly once."
+        )
+        RunLoop.current.run(until: Date().addingTimeInterval(0.5))
+        let proofLabel = element(identifier: "onboarding.auth-resume.proof", in: app).label
+        XCTAssertTrue(proofLabel.contains("Magic moment submissions 0."), proofLabel)
+        XCTAssertTrue(proofLabel.contains("Voice starts 1."), proofLabel)
+#else
+        throw XCTSkip("The signed-in first-run voice resume fixture is covered on iPhone.")
+#endif
+    }
+
     func test_record_voice_turn_round_trips_to_screenplay() {
         let app = launchApp(
             openStudio: true,
@@ -2800,6 +2952,8 @@ final class V1SmokeUITests: XCTestCase {
         screenplaySaveExpireAuthOnce: Bool = false,
         seedRememberedLogin: Bool = false,
         seedCompanionSignal: Bool = false,
+        enforceProductionAuth: Bool = false,
+        authResumeFixture: Bool = false,
         autoSubmitPagePrompt: String? = nil,
         autoSubmitVoicePinPrompt: String? = nil,
         autoSubmitVoiceSourcePrompt: String? = nil,
@@ -2901,6 +3055,12 @@ final class V1SmokeUITests: XCTestCase {
         }
         if seedCompanionSignal {
             arguments.append("--ui-seed-companion-signal")
+        }
+        if enforceProductionAuth {
+            arguments.append("--ui-enforce-production-auth")
+        }
+        if authResumeFixture {
+            arguments.append("--ui-auth-resume-fixture")
         }
         if let autoSubmitPagePrompt {
             arguments.append(contentsOf: ["--ui-auto-submit-page-prompt", autoSubmitPagePrompt])
