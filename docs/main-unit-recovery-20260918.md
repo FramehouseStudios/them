@@ -38,8 +38,29 @@ Logs: `/tmp/them-main-unit-baseline-20260918.log`,
 `/tmp/them-main-recovery-backend-tests.log`,
 `/tmp/them-main-recovery-quality-gate.log`.
 
-This fixes a reproduced failure in the reported suite, not a proven cause of
-the separately reported SwiftUI publishing storm. That storm did not reproduce
-here; the failing external xcresult/log and environment are requested. Keep the
-PR draft pending that comparison, full quality-gate proof, and Claude re-proof.
-The human merges. No feature chain or production deployment is included.
+## Corrected startup-storm triage (2026-09-18)
+
+Claude supplied the historical log and a corrected control run in
+`/Users/halfmutantfilms/io.them-worktrees/_pr_bodies/hang-2026-09-13/`.
+The README records untouched main `647e01fc` passing 618 tests with zero
+failures and zero storm lines after erasing the simulator, on the same
+Xcode/runtime. The original comparison used different persisted simulator
+state; it does not establish a main-specific regression.
+
+The historical log reports a publishing storm during host-app startup. The
+specific persisted-state trigger remains unproven. Track this as a separate
+startup investigation, not a prerequisite for re-porting the closed branches.
+Reproduce using a disposable simulator with test-owned signed-in/draft state;
+do not erase the user's physical phone or destroy useful reproduction state.
+
+Future baseline proof runs must begin on an erased, dedicated test simulator
+and record its identity and reset status. The three-repeat results above were
+not reset runs and remain explicitly labeled as such. Clean-state proof is
+not proof of correct persisted-session restoration; retain separate warm-state
+coverage for startup and session recovery.
+
+This PR fixes the independently reproduced duplicate-notification test failure,
+not the SwiftUI startup storm. Keep it draft pending full quality-gate proof
+and Claude re-proof, but do not make it a dependency of the session-churn port.
+The re-land order and billing, orphan-module, naming, and human-merge safeguards
+remain unchanged. No feature chain or production deployment is included.
