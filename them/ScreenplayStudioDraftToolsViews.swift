@@ -603,6 +603,7 @@ extension ScreenplayStudioDraftIntegrityWarningSection {
         }
         .buttonStyle(.borderedProminent)
         .tint(.orange.opacity(0.28))
+        .foregroundStyle(Color.herText)
         .fixedSize()
         .accessibilityIdentifier("studio.draft.integrity.remove.\(issue.startLine)-\(issue.endLine)")
     }
@@ -1115,6 +1116,7 @@ extension ScreenplayStudioPageIntegrityBanner {
             }
             .buttonStyle(.borderedProminent)
             .tint(.orange.opacity(0.28))
+            .foregroundStyle(Color.herText)
             .fixedSize()
         }
     }
