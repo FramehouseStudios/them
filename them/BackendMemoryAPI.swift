@@ -6786,6 +6786,7 @@ actor BackendMemoryAPI {
     private var syncState: BackendSyncState = .empty
     private var historyCacheByLimit: [Int: HistoryCacheEntry] = [:]
     private var screenplayProjectsCacheByKey: [String: ScreenplayProjectsCacheEntry] = [:]
+    private var screenplayProjectsCacheGeneration = UUID()
     private var memoriesCacheByLimit: [Int: MemoriesCacheEntry] = [:]
     private var latestSeenStateVersion: String = ""
     private var latestCreativeMemoryRevision: String = ""
@@ -7683,11 +7684,15 @@ actor BackendMemoryAPI {
         )
         // The Studio polls this list every few seconds; an unchanged owner
         // state comes back as 304 and the cached payload is reused.
-        let cacheKey = "\(max(1, limit))|\(includeVersions)|\(includeDrafts)"
+        let requestIdentity = requestIdentityProvider(true)
+        let cacheKey = "\(requestIdentity.sessionEpoch)|\(requestIdentity.userID)|\(max(1, limit))|\(includeVersions)|\(includeDrafts)"
+        let cacheGeneration = screenplayProjectsCacheGeneration
         if let cached = screenplayProjectsCacheByKey[cacheKey], !cached.etag.isEmpty {
             request.setValue(cached.etag, forHTTPHeaderField: "If-None-Match")
         }
         let (data, response) = try await session.data(for: request)
+        guard cacheGeneration == screenplayProjectsCacheGeneration,
+              requestIdentity == requestIdentityProvider(true) else { throw CancellationError() }
         guard let http = response as? HTTPURLResponse else {
             throw BackendMemoryAPIError.invalidResponse
         }
@@ -7703,7 +7708,6 @@ actor BackendMemoryAPI {
         decoder.keyDecodingStrategy = .convertFromSnakeCase
         let payload = try decoder.decode(BackendScreenplayProjectsResponse.self, from: data)
         let responseEtag = http.value(forHTTPHeaderField: "ETag")?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        screenplayProjectsCacheByKey[cacheKey] = ScreenplayProjectsCacheEntry(etag: responseEtag, payload: payload, sync: syncState)
         let headerSync = syncFromHeaders(http, fallbackStatus: "up")
         let bodySync = syncFromScreenplayEnvelope(
             sessionId: payload.sessionId,
@@ -7717,6 +7721,7 @@ actor BackendMemoryAPI {
             backendBootId: payload.backendBootId
         )
         updateSyncState(mergeSyncStates(base: bodySync, incoming: headerSync), emitTurnEvent: true)
+        screenplayProjectsCacheByKey[cacheKey] = ScreenplayProjectsCacheEntry(etag: responseEtag, payload: payload, sync: syncState)
         return BackendReadResult(payload: payload, sync: syncState, notModified: false)
     }
 
@@ -10405,6 +10410,7 @@ actor BackendMemoryAPI {
         sessionBootstrapTask = nil
         historyCacheByLimit.removeAll()
         screenplayProjectsCacheByKey.removeAll()
+        screenplayProjectsCacheGeneration = UUID()
         memoriesCacheByLimit.removeAll()
         inFlightStateVersions.removeAll()
         if clearSyncState {

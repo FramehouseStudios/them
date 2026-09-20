@@ -1787,10 +1787,6 @@ test("[screenplay-projects-routes] GET /screenplay/projects answers 304 to a mat
       res.setHeader("X-State-Version", meta.stateVersion);
       if (meta.etag) res.setHeader("ETag", meta.etag);
     },
-    ifNoneMatchStateHit: (req, etag, stateVersion) => {
-      const header = req.get("If-None-Match") || "";
-      return header === etag || header === stateVersion;
-    },
   };
   await withTestServer(deps, async (baseURL) => {
     const fresh = await fetch(`${baseURL}/screenplay/projects`, { headers: { connection: "close" } });

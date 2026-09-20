@@ -38,6 +38,7 @@
 // owner record. Caller-supplied X-User-Id is never trusted.
 
 import express from "express";
+import { ifNoneMatchStateHit } from "./read_state.js";
 import {
   defaultResolveScreenplayUserId,
   requireScreenplayUserId,
@@ -81,8 +82,6 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
     buildScreenplayEnvelope,
     buildScreenplayReadMeta,
     applyReadStateHeaders,
-    // Optional: If-None-Match short-circuit for the project-list poll.
-    ifNoneMatchStateHit = null,
     // Payload serializers
     toScreenplayProjectPayload,
     toScreenplayOutlinePayload,
@@ -637,7 +636,7 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
     const readMeta = buildScreenplayReadMeta(req, owner);
     // Phones poll this list every few seconds as the cross-device fallback;
     // an unchanged owner state answers 304 with no body.
-    if (typeof ifNoneMatchStateHit === "function" && ifNoneMatchStateHit(req, readMeta.etag, readMeta.stateVersion)) {
+    if (ifNoneMatchStateHit(req, readMeta.etag, readMeta.stateVersion)) {
       applyReadStateHeaders(res, readMeta);
       res.setHeader("Cache-Control", "no-store");
       return res.status(304).end();
