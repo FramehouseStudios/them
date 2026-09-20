@@ -47,7 +47,7 @@ function mountPageCancelRoute(app, { pageReservationStore } = {}) {
   }
 
   app.post(
-    "/talk/page-cancel",
+    ["/talk/page-cancel", "/talk/page-cancel/request"],
     express.json({ limit: PAGE_CANCEL_BODY_LIMIT }),
     (req, res) => {
       res.setHeader("Cache-Control", "no-store");
@@ -68,6 +68,17 @@ function mountPageCancelRoute(app, { pageReservationStore } = {}) {
         return res.status(401).json({ ok: false, error: "user_auth_required" });
       }
       const reason = pickString(body.reason, body.cancel_reason, body.cancelReason) || "barge_in";
+
+      if (req.path.endsWith("/request") || Object.hasOwn(body, "request_id")) {
+        const requestId = pickString(body.request_id);
+        if (!sessionId || !requestId || requestId.length > 128) {
+          return res.status(400).json({ ok: false, error: "invalid_page_request_id" });
+        }
+        const result = pageReservationStore.cancelRequest({ sessionId, userId, requestId }, { reason });
+        if (!result.ok) return res.status(503).json(result);
+        return res.status(200).json({ ok: true, cancelled: result.dropped.length > 0,
+          session_id: sessionId, request_id: requestId, dropped: result.dropped, cancel_reason: reason });
+      }
 
       if (reservationId) {
         const reservation = pageReservationStore.get(reservationId);

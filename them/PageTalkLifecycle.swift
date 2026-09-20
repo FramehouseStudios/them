@@ -6,21 +6,23 @@ import Foundation
 final class PageTalkLifecycle {
     enum Event: Equatable {
         case began(UUID)
+        case session(UUID, String)
         case reservation(UUID, String)
         case finished(UUID)
     }
 
-    private let id = UUID()
+    let id = UUID()
     private let onChange: (@MainActor (Event) -> Void)?
     private var started = false
     private var finished = false
 
     init(onChange: (@MainActor (Event) -> Void)?) { self.onChange = onChange }
 
-    func begin() {
+    func begin(sessionID: String? = nil) {
         guard !started, !finished else { return }
         started = true
         onChange?(.began(id))
+        if let sessionID, !sessionID.isEmpty { onChange?(.session(id, sessionID)) }
     }
 
     func observeReservation(_ value: String) {

@@ -300,7 +300,7 @@ function createPageLaneTalkAdapter({
         hints,
         sessionId,
         userId,
-        meta: { source: "talk_edge" },
+        meta: { source: "talk_edge", requestId: String(req.get?.("x-clementine-page-request") || "").trim() },
         walletStore,
       });
       lane = started.lane;

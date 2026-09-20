@@ -3147,6 +3147,7 @@ final class BackendClient {
     func cancelPageLane(
         reservationId: String? = nil,
         sessionId: String? = nil,
+        requestId: String? = nil,
         reason: String = "barge_in"
     ) async throws -> BackendPageCancelResult {
         let cleanReservation = (reservationId ?? "")
@@ -3171,6 +3172,8 @@ final class BackendClient {
         var body: [String: Any] = [
             "reason": normalizedReason,
         ]
+        let cleanRequest = (requestId ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if !cleanRequest.isEmpty { body["request_id"] = cleanRequest }
         if !cleanReservation.isEmpty {
             body["reservation_id"] = cleanReservation
         }
@@ -3184,7 +3187,7 @@ final class BackendClient {
         var request = URLRequest(
             url: resolvedBaseURL
                 .appendingPathComponent("talk")
-                .appendingPathComponent("page-cancel")
+                .appendingPathComponent(cleanRequest.isEmpty ? "page-cancel" : "page-cancel/request")
         )
         request.httpMethod = "POST"
         request.timeoutInterval = 8
@@ -3209,7 +3212,7 @@ final class BackendClient {
             throw BackendError.stage("page_cancel", "Invalid page-cancel response.")
         }
         // Missing reservation is a soft no-op for barge-in races.
-        if http.statusCode == 404, !cleanReservation.isEmpty {
+        if http.statusCode == 404, cleanRequest.isEmpty, !cleanReservation.isEmpty {
             return BackendPageCancelResult(
                 ok: false,
                 cancelled: false,
@@ -4533,7 +4536,8 @@ final class BackendClient {
                 body.appendString("\r\n")
             }
             if target == "page" {
-                pageLifecycle.begin()
+                request.setValue(pageLifecycle.id.uuidString, forHTTPHeaderField: "x-clementine-page-request")
+                pageLifecycle.begin(sessionID: request.value(forHTTPHeaderField: "X-Client-Token"))
             }
             let promptSource = studioMetadata.screenplayPromptSource.trimmingCharacters(in: .whitespacesAndNewlines)
             if !promptSource.isEmpty {
