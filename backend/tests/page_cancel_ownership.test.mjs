@@ -155,7 +155,7 @@ test('malformed request IDs never trigger a session-wide stop', async () => {
 });
 
 test('early-stop capacity fails explicitly without forgetting an earlier stop', () => {
-  const store = createPageReservationStore();
+  const store = createPageReservationStore({ maxCancelledRequestsPerOwner: 10000 });
   for (let i = 0; i < 10000; i++) {
     assert.equal(store.cancelRequest({ sessionId: 's', userId: 'u', requestId: String(i) }).ok, true);
   }
@@ -163,6 +163,20 @@ test('early-stop capacity fails explicitly without forgetting an earlier stop', 
   assert.equal(store.cancelRequest({ sessionId: 's', userId: 'u', requestId: '0' }).ok, true);
   const stopped = store.reserve({ sessionId: 's', userId: 'u', meta: { requestId: '0' } });
   assert.equal(store.proceed(stopped.id).ok, false);
+});
+
+test('one writer cannot consume all early-stop capacity and retries do not consume quota', () => {
+  const store = createPageReservationStore({ maxCancelledRequestsPerOwner: 2 });
+  const stop = (userId, requestId, sessionId = 's') => store.cancelRequest({ sessionId, userId, requestId });
+  assert.equal(stop('first', 'one').ok, true);
+  assert.equal(stop('first', 'one').ok, true);
+  assert.equal(stop('first', 'two').ok, true);
+  assert.equal(stop('first', 'three', 'different-session').error, 'page_cancel_owner_capacity');
+  assert.equal(stop('second', 'one').ok, true);
+  const existing = store.reserve({ sessionId: 's', userId: 'first' });
+  assert.equal(store.cancel(existing.id).cancelled, true);
+  store.clear();
+  assert.equal(stop('first', 'three').ok, true);
 });
 
 test('real backend accepts account bearer auth and rejects anonymous cancellation', async () => {

@@ -12,7 +12,7 @@ Reproduced two production route/store failures before implementation:
 Working backend implementation tags reservations by request ID and records
 authenticated owner/session/request cancellation before a reservation exists.
 It retains early-stop records for the process lifetime, fails at a bounded
-10,000-record capacity instead of evicting a stop, and releases linked wallet
+10,000-record global capacity instead of evicting a stop, and releases linked wallet
 reservations when a previously stopped request finally reserves.
 Focused ownership, cancellation, midflight and wallet tests are green at
 `/tmp/them-page-request-focused.log`. Diff and D009 checks pass.
@@ -65,9 +65,17 @@ Not complete or release-ready:
   session is captured before token refresh; queued exact stops survive new turns
   without clearing newer client tracking. Signed tests cover these boundaries.
 - Partially addressed: capacity is bounded and exhaustion returns an explicit
-  error, but the process-wide ledger is not durable or distributed. A writer
-  can exhaust early-stop capacity; production promotion needs an operational
-  lifetime/retention and per-owner quota policy, not silent eviction.
+  error, but the process-wide ledger is not durable or distributed. A new
+  1,000-record per-owner quota prevents a single account exhausting the global
+  10,000-record limit; changing sessions does not bypass it, and retries do not
+  consume quota. Owner exhaustion returns 429; global exhaustion returns 503.
+  Exact-reservation cancellation remains available. All 13 focused ownership
+  tests pass (`/tmp/them-page-request-quota-focused.log`); full backend rerun
+  passed 2,752 tests, zero failures, two skips (2,754 total), 47.15 seconds,
+  exit 0 at `/tmp/them-page-request-quota-full.log`. This is defensive capacity
+  isolation, not a production retention policy: a long-lived legitimate writer
+  can still reach their limit. Promotion needs safe lifetime/retention semantics
+  and shared coordination, not silent eviction or routine restart as a solution.
 - Not covered: real provider abort completion, wallet recovery after process
   death, cross-worker routing, and the physical-phone acceptance flow.
 - Main remains `647e01fc`; #620 remains blocked with failed required hosted
