@@ -79,6 +79,13 @@ import { isShortFilmBetaEnabled } from "./clementine/short_film_beta.js";
 import { parseShortFilmIntent } from "./clementine/short_film_intent.js";
 import { buildLivePaperPayload } from "./clementine/studio_live_paper.js";
 import { applyClementineTalkHeaders } from "./clementine/talk_clementine_headers.js";
+import {
+  readLowConfidenceRepeatPolicy,
+  advanceLowConfidenceRepeatStreak,
+  resetLowConfidenceRepeatStreak,
+  shouldSpeakLowConfidenceRepeatPrompt,
+} from "./low_confidence_repeat_streak.js";
+import { shouldTreatAsLowConfidence } from "./low_confidence_gate.js";
 import { composeTalkSystemPrompt } from "./talk_prompt.js";
 import { runTalkGenerate } from "./talk_generate.js";
 
@@ -2111,19 +2118,55 @@ function createTalkHandler(deps) {
       rawTaskCreateIntent.shouldCreate ||
       rawTaskCompleteIntent.shouldComplete
     );
+    // When the STT supplier returns no per-word/segment scores the confidence
+    // is a word-count heuristic, and every short command would read as
+    // ambiguous; only bounce transcripts that look like echo fragments then.
     const shouldPromptLowConfidenceRepeat =
-      isLikelyAmbiguousLowConfidenceUtterance(transcript, sttConfidence) &&
+      shouldTreatAsLowConfidence({
+        ambiguous: isLikelyAmbiguousLowConfidenceUtterance(transcript, sttConfidence),
+        sttJson,
+        transcript,
+      }) &&
       !hasStrongActionTrigger;
     if (shouldPromptLowConfidenceRepeat) {
+      // Echo guard: consecutive low-confidence clips inside a short window are
+      // almost always the assistant's own playback re-entering the mic. Speak the
+      // clarification a bounded number of times, then answer silently so the
+      // spoken prompt cannot become the next clip.
+      const lowConfidencePolicy = readLowConfidenceRepeatPolicy();
+      const lowConfidenceNow = Date.now();
+      let lowConfidenceStreak = 1;
+      if (activeSession) {
+        const streakMemory = activeSession.memory && typeof activeSession.memory === "object"
+          ? activeSession.memory
+          : createEmptyEmotionMemory();
+        lowConfidenceStreak = advanceLowConfidenceRepeatStreak(
+          streakMemory,
+          lowConfidenceNow,
+          lowConfidencePolicy.windowMs,
+        );
+        activeSession.memory = streakMemory;
+        activeSession.memory = await persistTalkMemory(streakMemory, lowConfidenceNow);
+      }
+      const speakLowConfidencePrompt = shouldSpeakLowConfidenceRepeatPrompt(
+        lowConfidenceStreak,
+        lowConfidencePolicy,
+      );
+      if (!speakLowConfidencePrompt) {
+        logger.log(
+          `[${rid}] low_confidence_repeat_prompt_muted streak=${lowConfidenceStreak} max_spoken=${lowConfidencePolicy.maxSpokenStreak} words=${transcriptWords} stt_conf=${sttConfidence.toFixed(2)}`
+        );
+        res.setHeader("x-repeat-prompt-muted", "1");
+      }
       const clarificationPrompt = buildLowConfidenceClarificationPrompt(transcript);
       try {
-        const promptTts = await ttsSupplier.synthesize({
+        const promptTts = speakLowConfidencePrompt ? await ttsSupplier.synthesize({
           text: clarificationPrompt,
           speed: CLEMENTINE_PROFILE.voice.speed,
           rid,
           label: "low_confidence_repeat_prompt",
           voiceProfile: interactiveVoiceProfile,
-        });
+        }) : null;
         const promptBuffer = Buffer.from(promptTts?.buffer || []);
         if (promptBuffer.length && isLikelyMp3Buffer(promptBuffer)) {
           res.setHeader("Content-Type", "audio/mpeg");
@@ -2155,6 +2198,12 @@ function createTalkHandler(deps) {
         `[${rid}] continue_listening reason=low_confidence_transcript words=${transcriptWords} stt_conf=${sttConfidence.toFixed(2)}`
       );
       return res.status(204).end();
+    }
+    if (activeSession?.memory && typeof activeSession.memory === "object") {
+      const usableNow = Date.now();
+      if (resetLowConfidenceRepeatStreak(activeSession.memory, usableNow)) {
+        activeSession.memory = await persistTalkMemory(activeSession.memory, usableNow);
+      }
     }
     const allowLowConfidenceAction =
       hasStrongActionTrigger &&
