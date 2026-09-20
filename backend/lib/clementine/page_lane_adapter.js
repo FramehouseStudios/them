@@ -332,8 +332,10 @@ function createPageLaneTalkAdapter({
     const settleWallet = (delivered) => {
       if (walletSettled || !walletReservation?.reservationId || !walletStore) return;
       walletSettled = true;
+      const turnStatus = String(res.getHeader?.('x-turn-status') || '');
       const failed = !delivered || res.statusCode >= 400 ||
-        String(res.getHeader?.('x-turn-status') || '').startsWith('error');
+        turnStatus.startsWith('error') || turnStatus === 'asked_repeat' ||
+        turnStatus === 'continue_listening';
       if (failed || pendingOutputTokens === null) {
         walletStore.release(walletReservation.reservationId);
       } else {
