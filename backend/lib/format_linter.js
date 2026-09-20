@@ -114,17 +114,45 @@ function isCharacterCue(line) {
   // no trailing colon, ends in a letter or close-paren (for V.O./O.S.).
   if (trimmed.length < 2 || trimmed.length > 40) return false;
   if (/:$/.test(trimmed)) return false;
+  const withoutDualDialogueMarker = trimmed.replace(/\s*\^\s*$/, "");
+  const isForced = withoutDualDialogueMarker.startsWith("@");
+  const cue = isForced ? withoutDualDialogueMarker.slice(1) : withoutDualDialogueMarker;
+  if (!cue) return false;
+  const cueName = cue.replace(/\s*\([^)]*\)\s*$/, "").trim();
+  if (!cueName || !/\p{L}/u.test(cueName)) return false;
   // Reject scene-heading-looking lines.
-  if (startsWithSceneHeadingPrefix(trimmed.toUpperCase())) return false;
+  if (!isForced && startsWithSceneHeadingPrefix(cueName.toUpperCase())) return false;
   // Allow letters, digits, spaces, periods, apostrophes, hyphens,
-  // parens (for cue extensions like "JANE (V.O.)").
-  if (!/^[A-Z][A-Z0-9 .'\-()]+[A-Z0-9)]$/.test(trimmed)) return false;
-  return true;
+  // ampersands, slashes, and parens used by names and extensions.
+  if (!/^[\p{L}\p{M}\p{N} .'’\-&/()]+$/u.test(cue)) return false;
+  // Fountain's @ marker explicitly permits mixed case and non-Roman names.
+  // Extensions may also use mixed case, so only inspect the character name.
+  return isForced || isAllCaps(cueName);
 }
 
 function isAllCaps(s) {
   const trimmed = String(s || "");
-  return trimmed.length > 0 && trimmed === trimmed.toUpperCase() && /[A-Z]/.test(trimmed);
+  if (!trimmed || !/\p{L}/u.test(trimmed)) return false;
+  const upper = trimmed.toUpperCase();
+  const lower = trimmed.toLowerCase();
+  // Scripts without case (for example Han characters) are already valid;
+  // scripts with case must use their uppercase form.
+  return upper === lower || trimmed === upper;
+}
+
+function hasAtLeastTwoLetters(value) {
+  let count = 0;
+  for (const character of value) {
+    if (/\p{L}/u.test(character)) count += 1;
+    if (count >= 2) return true;
+  }
+  return false;
+}
+
+function uppercaseCharacterName(line) {
+  const match = String(line).match(/^(.+?)(\s*\([^)]*\))?(\s*\^)?$/);
+  if (!match) return String(line).toUpperCase();
+  return `${match[1].toUpperCase()}${match[2] || ""}${match[3] || ""}`;
 }
 
 function countAdverbs(line) {
@@ -189,18 +217,33 @@ function ruleCharacterCueCaps(lines, text, suggestions) {
     if (trimmed.length < 2 || trimmed.length > 40) continue;
     if (/:$/.test(trimmed)) continue;
     if (startsWithSceneHeadingPrefix(trimmed.toUpperCase())) continue;
-    // Heuristic: line is followed by what looks like dialogue (next non-blank
-    // line is mixed-case sentence-shape).
-    let nextIdx = i + 1;
-    while (nextIdx < lines.length && !lines[nextIdx].trim()) nextIdx += 1;
+    // Only a line in cue position can be a cue: first line of the page or
+    // preceded by a blank line. A short line inside a speech or an action
+    // block ("I did call." / "He waits.") is never a cue.
+    if (i > 0 && lines[i - 1].trim()) continue;
+    // Cues do not end in sentence punctuation and are a few words long.
+    // Ignore a trailing extension such as (V.O.) or (CONT'D) for both checks.
+    const cueCore = trimmed.replace(/\s*\^\s*$/, "").replace(/\s*\([^)]*\)\s*$/, "");
+    if (!cueCore) continue;
+    if (/[.!?,;…]["'’”]*$/.test(cueCore)) continue;
+    if (cueCore.split(/\s+/).length > 5) continue;
+    // Fountain permits @ to force a character cue. Otherwise the cue starts
+    // with a Unicode letter, not a bracket or digit.
+    // A forced cue may intentionally preserve mixed case (for example
+    // @McCLANE), so it is already valid and must not receive a caps warning.
+    if (cueCore.startsWith("@")) continue;
+    const cueName = cueCore;
+    if (!/^\p{L}/u.test(cueName)) continue;
+    // Dialogue must immediately follow the cue; do not cross an action
+    // paragraph boundary looking for a sentence to treat as dialogue.
+    const nextIdx = i + 1;
     if (nextIdx >= lines.length) continue;
     const next = lines[nextIdx].trim();
     if (!next || next.length < 2) continue;
     if (isAllCaps(next)) continue; // Next line is also caps; not a dialogue context.
     // Now: did the line have at least 2 letters and is the line NOT all caps?
-    const hasLetters = /[A-Za-z]{2,}/.test(trimmed);
-    if (!hasLetters) continue;
-    if (isAllCaps(trimmed)) continue;
+    if (!hasAtLeastTwoLetters(cueName)) continue;
+    if (isAllCaps(cueName)) continue;
     // It's mixed-case but in a cue position.
     suggestions.push(makeSuggestion({
       rule: "character_cue_caps",
@@ -209,7 +252,7 @@ function ruleCharacterCueCaps(lines, text, suggestions) {
       range: lineRange(text, i),
       excerpt: trimmed,
       message: "Character cue should be in ALL CAPS on its own line.",
-      suggestion: `Try: '${trimmed.toUpperCase()}'`,
+      suggestion: `Try: '${uppercaseCharacterName(trimmed)}'`,
     }));
   }
 }
