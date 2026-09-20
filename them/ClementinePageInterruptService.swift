@@ -15,6 +15,7 @@ final class ClementinePageInterruptService: ObservableObject {
     private let dependencies: Dependencies
     private var activePageReservationId: String?
     private var pageTalkInFlight = false
+    private var pageTrackingID = UUID()
     private var lastCancelDedupKey: String?
     private var lastCancelAt: Date = .distantPast
     private let cancelDedupWindow: TimeInterval = 1.5
@@ -48,49 +49,53 @@ final class ClementinePageInterruptService: ObservableObject {
         let clean = (reservationId ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !clean.isEmpty else { return }
+        if activePageReservationId != clean { pageTrackingID = UUID() }
         activePageReservationId = clean
         pageTalkInFlight = true
     }
 
     func markPageTalkInFlight(_ inFlight: Bool) {
+        if inFlight {
+            pageTrackingID = UUID()
+            activePageReservationId = nil
+        }
         pageTalkInFlight = inFlight
     }
 
     func clearActivePageReservation() {
+        pageTrackingID = UUID()
         activePageReservationId = nil
         pageTalkInFlight = false
     }
 
     /// Writer take-back: barge-in / manual typing / cancel → one debounced page-cancel.
     func handleInterrupt(reason: ScreenplaySyncedInsertInterruptionReason) {
-        switch reason {
-        case .manualTyping, .bargeIn, .cancel:
-            requestPageCancel(reason: reason.rawValue)
-        case .other:
-            break
-        }
+        guard ScreenplayStreamCancellationPolicy.notifiesBackend(reason) else { return }
+        requestPageCancel(reason: reason.rawValue)
     }
 
-    func requestPageCancel(reason: String) {
+    @discardableResult
+    func requestPageCancel(reason: String) -> Task<Void, Never>? {
         let cleanReason = reason.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedReason = cleanReason.isEmpty ? "barge_in" : cleanReason
         let reservationId = activePageReservationId?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let hasReservation = !(reservationId?.isEmpty ?? true)
-        guard pageTalkInFlight || hasReservation else { return }
+        guard pageTalkInFlight || hasReservation else { return nil }
 
-        let dedupKey = "\(reservationId ?? "")|\(normalizedReason)"
+        let trackingID = pageTrackingID
+        let dedupKey = "\(trackingID)|\(reservationId ?? "")|\(normalizedReason)"
         let now = Date()
         if lastCancelDedupKey == dedupKey,
            now.timeIntervalSince(lastCancelAt) < cancelDedupWindow {
-            return
+            return nil
         }
         lastCancelDedupKey = dedupKey
         lastCancelAt = now
 
         inFlightCancelTask?.cancel()
         inFlightCancelTask = Task { [weak self] in
-            guard let self else { return }
+            guard let self, !Task.isCancelled, self.pageTrackingID == trackingID else { return }
             do {
                 let sessionHint = self.dependencies.resolveSessionId()
                 let result = try await self.dependencies.cancelPageLane(
@@ -98,7 +103,9 @@ final class ClementinePageInterruptService: ObservableObject {
                     hasReservation ? nil : (sessionHint.isEmpty ? nil : sessionHint),
                     normalizedReason
                 )
-                if result.ok {
+                // A transport may ignore cancellation and return after a new Page
+                // turn starts. Its result must not clear the newer turn's tracking.
+                if result.ok, !Task.isCancelled, self.pageTrackingID == trackingID {
                     self.clearActivePageReservation()
                 }
                 HerLog.talk.info(
@@ -112,5 +119,6 @@ final class ClementinePageInterruptService: ObservableObject {
                 )
             }
         }
+        return inFlightCancelTask
     }
 }

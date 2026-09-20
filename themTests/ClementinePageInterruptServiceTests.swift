@@ -3,6 +3,43 @@ import XCTest
 
 @MainActor
 final class ClementinePageInterruptServiceTests: XCTestCase {
+    func testNewTurnBeforeReservationHeaderIsNotClearedOrDeduplicated() async throws {
+        let entered = expectation(description: "session cancellation started")
+        let transport = DelayedPageCancellation(entered: entered)
+        let service = ClementinePageInterruptService(dependencies: .init(
+            cancelPageLane: { id, _, _ in await transport.cancel(id) },
+            resolveSessionId: { "session" }
+        ))
+        service.markPageTalkInFlight(true)
+        let oldTask = try XCTUnwrap(service.requestPageCancel(reason: "barge_in"))
+        await fulfillment(of: [entered], timeout: 2)
+        service.markPageTalkInFlight(true)
+        transport.finishFirst()
+        await oldTask.value
+        let newTask = service.requestPageCancel(reason: "barge_in")
+        await newTask?.value
+        XCTAssertEqual(transport.reservations.count, 2)
+        XCTAssertTrue(transport.reservations.allSatisfy { $0 == nil })
+    }
+
+    func testDelayedOldCancellationDoesNotClearNewReservation() async throws {
+        let entered = expectation(description: "old cancellation started")
+        let transport = DelayedPageCancellation(entered: entered)
+        let service = ClementinePageInterruptService(dependencies: .init(
+            cancelPageLane: { id, _, _ in await transport.cancel(id) },
+            resolveSessionId: { "session" }
+        ))
+        service.notePageReservationId("old-reservation")
+        let oldTask = try XCTUnwrap(service.requestPageCancel(reason: "barge_in"))
+        await fulfillment(of: [entered], timeout: 2)
+        service.notePageReservationId("new-reservation")
+        transport.finishFirst()
+        await oldTask.value
+        let newTask = service.requestPageCancel(reason: "manual_typing")
+        await newTask?.value
+        XCTAssertEqual(transport.reservations, ["old-reservation", "new-reservation"])
+    }
+
     func testHandleInterruptCancelsByReservationOnce() async throws {
         let gate = CancelGate()
         let service = ClementinePageInterruptService(
@@ -90,6 +127,36 @@ final class ClementinePageInterruptServiceTests: XCTestCase {
         try await Task.sleep(nanoseconds: 80_000_000)
         let calls = await gate.calls()
         XCTAssertEqual(calls.count, 0)
+    }
+}
+
+@MainActor
+private final class DelayedPageCancellation {
+    let entered: XCTestExpectation
+    var reservations: [String?] = []
+    private var first: CheckedContinuation<BackendPageCancelResult, Never>?
+
+    init(entered: XCTestExpectation) { self.entered = entered }
+
+    func cancel(_ reservation: String?) async -> BackendPageCancelResult {
+        reservations.append(reservation)
+        if reservations.count == 1 {
+            return await withCheckedContinuation { continuation in
+                first = continuation
+                entered.fulfill()
+            }
+        }
+        return result()
+    }
+
+    func finishFirst() {
+        first?.resume(returning: result())
+        first = nil
+    }
+
+    private func result() -> BackendPageCancelResult {
+        BackendPageCancelResult(ok: true, cancelled: true, reservationId: nil,
+                               sessionId: nil, dropped: [], cancelReason: nil, status: "cancelled")
     }
 }
 
