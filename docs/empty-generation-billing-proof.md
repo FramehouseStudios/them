@@ -13,6 +13,11 @@ No merge, deployment, or physical-device verification is authorized by this proo
   instead of treating the response envelope as billable draft text.
 - Regression tests exercise real generation, quality enforcement, short-film lane,
   and supplier code. Provider transport is mocked; no live request is needed.
+- Follow-up real HTTP test reproduced a retained wallet hold: a 100-turn balance
+  became 99 after empty generation returned recovery audio. The Page adapter now
+  records proposed usage and settles only after the response finishes successfully;
+  recovery, disconnect, and thrown-handler paths release the hold. Settlement is
+  idempotent across finish/close events.
 
 ## Verification
 
@@ -20,6 +25,14 @@ No merge, deployment, or physical-device verification is authorized by this proo
 - Full backend, Node 24.19.0, spawned isolated test servers:
   2,751 passed, zero failed, two skipped (2,753 tests).
   Log: `/tmp/them-empty-billing-backend-supplier.log`.
+  This predates the response-settlement follow-up. The latest full run is RED:
+  2,756 passed, one failed, two skipped (2,759 tests), log
+  `/tmp/them-empty-billing-handler-final.log`. The failed oversized-import test
+  received `UND_ERR_SOCKET` instead of its expected structured 413. Its isolated
+  suite then passed 22/22; this does not make the full run green.
+- Follow-up handler/settlement tests: six passed. An earlier full run exposed
+  lifecycle listeners attached to a non-wallet request; listeners were narrowed
+  to actual wallet reservations, and the ten reflex tests pass.
 - Signed iOS unit suite: 618 passed, zero failed, on freshly created/erased
   simulator `65A0A68B-4910-4B4A-A4E1-80469E8468D2`.
   Log: `/tmp/them-empty-billing-ios.log`.
@@ -31,11 +44,17 @@ No merge, deployment, or physical-device verification is authorized by this proo
 
 ## Still required before readiness
 
-- A real full `/talk` handler regression, not only generation-stage coverage,
-  proving wallet behavior and unchanged saved draft on rejected output.
-- Inspect billing/persistence ordering around the outer handler's page-quality
-  rejection. Preserving a non-empty generation does not prove it is a usable
-  screenplay: the retention test deliberately uses prose that fails quality.
+- Real full `/talk` regressions now prove empty output and quality-rejected prose
+  leave session history and wallet balance unchanged. They execute the production
+  HTTP route, handler, supplier, and quality code with transport-only stubs; a
+  marker asserts that generation was reached. Four adapter tests cover success,
+  recovery, disconnect, and exceptions, including repeated lifecycle events.
+- Existing saved-project content and client-side save acknowledgement still need
+  end-to-end proof. Response completion is not proof of a durable phone save.
+- Process-crash recovery of reserved wallet funds is not covered by these tests;
+  response lifecycle settlement only covers a running server process.
 - Complete the live quality gate after external-data approval, then publish a
   scoped draft PR with exact results for human/Claude review. Do not merge.
+- Resolve the intermittent oversized-import connection reset and obtain a full
+  backend proof for the final revision; keep this separate from billing logic.
 - Phone speech → reply → saved screenplay remains unverified by these tests.
