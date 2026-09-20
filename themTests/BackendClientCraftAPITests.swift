@@ -15,6 +15,27 @@ private actor StudioRenderPartialCollector {
 }
 
 final class BackendClientCraftAPITests: XCTestCase {
+    func testClementinePresenceHeaderPrefersCanonicalAndSupportsLegacyServers() async throws {
+        let client = makeClient(recorder: CraftRequestRecorder()) { _ in
+            XCTFail("Header parsing must not make network requests")
+            throw URLError(.unsupportedURL)
+        }
+        let cases: [([String: String], String?)] = [
+            (["x-clementine-presence": "speaking", "x-samantha-presence": "idle"], "speaking"),
+            (["x-samantha-presence": "listening"], "listening"),
+            (["x-clementine-presence": "present"], "present"),
+            ([:], nil)
+        ]
+        for (headers, expected) in cases {
+            let response = try XCTUnwrap(HTTPURLResponse(
+                url: URL(string: "https://craft.test/talk")!, statusCode: 200,
+                httpVersion: "HTTP/1.1", headerFields: headers
+            ))
+            XCTAssertEqual(client.parseClementineHeaders(from: response).clementinePresence, expected)
+        }
+        XCTAssertNil(client.parseClementineHeaders(from: nil).clementinePresence)
+    }
+
     func testRealtimeTurnCommitDecodesDurableCanonClarification() throws {
         let data = Data(#"""
         {

@@ -1,4 +1,4 @@
-// Samantha intuition — proactive suggestions before you ask.
+// Clementine intuition — proactive suggestions before you ask.
 // Uses coverage + craft + character pressure to emit x-suggestion.
 // D009 strangler, no index.js growth.
 
