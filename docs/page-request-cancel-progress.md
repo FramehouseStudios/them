@@ -1,0 +1,75 @@
+# Request-scoped Page cancellation — in progress
+
+Local branch `codex/T-page-request-cancel` combines #632 and #634. Neither
+dependency is merged; this branch must not be presented as an independent port
+off main. No new PR, deployment or device installation yet.
+
+Reproduced two production route/store failures before implementation:
+`/tmp/them-page-request-order-red.log` (five passed, two failed).
+1. A delayed session cancellation aborts the newer turn as well as the old one.
+2. Cancellation arriving before reservation does not stop that reservation.
+
+Working backend implementation tags reservations by request ID and records
+authenticated owner/session/request cancellation before a reservation exists.
+It retains early-stop records for the process lifetime, fails at a bounded
+10,000-record capacity instead of evicting a stop, and releases linked wallet
+reservations when a previously stopped request finally reserves.
+Focused ownership, cancellation, midflight and wallet tests are green at
+`/tmp/them-page-request-focused.log`. Diff and D009 checks pass.
+
+Client wiring now sends the lifecycle UUID on talk and cancellation requests.
+Cancellation uses `/talk/page-cancel/request`; unsupported servers fail instead
+of receiving a fallback session-wide cancellation. The lifecycle also captures
+the original talk session so a token refresh cannot retarget cancellation.
+Focused backend checks passed 31 tests with zero failures:
+`/tmp/them-page-request-wired-focused.log`.
+
+Initial signed focused iOS run passed 16 tests, zero failures, exit 0
+(`/tmp/them-page-request-ios-focused.log`). Full backend at that snapshot passed
+2,747 tests, zero failures, two skips (`/tmp/them-page-request-backend-full.log`).
+Additional malformed-ID, duplicate-stop, same-ID/different-owner/session,
+capacity and production adapter/header tests pass: all 12 ownership tests,
+`/tmp/them-page-request-adversarial.log`.
+Known reservation IDs use exact-ID cancellation, avoiding early-stop ledger
+capacity for requests whose reservation has already arrived.
+
+Not complete or release-ready:
+- Full signed iOS suite passed 631 tests, zero failures, exit 0 at
+  `/tmp/them-page-request-ios-final.log` (before the queued-stop regression).
+  The preliminary shutdown command failed because the owned simulator was already
+  shut down; no tests ran in that command. Erase and test were then started.
+- Broader backend suite failed: 2,750 passed, one failed, two skipped (2,753
+  total), `/tmp/them-page-request-backend-final.log`. The unchanged craft-schema
+  report test received 401 instead of 200. Investigating separately; not waived.
+- Added a regression for a stop queued immediately before a newer turn. Exact
+  targeted stops no longer cancel/suppress each other; only legacy session-wide
+  stops retain the stale-generation guard. Full signed rerun passed 632 tests,
+  zero failures, exit 0 at `/tmp/them-page-request-ios-queued-stop.log`.
+- Isolated craft endpoint suite passed all 30 tests at
+  `/tmp/them-page-request-craft-isolated.log`; root cause of the broader failure
+  remains unproven. Full backend repeat passed 2,751 tests, zero failures, two
+  skips (2,753 total), 54.80 seconds, exit 0:
+  `/tmp/them-page-request-backend-repeat.log`. This does not erase the earlier
+  intermittent failure or establish its cause.
+- Mac Scaffold Release build is running at `/tmp/them-page-request-macos.log`.
+- Process-local reservations/stops do not provide cross-worker or restart
+  durability. Document or resolve this before production promotion.
+- Physical speech → reply → saved screenplay remains unverified.
+
+## Promotion audit
+
+- Answered: forged owner IDs and cross-session request collisions cannot cancel
+  another owner's/session's work; duplicate stops release a reservation once;
+  early stops reach the real talk adapter's abort signal and proceed gate.
+- Answered: old-server 404 does not trigger broad cancellation; original talk
+  session is captured before token refresh; queued exact stops survive new turns
+  without clearing newer client tracking. Signed tests cover these boundaries.
+- Partially addressed: capacity is bounded and exhaustion returns an explicit
+  error, but the process-wide ledger is not durable or distributed. A writer
+  can exhaust early-stop capacity; production promotion needs an operational
+  lifetime/retention and per-owner quota policy, not silent eviction.
+- Not covered: real provider abort completion, wallet recovery after process
+  death, cross-worker routing, and the physical-phone acceptance flow.
+- Main remains `647e01fc`; #620 remains blocked with failed required hosted
+  checks on the latest read. No merge, deploy, or bypass is authorized by green
+  local tests alone.

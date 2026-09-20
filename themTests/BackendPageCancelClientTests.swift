@@ -2,6 +2,22 @@ import XCTest
 @testable import them
 
 final class BackendPageCancelClientTests: XCTestCase {
+    func testRequestCancellationDoesNotFallBackOnAnOldServer() async throws {
+        let recorder = PageCancelRequestRecorder()
+        PageCancelURLProtocolStub.handler = { request in
+            recorder.record(request)
+            return Self.stub(for: request, pageCancelBody: Data())
+        }
+        do {
+            _ = try await makeClient().cancelPageLane(sessionId: "session", requestId: "turn-123")
+            XCTFail("An unsupported request endpoint must fail, not cancel the session")
+        } catch { }
+        let requests = recorder.requests.filter { $0.path.contains("page-cancel") }
+        XCTAssertEqual(requests.count, 1)
+        XCTAssertEqual(requests.first?.path, "/talk/page-cancel/request")
+        XCTAssertEqual(requests.first?.json["request_id"] as? String, "turn-123")
+    }
+
     override func setUp() {
         super.setUp()
         UserDefaults.standard.set("client-test-token", forKey: "client_token")

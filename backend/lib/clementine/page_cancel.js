@@ -54,6 +54,12 @@ function createPageReservationStore({
 } = {}) {
   /** @type {Map<string, object>} */
   const reservations = new Map();
+  // Retain early cancellation for the lifetime of this process, just like page
+  // reservations. Never evict a stop instruction and silently restart its turn.
+  // Fail closed at capacity; callers can retry after receiving the reservation.
+  const cancelledRequests = new Map();
+  const requestKey = (sessionId, userId, requestId) =>
+    JSON.stringify([sessionId, userId, requestId]);
 
   function linkedWalletId(entry) {
     if (!entry) return "";
@@ -107,6 +113,10 @@ function createPageReservationStore({
       abortController: createAbortController(),
     };
     reservations.set(id, entry);
+    const earlyReason = cancelledRequests.get(requestKey(
+      sid, entry.userId, String(metaObj?.requestId || "")
+    ));
+    if (earlyReason) return cancel(id, { reason: earlyReason });
     return publicView(entry);
   }
 
@@ -187,6 +197,21 @@ function createPageReservationStore({
     return cancelByOwner({ sessionId }, { reason });
   }
 
+  function cancelRequest({ sessionId, userId, requestId }, { reason = "barge_in" } = {}) {
+    const key = requestKey(sessionId, userId, requestId);
+    if (!cancelledRequests.has(key) && cancelledRequests.size >= 10000) {
+      return { ok: false, error: "page_cancel_capacity" };
+    }
+    cancelledRequests.set(key, reason);
+    const dropped = [];
+    for (const entry of reservations.values()) {
+      if (entry.sessionId !== sessionId || entry.userId !== userId ||
+          entry.meta?.requestId !== requestId) continue;
+      if (cancel(entry.id, { reason })?.cancelled) dropped.push(entry.id);
+    }
+    return { ok: true, dropped };
+  }
+
   /**
    * Billing / expensive-work gate. Rejects cancelled or missing ids.
    * Callers must short-circuit when ok === false (no Muse call / no bill).
@@ -212,6 +237,7 @@ function createPageReservationStore({
 
   function clear() {
     reservations.clear();
+    cancelledRequests.clear();
   }
 
   function size() {
@@ -225,6 +251,7 @@ function createPageReservationStore({
     listForSession,
     cancel,
     cancelByOwner,
+    cancelRequest,
     cancelOnBargeIn,
     proceed,
     drop,
