@@ -2,6 +2,11 @@
 
 Owner: Codex. Status: **RECOMMENDATION; implementation pending**.
 
+Cleanup applied after the baseline below: export_share.js removed with its
+four test-only fabricated-link assertions. No runtime consumer existed.
+Canonical fdx_export route/serializer and format-capability tests are retained.
+Current graph: 89 files including barrel, 37 reachable, 52 disconnected.
+
 ## Scope and evidence
 
 The production import graph has **90 files: 89 modules plus index.js**.

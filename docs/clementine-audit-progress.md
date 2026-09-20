@@ -20,11 +20,24 @@ The proposed per-file disposition is in [clementine-module-disposition.md](cleme
 37 keep, 8 wire/replace, 45 delete/replace (including the unused barrel).
 These are recommendations, not completed cleanup. Before each removal, review
 repository-wide consumers and update tests against the canonical replacement.
-No runtime modules have changed in this branch. The real repository guard is
-included in the normal backend test glob and fails on the 53 existing orphans.
+First cleanup: removed export_share.js and its four fabricated-link assertions;
+repository-wide search found only three test consumers, no production callers.
+Existing FDX serializer/HTTP-route and export-format tests remain the canonical
+proof. Unrelated collaboration, commentary and Swift-file assertions remain.
+This removes fake PDF/share availability, not an actual working export feature.
+The deleted files remain recoverable from Git history.
+The real repository guard is included in the normal backend test glob and now
+fails on 52 remaining orphans (89 files remain, 37 reachable).
 Focused result: 3 scanner tests pass, 1 repository guard fails as expected.
-Full backend, live quality evaluation and iOS tests have not been rerun for this
-audit-only branch; prior port results are not claimed as proof of this branch.
+After cleanup, canonical export/retained-consumer/scanner checks: 45 pass.
+Full backend on Node 24: 2,737 pass, 2 fail, 2 skip (2,741 total).
+Failures: expected orphan guard and realtime_turn_commit_route memory-read-error
+test, fetch UND_ERR_SOCKET. The realtime suite passes in isolation; this does
+not erase the full-run failure or prove its root cause. Evidence:
+/tmp/them-module-cleanup-backend.log and
+/tmp/them-module-cleanup-turn-commit-isolated.log.
+Live quality evaluation and iOS tests have not been rerun for this branch;
+prior port results are not claimed as proof of this branch.
 
 ## Accepted execution order
 
