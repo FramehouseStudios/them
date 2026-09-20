@@ -51,9 +51,19 @@ function createPageReservationStore({
   now = () => Date.now(),
   /** Optional D008 wallet store — cancel releases linked wallet reservation. */
   walletStore = null,
+  maxCancelledRequestsPerOwner = 1000,
 } = {}) {
   /** @type {Map<string, object>} */
   const reservations = new Map();
+  // Retain early cancellation for the lifetime of this process, just like page
+  // reservations. Never evict a stop instruction and silently restart its turn.
+  // Fail closed at capacity; callers can retry after receiving the reservation.
+  const cancelledRequests = new Map();
+  const cancelledRequestCounts = new Map();
+  const ownerLimit = Number.isSafeInteger(maxCancelledRequestsPerOwner) && maxCancelledRequestsPerOwner > 0
+    ? Math.min(maxCancelledRequestsPerOwner, 10000) : 1000;
+  const requestKey = (sessionId, userId, requestId) =>
+    JSON.stringify([sessionId, userId, requestId]);
 
   function linkedWalletId(entry) {
     if (!entry) return "";
@@ -107,6 +117,10 @@ function createPageReservationStore({
       abortController: createAbortController(),
     };
     reservations.set(id, entry);
+    const earlyReason = cancelledRequests.get(requestKey(
+      sid, entry.userId, String(metaObj?.requestId || "")
+    ));
+    if (earlyReason) return cancel(id, { reason: earlyReason });
     return publicView(entry);
   }
 
@@ -153,7 +167,7 @@ function createPageReservationStore({
    * reservation AbortController. Returns the dropped reservation ids.
    */
   function cancelByOwner(
-    { sessionId, userId = "" } = {},
+    { sessionId, userId = "", strictOwner = false } = {},
     { reason = "barge_in" } = {}
   ) {
     const sid = String(sessionId || "").trim();
@@ -165,6 +179,8 @@ function createPageReservationStore({
     for (const [id, entry] of reservations) {
       if (entry.sessionId !== sid) continue;
       if (entry.status === "cancelled") continue;
+      // HTTP cancellation must never treat legacy ownerless work as a wildcard.
+      if (strictOwner && (!uid || entry.userId !== uid)) continue;
       if (uid && entry.userId && entry.userId !== uid) continue;
       entry.status = "cancelled";
       entry.cancelledAt = ts;
@@ -183,6 +199,24 @@ function createPageReservationStore({
    */
   function cancelOnBargeIn(sessionId, { reason = "barge_in" } = {}) {
     return cancelByOwner({ sessionId }, { reason });
+  }
+
+  function cancelRequest({ sessionId, userId, requestId }, { reason = "barge_in" } = {}) {
+    const key = requestKey(sessionId, userId, requestId);
+    if (!cancelledRequests.has(key)) {
+      const ownerCount = cancelledRequestCounts.get(userId) || 0;
+      if (ownerCount >= ownerLimit) return { ok: false, error: "page_cancel_owner_capacity" };
+      if (cancelledRequests.size >= 10000) return { ok: false, error: "page_cancel_capacity" };
+      cancelledRequestCounts.set(userId, ownerCount + 1);
+    }
+    cancelledRequests.set(key, reason);
+    const dropped = [];
+    for (const entry of reservations.values()) {
+      if (entry.sessionId !== sessionId || entry.userId !== userId ||
+          entry.meta?.requestId !== requestId) continue;
+      if (cancel(entry.id, { reason })?.cancelled) dropped.push(entry.id);
+    }
+    return { ok: true, dropped };
   }
 
   /**
@@ -210,6 +244,8 @@ function createPageReservationStore({
 
   function clear() {
     reservations.clear();
+    cancelledRequests.clear();
+    cancelledRequestCounts.clear();
   }
 
   function size() {
@@ -223,6 +259,7 @@ function createPageReservationStore({
     listForSession,
     cancel,
     cancelByOwner,
+    cancelRequest,
     cancelOnBargeIn,
     proceed,
     drop,

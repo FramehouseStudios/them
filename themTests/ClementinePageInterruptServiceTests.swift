@@ -3,6 +3,44 @@ import XCTest
 
 @MainActor
 final class ClementinePageInterruptServiceTests: XCTestCase {
+    func testImmediateNewTurnDoesNotSuppressAlreadyRequestedTargetedStop() async throws {
+        var stoppedRequests: [String] = []
+        let service = ClementinePageInterruptService(dependencies: .init(
+            cancelPageLane: { id, session, requestID, reason in
+                if let requestID { stoppedRequests.append(requestID) }
+                return BackendPageCancelResult(ok: true, cancelled: true, reservationId: id,
+                    sessionId: session, dropped: [], cancelReason: reason, status: nil)
+            }, resolveSessionId: { "session" }
+        ))
+        let oldID = UUID(), nextID = UUID()
+        service.handlePageLifecycle(.began(oldID))
+        let oldStop = try XCTUnwrap(service.requestPageCancel(reason: "manual_typing"))
+        service.handlePageLifecycle(.began(nextID))
+        let nextStop = try XCTUnwrap(service.requestPageCancel(reason: "manual_typing"))
+        await oldStop.value
+        await nextStop.value
+        XCTAssertEqual(Set(stoppedRequests), Set([oldID.uuidString, nextID.uuidString]))
+    }
+
+    func testHeaderlessCancellationCarriesExactLifecycleRequestID() async throws {
+        var observed: String?
+        var observedSession: String?
+        let service = ClementinePageInterruptService(dependencies: .init(
+            cancelPageLane: { id, session, requestID, reason in
+                observed = requestID
+                observedSession = session
+                return BackendPageCancelResult(ok: true, cancelled: false, reservationId: id,
+                    sessionId: session, dropped: [], cancelReason: reason, status: nil)
+            }, resolveSessionId: { "refreshed-session" }
+        ))
+        let lifecycle = PageTalkLifecycle { service.handlePageLifecycle($0) }
+        lifecycle.begin(sessionID: "original-session")
+        let task = try XCTUnwrap(service.requestPageCancel(reason: "manual_typing"))
+        await task.value
+        XCTAssertEqual(observed, lifecycle.id.uuidString)
+        XCTAssertEqual(observedSession, "original-session")
+    }
+
     func testLifecycleMakesReservationImmediatelyAvailableForWriterInterrupt() async throws {
         let gate = CancelGate()
         let service = makeLifecycleService(gate)
@@ -47,7 +85,7 @@ final class ClementinePageInterruptServiceTests: XCTestCase {
 
     private func makeLifecycleService(_ gate: CancelGate) -> ClementinePageInterruptService {
         ClementinePageInterruptService(dependencies: .init(
-            cancelPageLane: { id, session, reason in
+            cancelPageLane: { id, session, _, reason in
                 await gate.record(reservationId: id, sessionId: session, reason: reason)
                 return BackendPageCancelResult(ok: true, cancelled: true, reservationId: id,
                     sessionId: session, dropped: [], cancelReason: reason, status: "cancelled")
@@ -60,7 +98,7 @@ final class ClementinePageInterruptServiceTests: XCTestCase {
         let entered = expectation(description: "session cancellation started")
         let transport = DelayedPageCancellation(entered: entered)
         let service = ClementinePageInterruptService(dependencies: .init(
-            cancelPageLane: { id, _, _ in await transport.cancel(id) },
+            cancelPageLane: { id, _, _, _ in await transport.cancel(id) },
             resolveSessionId: { "session" }
         ))
         service.markPageTalkInFlight(true)
@@ -79,7 +117,7 @@ final class ClementinePageInterruptServiceTests: XCTestCase {
         let entered = expectation(description: "old cancellation started")
         let transport = DelayedPageCancellation(entered: entered)
         let service = ClementinePageInterruptService(dependencies: .init(
-            cancelPageLane: { id, _, _ in await transport.cancel(id) },
+            cancelPageLane: { id, _, _, _ in await transport.cancel(id) },
             resolveSessionId: { "session" }
         ))
         service.notePageReservationId("old-reservation")
@@ -97,7 +135,7 @@ final class ClementinePageInterruptServiceTests: XCTestCase {
         let gate = CancelGate()
         let service = ClementinePageInterruptService(
             dependencies: .init(
-                cancelPageLane: { reservationId, sessionId, reason in
+                cancelPageLane: { reservationId, sessionId, _, reason in
                     await gate.record(reservationId: reservationId, sessionId: sessionId, reason: reason)
                     return BackendPageCancelResult(
                         ok: true,
@@ -129,7 +167,7 @@ final class ClementinePageInterruptServiceTests: XCTestCase {
         let gate = CancelGate()
         let service = ClementinePageInterruptService(
             dependencies: .init(
-                cancelPageLane: { reservationId, sessionId, reason in
+                cancelPageLane: { reservationId, sessionId, _, reason in
                     await gate.record(reservationId: reservationId, sessionId: sessionId, reason: reason)
                     return BackendPageCancelResult(
                         ok: true,
@@ -160,7 +198,7 @@ final class ClementinePageInterruptServiceTests: XCTestCase {
         let gate = CancelGate()
         let service = ClementinePageInterruptService(
             dependencies: .init(
-                cancelPageLane: { reservationId, sessionId, reason in
+                cancelPageLane: { reservationId, sessionId, _, reason in
                     await gate.record(reservationId: reservationId, sessionId: sessionId, reason: reason)
                     return BackendPageCancelResult(
                         ok: true,
