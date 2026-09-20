@@ -22,6 +22,20 @@ function parseIfNoneMatchValues(rawHeader) {
     .filter(Boolean);
 }
 
+function ifNoneMatchStateHit(req, etag, stateVersion) {
+  const candidates = parseIfNoneMatchValues(req.get("If-None-Match"));
+  if (!candidates.length) return false;
+  const etagLower = String(etag || "").toLowerCase();
+  const stateLower = String(stateVersion || "").toLowerCase();
+  return candidates.some((candidate) => {
+    const normalized = candidate.toLowerCase();
+    return normalized === etagLower ||
+      normalized === stateLower ||
+      normalized.replace(/^w\//, "") === etagLower.replace(/^w\//, "") ||
+      normalized.replace(/^w\//, "").replace(/^"|"$/g, "") === stateLower.replace(/^"|"$/g, "");
+  });
+}
+
 function createReadStateHelpers(deps = {}) {
   const apiSchemaVersion = Math.max(1, Number(deps.apiSchemaVersion || 1));
   const backendBuild = String(deps.backendBuild || "dev");
@@ -159,20 +173,6 @@ function createReadStateHelpers(deps = {}) {
       `mem_hidden:${forgottenMemoryCardIds.length}`,
     ].join("|");
     return createHash("sha1").update(raw).digest("hex").slice(0, 24);
-  }
-
-  function ifNoneMatchStateHit(req, etag, stateVersion) {
-    const candidates = parseIfNoneMatchValues(req.get("If-None-Match"));
-    if (!candidates.length) return false;
-    const etagLower = String(etag || "").toLowerCase();
-    const stateLower = String(stateVersion || "").toLowerCase();
-    return candidates.some((candidate) => {
-      const normalized = candidate.toLowerCase();
-      return normalized === etagLower ||
-        normalized === stateLower ||
-        normalized.replace(/^w\//, "") === etagLower.replace(/^w\//, "") ||
-        normalized.replace(/^w\//, "").replace(/^"|"$/g, "") === stateLower.replace(/^"|"$/g, "");
-    });
   }
 
   function resolveSessionIdForRead(req, selectedIp = "") {
@@ -537,5 +537,6 @@ function createReadStateHelpers(deps = {}) {
 export {
   buildStateEtag,
   createReadStateHelpers,
+  ifNoneMatchStateHit,
   parseIfNoneMatchValues,
 };
