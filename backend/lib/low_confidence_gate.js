@@ -12,15 +12,15 @@ function hasMeasuredSttConfidence(sttJson) {
   const stt = sttJson && typeof sttJson === "object" ? sttJson : {};
   const words = Array.isArray(stt.words) ? stt.words : [];
   const scoredWords = words.filter((w) => {
-    const c = Number(w?.confidence);
+    const c = w?.confidence;
     return Number.isFinite(c) && c >= 0 && c <= 1;
   });
   if (scoredWords.length >= 2) return true;
   const segments = Array.isArray(stt.segments) ? stt.segments : [];
   return segments.some((seg) => {
     if (!seg || typeof seg !== "object") return false;
-    const noSpeech = Number(seg.no_speech_prob);
-    const logprob = Number(seg.avg_logprob);
+    const noSpeech = seg.no_speech_prob;
+    const logprob = seg.avg_logprob;
     return (Number.isFinite(noSpeech) && noSpeech >= 0 && noSpeech <= 1)
       || (Number.isFinite(logprob) && logprob <= 0);
   });
@@ -32,16 +32,14 @@ function countWords(text) {
 
 /**
  * True for transcripts that read like a cut-off echo of the assistant or
- * background noise rather than a short command: a single token, a stub that
- * trails off, or text with no Latin letters at all.
+ * background noise rather than a short command: a stub that trails off or
+ * text with no letters. Language and word count alone are not echo evidence.
  */
 function looksLikeUnintelligibleFragment(transcript) {
   const raw = String(transcript || "").trim();
   if (!raw) return true;
   const words = countWords(raw);
-  const hasLatinLetters = /[A-Za-z]/.test(raw);
-  if (!hasLatinLetters) return true;
-  if (words <= 1) return true;
+  if (!/\p{L}/u.test(raw)) return true;
   if (words <= 2 && /(\.\.\.|…)$/.test(raw)) return true;
   return false;
 }
