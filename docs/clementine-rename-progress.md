@@ -16,7 +16,8 @@ See clementine-runtime-compatibility.md for scope, migration and rollback limits
   simulated legacy-only write, anonymous access denial, and separate same-ID
   projects under different owners. Log: /tmp/them-presence-write-isolation.log.
 - Diff check and D009 pass; index.js shrank by 60 lines.
-- Mac Scaffold Release build is in progress; no result yet.
+- Mac Scaffold Release build passed (exit 0, BUILD SUCCEEDED).
+  Log: /tmp/them-clementine-rename-macos-scaffold.log.
 - #620 hosted gate cannot start: GitHub account billing lock. No merges.
 
 ## Findings resolved during verification
