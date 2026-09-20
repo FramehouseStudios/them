@@ -124,7 +124,7 @@ function isCharacterCue(line) {
   if (!isForced && startsWithSceneHeadingPrefix(cueName.toUpperCase())) return false;
   // Allow letters, digits, spaces, periods, apostrophes, hyphens,
   // ampersands, slashes, and parens used by names and extensions.
-  if (!/^[\p{L}\p{N} .'’\-&/()]+$/u.test(cue)) return false;
+  if (!/^[\p{L}\p{M}\p{N} .'’\-&/()]+$/u.test(cue)) return false;
   // Fountain's @ marker explicitly permits mixed case and non-Roman names.
   // Extensions may also use mixed case, so only inspect the character name.
   return isForced || isAllCaps(cueName);
@@ -223,7 +223,7 @@ function ruleCharacterCueCaps(lines, text, suggestions) {
     if (i > 0 && lines[i - 1].trim()) continue;
     // Cues do not end in sentence punctuation and are a few words long.
     // Ignore a trailing extension such as (V.O.) or (CONT'D) for both checks.
-    const cueCore = trimmed.replace(/\s*\([^)]*\)\s*$/, "");
+    const cueCore = trimmed.replace(/\s*\^\s*$/, "").replace(/\s*\([^)]*\)\s*$/, "");
     if (!cueCore) continue;
     if (/[.!?,;…]["'’”]*$/.test(cueCore)) continue;
     if (cueCore.split(/\s+/).length > 5) continue;
@@ -234,10 +234,9 @@ function ruleCharacterCueCaps(lines, text, suggestions) {
     if (cueCore.startsWith("@")) continue;
     const cueName = cueCore;
     if (!/^\p{L}/u.test(cueName)) continue;
-    // Heuristic: line is followed by what looks like dialogue (next non-blank
-    // line is mixed-case sentence-shape).
-    let nextIdx = i + 1;
-    while (nextIdx < lines.length && !lines[nextIdx].trim()) nextIdx += 1;
+    // Dialogue must immediately follow the cue; do not cross an action
+    // paragraph boundary looking for a sentence to treat as dialogue.
+    const nextIdx = i + 1;
     if (nextIdx >= lines.length) continue;
     const next = lines[nextIdx].trim();
     if (!next || next.length < 2) continue;

@@ -181,8 +181,15 @@ Can you hear me?
   assert.equal(hit?.suggestion, "Try: 'HANS (on the radio)'");
 });
 
+test("[character_cue_caps] handles dual-dialogue extensions without promoting action paragraphs", () => {
+  const text = "HANS (on the radio) ^\nCan you hear me?\n\nHans (on the radio) ^\nAgain.\n\nMeanwhile\n\nHe waits.\n";
+  const hits = lintScreenplay({ text }).suggestions.filter((x) => x.rule === "character_cue_caps");
+  assert.deepEqual(hits.map((x) => x.excerpt), ["Hans (on the radio) ^"]);
+  assert.equal(hits[0].suggestion, "Try: 'HANS (on the radio) ^'");
+});
+
 test("[parenthetical_count] recognizes forced and mixed-extension character cues", () => {
-  for (const cue of ["@McCLANE", "HANS (on the radio)", "李明"]) {
+  for (const cue of ["@McCLANE", "HANS (on the radio)", "李明", "E\u0301LODIE"]) {
     const text = `${cue}\n(quietly)\n(to himself)\nStill here.\n`;
     const r = lintScreenplay({ text });
     assert.ok(
