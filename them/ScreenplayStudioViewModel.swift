@@ -4384,6 +4384,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
 
     func loadCraftReport(force: Bool = false) async {
         guard !isCraftLoading else { return }
+        isCraftLoading = true
+        defer { isCraftLoading = false }
         // Frameworks are project-independent; load them so the picker works
         // before a project exists instead of reading "backend unavailable".
         if craftFrameworks.isEmpty {
@@ -4399,8 +4401,6 @@ final class ScreenplayStudioViewModel: ObservableObject {
             return
         }
 
-        isCraftLoading = true
-        defer { isCraftLoading = false }
         craftErrorText = ""
         let source = force ? "Manual check" : "Craft rail"
         let hadExistingReport = craftReport != nil

@@ -615,34 +615,33 @@ struct ScreenplayStudioPageIntegrityBanner: View {
     var body: some View {
         let primaryIssue = issues.first
 
-        HStack(alignment: .top, spacing: 10) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .font(IOThemTypography.UI.captionStrong)
-                .foregroundStyle(Color.orange.opacity(0.92))
-                .padding(.top, 1)
-
-            VStack(alignment: .leading, spacing: 5) {
-                Text(ScreenplayStudioDraftToolsPresentationPlanner.integrityTitle(issueCount: issues.count))
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: "exclamationmark.triangle.fill")
                     .font(IOThemTypography.UI.captionStrong)
-                    .foregroundStyle(Color.herText.opacity(0.88))
+                    .foregroundStyle(Color.orange.opacity(0.92))
+                    .padding(.top, 1)
 
-                if let primaryIssue {
-                    Text("Lines \(primaryIssue.startLine)-\(primaryIssue.endLine) read like companion prose, not screenplay: \"\(primaryIssue.preview)\"")
-                        .font(IOThemTypography.UI.labelRegular)
-                        .foregroundStyle(Color.herText.opacity(0.72))
-                        .lineLimit(2)
-                } else {
-                    Text("Non-screenplay text is sitting on the page and should be reviewed before it stays in the draft.")
-                        .font(IOThemTypography.UI.labelRegular)
-                        .foregroundStyle(Color.herText.opacity(0.72))
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(ScreenplayStudioDraftToolsPresentationPlanner.integrityTitle(issueCount: issues.count))
+                        .font(IOThemTypography.UI.captionStrong)
+                        .foregroundStyle(Color.herText.opacity(0.88))
+
+                    if let primaryIssue {
+                        Text("Lines \(primaryIssue.startLine)-\(primaryIssue.endLine) read like companion prose, not screenplay: \"\(primaryIssue.preview)\"")
+                            .font(IOThemTypography.UI.labelRegular)
+                            .foregroundStyle(Color.herText.opacity(0.72))
+                            .lineLimit(2)
+                    } else {
+                        Text("Non-screenplay text is sitting on the page and should be reviewed before it stays in the draft.")
+                            .font(IOThemTypography.UI.labelRegular)
+                            .foregroundStyle(Color.herText.opacity(0.72))
+                    }
                 }
             }
-
-            Spacer(minLength: 0)
-
             ViewThatFits(in: .horizontal) {
                 HStack(spacing: 8) { bannerButtons(primaryIssue) }
-                VStack(alignment: .trailing, spacing: 8) { bannerButtons(primaryIssue) }
+                VStack(alignment: .leading, spacing: 8) { bannerButtons(primaryIssue) }
             }
         }
         .padding(.horizontal, 12)
