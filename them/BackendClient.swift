@@ -3232,6 +3232,12 @@ final class BackendClient {
         }
 
         let payload = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
+        if !cleanRequest.isEmpty {
+            guard payload["request_id"] as? String == cleanRequest,
+                  payload["ok"] as? Bool == true else {
+                throw BackendError.stage("page_cancel", "The server did not confirm this writing turn's cancellation.")
+            }
+        }
         let droppedRaw = payload["dropped"] as? [Any] ?? []
         let dropped = droppedRaw.compactMap { value -> String? in
             let text = String(describing: value).trimmingCharacters(in: .whitespacesAndNewlines)

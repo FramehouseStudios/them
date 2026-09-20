@@ -2,7 +2,7 @@
 
 Local branch `codex/T-page-request-cancel` combines #632 and #634. Neither
 dependency is merged; this branch must not be presented as an independent port
-off main. No new PR, deployment or device installation yet.
+off main. Draft review only; no deployment or device installation.
 
 Reproduced two production route/store failures before implementation:
 `/tmp/them-page-request-order-red.log` (five passed, two failed).
@@ -109,3 +109,16 @@ that checkout. This does not establish whether Render has a provider key.
 The unauthenticated `/api/version` request returned 401, so the deployed revision
 was not verified. No credentials were printed, changed, or copied, and no paid
 provider request, deployment, or physical-device installation was performed.
+
+## Acknowledgement hardening
+
+Request-scoped cancellation now requires a successful response with the exact
+request_id and an explicit ok:true. A generic 200, a different turn ID, or
+ok:false must not clear the client's turn tracking. Exact early-stop responses
+with cancelled:false remain valid because the server has recorded the stop
+before a reservation exists. Two client transport tests cover these cases.
+Full signed iOS verification passed 634 tests, zero failures, exit 0 at
+`/tmp/them-page-request-ios-ack.log`; diff/D009 checks passed. Earlier macOS
+results do not include this latest client edit. The backend was unchanged since
+the 2,752-pass run. Latest Swift changes still need a fresh macOS compile before
+promotion. Keep this draft held for the storage and release risks listed above.
