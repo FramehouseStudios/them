@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { transformEdit, applyCollabEdits, pushHistory, undoHistory, historySize } from "../lib/clementine/collab_edit.js";
-import { getWriterVoiceProfile, updateWriterVoiceProfile, getLexicon } from "../lib/clementine/samantha_voice.js";
+import { getWriterVoiceProfile, updateWriterVoiceProfile, getLexicon } from "../lib/clementine/clementine_voice.js";
 import { getSevenPointBeats, SEVEN_POINT } from "../lib/clementine/story_structure_knowledge.js";
 import { buildCommentary, buildInlineCommentary } from "../lib/clementine/director_commentary.js";
 import { revertToProvenance } from "../lib/clementine/inspector_ux.js";

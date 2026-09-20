@@ -1,4 +1,4 @@
-// Samantha voice — she knows your voice, grows, vulnerable ask loop.
+// Clementine voice — she knows your voice, grows, vulnerable ask loop.
 // Writer voice profile per ownerKey, learns cadence, admits uncertainty.
 // D009 strangler.
 
