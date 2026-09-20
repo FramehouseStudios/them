@@ -5,6 +5,7 @@ import { execFile } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { app, talkUpload } from "./app.js";
+import { createUploadErrorHandler } from "./lib/upload_error_handler.js";
 import {
   API_SCHEMA_VERSION,
   APP_TOKEN,
@@ -33455,16 +33456,7 @@ app.use((req, res) => {
   return res.status(404).json({ stage: "route", error: "Not found." });
 });
 
-// Multer “file too large” error handler
-app.use((err, req, res, next) => {
-  if (err && err.code === "LIMIT_FILE_SIZE") {
-    return res.status(413).json({
-      stage: "upload",
-      error: `File too large. Max is ${MAX_FILE_MB}MB.`,
-    });
-  }
-  next(err);
-});
+app.use(createUploadErrorHandler(MAX_FILE_MB));
 
 app.use((err, req, res, next) => {
   const rid = req?.requestId || "unknown";

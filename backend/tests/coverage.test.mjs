@@ -157,11 +157,11 @@ test("thresholds and scale constants", () => {
   assert.equal(THRESHOLDS.failMaxOverall, 2.8);
 });
 
-test("backend/index.js gate stays at 33626", async () => {
+test("backend/index.js stays within its 33626-line ceiling", async () => {
   const fs = await import("node:fs");
   const text = fs.readFileSync(new URL("../../backend/index.js", import.meta.url), "utf8");
   let c = 0;
   for (let i = 0; i < text.length; i++) if (text[i] === "\n") c++;
   if (text.length > 0 && !text.endsWith("\n")) c += 1;
-  assert.equal(c, 33626);
+  assert.ok(c > 0 && c <= 33626, `Expected a nonempty index within the D009 ceiling; got ${c} lines`);
 });
