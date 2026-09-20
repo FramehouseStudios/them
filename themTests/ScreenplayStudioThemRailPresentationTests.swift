@@ -4,10 +4,10 @@ import XCTest
 @MainActor
 final class ScreenplayStudioThemRailPresentationTests: XCTestCase {
     func testOverviewAndSurfaceMixPreserveCanonicalCopyOrderAndCounts() {
-        XCTAssertEqual(ScreenplayStudioThemRailOverviewPresentation.standard.title, "io.them")
+        XCTAssertEqual(ScreenplayStudioThemRailOverviewPresentation.standard.title, "Clementine")
         XCTAssertEqual(
             ScreenplayStudioThemRailOverviewPresentation.standard.subtitle,
-            "Keep io.them's instincts, memory, and craft signals together."
+            "Keep Clementine's instincts, memory, and craft signals together."
         )
 
         let analytics = ScreenplayCompanionAnalyticsSnapshot(

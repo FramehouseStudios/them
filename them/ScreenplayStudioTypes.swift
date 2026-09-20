@@ -337,7 +337,7 @@ extension ScreenplayStudioScreen {
             case .beats: return "Beats"
             case .craft: return "Craft"
             case .outline: return "Outline"
-            case .them: return "io.them"
+            case .them: return "Clementine"
             case .saved: return "Saved"
             }
         }
