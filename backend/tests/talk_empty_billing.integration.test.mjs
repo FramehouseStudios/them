@@ -8,6 +8,7 @@ import { startBackend, apiRequest } from './helpers/backend_test_server.mjs';
 import { createJsonPersistence } from '../lib/persistence_json.js';
 import { createAdapterWalletPersistence } from '../lib/clementine/wallet_persistence.js';
 import { EventEmitter } from 'node:events';
+import { createServer, request } from 'node:http';
 import { createWalletStore } from '../lib/clementine/wallet.js';
 import { createPageReservationStore } from '../lib/clementine/page_cancel.js';
 import { createPageLaneTalkAdapter } from '../lib/clementine/page_lane_adapter.js';
@@ -91,12 +92,53 @@ test(`real /talk rejected ${reply} preserves history and wallet balance`, { time
 });
 }
 
-for (const outcome of ['success', 'recovery', 'disconnect', 'throw']) {
+for (const status of ['asked_repeat', 'continue_listening']) {
+  test(`HTTP 200 ${status} releases proposed generation charge`, async () => {
+    const wallet = createWalletStore({ initialBalances: { writer: { page: 10 } } });
+    let reservationId;
+    const handler = createPageLaneTalkAdapter({
+      walletStore: wallet, pageReservationStore: createPageReservationStore({ walletStore: wallet }),
+      handleTalkRequest: async (req, res) => {
+        reservationId = req.clementine.walletReservationId;
+        req.clementine.commitWallet(123);
+        assert.equal(wallet.getReservation(reservationId).status, 'reserved');
+        res.setHeader('x-turn-status', status);
+        res.end('recovery');
+      },
+    });
+    const server = createServer((req, res) => {
+      req.body = { text: 'Write the opening screenplay page.', page_mode: true, user_id: 'writer', max_output_tokens: 400 };
+      handler(req, res).catch(error => res.destroy(error));
+    });
+    try {
+      await new Promise((resolve, reject) => {
+        server.once('error', reject);
+        server.listen(0, '127.0.0.1', resolve);
+      });
+      const response = await new Promise((resolve, reject) => {
+        const req = request(`http://127.0.0.1:${server.address().port}/talk`, {
+          method: 'POST', agent: false, signal: AbortSignal.timeout(5000),
+        }, resolve);
+        req.once('error', reject);
+        req.end();
+      });
+      for await (const _chunk of response) { /* consume complete recovery response */ }
+      assert.equal(response.statusCode, 200);
+      assert.equal(response.headers['x-turn-status'], status);
+      assert.equal(wallet.getReservation(reservationId).status, 'released');
+      assert.equal(wallet.getBalance('writer').pageTurnsLeft, 10);
+    } finally {
+      await new Promise(resolve => { server.close(resolve); server.closeAllConnections(); });
+    }
+  });
+}
+
+for (const outcome of ['success', 'recovery', 'asked_repeat', 'continue_listening', 'disconnect', 'throw']) {
   test(`adapter settles wallet once on ${outcome}`, async () => {
     const wallet = createWalletStore({ initialBalances: { writer: { page: 10 } } });
     const res = Object.assign(new EventEmitter(), {
       statusCode: 200, setHeader() {},
-      getHeader: () => outcome === 'recovery' ? 'error_recovered' : '',
+      getHeader: () => outcome === 'recovery' ? 'error_recovered' : outcome,
     });
     let reservationId;
     const handler = createPageLaneTalkAdapter({

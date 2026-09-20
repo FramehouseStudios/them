@@ -18,8 +18,17 @@ No merge, deployment, or physical-device verification is authorized by this proo
   records proposed usage and settles only after the response finishes successfully;
   recovery, disconnect, and thrown-handler paths release the hold. Settlement is
   idempotent across finish/close events.
+- Recovery follow-up: HTTP 200 `asked_repeat` and `continue_listening` release
+  the hold even after generation proposed usage. Real local HTTP completion
+  tests prove unchanged balances; repeated finish/close tests prove idempotency.
 
 ## Verification
+
+- Recovery-status revision: focused HTTP/handler/lifecycle tests 10 passed;
+  full backend 2,761 passed, zero failed, two skipped (2,763 total), Node 24.
+  Both new real HTTP tests and both repeated-event cases executed in the full
+  run. Logs: /tmp/them-billing-recovery-http.log and
+  /tmp/them-billing-recovery-full.log. No Swift changes in this follow-up.
 
 - Focused generation/supplier/lane suites: 23 passed, zero failed.
 - Full backend, Node 24.19.0, spawned isolated test servers:
