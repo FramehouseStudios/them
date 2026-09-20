@@ -153,7 +153,7 @@ function createPageReservationStore({
    * reservation AbortController. Returns the dropped reservation ids.
    */
   function cancelByOwner(
-    { sessionId, userId = "" } = {},
+    { sessionId, userId = "", strictOwner = false } = {},
     { reason = "barge_in" } = {}
   ) {
     const sid = String(sessionId || "").trim();
@@ -165,6 +165,8 @@ function createPageReservationStore({
     for (const [id, entry] of reservations) {
       if (entry.sessionId !== sid) continue;
       if (entry.status === "cancelled") continue;
+      // HTTP cancellation must never treat legacy ownerless work as a wildcard.
+      if (strictOwner && (!uid || entry.userId !== uid)) continue;
       if (uid && entry.userId && entry.userId !== uid) continue;
       entry.status = "cancelled";
       entry.cancelledAt = ts;
