@@ -41,10 +41,19 @@ be cancelled immediately. Beginning a new turn drops the previous reservation ID
 requestPageCancel returns its task (discardable) so controlled tests can await
 the exact completion without sleeps or exposing mutable internal state.
 
-Limits: an already-sent session-wide cancellation request still needs backend
-turn correlation to distinguish a subsequently started turn. The existing Bool
-in-flight callback also does not identify which overlapping request completed.
-These wider transport-contract issues are not resolved by the local identity fix.
+Follow-up wiring replaces the two identity-free BackendClient callbacks with
+PageTalkLifecycle events carrying one UUID per request. Companion requests do
+not emit Page completion. The root forwards events to the existing service;
+late reservation/finish events from older requests cannot replace current state.
+Tests cover event identity, one-shot completion, non-Page silence, ignored late
+headers and an older completion during a new headerless request. The async
+follow-up suite passed 628 tests. Event delivery is now explicitly MainActor
+and synchronous, with an additional service-wiring regression; the final
+signed suite passed 629 tests, zero failures, on an erased simulator.
+
+Limit: an already-sent session-wide cancellation request still needs backend
+turn correlation to distinguish a subsequently started turn. Local event IDs
+do not resolve this server-side transport contract.
 
 Backend's first run in this worktree failed to load dependencies; stopped it and
 linked the existing installed dependency directory after confirming lockfiles match.
@@ -55,4 +64,12 @@ two skipped (2,741 total). The first failure remains recorded, not waived.
 Logs: /tmp/them-page-interruption-backend-ready.log and
 /tmp/them-interrupt-markdown-isolated.log.
 Green repeat: /tmp/them-page-interruption-backend-repeat.log.
-Mac Scaffold Release build is running; no result claimed yet.
+Mac Scaffold Release was interrupted (exit 75) after conflicting with the iOS
+build database. The first lifecycle iOS build exited 65 before tests due to that
+lock. The serialized iOS retry compiled but crashed in all three synchronous
+PageTalkLifecycleTests with malloc invalid-free errors (exit 65). Converted those
+tests to async XCTest execution, matching the earlier client cleanup issue.
+Full signed rerun: /tmp/them-page-lifecycle-ios-async-full.log (628 passed, exit 0).
+Failed evidence: /tmp/them-page-lifecycle-ios-full-retry.log. No passing gate
+was claimed for the final ordering adjustment until its rerun passed (exit 0):
+/tmp/them-page-lifecycle-ios-ordered-full.log.

@@ -3,6 +3,59 @@ import XCTest
 
 @MainActor
 final class ClementinePageInterruptServiceTests: XCTestCase {
+    func testLifecycleMakesReservationImmediatelyAvailableForWriterInterrupt() async throws {
+        let gate = CancelGate()
+        let service = makeLifecycleService(gate)
+        let lifecycle = PageTalkLifecycle { service.handlePageLifecycle($0) }
+        lifecycle.begin()
+        lifecycle.observeReservation("current-reservation")
+        let task = try XCTUnwrap(service.requestPageCancel(reason: "manual_typing"))
+        await task.value
+        lifecycle.finish()
+        let calls = await gate.calls()
+        XCTAssertEqual(calls.map(\.reservationId), ["current-reservation"])
+    }
+
+    func testOldCompletionCannotDisableNewHeaderlessTurnCancellation() async throws {
+        let gate = CancelGate()
+        let service = makeLifecycleService(gate)
+        let oldID = UUID(), newID = UUID()
+        service.handlePageLifecycle(.began(oldID))
+        service.handlePageLifecycle(.began(newID))
+        service.handlePageLifecycle(.finished(oldID))
+        let task = try XCTUnwrap(service.requestPageCancel(reason: "manual_typing"))
+        await task.value
+        let calls = await gate.calls()
+        XCTAssertEqual(calls.count, 1)
+        XCTAssertNil(calls.first?.reservationId)
+        XCTAssertEqual(calls.first?.sessionId, "session")
+    }
+
+    func testLateOldHeaderCannotReplaceCurrentReservation() async throws {
+        let gate = CancelGate()
+        let service = makeLifecycleService(gate)
+        let oldID = UUID(), newID = UUID()
+        service.handlePageLifecycle(.began(oldID))
+        service.handlePageLifecycle(.began(newID))
+        service.handlePageLifecycle(.reservation(newID, "new-reservation"))
+        service.handlePageLifecycle(.reservation(oldID, "old-reservation"))
+        let task = try XCTUnwrap(service.requestPageCancel(reason: "manual_typing"))
+        await task.value
+        let calls = await gate.calls()
+        XCTAssertEqual(calls.map(\.reservationId), ["new-reservation"])
+    }
+
+    private func makeLifecycleService(_ gate: CancelGate) -> ClementinePageInterruptService {
+        ClementinePageInterruptService(dependencies: .init(
+            cancelPageLane: { id, session, reason in
+                await gate.record(reservationId: id, sessionId: session, reason: reason)
+                return BackendPageCancelResult(ok: true, cancelled: true, reservationId: id,
+                    sessionId: session, dropped: [], cancelReason: reason, status: "cancelled")
+            },
+            resolveSessionId: { "session" }
+        ))
+    }
+
     func testNewTurnBeforeReservationHeaderIsNotClearedOrDeduplicated() async throws {
         let entered = expectation(description: "session cancellation started")
         let transport = DelayedPageCancellation(entered: entered)

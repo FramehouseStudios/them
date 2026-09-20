@@ -16,6 +16,7 @@ final class ClementinePageInterruptService: ObservableObject {
     private var activePageReservationId: String?
     private var pageTalkInFlight = false
     private var pageTrackingID = UUID()
+    private var activePageRequestID: UUID?
     private var lastCancelDedupKey: String?
     private var lastCancelAt: Date = .distantPast
     private let cancelDedupWindow: TimeInterval = 1.5
@@ -44,6 +45,20 @@ final class ClementinePageInterruptService: ObservableObject {
         )
     }
 
+    func handlePageLifecycle(_ event: PageTalkLifecycle.Event) {
+        switch event {
+        case .began(let id):
+            activePageRequestID = id
+            markPageTalkInFlight(true)
+        case .reservation(let id, let reservation):
+            guard activePageRequestID == id else { return }
+            notePageReservationId(reservation)
+        case .finished(let id):
+            guard activePageRequestID == id else { return }
+            markPageTalkInFlight(false)
+        }
+    }
+
     /// Capture reservation id from talk response header `x-clementine-page-reservation`.
     func notePageReservationId(_ reservationId: String?) {
         let clean = (reservationId ?? "")
@@ -64,6 +79,7 @@ final class ClementinePageInterruptService: ObservableObject {
 
     func clearActivePageReservation() {
         pageTrackingID = UUID()
+        activePageRequestID = nil
         activePageReservationId = nil
         pageTalkInFlight = false
     }

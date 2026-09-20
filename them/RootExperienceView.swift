@@ -2621,15 +2621,8 @@ struct RootExperienceView: View {
     }
 
     private func bindPageInterruptObservation(to service: ClementinePageInterruptService) {
-        backend.onPageReservationObserved = { reservationId in
-            Task { @MainActor in
-                service.notePageReservationId(reservationId)
-            }
-        }
-        backend.onPageTalkInFlightChanged = { inFlight in
-            Task { @MainActor in
-                service.markPageTalkInFlight(inFlight)
-            }
+        backend.onPageTalkLifecycleChanged = { event in
+            service.handlePageLifecycle(event)
         }
     }
 
