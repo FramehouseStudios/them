@@ -5,10 +5,6 @@
 
 import { buildShortFilmPrompt } from "./short_film_prompt.js";
 
-function trimToString(v) {
-  return v === null || v === undefined ? "" : String(v).trim();
-}
-
 /**
  * Run short-film lane for a beta request.
  * @param {object} opts
@@ -55,7 +51,17 @@ async function runShortFilmLane({ req, parsed, chatSupplier = null, signal = nul
         signal,
         lane: "Page",
       });
-      const text = trimToString(chatResult?.text || chatResult?.rawText);
+      if (chatResult?.response && !chatResult.response.ok) {
+        const err = new Error('Short-film provider request failed');
+        err.status = chatResult.response.status;
+        throw err;
+      }
+      // The production supplier returns normalized JSON, not a draft string.
+      // Never treat an error/empty response envelope as billable screenplay.
+      const content = typeof chatResult?.text === 'string'
+        ? chatResult.text
+        : JSON.parse(chatResult?.rawText || '{}')?.choices?.[0]?.message?.content;
+      const text = typeof content === 'string' ? content.trim() : '';
       if (text) {
         draft = text;
         outputTokens = Number(chatResult?.usage?.outputTokens || chatResult?.usage?.output_tokens || 800) || 800;
