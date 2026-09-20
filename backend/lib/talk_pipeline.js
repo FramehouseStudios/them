@@ -75,7 +75,7 @@ function mountPageCancelRoute(app, { pageReservationStore } = {}) {
           return res.status(400).json({ ok: false, error: "invalid_page_request_id" });
         }
         const result = pageReservationStore.cancelRequest({ sessionId, userId, requestId }, { reason });
-        if (!result.ok) return res.status(503).json(result);
+        if (!result.ok) return res.status(result.error === "page_cancel_owner_capacity" ? 429 : 503).json(result);
         return res.status(200).json({ ok: true, cancelled: result.dropped.length > 0,
           session_id: sessionId, request_id: requestId, dropped: result.dropped, cancel_reason: reason });
       }

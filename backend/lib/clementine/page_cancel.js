@@ -51,6 +51,7 @@ function createPageReservationStore({
   now = () => Date.now(),
   /** Optional D008 wallet store — cancel releases linked wallet reservation. */
   walletStore = null,
+  maxCancelledRequestsPerOwner = 1000,
 } = {}) {
   /** @type {Map<string, object>} */
   const reservations = new Map();
@@ -58,6 +59,9 @@ function createPageReservationStore({
   // reservations. Never evict a stop instruction and silently restart its turn.
   // Fail closed at capacity; callers can retry after receiving the reservation.
   const cancelledRequests = new Map();
+  const cancelledRequestCounts = new Map();
+  const ownerLimit = Number.isSafeInteger(maxCancelledRequestsPerOwner) && maxCancelledRequestsPerOwner > 0
+    ? Math.min(maxCancelledRequestsPerOwner, 10000) : 1000;
   const requestKey = (sessionId, userId, requestId) =>
     JSON.stringify([sessionId, userId, requestId]);
 
@@ -199,8 +203,11 @@ function createPageReservationStore({
 
   function cancelRequest({ sessionId, userId, requestId }, { reason = "barge_in" } = {}) {
     const key = requestKey(sessionId, userId, requestId);
-    if (!cancelledRequests.has(key) && cancelledRequests.size >= 10000) {
-      return { ok: false, error: "page_cancel_capacity" };
+    if (!cancelledRequests.has(key)) {
+      const ownerCount = cancelledRequestCounts.get(userId) || 0;
+      if (ownerCount >= ownerLimit) return { ok: false, error: "page_cancel_owner_capacity" };
+      if (cancelledRequests.size >= 10000) return { ok: false, error: "page_cancel_capacity" };
+      cancelledRequestCounts.set(userId, ownerCount + 1);
     }
     cancelledRequests.set(key, reason);
     const dropped = [];
@@ -238,6 +245,7 @@ function createPageReservationStore({
   function clear() {
     reservations.clear();
     cancelledRequests.clear();
+    cancelledRequestCounts.clear();
   }
 
   function size() {
