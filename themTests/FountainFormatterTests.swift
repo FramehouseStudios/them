@@ -202,4 +202,41 @@ final class FountainFormatterTests: XCTestCase {
 
         XCTAssertEqual(result, "(beat)")
     }
+
+    func test_pasted_action_pronouns_are_not_promoted_to_character_names() {
+        let raw = """
+        INT. KITCHEN - NIGHT
+
+        MARA stands at the sink. She does not turn around.
+
+        MARA
+        Not me.
+
+        He waits. She does not move. Then Frank steps closer.
+        """
+        let out = FountainFormatter.normalizePastedScreenplayBlock(raw, existingDraft: "")
+        XCTAssertTrue(out.contains("He waits. She does not move."), out)
+        XCTAssertFalse(out.contains("HE waits"), out)
+        XCTAssertTrue(out.contains("FRANK steps closer"), "a real first appearance is still promoted: \(out)")
+    }
+
+    func test_terse_dialogue_under_a_cue_is_not_a_page_integrity_issue() {
+        let draft = """
+        INT. KITCHEN - NIGHT
+
+        FRANK
+        I kept the receipt.
+
+        MARA (O.S.)
+        For what?
+
+        FRANK
+        (beat)
+        The ring.
+
+        Can you help me with this scene?
+        """
+        let issues = FountainFormatter.screenplayIntegrityIssues(in: draft)
+        XCTAssertEqual(issues.map(\.preview), ["Can you help me with this scene?"], "\(issues)")
+    }
 }
