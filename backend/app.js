@@ -10,7 +10,10 @@ applyAppMiddleware(app);
 
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: MAX_FILE_BYTES },
+  limits: {
+    fileSize: MAX_FILE_BYTES, files: 2, fields: 256, parts: 258,
+    fieldNameSize: 128, fieldNestingDepth: 4, fieldArrayIndexLimit: 100,
+  },
 });
 
 const talkUpload = upload.fields([
