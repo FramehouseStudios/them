@@ -9,7 +9,7 @@ cp them/Release.local.env.example them/Release.local.env
 chmod 600 them/Release.local.env
 ```
 - Fill `DEVELOPMENT_TEAM_ID`, `APP_TOKEN_RELEASE`, and `OPENAI_API_KEY` in `them/Release.local.env`.
-- Keep `BACKEND_URL=https://api.them.io` unless the hosted release backend changes.
+- Keep `BACKEND_URL=https://them-backend.onrender.com` until a custom domain passes the live backend gate. `api.them.io` currently redirects to a parked domain.
 - Confirm `PRIVACY_POLICY_URL` and `SUPPORT_EMAIL` values in `them/Info-Release.plist` are production values.
 - Do not put production values in tracked `Config.xcconfig`, screenshots, tickets, or chat. The generated `Release.local.xcconfig` is ignored, mode 600, and explicitly excluded from every app target.
 - Treat `APP_TOKEN_RELEASE` as extractable app configuration, never as a user secret or sole authorization boundary.
