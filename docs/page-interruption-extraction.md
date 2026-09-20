@@ -1,5 +1,10 @@
 # Page interruption policy extraction
 
+Current verification: 629 signed iOS tests passed on an erased simulator; final
+Mac Scaffold Release build passed (exit 0, BUILD SUCCEEDED); diff/D009 passed.
+Mac evidence: /tmp/them-page-lifecycle-macos-final.log. No merge, deployment or
+physical-phone speech-to-saved-screenplay acceptance is claimed.
+
 Scope: one D009 I2 capability from ScreenplayLiveDraftBridge, not a broad rewrite.
 The bridge still owns cancellation ordering, published state and editor requests.
 ScreenplayStreamCancellationPolicy owns queued-mode classification, pending
