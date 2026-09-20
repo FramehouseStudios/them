@@ -2,7 +2,7 @@
 
 Local branch `codex/T-page-request-cancel` combines #632 and #634. Neither
 dependency is merged; this branch must not be presented as an independent port
-off main. No new PR, deployment or device installation yet.
+off main. Draft review only; no deployment or device installation.
 
 Reproduced two production route/store failures before implementation:
 `/tmp/them-page-request-order-red.log` (five passed, two failed).
@@ -81,3 +81,44 @@ Not complete or release-ready:
 - Main remains `647e01fc`; #620 remains blocked with failed required hosted
   checks on the latest read. No merge, deploy, or bypass is authorized by green
   local tests alone.
+
+## Retention investigation
+
+The checked-in Render blueprint specifies one backend instance, but this is not
+proof of live topology or protection against deployment overlap. The physical
+iPhone was observed available/paired; that is not proof of an installed revision
+or a working speech flow.
+
+Do not reuse the existing talk-idempotency cache unchanged for cancellation:
+`backend/lib/talk_state.js` prunes entries by age/capacity and treats an absent
+entry as permission to start work. `backend/index.js`'s talk-turn metadata map
+also expires and evicts entries. A stop marker may only be removed after the
+protocol guarantees that its original request can no longer be admitted.
+The next storage change needs an explicit request-admission lifetime plus
+durable owner-scoped cancellation state, with expiry/restart/late-delivery tests.
+Simply adding a TTL would reopen the reproduced early-stop race.
+
+## Physical-device release readiness recheck
+
+The release-default branch (`/private/tmp/them-release-live-backend-default`)
+was checked using `node scripts/release_config_status.mjs --json` with resolved
+Xcode settings. BACKEND_URL correctly resolves to the HTTPS Render host. Local
+private configuration is absent: DEVELOPMENT_TEAM_ID, APP_TOKEN_RELEASE and
+the OPENAI_API_KEY required for the live release canary are not configured in
+that checkout. This does not establish whether Render has a provider key.
+The unauthenticated `/api/version` request returned 401, so the deployed revision
+was not verified. No credentials were printed, changed, or copied, and no paid
+provider request, deployment, or physical-device installation was performed.
+
+## Acknowledgement hardening
+
+Request-scoped cancellation now requires a successful response with the exact
+request_id and an explicit ok:true. A generic 200, a different turn ID, or
+ok:false must not clear the client's turn tracking. Exact early-stop responses
+with cancelled:false remain valid because the server has recorded the stop
+before a reservation exists. Two client transport tests cover these cases.
+Full signed iOS verification passed 634 tests, zero failures, exit 0 at
+`/tmp/them-page-request-ios-ack.log`; diff/D009 checks passed. Earlier macOS
+results do not include this latest client edit. The backend was unchanged since
+the 2,752-pass run. Latest Swift changes still need a fresh macOS compile before
+promotion. Keep this draft held for the storage and release risks listed above.
