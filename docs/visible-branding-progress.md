@@ -33,7 +33,9 @@ readiness. No blanket visual or live-service pass is claimed.
 The built simulator app's CFBundleDisplayName was read back as THEM.
 Full backend passed: 2,739 passed, zero failures, two skipped (2,741 total),
 48.09 seconds; /tmp/them-branding-backend-full.log.
-Mac Scaffold Release remains pending at /tmp/them-branding-macos.log.
+Mac Scaffold Release build passed, exit 0:
+/tmp/them-branding-macos-resumed.log. The earlier interrupted build is not
+counted as a pass; the resumed verification completed successfully.
 
 This is separate from #632's cancellation fix. No combined release candidate or
 physical-phone speech → reply → saved screenplay proof is claimed.
