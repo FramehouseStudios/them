@@ -253,4 +253,43 @@ final class OfflineTalkOutboxTests: XCTestCase {
         entries = await outbox.allEntries()
         XCTAssertEqual(entries, [])
     }
+
+    func testIdleDrainPublishesTheSameSnapshotOnlyOnce() async throws {
+        let outbox = OfflineTalkOutbox(storageDirectory: directory)
+        let received = ReceivedNotificationCounter()
+        let token = NotificationCenter.default.addObserver(
+            forName: .themOfflineTalkOutboxUpdated,
+            object: nil,
+            queue: .main
+        ) { _ in received.increment() }
+        defer { NotificationCenter.default.removeObserver(token) }
+
+        // Nothing queued: the first idle drain may announce itself once.
+        _ = await outbox.drainDue()
+        try await Task.sleep(nanoseconds: 300_000_000)
+        let afterFirstDrain = received.count
+
+        // Further idle drains (one per health tick) must stay silent.
+        _ = await outbox.drainDue()
+        _ = await outbox.drainDue()
+        _ = await outbox.drainDue()
+        try await Task.sleep(nanoseconds: 300_000_000)
+        XCTAssertEqual(received.count, afterFirstDrain, "an unchanged outbox must not re-notify every tick")
+
+        // A real change still notifies.
+        var request = URLRequest(url: URL(string: "https://them.test/talk")!)
+        request.httpMethod = "POST"
+        request.setValue("multipart/form-data; boundary=test", forHTTPHeaderField: "Content-Type")
+        request.setValue("idem-idle", forHTTPHeaderField: "X-Idempotency-Key")
+        _ = try await outbox.enqueue(request: request, body: Data("q".utf8), reason: "offline")
+        try await Task.sleep(nanoseconds: 300_000_000)
+        XCTAssertGreaterThan(received.count, afterFirstDrain)
+    }
+}
+
+private final class ReceivedNotificationCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = 0
+    var count: Int { lock.lock(); defer { lock.unlock() }; return value }
+    func increment() { lock.lock(); value += 1; lock.unlock() }
 }
