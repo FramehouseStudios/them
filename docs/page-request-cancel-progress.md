@@ -51,7 +51,7 @@ Not complete or release-ready:
   skips (2,753 total), 54.80 seconds, exit 0:
   `/tmp/them-page-request-backend-repeat.log`. This does not erase the earlier
   intermittent failure or establish its cause.
-- Mac Scaffold Release build is running at `/tmp/them-page-request-macos.log`.
+- Mac Scaffold Release build passed, exit 0 at `/tmp/them-page-request-macos.log`.
 - Process-local reservations/stops do not provide cross-worker or restart
   durability. Document or resolve this before production promotion.
 - Physical speech → reply → saved screenplay remains unverified.
@@ -81,3 +81,19 @@ Not complete or release-ready:
 - Main remains `647e01fc`; #620 remains blocked with failed required hosted
   checks on the latest read. No merge, deploy, or bypass is authorized by green
   local tests alone.
+
+## Retention investigation
+
+The checked-in Render blueprint specifies one backend instance, but this is not
+proof of live topology or protection against deployment overlap. The physical
+iPhone was observed available/paired; that is not proof of an installed revision
+or a working speech flow.
+
+Do not reuse the existing talk-idempotency cache unchanged for cancellation:
+`backend/lib/talk_state.js` prunes entries by age/capacity and treats an absent
+entry as permission to start work. `backend/index.js`'s talk-turn metadata map
+also expires and evicts entries. A stop marker may only be removed after the
+protocol guarantees that its original request can no longer be admitted.
+The next storage change needs an explicit request-admission lifetime plus
+durable owner-scoped cancellation state, with expiry/restart/late-delivery tests.
+Simply adding a TTL would reopen the reproduced early-stop race.
