@@ -118,7 +118,7 @@ ok:false must not clear the client's turn tracking. Exact early-stop responses
 with cancelled:false remain valid because the server has recorded the stop
 before a reservation exists. Two client transport tests cover these cases.
 Full signed iOS verification passed 634 tests, zero failures, exit 0 at
-`/tmp/them-page-request-ios-ack.log`; diff/D009 checks passed. Earlier macOS
-results do not include this latest client edit. The backend was unchanged since
-the 2,752-pass run. Latest Swift changes still need a fresh macOS compile before
-promotion. Keep this draft held for the storage and release risks listed above.
+`/tmp/them-page-request-ios-ack.log`; diff/D009 checks passed. Final Mac Scaffold
+Release build also passed, exit 0 at `/tmp/them-page-request-macos-ack.log`.
+The backend was unchanged since the 2,752-pass run. Keep this draft held for
+the storage and release risks listed above.
