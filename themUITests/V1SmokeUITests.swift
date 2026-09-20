@@ -792,9 +792,14 @@ final class V1SmokeUITests: XCTestCase {
 
         let themTab = app.buttons["studio.right-panel.them"]
         XCTAssertTrue(themTab.waitForExistence(timeout: 8))
+        XCTAssertEqual(themTab.label, "Clementine")
         themTab.tap()
 
         XCTAssertTrue(app.descendants(matching: .any)["studio.them.panel"].waitForExistence(timeout: 4))
+        let brandingScreenshot = XCTAttachment(screenshot: app.screenshot())
+        brandingScreenshot.name = "Clementine inspector branding"
+        brandingScreenshot.lifetime = .keepAlways
+        add(brandingScreenshot)
         let drawer = element(identifier: "studio.sidebar.right.drawer", in: app)
 
         let creativePartner = element(identifier: "studio.them.creative-partner", in: app)
@@ -2977,7 +2982,7 @@ final class V1SmokeUITests: XCTestCase {
                rightToggle.label.localizedCaseInsensitiveContains("Open") {
                 rightToggle.tap()
             }
-            let themTab = app.buttons["io.them"]
+            let themTab = app.buttons["Clementine"]
             if themTab.exists, themTab.isHittable, !themTab.isSelected {
                 themTab.tap()
             }
@@ -2995,7 +3000,7 @@ final class V1SmokeUITests: XCTestCase {
                rightToggle.label.localizedCaseInsensitiveContains("Open") {
                 rightToggle.tap()
             }
-            let themTab = app.buttons["io.them"]
+            let themTab = app.buttons["Clementine"]
             if themTab.exists, themTab.isHittable, !themTab.isSelected {
                 themTab.tap()
             }

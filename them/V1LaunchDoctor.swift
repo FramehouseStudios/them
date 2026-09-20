@@ -28,7 +28,7 @@ enum V1LaunchDoctorFlow: String, CaseIterable, Codable, Identifiable {
                 checklist: [
                     "Start a fresh session.",
                     "Record a short emotional scene prompt by voice.",
-                    "Confirm io.them transcribes the prompt and replies.",
+                    "Confirm Clementine transcribes the prompt and replies.",
                     "Confirm audio playback is audible.",
                     "Confirm the turn appears in saved history after relaunch.",
                 ],
@@ -54,9 +54,9 @@ enum V1LaunchDoctorFlow: String, CaseIterable, Codable, Identifiable {
                 flow: self,
                 title: "Creative Memory",
                 v1Pillar: "memory",
-                goal: "Confirm io.them remembers safe creative context and exposes enough shape to diagnose memory.",
+                goal: "Confirm Clementine remembers safe creative context and exposes enough shape to diagnose memory.",
                 checklist: [
-                    "Ask io.them to remember a character name and creative constraint.",
+                    "Ask Clementine to remember a character name and creative constraint.",
                     "Start a later turn and ask for continuity from that character.",
                     "Open Data Controls and refresh Memory Shape.",
                     "Confirm the answer uses the remembered context without exposing raw private data unexpectedly.",
@@ -212,7 +212,7 @@ struct V1LaunchDoctorReport: Codable, Equatable {
 
     var markdown: String {
         var lines: [String] = []
-        lines.append("# io.them V1 Launch Doctor")
+        lines.append("# THEM V1 Launch Doctor")
         lines.append("")
         lines.append("- Generated: \(Self.isoString(from: generatedAt))")
         lines.append("- Overall: \(overallStatus.rawValue)")
