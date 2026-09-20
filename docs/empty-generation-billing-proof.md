@@ -25,11 +25,15 @@ No merge, deployment, or physical-device verification is authorized by this proo
 - Full backend, Node 24.19.0, spawned isolated test servers:
   2,751 passed, zero failed, two skipped (2,753 tests).
   Log: `/tmp/them-empty-billing-backend-supplier.log`.
-  This predates the response-settlement follow-up. The latest full run is RED:
+  This predates the response-settlement follow-up. An intermediate full run was RED:
   2,756 passed, one failed, two skipped (2,759 tests), log
   `/tmp/them-empty-billing-handler-final.log`. The failed oversized-import test
   received `UND_ERR_SOCKET` instead of its expected structured 413. Its isolated
   suite then passed 22/22; this does not make the full run green.
+- Final authenticated preservation/restart revision: full backend 2,757 passed,
+  zero failed, two skipped (2,759 tests), Node 24.19.0. Log:
+  `/tmp/them-empty-billing-authenticated-full.log`. Both restart tests ran in this
+  suite (847/827 ms). The earlier intermittent import failure remains documented.
 - Follow-up handler/settlement tests: six passed. An earlier full run exposed
   lifecycle listeners attached to a non-wallet request; listeners were narrowed
   to actual wallet reservations, and the ten reflex tests pass.
@@ -45,16 +49,20 @@ No merge, deployment, or physical-device verification is authorized by this proo
 ## Still required before readiness
 
 - Real full `/talk` regressions now prove empty output and quality-rejected prose
-  leave session history and wallet balance unchanged. They execute the production
+  leave session history, an authenticated existing saved screenplay, and wallet
+  balance unchanged. Draft text and wallet balance also survive backend restart.
+  They execute the production
   HTTP route, handler, supplier, and quality code with transport-only stubs; a
   marker asserts that generation was reached. Four adapter tests cover success,
   recovery, disconnect, and exceptions, including repeated lifecycle events.
-- Existing saved-project content and client-side save acknowledgement still need
-  end-to-end proof. Response completion is not proof of a durable phone save.
+- Client-side save acknowledgement still needs end-to-end proof. Response
+  completion is not proof of a durable phone save.
 - Process-crash recovery of reserved wallet funds is not covered by these tests;
   response lifecycle settlement only covers a running server process.
 - Complete the live quality gate after external-data approval, then publish a
   scoped draft PR with exact results for human/Claude review. Do not merge.
-- Resolve the intermittent oversized-import connection reset and obtain a full
-  backend proof for the final revision; keep this separate from billing logic.
+- Track the intermittent oversized-import connection reset separately from billing.
+  Investigation on untouched main's route passed both 30 same-server uploads and
+  30 fresh-server uploads. Isolated local branch `codex/T-import-oversize-response`
+  preserves the fresh-server stress test only; no production import fix is claimed.
 - Phone speech → reply → saved screenplay remains unverified by these tests.
