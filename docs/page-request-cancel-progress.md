@@ -97,3 +97,15 @@ protocol guarantees that its original request can no longer be admitted.
 The next storage change needs an explicit request-admission lifetime plus
 durable owner-scoped cancellation state, with expiry/restart/late-delivery tests.
 Simply adding a TTL would reopen the reproduced early-stop race.
+
+## Physical-device release readiness recheck
+
+The release-default branch (`/private/tmp/them-release-live-backend-default`)
+was checked using `node scripts/release_config_status.mjs --json` with resolved
+Xcode settings. BACKEND_URL correctly resolves to the HTTPS Render host. Local
+private configuration is absent: DEVELOPMENT_TEAM_ID, APP_TOKEN_RELEASE and
+the OPENAI_API_KEY required for the live release canary are not configured in
+that checkout. This does not establish whether Render has a provider key.
+The unauthenticated `/api/version` request returned 401, so the deployed revision
+was not verified. No credentials were printed, changed, or copied, and no paid
+provider request, deployment, or physical-device installation was performed.
