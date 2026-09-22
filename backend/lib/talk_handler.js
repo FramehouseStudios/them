@@ -80,6 +80,7 @@ import { parseShortFilmIntent } from "./clementine/short_film_intent.js";
 import { buildLivePaperPayload } from "./clementine/studio_live_paper.js";
 import { applyClementineTalkHeaders } from "./clementine/talk_clementine_headers.js";
 import { isMentorTurn, elevateChatModelPlanForMentorTurn } from "./mentor_turn.js";
+import { shapeMentorReply } from "./mentor_reply_shape.js";
 import {
   parseStudioCapabilities,
   buildStudioControlsBlock,
@@ -4198,6 +4199,13 @@ ${directorOutputRule}
       flags,
     });
     let reply = normalizeSnippet(rawReply, 8_000);
+    // Mentor turns: a grade of the premise is not an answer; drop it before
+    // anything is spoken. Page writes are never shaped.
+    const mentorShape = shapeMentorReply(reply, { mentorTurn, screenplayPageWrite: isScreenplayPageWriteTurn });
+    if (mentorShape.stripped) {
+      reply = mentorShape.text;
+      logger.log(`[${rid}] mentor_opener_stripped=${JSON.stringify(mentorShape.stripped)}`);
+    }
     // Studio actions: strip [[studio: …]] tags before anything is spoken and
     // keep the validated actions for the response header.
     const studioActionExtraction = extractStudioActions(reply, studioCapabilities);

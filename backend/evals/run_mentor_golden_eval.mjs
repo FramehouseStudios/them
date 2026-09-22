@@ -23,6 +23,7 @@ import { fileURLToPath } from "node:url";
 import { CASES, CATEGORIES } from "./mentor_conversation/cases.mjs";
 import { scoreMentorReply, THRESHOLDS } from "./mentor_conversation/score_mentor_reply.js";
 import { createPersonaRuntime } from "../lib/persona.js";
+import { shapeMentorReply } from "../lib/mentor_reply_shape.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..", "..");
@@ -160,6 +161,10 @@ for (const testCase of cases) {
   } catch (err) {
     error = String(err?.message || err);
   }
+  // The app shapes mentor replies before speaking them (lib/mentor_reply_shape.js);
+  // measure what the writer hears.
+  const shaped = shapeMentorReply(reply, { mentorTurn: true, screenplayPageWrite: false });
+  reply = shaped.text;
   const scored = reply ? scoreMentorReply(reply, testCase) : { overall: 0, verdict: "FAIL", dimensions: {} };
   const registerScore = scored.dimensions?.register?.score ?? 0;
   const line = `${scored.verdict === "PASS" ? "PASS" : scored.verdict === "FAIL" ? "FAIL" : "EDGE"}  ${testCase.id}  overall=${scored.overall} register=${registerScore}${error ? `  error=${error}` : ""}`;
