@@ -17,6 +17,7 @@ import {
   peekVoiceSpecHints,
   tryTalkEdgeReflex,
   sendReflexReply,
+  peekConversationFreshness,
 } from "./talk_edge_adapter.js";
 import {
   isPageMultipassEnabled,
@@ -246,13 +247,18 @@ function createPageLaneTalkAdapter({
     // --- Reflex short-circuit (before wallet / Spark) ---
     // greetings / thanks / check-ins / acks / soft silence via templates.
     // See talk_edge_adapter.js + reflex_lane.js. No CoreML / Glimmer yet.
-    const earlyLane = resolveTalkLane(utterance, hints);
+    const freshConversation = peekConversationFreshness(req);
+    const earlyLane = resolveTalkLane(utterance, { ...hints, fresh: freshConversation });
     const reflexHit = tryTalkEdgeReflex({
       text: utterance,
       laneInfo: earlyLane,
       knownFacts: peekKnownFacts(req),
       voiceSpecHints: peekVoiceSpecHints(req),
+      freshConversation,
     });
+    if (!reflexHit?.handled && freshConversation && earlyLane?.intent === "greeting") {
+      logger?.log?.("[clementine/reflex] skipped greeting template on a fresh conversation (scene pitch goes to the model)");
+    }
     if (reflexHit?.handled) {
       req.clementine = {
         intent: earlyLane.intent,

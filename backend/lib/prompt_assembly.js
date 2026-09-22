@@ -73,7 +73,14 @@ const DIALOGUE_LOOP_INTENTS = Object.freeze([
   "rewrite_scene",
   "continue_script",
   "dialogue_punchup",
+  "dialogue_notes",
   "momentum_rescue",
+]);
+const DIALOGUE_NOTES_CONTRACT = Object.freeze([
+  "shape: one sentence naming what the line is doing (on the nose, a label, exposition, or a tactic that already works), then exactly one rewritten line in quotes that carries the same feeling through behavior or tactic, then stop.",
+  "register: spoken prose in Clementine's voice; no Fountain block, no list, no headers; keep the writer's character names and the scene's facts.",
+  "honesty: never praise a line that announces its feeling; if the line already works, say why in one sentence and offer no rewrite.",
+  "scope: note the line the writer read, not the whole scene; one question at most, only if it unlocks the rewrite.",
 ]);
 const CLEMENTINE_DIALOGUE_LOOP_CONTRACT = Object.freeze([
   "self_check: silently repair the weakest line for character-specific tactic, subtext, power shift, behavior, and distinct voice.",
@@ -508,6 +515,16 @@ function inferScreenplayTask(userInput = "") {
     /\bmake (?:the )?(?:dialogue|line|lines|exchange|argument|conversation|voices?) (?:sharper|tighter|cleaner)\b/,
   ]);
   const dialoguePunchupLike = explicitDialoguePunchupLike && (!rewriteLike || hasAny(lower, [/\bpunch[- ]up\b/]));
+  // Dialogue notes: the writer reads a line and wants it judged, not rewritten
+  // wholesale. Wins over scene_doctor when the ask is line-sized.
+  const dialogueNotesLike = dialogueLike && !rewriteLike && !explicitDialoguePunchupLike && hasAny(lower, [
+    /\b(notes?|thoughts|feedback|opinion|take) on (this|the|that|my|her|his) (line|exchange|dialogue|speech|monologue)\b/,
+    /\b(does|is) (this|the|that|my) (line|exchange|dialogue|speech|monologue) (work|working|land|landing|too on[- ]the[- ]nose|on[- ]the[- ]nose|too direct|too much)\b/,
+    /\bon[- ]the[- ]nose\b/,
+    /\b(she|he|they|[a-z]+) says:/,
+    /\b(here'?s|this is|try) (my|the|a|her|his) (line|exchange|confession|apology)\b/,
+    /\b(read|check|look at|hear) (this|the|my) (line|exchange|dialogue)\b/,
+  ]);
   const continueLike = hasAny(lower, [
     /\b(continue|keep going|keep writing|carry on|carry this forward|take it from here|next page|next scene|what happens next|what should happen next|finish this scene|from here)\b/,
   ]);
@@ -547,7 +564,11 @@ function inferScreenplayTask(userInput = "") {
   let label = "General Story Help";
   let output = "Give specific, cinematic story guidance with one concrete next move.";
 
-  if (sceneDoctorLike && !rewriteLike) {
+  if (dialogueNotesLike) {
+    intent = "dialogue_notes";
+    label = "Dialogue Notes";
+    output = "Give a dialogue note the way a writers' room does: name what the line is doing in one sentence, then give exactly one rewritten line in quotes that carries the feeling through behavior or tactic, then stop. Spoken prose, no Fountain block, no list. Never praise a line that announces its feeling.";
+  } else if (sceneDoctorLike && !rewriteLike) {
     intent = "scene_doctor";
     label = "Scene Doctor";
     output = "Give concise script-doctor notes: what works, what is not landing, and the highest-leverage fix. Include sample replacement lines only when useful.";
@@ -768,6 +789,12 @@ function buildScreenplayTaskBlock(screenplayTask) {
   if (DIALOGUE_LOOP_INTENTS.includes(intent)) {
     lines.push("dialogue_loop:");
     for (const item of CLEMENTINE_DIALOGUE_LOOP_CONTRACT) {
+      lines.push(`  - ${item}`);
+    }
+  }
+  if (intent === "dialogue_notes") {
+    lines.push("dialogue_notes_contract:");
+    for (const item of DIALOGUE_NOTES_CONTRACT) {
       lines.push(`  - ${item}`);
     }
   }
