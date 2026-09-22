@@ -5604,6 +5604,14 @@ final class ScreenplayStudioViewModel: ObservableObject {
         await recomputePagination(for: draft, source: "Draft")
         await recomputeRevision(for: draft, source: "Draft")
         Task { await self.refreshFormatLint(source: "Draft") }
+        if ScreenplayCoverageRefreshPolicy.shouldRefresh(
+            current: coverageReport,
+            draft: draft,
+            isRefreshing: isCoverageRefreshing,
+            isStreaming: isStreamingDraftPreviewActive
+        ) {
+            Task { await self.refreshCoverage(source: "Draft", speak: false) }
+        }
 
         if isStreamingDraftPreviewActive {
             autosaveStatusText = "Receiving live draft..."

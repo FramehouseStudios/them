@@ -78,4 +78,21 @@ final class ScreenplayCoverageTests: XCTestCase {
         XCTAssertEqual((coverage["missing"] as? [String])?.count, 1)
         XCTAssertNil(StudioCapabilitiesSnapshot().coverage)
     }
+
+    func test_refresh_policy_follows_page_and_scene_count_only() throws {
+        let report = try decodeSample() // 1 page, 1 scene
+        let onePage = "INT. KITCHEN - NIGHT\n\nMARA stands at the sink.\n\nMARA\nYou said you would call.\n"
+        XCTAssertEqual(ScreenplayCoverageRefreshPolicy.shape(of: onePage), .init(pageCount: 1, sceneCount: 1))
+        // Same shape: a word edit inside the page does not re-read.
+        XCTAssertFalse(ScreenplayCoverageRefreshPolicy.shouldRefresh(current: report, draft: onePage, isRefreshing: false, isStreaming: false))
+        // A new scene re-reads.
+        let twoScenes = onePage + "\nEXT. PORCH - DAWN\n\nFRANK sits on the step.\n"
+        XCTAssertTrue(ScreenplayCoverageRefreshPolicy.shouldRefresh(current: report, draft: twoScenes, isRefreshing: false, isStreaming: false))
+        // No read yet and pages exist: read.
+        XCTAssertTrue(ScreenplayCoverageRefreshPolicy.shouldRefresh(current: nil, draft: onePage, isRefreshing: false, isStreaming: false))
+        // Empty draft, in-flight read, or live streaming: never.
+        XCTAssertFalse(ScreenplayCoverageRefreshPolicy.shouldRefresh(current: nil, draft: "   ", isRefreshing: false, isStreaming: false))
+        XCTAssertFalse(ScreenplayCoverageRefreshPolicy.shouldRefresh(current: report, draft: twoScenes, isRefreshing: true, isStreaming: false))
+        XCTAssertFalse(ScreenplayCoverageRefreshPolicy.shouldRefresh(current: report, draft: twoScenes, isRefreshing: false, isStreaming: true))
+    }
 }
