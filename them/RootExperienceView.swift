@@ -6772,7 +6772,8 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 shouldWriteToPage: preparedPrompt.shouldWriteToPage
             )
         }
-        let initialStudioMetadata = initialStudioTalkMetadata(from: preparedPrompt)
+        var initialStudioMetadata = initialStudioTalkMetadata(from: preparedPrompt)
+        initialStudioMetadata?.studioCapabilitiesJSON = StudioCapabilitiesSnapshot.current(bridge: screenplayDraftBridge, studioOpen: isStudioSurfaceActive).json()
         let talkScreenplayGenerationTranscript: String? = {
             guard preparedPrompt.shouldWriteToPage else { return nil }
             let confirmedContext = confirmedStudioPageWriteContext(for: preparedPrompt.directorText)
@@ -7073,6 +7074,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
                     clientTranscriptOverride: cleanClientTranscriptOverride.isEmpty ? nil : cleanClientTranscriptOverride,
                     screenplayGenerationTranscriptOverride: talkScreenplayGenerationTranscript,
                     onResponseMetadataReady: { metadata in
+                        StudioActionDispatcher.dispatch(metadata.studioActions, studioOpen: isStudioSurfaceActive, openStudio: { openStudio() })
                         Task { @MainActor in
                             if preparedPrompt.useScreenplayMode {
                                 screenplayDraftBridge.updateScreenplayQualityStatus(

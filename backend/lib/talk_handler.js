@@ -80,6 +80,13 @@ import { parseShortFilmIntent } from "./clementine/short_film_intent.js";
 import { buildLivePaperPayload } from "./clementine/studio_live_paper.js";
 import { applyClementineTalkHeaders } from "./clementine/talk_clementine_headers.js";
 import { isMentorTurn, elevateChatModelPlanForMentorTurn } from "./mentor_turn.js";
+import {
+  parseStudioCapabilities,
+  buildStudioControlsBlock,
+  extractStudioActions,
+  encodeStudioActionsHeader,
+  HEADER_NAME as STUDIO_ACTIONS_HEADER,
+} from "./studio_actions.js";
 import { resolveCompanionArcsPolicy, applyCompanionArcsPolicy } from "./companion_arcs_policy.js";
 import { composeTalkSystemPrompt } from "./talk_prompt.js";
 import { runTalkGenerate } from "./talk_generate.js";
@@ -2062,6 +2069,7 @@ function createTalkHandler(deps) {
     }
 
     const customSystemPrompt = normalizeSystemPrompt(req.body?.system_prompt || req.body?.systemPrompt);
+    const studioCapabilities = parseStudioCapabilities(req.body?.studio_capabilities ?? req.body?.studioCapabilities);
     const clientPartialTranscriptHint = normalizeSnippet(
       req.body?.partial_transcript_hint ?? req.body?.partialTranscriptHint,
       320
@@ -3919,6 +3927,9 @@ GUIDANCE:
 ${directorOutputRule}
 `.trim();
     }
+    if (studioCapabilities.enabled && (mentorTurn || screenplayContextActive) && !isScreenplayPageWriteTurn) {
+      directorAddendum = appendDirectorAddendum(directorAddendum, buildStudioControlsBlock(studioCapabilities));
+    }
 
     // ---- talk_prompt stage: compose system prompt ----
     const companionArcsPolicy = resolveCompanionArcsPolicy();
@@ -4184,6 +4195,15 @@ ${directorOutputRule}
       flags,
     });
     let reply = normalizeSnippet(rawReply, 8_000);
+    // Studio actions: strip [[studio: …]] tags before anything is spoken and
+    // keep the validated actions for the response header.
+    const studioActionExtraction = extractStudioActions(reply, studioCapabilities);
+    if (studioActionExtraction.stripped || studioActionExtraction.actions.length) {
+      reply = studioActionExtraction.spokenText;
+      logger.log(
+        `[${rid}] studio_actions=${JSON.stringify(studioActionExtraction.actions)} rejected=${JSON.stringify(studioActionExtraction.rejected)}`
+      );
+    }
     let replyRepaired = false;
     let heuristicTurnQuality = null;
     if (speculativeReuseApplied) {
@@ -5095,6 +5115,10 @@ ${directorOutputRule}
       const _clemOwnerKey2 = String(req.authUser?.id || req.userId || req.body?.ownerKey || "") || (typeof ownerKey !== "undefined" ? String(ownerKey) : "");
       applyClementineTalkHeaders(res, { project: _clemProject2, draft: _clemDraft2, parsed: _clemParsed2, quality: _clemQuality2, collabCursor: _clemCursor2, ownerKey: _clemOwnerKey2 });
     } catch (_) {}
+    const studioActionsHeader = encodeStudioActionsHeader(studioActionExtraction?.actions);
+    if (studioActionsHeader) {
+      res.setHeader(STUDIO_ACTIONS_HEADER, studioActionsHeader);
+    }
     res.setHeader("x-reply-repaired", replyRepaired ? "1" : "0");
     res.setHeader("x-tts-provider", encodeURIComponent(ttsProviderUsed));
     res.setHeader(
