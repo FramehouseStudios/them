@@ -994,7 +994,7 @@ function mountPromptRoutes(app, {
     const craftFrameworkId = trimToString(
       req.body?.craft_framework_id ?? req.body?.craftFrameworkId,
       96
-    ) || "save-the-cat";
+    ) || "three-act";
     let craftContextApplied = false;
     if (includeCraftContext && typeof buildCraftContextBlock === "function") {
       const craftBlock = buildCraftContextBlock({ framework: craftFrameworkId });
