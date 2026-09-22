@@ -5917,36 +5917,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
     }
 
     private func autoCreatedStudioProjectTitle(for draft: String, pack: String) -> String {
-        let lines = draft
-            .split(whereSeparator: \.isNewline)
-            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-        let candidate = lines.first(where: { line in
-            let upper = line.uppercased()
-            return !upper.hasPrefix("INT.") &&
-                !upper.hasPrefix("EXT.") &&
-                !upper.hasPrefix("EST.") &&
-                !upper.hasPrefix(".")
-        }) ?? lines.first ?? ""
-
-        let sanitized = candidate
-            .replacingOccurrences(of: "[^A-Za-z0-9 ]+", with: " ", options: .regularExpression)
-            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-
-        if sanitized.count >= 4 {
-            let trimmed = String(sanitized.prefix(48)).trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmed.isEmpty {
-                return trimmed
-            }
-        }
-
-        let cleanPack = pack.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !cleanPack.isEmpty {
-            return cleanPack.replacingOccurrences(of: "_", with: " ").capitalized
-        }
-
-        return "Studio Draft \(Date().formatted(date: .abbreviated, time: .omitted))"
+        ScreenplayProjectAutoTitle.title(for: draft, pack: pack)
     }
 
     @MainActor
