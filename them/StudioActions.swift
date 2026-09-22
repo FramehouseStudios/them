@@ -33,13 +33,44 @@ enum StudioActionParser {
     }
 }
 
-/// The outline's beat labels, published by the Studio screen whenever the
-/// outline changes, so the capabilities snapshot can offer them to her even
-/// though the live-draft bridge does not carry the outline.
+/// The compact form of her last coverage read, sent with every Studio turn so
+/// her conversation quotes the read the writer is looking at.
+struct StudioCoverageSummary: Codable, Equatable {
+    var grade: String
+    var verdict: String
+    var overall: Double
+    var pageCount: Int
+    var sceneCount: Int
+    var pillars: [String: Double]
+    var missing: [String]
+    var move: String
+
+    enum CodingKeys: String, CodingKey {
+        case grade, verdict, overall, pillars, missing, move
+        case pageCount = "page_count"
+        case sceneCount = "scene_count"
+    }
+
+    init(report: BackendScreenplayCoverageReport) {
+        grade = report.grade
+        verdict = report.verdict.lowercased()
+        overall = report.overall
+        pageCount = report.pageCount
+        sceneCount = report.sceneCount
+        pillars = report.pillars.mapValues(\.score)
+        missing = Array(report.missing.prefix(2))
+        move = report.move
+    }
+}
+
+/// Studio state the live-draft bridge does not carry but her turns need: the
+/// outline's beat labels (published by the Studio screen whenever the outline
+/// changes) and the summary of her last coverage read (set by the view model).
 @MainActor
 final class StudioOutlineRegistry {
     static let shared = StudioOutlineRegistry()
     var beatLabels: [String] = []
+    var coverageSummary: StudioCoverageSummary?
 
     func update(beats: [BackendScreenplayBeat]) {
         beatLabels = beats
@@ -57,6 +88,7 @@ struct StudioCapabilitiesSnapshot: Codable, Equatable {
     var revisionColors: [String] = ["white", "blue", "pink", "yellow", "green", "goldenrod", "buff", "salmon", "cherry"]
     var sceneLabels: [String] = []
     var beatLabels: [String] = []
+    var coverage: StudioCoverageSummary? = nil
     var currentTab: String = ""
     var hasProject: Bool = false
     var hasDraft: Bool = false
@@ -69,6 +101,7 @@ struct StudioCapabilitiesSnapshot: Codable, Equatable {
         case revisionColors = "revision_colors"
         case sceneLabels = "scene_labels"
         case beatLabels = "beat_labels"
+        case coverage
         case currentTab = "current_tab"
         case hasProject = "has_project"
         case hasDraft = "has_draft"
@@ -83,6 +116,7 @@ struct StudioCapabilitiesSnapshot: Codable, Equatable {
         var snapshot = StudioCapabilitiesSnapshot()
         snapshot.sceneLabels = Array(labels.prefix(40))
         snapshot.beatLabels = Array(StudioOutlineRegistry.shared.beatLabels.prefix(40))
+        snapshot.coverage = StudioOutlineRegistry.shared.coverageSummary
         snapshot.currentTab = currentTab
         snapshot.hasProject = !bridge.preferredProjectID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         snapshot.hasDraft = !draft.isEmpty

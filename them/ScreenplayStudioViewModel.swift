@@ -1622,6 +1622,9 @@ final class ScreenplayStudioViewModel: ObservableObject {
     @Published var isManualDraftEditing: Bool = false
     @Published var paginationPages: [BackendScreenplayPaginationPage] = []
     @Published var isPagesOverviewPresented: Bool = false
+    @Published var coverageReport: BackendScreenplayCoverageReport? = nil
+    @Published var isCoverageRefreshing: Bool = false
+    @Published var coverageErrorText: String = ""
     @Published var isPaginationRefreshing: Bool = false
     @Published var paginationErrorText: String = ""
     @Published var linesPerPage: Int = 55
@@ -4320,6 +4323,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         isHydratingDraft = false
         hasUnsavedDraftChanges = fingerprint(for: nextDraft) != lastSavedDraftFingerprint
         autosaveStatusText = "Imported draft"
+        Task { await refreshCoverage(source: sourceName, speak: true) }
         infoText = shouldAppend
             ? "Imported \(sourceName) and appended it to the current draft. Clear the draft first if you want a clean replacement."
             : "Imported \(sourceName) into the draft."
@@ -4338,6 +4342,38 @@ final class ScreenplayStudioViewModel: ObservableObject {
         await recomputePagination(for: fountainDraft, source: source)
         await recomputeRevision(for: fountainDraft, source: source)
         await refreshFormatLint(source: source)
+    }
+
+    /// Clementine's read of the current draft (grade, verdict, pillars). Runs
+    /// after an import and on demand from the Craft tab; `speak` hands the
+    /// spoken read to the home voice.
+    func refreshCoverage(source: String = "Draft", speak: Bool = false) async {
+        let draft = fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !draft.isEmpty else {
+            coverageReport = nil
+            coverageErrorText = ""
+            StudioOutlineRegistry.shared.coverageSummary = nil
+            return
+        }
+        isCoverageRefreshing = true
+        defer { isCoverageRefreshing = false }
+        do {
+            let result = try await BackendMemoryAPI.shared.fetchScreenplayCoverage(
+                draft: draft,
+                title: selectedProject?.title ?? ""
+            )
+            coverageReport = result.payload
+            coverageErrorText = ""
+            StudioOutlineRegistry.shared.coverageSummary = StudioCoverageSummary(report: result.payload)
+            let readLine = "Clementine's read: \(result.payload.grade), \(result.payload.verdict.lowercased())."
+            infoText = infoText.isEmpty ? readLine : "\(infoText) \(readLine)"
+            if speak {
+                ScreenplayCoveragePresentation.requestSpeech(result.payload.spoken)
+            }
+        } catch {
+            let presented = StudioCraftResilience.presentedError(error, source: source, subject: "coverage")
+            coverageErrorText = presented.isEmpty ? "Clementine could not read the pages right now." : presented
+        }
     }
 
     func refreshPagination(source: String = "Draft") async {
