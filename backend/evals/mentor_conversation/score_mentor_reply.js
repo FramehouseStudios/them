@@ -153,11 +153,31 @@ export function scoreBuildOnWriter(reply, { writerNouns = [] } = {}) {
   return { score: clamp(score), notes };
 }
 
+// A structural term counts when the reply says it the way a mentor says it in
+// the room, not only as the textbook label. The golden exemplars use both.
+const TERM_SYNONYMS = Object.freeze({
+  "why now": [/why now/, /starts? today/, /start today/, /why today/, /not last (year|week|month)/],
+  "obstacle": [/obstacle/, /in (his|her|their|the) way/, /standing in/, /stands in/],
+  "want": [/\bwants?\b/, /\bneeds?\b/],
+  "reversal": [/reversal/, /flips?/, /turns? (the )?(tactic|strategy|plan)/, /false (win|victory|defeat|loss)/],
+  "commitment": [/commit/, /choice (he|she|they) can'?t take back/, /can'?t go back/, /no way back/, /point of no return/],
+  "inciting incident": [/inciting incident/, /inciting event/],
+  "midpoint": [/midpoint/, /mid-point/, /middle of the (script|story|film)/],
+  "act one": [/act one/, /act 1\b/, /act i\b/],
+  "act two": [/act two/, /act 2\b/, /act ii\b/],
+});
+
+function termPresent(lower, term) {
+  if (lower.includes(term)) return true;
+  const alts = TERM_SYNONYMS[term];
+  return Array.isArray(alts) ? alts.some((re) => re.test(lower)) : false;
+}
+
 export function scoreStructureAccuracy(reply, { expectTerms = [], expectPages = [] } = {}) {
   const text = String(reply || "");
   const lower = text.toLowerCase();
   const notes = [];
-  const found = expectTerms.filter((t) => lower.includes(String(t).toLowerCase()));
+  const found = expectTerms.filter((t) => termPresent(lower, String(t).toLowerCase()));
   let score = expectTerms.length
     ? 1 + (found.length / expectTerms.length) * 3
     : 4;
