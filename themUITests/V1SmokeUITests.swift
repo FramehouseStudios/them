@@ -45,6 +45,64 @@ final class V1SmokeUITests: XCTestCase {
 #endif
     }
 
+    func test_studio_home_counts_printed_pages_and_opens_numbered_page_overview() throws {
+#if os(iOS)
+        let app = launchApp(openStudio: true)
+        defer { app.terminate() }
+        let editor = app.textViews["studio.draft.editor"]
+        XCTAssertTrue(
+            editor.waitForExistence(timeout: 10),
+            "The screenplay page did not expose its editable text surface.\n\(app.debugDescription)"
+        )
+        let chip = app.buttons["studio.draft.page.pages"]
+        XCTAssertTrue(chip.waitForExistence(timeout: 6), "Studio home did not show the printed-page chip.")
+        XCTAssertTrue(chip.label.contains("No pages yet"), "Empty draft should read 'No pages yet', got: \(chip.label)")
+
+        let slugline = "INT. KITCHEN - NIGHT"
+        editor.tap()
+        editor.typeText(slugline)
+        XCTAssertTrue(
+            waitForDraft(in: app, containing: slugline, timeout: 8),
+            "The slugline did not land on the page. Draft: \(accessibleDraftText(in: app))"
+        )
+        let onePage = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "label CONTAINS %@", "1 page"),
+            object: chip
+        )
+        XCTAssertEqual(
+            XCTWaiter().wait(for: [onePage], timeout: 6),
+            .completed,
+            "The page chip did not count the typed draft as one printed page: \(chip.label)"
+        )
+
+        XCTAssertTrue(waitForHittability(of: chip, timeout: 4))
+        chip.tap()
+        let overview = element(identifier: "studio.pages.overview", in: app)
+        XCTAssertTrue(overview.waitForExistence(timeout: 6), "Tapping the page chip did not open the page overview.")
+        let summary = element(identifier: "studio.pages.overview.summary", in: app)
+        XCTAssertTrue(summary.waitForExistence(timeout: 4))
+        XCTAssertTrue(summary.label.contains("1 page"), "Overview summary should count one page, got: \(summary.label)")
+        XCTAssertTrue(summary.label.contains("54 lines per printed page"), summary.label)
+        let pageOne = app.buttons["studio.pages.overview.page.1"]
+        XCTAssertTrue(pageOne.waitForExistence(timeout: 4), "Page 1 card was not rendered.")
+        XCTAssertTrue(pageOne.label.contains("Page 1 of 1"), pageOne.label)
+
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "studio-pages-overview.png"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+
+        pageOne.tap()
+        XCTAssertTrue(
+            waitForDisappearance(of: overview, timeout: 6),
+            "Tapping a page card should jump to it and dismiss the overview."
+        )
+        XCTAssertTrue(editor.waitForExistence(timeout: 4))
+#else
+        throw XCTSkip("The printed-page overview covers the iPhone Studio home.")
+#endif
+    }
+
     func test_profile_exposes_local_demo_and_keychain_remember_options_separately_from_apple() {
         let app = launchApp()
         defer { app.terminate() }
