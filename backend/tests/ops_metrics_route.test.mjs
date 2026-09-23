@@ -276,3 +276,25 @@ test("[ops-metrics-route] safe-public posture: no per-user content", async () =>
     }
   });
 });
+
+test("[ops-metrics-route] provider_budget is the guard's snapshot when wired, null when not", async () => {
+  const snapshot = {
+    utc_day: "2026-09-23",
+    global_used: 42,
+    global_daily_limit: 0,
+    identity_daily_limit: 500,
+    by_route_class: { talk: 40, realtime_render: 2 },
+  };
+  await withTestServer(defaultDeps({ providerBudget: () => snapshot }), async (baseURL) => {
+    const r = await get(baseURL, "/ops/metrics");
+    assert.equal(r.status, 200);
+    assert.deepEqual(r.body.provider_budget, snapshot);
+    assert.ok(!JSON.stringify(r.body.provider_budget).includes("user:"), "no identities on the public ops surface");
+  });
+  await withTestServer(defaultDeps(), async (baseURL) => {
+    const r = await get(baseURL, "/ops/metrics");
+    assert.equal(r.status, 200);
+    assert.equal(r.body.provider_budget, null);
+  });
+  assert.throws(() => mountOpsMetricsRoute(express(), defaultDeps({ providerBudget: "nope" })), /providerBudget must be a function/);
+});
