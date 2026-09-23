@@ -4208,7 +4208,7 @@ ${directorOutputRule}
     }
     // Studio actions: strip [[studio: …]] tags before anything is spoken and
     // keep the validated actions for the response header.
-    const studioActionExtraction = extractStudioActions(reply, studioCapabilities);
+    const studioActionExtraction = extractStudioActions(reply, studioCapabilities, { transcript: talkGenerationTranscript || transcript });
     if (studioActionExtraction.stripped || studioActionExtraction.actions.length) {
       reply = studioActionExtraction.spokenText;
       logger.log(
@@ -4231,6 +4231,18 @@ ${directorOutputRule}
         reply = normalizedPageReply;
         replyRepaired = reply !== normalizeSnippet(rawReply, 8_000);
       }
+      heuristicTurnQuality = evaluateTurnQualityHeuristics({
+        transcript,
+        reply,
+        flags,
+        routingLane,
+        turnIntent: String(turnPlanner.intent || "unknown"),
+      });
+    } else if (mentorTurn) {
+      // Mentor turns: the identity, the <mentor_output> contract, and the
+      // reply shaper own the form. The companion validate/direct/specificity
+      // pipeline below rewrites short craft answers into coaching scaffolds
+      // ("Sharpen pass: …"), so it is skipped here.
       heuristicTurnQuality = evaluateTurnQualityHeuristics({
         transcript,
         reply,
@@ -4331,7 +4343,10 @@ ${directorOutputRule}
         });
       }
     }
-    if (!isScreenplayPageWriteTurn && !localActionReply && screenplayQuestionPlan?.shouldAsk) {
+    // The mentor contract owns question shape on mentor turns (one question
+    // at most, only when it decides the next beat); the companion planner
+    // must not append a grounding question after it.
+    if (!isScreenplayPageWriteTurn && !mentorTurn && !localActionReply && screenplayQuestionPlan?.shouldAsk) {
       const plannedQuestionReply = enforceScreenplayQuestionPlan(reply, screenplayQuestionPlan);
       if (plannedQuestionReply && plannedQuestionReply !== reply) {
         reply = plannedQuestionReply;
@@ -4710,7 +4725,7 @@ ${directorOutputRule}
         }
       }
     }
-    if (!isScreenplayPageWriteTurn && !localActionReply && screenplayQuestionPlan?.shouldAsk) {
+    if (!isScreenplayPageWriteTurn && !mentorTurn && !localActionReply && screenplayQuestionPlan?.shouldAsk) {
       const finalPlannedQuestionReply = enforceScreenplayQuestionPlan(reply, screenplayQuestionPlan);
       if (finalPlannedQuestionReply && finalPlannedQuestionReply !== reply) {
         reply = finalPlannedQuestionReply;

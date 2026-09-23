@@ -10,6 +10,11 @@ const DEFAULT_PROTECTED_TAGS = Object.freeze([
   "screenplay_page_output",
   "mentor_output",
   "block_signal",
+  // The app's live controls and her own coverage read are appended late and
+  // were the first things the budget cut; without them she cannot operate
+  // the tabs or quote the read she just gave.
+  "studio_controls",
+  "coverage_read",
 ]);
 
 function normalizePromptText(value) {
