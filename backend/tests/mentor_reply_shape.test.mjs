@@ -98,3 +98,38 @@ test("[mentor-shape] shapeMentorReply reports dropped questions and still skips 
   assert.equal(page.text, reply);
   assert.deepEqual(page.droppedQuestions, []);
 });
+
+import { speakSlugline } from "../lib/mentor_reply_shape.js";
+
+test("[mentor-shape] a lone slugline in a spoken pitch becomes prose", () => {
+  const live = "Alright, here's a scene to consider: INT. DIMLY LIT BASEMENT - NIGHT. JESSICA, a skeptical investigator, faces an old mirror. Want to dive in?";
+  const out = speakSlugline(live);
+  assert.equal(out.spoken, "INT. DIMLY LIT BASEMENT - NIGHT.");
+  assert.equal(out.text, "Alright, here's a scene to consider: a dimly lit basement at night. JESSICA, a skeptical investigator, faces an old mirror. Want to dive in?");
+  assert.equal(speakSlugline("Let's set the scene: INT. FAMILY DINER - DAY. LUCY stands behind the counter.").text,
+    "Let's set the scene: a family diner in the daytime. LUCY stands behind the counter.");
+  assert.equal(speakSlugline("EXT. ABANDONED PARKING LOT - DUSK. Two strangers share one umbrella.").text,
+    "An abandoned parking lot at dusk. Two strangers share one umbrella.");
+  assert.equal(speakSlugline("Picture it. INT. KITCHEN - CONTINUOUS. She drops the ring.").text,
+    "Picture it. A kitchen. She drops the ring.");
+});
+
+test("[mentor-shape] page text and quoted sluglines are left alone", () => {
+  const page = "INT. KITCHEN - NIGHT\n\nMARA drops the ring.\n\nMARA\nNot tonight.\n\nEXT. PORCH - CONTINUOUS\n\nShe leaves.";
+  assert.deepEqual(speakSlugline(page), { text: page, spoken: "" });
+  const cue = "INT. KITCHEN - NIGHT\n\nMARA\nNot tonight.";
+  assert.deepEqual(speakSlugline(cue), { text: cue, spoken: "" });
+  const quoted = 'Your slugline "INT. KITCHEN - NIGHT" is fine; the problem is the first action line.';
+  assert.deepEqual(speakSlugline(quoted), { text: quoted, spoken: "" });
+  const none = "A cramped diner at midnight. What does she want?";
+  assert.deepEqual(speakSlugline(none), { text: none, spoken: "" });
+});
+
+test("[mentor-shape] shapeMentorReply speaks the slugline on mentor turns only", () => {
+  const reply = "Picture this: INT. TRAIN CAR - NIGHT. Two strangers, one ticket. Which of them lies first?";
+  const shaped = shapeMentorReply(reply, { mentorTurn: true });
+  assert.equal(shaped.spokenSlugline, "INT. TRAIN CAR - NIGHT.");
+  assert.equal(shaped.text, "Picture this: a train car at night. Two strangers, one ticket. Which of them lies first?");
+  assert.equal(shapeMentorReply(reply, { mentorTurn: true, screenplayPageWrite: true }).text, reply);
+  assert.equal(shapeMentorReply(reply, { mentorTurn: false }).spokenSlugline, "");
+});

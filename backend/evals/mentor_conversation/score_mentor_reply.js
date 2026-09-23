@@ -133,7 +133,7 @@ export function scorePitchConcreteness(reply) {
   if (OBSTACLE_WORDS.test(text)) { score += 1; } else notes.push("no obstacle");
   const last = sentences(text).slice(-1)[0] || "";
   if (!/\?$/.test(last)) { score -= 1; notes.push("does not hand the wheel back with a question"); }
-  if (/^\s*(INT|EXT)\.?\s/m.test(text)) { score -= 1; notes.push("writes sluglines instead of pitching"); }
+  if (/(?:^|[\s:])(INT|EXT)\.\s+[A-Z]/m.test(text)) { score -= 1; notes.push("writes sluglines instead of pitching"); }
   return { score: clamp(score), notes };
 }
 
