@@ -129,23 +129,33 @@ async function withServer(d, fn) {
     req.userId = "user_memories_deeper";
     next();
   });
+  // The server tells the client not to keep the socket: fetch honours a
+  // response "Connection: close" and never pools a socket to this port.
+  app.use((_req, res, next) => { res.setHeader("Connection", "close"); next(); });
   mountMemoriesRoutes(app, d);
   const server = app.listen(0);
   await new Promise((r) => server.once("listening", r));
   const port = server.address().port;
   try { await fn(`http://127.0.0.1:${port}`); }
-  finally { await new Promise((r) => server.close(r)); }
+  finally {
+    // Each test gets a fresh server on an ephemeral port. Global fetch keeps
+    // keep-alive sockets; when the OS hands the next server the same port, a
+    // pooled socket to the closed server answers "other side closed". Close
+    // every connection with the server and ask fetch not to pool them.
+    server.closeAllConnections?.();
+    await new Promise((r) => server.close(r));
+  }
 }
 
 async function getJson(baseURL, p, headers = {}) {
-  const r = await fetch(`${baseURL}${p}`, { headers });
+  const r = await fetch(`${baseURL}${p}`, { headers: { connection: "close", ...headers } });
   return { status: r.status, headers: r.headers, body: await r.json().catch(() => null) };
 }
 
 async function postJson(baseURL, p, body, opts = {}) {
   const r = await fetch(`${baseURL}${p}`, {
     method: "POST",
-    headers: { "content-type": "application/json", ...(opts.headers || {}) },
+    headers: { "content-type": "application/json", connection: "close", ...(opts.headers || {}) },
     body: typeof body === "string" ? body : JSON.stringify(body),
   });
   return { status: r.status, headers: r.headers, body: await r.json().catch(() => null) };
@@ -256,14 +266,14 @@ test("[memories-deeper] GET on POST mutation route returns 404", async () => {
     // POST handler. Express returns 404 on no-method-match unless a
     // shared method-allow middleware is mounted; for this bare app,
     // 404 is the expected result.
-    const r = await fetch(`${baseURL}/memories/update`);
+    const r = await fetch(`${baseURL}/memories/update`, { headers: { connection: "close" } });
     assert.equal(r.status, 404);
   });
 });
 
 test("[memories-deeper] POST on GET-only /memories returns 404", async () => {
   await withServer(deps(), async (baseURL) => {
-    const r = await fetch(`${baseURL}/memories`, { method: "POST" });
+    const r = await fetch(`${baseURL}/memories`, { method: "POST", headers: { connection: "close" } });
     assert.equal(r.status, 404);
   });
 });
