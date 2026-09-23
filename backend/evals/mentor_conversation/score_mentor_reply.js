@@ -105,7 +105,9 @@ export function scoreRegister(reply, { allowShort = false } = {}) {
   if (/it sounds like you'?re feeling|would you like to talk about|what'?s making (this|it|that) (hard|difficult)|is there anything (else )?on your mind/.test(lower)) {
     score -= 1.5; notes.push("turns the work into a feelings session");
   }
-  const questions = (text.match(/\?/g) || []).length;
+  // A quoted line is the character asking, not the mentor.
+  const unquoted = text.replace(/["“][^"“”]*["”]/g, " ");
+  const questions = (unquoted.match(/\?/g) || []).length;
   if (questions > 1) { score -= Math.min(2, questions - 1); notes.push(`${questions} questions`); }
   if (/!/.test(text)) { score -= 1; notes.push("exclamation"); }
   if (/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/u.test(text)) { score -= 1; notes.push("emoji"); }
