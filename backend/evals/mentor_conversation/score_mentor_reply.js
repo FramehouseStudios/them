@@ -170,6 +170,8 @@ const TERM_SYNONYMS = Object.freeze({
   "midpoint": [/midpoint/, /mid-point/, /middle of the (script|story|film)/],
   "act one": [/act one/, /act 1\b/, /act i\b/],
   "act two": [/act two/, /act 2\b/, /act ii\b/],
+  "final image": [/final image/, /last image/, /last (thing|frame|shot) (we|the audience|they) sees?/, /final (frame|shot)/],
+  "opening": [/opening/, /first image/, /first (frame|shot)/, /page one/, /where (it|your story|the story|we) (began|begins|started|starts)/],
 });
 
 function termPresent(lower, term) {

@@ -519,7 +519,7 @@ function buildProtectedSection(blocks, budget) {
   const hasMentorCore = blocks.some((entry) => String(entry?.tag || "").toLowerCase() === "mentor_core");
   const blockWeight = (tag) => {
     switch (String(tag || "").toLowerCase()) {
-      case "clementine_core": return hasMentorCore ? 0.5 : 2.4;
+      case "clementine_core": return hasMentorCore ? 0.3 : 2.4;
       case "clementine_safety_contract": return 1.8;
       case "creative_memory": return 2.5;
       case "writer_block_memory": return 2.4;
