@@ -28,7 +28,8 @@ const SYMPATHY_OPENER = new RegExp(
     "|it(?:'s| is)\\s+(?:tough|hard|rough|normal|okay|ok|natural|understandable)\\s+(?:when|to)\\b" +
     "|let(?:'s| us)\\s+(?:take a breath|breathe|slow down|pause)" +
     "|i\\s+(?:hear|get|understand|feel)\\s+(?:you|that|it)\\b" +
-    "|it\\s+sounds\\s+like\\b" +
+    "|(?:it\\s+)?sounds\\s+like\\b" +
+    "|first,?\\s+(?:let(?:'s| us)\\s+)?(?:take a breath|breathe|remember)\\b" +
     "|(?:you're|you are)\\s+not\\s+alone\\b" +
     "|(?:every|most)\\s+writers?\\s+(?:feels?|hits?|goes)\\b" +
   ")",
@@ -55,15 +56,18 @@ export function isPraiseOpener(sentence) {
  * Returns { text, stripped } where stripped is the removed sentence or "".
  */
 export function stripPraiseOpener(reply) {
-  const text = String(reply || "").trim();
-  const parts = splitFirstSentence(text);
-  if (!parts) return { text, stripped: "" };
-  if (!isPraiseOpener(parts.first)) return { text, stripped: "" };
-  if (!parts.rest) return { text, stripped: "" };
-  // Do not leave a reply that starts mid-thought ("But", "And", "Now,").
-  const rest = parts.rest.replace(/^(?:but|and|now|so|still|however|that said|then),?\s+/i, (m) => "");
-  const fixed = rest ? rest.charAt(0).toUpperCase() + rest.slice(1) : parts.rest;
-  return { text: fixed, stripped: parts.first };
+  let text = String(reply || "").trim();
+  const strippedParts = [];
+  // A check-in can run two sentences ("Sounds like a rough spot. First, let's take a breath.").
+  for (let i = 0; i < 2; i += 1) {
+    const parts = splitFirstSentence(text);
+    if (!parts || !isPraiseOpener(parts.first) || !parts.rest) break;
+    // Do not leave a reply that starts mid-thought ("But", "And", "Now,").
+    const rest = parts.rest.replace(/^(?:but|and|now|so|still|however|that said|then),?\s+/i, () => "");
+    text = rest ? rest.charAt(0).toUpperCase() + rest.slice(1) : parts.rest;
+    strippedParts.push(parts.first);
+  }
+  return { text, stripped: strippedParts.join(" ") };
 }
 
 // ---------------------------------------------------------------------------
