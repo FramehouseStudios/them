@@ -18,8 +18,13 @@
 //   talkInFlightBySessionSize()   → number (live, Map.size)
 //   talkIdempotencyCacheSize()    → number (live, cache size)
 //   TALK_MAX_IN_FLIGHT            → constant integer
+//   providerBudget()              → optional; today's provider-backed
+//                                    request counts (provider_budget.js
+//                                    snapshot: totals per route class, no
+//                                    identities). Response field is null
+//                                    when not wired.
 //
-// All deps required. Mount fails loud at startup if any are missing,
+// All other deps required. Mount fails loud at startup if any are missing,
 // so a wiring mistake surfaces immediately instead of crashing on
 // the first request.
 
@@ -35,7 +40,11 @@ function mountOpsMetricsRoute(app, deps = {}) {
     talkInFlightBySessionSize,
     talkIdempotencyCacheSize,
     TALK_MAX_IN_FLIGHT,
+    providerBudget = null,
   } = deps;
+  if (providerBudget !== null && typeof providerBudget !== "function") {
+    throw new Error("mountOpsMetricsRoute: providerBudget must be a function when provided");
+  }
   if (typeof deriveBackendRuntimeStatus !== "function") {
     throw new Error("mountOpsMetricsRoute: deriveBackendRuntimeStatus is required");
   }
@@ -114,6 +123,7 @@ function mountOpsMetricsRoute(app, deps = {}) {
       scale_backplane: backplaneStatus,
       metrics_window_ms: runtime.metrics.windowMs,
       metrics: runtime.metrics,
+      provider_budget: typeof providerBudget === "function" ? providerBudget() : null,
       recent,
     });
   });
