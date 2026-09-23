@@ -298,3 +298,18 @@ test("[ops-metrics-route] provider_budget is the guard's snapshot when wired, nu
   });
   assert.throws(() => mountOpsMetricsRoute(express(), defaultDeps({ providerBudget: "nope" })), /providerBudget must be a function/);
 });
+
+test("[ops-metrics-route] pg_pool carries the persistence pool health when wired, null otherwise", async () => {
+  const pool = { kind: "postgres", max: 10, loaded: true, total: 2, idle: 1, waiting: 0, errors: 0 };
+  await withTestServer(defaultDeps({ pgPool: () => pool }), async (baseURL) => {
+    const r = await get(baseURL, "/ops/metrics");
+    assert.deepEqual(r.body.pg_pool, pool);
+  });
+  await withTestServer(defaultDeps({ pgPool: () => undefined }), async (baseURL) => {
+    assert.equal((await get(baseURL, "/ops/metrics")).body.pg_pool, null);
+  });
+  await withTestServer(defaultDeps(), async (baseURL) => {
+    assert.equal((await get(baseURL, "/ops/metrics")).body.pg_pool, null);
+  });
+  assert.throws(() => mountOpsMetricsRoute(express(), defaultDeps({ pgPool: 42 })), /pgPool must be a function/);
+});

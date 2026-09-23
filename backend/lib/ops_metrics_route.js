@@ -23,6 +23,10 @@
 //                                    snapshot: totals per route class, no
 //                                    identities). Response field is null
 //                                    when not wired.
+//   pgPool()                      → optional; persistence pool health
+//                                    (persistence_postgres.js poolStats:
+//                                    limits + live counts, no data). null
+//                                    when not wired or not Postgres.
 //
 // All other deps required. Mount fails loud at startup if any are missing,
 // so a wiring mistake surfaces immediately instead of crashing on
@@ -41,9 +45,13 @@ function mountOpsMetricsRoute(app, deps = {}) {
     talkIdempotencyCacheSize,
     TALK_MAX_IN_FLIGHT,
     providerBudget = null,
+    pgPool = null,
   } = deps;
   if (providerBudget !== null && typeof providerBudget !== "function") {
     throw new Error("mountOpsMetricsRoute: providerBudget must be a function when provided");
+  }
+  if (pgPool !== null && typeof pgPool !== "function") {
+    throw new Error("mountOpsMetricsRoute: pgPool must be a function when provided");
   }
   if (typeof deriveBackendRuntimeStatus !== "function") {
     throw new Error("mountOpsMetricsRoute: deriveBackendRuntimeStatus is required");
@@ -124,6 +132,7 @@ function mountOpsMetricsRoute(app, deps = {}) {
       metrics_window_ms: runtime.metrics.windowMs,
       metrics: runtime.metrics,
       provider_budget: typeof providerBudget === "function" ? providerBudget() : null,
+      pg_pool: typeof pgPool === "function" ? (pgPool() ?? null) : null,
       recent,
     });
   });
