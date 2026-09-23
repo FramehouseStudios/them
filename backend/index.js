@@ -20852,7 +20852,7 @@ async function streamChatReplyWithFirstSentence({
 
   const finalReply = String(fullReply || "").trim();
   if (!sawDoneToken || !isLikelyCompleteReply(finalReply)) {
-    const err = new Error("Chat stream incomplete reply.");
+    const err = new Error(`Chat stream incomplete reply. done=${sawDoneToken ? 1 : 0} chars=${finalReply.length} tail=${JSON.stringify(finalReply.slice(-24))}`);
     err.stage = "chat";
     err.status = 502;
     throw err;

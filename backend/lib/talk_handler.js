@@ -82,6 +82,14 @@ import { applyClementineTalkHeaders } from "./clementine/talk_clementine_headers
 import { isMentorTurn, elevateChatModelPlanForMentorTurn } from "./mentor_turn.js";
 import { shapeMentorReply } from "./mentor_reply_shape.js";
 
+// Early first-sentence audio: while the chat stream is still running, the
+// first streamed sentence can be synthesised ahead and stitched in front of
+// the rest. The stitch is disabled (stability mode: one contiguous segment
+// avoids audible seams), and while it is disabled the early call must not be
+// made either. Measured live: every streamed turn paid a 1-2 s
+// "first_sentence" synthesis that was never used.
+const EARLY_TTS_SPLIT_ENABLED = false;
+
 // Mentor turns carry her identity (core, scene pitch, contract) plus the
 // Studio controls and her coverage read; the companion rich budget (6.2k)
 // cannot hold all of it. ~3.2k tokens of system prompt on the rich model.
@@ -4113,6 +4121,7 @@ ${directorOutputRule}
     const useChatStreaming = CHAT_STREAM_ENABLED && streamAudioRequested;
 
     const maybeStartEarlyTts = (candidateSentence) => {
+      if (!EARLY_TTS_SPLIT_ENABLED) return;
       if (!streamAudioRequested) return;
       if (earlyTtsPromise) return;
       const sentence = String(candidateSentence || "").trim();
@@ -4901,7 +4910,7 @@ ${directorOutputRule}
         ttsLeadIn = earlyTtsLeadIn || pickTtsLeadIn({ rid, transcript, reply });
         const speechReply = applyTtsLeadIn(reply, ttsLeadIn);
         // Stability mode: synthesize one contiguous segment to avoid audible stitch points.
-        const shouldSplitSpeech = false;
+        const shouldSplitSpeech = EARLY_TTS_SPLIT_ENABLED;
         const speechSplit = shouldSplitSpeech
           ? splitSpeechForEarlyTts(speechReply)
           : { firstSegment: speechReply, remainder: "" };

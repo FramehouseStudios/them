@@ -285,7 +285,10 @@ async function runTalkGenerate({
         providerStage: "chat",
         status: Number(err?.status || 500),
       });
-      logger?.log?.(`[${rid}] CHAT stream fallback ${streamDiagnostic.supportMessage}`);
+      logger?.log?.(
+        `[${rid}] CHAT stream fallback ${streamDiagnostic.supportMessage} ` +
+        `stream_error=${JSON.stringify(String(err?.message || err).slice(0, 200))}`
+      );
       rawReply = "";
     }
   }
@@ -377,6 +380,9 @@ async function runTalkGenerate({
       });
     }
     rawReply = (chatJson.choices?.[0]?.message?.content || "").trim();
+    logger?.log?.(
+      `[${rid}] chat_nonstream_reply chars=${rawReply.length} finish=${chatJson.choices?.[0]?.finish_reason || ""} tail=${JSON.stringify(rawReply.slice(-24))}`
+    );
   }
 
   if (!rawReply) {
