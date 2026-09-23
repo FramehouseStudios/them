@@ -15,6 +15,11 @@ const DEFAULT_PROTECTED_TAGS = Object.freeze([
   // the tabs or quote the read she just gave.
   "studio_controls",
   "coverage_read",
+  // Her identity as the phone sends it. Without these a mentor turn runs on
+  // a truncated core and never pitches a scene.
+  "mentor_core",
+  "scene_pitch",
+  "dialogue_notes",
 ]);
 
 function normalizePromptText(value) {
@@ -459,14 +464,62 @@ function compactTaggedBlock(block, maxChars) {
   return `${openTag}\n${tighterBody}\n${closeTag}`.trim();
 }
 
+// Mentor-turn packing. The phone sends her identity as <mentor_core>; when it
+// is present the protected budget is water-filled: the core is reserved whole,
+// then every block that fits under its weighted share is kept whole and its
+// surplus is re-split among the blocks that still need cutting. Page-write
+// turns keep the source-order packing below, which their tests pin.
+// Blocks kept whole ahead of the water-fill when they take at most half the
+// pool: an identity block that loses its middle is worse than a shorter
+// contract block.
+const KEEP_WHOLE_TAGS = new Set(["mentor_core"]);
+
+function allocateProtectedBudgets(blocks, totalBudget, blockWeight) {
+  const sizes = blocks.map((entry) => String(entry?.block || "").length);
+  const budgets = new Array(blocks.length).fill(0);
+  const open = new Set(blocks.map((_, i) => i));
+  let pool = Math.max(0, totalBudget - Math.max(0, blocks.length - 1) * 2);
+  for (const i of [...open]) {
+    if (!KEEP_WHOLE_TAGS.has(String(blocks[i]?.tag || "").toLowerCase())) continue;
+    if (sizes[i] > pool * 0.5) continue;
+    budgets[i] = sizes[i];
+    pool -= sizes[i];
+    open.delete(i);
+  }
+  let settled = true;
+  while (open.size > 0 && settled) {
+    settled = false;
+    const weightSum = [...open].reduce((sum, i) => sum + blockWeight(blocks[i]?.tag), 0);
+    for (const i of [...open]) {
+      const share = weightSum > 0 ? Math.floor(pool * (blockWeight(blocks[i]?.tag) / weightSum)) : pool;
+      if (sizes[i] <= share) {
+        budgets[i] = sizes[i];
+        pool -= sizes[i];
+        open.delete(i);
+        settled = true;
+      }
+    }
+  }
+  if (open.size > 0) {
+    const weightSum = [...open].reduce((sum, i) => sum + blockWeight(blocks[i]?.tag), 0);
+    for (const i of open) {
+      budgets[i] = weightSum > 0 ? Math.floor(pool * (blockWeight(blocks[i]?.tag) / weightSum)) : pool;
+    }
+  }
+  return budgets;
+}
+
 function buildProtectedSection(blocks, budget) {
   if (!Array.isArray(blocks) || blocks.length === 0) return "";
   const totalBudget = Math.max(0, Math.floor(Number(budget || 0)));
   if (totalBudget < 160) return "";
   const parts = [];
+  // On a mentor turn the phone's mentor core is the identity; the backend's
+  // companion-era core only fills what is left.
+  const hasMentorCore = blocks.some((entry) => String(entry?.tag || "").toLowerCase() === "mentor_core");
   const blockWeight = (tag) => {
     switch (String(tag || "").toLowerCase()) {
-      case "clementine_core": return 2.4;
+      case "clementine_core": return hasMentorCore ? 0.5 : 2.4;
       case "clementine_safety_contract": return 1.8;
       case "creative_memory": return 2.5;
       case "writer_block_memory": return 2.4;
@@ -474,9 +527,17 @@ function buildProtectedSection(blocks, budget) {
       case "feature_film_map": return 2;
       case "session": return 1.6;
       case "screenplay_task": return 1.3;
+      case "mentor_core": return 2.6;
+      case "mentor_output": return 1.6;
+      case "scene_pitch": return 1.4;
+      case "dialogue_notes": return 1.2;
+      case "studio_controls": return 1.2;
       default: return 1;
     }
   };
+  const allocated = hasMentorCore
+    ? allocateProtectedBudgets(blocks, totalBudget, blockWeight)
+    : null;
   for (let i = 0; i < blocks.length; i += 1) {
     const entry = blocks[i];
     const used = parts.join("\n\n").length;
@@ -493,7 +554,7 @@ function buildProtectedSection(blocks, budget) {
     const maxCurrentBudget = Math.max(120, remaining - futureBlockCount * 122);
     const perBlockBudget = Math.max(
       120,
-      Math.min(maxCurrentBudget, Math.floor(weightedShare) - 2)
+      Math.min(maxCurrentBudget, allocated ? allocated[i] : Math.floor(weightedShare) - 2)
     );
     const compacted = compactTaggedBlock(entry.block, Math.min(remaining, perBlockBudget));
     if (!compacted) continue;

@@ -81,6 +81,14 @@ import { buildLivePaperPayload } from "./clementine/studio_live_paper.js";
 import { applyClementineTalkHeaders } from "./clementine/talk_clementine_headers.js";
 import { isMentorTurn, elevateChatModelPlanForMentorTurn } from "./mentor_turn.js";
 import { shapeMentorReply } from "./mentor_reply_shape.js";
+
+// Mentor turns carry her identity (core, scene pitch, contract) plus the
+// Studio controls and her coverage read; the companion rich budget (6.2k)
+// cannot hold all of it. ~3.2k tokens of system prompt on the rich model.
+const MENTOR_TURN_SYSTEM_PROMPT_MAX_CHARS = Math.max(
+  6_200,
+  Number.parseInt(String(process.env.MENTOR_TURN_SYSTEM_PROMPT_MAX_CHARS || ""), 10) || 13_000
+);
 import {
   parseStudioCapabilities,
   buildStudioControlsBlock,
@@ -3976,11 +3984,12 @@ ${directorOutputRule}
       routingLane,
       chatModelPlan,
       addenda: companionArcs.addenda,
+      richMaxChars: mentorTurn ? MENTOR_TURN_SYSTEM_PROMPT_MAX_CHARS : undefined,
     });
     if (process.env.NODE_ENV !== "production" && rawSystem.length !== system.length) {
       logger.log(
         `[${rid}] system_trim chars=${rawSystem.length}->${system.length} ` +
-        `budget_fast=${FAST_TURN_SYSTEM_PROMPT_MAX_CHARS} budget_rich=${RICH_TURN_SYSTEM_PROMPT_MAX_CHARS} tier=${chatModelPlan.tier}`
+        `budget_fast=${FAST_TURN_SYSTEM_PROMPT_MAX_CHARS} budget_rich=${mentorTurn ? MENTOR_TURN_SYSTEM_PROMPT_MAX_CHARS : RICH_TURN_SYSTEM_PROMPT_MAX_CHARS} tier=${chatModelPlan.tier} mentor=${mentorTurn ? 1 : 0}`
       );
     }
     const screenplayRequestedPages = isScreenplayPageWriteTurn

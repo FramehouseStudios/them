@@ -20932,7 +20932,7 @@ function fitSystemPromptForTurnLatency(systemPrompt, args = {}) {
   return fitSystemPromptForTurnLatencyBase(systemPrompt, {
     ...args,
     fastMaxChars: FAST_TURN_SYSTEM_PROMPT_MAX_CHARS,
-    richMaxChars: RICH_TURN_SYSTEM_PROMPT_MAX_CHARS,
+    richMaxChars: Math.max(RICH_TURN_SYSTEM_PROMPT_MAX_CHARS, Number(args.richMaxChars) || 0), // a caller may widen a turn (mentor turns do)
     structuralMaxChars: STRUCTURAL_TURN_SYSTEM_PROMPT_MAX_CHARS,
   });
 }
