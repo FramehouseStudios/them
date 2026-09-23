@@ -144,7 +144,11 @@ export function scoreBuildOnWriter(reply, { writerNouns = [] } = {}) {
   const reused = writerNouns.filter((n) => lower.includes(String(n).toLowerCase()));
   let score = 1 + Math.min(3, reused.length);
   if (reused.length < 2) notes.push(`reuses ${reused.length} of the writer's nouns`);
-  if (/\b(slams|reaches|hands|finds|drops|lies|refuses|opens|hides|calls|walks|turns|counts|pockets|signs|pours|locks|waits|packs|leaves|says nothing|beat)\b/.test(lower)) {
+  // A playable beat is a body doing something with a thing: a present-tense
+  // physical verb, or a named object handed to the scene.
+  const beatVerb = /\b(slams|reaches|hands|finds|drops|lies|refuses|opens|hides|calls|walks|turns|counts|pockets|signs|pours|locks|waits|packs|leaves|says nothing|beat|glances|wipes|notices?|adjusts|searches|grabs|stares|lights|pulls|pushes|tears|folds|slides|taps|clutches|fumbles|steps|sets|picks up|holds|touches|checks|spills|kicks|throws|catches|wraps|cuts|breaks|hesitates|flinches|freezes|shrugs|nods|leans|stands|sits|kneels|crosses|closes|shuts|tosses|presses|lifts|lowers|covers|unfolds|tucks|straightens)\b/;
+  const beatObject = /\b(like|such as|maybe|say|perhaps)\b[^.]{0,40}\b(a|an|the|his|her|their)\s+(letter|photograph|photo|map|ring|key|note|ticket|phone|glass|cup|coffee|book|sign|bag|purse|jacket|coat|chair|door|window|knife|gun|box|envelope|receipt|card|watch|lighter|cigarette|bottle|flashlight|mirror|briefcase|umbrella)\b/;
+  if (beatVerb.test(lower) || beatObject.test(lower)) {
     score += 1;
   } else notes.push("no concrete added beat");
   // "Instead of saying X, try: \"…\"" is a line rewrite that builds on the
