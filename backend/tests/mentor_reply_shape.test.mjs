@@ -133,3 +133,11 @@ test("[mentor-shape] shapeMentorReply speaks the slugline on mentor turns only",
   assert.equal(shapeMentorReply(reply, { mentorTurn: true, screenplayPageWrite: true }).text, reply);
   assert.equal(shapeMentorReply(reply, { mentorTurn: false }).spokenSlugline, "");
 });
+
+test("[mentor-shape] a two-sentence check-in is dropped whole", () => {
+  const reply = "Sounds like a rough spot. First, let's take a breath and remember: a draft is just a step, not the end. What's one scene that's bothering you the most right now?";
+  const out = stripPraiseOpener(reply);
+  // The colon ends the second sentence; what follows it is plain text and stays.
+  assert.equal(out.text, "A draft is just a step, not the end. What's one scene that's bothering you the most right now?");
+  assert.equal(out.stripped, "Sounds like a rough spot. First, let's take a breath and remember:");
+});
