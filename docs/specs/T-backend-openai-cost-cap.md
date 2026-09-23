@@ -30,9 +30,23 @@ route class, and UTC day. `backend/index.js` mounts it on:
 - `/realtime/studio_render_stream`
 - `/visual/context`
 
-The cap is configured with `PROVIDER_DAILY_BUDGET_LIMIT`. Capped requests
-return a support-safe `429` envelope with `stage: "provider_budget"` and do
-not echo transcripts, screenplay text, user IDs, memory, or provider secrets.
+The per-identity cap is configured with `PROVIDER_DAILY_BUDGET_LIMIT`
+(default 500 requests per identity, route class and UTC day).
+
+Since 2026-09-23 the same guard also holds a **global** cap,
+`PROVIDER_GLOBAL_DAILY_BUDGET_LIMIT`: every provider-backed request the
+backend makes in a UTC day, across all identities and route classes.
+Default `0` = off. The per-identity cap cannot see the organisation's
+total; on 2026-09-23 the OpenAI organisation ran out of credits under a
+load that no single identity exceeded. Set it to the request count the
+day's provider budget can absorb. The guard warns once per day when the
+global cap trips and exposes `snapshot()` (today's totals per route
+class, no identities) for an ops surface.
+
+Capped requests return a support-safe `429` envelope with
+`stage: "provider_budget"`, `scope: "identity" | "global"`, the route
+class and the limit, and do not echo transcripts, screenplay text, user
+IDs, memory, or provider secrets.
 
 The full dollar-metering design below remains a post-V1 follow-up.
 
