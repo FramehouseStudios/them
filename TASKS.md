@@ -38,21 +38,21 @@ hand-written tables lives in `tasks/HISTORY-2026-05.md`.
 
 ## Active work — quick view (auto-generated from tasks/_active/)
 
-| ID                                   | Title                                                                         | Owner   | Status  |
-|--------------------------------------|-------------------------------------------------------------------------------|---------|---------|
-| T-auth-demo-keychain-login           | Add local demo login and Keychain remembered credentials                      | codex   | review  |
-| T-auth-session-durability            | Make auth sessions durable before success responses                           | codex   | review  |
-| T-backend-openai-cost-cap            | OpenAI per-day / per-user / per-hour budget cap                               | support | ready   |
-| T-backend-pg-pool-tuning             | Production-tune the Postgres connection pool                                  | support | review  |
-| T-decompose-root-experience-view     | Decompose them/RootExperienceView.swift (529 KB) into per-concern modules     | codex   | ready   |
-| T-decompose-screenplay-studio-screen | Decompose them/ScreenplayStudioScreen.swift (1.1 MB) into per-concern modules | codex   | ready   |
-| T-ios-keychain-token-migration       | Migrate iOS auth tokens from UserDefaults to Keychain                         | codex   | review  |
-| T-ios-offline-outbox                 | iOS client outbox for offline-tolerant talk turns                             | codex   | ready   |
-| T-macos-posture-cleanup              | Gate macOS scaffolding off the V1 iOS scheme                                  | codex   | ready   |
-| T-trust-tiers                        | Trust tiers + standing pre-approvals (AGENTS.md)                              | support | review  |
-| T-untested-libs-followups            | Add tests for remaining untested infrastructure libs                          | support | planned |
-| T43-refresh-support-queue            | Refresh support agent queue after supervisor protocol merge                   | codex   | review  |
-| T47-refresh-after-new-support-prs    | Refresh queue after new support agent PR triage                               | codex   | review  |
+| ID                                   | Title                                                                         | Owner   | Status      |
+|--------------------------------------|-------------------------------------------------------------------------------|---------|-------------|
+| T-auth-demo-keychain-login           | Add local demo login and Keychain remembered credentials                      | codex   | review      |
+| T-auth-session-durability            | Make auth sessions durable before success responses                           | codex   | review      |
+| T-backend-openai-cost-cap            | OpenAI per-day / per-user / per-hour budget cap                               | support | ready       |
+| T-backend-pg-pool-tuning             | Production-tune the Postgres connection pool                                  | support | review      |
+| T-decompose-root-experience-view     | Decompose them/RootExperienceView.swift (529 KB) into per-concern modules     | codex   | in-progress |
+| T-decompose-screenplay-studio-screen | Decompose them/ScreenplayStudioScreen.swift (1.1 MB) into per-concern modules | codex   | ready       |
+| T-ios-keychain-token-migration       | Migrate iOS auth tokens from UserDefaults to Keychain                         | codex   | review      |
+| T-ios-offline-outbox                 | iOS client outbox for offline-tolerant talk turns                             | codex   | ready       |
+| T-macos-posture-cleanup              | Gate macOS scaffolding off the V1 iOS scheme                                  | codex   | ready       |
+| T-trust-tiers                        | Trust tiers + standing pre-approvals (AGENTS.md)                              | support | review      |
+| T-untested-libs-followups            | Add tests for remaining untested infrastructure libs                          | support | planned     |
+| T43-refresh-support-queue            | Refresh support agent queue after supervisor protocol merge                   | codex   | review      |
+| T47-refresh-after-new-support-prs    | Refresh queue after new support agent PR triage                               | codex   | review      |
 
 ## Active work — full detail (auto-generated)
 
@@ -270,9 +270,9 @@ status endpoint. New env vars documented in `.env.example` + DEPLOY.md.
 
 ### T-decompose-root-experience-view — Decompose them/RootExperienceView.swift (529 KB) into per-concern modules
 - **Owner:** codex
-- **Branch:** -
+- **Branch:** claude/root-experience-phase0-visual-context
 - **Pillar:** ios
-- **Status:** ready
+- **Status:** in-progress
 
 ## Scope
 
@@ -288,6 +288,19 @@ presence, screenplay shell, modal sheets, residual.
 - Each phase landed as its own PR, byte-identical, with a
   pre/post view-hierarchy screenshot pair.
 - No regression in `themTests` or V1 manual smoke.
+
+## Progress
+
+- 2026-09-23, phase 0 slice (PR stacked on #664): the visual-context
+  capture cluster (`ClementineVisualContextEnvelope`,
+  `ClementineCapturedVisualContext`, `ClementineVisualContextCaptureError`,
+  `ClementineVisualContextCapture`, 207 lines, macOS-only inside
+  `#if os(macOS)`) and `ScreenplayRestoredLiveDraftProjectPromotionPolicy`
+  (18 lines) moved verbatim into `them/RootExperience/`. RootExperienceView
+  15,112 → 14,783 lines. Proof: text diff of the moved blocks against the
+  original lines, god-file gate, signed `themTests` on an erased simulator.
+  The spec's Phase 0 (`RootExperienceViewModel` state carriers) is not
+  started; owner stays Codex.
 
 ### T-decompose-screenplay-studio-screen — Decompose them/ScreenplayStudioScreen.swift (1.1 MB) into per-concern modules
 - **Owner:** codex
