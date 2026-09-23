@@ -24,6 +24,8 @@ import { CASES, CATEGORIES } from "./mentor_conversation/cases.mjs";
 import { scoreMentorReply, THRESHOLDS } from "./mentor_conversation/score_mentor_reply.js";
 import { createPersonaRuntime } from "../lib/persona.js";
 import { shapeMentorReply } from "../lib/mentor_reply_shape.js";
+import { fitSystemPromptForTurnLatency } from "../lib/system_prompt_trim.js";
+const MENTOR_TURN_BUDGET = Math.max(6_200, Number.parseInt(String(process.env.MENTOR_TURN_SYSTEM_PROMPT_MAX_CHARS || ""), 10) || 13_000);
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..", "..");
@@ -68,7 +70,13 @@ export function buildMentorSystemPrompt(testCase, runtime = personaRuntime()) {
   if (testCase?.fresh) parts.push(SCENE_PITCH_FRESH);
   const base = parts.join("\n\n");
   const withCore = runtime.appendDirectorAddendum(base, runtime.PERSONA_ENFORCEMENT_ADDENDUM);
-  return runtime.withOutputContract(withCore, { mentorTurn: true });
+  const contracted = runtime.withOutputContract(withCore, { mentorTurn: true });
+  // The app fits every system prompt to the turn budget before sending it.
+  // Measure what the model actually receives, not the untrimmed text.
+  const tagged = contracted
+    .replace(mentorCore, `<mentor_core>\n${mentorCore}\n</mentor_core>`)
+    .replace(SCENE_PITCH_FRESH, `<scene_pitch>\n${SCENE_PITCH_FRESH}\n</scene_pitch>`);
+  return fitSystemPromptForTurnLatency(tagged, { chatModelPlan: { tier: "rich" }, flags: {}, routingLane: "normal_rotation", richMaxChars: MENTOR_TURN_BUDGET });
 }
 
 function userMessage(testCase) {

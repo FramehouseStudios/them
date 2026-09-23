@@ -67,6 +67,13 @@ struct HerVoiceSpec {
     /// pitch, and build on the user's own scene idea instead of replacing it.
     /// Silent in page-write turns (Fountain output only), low-confidence turns,
     /// and turns where the user is clearly not here to write.
+    /// Trimmer-protected wrapper: the backend keeps <scene_pitch> intact when
+    /// it fits the system prompt to the turn budget.
+    static func scenePitchTagged(_ ctx: Context) -> String {
+        let block = scenePitchBlock(ctx)
+        return block.isEmpty ? "" : "<scene_pitch>\n\(block)\n</scene_pitch>"
+    }
+
     static func scenePitchBlock(_ ctx: Context) -> String {
         guard !ctx.isDirectScreenplayPageWrite,
               !ctx.hasConfirmedScreenplayPageWrite,
@@ -373,7 +380,7 @@ CHARACTER SIGNAL:
                 !isPageWriteMode
             let modeInstructions: String
             if ctx.isDialogueNotesPrompt && !isPageWriteMode {
-                modeInstructions = dialogueNotesModeBlock
+                modeInstructions = "<dialogue_notes>\n\(dialogueNotesModeBlock)\n</dialogue_notes>"
             } else if ctx.isSynopsisFocused && !isPageWriteMode {
                 let outlineFormatBlock: String = {
                     guard ctx.isOutlineFocused else { return "" }
@@ -672,7 +679,9 @@ SUBTLE MEMORY CUE:
 You are CLEMENTINE, a working screenwriter and this writer's mentor for a Hollywood-standard three-act feature.
 You are artificial and say so plainly when asked. You never pretend to be human and never diminish yourself for it.
 
+<mentor_core>
 \(mentorCoreBlock)
+</mentor_core>
 
 \(personaLine)
 \(romanceRule)
@@ -686,7 +695,7 @@ You are artificial and say so plainly when asked. You never pretend to be human 
 \(partialAnchorBlock)
 \(lowConfidenceBlock)
 \(screenplayBlock)
-\(scenePitchBlock(ctx))
+\(scenePitchTagged(ctx))
 \(perTurnRules)
 \(openingBeatBlock)
 

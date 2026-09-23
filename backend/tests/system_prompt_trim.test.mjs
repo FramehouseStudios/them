@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import {
   test } from "node:test";
 import { parseStudioCapabilities, buildStudioControlsBlock, buildCoverageReadBlock } from "../lib/studio_actions.js";
@@ -531,4 +532,86 @@ test("[system-prompt-trim] the Studio controls and the coverage read survive a 4
   assert.ok(trimmed.length <= 6_400, `trimmed to ${trimmed.length}`);
   assert.match(trimmed, /\[\[studio: choose_beat beat="Midpoint"\]\]/, "controls block survives");
   assert.match(trimmed, /Grade C, verdict consider/, "coverage read survives");
+});
+
+test("[system-prompt-trim] on a mentor turn a short protected block donates its surplus to the long one beside it", () => {
+  const core = "<mentor_core>\nMENTOR CORE (identity, every turn):\n- verdict first.\n</mentor_core>";
+  const short = "<coverage_read>\nGrade B-, lowest pillar structure.\n</coverage_read>";
+  const longBody = Array.from({ length: 40 }, (_, i) => `- rule ${i + 1}: keep the middle line ${i + 1} intact`).join("\n");
+  const long = `<studio_controls>\n${longBody}\n</studio_controls>`;
+  const filler = "FILLER ".repeat(900);
+  const prompt = `${filler}\n\n${core}\n\n${short}\n\n${long}\n\n${filler}`;
+  const out = fitSystemPromptForTurnLatency(prompt, {
+    chatModelPlan: { tier: "rich" },
+    flags: {},
+    routingLane: "normal_rotation",
+    richMaxChars: 2_700,
+  });
+  // Pool = 82% of 2,700 ≈ 2,214 minus the whole core. A weighted split would
+  // give the long block ~1,000 and cut it; water-filling hands it the short
+  // block's surplus.
+  assert.ok(out.includes("- verdict first."));
+  assert.ok(out.includes("Grade B-"));
+  assert.ok(out.includes("<studio_controls>"));
+  const kept = out.match(/<studio_controls>[\s\S]*?<\/studio_controls>/)[0];
+  assert.ok(kept.length > 1_400, `long block got ${kept.length} chars`);
+  assert.equal(kept.includes("\n...\n"), false);
+});
+
+test("[system-prompt-trim] a mentor turn keeps her identity whole at the mentor budget", () => {
+  const mentorCore = fs.readFileSync(
+    new URL("../../docs/persona/mentor-core.txt", import.meta.url),
+    "utf8"
+  ).trim();
+  const scenePitch = "SCENE PITCH (standing collaborator rule):\n" + "- ".padEnd(60, "pitch rule text ").repeat(16);
+  const caps = parseStudioCapabilities({
+    tabs: ["draft", "beats", "craft", "outline", "them", "saved"],
+    scene_labels: ["INT. KITCHEN - NIGHT", "EXT. PARKING LOT - DAY", "INT. BASEMENT - CONTINUOUS"],
+    beat_labels: ["Opening image", "Inciting incident", "Break into two", "Midpoint"],
+    has_project: true, has_draft: true, studio_open: true, current_tab: "draft",
+    coverage: { page_count: 41, scene_count: 12, grade: "B-", verdict: "consider", overall: 6,
+      pillars: { premise: 7, structure: 5, character: 6, dialogue: 7, pages: 6 },
+      missing: ["A midpoint that flips the want."], move: "Give the midpoint a false win on page 20." },
+  });
+  const companionCore = "<clementine_core>\n" + "identity: companion-era text that should yield.\n".repeat(60) + "</clementine_core>";
+  const contract = "<mentor_output>\n" + "- output rule.\n".repeat(120) + "</mentor_output>";
+  const prompt = [
+    "You are CLEMENTINE, a working screenwriter and this writer's mentor.",
+    `<mentor_core>\n${mentorCore}\n</mentor_core>`,
+    "CONTINUITY / DRIFT CONTROL\n" + "- continuity rule.\n".repeat(80),
+    `<scene_pitch>\n${scenePitch}\n</scene_pitch>`,
+    "SCREENPLAY STUDIO MODE: " + "studio rule. ".repeat(400),
+    companionCore,
+    contract,
+    buildStudioControlsBlock(caps),
+    buildCoverageReadBlock(caps),
+  ].join("\n\n");
+  assert.ok(prompt.length > 16_000, `fixture is ${prompt.length} chars`);
+
+  const out = fitSystemPromptForTurnLatency(prompt, {
+    chatModelPlan: { tier: "rich" },
+    flags: {},
+    routingLane: "normal_rotation",
+    richMaxChars: 13_000,
+  });
+  assert.ok(out.length <= 13_000);
+  const block = (tag) => (out.match(new RegExp(`<${tag}>[\\s\\S]*?</${tag}>`)) || [""])[0];
+  // The identity survives whole, page map included.
+  assert.equal(block("mentor_core").includes("\n...\n"), false);
+  assert.ok(out.includes("the midpoint near page 55"));
+  assert.ok(out.includes("the last image answers the first"));
+  // The pitch rule, the output contract, the controls and the read all survive whole.
+  for (const tag of ["scene_pitch", "mentor_output", "studio_controls", "coverage_read"]) {
+    assert.ok(block(tag).length > 0, `${tag} missing`);
+    assert.equal(block(tag).includes("\n...\n"), false, `${tag} was cut`);
+  }
+  assert.ok(out.includes('"INT. BASEMENT - CONTINUOUS"'));
+  // The companion-era core is what yields on a mentor turn.
+  assert.ok(block("clementine_core").length < companionCore.length);
+
+  // The same prompt at the companion rich budget is what the app used to send: the core lost its middle.
+  const before = fitSystemPromptForTurnLatency(prompt, {
+    chatModelPlan: { tier: "rich" }, flags: {}, routingLane: "normal_rotation",
+  });
+  assert.equal(before.includes("the midpoint near page 55"), false);
 });
