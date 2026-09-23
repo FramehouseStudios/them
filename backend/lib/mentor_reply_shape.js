@@ -44,11 +44,31 @@ function splitFirstSentence(text) {
   return { first, rest };
 }
 
+// "That's a strong setup because it puts a deadline on her." The grade goes,
+// the reason stays: "It puts a deadline on her."
+const BECAUSE_CLAUSE = /^(.*?)\b(because|since|as)\s+(.+)$/i;
+
+function praiseHead(sentence) {
+  const m = BECAUSE_CLAUSE.exec(sentence);
+  return m ? m[1].trim() : sentence;
+}
+
 export function isPraiseOpener(sentence) {
   const s = String(sentence || "").trim();
   if (!s) return false;
-  if (s.split(/\s+/).length > OPENER_MAX_WORDS) return false;
-  return PRAISE_OPENER.test(s) || SYMPATHY_OPENER.test(s);
+  const head = praiseHead(s);
+  if (head.split(/\s+/).length > OPENER_MAX_WORDS) return false;
+  return PRAISE_OPENER.test(head) || SYMPATHY_OPENER.test(head);
+}
+
+/** The reason a praise opener carried, as a sentence of its own, or "". */
+export function reasonFromPraise(sentence) {
+  const s = String(sentence || "").trim();
+  const m = BECAUSE_CLAUSE.exec(s);
+  if (!m || !PRAISE_OPENER.test(m[1].trim())) return "";
+  const clause = m[3].trim().replace(/[.!]+$/, "");
+  if (clause.split(/\s+/).length < 3) return "";
+  return clause.charAt(0).toUpperCase() + clause.slice(1) + ".";
 }
 
 /**
@@ -64,8 +84,11 @@ export function stripPraiseOpener(reply) {
     if (!parts || !isPraiseOpener(parts.first) || !parts.rest) break;
     // Do not leave a reply that starts mid-thought ("But", "And", "Now,").
     const rest = parts.rest.replace(/^(?:but|and|now|so|still|however|that said|then),?\s+/i, () => "");
-    text = rest ? rest.charAt(0).toUpperCase() + rest.slice(1) : parts.rest;
+    const body = rest ? rest.charAt(0).toUpperCase() + rest.slice(1) : parts.rest;
+    const reason = reasonFromPraise(parts.first);
+    text = reason ? `${reason} ${body}` : body;
     strippedParts.push(parts.first);
+    if (reason) break;
   }
   return { text, stripped: strippedParts.join(" ") };
 }

@@ -141,3 +141,16 @@ test("[mentor-shape] a two-sentence check-in is dropped whole", () => {
   assert.equal(out.text, "A draft is just a step, not the end. What's one scene that's bothering you the most right now?");
   assert.equal(out.stripped, "Sounds like a rough spot. First, let's take a breath and remember:");
 });
+
+import { reasonFromPraise } from "../lib/mentor_reply_shape.js";
+
+test("[mentor-shape] a praise opener with a because keeps the reason and drops the grade", () => {
+  const reply = "That's a strong inciting incident because it forces Hal to confront his past and question his current life. To make it playable, have Hal defend the student first. What does Hal want here?";
+  const out = stripPraiseOpener(reply);
+  assert.equal(out.text, "It forces Hal to confront his past and question his current life. To make it playable, have Hal defend the student first. What does Hal want here?");
+  assert.equal(out.stripped, "That's a strong inciting incident because it forces Hal to confront his past and question his current life.");
+  assert.equal(reasonFromPraise("Ada finding a body she recognizes is a powerful inciting incident because it pulls her into the story with personal stakes."), "It pulls her into the story with personal stakes.");
+  assert.equal(reasonFromPraise("Mara pockets the ring because she cannot say no."), "");
+  // A long praise sentence with no because is still left alone (it may be craft).
+  assert.equal(isPraiseOpener("That's a strong setup and it has to pay off on page twelve when the sister arrives with the letter he burned."), false);
+});
