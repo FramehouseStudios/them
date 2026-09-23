@@ -1,7 +1,16 @@
+---
+id: T59
+title: iOS Markdown Export
+owner: codex
+branch: codex/T59-ios-markdown-export
+pillar: mobile-first + voice→scene
+status: merged
+---
+
 # T59 — iOS Markdown Export
 
 Owner: codex
-Status: in-progress
+Status: merged (PR #136)
 Branch: codex/T59-ios-markdown-export
 Tier: 1
 

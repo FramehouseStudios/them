@@ -1,7 +1,16 @@
+---
+id: T56
+title: Refresh Queue After Talk Contract Merge
+owner: codex
+branch: codex/T56-refresh-after-talk-contract
+pillar: infra (coordination refresh)
+status: merged
+---
+
 # T56 — Refresh Queue After Talk Contract Merge
 
 Owner: codex
-Status: in-progress
+Status: merged (PR #129)
 Branch: codex/T56-refresh-after-talk-contract
 Tier: 1
 PR: https://github.com/FramehouseStudios/them/pull/129

@@ -1,7 +1,16 @@
+---
+id: T51
+title: Refresh Queue After New Eval PRs
+owner: codex
+branch: codex/T51-refresh-after-new-eval-prs
+pillar: infra (coordination refresh)
+status: merged
+---
+
 # T51 — Refresh Queue After New Eval PRs
 
 Owner: codex
-Status: in-progress
+Status: merged (PR #116)
 Branch: codex/T51-refresh-after-new-eval-prs
 Tier: 1
 

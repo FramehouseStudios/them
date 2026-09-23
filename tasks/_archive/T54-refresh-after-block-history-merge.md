@@ -1,7 +1,16 @@
+---
+id: T54
+title: Refresh Queue After Block-History Eval Merge
+owner: codex
+branch: codex/T54-refresh-after-block-history-merge
+pillar: infra (coordination refresh)
+status: merged
+---
+
 # T54 — Refresh Queue After Block-History Eval Merge
 
 Owner: codex
-Status: in-progress
+Status: merged (PR #123)
 Branch: codex/T54-refresh-after-block-history-merge
 Tier: 1
 PR: https://github.com/FramehouseStudios/them/pull/123

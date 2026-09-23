@@ -1,7 +1,16 @@
+---
+id: T49
+title: Post-T48 Coordination Refresh
+owner: codex
+branch: codex/T49-post-t48-coordination-refresh
+pillar: infra (coordination refresh)
+status: merged
+---
+
 # T49 — Post-T48 Coordination Refresh
 
 Owner: codex
-Status: in-progress
+Status: merged (PR #109)
 Branch: codex/T49-post-t48-coordination-refresh
 Tier: 1
 

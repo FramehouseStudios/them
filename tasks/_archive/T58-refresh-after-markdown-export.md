@@ -1,7 +1,16 @@
+---
+id: T58
+title: Refresh Queue After Markdown Export Merge
+owner: codex
+branch: codex/T58-refresh-after-markdown-export
+pillar: infra (coordination refresh)
+status: merged
+---
+
 # T58 — Refresh Queue After Markdown Export Merge
 
 Owner: codex
-Status: in-progress
+Status: merged (PR #132)
 Branch: codex/T58-refresh-after-markdown-export
 Tier: 1
 PR: https://github.com/FramehouseStudios/them/pull/132
