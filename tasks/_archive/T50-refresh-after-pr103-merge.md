@@ -1,7 +1,16 @@
+---
+id: T50
+title: Refresh Queue After PR #103 Merge
+owner: codex
+branch: codex/T50-refresh-after-pr103-merge
+pillar: infra (coordination refresh)
+status: merged
+---
+
 # T50 — Refresh Queue After PR #103 Merge
 
 Owner: codex
-Status: in-progress
+Status: merged (PR #113)
 Branch: codex/T50-refresh-after-pr103-merge
 Tier: 1
 

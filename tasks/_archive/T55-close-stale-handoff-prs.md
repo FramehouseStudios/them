@@ -1,7 +1,16 @@
+---
+id: T55
+title: Close Stale Handoff PRs
+owner: codex
+branch: codex/T55-close-stale-handoff-prs
+pillar: infra (coordination refresh)
+status: merged
+---
+
 # T55 — Close Stale Handoff PRs
 
 Owner: codex
-Status: in-progress
+Status: merged (PR #126)
 Branch: codex/T55-close-stale-handoff-prs
 Tier: 1
 PR: https://github.com/FramehouseStudios/them/pull/126

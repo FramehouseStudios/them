@@ -1,7 +1,16 @@
+---
+id: T57
+title: Refresh Queue After Decisions Lint Triage
+owner: codex
+branch: codex/T57-refresh-after-lint-triage
+pillar: infra (coordination refresh)
+status: merged
+---
+
 # T57 — Refresh Queue After Decisions Lint Triage
 
 Owner: codex
-Status: in-progress
+Status: merged (PR #130)
 Branch: codex/T57-refresh-after-lint-triage
 Tier: 1
 PR: https://github.com/FramehouseStudios/them/pull/130
