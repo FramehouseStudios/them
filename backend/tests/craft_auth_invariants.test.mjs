@@ -32,6 +32,7 @@ import { configureAcceptedTwistLog } from "../lib/accepted_twist_log.js";
 import { configureLoglineDistiller } from "../lib/logline_distiller.js";
 import { _resetCraftStores, configureCraftAnalysis } from "../lib/craft_analysis.js";
 
+import { listenEphemeral } from "./helpers/ephemeral_server.mjs";
 // Literal public allowlist. Adding a public /craft route means editing this
 // list in the same diff as the route.
 const PUBLIC_CRAFT_ALLOWLIST = [
@@ -69,7 +70,7 @@ function freshPersistence() {
 }
 
 async function withServer(app, fn) {
-  const server = app.listen(0);
+  const server = listenEphemeral(app);
   await new Promise((resolve) => server.once("listening", resolve));
   const baseURL = `http://127.0.0.1:${server.address().port}`;
   try {

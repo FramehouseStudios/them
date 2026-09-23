@@ -14,6 +14,7 @@ import { createMuseClient } from "../lib/clementine/muse_client.js";
 import { createChatSupplier } from "../lib/talk_supplier_glue.js";
 import { mountPageCancelRoute } from "../lib/talk_pipeline.js";
 
+import { listenEphemeral } from "./helpers/ephemeral_server.mjs";
 test("[page-abort-midflight] reserve attaches AbortSignal; cancel aborts it", () => {
   const store = createPageReservationStore({ now: () => 1 });
   const r = store.reserve({ sessionId: "s-abort", maxOutputTokens: 128 });
@@ -196,7 +197,7 @@ test("[page-abort-midflight] adapter exposes abortSignal; HTTP cancel aborts mid
   app.use(express.json());
   app.post("/talk", (req, res) => wrapped(req, res));
   mountPageCancelRoute(app, { pageReservationStore: store });
-  const server = app.listen(0);
+  const server = listenEphemeral(app);
   await new Promise((resolve) => server.once("listening", resolve));
   const port = server.address().port;
   try {

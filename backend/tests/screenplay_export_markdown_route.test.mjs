@@ -10,6 +10,7 @@ import express from "express";
 
 import { respondScreenplayMarkdown } from "../lib/screenplay_markdown_export.js";
 
+import { listenEphemeral } from "./helpers/ephemeral_server.mjs";
 const SAMPLE = `INT. KITCHEN - NIGHT
 
 She picks up the locket.
@@ -39,7 +40,7 @@ async function withTestServer(fn) {
     }
     return res.status(400).json({ stage: "screenplay_export", error: "unsupported_format" });
   });
-  const server = app.listen(0);
+  const server = listenEphemeral(app);
   await new Promise((resolve) => server.once("listening", resolve));
   const baseURL = `http://127.0.0.1:${server.address().port}`;
   try {

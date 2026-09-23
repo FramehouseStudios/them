@@ -13,6 +13,7 @@ import {
   startBackend,
 } from "./helpers/backend_test_server.mjs";
 
+import { listenEphemeral } from "./helpers/ephemeral_server.mjs";
 async function withTestServer(fn, {
   memory = null,
   craftBlock = "",
@@ -41,7 +42,7 @@ async function withTestServer(fn, {
     },
     ...promptRouteDeps,
   });
-  const server = app.listen(0);
+  const server = listenEphemeral(app);
   await new Promise((resolve) => server.once("listening", resolve));
   const port = server.address().port;
   const baseURL = `http://127.0.0.1:${port}`;
@@ -198,7 +199,7 @@ test("POST /screenplay/prompt/build accepts X-User-Id when auth middleware is ab
       },
     },
   });
-  const server = app.listen(0);
+  const server = listenEphemeral(app);
   await new Promise((resolve) => server.once("listening", resolve));
   const baseURL = `http://127.0.0.1:${server.address().port}`;
   try {

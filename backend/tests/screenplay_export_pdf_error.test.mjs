@@ -11,6 +11,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import express from "express";
 
+import { listenEphemeral } from "./helpers/ephemeral_server.mjs";
 function mountPdfRejectionFixture(app) {
   app.post("/screenplay/export", express.json(), (req, res) => {
     const draft = String(req.body?.draft || "").trim();
@@ -31,7 +32,7 @@ function mountPdfRejectionFixture(app) {
 async function withTestServer(fn) {
   const app = express();
   mountPdfRejectionFixture(app);
-  const server = app.listen(0);
+  const server = listenEphemeral(app);
   await new Promise((resolve) => server.once("listening", resolve));
   const baseURL = `http://127.0.0.1:${server.address().port}`;
   try {

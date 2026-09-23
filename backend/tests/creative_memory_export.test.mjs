@@ -19,6 +19,7 @@ import { mountCreativeMemoryExportRoute } from "../lib/creative_memory_export_ro
 import { createCreativeMemoryStore } from "../lib/creative_memory_store.js";
 import { createJsonPersistence } from "../lib/persistence_json.js";
 
+import { listenEphemeral } from "./helpers/ephemeral_server.mjs";
 function freshStore() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "io-them-mem-export-"));
   return createCreativeMemoryStore({ persistence: createJsonPersistence({ jsonRoot: root }) });
@@ -32,7 +33,7 @@ async function withServer(fn, { userId = "u-export", store } = {}) {
     app.use((req, _res, next) => { req.user = { id: userId }; next(); });
   }
   mountCreativeMemoryExportRoute(app, { creativeMemoryStore });
-  const server = app.listen(0);
+  const server = listenEphemeral(app);
   await new Promise((r) => server.once("listening", r));
   const port = server.address().port;
   try {

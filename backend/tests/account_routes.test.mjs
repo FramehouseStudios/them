@@ -8,6 +8,7 @@ import {
   DEFAULT_SOFT_DELETE_WINDOW_MS,
 } from "../lib/account_routes.js";
 
+import { listenEphemeral } from "./helpers/ephemeral_server.mjs";
 function makeApp({
   user = { id: "alice" },
   reauthOk = true,
@@ -61,7 +62,7 @@ function makeApp({
 }
 
 async function hit(app, method, path, body, headers) {
-  const server = app.listen(0);
+  const server = listenEphemeral(app);
   try {
     const port = server.address().port;
     const res = await fetch(`http://127.0.0.1:${port}${path}`, {

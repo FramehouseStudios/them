@@ -10,6 +10,7 @@ import express from "express";
 
 import { mountHealthRoutes, buildHealthPayload } from "../lib/health_route.js";
 
+import { listenEphemeral } from "./helpers/ephemeral_server.mjs";
 function makeDeps(overrides = {}) {
   return {
     selectMemoryRecordForRead: () => ({ memory: { id: "m-1" }, ip: "127.0.0.1" }),
@@ -45,7 +46,7 @@ function makeDeps(overrides = {}) {
 async function withTestServer(deps, fn) {
   const app = express();
   mountHealthRoutes(app, deps);
-  const server = app.listen(0);
+  const server = listenEphemeral(app);
   await new Promise((resolve) => server.once("listening", resolve));
   const baseURL = `http://127.0.0.1:${server.address().port}`;
   try {

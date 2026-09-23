@@ -13,6 +13,7 @@ import {
   DECISIONS_QUEUE_SCHEMA_VERSION,
 } from "../lib/decisions_queue_route.js";
 
+import { listenEphemeral } from "./helpers/ephemeral_server.mjs";
 // ---------- parser ----------
 
 test("[decisions-queue] empty string yields empty queue", () => {
@@ -132,7 +133,7 @@ async function withTestServer(fn, { fileContents = null, missing = false } = {})
   }
   const app = express();
   mountDecisionsQueueRoute(app, { filePath: missing ? path.join(tmp, "missing.md") : filePath });
-  const server = app.listen(0);
+  const server = listenEphemeral(app);
   await new Promise((resolve) => server.once("listening", resolve));
   const port = server.address().port;
   const baseURL = `http://127.0.0.1:${port}`;

@@ -10,6 +10,7 @@ import {
   SCREENPLAY_EXPORT_FORMATS_SCHEMA_VERSION,
 } from "../lib/screenplay_export_formats_route.js";
 
+import { listenEphemeral } from "./helpers/ephemeral_server.mjs";
 // ---------- snapshot ----------
 
 test("[export-formats] canonical format set is frozen", () => {
@@ -49,7 +50,7 @@ test("[export-formats] every entry has a non-empty mediaType + extension", () =>
 async function withTestServer(fn) {
   const app = express();
   mountScreenplayExportFormatsRoute(app);
-  const server = app.listen(0);
+  const server = listenEphemeral(app);
   await new Promise((resolve) => server.once("listening", resolve));
   const baseURL = `http://127.0.0.1:${server.address().port}`;
   try {

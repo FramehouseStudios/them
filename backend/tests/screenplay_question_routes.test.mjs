@@ -7,6 +7,7 @@ import {
   SCREENPLAY_QUESTION_RESOLUTION_BODY_LIMIT,
 } from "../lib/screenplay_question_routes.js";
 
+import { listenEphemeral } from "./helpers/ephemeral_server.mjs";
 const pendingQuestion = {
   id: "screenplay-learning-4-project.theme_argument",
   projectId: "split-ferries",
@@ -87,7 +88,7 @@ async function withServer(deps, fn, { authenticated = true } = {}) {
     });
   }
   mountScreenplayQuestionRoutes(app, deps);
-  const server = app.listen(0);
+  const server = listenEphemeral(app);
   await new Promise((resolve) => server.once("listening", resolve));
   try {
     await fn(`http://127.0.0.1:${server.address().port}`);

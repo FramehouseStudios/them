@@ -16,6 +16,7 @@ import express from "express";
 import { mountTalkPipelineRoutes } from "../lib/talk_pipeline.js";
 import { createTalkTurnRateLimiter } from "../lib/talk_turn_rate_limit.js";
 
+import { listenEphemeral } from "./helpers/ephemeral_server.mjs";
 async function withTestServer(fn, opts = {}) {
   const app = express();
   if (opts.userId !== undefined) {
@@ -39,7 +40,7 @@ async function withTestServer(fn, opts = {}) {
     canReadTalkTurnMeta: () => true,
     turnReadRateLimiter: opts.rateLimiter,
   });
-  const server = app.listen(0);
+  const server = listenEphemeral(app);
   await new Promise((resolve) => server.once("listening", resolve));
   const baseURL = `http://127.0.0.1:${server.address().port}`;
   try {

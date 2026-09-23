@@ -21,6 +21,7 @@ import { createCreativeMemoryStore } from "../lib/creative_memory_store.js";
 import { createJsonPersistence } from "../lib/persistence_json.js";
 import { mountCharacterTraitRoute } from "../lib/character_trait_route.js";
 
+import { listenEphemeral } from "./helpers/ephemeral_server.mjs";
 // ---------- pure module ----------
 
 test("[trait-library] extractTraits with empty inputs returns the empty trait shape", () => {
@@ -263,7 +264,7 @@ async function withTestServer(fn, { userId = "user-trait" } = {}) {
     });
   }
   mountCharacterTraitRoute(app, { creativeMemoryStore });
-  const server = app.listen(0);
+  const server = listenEphemeral(app);
   await new Promise((resolve) => server.once("listening", resolve));
   const port = server.address().port;
   const baseURL = `http://127.0.0.1:${port}`;

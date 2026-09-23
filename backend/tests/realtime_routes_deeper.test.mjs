@@ -20,6 +20,7 @@ import express from "express";
 
 import { mountRealtimeRoutes } from "../lib/realtime_routes.js";
 
+import { listenEphemeral } from "./helpers/ephemeral_server.mjs";
 function defaultDeps(overrides = {}) {
   let supplier = { kind: "openai" };
   const cache = new Map();
@@ -38,7 +39,7 @@ function defaultDeps(overrides = {}) {
 async function withTestServer(deps, fn) {
   const app = express();
   mountRealtimeRoutes(app, deps);
-  const server = app.listen(0);
+  const server = listenEphemeral(app);
   await new Promise((r) => server.once("listening", r));
   const port = server.address().port;
   try { await fn(`http://127.0.0.1:${port}`); }

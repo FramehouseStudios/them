@@ -15,6 +15,7 @@ import {
   CREATIVE_MEMORY_STATS_SCHEMA_VERSION,
 } from "../lib/creative_memory_stats_route.js";
 
+import { listenEphemeral } from "./helpers/ephemeral_server.mjs";
 function freshStore() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "io-them-memstats-"));
   return createCreativeMemoryStore({ persistence: createJsonPersistence({ jsonRoot: root }) });
@@ -74,7 +75,7 @@ async function withTestServer(fn, { userId = "u-test", seed = null } = {}) {
     app.use((req, _res, next) => { req.user = { id: userId }; next(); });
   }
   mountCreativeMemoryStatsRoute(app, { creativeMemoryStore: store });
-  const server = app.listen(0);
+  const server = listenEphemeral(app);
   await new Promise((resolve) => server.once("listening", resolve));
   const port = server.address().port;
   const baseURL = `http://127.0.0.1:${port}`;

@@ -12,6 +12,7 @@ import {
   OPS_ROUTES_LIST_SCHEMA_VERSION,
 } from "../lib/ops_routes_list_route.js";
 
+import { listenEphemeral } from "./helpers/ephemeral_server.mjs";
 // ---------- snapshot ----------
 
 test("[ops-routes] CURATED_ROUTES is frozen + every entry is frozen", () => {
@@ -71,7 +72,7 @@ test("[ops-routes] scope rule: manifest INCLUDES the canonical app-facing groups
 async function withTestServer(fn) {
   const app = express();
   mountOpsRoutesListRoute(app);
-  const server = app.listen(0);
+  const server = listenEphemeral(app);
   await new Promise((resolve) => server.once("listening", resolve));
   const baseURL = `http://127.0.0.1:${server.address().port}`;
   try {

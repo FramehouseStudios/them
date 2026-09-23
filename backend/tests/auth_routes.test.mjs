@@ -11,6 +11,7 @@ import express from "express";
 
 import { mountAuthRoutes, AUTH_BODY_LIMIT } from "../lib/auth_routes.js";
 
+import { listenEphemeral } from "./helpers/ephemeral_server.mjs";
 function buildUserAuthStub() {
   const calls = {};
   const handler = (name) => (req, res) => {
@@ -39,7 +40,7 @@ async function withTestServer(userAuth, fn, configureAfterMount = null) {
   if (typeof configureAfterMount === "function") {
     configureAfterMount(app);
   }
-  const server = app.listen(0);
+  const server = listenEphemeral(app);
   await new Promise((resolve) => server.once("listening", resolve));
   const port = server.address().port;
   try {

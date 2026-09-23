@@ -23,6 +23,7 @@ import { mountFirstPageTelemetryRoute } from "../lib/first_page_telemetry_route.
 import { configureFirstPageTelemetry } from "../lib/first_page_telemetry.js";
 import { mountFountainExportRoute } from "../lib/fountain_export_route.js";
 
+import { listenEphemeral } from "./helpers/ephemeral_server.mjs";
 function fakeStore() {
   const recorded = [];
   return {
@@ -43,7 +44,7 @@ async function withBareApp(mountFn, fn) {
   // must mount its own parser.
   const app = express();
   mountFn(app);
-  const server = app.listen(0);
+  const server = listenEphemeral(app);
   await new Promise((resolve) => server.once("listening", resolve));
   const port = server.address().port;
   try {

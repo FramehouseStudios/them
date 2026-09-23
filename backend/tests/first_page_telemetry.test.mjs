@@ -19,6 +19,7 @@ import {
 import { mountFirstPageTelemetryRoute } from "../lib/first_page_telemetry_route.js";
 import { createJsonPersistence } from "../lib/persistence_json.js";
 
+import { listenEphemeral } from "./helpers/ephemeral_server.mjs";
 function freshPersistence() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "io-them-first-page-"));
   return createJsonPersistence({ jsonRoot: root });
@@ -121,7 +122,7 @@ async function withTestServer(fn, { userId = "u-test", userCreatedAt = null, now
     });
   }
   mountFirstPageTelemetryRoute(app, { now });
-  const server = app.listen(0);
+  const server = listenEphemeral(app);
   await new Promise((resolve) => server.once("listening", resolve));
   const port = server.address().port;
   const baseURL = `http://127.0.0.1:${port}`;

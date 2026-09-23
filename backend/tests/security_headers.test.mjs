@@ -5,6 +5,7 @@ import express from "express";
 import { applyAppMiddleware } from "../middleware/auth.js";
 import { SECURITY_HEADERS } from "../lib/security_headers.js";
 
+import { listenEphemeral } from "./helpers/ephemeral_server.mjs";
 function makeApp() {
   const app = express();
   app.disable("x-powered-by");
@@ -16,7 +17,7 @@ function makeApp() {
 }
 
 async function hit(app, path = "/realtime/health") {
-  const server = app.listen(0);
+  const server = listenEphemeral(app);
   try {
     const port = server.address().port;
     return await fetch(`http://127.0.0.1:${port}${path}`);

@@ -20,6 +20,7 @@ import {
   _sanitizeMetadata,
 } from "../lib/memory_character_mention_route.js";
 
+import { listenEphemeral } from "./helpers/ephemeral_server.mjs";
 function freshPersistenceRoot() {
   return fs.mkdtempSync(path.join(os.tmpdir(), "io-them-mem-char-"));
 }
@@ -36,7 +37,7 @@ async function withTestServer(fn, { userId = "user-test-1" } = {}) {
     });
   }
   mountMemoryCharacterMentionRoute(app, { creativeMemoryStore });
-  const server = app.listen(0);
+  const server = listenEphemeral(app);
   await new Promise((resolve) => server.once("listening", resolve));
   const port = server.address().port;
   const baseURL = `http://127.0.0.1:${port}`;
