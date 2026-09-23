@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import {
+  test } from "node:test";
+import { parseStudioCapabilities, buildStudioControlsBlock, buildCoverageReadBlock } from "../lib/studio_actions.js";
 
 import {
   extractTaggedBlocks,
@@ -514,4 +516,19 @@ test("[system-prompt-trim] adds the Scene Doctor mode contract when its small ta
   assert.ok(out.includes("intent: scene_doctor"));
   assert.ok(out.includes("mode_contract: diagnose with surgical brevity"));
   assert.ok(out.includes(writerRequest));
+});
+
+test("[system-prompt-trim] the Studio controls and the coverage read survive a 48k prompt at the rich budget", () => {
+  const caps = parseStudioCapabilities({
+    tabs: ["draft", "beats", "craft"], beat_labels: ["Midpoint"], scene_labels: ["INT. KITCHEN - NIGHT"],
+    has_draft: true, studio_open: true,
+    coverage: { grade: "C", verdict: "consider", overall: 6.6, page_count: 12, scene_count: 9, pillars: { structure: 4 }, missing: ["Too few pages."], move: "Give FRANK a want." },
+  });
+  const filler = Array.from({ length: 400 }, (_, i) => `- Companion note ${i}: ${"lorem ipsum ".repeat(9)}`).join("\n");
+  const prompt = `You are CLEMENTINE.\n\n${filler}\n\n${buildStudioControlsBlock(caps)}\n\n${buildCoverageReadBlock(caps)}`;
+  assert.ok(prompt.length > 40_000, `prompt is ${prompt.length} chars`);
+  const trimmed = fitSystemPromptForTurnLatency(prompt, { tier: "rich", maxChars: 6_200 });
+  assert.ok(trimmed.length <= 6_400, `trimmed to ${trimmed.length}`);
+  assert.match(trimmed, /\[\[studio: choose_beat beat="Midpoint"\]\]/, "controls block survives");
+  assert.match(trimmed, /Grade C, verdict consider/, "coverage read survives");
 });

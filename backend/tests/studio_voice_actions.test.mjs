@@ -88,7 +88,9 @@ test("[studio-actions] unambiguous spoken commitments are inferred when the tag 
   assert.deepEqual(inferSpokenActions("Saving a revision in pink so we can compare.").map((a) => [a.type, a.args.color]), [["save_revision", "pink"]]);
   assert.deepEqual(inferSpokenActions("Which story beat would you like to change?").map((a) => a.type), ["choose_beat"]);
   assert.deepEqual(inferSpokenActions("Pulling up the beats tab now.").map((a) => [a.type, a.args.tab]), [["open_tab", "beats"]]);
-  assert.deepEqual(inferSpokenActions("I saved the draft."), [], "past tense is not a commitment");
+  // She narrates in past tense on real turns ("I've saved a revision in pink for you").
+  // If she says she did it, the app does it; otherwise the writer was told a lie.
+  assert.deepEqual(inferSpokenActions("I saved the draft.").map((a) => a.type), ["save_draft"]);
   assert.deepEqual(inferSpokenActions("The porch light is wrong."), []);
   const r = extractStudioActions("Saving a revision in pink.", caps);
   assert.deepEqual(r.actions, [{ type: "save_revision", color: "pink", source: "spoken" }]);
@@ -149,7 +151,7 @@ test("coverage: a summary from the phone becomes a read block; junk or absence b
   assert.equal(withRead.coverage.verdict, "consider");
   assert.equal(withRead.coverage.missing.length, 2);
   const block = buildCoverageReadBlock(withRead);
-  assert.match(block, /^YOUR READ OF THE PAGES/);
+  assert.match(block, /^<coverage_read>\nYOUR READ OF THE PAGES/);
   assert.match(block, /12 pages, 9 scenes\. Grade C, verdict consider, 6\.6 of 10 overall\./);
   assert.match(block, /Pillars: structure 4, pacing 8, dialogue 9\.1, character 4\.8, format 9\.3\. Lowest: structure\./);
   assert.match(block, /The move you named: Give FRANK a want of his own/);
@@ -158,4 +160,39 @@ test("coverage: a summary from the phone becomes a read block; junk or absence b
   assert.equal(parseCoverageSummary({ grade: "Z", verdict: "consider", overall: 5 }), null);
   assert.equal(parseCoverageSummary({ grade: "B", verdict: "maybe", overall: 5 }), null);
   assert.equal(parseCoverageSummary("nope"), null);
+});
+
+test("[studio-actions] spoken inference hears how she actually says it: past tense, focus-on, jumped-to-scene", () => {
+  const spoken = (text) => extractStudioActions(text, caps).actions;
+  assert.deepEqual(spoken("Let's focus on the midpoint beat. This is where a twist should occur."), [{ type: "choose_beat", beat: "Midpoint", source: "spoken" }]);
+  assert.deepEqual(spoken("I've jumped to the porch scene and saved the draft for you."), [
+    { type: "jump_to_scene", scene: "EXT. PORCH - DAWN", source: "spoken" },
+    { type: "save_draft", source: "spoken" },
+  ]);
+  assert.deepEqual(spoken("I've saved a revision in pink for you."), [{ type: "save_revision", color: "pink", source: "spoken" }]);
+  assert.deepEqual(spoken("Opening the craft tab now."), [{ type: "open_tab", tab: "craft", source: "spoken" }]);
+  assert.deepEqual(spoken("The kitchen scene needs a want."), [], "talking about a scene is not jumping to it");
+  assert.match(buildStudioControlsBlock(caps), /the one exception to speaking in prose/);
+});
+
+test("[studio-actions] the writer's own command acts even when her reply does not narrate it", () => {
+  const r = extractStudioActions("The midpoint beat is a crucial turning point. Would you like to brainstorm ideas for it?", caps, { transcript: "Which beat should we change? Pull up the midpoint beat for me." });
+  assert.deepEqual(r.actions, [{ type: "choose_beat", beat: "Midpoint", source: "writer" }]);
+  const tab = extractStudioActions("Your script has a grade of C.", caps, { transcript: "Open the craft tab and tell me how my script is doing." });
+  assert.deepEqual(tab.actions, [{ type: "open_tab", tab: "craft", source: "writer" }]);
+  // Her narration or a tag wins over the writer's phrasing for the same type.
+  const both = extractStudioActions("Saving a revision in blue. [[studio: save_revision color=blue]]", caps, { transcript: "Save a revision in pink." });
+  assert.deepEqual(both.actions, [{ type: "save_revision", color: "blue", source: "tag" }]);
+  // A refusal wins over the command.
+  const refused = extractStudioActions("There's no basement scene on the page yet.", caps, { transcript: "Jump to the basement scene." });
+  assert.deepEqual(refused.actions, []);
+  // Talking about a scene is not a command.
+  assert.deepEqual(extractStudioActions("Okay.", caps, { transcript: "I think the kitchen scene drags." }).actions, []);
+});
+
+test("[studio-actions] a narrated jump to a scene the page does not have becomes the truth", () => {
+  const r = extractStudioActions("I've jumped to the basement scene. What would you like to work on here?", caps, { transcript: "Jump to the basement scene." });
+  assert.deepEqual(r.actions, []);
+  assert.equal(r.spokenText, "I don't see a basement scene on the page yet. What would you like to work on here?");
+  assert.ok(r.rejected.some((x) => x.type === "jump_to_scene" && /^unknown_scene:/.test(x.reason)));
 });

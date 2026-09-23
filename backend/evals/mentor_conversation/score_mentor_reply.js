@@ -145,7 +145,10 @@ export function scoreBuildOnWriter(reply, { writerNouns = [] } = {}) {
   if (/\b(slams|reaches|hands|finds|drops|lies|refuses|opens|hides|calls|walks|turns|counts|pockets|signs|pours|locks|waits|packs|leaves|says nothing|beat)\b/.test(lower)) {
     score += 1;
   } else notes.push("no concrete added beat");
-  if (/\binstead\b[^.]{0,40}\b(let'?s|what if|do a|make (it|him|her|them)|try)|forget (that|the)|scrap (it|that|the)|throw (it|that) out|start over|different idea|better idea|bigger canvas|more original|fresher|has been done/.test(lower)) {
+  // "Instead of saying X, try: \"…\"" is a line rewrite that builds on the
+  // idea; only a bare "instead, let's/what if/try…" replaces it.
+  const rewriteOffer = /\binstead of (saying|writing|having|the line|a line|telling|announcing)\b/.test(lower) && quotedLines(text).length > 0;
+  if (!rewriteOffer && /\binstead\b[^.]{0,40}\b(let'?s|what if|do a|make (it|him|her|them)|try)|forget (that|the)|scrap (it|that|the)|throw (it|that) out|start over|different idea|better idea|bigger canvas|more original|fresher|has been done/.test(lower)) {
     score -= 3; notes.push("replaces the writer's idea");
   }
   const whatIfs = (lower.match(/what if we/g) || []).length;
