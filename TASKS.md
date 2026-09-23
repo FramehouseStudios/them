@@ -44,7 +44,7 @@ hand-written tables lives in `tasks/HISTORY-2026-05.md`.
 | T-auth-demo-keychain-login           | Add local demo login and Keychain remembered credentials                      | codex   | review  |
 | T-auth-session-durability            | Make auth sessions durable before success responses                           | codex   | review  |
 | T-backend-openai-cost-cap            | OpenAI per-day / per-user / per-hour budget cap                               | support | ready   |
-| T-backend-pg-pool-tuning             | Production-tune the Postgres connection pool                                  | support | ready   |
+| T-backend-pg-pool-tuning             | Production-tune the Postgres connection pool                                  | support | review  |
 | T-decompose-root-experience-view     | Decompose them/RootExperienceView.swift (529 KB) into per-concern modules     | codex   | ready   |
 | T-decompose-screenplay-studio-screen | Decompose them/ScreenplayStudioScreen.swift (1.1 MB) into per-concern modules | codex   | ready   |
 | T-ios-keychain-token-migration       | Migrate iOS auth tokens from UserDefaults to Keychain                         | codex   | review  |
@@ -260,9 +260,9 @@ env-driven caps, `/ops/cost` endpoint, 402 response on cap breach.
 
 ### T-backend-pg-pool-tuning — Production-tune the Postgres connection pool
 - **Owner:** support
-- **Branch:** -
+- **Branch:** claude/pg-pool-tuning
 - **Pillar:** infra (enables all)
-- **Status:** ready
+- **Status:** review
 
 ## Scope
 
@@ -276,9 +276,21 @@ status endpoint. New env vars documented in `.env.example` + DEPLOY.md.
 ## Done when
 
 - `pg_stat_activity.application_name` shows `them-backend@<build>`.
+  (config sets it; VERIFIED at the pool-config layer by unit test, live
+  read of pg_stat_activity UNVERIFIED: no Postgres reachable from the dev
+  machine on 2026-09-23. Clearance: run against a DATABASE_URL and
+  `select application_name from pg_stat_activity`.)
 - A 30s blocking query elsewhere does not stall our requests beyond
-  `PG_STATEMENT_TIMEOUT_MS`.
-- `/ops/pg-pool` returns pool stats JSON.
+  `PERSISTENCE_POSTGRES_STATEMENT_TIMEOUT_MS`. (statement_timeout and
+  query_timeout were already bounded before this task; live check
+  UNVERIFIED, same clearance.)
+- Pool stats JSON: shipped as the `pg_pool` field of `GET /ops/metrics`
+  rather than a new `/ops/pg-pool` route, so `index.js` does not grow
+  (D009). VERIFIED by route test and by a local boot on the JSON adapter
+  (field is null there).
+- `pool.on("error")` handler: VERIFIED by unit test with a fake pool
+  (errors counted, warned, reported; process no longer exits on an idle
+  client error).
 
 ### T-decompose-root-experience-view — Decompose them/RootExperienceView.swift (529 KB) into per-concern modules
 - **Owner:** codex

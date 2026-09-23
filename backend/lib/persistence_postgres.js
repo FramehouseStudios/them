@@ -31,11 +31,30 @@ function boundedTimeout(value, fallback, min, max) {
   return Math.max(min, Math.min(max, resolved));
 }
 
+// T-backend-pg-pool-tuning. pg.Pool defaults are max=10 with no idle
+// timeout and no application_name; a production pool needs all three
+// bounded and visible. Every value is env-driven; the defaults are what a
+// single backend instance on a managed Postgres can hold.
+function boundedInt(value, fallback, min, max) {
+  const parsed = Number(value);
+  const resolved = Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback;
+  return Math.max(min, Math.min(max, resolved));
+}
+
+function applicationName(build) {
+  const clean = String(build || "").trim().replace(/[^A-Za-z0-9._-]/g, "").slice(0, 40) || "dev";
+  // application_name is limited to 63 bytes on the server side.
+  return `them-backend@${clean}`;
+}
+
 function buildPostgresPoolConfig({
   databaseUrl,
   connectionTimeoutMs = process.env.PERSISTENCE_POSTGRES_CONNECTION_TIMEOUT_MS,
   statementTimeoutMs = process.env.PERSISTENCE_POSTGRES_STATEMENT_TIMEOUT_MS,
   queryTimeoutMs = process.env.PERSISTENCE_POSTGRES_QUERY_TIMEOUT_MS,
+  poolMax = process.env.PERSISTENCE_POSTGRES_POOL_MAX,
+  idleTimeoutMs = process.env.PERSISTENCE_POSTGRES_IDLE_TIMEOUT_MS,
+  build = process.env.BACKEND_BUILD || process.env.RENDER_GIT_COMMIT || process.env.FLY_IMAGE_REF || "",
 } = {}) {
   const connectionTimeoutMillis = boundedTimeout(connectionTimeoutMs, 1_000, 100, 10_000);
   const statement_timeout = boundedTimeout(statementTimeoutMs, 3_000, 250, 29_000);
@@ -46,18 +65,43 @@ function buildPostgresPoolConfig({
     connectionTimeoutMillis,
     statement_timeout,
     query_timeout,
+    max: boundedInt(poolMax, 10, 1, 100),
+    idleTimeoutMillis: boundedInt(idleTimeoutMs, 30_000, 1_000, 600_000),
+    application_name: applicationName(build),
   };
 }
 
-async function loadPgClient(poolConfig) {
+async function loadPgClient(poolConfig, { createPool, logger = console } = {}) {
   // Lazy import so test environments without pg installed can still
   // exercise the JSON adapter.
-  const pgModule = await import("pg");
-  const { Pool } = pgModule.default ?? pgModule;
-  const pool = new Pool(poolConfig);
+  let pool;
+  if (typeof createPool === "function") {
+    pool = createPool(poolConfig);
+  } else {
+    const pgModule = await import("pg");
+    const { Pool } = pgModule.default ?? pgModule;
+    pool = new Pool(poolConfig);
+  }
+  // An idle client that loses its connection emits "error" on the pool.
+  // Without a listener that is an unhandled event: the process exits.
+  let errorCount = 0;
+  let lastError = "";
+  pool.on?.("error", (err) => {
+    errorCount += 1;
+    lastError = String(err?.message || err).slice(0, 200);
+    logger?.warn?.(`[persistence] pg pool idle client error count=${errorCount} ${lastError}`);
+  });
   return {
     query: (...args) => pool.query(...args),
     end: () => pool.end(),
+    stats: () => ({
+      total: Number(pool.totalCount ?? 0),
+      idle: Number(pool.idleCount ?? 0),
+      waiting: Number(pool.waitingCount ?? 0),
+      max: Number(poolConfig.max ?? 0),
+      errors: errorCount,
+      last_error: lastError,
+    }),
   };
 }
 
@@ -67,13 +111,22 @@ function createPostgresPersistence({
   connectionTimeoutMs,
   statementTimeoutMs,
   queryTimeoutMs,
+  poolMax,
+  idleTimeoutMs,
+  build,
+  createPool,
+  logger = console,
 } = {}) {
   let clientPromise = null;
+  let loadedClient = null;
   const poolConfig = buildPostgresPoolConfig({
     databaseUrl,
     connectionTimeoutMs,
     statementTimeoutMs,
     queryTimeoutMs,
+    ...(poolMax !== undefined ? { poolMax } : {}),
+    ...(idleTimeoutMs !== undefined ? { idleTimeoutMs } : {}),
+    ...(build !== undefined ? { build } : {}),
   });
 
   async function client() {
@@ -82,7 +135,10 @@ function createPostgresPersistence({
       if (!databaseUrl) {
         throw new Error("createPostgresPersistence requires databaseUrl or pgClient");
       }
-      clientPromise = loadPgClient(poolConfig);
+      clientPromise = loadPgClient(poolConfig, { createPool, logger }).then((c) => {
+        loadedClient = c;
+        return c;
+      });
     }
     return clientPromise;
   }
@@ -91,6 +147,22 @@ function createPostgresPersistence({
     kind: "postgres",
     databaseUrl,
     poolConfig,
+
+    // Pool health for /ops/metrics. Synchronous and never opens the pool:
+    // before the first query it reports the configured limits only.
+    poolStats() {
+      const base = {
+        kind: "postgres",
+        max: poolConfig.max,
+        idle_timeout_ms: poolConfig.idleTimeoutMillis,
+        connection_timeout_ms: poolConfig.connectionTimeoutMillis,
+        statement_timeout_ms: poolConfig.statement_timeout,
+        application_name: poolConfig.application_name,
+        loaded: Boolean(loadedClient),
+      };
+      if (!loadedClient || typeof loadedClient.stats !== "function") return base;
+      return { ...base, ...loadedClient.stats() };
+    },
 
     // Readiness probe for /healthz. Cheapest possible round-trip; just
     // confirms the connection pool can reach the database.
@@ -229,6 +301,7 @@ function createPostgresPersistence({
 export {
   buildPostgresPoolConfig,
   createPostgresPersistence,
+  loadPgClient,
   tableName,
   KNOWN_DOMAINS,
 };

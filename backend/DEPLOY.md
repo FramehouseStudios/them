@@ -81,6 +81,10 @@ runtime requires the env vars enforced by `assertProductionEnv()` in
 |-----|---------|
 | `NODE_ENV=production` | Enables `REQUIRE_APP_TOKEN`, `REQUIRE_CLIENT_TOKEN`, and the boot-time env guard. |
 | `DATABASE_URL` | Postgres connection string. Required. |
+| `PERSISTENCE_POSTGRES_POOL_MAX` | Pool clients per backend instance (default 10, clamped 1–100). Keep `instances × max` under the database's connection limit. |
+| `PERSISTENCE_POSTGRES_IDLE_TIMEOUT_MS` | Idle client release (default 30000). |
+| `PERSISTENCE_POSTGRES_STATEMENT_TIMEOUT_MS` | Server-side statement cap (default 3000). |
+| `BACKEND_BUILD` | Appears as `application_name` `them-backend@<build>` in `pg_stat_activity`; `GET /ops/metrics` `pg_pool` shows live pool counts. |
 | `JWT_SECRET` | HMAC signing key for access/refresh tokens. Required. |
 | `OPENAI_API_KEY` | Talk + realtime supplier. Required. |
 | `APP_TOKEN` | App-level shared secret sent as `X-APP-TOKEN`. Required. |

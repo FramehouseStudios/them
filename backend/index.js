@@ -32167,9 +32167,9 @@ mountOpsMetricsRoute(app, {
   scaleBackplaneStatus: () => scaleBackplane.status(),
   talkMetricsSamples: () => talkMetricsSamples,
   providerBudget: () => providerBudgetGuard.snapshot(),
-  // Phase 7a: accessors imported from backend/lib/talk_state.js. Each is a
-  // live, zero-arg function that reads module-scope state at request time;
-  // same accessor contract as before, only the source moved to the lib.
+  pgPool: () => (typeof sharedPersistence.poolStats === "function" ? sharedPersistence.poolStats() : null),
+  // Phase 7a: accessors from backend/lib/talk_state.js; live zero-arg
+  // functions read at request time, same contract, source moved to the lib.
   talkInFlight: () => readTalkInFlight(),
   talkInFlightBySessionSize: () => talkInFlightBySessionSize(),
   talkIdempotencyCacheSize: () => talkIdempotencyCacheSize(),

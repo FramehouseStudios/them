@@ -428,3 +428,63 @@ test("assertKey rejects non-strings and over-long strings", () => {
   assert.throws(() => assertKey("x".repeat(513)), /<= 512/);
   assertKey("ok"); // does not throw
 });
+
+test("[postgres] pool config bounds max, idle timeout and names the application", () => {
+  const prev = { ...process.env };
+  try {
+    delete process.env.PERSISTENCE_POSTGRES_POOL_MAX;
+    delete process.env.PERSISTENCE_POSTGRES_IDLE_TIMEOUT_MS;
+    delete process.env.BACKEND_BUILD; delete process.env.RENDER_GIT_COMMIT; delete process.env.FLY_IMAGE_REF;
+    const defaults = buildPostgresPoolConfig({ databaseUrl: "postgres://example/test" });
+    assert.equal(defaults.max, 10);
+    assert.equal(defaults.idleTimeoutMillis, 30_000);
+    assert.equal(defaults.application_name, "them-backend@dev");
+    const tuned = buildPostgresPoolConfig({ databaseUrl: "postgres://example/test", poolMax: "250", idleTimeoutMs: "5", build: "9c74759e (main) !" });
+    assert.equal(tuned.max, 100, "clamped to the upper bound");
+    assert.equal(tuned.idleTimeoutMillis, 1_000, "clamped to the lower bound");
+    assert.equal(tuned.application_name, "them-backend@9c74759emain", "only safe characters reach pg_stat_activity");
+    process.env.PERSISTENCE_POSTGRES_POOL_MAX = "4";
+    process.env.BACKEND_BUILD = "build-77";
+    const fromEnv = buildPostgresPoolConfig({ databaseUrl: "postgres://example/test" });
+    assert.equal(fromEnv.max, 4);
+    assert.equal(fromEnv.application_name, "them-backend@build-77");
+  } finally {
+    for (const k of Object.keys(process.env)) if (!(k in prev)) delete process.env[k];
+    Object.assign(process.env, prev);
+  }
+});
+
+test("[postgres] the pool's idle-client errors are caught, counted and reported in poolStats", async () => {
+  const listeners = {};
+  const fakePool = {
+    totalCount: 3, idleCount: 2, waitingCount: 1,
+    on(event, fn) { listeners[event] = fn; },
+    async query() { return { rows: [{ ok: 1 }] }; },
+    async end() {},
+  };
+  const warned = [];
+  const p = createPostgresPersistence({
+    databaseUrl: "postgres://example/test",
+    poolMax: 3,
+    build: "t1",
+    createPool: (config) => { fakePool.config = config; return fakePool; },
+    logger: { warn: (m) => warned.push(m) },
+  });
+  // Before the first query: limits only, pool not opened.
+  assert.deepEqual(p.poolStats(), {
+    kind: "postgres", max: 3, idle_timeout_ms: 30_000, connection_timeout_ms: 1_000,
+    statement_timeout_ms: 3_000, application_name: "them-backend@t1", loaded: false,
+  });
+  assert.equal(await p.ping(), true);
+  assert.equal(fakePool.config.application_name, "them-backend@t1");
+  assert.equal(typeof listeners.error, "function", "an error listener is attached to the pool");
+  listeners.error(new Error("terminating connection due to administrator command"));
+  listeners.error(new Error("server closed the connection unexpectedly"));
+  const stats = p.poolStats();
+  assert.equal(stats.loaded, true);
+  assert.equal(stats.total, 3); assert.equal(stats.idle, 2); assert.equal(stats.waiting, 1); assert.equal(stats.max, 3);
+  assert.equal(stats.errors, 2);
+  assert.equal(stats.last_error, "server closed the connection unexpectedly");
+  assert.equal(warned.length, 2);
+  assert.ok(!JSON.stringify(stats).includes("postgres://"), "no connection string in stats");
+});
