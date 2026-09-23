@@ -4211,10 +4211,11 @@ ${directorOutputRule}
     // Mentor turns: a grade of the premise is not an answer; drop it before
     // anything is spoken. Page writes are never shaped.
     const mentorShape = shapeMentorReply(reply, { mentorTurn, screenplayPageWrite: isScreenplayPageWriteTurn });
-    if (mentorShape.stripped || mentorShape.droppedQuestions.length) {
+    if (mentorShape.stripped || mentorShape.droppedQuestions.length || mentorShape.spokenSlugline) {
       reply = mentorShape.text;
       if (mentorShape.stripped) logger.log(`[${rid}] mentor_opener_stripped=${JSON.stringify(mentorShape.stripped)}`);
       if (mentorShape.droppedQuestions.length) logger.log(`[${rid}] mentor_questions_dropped=${JSON.stringify(mentorShape.droppedQuestions)}`);
+      if (mentorShape.spokenSlugline) logger.log(`[${rid}] mentor_slugline_spoken=${JSON.stringify(mentorShape.spokenSlugline)}`);
     }
     // Studio actions: strip [[studio: …]] tags before anything is spoken and
     // keep the validated actions for the response header.

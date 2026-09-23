@@ -146,9 +146,56 @@ export function capQuestions(reply) {
   return { text: rebuilt, dropped };
 }
 
+// ---------------------------------------------------------------------------
+// A pitch is spoken, not slugged. In the Studio the model opens a pitch with
+// "INT. DIMLY LIT BASEMENT - NIGHT." although the pitch rule forbids Fountain;
+// read aloud that is a slug, not a place. One slugline in a spoken reply is
+// turned into prose ("a dimly lit basement at night"). Two or more, or a
+// character cue, means the reply is page text and is left alone; page writes
+// never reach this code anyway.
+
+const SLUGLINE = /\b(?:INT\.?\s*\/\s*EXT|I\/E|INT|EXT)\.?\s+([A-Z0-9][A-Z0-9'’,\- ]*?)(?:\s*[-–—]+\s*(DAY|NIGHT|MORNING|AFTERNOON|EVENING|DUSK|DAWN|MIDNIGHT|SUNRISE|SUNSET|CONTINUOUS|LATER|SAME|MOMENTS LATER)\b)?(?=\.(?:\s|$)|\n|$)\.?/g;
+const CHARACTER_CUE = /^\s*[A-Z][A-Z' .-]{1,30}(?:\s*\([^)]*\))?\s*$/m;
+const TIME_PHRASE = Object.freeze({
+  DAY: "in the daytime", NIGHT: "at night", MORNING: "in the morning", AFTERNOON: "in the afternoon",
+  EVENING: "in the evening", DUSK: "at dusk", DAWN: "at dawn", MIDNIGHT: "at midnight",
+  SUNRISE: "at sunrise", SUNSET: "at sunset", CONTINUOUS: "", LATER: "a little later", SAME: "", "MOMENTS LATER": "moments later",
+});
+
+function sluglineToProse(location, time) {
+  const words = location.trim().replace(/[.,]+$/, "").toLowerCase().split(/\s+/).filter(Boolean);
+  if (!words.length) return "";
+  const article = /^[aeiou]/.test(words[0]) ? "an" : "a";
+  const when = TIME_PHRASE[String(time || "").toUpperCase()] || "";
+  return `${article} ${words.join(" ")}${when ? ` ${when}` : ""}`;
+}
+
+/**
+ * Speak a lone slugline as prose. Returns { text, spoken } where spoken is the
+ * slugline that was rewritten, or "" when nothing changed.
+ */
+export function speakSlugline(reply) {
+  const text = String(reply || "");
+  const matches = [...text.matchAll(SLUGLINE)];
+  if (matches.length !== 1) return { text, spoken: "" };
+  if (CHARACTER_CUE.test(text.replace(SLUGLINE, ""))) return { text, spoken: "" };
+  const m = matches[0];
+  // Inside quotes it is the writer's own line being discussed.
+  const before = text.slice(0, m.index);
+  if ((before.match(/["“]/g) || []).length % 2 === 1) return { text, spoken: "" };
+  const prose = sluglineToProse(m[1], m[2]);
+  if (!prose) return { text, spoken: "" };
+  const startsSentence = /(?:^|[.!?]\s+|\n\s*)$/.test(before);
+  const cased = startsSentence ? prose.charAt(0).toUpperCase() + prose.slice(1) : prose;
+  const endedWithPeriod = /\.$/.test(m[0]);
+  const replaced = before + cased + (endedWithPeriod ? "." : "") + text.slice(m.index + m[0].length);
+  return { text: replaced.replace(/\s{2,}/g, " ").replace(/ \n/g, "\n"), spoken: m[0] };
+}
+
 export function shapeMentorReply(reply, { mentorTurn = false, screenplayPageWrite = false } = {}) {
-  if (!mentorTurn || screenplayPageWrite) return { text: String(reply || ""), stripped: "", droppedQuestions: [] };
+  if (!mentorTurn || screenplayPageWrite) return { text: String(reply || ""), stripped: "", droppedQuestions: [], spokenSlugline: "" };
   const opener = stripPraiseOpener(reply);
   const capped = capQuestions(opener.text);
-  return { text: capped.text, stripped: opener.stripped, droppedQuestions: capped.dropped };
+  const slug = speakSlugline(capped.text);
+  return { text: slug.text, stripped: opener.stripped, droppedQuestions: capped.dropped, spokenSlugline: slug.spoken };
 }
