@@ -447,19 +447,24 @@ struct VoiceSettingsScreen: View {
                             }
                         }
 
-                        HStack(spacing: 10) {
-                            settingsHeaderChip(
-                                label: "Relationship-aware",
-                                systemImage: "heart.text.square.fill"
-                            )
-                            settingsHeaderChip(
-                                label: evolution.isScreenwriter ? "Writer mode remembered" : "Creative context ready",
-                                systemImage: evolution.isScreenwriter ? "film.fill" : "sparkles"
-                            )
-                            settingsHeaderChip(
-                                label: "Live controls",
-                                systemImage: "slider.horizontal.3"
-                            )
+                        // Three capsules do not fit a phone width side by side; a
+                        // capsule that wraps its label mid-word ("Relatio nship") is
+                        // worse than one that scrolls into view.
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 10) {
+                                settingsHeaderChip(
+                                    label: "Relationship-aware",
+                                    systemImage: "heart.text.square.fill"
+                                )
+                                settingsHeaderChip(
+                                    label: evolution.isScreenwriter ? "Writer mode remembered" : "Creative context ready",
+                                    systemImage: evolution.isScreenwriter ? "film.fill" : "sparkles"
+                                )
+                                settingsHeaderChip(
+                                    label: "Live controls",
+                                    systemImage: "slider.horizontal.3"
+                                )
+                            }
                         }
                     }
                     .padding(22)
@@ -881,6 +886,8 @@ struct VoiceSettingsScreen: View {
     private func settingsHeaderChip(label: String, systemImage: String) -> some View {
         Label(label, systemImage: systemImage)
             .font(.system(size: 11, weight: .medium))
+            .lineLimit(1)
+            .fixedSize(horizontal: true, vertical: false)
             .foregroundStyle(.white.opacity(0.78))
             .padding(.horizontal, 10)
             .padding(.vertical, 7)
