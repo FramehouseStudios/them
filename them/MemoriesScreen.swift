@@ -94,6 +94,7 @@ final class MemoriesViewModel: ObservableObject {
         case empty
         case loaded([MemoryItem])
         case error(message: String)
+        case signInRequired(message: String)
     }
 
     @Published var state: ScreenState = .loading
@@ -148,7 +149,7 @@ final class MemoriesViewModel: ObservableObject {
         switch state {
         case .loaded:
             shouldShowLoading = force && !isDeltaFetch
-        case .empty, .error, .loading:
+        case .empty, .error, .signInRequired, .loading:
             shouldShowLoading = true
         }
         if shouldShowLoading {
@@ -219,7 +220,7 @@ final class MemoriesViewModel: ObservableObject {
                         merged[memory.id] = memory
                     }
                     items = merged.values.sorted { $0.rememberedDate > $1.rememberedDate }
-                case .empty, .error, .loading:
+                case .empty, .error, .signInRequired, .loading:
                     items = incoming
                 }
             } else {
@@ -234,13 +235,16 @@ final class MemoriesViewModel: ObservableObject {
                 self.selection = nil
             }
         } catch {
+            let failed: MemoriesViewModel.ScreenState = MemoriesSignInGate.isSignInRequired(error)
+                ? .signInRequired(message: error.localizedDescription)
+                : .error(message: error.localizedDescription)
             if isDeltaFetch {
                 if case .loading = state {
-                    state = .error(message: error.localizedDescription)
+                    state = failed
                 }
                 return
             }
-            state = .error(message: error.localizedDescription)
+            state = failed
         }
     }
 
@@ -861,6 +865,7 @@ struct MemoriesScreen: View {
     @StateObject private var vm = MemoriesViewModel()
     var startTalkingAction: () -> Void = {}
     var openStudioAction: () -> Void = {}
+    var signInAction: () -> Void = {}
 
     var body: some View {
         NavigationStack {
@@ -1005,6 +1010,8 @@ struct MemoriesScreen: View {
                     MemoriesErrorView(message: message, retry: {
                         Task { await vm.retry() }
                     })
+                case .signInRequired:
+                    MemoriesSignInView(signInAction: signInAction, returnAction: startTalkingAction)
                 case .loaded(let items):
                     if let storySpine = StorySpineSnapshot.make(from: items) {
                         StorySpineOverview(
@@ -3567,6 +3574,37 @@ struct MemoriesEmptyView: View {
             .accessibilityHint("Returns to the conversation screen.")
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+    }
+}
+
+struct MemoriesSignInView: View {
+    var signInAction: () -> Void
+    var returnAction: () -> Void
+
+    var body: some View {
+        VStack(spacing: 14) {
+            Text(MemoriesSignInGate.headline)
+                .font(.system(size: 16, weight: .semibold, design: .default))
+                .foregroundStyle(MemoriesTheme.textPrimary)
+                .multilineTextAlignment(.center)
+
+            Text(MemoriesSignInGate.body)
+                .font(.system(size: 13, weight: .regular, design: .default))
+                .foregroundStyle(MemoriesTheme.textSecondary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 520)
+
+            Button("Sign In", action: signInAction)
+                .buttonStyle(SoftPrimaryButtonStyle())
+                .accessibilityIdentifier("memories.sign-in")
+
+            Button("Not now", action: returnAction)
+                .font(.system(size: 14, weight: .regular, design: .default))
+                .foregroundStyle(MemoriesTheme.textSecondary)
+                .buttonStyle(.plain)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+        .accessibilityLabel("Sign in to see memories")
     }
 }
 
