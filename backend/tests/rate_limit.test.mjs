@@ -94,6 +94,8 @@ test("[rate_limit] middleware returns 429 with Retry-After header", async () => 
     const body = await r2.json();
     assert.equal(body.error, "rate_limited");
     assert.equal(body.route_class, "auth");
+    assert.ok(Number(body.retry_after_ms) >= 1_000, "retry_after_ms is the canonical hint");
+    assert.ok(Math.ceil(body.retry_after_ms / 1000) >= Number(body.retry_after_seconds));
   } finally {
     server.close();
   }

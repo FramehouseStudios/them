@@ -277,3 +277,33 @@ extension OfflineTalkOutboxTests {
         XCTAssertEqual(entries.first?.lastError, BackendProviderFailurePolicy.dailyBudgetGlobalMessage)
     }
 }
+
+extension OfflineTalkOutboxTests {
+    func testRateLimitedRetryIsScheduledFromTheServerHintNotTheFixedBackoff() async throws {
+        let outbox = OfflineTalkOutbox(storageDirectory: directory)
+        var request = URLRequest(url: URL(string: "https://them.test/talk")!)
+        request.httpMethod = "POST"
+        request.setValue("multipart/form-data; boundary=test", forHTTPHeaderField: "Content-Type")
+        request.setValue("idem-rate", forHTTPHeaderField: "X-Idempotency-Key")
+        _ = try await outbox.enqueue(request: request, body: Data("queued".utf8), reason: "offline")
+
+        let now = Date().addingTimeInterval(10)
+        let rateLimited = Data(#"{"error":"rate_limited","route_class":"talk","retry_after_seconds":30,"retry_after_ms":30000}"#.utf8)
+        let snapshot = await outbox.drainDue(now: now) { _ in
+            OfflineTalkOutboxSendResult(statusCode: 429, headers: ["Retry-After": "30"], body: rateLimited)
+        }
+        XCTAssertEqual(snapshot.pendingCount, 1)
+        let entry = await outbox.allEntries().first
+        XCTAssertEqual(entry?.retries, 1)
+        // First backoff step is 5 s; the server asked for 30 s, so 30 s wins.
+        XCTAssertEqual(entry?.nextAttemptAt ?? 0, now.timeIntervalSince1970 + 30, accuracy: 0.5)
+
+        // A hint of hours is a cap, not congestion: park, do not schedule.
+        _ = try await outbox.enqueue(request: request, body: Data("queued-2".utf8), reason: "offline")
+        let longHint = Data(#"{"error":"rate_limited","retry_after_ms":7200000}"#.utf8)
+        let parked = await outbox.drainDue(now: now.addingTimeInterval(31)) { _ in
+            OfflineTalkOutboxSendResult(statusCode: 503, headers: [:], body: longHint)
+        }
+        XCTAssertEqual(parked.parkedCount, 1)
+    }
+}

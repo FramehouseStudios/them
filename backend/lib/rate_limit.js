@@ -98,6 +98,9 @@ function createRateLimiter({
         error: "rate_limited",
         route_class: routeClass,
         retry_after_seconds: retryAfterSec,
+        // Same field the talk-turn and provider-budget envelopes carry; the
+        // client schedules its retry from it.
+        retry_after_ms: Math.max(1_000, Math.ceil(result.retryAfterMs)),
       });
     };
   }

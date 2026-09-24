@@ -509,7 +509,11 @@ actor OfflineTalkOutbox {
             handleRetryableFailure(
                 entryID: entryID,
                 message: "HTTP \(status)",
-                now: now
+                now: now,
+                retryAfter: BackendProviderFailurePolicy.retryAfterInterval(
+                    headers: result.headers,
+                    data: result.body
+                )
             )
             return
         }
@@ -518,10 +522,15 @@ actor OfflineTalkOutbox {
         entries[index].lastError = "HTTP \(status)"
     }
 
+    /// A server hint longer than this is a cap, not congestion; the entry is
+    /// parked with the hint so the writer is not shown a countdown of hours.
+    private static let maxScheduledRetryAfter: TimeInterval = 3_600
+
     private func handleRetryableFailure(
         entryID: String,
         message: String,
-        now: Date
+        now: Date,
+        retryAfter: TimeInterval? = nil
     ) {
         guard let index = entries.firstIndex(where: { $0.id == entryID }) else { return }
         var entry = entries[index]
@@ -529,12 +538,17 @@ actor OfflineTalkOutbox {
         entry.updatedAt = now.timeIntervalSince1970
         entry.retries = nextRetryCount
         entry.lastError = normalizedReason(message)
-        if nextRetryCount > Self.backoffSeconds.count {
+        if let retryAfter, retryAfter > Self.maxScheduledRetryAfter {
+            entry.status = .parked
+            entry.nextAttemptAt = 0
+        } else if nextRetryCount > Self.backoffSeconds.count {
             entry.status = .parked
             entry.nextAttemptAt = 0
         } else {
             entry.status = .pending
-            entry.nextAttemptAt = now.timeIntervalSince1970 + Self.backoffSeconds[nextRetryCount - 1]
+            // Never sooner than the server asked; never sooner than our own backoff.
+            let delay = max(Self.backoffSeconds[nextRetryCount - 1], retryAfter ?? 0)
+            entry.nextAttemptAt = now.timeIntervalSince1970 + delay
         }
         entries[index] = entry
     }
