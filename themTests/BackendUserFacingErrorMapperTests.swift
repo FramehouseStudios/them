@@ -79,3 +79,35 @@ final class BackendUserFacingErrorMapperTests: XCTestCase {
         XCTAssertFalse(message.isEmpty)
     }
 }
+
+extension BackendUserFacingErrorMapperTests {
+    func testDailyProviderBudgetIsNotRetriedAndSaysWhenItComesBack() {
+        let identity = Data(#"{"stage":"provider_budget","error":"provider_budget_exceeded","scope":"identity","route_class":"talk","daily_limit":500,"retry_after_ms":61200000}"#.utf8)
+        let global = Data(#"{"stage":"provider_budget","error":"provider_budget_exceeded","scope":"global","route_class":"talk","daily_limit":5000,"retry_after_ms":61200000}"#.utf8)
+        let rateLimit = Data(#"{"stage":"rate_limit","error":"rate_limited","retry_after_ms":1200}"#.utf8)
+
+        XCTAssertTrue(BackendProviderFailurePolicy.isDailyBudgetExhausted(statusCode: 429, data: identity))
+        XCTAssertTrue(BackendProviderFailurePolicy.isDailyBudgetExhausted(statusCode: 429, data: global))
+        XCTAssertFalse(BackendProviderFailurePolicy.isDailyBudgetExhausted(statusCode: 429, data: rateLimit))
+        XCTAssertFalse(BackendProviderFailurePolicy.isQuotaExhausted(statusCode: 429, data: identity), "the daily cap is not the provider's quota")
+
+        // No retry storm against a cap that lasts until midnight.
+        XCTAssertFalse(BackendProviderFailurePolicy.shouldRetryHTTP(statusCode: 429, data: identity, retryableStatusCodes: [429, 503]))
+        XCTAssertTrue(BackendProviderFailurePolicy.shouldRetryHTTP(statusCode: 429, data: rateLimit, retryableStatusCodes: [429, 503]))
+
+        // Scope-aware copy, on the policy and on the error the client throws.
+        XCTAssertEqual(BackendProviderFailurePolicy.dailyBudgetMessage(data: identity), BackendProviderFailurePolicy.dailyBudgetIdentityMessage)
+        XCTAssertEqual(BackendProviderFailurePolicy.dailyBudgetMessage(data: global), BackendProviderFailurePolicy.dailyBudgetGlobalMessage)
+        let stageError = BackendError.stage("provider_budget", "provider_budget_exceeded")
+        XCTAssertEqual(stageError.errorDescription, BackendProviderFailurePolicy.dailyBudgetIdentityMessage)
+        let httpError = BackendError.http(429, String(data: global, encoding: .utf8)!)
+        XCTAssertEqual(httpError.errorDescription, BackendProviderFailurePolicy.dailyBudgetGlobalMessage)
+        XCTAssertEqual(
+            BackendUserFacingErrorMapper.message(forStage: "provider_budget", error: "provider_budget_exceeded"),
+            BackendProviderFailurePolicy.dailyBudgetIdentityMessage
+        )
+        // The provider's own quota keeps its copy.
+        let quota = BackendError.stage("talk_chat", "provider_quota")
+        XCTAssertEqual(quota.errorDescription, BackendProviderFailurePolicy.userMessage)
+    }
+}

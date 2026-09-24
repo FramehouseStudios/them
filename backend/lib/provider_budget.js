@@ -7,6 +7,11 @@ const DEFAULT_GLOBAL_DAILY_LIMIT = 0;
 const GLOBAL_LIMIT_ENV = "PROVIDER_GLOBAL_DAILY_BUDGET_LIMIT";
 const BYPASS_HEADER = "x-test-bypass-provider-budget";
 
+function msUntilNextUtcDay(timestampMs) {
+  const now = Number(timestampMs) || Date.now();
+  return Math.max(1_000, startOfUtcDayMs(now) + 86_400_000 - now);
+}
+
 function parseLimit(value, fallback) {
   const n = Math.floor(Number(value));
   return Number.isFinite(n) && n >= 0 ? n : fallback;
@@ -66,25 +71,29 @@ function createProviderBudgetGuard({
           globalTrippedDay = day;
           logger?.warn?.(`[provider_budget] global daily limit reached limit=${globalLimit} route_class=${routeClass}`);
         }
-        res.setHeader("Retry-After", "86400");
+        const retryAfterMs = msUntilNextUtcDay(now());
+        res.setHeader("Retry-After", String(Math.ceil(retryAfterMs / 1000)));
         return res.status(429).json({
           stage: "provider_budget",
           error: "provider_budget_exceeded",
           scope: "global",
           route_class: routeClass,
           daily_limit: globalLimit,
+          retry_after_ms: retryAfterMs,
         });
       }
       const key = keyFor(req, routeClass);
       const used = Number(counters.get(key) || 0);
       if (used >= limit) {
-        res.setHeader("Retry-After", "86400");
+        const retryAfterMs = msUntilNextUtcDay(now());
+        res.setHeader("Retry-After", String(Math.ceil(retryAfterMs / 1000)));
         return res.status(429).json({
           stage: "provider_budget",
           error: "provider_budget_exceeded",
           scope: "identity",
           route_class: routeClass,
           daily_limit: limit,
+          retry_after_ms: retryAfterMs,
         });
       }
       counters.set(key, used + 1);
@@ -129,5 +138,6 @@ export {
   DEFAULT_GLOBAL_DAILY_LIMIT,
   GLOBAL_LIMIT_ENV,
   createProviderBudgetGuard,
+  msUntilNextUtcDay,
   startOfUtcDayMs,
 };
