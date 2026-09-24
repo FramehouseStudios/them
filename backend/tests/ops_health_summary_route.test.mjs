@@ -13,6 +13,7 @@ import {
   OPS_HEALTH_SUMMARY_SCHEMA_VERSION,
 } from "../lib/ops_health_summary_route.js";
 
+import { listenEphemeral } from "./helpers/ephemeral_server.mjs";
 // ---------- humanizeMs ----------
 
 test("[ops-health] humanizeMs: small intervals show seconds", () => {
@@ -81,7 +82,7 @@ test("[ops-health] resolveSignals catches signal supplier failures", () => {
 async function withTestServer(fn, opts = {}) {
   const app = express();
   mountOpsHealthSummaryRoute(app, opts);
-  const server = app.listen(0);
+  const server = listenEphemeral(app);
   await new Promise((resolve) => server.once("listening", resolve));
   const baseURL = `http://127.0.0.1:${server.address().port}`;
   try {

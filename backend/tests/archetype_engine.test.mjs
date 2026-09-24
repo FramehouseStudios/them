@@ -17,6 +17,7 @@ import { mountArchetypeRoute } from "../lib/archetype_route.js";
 import { createCreativeMemoryStore } from "../lib/creative_memory_store.js";
 import { createJsonPersistence } from "../lib/persistence_json.js";
 
+import { listenEphemeral } from "./helpers/ephemeral_server.mjs";
 function freshStore() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "io-them-archetype-"));
   return createCreativeMemoryStore({ persistence: createJsonPersistence({ jsonRoot: root }) });
@@ -158,7 +159,7 @@ async function withTestServer(fn, { userId = "u-test" } = {}) {
     app.use((req, _res, next) => { req.user = { id: userId }; next(); });
   }
   mountArchetypeRoute(app, { creativeMemoryStore: store });
-  const server = app.listen(0);
+  const server = listenEphemeral(app);
   await new Promise((resolve) => server.once("listening", resolve));
   const port = server.address().port;
   const baseURL = `http://127.0.0.1:${port}`;

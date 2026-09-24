@@ -15,6 +15,7 @@ import {
 } from "../lib/fountain_import.js";
 import { mountFountainImportRoute } from "../lib/fountain_import_route.js";
 
+import { listenEphemeral } from "./helpers/ephemeral_server.mjs";
 const SAMPLE = `Title: io.them
 Author: Half Mutant Films
 
@@ -205,7 +206,7 @@ test("[import] determinism: same input → same output", () => {
 async function withTestServer(fn) {
   const app = express();
   mountFountainImportRoute(app);
-  const server = app.listen(0);
+  const server = listenEphemeral(app);
   await new Promise((resolve) => server.once("listening", resolve));
   const port = server.address().port;
   const baseURL = `http://127.0.0.1:${port}`;

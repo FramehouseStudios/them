@@ -25,6 +25,7 @@ import { createCreativeMemoryStore } from "../lib/creative_memory_store.js";
 import { createJsonPersistence } from "../lib/persistence_json.js";
 import { mountBlockSignalRoute } from "../lib/block_signal_route.js";
 
+import { listenEphemeral } from "./helpers/ephemeral_server.mjs";
 const DAY = 24 * 60 * 60 * 1000;
 const HOUR = 60 * 60 * 1000;
 
@@ -229,7 +230,7 @@ async function withTestServer(fn, { userId = "user-block", store = null, fixedNo
     creativeMemoryStore,
     nowFn: fixedNowMs ? () => fixedNowMs : () => Date.now(),
   });
-  const server = app.listen(0);
+  const server = listenEphemeral(app);
   await new Promise((resolve) => server.once("listening", resolve));
   const port = server.address().port;
   const baseURL = `http://127.0.0.1:${port}`;

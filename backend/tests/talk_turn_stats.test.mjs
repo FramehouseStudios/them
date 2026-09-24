@@ -10,6 +10,7 @@ import {
   TALK_TURN_STATS_SCHEMA_VERSION,
 } from "../lib/talk_turn_stats.js";
 
+import { listenEphemeral } from "./helpers/ephemeral_server.mjs";
 function makeTurn(overrides = {}) {
   return {
     turnId: overrides.turnId || `t-${Math.random().toString(36).slice(2)}`,
@@ -147,7 +148,7 @@ test("[talk-stats] determinism: same input → same output", () => {
 async function withTestServer(fn, turns = []) {
   const app = express();
   mountTalkTurnStatsRoute(app, { getAllTalkTurns: () => turns });
-  const server = app.listen(0);
+  const server = listenEphemeral(app);
   await new Promise((resolve) => server.once("listening", resolve));
   const port = server.address().port;
   const baseURL = `http://127.0.0.1:${port}`;

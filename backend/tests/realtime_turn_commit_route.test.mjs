@@ -26,6 +26,7 @@ import {
   TURN_COMMIT_BODY_LIMIT,
 } from "../lib/realtime_turn_commit_route.js";
 
+import { listenEphemeral } from "./helpers/ephemeral_server.mjs";
 function defaultDeps(overrides = {}) {
   const calls = {
     resolveCanonicalWritableMemoryContext: [],
@@ -128,7 +129,7 @@ function defaultDeps(overrides = {}) {
 async function withTestServer(deps, fn) {
   const app = express();
   mountRealtimeTurnCommitRoute(app, deps);
-  const server = app.listen(0);
+  const server = listenEphemeral(app);
   await new Promise((r) => server.once("listening", r));
   const port = server.address().port;
   try { await fn(`http://127.0.0.1:${port}`); }

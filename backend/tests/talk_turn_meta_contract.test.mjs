@@ -17,6 +17,7 @@ import express from "express";
 
 import { mountTalkPipelineRoutes } from "../lib/talk_pipeline.js";
 
+import { listenEphemeral } from "./helpers/ephemeral_server.mjs";
 // Canonical sets. Adding a field is a deliberate change — adjust this
 // list and the iOS consumer in the same PR.
 const ERROR_CODES = ["invalid_turn_id", "turn_not_found", "forbidden"];
@@ -59,7 +60,7 @@ async function withTestServer(fn, { meta = null, canRead = true, userId = "u-tes
     getTalkTurnMeta: () => meta,
     canReadTalkTurnMeta: () => canRead,
   });
-  const server = app.listen(0);
+  const server = listenEphemeral(app);
   await new Promise((resolve) => server.once("listening", resolve));
   const port = server.address().port;
   const baseURL = `http://127.0.0.1:${port}`;

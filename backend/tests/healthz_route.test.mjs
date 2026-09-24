@@ -4,8 +4,9 @@ import express from "express";
 
 import { mountHealthzRoute } from "../lib/healthz_route.js";
 
+import { listenEphemeral } from "./helpers/ephemeral_server.mjs";
 async function hit(app, path = "/healthz") {
-  const server = app.listen(0);
+  const server = listenEphemeral(app);
   try {
     const port = server.address().port;
     const res = await fetch(`http://127.0.0.1:${port}${path}`);

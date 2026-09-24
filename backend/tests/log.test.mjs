@@ -9,6 +9,7 @@ import {
   serializeError,
 } from "../lib/log.js";
 
+import { listenEphemeral } from "./helpers/ephemeral_server.mjs";
 function captureOut() {
   const lines = [];
   const out = new Writable({
@@ -104,7 +105,7 @@ test("[requestIdMiddleware] mints a UUID when no header supplied", async () => {
     req.log.info("served", { path: "/r" });
     res.json({ req_id: req.requestId });
   });
-  const server = app.listen(0);
+  const server = listenEphemeral(app);
   try {
     const port = server.address().port;
     const res = await fetch(`http://127.0.0.1:${port}/r`);
@@ -122,7 +123,7 @@ test("[requestIdMiddleware] honors incoming x-request-id", async () => {
   const app = express();
   app.use(createRequestIdMiddleware());
   app.get("/r", (req, res) => res.json({ req_id: req.requestId }));
-  const server = app.listen(0);
+  const server = listenEphemeral(app);
   try {
     const port = server.address().port;
     const res = await fetch(`http://127.0.0.1:${port}/r`, {

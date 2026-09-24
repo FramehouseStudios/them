@@ -4,6 +4,7 @@ import express from "express";
 
 import { mountApiVersionRoute, buildVersionPayload } from "../lib/api_version_route.js";
 
+import { listenEphemeral } from "./helpers/ephemeral_server.mjs";
 function makeApp(overrides = {}) {
   const app = express();
   mountApiVersionRoute(app, {
@@ -16,7 +17,7 @@ function makeApp(overrides = {}) {
 }
 
 async function get(app, path) {
-  const server = app.listen(0);
+  const server = listenEphemeral(app);
   try {
     const port = server.address().port;
     const res = await fetch(`http://127.0.0.1:${port}${path}`);

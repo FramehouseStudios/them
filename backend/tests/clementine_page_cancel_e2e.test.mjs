@@ -14,6 +14,7 @@ import {
   mountPageCancelRoute,
 } from "../lib/talk_pipeline.js";
 
+import { listenEphemeral } from "./helpers/ephemeral_server.mjs";
 test("[page-cancel-e2e] beginPageWork reserves only for Page lane", () => {
   const store = createPageReservationStore({ now: () => 42 });
   const companion = beginPageWork(store, {
@@ -84,7 +85,7 @@ test("[page-cancel-e2e] POST /talk/page-cancel cancels by reservation id", async
 
   const app = express();
   mountPageCancelRoute(app, { pageReservationStore: store });
-  const server = app.listen(0);
+  const server = listenEphemeral(app);
   await new Promise((resolve) => server.once("listening", resolve));
   const port = server.address().port;
   try {
@@ -119,7 +120,7 @@ test("[page-cancel-e2e] POST /talk/page-cancel cancelByOwner via session_id", as
 
   const app = express();
   mountPageCancelRoute(app, { pageReservationStore: store });
-  const server = app.listen(0);
+  const server = listenEphemeral(app);
   await new Promise((resolve) => server.once("listening", resolve));
   const port = server.address().port;
   try {
@@ -160,7 +161,7 @@ test("[page-cancel-e2e] talk adapter attaches reservation for pageMode body", as
   const app = express();
   app.use(express.json());
   app.post("/talk", (req, res) => wrapped(req, res));
-  const server = app.listen(0);
+  const server = listenEphemeral(app);
   await new Promise((resolve) => server.once("listening", resolve));
   const port = server.address().port;
   try {
@@ -208,7 +209,7 @@ test("[page-cancel-e2e] mountTalkPipelineRoutes wires cancel when store provided
     canReadTalkTurnMeta: () => true,
     pageReservationStore: store,
   });
-  const server = app.listen(0);
+  const server = listenEphemeral(app);
   await new Promise((resolve) => server.once("listening", resolve));
   const port = server.address().port;
   try {

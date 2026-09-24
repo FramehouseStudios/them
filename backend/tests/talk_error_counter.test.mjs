@@ -12,6 +12,7 @@ import {
   TALK_ERROR_COUNTER_SCHEMA_VERSION,
 } from "../lib/talk_error_counter.js";
 
+import { listenEphemeral } from "./helpers/ephemeral_server.mjs";
 // Tests use the module-singleton, so we reset between tests.
 
 test("[talk-errors] cold state returns empty snapshot", () => {
@@ -128,7 +129,7 @@ test("[talk-errors] resetErrorCounters clears everything", () => {
 async function withTestServer(fn) {
   const app = express();
   mountTalkErrorRoute(app);
-  const server = app.listen(0);
+  const server = listenEphemeral(app);
   await new Promise((resolve) => server.once("listening", resolve));
   const port = server.address().port;
   const baseURL = `http://127.0.0.1:${port}`;

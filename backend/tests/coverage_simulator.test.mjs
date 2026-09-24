@@ -11,6 +11,7 @@ import {
 } from "../lib/coverage_simulator.js";
 import { mountCraftRoutes } from "../lib/craft_routes.js";
 
+import { listenEphemeral } from "./helpers/ephemeral_server.mjs";
 const BALANCED_SCREENPLAY = `INT. KITCHEN - NIGHT
 
 She walks in.
@@ -184,7 +185,7 @@ async function withTestServer(fn) {
     next();
   });
   mountCraftRoutes(app, { authorizeProjectAccess: async () => true });
-  const server = app.listen(0);
+  const server = listenEphemeral(app);
   await new Promise((resolve) => server.once("listening", resolve));
   const port = server.address().port;
   const baseURL = `http://127.0.0.1:${port}`;

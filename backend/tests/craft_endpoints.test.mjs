@@ -24,6 +24,7 @@ import {
 import { configureLoglineDistiller } from "../lib/logline_distiller.js";
 import { createJsonPersistence } from "../lib/persistence_json.js";
 
+import { listenEphemeral } from "./helpers/ephemeral_server.mjs";
 function freshPersistenceRoot() {
   return fs.mkdtempSync(path.join(os.tmpdir(), "io-them-craft-"));
 }
@@ -49,7 +50,7 @@ async function withTestServer(
     });
   }
   mountCraftRoutes(app, { authorizeProjectAccess: async () => true });
-  const server = app.listen(0);
+  const server = listenEphemeral(app);
   await new Promise((resolve) => server.once("listening", resolve));
   const port = server.address().port;
   const baseURL = `http://127.0.0.1:${port}`;

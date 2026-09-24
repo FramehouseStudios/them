@@ -8,6 +8,7 @@ import express from "express";
 
 import { mountScreenplayCompanionRoutes } from "../lib/screenplay_companion_routes.js";
 
+import { listenEphemeral } from "./helpers/ephemeral_server.mjs";
 function defaultOwner() {
   return {
     ownerKey: "companion-owner",
@@ -77,7 +78,7 @@ function defaultDeps(overrides = {}) {
 async function withTestServer(deps, fn) {
   const app = express();
   mountScreenplayCompanionRoutes(app, deps);
-  const server = app.listen(0);
+  const server = listenEphemeral(app);
   await new Promise((resolve) => server.once("listening", resolve));
   const port = server.address().port;
   try {

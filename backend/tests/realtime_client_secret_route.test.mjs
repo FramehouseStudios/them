@@ -13,6 +13,7 @@ import {
   buildRealtimeProjectGroundedInstructions,
 } from "../lib/realtime_client_secret_route.js";
 
+import { listenEphemeral } from "./helpers/ephemeral_server.mjs";
 function fakeSupplier({ kind = "openai", mintImpl, shouldThrow = null, sessionConfig = null } = {}) {
   return {
     kind,
@@ -61,7 +62,7 @@ function defaultDeps(overrides = {}) {
 async function withTestServer(deps, fn) {
   const app = express();
   mountRealtimeClientSecretRoute(app, deps);
-  const server = app.listen(0);
+  const server = listenEphemeral(app);
   await new Promise((r) => server.once("listening", r));
   const port = server.address().port;
   try { await fn(`http://127.0.0.1:${port}`); }

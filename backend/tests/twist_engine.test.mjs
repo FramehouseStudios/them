@@ -20,6 +20,7 @@ import { mountCraftRoutes } from "../lib/craft_routes.js";
 import { configureCraftAnalysis, _resetCraftStores } from "../lib/craft_analysis.js";
 import { createJsonPersistence } from "../lib/persistence_json.js";
 
+import { listenEphemeral } from "./helpers/ephemeral_server.mjs";
 // ---------- pure module ----------
 
 test("[twist-engine] suggestTwists returns deterministic twists for a known beat", async () => {
@@ -203,7 +204,7 @@ async function withTestServer(fn) {
     next();
   });
   mountCraftRoutes(app, { authorizeProjectAccess: async () => true });
-  const server = app.listen(0);
+  const server = listenEphemeral(app);
   await new Promise((resolve) => server.once("listening", resolve));
   const port = server.address().port;
   const baseURL = `http://127.0.0.1:${port}`;

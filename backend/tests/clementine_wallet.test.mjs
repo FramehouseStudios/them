@@ -17,6 +17,7 @@ import {
   mountTalkWalletRoute,
 } from "../lib/talk_pipeline.js";
 
+import { listenEphemeral } from "./helpers/ephemeral_server.mjs";
 test("[wallet] tokens→turns formula is published and stable", () => {
   assert.equal(TOKENS_PER_TURN, 400);
   assert.equal(tokensToMilliturns(400), 1000);
@@ -159,7 +160,7 @@ test("[wallet] POST /talk/wallet returns calm balance only", async () => {
   });
   const app = express();
   mountTalkWalletRoute(app, { walletStore: wallet });
-  const server = app.listen(0);
+  const server = listenEphemeral(app);
   await new Promise((resolve) => server.once("listening", resolve));
   const port = server.address().port;
   try {
@@ -218,7 +219,7 @@ test("[wallet] POST /talk/page-cancel releases wallet funds", async () => {
 
   const app = express();
   mountPageCancelRoute(app, { pageReservationStore: pages });
-  const server = app.listen(0);
+  const server = listenEphemeral(app);
   await new Promise((resolve) => server.once("listening", resolve));
   const port = server.address().port;
   try {

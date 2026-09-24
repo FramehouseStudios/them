@@ -4,6 +4,7 @@ import express from "express";
 
 import { createRateLimiter, BYPASS_HEADER } from "../lib/rate_limit.js";
 
+import { listenEphemeral } from "./helpers/ephemeral_server.mjs";
 function makeLimiter(overrides = {}) {
   let nowMs = 0;
   const limiter = createRateLimiter({
@@ -82,7 +83,7 @@ test("[rate_limit] middleware returns 429 with Retry-After header", async () => 
     isProduction: () => true,
   });
   app.post("/login", limiter.middleware("auth"), (req, res) => res.json({ ok: true }));
-  const server = app.listen(0);
+  const server = listenEphemeral(app);
   try {
     const port = server.address().port;
     const r1 = await fetch(`http://127.0.0.1:${port}/login`, { method: "POST" });
@@ -105,7 +106,7 @@ test("[rate_limit] bypass header honored in non-production", async () => {
     isProduction: () => false,
   });
   app.post("/login", limiter.middleware("auth"), (req, res) => res.json({ ok: true }));
-  const server = app.listen(0);
+  const server = listenEphemeral(app);
   try {
     const port = server.address().port;
     for (let i = 0; i < 5; i++) {
@@ -127,7 +128,7 @@ test("[rate_limit] bypass header IGNORED in production", async () => {
     isProduction: () => true,
   });
   app.post("/login", limiter.middleware("auth"), (req, res) => res.json({ ok: true }));
-  const server = app.listen(0);
+  const server = listenEphemeral(app);
   try {
     const port = server.address().port;
     await fetch(`http://127.0.0.1:${port}/login`, {

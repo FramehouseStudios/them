@@ -16,6 +16,7 @@ import {
   MEMORIES_MUTATION_BODY_LIMIT,
 } from "../lib/memories_route.js";
 
+import { listenEphemeral } from "./helpers/ephemeral_server.mjs";
 function defaultDeps(overrides = {}) {
   const calls = {
     selectMemoryRecordForRead: 0,
@@ -152,7 +153,7 @@ async function withTestServer(deps, fn, { authenticated = true } = {}) {
     });
   }
   mountMemoriesRoutes(app, deps);
-  const server = app.listen(0);
+  const server = listenEphemeral(app);
   await new Promise((r) => server.once("listening", r));
   const port = server.address().port;
   try { await fn(`http://127.0.0.1:${port}`); }
