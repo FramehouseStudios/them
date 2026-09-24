@@ -14602,6 +14602,7 @@ private struct TrustCenterScreen: View {
 private struct CompanionControlsPanel: View {
     @ObservedObject var bridge: ScreenplayLiveDraftBridge
     let onDone: () -> Void
+    @State private var pendingClear: CompanionClearConfirmation?
 
     var body: some View {
         NavigationStack {
@@ -14747,17 +14748,39 @@ private struct CompanionControlsPanel: View {
     private var controlsSection: some View {
         HStack(spacing: 10) {
             Button("Clear Companion Memory") {
-                bridge.clearCompanionMemory()
+                pendingClear = .memory
             }
             .buttonStyle(.borderedProminent)
             .tint(.white.opacity(0.22))
+            .accessibilityIdentifier("companion.clear-memory")
 
             Button("Clear Companion Thread") {
-                bridge.clearCompanionPinHistory()
+                pendingClear = .thread
             }
             .buttonStyle(.bordered)
+            .accessibilityIdentifier("companion.clear-thread")
         }
         .foregroundColor(.herText.opacity(0.92))
+        .confirmationDialog(
+            pendingClear?.title ?? "",
+            isPresented: Binding(
+                get: { pendingClear != nil },
+                set: { if !$0 { pendingClear = nil } }
+            ),
+            titleVisibility: .visible,
+            presenting: pendingClear
+        ) { action in
+            Button(action.confirmLabel, role: .destructive) {
+                switch action {
+                case .memory: bridge.clearCompanionMemory()
+                case .thread: bridge.clearCompanionPinHistory()
+                }
+                pendingClear = nil
+            }
+            Button("Cancel", role: .cancel) { pendingClear = nil }
+        } message: { action in
+            Text(action.message)
+        }
     }
 
     private func metricCard(_ title: String, value: String) -> some View {
