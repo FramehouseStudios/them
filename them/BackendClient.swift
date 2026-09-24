@@ -2077,8 +2077,12 @@ enum BackendError: LocalizedError {
             if requiresUserAuthentication {
                 return "Sign in to use live writing, voice, and visual context."
             }
+            if let plain = BackendTalkFailureCopy.message(stage: stage, serverMessage: message) {
+                return plain
+            }
             let label: String
-            switch stage.lowercased() {
+            // The backend prefixes talk stages ("talk_chat"); the label is the same.
+            switch stage.lowercased().replacingOccurrences(of: "talk_", with: "") {
             case "auth_client":
                 label = "Session"
             case "stt":
@@ -2112,6 +2116,57 @@ enum BackendError: LocalizedError {
         case let .invalidAudioType(type):
             return "Backend returned non-audio response (\(type))."
         }
+    }
+}
+
+/// Plain copy for a failed talk turn. The backend's public message is
+/// support-safe but reads like a log line: "Talk failed during response
+/// generation (provider_timeout). Reference 181efeb0." The writer needs what
+/// happened, that the draft is safe, and what to do; support still needs the
+/// reference, so it is kept at the end.
+nonisolated enum BackendTalkFailureCopy {
+    static func errorClass(in serverMessage: String) -> String? {
+        guard let open = serverMessage.lastIndex(of: "("),
+              let close = serverMessage[open...].firstIndex(of: ")") else { return nil }
+        let inner = serverMessage[serverMessage.index(after: open)..<close]
+            .trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !inner.isEmpty, inner.range(of: #"^[a-z0-9_]+$"#, options: .regularExpression) != nil else { return nil }
+        return inner
+    }
+
+    static func reference(in serverMessage: String) -> String? {
+        guard let range = serverMessage.range(of: #"Reference [A-Za-z0-9_-]+\.?"#, options: .regularExpression) else { return nil }
+        var text = String(serverMessage[range])
+        if !text.hasSuffix(".") { text += "." }
+        return text
+    }
+
+    static func message(stage: String, serverMessage: String) -> String? {
+        let normalizedStage = stage.lowercased().replacingOccurrences(of: "talk_", with: "")
+        guard let errorClass = errorClass(in: serverMessage) else { return nil }
+        let body: String?
+        switch errorClass {
+        case "provider_timeout", "provider_unavailable", "talk_server_error", "server":
+            switch normalizedStage {
+            case "stt":
+                body = "Clementine couldn't hear that one; the writing service didn't answer in time. Try saying it again."
+            case "tts":
+                body = "Clementine wrote her reply but couldn't voice it in time. It's on screen."
+            default:
+                body = "Clementine's writing service didn't answer in time. Your draft is safe. Try again in a moment."
+            }
+        case "provider_auth", "provider_bad_request", "provider_chat_failed", "provider_stt_failed", "provider_tts_failed":
+            body = "Clementine's writing service is misconfigured right now. Your draft is safe. Please try again later."
+        case "provider_rate_limited":
+            body = "Clementine's writing service is busy. Your draft is safe. Try again in a moment."
+        default:
+            body = nil
+        }
+        guard let body else { return nil }
+        if let reference = reference(in: serverMessage) {
+            return "\(body) \(reference)"
+        }
+        return body
     }
 }
 
