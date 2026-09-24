@@ -2927,6 +2927,11 @@ struct RootExperienceView: View {
                             DispatchQueue.main.asyncAfter(deadline: .now() + 0.20) {
                                 openStudio()
                             }
+                        }, signInAction: {
+                            showingMemories = false
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.20) {
+                                openAccount()
+                            }
                         })
                         .themDesktopSheetFrame(minWidth: 1100, minHeight: 760)
                 }
