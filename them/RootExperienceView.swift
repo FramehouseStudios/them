@@ -548,6 +548,7 @@ struct RootExperienceView: View {
     @State private var showingTrustCenter = false
     @State private var showingProfileAccount = false
     @State private var resumeStudioAfterAccountSignIn = false
+    @State private var pendingMagicMomentDeferral: MagicMomentSignInDeferral?
     @State private var isRestoringWorkspaceAuthSession = false
     @State private var studioOwnerUserIDSnapshot: String?
     @State private var studioWasAuthenticatedSnapshot: Bool?
@@ -903,6 +904,52 @@ struct RootExperienceView: View {
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
                     .stroke(Color.white.opacity(0.20), lineWidth: 1)
             )
+        }
+    }
+
+    /// A guest's first page, kept while they sign in. Lives beside the
+    /// continuity card because the transient banner sits inside the prompt
+    /// area, which a fresh home does not show.
+    @ViewBuilder
+    private var homeFirstPageWaitingCard: some View {
+        if pendingMagicMomentDeferral != nil, !showingProfileAccount {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Your First Page")
+                    .font(.system(size: 11, weight: .semibold, design: .default))
+                    .foregroundColor(.herText.opacity(0.86))
+                    .textCase(.uppercase)
+                    .tracking(0.8)
+                Text(MagicMomentSignInDeferral.signInMessage)
+                    .font(.system(size: 12, weight: .regular, design: .default))
+                    .foregroundColor(.herText.opacity(0.82))
+                    .lineSpacing(4)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button {
+                    openAccount(resumeStudioAfterSignIn: true)
+                } label: {
+                    Text("Sign In")
+                        .font(.system(size: 12, weight: .regular, design: .default))
+                        .foregroundColor(.herText.opacity(0.92))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 7)
+                        .background(Color.white.opacity(0.20))
+                        .clipShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("home.first-page-waiting.sign-in")
+            }
+            .frame(maxWidth: 500, alignment: .leading)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(Color.white.opacity(0.16))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(Color.white.opacity(0.20), lineWidth: 1)
+            )
+            .accessibilityIdentifier("home.first-page-waiting")
         }
     }
 
@@ -3147,6 +3194,7 @@ struct RootExperienceView: View {
                     .accessibilityIdentifier("orb_reply_echo_container")
                 }
 
+                homeFirstPageWaitingCard
                 homeSessionContinuityCard
 
                 if showPrompt {
@@ -3799,6 +3847,27 @@ struct RootExperienceView: View {
 
         let cleanName = onboardingName.trimmingCharacters(in: .whitespacesAndNewlines)
         let sceneSeed = normalizedMagicMomentSceneSeed()
+
+        // A guest cannot write pages yet: keep the scene, open the account
+        // sheet, and write the page the moment sign-in completes.
+        let authSession = BackendAuthClient.currentAuthSessionState()
+        let decision = ThemWorkspaceAuthenticationPolicy.accessDecision(
+            isAuthenticated: authSession.isAuthenticated,
+            accessTokenExpired: authSession.accessExpired,
+            refreshTokenPresent: authSession.refreshTokenPresent,
+            isRunningUITests: IOThemRuntime.isRunningUITests
+        )
+        if MagicMomentSignInDeferral.shouldDefer(decision) {
+            pendingMagicMomentDeferral = MagicMomentSignInDeferral(name: cleanName, sceneSeed: sceneSeed)
+            openAccount(resumeStudioAfterSignIn: true)
+            lastIssueSummary = MagicMomentSignInDeferral.signInMessage
+            return
+        }
+        submitMagicMomentFirstPage(name: cleanName, sceneSeed: sceneSeed)
+    }
+
+    @MainActor
+    private func submitMagicMomentFirstPage(name cleanName: String, sceneSeed: String) {
         let prompt = magicMomentFirstPagePrompt(name: cleanName, sceneSeed: sceneSeed)
         let requestID = "magic-moment-\(UUID().uuidString.lowercased())"
         let startedAt = Date()
@@ -3819,6 +3888,7 @@ struct RootExperienceView: View {
                 magicMomentOnboardingError = error
                 lastIssueSummary = error
                 screenplayDraftBridge.autoInsertStatusText = error
+                showOfflineTalkOutboxBanner(error)
                 return
             }
 
@@ -3979,6 +4049,7 @@ struct RootExperienceView: View {
         }
     }
 
+
     @MainActor
     private func handleAccountSessionChanged() {
         let session = BackendAuthClient.currentAuthSessionState()
@@ -4018,8 +4089,14 @@ struct RootExperienceView: View {
         guard resumeStudioAfterAccountSignIn else { return }
         resumeStudioAfterAccountSignIn = false
         showingProfileAccount = false
+        let deferral = pendingMagicMomentDeferral
+        pendingMagicMomentDeferral = nil
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-            openStudio()
+            if let deferral {
+                submitMagicMomentFirstPage(name: deferral.name, sceneSeed: deferral.sceneSeed)
+            } else {
+                openStudio()
+            }
         }
     }
 
