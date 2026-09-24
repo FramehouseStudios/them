@@ -6771,6 +6771,9 @@ actor BackendMemoryAPI {
     private let accountDeletionSessionHooks: BackendAccountDeletionSessionHooks
     private let requestIdentityProvider: @Sendable (Bool) -> BackendAuthRequestIdentity
     private var healthyBaseURL: URL?
+    // Negative health cache, held for the BackendHealthProbePolicy interval.
+    private var lastHealthFailure: (error: Error, at: Date)?
+    private var consecutiveHealthFailures = 0
     private var cachedSession: BackendSessionResponse?
     private var cachedSessionAt: Date?
     private var sessionBootstrapTask: (
@@ -7056,29 +7059,39 @@ actor BackendMemoryAPI {
         }
     }
 
-    func fetchHealth() async throws -> BackendHealthStatus {
+    func fetchHealth(now: Date = Date()) async throws -> BackendHealthStatus {
+        if let lastHealthFailure {
+            let holdFor = BackendHealthProbePolicy.pollInterval(consecutiveFailures: consecutiveHealthFailures)
+            if now.timeIntervalSince(lastHealthFailure.at) < holdFor {
+                throw lastHealthFailure.error
+            }
+        }
         var lastError: Error = BackendMemoryAPIError.invalidResponse
         for candidate in healthBaseURLCandidates() {
             do {
                 let status = try await fetchHealth(path: "/bridge", baseURL: candidate)
                 adoptHealthyBaseURL(candidate)
+                lastHealthFailure = nil
+                consecutiveHealthFailures = 0
                 return status
             } catch {
                 lastError = error
-                // No HTTP answer at all (refused, unreachable, timed out): the
-                // host is down, and /health on the same host will fail the
-                // same way. Only an HTTP-level failure (an older backend
-                // without /bridge) is worth the second probe.
+                // No HTTP answer: /health on the same host fails the same way.
+                // Only an HTTP-level failure (older backend, no /bridge) is worth it.
                 if BackendHealthProbePolicy.isTransportFailure(error) { continue }
             }
             do {
                 let status = try await fetchHealth(path: "/health", baseURL: candidate)
                 adoptHealthyBaseURL(candidate)
+                lastHealthFailure = nil
+                consecutiveHealthFailures = 0
                 return status
             } catch {
                 lastError = error
             }
         }
+        consecutiveHealthFailures += 1
+        lastHealthFailure = (lastError, now)
         throw lastError
     }
 
