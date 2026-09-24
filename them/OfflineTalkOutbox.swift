@@ -494,6 +494,17 @@ actor OfflineTalkOutbox {
             entries[index].lastError = BackendProviderFailurePolicy.userMessage
             return
         }
+        if BackendProviderFailurePolicy.isDailyBudgetExhausted(
+            statusCode: status,
+            data: result.body
+        ) {
+            // The cap lasts until UTC midnight; park instead of backing off.
+            entries[index].status = .parked
+            entries[index].updatedAt = now.timeIntervalSince1970
+            entries[index].nextAttemptAt = 0
+            entries[index].lastError = BackendProviderFailurePolicy.dailyBudgetMessage(data: result.body)
+            return
+        }
         if isRetryable(statusCode: status, body: result.body) {
             handleRetryableFailure(
                 entryID: entryID,

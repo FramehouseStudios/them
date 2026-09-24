@@ -106,7 +106,11 @@ test("[provider-budget] capped response is support-safe and does not call downst
   const denied = run(mw, req);
   assert.equal(denied.nextCalled, false);
   assert.equal(denied.res.statusCode, 429);
-  assert.equal(denied.res.headers["retry-after"], "86400");
+  // Noon UTC: the cap lifts at the next UTC midnight, 12 h away, and the
+  // envelope says so in ms for the client.
+  assert.equal(denied.res.headers["retry-after"], "43200");
+  assert.equal(denied.res.body.retry_after_ms, 12 * 3_600_000);
+  assert.equal(denied.res.body.scope, "identity");
   const serialized = JSON.stringify(denied.res.body);
   assert.ok(!serialized.includes("SECRET_USER_ID"));
   assert.ok(!serialized.includes("SECRET_TRANSCRIPT_CONTENT"));
@@ -144,7 +148,9 @@ test("[provider-budget] global daily limit stops every identity once the organis
   assert.equal(res.body.error, "provider_budget_exceeded");
   assert.equal(res.body.scope, "global");
   assert.equal(res.body.daily_limit, 3);
-  assert.equal(res.headers["retry-after"], "86400");
+  // 07:00Z -> next UTC midnight is 17 h away; the client can say when.
+  assert.equal(res.body.retry_after_ms, 17 * 3_600_000);
+  assert.equal(res.headers["retry-after"], String(17 * 3600));
   assert.equal(warned.length, 1, "warns once per day, not per refused request");
   run(talk, makeReq("user-e"));
   assert.equal(warned.length, 1);

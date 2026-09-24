@@ -107,6 +107,10 @@ enum StudioCraftResilience {
             return backendError.localizedDescription
         }
         if let backendError = error as? BackendError,
+           let budgetMessage = backendError.dailyBudgetMessage {
+            return budgetMessage
+        }
+        if let backendError = error as? BackendError,
            backendError.isProviderQuotaExhausted {
             return BackendProviderFailurePolicy.userMessage
         }

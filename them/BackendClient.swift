@@ -2029,6 +2029,21 @@ enum BackendError: LocalizedError {
         }
     }
 
+    /// The backend's daily provider cap, with the scope-aware copy.
+    var dailyBudgetMessage: String? {
+        switch self {
+        case let .stage(stage, message):
+            let payload = "\(stage) \(message)"
+            guard BackendProviderFailurePolicy.isDailyBudgetExhausted(payload: payload) else { return nil }
+            return BackendProviderFailurePolicy.dailyBudgetMessage(payload: payload)
+        case let .http(status, message):
+            guard BackendProviderFailurePolicy.isDailyBudgetExhausted(statusCode: status, payload: message) else { return nil }
+            return BackendProviderFailurePolicy.dailyBudgetMessage(payload: message)
+        default:
+            return nil
+        }
+    }
+
     var requiresUserAuthentication: Bool {
         switch self {
         case let .stage(stage, message):
@@ -2051,6 +2066,9 @@ enum BackendError: LocalizedError {
     }
 
     var errorDescription: String? {
+        if let dailyBudgetMessage {
+            return dailyBudgetMessage
+        }
         if isProviderQuotaExhausted {
             return BackendProviderFailurePolicy.userMessage
         }
@@ -2100,6 +2118,31 @@ enum BackendError: LocalizedError {
 nonisolated enum BackendProviderFailurePolicy {
     static let userMessage = "Clementine's writing service is temporarily unavailable. Your draft is safe. Please try again later."
 
+    /// The backend's daily provider cap (`stage: provider_budget`,
+    /// `error: provider_budget_exceeded`). It lasts until UTC midnight, so a
+    /// retry storm is pointless and the copy has to say when it comes back.
+    static let dailyBudgetIdentityMessage = "You've used today's writing turns. They come back at midnight UTC. Your draft is safe."
+    static let dailyBudgetGlobalMessage = "Clementine is over her daily writing budget for everyone right now. She's back tomorrow. Your draft is safe."
+
+    static func isDailyBudgetExhausted(statusCode: Int? = nil, data: Data) -> Bool {
+        isDailyBudgetExhausted(statusCode: statusCode, payload: String(data: data, encoding: .utf8) ?? "")
+    }
+
+    static func isDailyBudgetExhausted(statusCode: Int? = nil, payload: String) -> Bool {
+        let normalized = payload.lowercased()
+        if normalized.contains("provider_budget_exceeded") { return true }
+        return statusCode == 429 && normalized.contains("provider_budget")
+    }
+
+    static func dailyBudgetMessage(payload: String) -> String {
+        let normalized = payload.lowercased().replacingOccurrences(of: " ", with: "")
+        return normalized.contains("\"scope\":\"global\"") ? dailyBudgetGlobalMessage : dailyBudgetIdentityMessage
+    }
+
+    static func dailyBudgetMessage(data: Data) -> String {
+        dailyBudgetMessage(payload: String(data: data, encoding: .utf8) ?? "")
+    }
+
     static func isQuotaExhausted(
         statusCode: Int? = nil,
         data: Data
@@ -2145,7 +2188,8 @@ nonisolated enum BackendProviderFailurePolicy {
         retryableStatusCodes: Set<Int>
     ) -> Bool {
         retryableStatusCodes.contains(statusCode) &&
-            !isQuotaExhausted(statusCode: statusCode, data: data)
+            !isQuotaExhausted(statusCode: statusCode, data: data) &&
+            !isDailyBudgetExhausted(statusCode: statusCode, data: data)
     }
 }
 
@@ -2240,6 +2284,8 @@ nonisolated enum BackendUserFacingErrorMapper {
             return "You don't have access to change that item."
         case "talk:talk_rate_limited", "talk:rate_limited":
             return "You're sending messages too quickly. Please wait a moment."
+        case "provider_budget:provider_budget_exceeded":
+            return BackendProviderFailurePolicy.dailyBudgetIdentityMessage
         case "talk:talk_voice_not_configured", "realtime:realtime_not_configured":
             return "Voice is not set up yet."
         case "auth:auth_rate_limited":

@@ -254,3 +254,26 @@ final class OfflineTalkOutboxTests: XCTestCase {
         XCTAssertEqual(entries, [])
     }
 }
+
+extension OfflineTalkOutboxTests {
+    func testDailyBudgetParksWithTheScopeCopyInsteadOfBackingOff() async throws {
+        let outbox = OfflineTalkOutbox(storageDirectory: directory)
+        var request = URLRequest(url: URL(string: "https://them.test/talk")!)
+        request.httpMethod = "POST"
+        request.setValue("multipart/form-data; boundary=test", forHTTPHeaderField: "Content-Type")
+        request.setValue("idem-budget", forHTTPHeaderField: "X-Idempotency-Key")
+
+        _ = try await outbox.enqueue(request: request, body: Data("queued".utf8), reason: "offline")
+        let budgetBody = Data(#"{"stage":"provider_budget","error":"provider_budget_exceeded","scope":"global","route_class":"talk","daily_limit":1,"retry_after_ms":3600000}"#.utf8)
+        let parked = await outbox.drainDue(now: Date().addingTimeInterval(10)) { _ in
+            OfflineTalkOutboxSendResult(statusCode: 429, body: budgetBody)
+        }
+
+        XCTAssertEqual(parked.pendingCount, 0)
+        XCTAssertEqual(parked.parkedCount, 1)
+        let entries = await outbox.allEntries()
+        XCTAssertEqual(entries.first?.retries, 0)
+        XCTAssertEqual(entries.first?.nextAttemptAt, 0)
+        XCTAssertEqual(entries.first?.lastError, BackendProviderFailurePolicy.dailyBudgetGlobalMessage)
+    }
+}
