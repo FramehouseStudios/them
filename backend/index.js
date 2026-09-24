@@ -15408,10 +15408,10 @@ function buildLastConversationRecap(memory, userSnippet, assistantSnippet) {
     parts.push(`${themeLabel}:`);
   }
   if (user) {
-    parts.push(`You shared ${user}`);
+    parts.push(`You shared “${user.replace(/[.!?]+$/, "")}”.`);
   }
   if (assistantFirst) {
-    parts.push(`Clementine responded ${assistantFirst}`);
+    parts.push(`Clementine responded “${assistantFirst.replace(/[.!?]+$/, "")}”.`);
   }
   return normalizeSnippet(parts.join(" "), 220);
 }
