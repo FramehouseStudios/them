@@ -2182,6 +2182,27 @@ nonisolated enum BackendProviderFailurePolicy {
         ].contains { normalized.contains($0) }
     }
 
+    /// The server's own retry hint, in seconds: the `Retry-After` header, or
+    /// `retry_after_ms` / `retry_after_seconds` in the body. nil when absent.
+    static func retryAfterInterval(headers: [AnyHashable: Any], data: Data) -> TimeInterval? {
+        for (key, value) in headers {
+            guard String(describing: key).lowercased() == "retry-after" else { continue }
+            if let seconds = Double(String(describing: value).trimmingCharacters(in: .whitespacesAndNewlines)), seconds >= 0 {
+                return seconds
+            }
+        }
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+        if let ms = object["retry_after_ms"] as? Double, ms >= 0 { return ms / 1000 }
+        if let ms = object["retry_after_ms"] as? Int, ms >= 0 { return Double(ms) / 1000 }
+        if let seconds = object["retry_after_seconds"] as? Double, seconds >= 0 { return seconds }
+        if let seconds = object["retry_after_seconds"] as? Int, seconds >= 0 { return Double(seconds) }
+        return nil
+    }
+
+    /// Longest hint the talk request waits out in place; anything longer is
+    /// handed to the offline outbox, which schedules from the same hint.
+    static let inlineRetryAfterMax: TimeInterval = 2
+
     static func shouldRetryHTTP(
         statusCode: Int,
         data: Data,
@@ -5986,9 +6007,22 @@ final class BackendClient {
                        retryableStatusCodes: retryableHTTPStatus
                    ),
                    attempt + 1 < maxTalkAttempts {
+                    // Honour the server's hint. A short one is waited out here;
+                    // a long one is not worth a blind retry that would only be
+                    // counted against the same limit again, so the response goes
+                    // back to the caller and the outbox schedules from the hint.
+                    let hint = BackendProviderFailurePolicy.retryAfterInterval(
+                        headers: http.allHeaderFields,
+                        data: result.0
+                    )
+                    if let hint, hint > BackendProviderFailurePolicy.inlineRetryAfterMax {
+                        print("POST /talk -> status \(http.statusCode) asks for \(Int(hint.rounded()))s; queueing instead of retrying")
+                        return result
+                    }
                     attempt += 1
-                    let delayNs = UInt64(300 * attempt) * 1_000_000
-                    print("POST /talk -> transient status \(http.statusCode), retry \(attempt + 1)/\(maxTalkAttempts)")
+                    let delaySeconds = max(0.3 * Double(attempt), hint ?? 0)
+                    let delayNs = UInt64(delaySeconds * 1_000_000_000)
+                    print("POST /talk -> transient status \(http.statusCode), retry \(attempt + 1)/\(maxTalkAttempts) after \(delaySeconds)s")
                     try await Task.sleep(nanoseconds: delayNs)
                     continue
                 }

@@ -111,3 +111,18 @@ extension BackendUserFacingErrorMapperTests {
         XCTAssertEqual(quota.errorDescription, BackendProviderFailurePolicy.userMessage)
     }
 }
+
+extension BackendUserFacingErrorMapperTests {
+    func testRetryAfterHintIsReadFromHeaderThenBody() {
+        let none = BackendProviderFailurePolicy.retryAfterInterval(headers: [:], data: Data("{}".utf8))
+        XCTAssertNil(none)
+        XCTAssertEqual(BackendProviderFailurePolicy.retryAfterInterval(headers: ["Retry-After": "12"], data: Data()), 12)
+        XCTAssertEqual(BackendProviderFailurePolicy.retryAfterInterval(headers: ["retry-after": " 3 "], data: Data()), 3)
+        XCTAssertEqual(BackendProviderFailurePolicy.retryAfterInterval(headers: [:], data: Data(#"{"retry_after_ms":1500}"#.utf8)), 1.5)
+        XCTAssertEqual(BackendProviderFailurePolicy.retryAfterInterval(headers: [:], data: Data(#"{"retry_after_seconds":7}"#.utf8)), 7)
+        // Header wins over body; garbage is ignored.
+        XCTAssertEqual(BackendProviderFailurePolicy.retryAfterInterval(headers: ["Retry-After": "2"], data: Data(#"{"retry_after_ms":90000}"#.utf8)), 2)
+        XCTAssertNil(BackendProviderFailurePolicy.retryAfterInterval(headers: ["Retry-After": "soon"], data: Data("not json".utf8)))
+        XCTAssertEqual(BackendProviderFailurePolicy.inlineRetryAfterMax, 2)
+    }
+}
