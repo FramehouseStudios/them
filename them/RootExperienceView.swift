@@ -8188,7 +8188,8 @@ Write this approved story direction directly into screenplay pages now. Maintain
         backendHealthTask = Task {
             await refreshBackendHealth()
             while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 5_000_000_000)
+                let interval = BackendHealthProbePolicy.pollInterval(consecutiveFailures: backendFailureCount)
+                try? await Task.sleep(nanoseconds: UInt64(interval * 1_000_000_000))
                 await refreshBackendHealth()
             }
         }

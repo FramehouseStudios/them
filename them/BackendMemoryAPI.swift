@@ -7065,6 +7065,11 @@ actor BackendMemoryAPI {
                 return status
             } catch {
                 lastError = error
+                // No HTTP answer at all (refused, unreachable, timed out): the
+                // host is down, and /health on the same host will fail the
+                // same way. Only an HTTP-level failure (an older backend
+                // without /bridge) is worth the second probe.
+                if BackendHealthProbePolicy.isTransportFailure(error) { continue }
             }
             do {
                 let status = try await fetchHealth(path: "/health", baseURL: candidate)
