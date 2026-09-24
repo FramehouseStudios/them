@@ -126,3 +126,28 @@ extension BackendUserFacingErrorMapperTests {
         XCTAssertEqual(BackendProviderFailurePolicy.inlineRetryAfterMax, 2)
     }
 }
+
+extension BackendUserFacingErrorMapperTests {
+    func testTalkFailuresReadAsPlainCopyAndKeepTheSupportReference() {
+        let timeout = BackendError.stage("talk_chat", "Talk failed during response generation (provider_timeout). Reference 181efeb0ffeee20e.")
+        XCTAssertEqual(
+            timeout.errorDescription,
+            "Clementine's writing service didn't answer in time. Your draft is safe. Try again in a moment. Reference 181efeb0ffeee20e."
+        )
+        let stt = BackendError.stage("talk_stt", "Talk failed during voice transcription (provider_unavailable). Reference abc123.")
+        XCTAssertTrue(stt.errorDescription?.hasPrefix("Clementine couldn't hear that one") == true)
+        XCTAssertTrue(stt.errorDescription?.hasSuffix("Reference abc123.") == true)
+        let tts = BackendError.stage("talk_tts", "Talk failed during voice synthesis (provider_timeout).")
+        XCTAssertEqual(tts.errorDescription, "Clementine wrote her reply but couldn't voice it in time. It's on screen.")
+        let auth = BackendError.stage("talk_chat", "Talk failed during response generation (provider_auth). Reference r1.")
+        XCTAssertTrue(auth.errorDescription?.contains("misconfigured right now") == true)
+        // Quota and the daily cap keep their own copy; an unknown class keeps the
+        // labelled server message, with the backend's talk_ prefix not shouted.
+        let quota = BackendError.stage("talk_chat", "Talk failed during response generation (provider_quota). Reference q.")
+        XCTAssertEqual(quota.errorDescription, BackendProviderFailurePolicy.userMessage)
+        let unknown = BackendError.stage("talk_chat", "Talk failed during response generation (something_new). Reference u.")
+        XCTAssertEqual(unknown.errorDescription, "Response error: Talk failed during response generation (something_new). Reference u.")
+        XCTAssertNil(BackendTalkFailureCopy.errorClass(in: "no class here"))
+        XCTAssertEqual(BackendTalkFailureCopy.reference(in: "x. Reference AB-12"), "Reference AB-12.")
+    }
+}
