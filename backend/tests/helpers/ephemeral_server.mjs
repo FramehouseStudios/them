@@ -11,9 +11,20 @@
 // this port, and close() drains open connections before shutting down.
 import http from "node:http";
 
+// A route that rejects a large body early (a 413 before the upload has been
+// read) must keep the socket alive: with "Connection: close" Node destroys
+// the socket right after the response while the client is still writing,
+// and fetch reports ECONNRESET instead of the 413. Seen on
+// fountain_import's 4 MB test (4 of 10 runs). Those bodies are the only
+// case a pooled socket cannot be reused for, so the header is skipped there.
+const CLOSE_HEADER_MAX_BODY_BYTES = 512 * 1024;
+
 function listenEphemeral(app, port = 0) {
   const server = http.createServer((req, res) => {
-    res.setHeader("Connection", "close");
+    const declared = Number(req.headers["content-length"] || 0);
+    if (!(declared > CLOSE_HEADER_MAX_BODY_BYTES)) {
+      res.setHeader("Connection", "close");
+    }
     app(req, res);
   });
   const close = server.close.bind(server);
