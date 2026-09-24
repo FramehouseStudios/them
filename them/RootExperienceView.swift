@@ -909,8 +909,12 @@ struct RootExperienceView: View {
     @ViewBuilder
     private var homeSessionContinuityCard: some View {
         if let snapshot = sessionContinuitySnapshot,
-           snapshot.isMeaningful,
-           sessionContinuityFingerprint(snapshot) != dismissedSessionContinuityFingerprint {
+           HomeSessionContinuityCardPolicy.shouldShow(
+               hasMeaningfulSnapshot: snapshot.isMeaningful,
+               fingerprint: sessionContinuityFingerprint(snapshot),
+               dismissedFingerprint: dismissedSessionContinuityFingerprint,
+               needsOnboardingName: evolution.needsOnboardingName
+           ) {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(alignment: .firstTextBaseline, spacing: 10) {
                     Text("Where We Left Off")
