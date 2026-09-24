@@ -107,3 +107,37 @@ private final class HealthProbeURLProtocolStub: URLProtocol {
 
     override func stopLoading() {}
 }
+
+extension BackendHealthProbePolicyTests {
+    func testFailedHealthIsAnsweredFromMemoryUntilTheBackoffIntervalPasses() async throws {
+        HealthProbeURLProtocolStub.reset()
+        HealthProbeURLProtocolStub.handler = { _ in throw URLError(.cannotConnectToHost) }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [HealthProbeURLProtocolStub.self]
+        let api = BackendMemoryAPI(session: URLSession(configuration: configuration), baseURL: URL(string: "https://health-probe.test")!)
+        let t0 = Date()
+
+        _ = try? await api.fetchHealth(now: t0)
+        XCTAssertEqual(HealthProbeURLProtocolStub.paths.count, 1, "first failure probes the host")
+        // Two more calls inside the first 5 s window: no network at all.
+        _ = try? await api.fetchHealth(now: t0.addingTimeInterval(1))
+        _ = try? await api.fetchHealth(now: t0.addingTimeInterval(4))
+        XCTAssertEqual(HealthProbeURLProtocolStub.paths.count, 1)
+        // At the boundary the probe runs again; the interval then doubles.
+        _ = try? await api.fetchHealth(now: t0.addingTimeInterval(5))
+        XCTAssertEqual(HealthProbeURLProtocolStub.paths.count, 2)
+        _ = try? await api.fetchHealth(now: t0.addingTimeInterval(12))
+        XCTAssertEqual(HealthProbeURLProtocolStub.paths.count, 2, "inside the 10 s window")
+        _ = try? await api.fetchHealth(now: t0.addingTimeInterval(15))
+        XCTAssertEqual(HealthProbeURLProtocolStub.paths.count, 3)
+
+        // The backend comes back: the probe succeeds and the cache clears.
+        HealthProbeURLProtocolStub.handler = { _ in
+            HealthProbeHTTPStub(status: 200, body: Data(#"{"ok":true,"status":"up","schema_version":1}"#.utf8))
+        }
+        let health = try await api.fetchHealth(now: t0.addingTimeInterval(40))
+        XCTAssertTrue(health.ok)
+        _ = try await api.fetchHealth(now: t0.addingTimeInterval(41))
+        XCTAssertEqual(HealthProbeURLProtocolStub.paths.suffix(2), ["/bridge", "/bridge"], "healthy calls always probe")
+    }
+}
