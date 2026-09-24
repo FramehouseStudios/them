@@ -40,7 +40,6 @@ hand-written tables lives in `tasks/HISTORY-2026-05.md`.
 
 | ID                                   | Title                                                                         | Owner   | Status  |
 |--------------------------------------|-------------------------------------------------------------------------------|---------|---------|
-| T-archive-legacy-json-stores         | Move backend/*_store.json into backend/data/_legacy/                          | support | ready   |
 | T-auth-demo-keychain-login           | Add local demo login and Keychain remembered credentials                      | codex   | review  |
 | T-auth-session-durability            | Make auth sessions durable before success responses                           | codex   | review  |
 | T-backend-openai-cost-cap            | OpenAI per-day / per-user / per-hour budget cap                               | support | ready   |
@@ -56,29 +55,6 @@ hand-written tables lives in `tasks/HISTORY-2026-05.md`.
 | T47-refresh-after-new-support-prs    | Refresh queue after new support agent PR triage                               | codex   | review  |
 
 ## Active work — full detail (auto-generated)
-
-### T-archive-legacy-json-stores — Move backend/*_store.json into backend/data/_legacy/
-- **Owner:** support
-- **Branch:** -
-- **Pillar:** infra (enables all)
-- **Status:** ready
-
-## Scope
-
-Spec: `docs/specs/T-archive-legacy-json-stores.md`.
-
-Move `screenplay_store.json` (3.6 MB), `user_memory_store.json`
-(296 KB), `outbox_store.json`, `knowledge_cards.json` into
-`backend/data/_legacy/`. Update `persistence_json.js` default root.
-Add `.gitignore` for the new path. One-time fallback warning if
-only the old path exists.
-
-## Done when
-
-- The four legacy JSON files no longer sit at `backend/<filename>.json`.
-- `npm test` and dev `npm start` work against the new path.
-- `du -sh backend/` decreases by ~4 MB.
-- Deprecation warning fires once if only the old path exists.
 
 ### T-auth-demo-keychain-login — Add local demo login and Keychain remembered credentials
 - **Owner:** codex
