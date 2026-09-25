@@ -3398,6 +3398,8 @@ struct RootExperienceView: View {
                     }
                 }
                 .animation(.easeInOut(duration: 0.8), value: showTalkPrompt)
+                .opacity(evolution.needsOnboardingName ? 0 : 1)
+                .accessibilityHidden(evolution.needsOnboardingName)
 
                 Spacer()
             }
@@ -3681,7 +3683,9 @@ struct RootExperienceView: View {
                 }
                 Spacer()
             }
+            .opacity(evolution.needsOnboardingName ? 0 : 1)
             .allowsHitTesting(!evolution.needsOnboardingName)
+            .accessibilityHidden(evolution.needsOnboardingName)
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("home.surface")
