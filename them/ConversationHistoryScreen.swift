@@ -306,6 +306,7 @@ enum ConversationHistoryTheme {
 
 struct ConversationHistoryScreen: View {
     @StateObject private var vm = ConversationHistoryViewModel()
+    @Environment(\.dismiss) private var dismiss
     var openConversation: () -> Void = {}
 
     @State private var showRenameAlert = false
@@ -343,7 +344,18 @@ struct ConversationHistoryScreen: View {
             }
             .navigationTitle("")
             .toolbarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .automatic) {
+                    Button("Return") {
+                        dismiss()
+                    }
+                    .font(.system(size: 14, weight: .regular, design: .default))
+                    .accessibilityIdentifier("history.return")
+                    .accessibilityHint("Closes conversation history.")
+                }
+            }
         }
+        .accessibilityIdentifier("history.screen")
         .task { await vm.load() }
         .alert("Rename Conversation", isPresented: $showRenameAlert) {
             TextField("Title", text: $renameDraft)
@@ -365,7 +377,7 @@ struct ConversationHistoryScreen: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Conversation")
+            Text("History")
                 .font(.system(size: 34, weight: .semibold, design: .default))
                 .foregroundStyle(ConversationHistoryTheme.textPrimary)
 
