@@ -864,6 +864,7 @@ struct MemoriesScreen: View {
 
     @StateObject private var vm = MemoriesViewModel()
     var startTalkingAction: () -> Void = {}
+    var returnAction: () -> Void = {}
     var openStudioAction: () -> Void = {}
     var signInAction: () -> Void = {}
 
@@ -901,7 +902,7 @@ struct MemoriesScreen: View {
             .toolbar {
                 ToolbarItem(placement: .automatic) {
                     Button("Return") {
-                        startTalkingAction()
+                        returnAction()
                     }
                     .font(.system(size: 14, weight: .regular, design: .default))
                     .accessibilityIdentifier("memories.return")
@@ -995,7 +996,7 @@ struct MemoriesScreen: View {
                         Task { await vm.retry() }
                     })
                 case .signInRequired:
-                    MemoriesSignInView(signInAction: signInAction, returnAction: startTalkingAction)
+                    MemoriesSignInView(signInAction: signInAction, returnAction: returnAction)
                 case .loaded(let items):
                     if let storySpine = StorySpineSnapshot.make(from: items) {
                         StorySpineOverview(
@@ -1023,7 +1024,7 @@ struct MemoriesScreen: View {
                     .navigationDestination(item: $vm.selection) { item in
                         MemoryDetailView(
                             item: item,
-                            onReturnHome: startTalkingAction,
+                            onReturnHome: returnAction,
                             onSave: { updated in
                                 try await vm.updateMemory(
                                     itemID: updated.id,
