@@ -518,7 +518,13 @@ struct RootExperienceView: View {
     @Environment(\.openURL) private var openURL
     @Environment(\.scenePhase) private var scenePhase
 
-    @State private var showPrompt = true
+    private var showTalkPrompt: Bool {
+        HomeTalkPromptPolicy.shouldShow(
+            voiceIsActive: studioTalkIsActive,
+            isTurnSubmitting: isTurnSubmitting,
+            isThinking: isThinking
+        )
+    }
     @State private var isThinking = false
     @State private var transcript = ""
     @State private var livePartialTranscript = ""
@@ -2351,12 +2357,6 @@ struct RootExperienceView: View {
         openUITestLaunchSurfaceIfNeeded()
         #endif
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 6) {
-            withAnimation(.easeInOut(duration: 2)) {
-                showPrompt = false
-            }
-        }
-
         installMacKeyMonitorIfNeeded()
     }
 
@@ -3202,8 +3202,8 @@ struct RootExperienceView: View {
                 homeFirstPageWaitingCard
                 homeSessionContinuityCard
 
-                if showPrompt {
-                    VStack(spacing: 14) {
+                VStack(spacing: 14) {
+                    if showTalkPrompt {
                         Text("Talk")
                             .font(.system(size: 30, weight: .semibold, design: .default))
                             .foregroundColor(.herText.opacity(0.92))
@@ -3236,168 +3236,168 @@ struct RootExperienceView: View {
                                 startConversationLoopIfNeeded()
                             }
                         )
-                        if let banner = connectionBannerText {
-                            Text(banner)
-                                .font(.system(size: 13, weight: .regular, design: .default))
-                                .foregroundColor(.herText.opacity(0.80))
-                                .padding(.top, 4)
-                        }
-                        if voiceTransportMode == .realtimePreview {
-                            VStack(spacing: 4) {
-                                Text(realtimePreviewStatusText)
-                                    .font(.system(size: 11, weight: .regular, design: .default))
-                                    .foregroundColor(.herText.opacity(0.74))
-                                    .multilineTextAlignment(.center)
-                                if !lastRealtimeCommitError.isEmpty {
-                                    Text("Realtime save issue: \(lastRealtimeCommitError)")
-                                        .font(.system(size: 10, weight: .regular, design: .default))
-                                        .foregroundColor(.red.opacity(0.88))
-                                        .multilineTextAlignment(.center)
-                                } else if !lastRealtimeCommittedTurnID.isEmpty, lastRealtimeCommitAt > .distantPast {
-                                    Text("Saved \(relativeTimestamp(lastRealtimeCommitAt)) · \(lastRealtimeCommittedTurnID)")
-                                        .font(.system(size: 10, weight: .regular, design: .default))
-                                        .foregroundColor(.herText.opacity(0.62))
-                                        .multilineTextAlignment(.center)
-                                }
-                            }
-                            .padding(.top, 2)
-                        }
-                        if let transientTurnBannerText, !transientTurnBannerText.isEmpty {
-                            Text(transientTurnBannerText)
-                                .font(.system(size: 12, weight: .regular, design: .default))
-                                .foregroundColor(.herText.opacity(0.92))
+                    }
+                    if let banner = connectionBannerText {
+                        Text(banner)
+                            .font(.system(size: 13, weight: .regular, design: .default))
+                            .foregroundColor(.herText.opacity(0.80))
+                            .padding(.top, 4)
+                    }
+                    if voiceTransportMode == .realtimePreview {
+                        VStack(spacing: 4) {
+                            Text(realtimePreviewStatusText)
+                                .font(.system(size: 11, weight: .regular, design: .default))
+                                .foregroundColor(.herText.opacity(0.74))
                                 .multilineTextAlignment(.center)
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 8)
-                                .background(
-                                    Capsule()
-                                        .fill(Color.white.opacity(0.22))
-                                )
-                                .overlay(
-                                    Capsule()
-                                        .stroke(Color.white.opacity(0.28), lineWidth: 1)
-                                )
-                                .padding(.top, 2)
-                                .transition(.opacity)
-                        }
-                        homeCompanionSignalCard
-                        if !lastKnowledgeCitations.isEmpty {
-                            VStack(alignment: .center, spacing: 4) {
-                                Text("Sources: \(lastKnowledgeCitations.prefix(2).joined(separator: " • "))")
-                                    .font(.system(size: 11, weight: .regular, design: .default))
-                                    .foregroundColor(.herText.opacity(0.66))
-                                    .lineLimit(2)
+                            if !lastRealtimeCommitError.isEmpty {
+                                Text("Realtime save issue: \(lastRealtimeCommitError)")
+                                    .font(.system(size: 10, weight: .regular, design: .default))
+                                    .foregroundColor(.red.opacity(0.88))
                                     .multilineTextAlignment(.center)
-                                if !lastKnowledgeConfidenceClass.isEmpty {
-                                    Text("Knowledge confidence: \(lastKnowledgeConfidenceClass) • contradiction risk \(Int((min(max(lastKnowledgeContradictionRisk, 0), 1) * 100).rounded()))%")
+                            } else if !lastRealtimeCommittedTurnID.isEmpty, lastRealtimeCommitAt > .distantPast {
+                                Text("Saved \(relativeTimestamp(lastRealtimeCommitAt)) · \(lastRealtimeCommittedTurnID)")
+                                    .font(.system(size: 10, weight: .regular, design: .default))
+                                    .foregroundColor(.herText.opacity(0.62))
+                                    .multilineTextAlignment(.center)
+                            }
+                        }
+                        .padding(.top, 2)
+                    }
+                    if let transientTurnBannerText, !transientTurnBannerText.isEmpty {
+                        Text(transientTurnBannerText)
+                            .font(.system(size: 12, weight: .regular, design: .default))
+                            .foregroundColor(.herText.opacity(0.92))
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(
+                                Capsule()
+                                    .fill(Color.white.opacity(0.22))
+                            )
+                            .overlay(
+                                Capsule()
+                                    .stroke(Color.white.opacity(0.28), lineWidth: 1)
+                            )
+                            .padding(.top, 2)
+                            .transition(.opacity)
+                    }
+                    homeCompanionSignalCard
+                    if !lastKnowledgeCitations.isEmpty {
+                        VStack(alignment: .center, spacing: 4) {
+                            Text("Sources: \(lastKnowledgeCitations.prefix(2).joined(separator: " • "))")
+                                .font(.system(size: 11, weight: .regular, design: .default))
+                                .foregroundColor(.herText.opacity(0.66))
+                                .lineLimit(2)
+                                .multilineTextAlignment(.center)
+                            if !lastKnowledgeConfidenceClass.isEmpty {
+                                Text("Knowledge confidence: \(lastKnowledgeConfidenceClass) • contradiction risk \(Int((min(max(lastKnowledgeContradictionRisk, 0), 1) * 100).rounded()))%")
+                                    .font(.system(size: 10, weight: .regular, design: .default))
+                                    .foregroundColor(.herText.opacity(0.56))
+                                    .lineLimit(1)
+                            }
+                        }
+                        .frame(maxWidth: 460)
+                        .padding(.top, 2)
+                    }
+                    if showLiveScriptPreview && !liveScreenplayText.isEmpty {
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack(spacing: 8) {
+                                Text("Live Script")
+                                    .font(.system(size: 12, weight: .semibold, design: .default))
+                                    .foregroundColor(.herText.opacity(0.92))
+                                if !liveScreenplayPack.isEmpty {
+                                    Text(liveScreenplayPack)
+                                        .font(.system(size: 11, weight: .semibold, design: .default))
+                                        .foregroundColor(.herText.opacity(0.82))
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 4)
+                                        .background(Color.white.opacity(0.16))
+                                        .clipShape(Capsule())
+                                }
+                                if !liveScreenplayPhase.isEmpty {
+                                    Text(liveScreenplayPhase.replacingOccurrences(of: "_", with: " "))
+                                        .font(.system(size: 11, weight: .regular, design: .default))
+                                        .foregroundColor(.herText.opacity(0.74))
+                                }
+                                Spacer(minLength: 8)
+                                Button {
+                                    openStudio()
+                                } label: {
+                                    Text("Open in Studio")
+                                        .font(.system(size: 11, weight: .regular, design: .default))
+                                        .foregroundColor(.herText.opacity(0.90))
+                                        .padding(.horizontal, 9)
+                                        .padding(.vertical, 4)
+                                        .background(Color.white.opacity(0.18))
+                                        .clipShape(Capsule())
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityIdentifier("home.open-studio-preview")
+                                Button {
+                                    showLiveScriptPreview = false
+                                } label: {
+                                    Text("Hide")
+                                        .font(.system(size: 11, weight: .regular, design: .default))
+                                        .foregroundColor(.herText.opacity(0.82))
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 4)
+                                        .background(Color.white.opacity(0.14))
+                                        .clipShape(Capsule())
+                                }
+                                .buttonStyle(.plain)
+                            }
+
+                            ScrollView(.vertical) {
+                                Text(liveScreenplayText)
+                                    .font(.system(size: 12, weight: .regular, design: .monospaced))
+                                    .foregroundColor(.herText.opacity(0.90))
+                                    .textSelection(.enabled)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 8)
+                            }
+                            .frame(maxHeight: 190)
+                            .background(Color.white.opacity(0.12))
+                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+
+                            HStack(spacing: 8) {
+                                if !liveScreenplayProjectID.isEmpty {
+                                    Text("Project \(liveScreenplayProjectID)")
+                                        .font(.system(size: 10, weight: .regular, design: .default))
+                                        .foregroundColor(.herText.opacity(0.66))
+                                }
+                                if !liveScreenplayVersionID.isEmpty {
+                                    Text("Version \(liveScreenplayVersionID)")
+                                        .font(.system(size: 10, weight: .regular, design: .default))
+                                        .foregroundColor(.herText.opacity(0.60))
+                                }
+                                Spacer(minLength: 8)
+                                if liveScreenplayUpdatedAt > .distantPast {
+                                    Text("Updated \(relativeTimestamp(liveScreenplayUpdatedAt))")
                                         .font(.system(size: 10, weight: .regular, design: .default))
                                         .foregroundColor(.herText.opacity(0.56))
-                                        .lineLimit(1)
                                 }
                             }
-                            .frame(maxWidth: 460)
-                            .padding(.top, 2)
                         }
-                        if showLiveScriptPreview && !liveScreenplayText.isEmpty {
-                            VStack(alignment: .leading, spacing: 8) {
-                                HStack(spacing: 8) {
-                                    Text("Live Script")
-                                        .font(.system(size: 12, weight: .semibold, design: .default))
-                                        .foregroundColor(.herText.opacity(0.92))
-                                    if !liveScreenplayPack.isEmpty {
-                                        Text(liveScreenplayPack)
-                                            .font(.system(size: 11, weight: .semibold, design: .default))
-                                            .foregroundColor(.herText.opacity(0.82))
-                                            .padding(.horizontal, 8)
-                                            .padding(.vertical, 4)
-                                            .background(Color.white.opacity(0.16))
-                                            .clipShape(Capsule())
-                                    }
-                                    if !liveScreenplayPhase.isEmpty {
-                                        Text(liveScreenplayPhase.replacingOccurrences(of: "_", with: " "))
-                                            .font(.system(size: 11, weight: .regular, design: .default))
-                                            .foregroundColor(.herText.opacity(0.74))
-                                    }
-                                    Spacer(minLength: 8)
-                                    Button {
-                                        openStudio()
-                                    } label: {
-                                        Text("Open in Studio")
-                                            .font(.system(size: 11, weight: .regular, design: .default))
-                                            .foregroundColor(.herText.opacity(0.90))
-                                            .padding(.horizontal, 9)
-                                            .padding(.vertical, 4)
-                                            .background(Color.white.opacity(0.18))
-                                            .clipShape(Capsule())
-                                    }
-                                    .buttonStyle(.plain)
-                                    .accessibilityIdentifier("home.open-studio-preview")
-                                    Button {
-                                        showLiveScriptPreview = false
-                                    } label: {
-                                        Text("Hide")
-                                            .font(.system(size: 11, weight: .regular, design: .default))
-                                            .foregroundColor(.herText.opacity(0.82))
-                                            .padding(.horizontal, 8)
-                                            .padding(.vertical, 4)
-                                            .background(Color.white.opacity(0.14))
-                                            .clipShape(Capsule())
-                                    }
-                                    .buttonStyle(.plain)
-                                }
-
-                                ScrollView(.vertical) {
-                                    Text(liveScreenplayText)
-                                        .font(.system(size: 12, weight: .regular, design: .monospaced))
-                                        .foregroundColor(.herText.opacity(0.90))
-                                        .textSelection(.enabled)
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                        .padding(.horizontal, 10)
-                                        .padding(.vertical, 8)
-                                }
-                                .frame(maxHeight: 190)
-                                .background(Color.white.opacity(0.12))
-                                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-
-                                HStack(spacing: 8) {
-                                    if !liveScreenplayProjectID.isEmpty {
-                                        Text("Project \(liveScreenplayProjectID)")
-                                            .font(.system(size: 10, weight: .regular, design: .default))
-                                            .foregroundColor(.herText.opacity(0.66))
-                                    }
-                                    if !liveScreenplayVersionID.isEmpty {
-                                        Text("Version \(liveScreenplayVersionID)")
-                                            .font(.system(size: 10, weight: .regular, design: .default))
-                                            .foregroundColor(.herText.opacity(0.60))
-                                    }
-                                    Spacer(minLength: 8)
-                                    if liveScreenplayUpdatedAt > .distantPast {
-                                        Text("Updated \(relativeTimestamp(liveScreenplayUpdatedAt))")
-                                            .font(.system(size: 10, weight: .regular, design: .default))
-                                            .foregroundColor(.herText.opacity(0.56))
-                                    }
-                                }
-                            }
-                            .frame(maxWidth: 760)
-                            .padding(.top, 6)
-                        } else if !showLiveScriptPreview && !liveScreenplayText.isEmpty {
-                            Button {
-                                showLiveScriptPreview = true
-                            } label: {
-                                Text("Show live script preview")
-                                    .font(.system(size: 11, weight: .regular, design: .default))
-                                    .foregroundColor(.herText.opacity(0.84))
-                                    .padding(.horizontal, 10)
-                                    .padding(.vertical, 7)
-                                    .background(Color.white.opacity(0.16))
-                                    .clipShape(Capsule())
-                            }
-                            .buttonStyle(.plain)
-                            .padding(.top, 4)
+                        .frame(maxWidth: 760)
+                        .padding(.top, 6)
+                    } else if !showLiveScriptPreview && !liveScreenplayText.isEmpty {
+                        Button {
+                            showLiveScriptPreview = true
+                        } label: {
+                            Text("Show live script preview")
+                                .font(.system(size: 11, weight: .regular, design: .default))
+                                .foregroundColor(.herText.opacity(0.84))
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 7)
+                                .background(Color.white.opacity(0.16))
+                                .clipShape(Capsule())
                         }
+                        .buttonStyle(.plain)
+                        .padding(.top, 4)
                     }
-                    .transition(.opacity)
                 }
+                .animation(.easeInOut(duration: 0.8), value: showTalkPrompt)
 
                 Spacer()
             }
