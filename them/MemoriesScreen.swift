@@ -904,6 +904,8 @@ struct MemoriesScreen: View {
                         startTalkingAction()
                     }
                     .font(.system(size: 14, weight: .regular, design: .default))
+                    .accessibilityIdentifier("memories.return")
+                    .accessibilityHint("Returns to the conversation screen.")
                 }
             }
         }
@@ -929,32 +931,14 @@ struct MemoriesScreen: View {
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .top, spacing: 12) {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Memories")
-                        .font(.system(size: 34, weight: .semibold, design: .default))
-                        .foregroundStyle(MemoriesTheme.textPrimary)
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Memories")
+                .font(.system(size: 34, weight: .semibold, design: .default))
+                .foregroundStyle(MemoriesTheme.textPrimary)
 
-                    Text(vm.subtitle)
-                        .font(.system(size: 15, weight: .regular, design: .default))
-                        .foregroundStyle(MemoriesTheme.textSecondary)
-                }
-                Spacer()
-                Button {
-                    startTalkingAction()
-                } label: {
-                    Text("Return Home")
-                        .font(.system(size: 14, weight: .regular, design: .default))
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .background(Color.white.opacity(0.18))
-                        .clipShape(Capsule())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Return Home")
-                .accessibilityHint("Returns to the conversation screen.")
-            }
+            Text(vm.subtitle)
+                .font(.system(size: 15, weight: .regular, design: .default))
+                .foregroundStyle(MemoriesTheme.textSecondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)
