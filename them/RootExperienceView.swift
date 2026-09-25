@@ -2922,6 +2922,9 @@ struct RootExperienceView: View {
                                 guard !evolution.needsOnboardingName else { return }
                                 startConversationLoopIfNeeded()
                             }
+                        }, returnAction: {
+                            showingMemories = false
+                            resumeConversationAfterSheetIfNeeded()
                         }, openStudioAction: {
                             showingMemories = false
                             DispatchQueue.main.asyncAfter(deadline: .now() + 0.20) {
@@ -2948,40 +2951,28 @@ struct RootExperienceView: View {
                 .sheet(isPresented: $showingNotes) {
                     NotesPanel(onDone: {
                         showingNotes = false
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.20) {
-                            guard !evolution.needsOnboardingName else { return }
-                            startConversationLoopIfNeeded()
-                        }
+                        resumeConversationAfterSheetIfNeeded()
                     })
                     .themDesktopSheetFrame(minWidth: 920, minHeight: 700)
                 }
                 .sheet(isPresented: $showingTasks) {
                     TasksPanel(onDone: {
                         showingTasks = false
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.20) {
-                            guard !evolution.needsOnboardingName else { return }
-                            startConversationLoopIfNeeded()
-                        }
+                        resumeConversationAfterSheetIfNeeded()
                     })
                     .themDesktopSheetFrame(minWidth: 900, minHeight: 680)
                 }
                 .sheet(isPresented: $showingRecap) {
                     RecapPanel(onDone: {
                         showingRecap = false
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.20) {
-                            guard !evolution.needsOnboardingName else { return }
-                            startConversationLoopIfNeeded()
-                        }
+                        resumeConversationAfterSheetIfNeeded()
                     })
                     .themDesktopSheetFrame(minWidth: 900, minHeight: 700)
                 }
                 .sheet(isPresented: $showingVoiceSettings) {
                     VoiceSettingsScreen(onDone: {
                         showingVoiceSettings = false
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.20) {
-                            guard !evolution.needsOnboardingName else { return }
-                            startConversationLoopIfNeeded()
-                        }
+                        resumeConversationAfterSheetIfNeeded()
                     })
                     .themDesktopSheetFrame(minWidth: 960, minHeight: 760)
                 }
@@ -2990,10 +2981,7 @@ struct RootExperienceView: View {
                         bridge: screenplayDraftBridge,
                         onDone: {
                             showingCompanionControls = false
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.20) {
-                                guard !evolution.needsOnboardingName else { return }
-                                startConversationLoopIfNeeded()
-                            }
+                            resumeConversationAfterSheetIfNeeded()
                         }
                     )
                     .themDesktopSheetFrame(minWidth: 920, minHeight: 720)
@@ -3001,10 +2989,7 @@ struct RootExperienceView: View {
                 .sheet(isPresented: $showingDataControls) {
                     DataControlsScreen(onDone: {
                         showingDataControls = false
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.20) {
-                            guard !evolution.needsOnboardingName else { return }
-                            startConversationLoopIfNeeded()
-                        }
+                        resumeConversationAfterSheetIfNeeded()
                     })
                     .themDesktopSheetFrame(minWidth: 900, minHeight: 680)
                 }
@@ -11328,6 +11313,18 @@ Write this approved story direction directly into screenplay pages now. Maintain
     }
 
     @MainActor
+    /// Sheets closed with Return/Done pick the conversation back up only if one
+    /// was already running; a quiet home stays quiet until the writer taps Talk.
+    private func resumeConversationAfterSheetIfNeeded() {
+        guard SheetReturnTalkPolicy.shouldResume(
+            conversationLoopEnabled: conversationLoopEnabled,
+            needsOnboardingName: evolution.needsOnboardingName
+        ) else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.20) {
+            startConversationLoopIfNeeded()
+        }
+    }
+
     private func startConversationLoopIfNeeded() {
         conversationLoopEnabled = true
         pendingGoodbyeStopAfterPlayback = false
