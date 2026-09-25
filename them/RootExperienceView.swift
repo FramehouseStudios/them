@@ -3641,14 +3641,6 @@ struct RootExperienceView: View {
                             .clipShape(Capsule())
                     }
                     .buttonStyle(.plain)
-
-                    Text(evolution.personaPreset.title)
-                        .font(.system(size: 12, weight: .regular, design: .default))
-                        .foregroundColor(.herText.opacity(0.95))
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .background(Color.white.opacity(0.28))
-                        .clipShape(Capsule())
                         }
                         .padding(.horizontal, 14)
                         .padding(.vertical, 12)
