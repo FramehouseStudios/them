@@ -12534,9 +12534,9 @@ private enum NoteEditStyle: String, CaseIterable, Identifiable {
         switch self {
         case .polish: return "Polish"
         case .tighten: return "Tighten"
-        case .professional: return "Professional"
+        case .professional: return "Formal"
         case .warmer: return "Warmer"
-        case .summarize: return "Summarize"
+        case .summarize: return "Summary"
         }
     }
 
@@ -13149,25 +13149,27 @@ private struct NotesPanel: View {
                 }
             }
 
-            HStack(spacing: 10) {
-                Button(editingNoteID.isEmpty ? "Save In App" : "Update Note") {
-                    saveOrUpdateDraftNote()
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(.white.opacity(0.24))
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 10) {
+                    Button(editingNoteID.isEmpty ? "Save In App" : "Update Note") {
+                        saveOrUpdateDraftNote()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.white.opacity(0.24))
 
-                Button(isPolishingDraft ? "\(selectedEditStyle.progressTitle)..." : selectedEditStyle.actionTitle) {
-                    Task { await applySelectedEditStyleToDraft() }
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(.white.opacity(0.20))
-                .disabled(isPolishingDraft || draftNote.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    Button(isPolishingDraft ? "\(selectedEditStyle.progressTitle)..." : selectedEditStyle.actionTitle) {
+                        Task { await applySelectedEditStyleToDraft() }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.white.opacity(0.20))
+                    .disabled(isPolishingDraft || draftNote.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
 
-                Button(editingNoteID.isEmpty ? "Clear Draft" : "Cancel Edit") {
-                    clearDraftComposer()
+                    Button(editingNoteID.isEmpty ? "Clear Draft" : "Cancel Edit") {
+                        clearDraftComposer()
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(.white.opacity(0.24))
                 }
-                .buttonStyle(.bordered)
-                .tint(.white.opacity(0.24))
             }
         }
     }
