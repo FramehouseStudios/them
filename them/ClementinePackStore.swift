@@ -135,7 +135,7 @@ final class ClementinePackStore: ObservableObject {
             let loaded = try await dependencies.loadProducts(PackProductID.all)
             products = loaded.sorted { $0.id < $1.id }
             statusMessage = loaded.isEmpty
-                ? "No packs available yet. Configure App Store Connect product IDs."
+                ? "Turn packs are not in the store yet. Check back after the next update."
                 : "\(loaded.count) pack(s) ready."
         } catch {
             statusMessage = "Could not load packs: \(error.localizedDescription)"
@@ -306,7 +306,7 @@ struct ClementinePackStoreSettingsSection: View {
                 .font(IOThemTypography.UI.calloutStrong)
                 .foregroundStyle(.white.opacity(0.86))
 
-            Text("Buy Companion + Page turns in-app (StoreKit). Credits apply only after the live API verifies the App Store transaction — never TPM.")
+            Text("Buy Companion and Page turns in the app. Credits are added once the App Store purchase is verified.")
                 .font(IOThemTypography.UI.labelRegular)
                 .foregroundStyle(.white.opacity(0.46))
 
@@ -315,6 +315,8 @@ struct ClementinePackStoreSettingsSection: View {
                     Task { await store.refreshProducts() }
                 }
                 .buttonStyle(.bordered)
+                .tint(.white.opacity(0.18))
+                .foregroundStyle(.white.opacity(0.88))
                 .accessibilityIdentifier("wallet.packs.reload")
             } else {
                 ForEach(store.products, id: \.id) { product in
@@ -352,6 +354,9 @@ struct ClementinePackStoreSettingsSection: View {
                     .accessibilityIdentifier("wallet.packs.status")
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 14)
         .onAppear {
             appearTask?.cancel()
             store.startTransactionListener()

@@ -756,7 +756,7 @@ struct VoiceSettingsScreen: View {
             .padding(.horizontal, 20)
             .padding(.vertical, 14)
             Divider().overlay(Color.white.opacity(0.07))
-            HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 10) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Paper size")
                         .font(.system(size: 13, weight: .medium))
@@ -766,8 +766,7 @@ struct VoiceSettingsScreen: View {
                         .foregroundStyle(.white.opacity(0.38))
                         .fixedSize(horizontal: false, vertical: true)
                 }
-                Spacer()
-                Picker("", selection: Binding(
+                Picker("Paper size", selection: Binding(
                     get: { ScreenplayPrintMemory.paperOverride },
                     set: { ScreenplayPrintMemory.paperOverride = $0 }
                 )) {
@@ -776,8 +775,9 @@ struct VoiceSettingsScreen: View {
                     }
                 }
                 .pickerStyle(.segmented)
-                .frame(width: 200)
+                .frame(maxWidth: .infinity)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 20)
             .padding(.vertical, 14)
             Divider().overlay(Color.white.opacity(0.07))
