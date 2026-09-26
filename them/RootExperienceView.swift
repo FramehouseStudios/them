@@ -13056,6 +13056,7 @@ private struct NotesPanel: View {
                     }
                     .buttonStyle(.bordered)
                     .tint(.white.opacity(0.24))
+                    .foregroundColor(.herText.opacity(0.92))
                 }
                 if canUndoLastRewrite {
                     Button("Undo Last Rewrite") {
@@ -13063,6 +13064,7 @@ private struct NotesPanel: View {
                     }
                     .buttonStyle(.bordered)
                     .tint(.white.opacity(0.24))
+                    .foregroundColor(.herText.opacity(0.92))
                 }
                 Button("Return", action: onDone)
                     .buttonStyle(.borderedProminent)
@@ -13120,6 +13122,7 @@ private struct NotesPanel: View {
                     }
                     .buttonStyle(.bordered)
                     .tint(.white.opacity(0.24))
+                    .foregroundColor(.herText.opacity(0.92))
                     .disabled(isPolishingDraft || isRewritingSavedNote)
 
                     Text("Say \"tighten this note,\" \"make this more professional,\" or \"undo rewrite.\"")
@@ -13139,6 +13142,7 @@ private struct NotesPanel: View {
                     }
                     .buttonStyle(.bordered)
                     .tint(.white.opacity(0.24))
+                    .foregroundColor(.herText.opacity(0.92))
                 }
             }
 
@@ -13162,6 +13166,7 @@ private struct NotesPanel: View {
                     }
                     .buttonStyle(.bordered)
                     .tint(.white.opacity(0.24))
+                    .foregroundColor(.herText.opacity(0.92))
                 }
             }
         }
@@ -13227,6 +13232,7 @@ private struct NotesPanel: View {
                     }
                     .buttonStyle(.bordered)
                     .tint(.white.opacity(0.24))
+                    .foregroundColor(.herText.opacity(0.92))
                 }
 
                 Button("Edit") {
@@ -13234,6 +13240,7 @@ private struct NotesPanel: View {
                 }
                 .buttonStyle(.bordered)
                 .tint(.white.opacity(0.24))
+                .foregroundColor(.herText.opacity(0.92))
 
                 Menu {
                     ForEach(NoteEditStyle.allCases) { style in
@@ -13246,6 +13253,7 @@ private struct NotesPanel: View {
                 }
                 .buttonStyle(.bordered)
                 .tint(.white.opacity(0.24))
+                .foregroundColor(.herText.opacity(0.92))
                 .disabled(isPolishingDraft || isRewritingSavedNote)
 
                 if canUndoRewrite(for: note) {
@@ -13254,6 +13262,7 @@ private struct NotesPanel: View {
                     }
                     .buttonStyle(.bordered)
                     .tint(.white.opacity(0.24))
+                    .foregroundColor(.herText.opacity(0.92))
                 }
 
                 Spacer(minLength: 0)
@@ -13263,6 +13272,7 @@ private struct NotesPanel: View {
                 }
                 .buttonStyle(.bordered)
                 .tint(.white.opacity(0.20))
+                .foregroundColor(.herText.opacity(0.92))
             }
         }
         .padding(12)
@@ -13293,6 +13303,7 @@ private struct NotesPanel: View {
                 }
                 .buttonStyle(.bordered)
                 .tint(.white.opacity(0.24))
+                .foregroundColor(.herText.opacity(0.92))
             }
 
             Text("io.them found two likely notes for \"\(pending.ambiguity.targetHint)\". Pick one to keep going.")
@@ -14185,6 +14196,7 @@ private struct TasksPanel: View {
             }
             .buttonStyle(.bordered)
             .tint(.white.opacity(0.22))
+            .foregroundColor(.herText.opacity(0.92))
         }
         .padding(12)
         .background(
@@ -14322,6 +14334,7 @@ private struct RecapPanel: View {
                 }
                 .buttonStyle(.bordered)
                 .tint(.white.opacity(0.24))
+                .foregroundColor(.herText.opacity(0.92))
                 Button("Return", action: onDone)
                     .buttonStyle(.borderedProminent)
                     .tint(.white.opacity(0.24))
