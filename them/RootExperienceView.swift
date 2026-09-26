@@ -13054,6 +13054,7 @@ private struct NotesPanel: View {
                 switch action {
                 case .note(let id, _):
                     store.deleteNote(id: id)
+                    statusText = "Deleted note."
                 case .all:
                     store.clearAll()
                     statusText = "Cleared all in-app notes."
