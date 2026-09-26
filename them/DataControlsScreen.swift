@@ -160,7 +160,9 @@ struct DataControlsScreen: View {
                         memoryStatus
                         voiceTransportSettings
                         realtimeProviderSettings
+                        #if os(macOS)
                         visualContextSettings
+                        #endif
                         v1LaunchDoctorEntry
                         actionButtons
                         statusRow
