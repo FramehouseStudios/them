@@ -12991,6 +12991,7 @@ private struct NotesPanel: View {
     @State private var statusText = ""
     @State private var pendingPrintTask: Task<Void, Never>?
     @State private var isPrintPendingConfirmation = false
+    @State private var pendingDelete: NotesDeleteConfirmation?
 
     var body: some View {
         NavigationStack {
@@ -13040,6 +13041,30 @@ private struct NotesPanel: View {
             voiceCommands.stopListening()
             voiceCommands.onCommand = nil
         }
+        .confirmationDialog(
+            pendingDelete?.title ?? "",
+            isPresented: Binding(
+                get: { pendingDelete != nil },
+                set: { if !$0 { pendingDelete = nil } }
+            ),
+            titleVisibility: .visible,
+            presenting: pendingDelete
+        ) { action in
+            Button(action.confirmLabel, role: .destructive) {
+                switch action {
+                case .note(let id, _):
+                    store.deleteNote(id: id)
+                    statusText = "Deleted note."
+                case .all:
+                    store.clearAll()
+                    statusText = "Cleared all in-app notes."
+                }
+                pendingDelete = nil
+            }
+            Button("Cancel", role: .cancel) { pendingDelete = nil }
+        } message: { action in
+            Text(action.message)
+        }
     }
 
     private var header: some View {
@@ -13051,8 +13076,7 @@ private struct NotesPanel: View {
                 Spacer()
                 if !store.notes.isEmpty {
                     Button("Clear All") {
-                        store.clearAll()
-                        statusText = "Cleared all in-app notes."
+                        pendingDelete = .all(count: store.notes.count)
                     }
                     .buttonStyle(.bordered)
                     .tint(.white.opacity(0.24))
@@ -13268,7 +13292,7 @@ private struct NotesPanel: View {
                 Spacer(minLength: 0)
 
                 Button("Delete") {
-                    store.deleteNote(id: note.id)
+                    pendingDelete = .note(id: note.id, title: note.title)
                 }
                 .buttonStyle(.bordered)
                 .tint(.white.opacity(0.20))
