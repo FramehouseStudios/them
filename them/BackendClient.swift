@@ -352,9 +352,10 @@ struct BackendBlockSignalHistoryTrendState: Equatable {
             .map { min(max($0.score, 0), 1) }
         let latestLevel = sortedEntries.last?.level ?? .low
         let total = max(history.counts.total, sortedEntries.count)
-        let countLabel = total == 1 ? "1 sample" : "\(total) samples"
+        let countLabel = total == 1 ? "1 check-in" : "\(total) check-ins"
         let trend = trendLabel(for: clampedScores)
-        let mixLabel = "High \(history.counts.byLevel.high) / Medium \(history.counts.byLevel.medium)"
+        let stuck = history.counts.byLevel.high, slowing = history.counts.byLevel.medium
+        let mixLabel = stuck + slowing == 0 ? "Never stuck" : "Stuck \(stuck) · Slowing \(slowing)"
 
         return BackendBlockSignalHistoryTrendState(
             shouldRender: clampedScores.count >= 2,
@@ -367,13 +368,15 @@ struct BackendBlockSignalHistoryTrendState: Equatable {
         )
     }
 
+    /// Scores are the writer's-block signal (0 = "keep going", 1 = stuck), so
+    /// a rising score is momentum slipping. It was labeled "Momentum rising".
     private static func trendLabel(for scores: [Double]) -> String {
         guard let first = scores.first, let last = scores.last else {
             return "Waiting for a few writing passes"
         }
         let delta = last - first
-        if delta >= 0.15 { return "Momentum rising" }
-        if delta <= -0.15 { return "Momentum settling" }
+        if delta >= 0.15 { return "Momentum slipping" }
+        if delta <= -0.15 { return "Momentum building" }
         return "Momentum steady"
     }
 }
