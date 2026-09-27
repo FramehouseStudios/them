@@ -285,7 +285,7 @@ struct ScreenplayStudioCharacterMemoryView: View {
                 if card.hasArchetype {
                     characterBadge(
                         card.archetypeLabel,
-                        foreground: Color.herStudioActiveFill.opacity(0.86),
+                        foreground: Color.herText.opacity(0.72),
                         background: Color.herStudioActiveFill.opacity(0.14)
                     )
                 }

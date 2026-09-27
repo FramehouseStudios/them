@@ -887,8 +887,35 @@ final class ScreenplayCraftModelsTests: XCTestCase {
 
         XCTAssertEqual(cards.first?.archetypeLabel, "Threshold Guardian")
         XCTAssertEqual(cards.first?.archetypeScoreLabel, "44%")
-        XCTAssertEqual(cards.first?.archetypeSummary, "JUNE reads as threshold_guardian with mixed secondary signals.")
+        XCTAssertEqual(cards.first?.archetypeSummary, "Reads as threshold guardian.", "no raw archetype keys on screen")
         XCTAssertEqual(cards.first?.hasArchetype, true)
+    }
+
+    func testCharacterTraitCardHidesALowConfidenceArchetype() {
+        let traits = BackendCharacterTraitsResponse(
+            schemaVersion: 1,
+            userId: "usr_test",
+            characters: [BackendCharacterTraitRecord(name: "NORA", traits: nil)],
+            error: nil
+        )
+        let archetypes = BackendCharacterArchetypesResponse(
+            schemaVersion: 1,
+            userId: "usr_test",
+            entries: [
+                BackendCharacterArchetypeEntry(
+                    name: "NORA",
+                    primary: BackendCharacterArchetypeCandidate(archetype: "hero", score: 0.1),
+                    summary: "NORA reads as hero with mixed secondary signals."
+                )
+            ],
+            error: nil
+        )
+
+        let card = BackendCharacterTraitCardState.make(response: traits, archetypes: archetypes).first
+        XCTAssertEqual(card?.hasArchetype, false)
+        XCTAssertEqual(card?.archetypeLabel, "")
+        XCTAssertEqual(card?.archetypeSummary, "")
+        XCTAssertEqual(card?.archetypeScoreLabel, "")
     }
 
     private func decodeReportFixture() throws -> ScreenplayCraftReport {
