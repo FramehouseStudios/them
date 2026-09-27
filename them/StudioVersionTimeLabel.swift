@@ -6,8 +6,10 @@ import Foundation
 /// one sitting, so a writer could not tell which one to restore. Recent saves
 /// keep the relative phrase; anything an hour or older shows its clock time.
 enum StudioVersionTimeLabel {
-    static func text(for date: Date, now: Date = .now, calendar: Calendar = .current, locale: Locale = .current) -> String {
-        if now.timeIntervalSince(date) < 3600 {
+    /// `alwaysClock` is for text that is stored (a saved note), where a
+    /// relative phrase like "13 min. ago" would be wrong by the time it is read.
+    static func text(for date: Date, now: Date = .now, calendar: Calendar = .current, locale: Locale = .current, alwaysClock: Bool = false) -> String {
+        if !alwaysClock, now.timeIntervalSince(date) < 3600 {
             return RelativeDateFormatter.shortString(for: date, relativeTo: now)
         }
         let time = DateFormatter()

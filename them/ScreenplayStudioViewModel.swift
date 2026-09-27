@@ -4156,14 +4156,20 @@ final class ScreenplayStudioViewModel: ObservableObject {
         fountainDraft = snapshotDraft
         isHydratingDraft = false
         hasUnsavedDraftChanges = fingerprint(for: snapshotDraft) != lastSavedDraftFingerprint
-        autosaveStatusText = "Snapshot loaded (unsaved)"
-        infoText = "Snapshot loaded. Save to publish."
+        autosaveStatusText = hasUnsavedDraftChanges ? "Snapshot loaded (unsaved)" : "Saved"
+        infoText = hasUnsavedDraftChanges ? "Snapshot loaded. Save to publish." : "That version already matches the page."
         persistLocalDraftRecovery(
             projectId: selectedProjectID,
             draft: snapshotDraft,
             baseVersionId: latestVersionID,
             dirty: hasUnsavedDraftChanges
         )
+        // A restore used to reach history as an ordinary autosave, so Saved
+        // showed another "Scene Draft" row with nothing saying a restore
+        // happened. It is saved now, labeled with where it came from.
+        guard hasUnsavedDraftChanges, autosaveEnabled, selectedProject != nil else { return }
+        let note = ScreenplayRestoreNote.text(restoredFrom: themOptionalDateFromEpoch(version.updatedAt ?? version.createdAt))
+        Task { await saveCurrentDraft(source: "studio_restore", notes: note) }
     }
 
     func restoreDraftFromRecovery() {
