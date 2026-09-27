@@ -5946,6 +5946,9 @@ final class BackendClient {
         if let token = appToken() {
             request.setValue(token, forHTTPHeaderField: "X-APP-TOKEN")
         }
+        // /craft routes are user-scoped on the backend (it never consults
+        // X-User-Id), so the signed-in bearer must travel with every call.
+        attachAuthorizationHeader(to: &request)
         return request
     }
 
