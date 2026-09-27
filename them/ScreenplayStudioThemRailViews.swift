@@ -259,7 +259,7 @@ struct ScreenplayStudioLiveIntentView: View {
                             VStack(alignment: .leading, spacing: 4) {
                                 Label("Try this ask", systemImage: "arrow.up.right")
                                     .font(IOThemTypography.UI.microMedium)
-                                    .foregroundStyle(Color.herStudioActiveFill.opacity(0.86))
+                                    .foregroundStyle(Color.herText.opacity(0.62))
                                 Text(proactivePrompt)
                                     .font(IOThemTypography.UI.captionMedium)
                                     .foregroundStyle(Color.herText.opacity(0.84))
