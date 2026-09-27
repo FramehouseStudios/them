@@ -95,11 +95,6 @@ struct ScreenplayStudioOutlineInspectorLayout<Compass: View, StorySpine: View, F
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            inspectorPanelLead(
-                title: "Track the spine of the movie.",
-                detail: "Keep acts, scenes, and loose structure visible while the page evolves."
-            )
-
             HStack(spacing: 10) {
                 directionOneMiniStat("Acts", value: "\(actCount)")
                 directionOneMiniStat("Scenes", value: "\(sceneCount)")

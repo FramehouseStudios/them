@@ -3052,7 +3052,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         if let project = responseProject {
             upsertProject(project)
             if isSelectedProject {
-                selectedProject = project
+                selectedProject = ScreenplayProjectSummaryMerge.keepingVersions(project, from: selectedProject)
             }
         }
         guard isSelectedProject else { return true }
@@ -5326,7 +5326,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
             if let project = result.payload.project {
                 upsertProject(project)
                 if selectedProjectID == project.id {
-                    selectedProject = project
+                    selectedProject = ScreenplayProjectSummaryMerge.keepingVersions(project, from: selectedProject)
                 }
             }
             if selectedProjectID == normalizedProjectID {
@@ -5422,7 +5422,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
             )
             if let nextProject = result.payload.project {
                 upsertProject(nextProject)
-                selectedProject = nextProject
+                selectedProject = ScreenplayProjectSummaryMerge.keepingVersions(nextProject, from: selectedProject)
                 selectedProjectID = nextProject.id
                 hydrateFeatureSpineFields(from: nextProject)
             }
@@ -5450,7 +5450,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
     func applyProjectMetadataUpdate(_ project: BackendScreenplayProjectSummary) {
         upsertProject(project)
         if selectedProjectID == project.id {
-            selectedProject = project
+            selectedProject = ScreenplayProjectSummaryMerge.keepingVersions(project, from: selectedProject)
         }
     }
 
@@ -6418,7 +6418,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
     private func applyCollaboratorsPayload(_ payload: BackendScreenplayCollaboratorsResponse) {
         if let project = payload.project {
             upsertProject(project)
-            selectedProject = project
+            selectedProject = ScreenplayProjectSummaryMerge.keepingVersions(project, from: selectedProject)
             selectedProjectID = project.id
             hydrateCollaboration(from: project)
             syncLiveDraftBridgeProjectContext()
@@ -6454,7 +6454,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
     private func applyCommentsPayload(_ payload: BackendScreenplayCommentsResponse) {
         if let project = payload.project {
             upsertProject(project)
-            selectedProject = project
+            selectedProject = ScreenplayProjectSummaryMerge.keepingVersions(project, from: selectedProject)
             selectedProjectID = project.id
             hydrateCollaboration(from: project)
             syncLiveDraftBridgeProjectContext()
