@@ -69,6 +69,18 @@ nonisolated enum CrossDeviceStateVersionPolicy {
 }
 
 nonisolated enum ScreenplayRemoteDraftConflictPolicy {
+    /// A server draft that matches the page except for surrounding whitespace
+    /// brings nothing new, and writing it over the editor deletes the line the
+    /// writer just started with Return. Seen live 2026-09-27: the 3 s
+    /// cross-device poll reloaded this device's own autosave (trimmed by the
+    /// server) and removed the newline typed after a scene heading.
+    static func isWhitespaceOnlyDifference(localDraft: String, serverDraft: String) -> Bool {
+        let local = localDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        return localDraft != serverDraft
+            && !local.isEmpty
+            && local == serverDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     static func shouldProtectLocalDraft(
         selectedProjectId: String,
         loadedProjectId: String,

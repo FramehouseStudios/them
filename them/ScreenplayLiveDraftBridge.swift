@@ -2468,7 +2468,7 @@ private func stableScreenplayNodeFingerprint(_ raw: String) -> String {
     return String(hash, radix: 16, uppercase: false)
 }
 
-private func screenplayLineIndex(for location: Int, in text: String) -> Int {
+func screenplayLineIndex(for location: Int, in text: String) -> Int {
     let safeText = text as NSString
     let maxLength = safeText.length
     let safeLocation = max(0, min(location, maxLength))
@@ -2477,48 +2477,6 @@ private func screenplayLineIndex(for location: Int, in text: String) -> Int {
         if character == "\n" { count += 1 }
     }
     return max(0, breaks)
-}
-
-private func screenplayCurrentLineDetails(
-    for location: Int,
-    in content: String
-) -> (lineRange: NSRange, lineText: String, lineIndex: Int) {
-    let ns = content as NSString
-    let safeLocation = max(0, min(location, ns.length))
-    let fullLineRange = ns.lineRange(for: NSRange(location: safeLocation, length: 0))
-    let fullLineText = ns.substring(with: fullLineRange)
-    let trimmedLineText = fullLineText.trimmingCharacters(in: CharacterSet(charactersIn: "\n"))
-    let lineRange = NSRange(
-        location: fullLineRange.location,
-        length: (trimmedLineText as NSString).length
-    )
-    return (lineRange, trimmedLineText, screenplayLineIndex(for: lineRange.location, in: content))
-}
-
-private func shouldNormalizeScreenplayLineDuringTyping(
-    _ lineText: String,
-    as element: ScreenplayEditorElement
-) -> Bool {
-    let trimmed = lineText.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !trimmed.isEmpty else { return false }
-
-    switch element {
-    case .sceneHeading, .character, .transition:
-        return true
-    case .action, .dialogue, .parenthetical:
-        return false
-    }
-}
-
-private func screenplayPreviousFlowElement(before lineIndex: Int, in elements: [ScreenplayEditorElement?]) -> ScreenplayEditorElement? {
-    guard lineIndex > 0 else { return nil }
-    for index in stride(from: lineIndex - 1, through: 0, by: -1) {
-        guard index < elements.count else { continue }
-        if let element = elements[index] {
-            return element
-        }
-    }
-    return nil
 }
 
 private func bootstrapScreenplayParagraphElements(
@@ -11599,6 +11557,7 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
         func applyShortcutElement(_ element: ScreenplayEditorElement) {
             guard let textView else { return }
             applyActiveElement(element)
+            insertFountainBlankLineIfNeeded(for: element, in: textView)
             setExplicitCurrentLineOverride(element, in: textView)
             applyParagraphNormalizationIfNeeded(for: element, in: textView)
             refreshScreenplayPresentationAndTyping()
@@ -11613,6 +11572,14 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
             setExplicitCurrentLineOverride(element, in: textView)
             applyParagraphNormalizationIfNeeded(for: element, in: textView)
             refreshScreenplayPresentationAndTyping()
+            // The element bar arrives inside a SwiftUI update pass, whose text
+            // sync would undo an edit made here; insert after the pass ends.
+            DispatchQueue.main.async { [weak self] in
+                guard let self, let textView = self.textView, self.parent.activeScreenplayElement == element else { return }
+                self.insertFountainBlankLineIfNeeded(for: element, in: textView)
+                self.setExplicitCurrentLineOverride(element, in: textView)
+                self.refreshScreenplayPresentationAndTyping()
+            }
         }
 
         func cycleActiveElement(backward: Bool) {
@@ -11634,14 +11601,8 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
             applyParagraphNormalizationIfNeeded(for: initialContext.currentElement, in: textView)
             let context = currentLineContext(in: textView)
             let resolvedReplacementRange = textView.selectedRange
-            let mutable = NSMutableString(string: textView.text ?? "")
-            mutable.replaceCharacters(in: resolvedReplacementRange, with: "\n")
-            let nextText = String(mutable)
-
-            isApplyingProgrammaticChange = true
-            textView.text = nextText
-            textView.selectedRange = NSRange(location: resolvedReplacementRange.location + 1, length: 0)
-            isApplyingProgrammaticChange = false
+            replaceEditorText(in: resolvedReplacementRange, with: "\n", cursor: resolvedReplacementRange.location + 1, in: textView)
+            let nextText = textView.text ?? ""
 
             synchronizeParagraphElementsWithCurrentText(in: textView)
             let nextElement = ScreenplayEditorElement.nextElementAfterReturn(
@@ -11650,15 +11611,32 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
                 previousElementBeforeCurrentLine: context.previousElement
             )
             applyActiveElement(nextElement)
+            insertFountainBlankLineIfNeeded(for: nextElement, in: textView, publish: false)
+            let publishedText = textView.text ?? nextText
             setExplicitCurrentLineOverride(nextElement, in: textView)
             refreshScreenplayPresentationAndTyping()
-
-            if parent.text != nextText {
-                publishText(nextText)
-            }
-            publishUserEdit(expectedText: nextText)
+            if parent.text != publishedText { publishText(publishedText) }
+            publishUserEdit(expectedText: publishedText)
             updateCurrentCursorLine()
             refreshAnchoredTextRectSnapshot()
+        }
+
+        /// Keeps the saved text real Fountain; see FountainElementSpacing.
+        private func insertFountainBlankLineIfNeeded(for element: ScreenplayEditorElement, in textView: UITextView, publish: Bool = true) {
+            let text = textView.text ?? "", cursor = textView.selectedRange.location
+            let above = screenplayPreviousFlowElement(before: screenplayLineIndex(for: cursor, in: text), in: paragraphElements)
+            guard let offset = FountainElementSpacing.blankLineInsertionOffset(in: text, cursor: cursor, element: element, elementAbove: above) else { return }
+            replaceEditorText(in: NSRange(location: offset, length: 0), with: "\n", cursor: offset + 1, in: textView)
+            let nextText = textView.text ?? ""
+            synchronizeParagraphElementsWithCurrentText(in: textView)
+            if publish { publishText(nextText); publishUserEdit(expectedText: nextText) }
+        }
+
+        private func replaceEditorText(in range: NSRange, with string: String, cursor: Int, in textView: UITextView) {
+            isApplyingProgrammaticChange = true
+            textView.text = ((textView.text ?? "") as NSString).replacingCharacters(in: range, with: string)
+            textView.selectedRange = NSRange(location: cursor, length: 0)
+            isApplyingProgrammaticChange = false
         }
 
         private func syncActiveElementFromSelection() {
@@ -11717,10 +11695,7 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
             guard shouldNormalizeScreenplayLineDuringTyping(context.lineText, as: context.currentElement) else {
                 return
             }
-            let normalized = normalizedLineText(
-                for: context.lineText,
-                currentElement: context.currentElement
-            )
+            let normalized = ScreenplayTypingNormalization.lineWhileTyping(context.lineText)
             guard normalized != context.lineText else { return }
 
             let selection = textView.selectedRange
@@ -11733,12 +11708,9 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
                 (nextText as NSString).length - originalLength + nextLength
             )
 
-            isApplyingProgrammaticChange = true
-            textView.text = nextText
-            textView.selectedRange = NSRange(location: adjustedLocation, length: 0)
-            isApplyingProgrammaticChange = false
+            replaceEditorText(in: context.lineRange, with: normalized, cursor: adjustedLocation, in: textView)
             synchronizeParagraphElementsWithCurrentText(in: textView)
-            publishText(nextText)
+            publishText(textView.text ?? nextText)
         }
 
         private func applyParagraphNormalizationIfNeeded(for element: ScreenplayEditorElement, in textView: UITextView) {
@@ -11756,16 +11728,10 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
             let nextLength = (normalized as NSString).length
             let nextText = (textView.text as NSString?)?.replacingCharacters(in: context.lineRange, with: normalized) ?? normalized
 
-            isApplyingProgrammaticChange = true
-            textView.text = nextText
-            textView.selectedRange = NSRange(
-                location: context.lineRange.location + min(offsetIntoLine, nextLength),
-                length: 0
-            )
-            isApplyingProgrammaticChange = false
+            replaceEditorText(in: context.lineRange, with: normalized, cursor: context.lineRange.location + min(offsetIntoLine, nextLength), in: textView)
             synchronizeParagraphElementsWithCurrentText(in: textView)
-            publishText(nextText)
-            publishUserEdit(expectedText: nextText)
+            publishText(textView.text ?? nextText)
+            publishUserEdit(expectedText: textView.text ?? nextText)
         }
 
         private func normalizedLineText(

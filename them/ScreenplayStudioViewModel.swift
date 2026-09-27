@@ -5553,6 +5553,14 @@ final class ScreenplayStudioViewModel: ObservableObject {
             return
         }
 
+        if !allowOverwriteDirtyLocalDraft,
+           normalizedProjectID == loadedDraftProjectID,
+           ScreenplayRemoteDraftConflictPolicy.isWhitespaceOnlyDifference(localDraft: fountainDraft, serverDraft: draft) {
+            latestVersionID = normalizedServerVersionID
+            conflictState = nil
+            return
+        }
+
         isHydratingDraft = true
         fountainDraft = draft
         latestVersionID = versionId.trimmingCharacters(in: .whitespacesAndNewlines)
