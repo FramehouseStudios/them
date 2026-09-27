@@ -844,6 +844,7 @@ Replace is best when this file should become the script you edit. Append is safe
             .onChange(of: vm.revisionColor) { _, _ in
                 Task { await vm.refreshRevisionColor() }
             }
+            .onChange(of: studioPromptRoutingModeRaw, initial: true) { _, _ in studioPromptIntent = studioPromptIntent.matching(studioPromptRoutingMode) }
             .studioRestoreVersionConfirmation(pendingVersion: $pendingRestoreVersion, savedAt: { dateFromTimestamp($0.updatedAt ?? $0.createdAt) }) { vm.loadSnapshot($0) }
             .onChange(of: navigatorShowHidden) { _, _ in
                 refreshNavigatorEntries()
@@ -8286,12 +8287,12 @@ Current draft version:
         switch studioPromptRoutingMode {
         case .automatic:
             return currentStudioPromptTarget == .page
-                ? "Auto routes this to the screenplay page."
-                : "Auto keeps this in Voice Pin."
+                ? "This reply goes on the page."
+                : "This reply stays in Voice Pin."
         case .page:
-            return "Page override is on."
+            return "Replies go on the page."
         case .voicePin:
-            return "Voice Pin override is on."
+            return "Replies stay in Voice Pin."
         }
     }
 
@@ -8300,7 +8301,7 @@ Current draft version:
         case .advice:
             return "Ask for guidance or the next move"
         case .rewrite:
-            return "Describe the rewrite you want on the page"
+            return "Describe what to write on the page"
         case .voicePin:
             return "Pin a note for io.them to hold"
         }
