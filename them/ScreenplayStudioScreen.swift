@@ -87,6 +87,7 @@ struct ScreenplayStudioScreen: View {
     @State var isDirectionOneRightRailExpanded = true
     @State private var isDirectionOneComposerExpanded = false
     @State private var showingDirectionOneSettings = false
+    @State private var confirmingClearDraft = false
     @State private var lastVoiceFeedback: String = ""
     @State private var voiceFeedbackOpacity: Double = 0
     @State private var isDirectionOnePageFocusTransitionVisible = false
@@ -2705,7 +2706,7 @@ private var directionOneHeaderSettingsButton: some View {
     }
     .buttonStyle(.plain)
     .popover(isPresented: $showingDirectionOneSettings, arrowEdge: .top) {
-        directionOneSettingsPopover
+        directionOneSettingsPopover.presentationCompactAdaptation(.popover) // stays a popover on iPhone instead of an empty full-height sheet with no close
     }
 }
 
@@ -4580,9 +4581,7 @@ private func refreshStudioCreativeInstincts(
             .font(.system(size: 12, weight: .regular, design: .default))
 
             Button("Clear Draft") {
-                vm.clearDraft()
-                liveDraftBridge.clearDraft()
-                showingDirectionOneSettings = false
+                confirmingClearDraft = true
             }
             .font(.system(size: 12, weight: .regular, design: .default))
             .foregroundStyle(Color.red.opacity(0.76))
@@ -4590,6 +4589,7 @@ private func refreshStudioCreativeInstincts(
         }
         .padding(16)
         .frame(width: 280)
+        .studioClearDraftConfirmation(isPresented: $confirmingClearDraft) { vm.clearDraft(); liveDraftBridge.clearDraft(); showingDirectionOneSettings = false }
     }
 
     private var directionOneProjectTitle: String {
