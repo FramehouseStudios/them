@@ -1108,6 +1108,7 @@ Replace is best when this file should become the script you edit. Append is safe
                     await vm.refreshCraftTwists(source: "Studio open")
                     await vm.refreshAcceptedCraftTwists(source: "Studio open")
                 }
+                if directionOneRightPanelTab == .craft { await vm.loadCraftReport(); await vm.refreshCraftLogline(source: "Studio open") } // a restored Craft tab never fires onChange
             }
             .onReceive(Self.crossDeviceRefreshTimer) { _ in
                 guard !IOThemRuntime.isRunningTests else { return }
