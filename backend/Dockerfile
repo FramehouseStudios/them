@@ -1,6 +1,7 @@
 # io.them backend image.
 #
-# Targets Node 22 to match the GitHub Actions matrix in .github/workflows.
+# Targets Node 20 to match the GitHub Actions matrix in .github/workflows
+# (every workflow pins node-version 20) and the node:20-alpine base below.
 # Build once, run anywhere that supports OCI images (Render, Fly, ECS, etc.).
 # The image does NOT bake secrets — `assertProductionEnv` enforces that
 # DATABASE_URL, JWT_SECRET, OPENAI_API_KEY, APP_TOKEN, AUTH_APPLE_AUDIENCE,

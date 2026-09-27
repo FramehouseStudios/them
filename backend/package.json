@@ -5,6 +5,9 @@
   "description": "Backend for io.them — voice-first screenwriting companion",
   "main": "index.js",
   "type": "module",
+  "engines": {
+    "node": "20.x"
+  },
   "scripts": {
     "test": "TEST_SPAWN_BACKEND=1 node --test --test-concurrency=1 tests/*.test.mjs",
     "test:talk-recovery": "TEST_SPAWN_BACKEND=1 node --test tests/talk.integration.test.mjs",
