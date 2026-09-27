@@ -25,6 +25,23 @@ test("[studio_render] timeouts and rate limits are classified too", () => {
   assert.equal(studioRenderStreamErrorEvent({ rid: "r", error: limited }).error_class, "provider_rate_limited");
 });
 
+test("[studio_render] plain-text credit exhaustion is quota and hides the provider text", () => {
+  // Seen live 2026-09-27: the provider error reached the stream as plain text
+  // with no type/code, was classified provider_chat_failed, and its billing
+  // URL was forwarded; the app then said the service "didn't answer in time".
+  const plain = new Error("You have no credits remaining. Add credits to continue using the API at https://platform.openai.com/account/billing.");
+  const event = studioRenderStreamErrorEvent({ rid: "bbe2cd1275f02f3a", error: plain });
+  assert.equal(event.error_class, "provider_quota");
+  assert.doesNotMatch(event.error, /openai|billing|credits|https?:/i);
+});
+
+test("[studio_render] an unclassified provider failure never forwards provider text", () => {
+  const odd = new Error("Weird upstream thing at https://api.example.invalid/v1 org=org_123");
+  const event = studioRenderStreamErrorEvent({ rid: "r1234567", error: odd });
+  assert.match(event.error, /^Studio render failed during response generation \(provider_chat_failed\)\. Reference r1234567\.$/);
+  assert.doesNotMatch(event.error, /https?:|org_/);
+});
+
 test("[studio_render] non-provider failures keep their own message", () => {
   const validation = Object.assign(new Error("Draft is too long for a Studio render."), { stage: "studio_validation", status: 400 });
   const event = studioRenderStreamErrorEvent({ rid: "r", error: validation });
