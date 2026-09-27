@@ -1032,7 +1032,9 @@ struct ProfileAccountScreen: View {
                     ) {
                         HStack(spacing: 10) {
                             statusChip(sessionState.isAuthenticated ? "Signed In" : "Signed Out")
-                            statusChip(sessionState.emailVerified ? "Verified" : (sessionState.pendingEmailVerification ? "Verify Email" : "Unverified"))
+                            if sessionState.isAuthenticated {
+                                statusChip(sessionState.emailVerified ? "Verified" : (sessionState.pendingEmailVerification ? "Verify Email" : "Unverified"))
+                            }
                             if let authProviderStatusLabel {
                                 statusChip(authProviderStatusLabel)
                             }
@@ -1108,7 +1110,7 @@ struct ProfileAccountScreen: View {
                     } else {
                         accountCard(
                             title: authMode == .signIn ? "Sign In" : "Create Account",
-                            subtitle: "Use email auth or continue with Apple directly from the live app shell."
+                            subtitle: "Sign in with your email and a password, or continue with Apple."
                         ) {
                             Picker("Auth Mode", selection: $authMode) {
                                 ForEach(ProfileAuthMode.allCases) { mode in
@@ -2062,9 +2064,9 @@ struct ProfileAccountScreen: View {
                 .foregroundStyle(.white.opacity(0.62))
             Group {
                 if secure {
-                    SecureField(prompt, text: text)
+                    SecureField(title, text: text, prompt: Text(prompt).foregroundStyle(.white.opacity(0.40)))
                 } else {
-                    TextField(prompt, text: text)
+                    TextField(title, text: text, prompt: Text(prompt).foregroundStyle(.white.opacity(0.40)))
                 }
             }
             .accessibilityIdentifier(identifier)
