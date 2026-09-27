@@ -2398,13 +2398,12 @@ Replace is best when this file should become the script you edit. Append is safe
                     y: 3
                 )
                 .animation(.easeOut(duration: 0.16), value: directionOneComposerClusterIsActive)
-
+                StudioPromptErrorLine(text: vm.studioPromptErrorText)
                 HStack(alignment: .center, spacing: 10) {
                     Text(studioPromptHelperText)
                         .font(.system(size: 12, weight: .regular, design: .default))
                         .foregroundStyle(Color.herText.opacity(0.68))
-                        .lineLimit(1)
-                        .truncationMode(.tail)
+                        .lineLimit(2)
                         .help(studioPromptHelperText)
                     Spacer(minLength: 0)
                     Toggle(isOn: $typedReplyAudioEnabled) {
@@ -13036,6 +13035,7 @@ Return revised screenplay lines only.
             return
         }
         guard !isSubmittingStudioPrompt, !isSubmittingPrompt else { return }
+        vm.studioPromptErrorText = ""
         let routesToPage = shouldRoutePromptToPage(text, routingMode)
         let featureSnapshotForSubmission = routesToPage ? featureWorkflowSnapshot : nil
         let restoredStudioContextForSubmission = routesToPage ? restoredStudioPromptContinuityContext : []
@@ -13206,7 +13206,7 @@ Return revised screenplay lines only.
                     )
                 }
 #endif
-                vm.infoText = error
+                vm.infoText = error; vm.studioPromptErrorText = error
                 completion?(error)
                 return
             }
