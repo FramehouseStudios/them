@@ -129,6 +129,9 @@ struct ScreenplayCraftRailView: View {
     let frameworks: [ScreenplayCraftFrameworkReference]
     let report: ScreenplayCraftReport?
     var coverageReport: BackendScreenplayCoverageReport? = nil
+    /// False when the page is empty: Analyze and Distill have nothing to read
+    /// (seen live: both were enabled on "Blank Slate" with no text).
+    var hasDraftText: Bool = true
     var isCoverageRefreshing: Bool = false
     var coverageErrorText: String = ""
     var onRefreshCoverage: () -> Void = {}
@@ -222,7 +225,9 @@ struct ScreenplayCraftRailView: View {
                 craftStateCard(
                     icon: "chart.line.uptrend.xyaxis",
                     title: "No craft report yet",
-                    detail: infoText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    detail: !hasDraftText
+                        ? "Write or import a few pages and she'll read them here."
+                        : infoText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                         ? "Save or analyze this screenplay version to populate the craft rail."
                         : infoText
                 ) {
@@ -231,7 +236,7 @@ struct ScreenplayCraftRailView: View {
                     }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.small)
-                    .disabled(projectTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isAnalyzing)
+                    .disabled(projectTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isAnalyzing || !hasDraftText)
                 }
             }
         }
@@ -283,7 +288,7 @@ struct ScreenplayCraftRailView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
-                .disabled(projectTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isLoading || isAnalyzing)
+                .disabled(projectTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isLoading || isAnalyzing || !hasDraftText)
             }
         }
     }
@@ -448,7 +453,9 @@ struct ScreenplayCraftRailView: View {
                 craftStateCard(
                     icon: "quote.bubble",
                     title: "No logline yet",
-                    detail: loglineInfoText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    detail: !hasDraftText
+                        ? "Write a few lines and she'll distill them into one sentence."
+                        : loglineInfoText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                         ? "Distill the current draft into one sentence and track drift over time."
                         : loglineInfoText
                 ) {
@@ -457,6 +464,7 @@ struct ScreenplayCraftRailView: View {
                     }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.small)
+                    .disabled(!hasDraftText)
                 }
             }
         }

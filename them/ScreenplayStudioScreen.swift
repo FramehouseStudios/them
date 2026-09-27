@@ -3926,7 +3926,7 @@ Detail:
             selectedFrameworkID: $vm.selectedCraftFrameworkID,
             frameworks: vm.craftFrameworks,
             report: vm.craftReport,
-            coverageReport: vm.coverageReport,
+            coverageReport: vm.coverageReport, hasDraftText: !vm.fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
             isCoverageRefreshing: vm.isCoverageRefreshing,
             coverageErrorText: vm.coverageErrorText,
             onRefreshCoverage: { Task { await vm.refreshCoverage(source: "Craft") } },
