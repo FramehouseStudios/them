@@ -9,6 +9,13 @@ final class ScreenplayStudioThemRailPresentationTests: XCTestCase {
             ScreenplayStudioThemRailOverviewPresentation.standard.subtitle,
             "Keep io.them's instincts, memory, and craft signals together."
         )
+        XCTAssertFalse(
+            ScreenplayStudioThemRailOverviewPresentation.standard.detail.contains("should feel"),
+            "the rail speaks to the writer, not in design-note voice"
+        )
+        #if os(iOS)
+        XCTAssertNil(StudioCommandBarShortcut.hint, "no ⌘K hint on a phone")
+        #endif
 
         let analytics = ScreenplayCompanionAnalyticsSnapshot(
             updatedAt: .distantPast,
