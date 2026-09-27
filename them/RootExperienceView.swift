@@ -14622,14 +14622,16 @@ private struct TrustCenterScreen: View {
     }
 
     private var actionRow: some View {
-        HStack(spacing: 10) {
-            Button("Open Data Controls", action: onOpenDataControls)
-                .buttonStyle(.borderedProminent)
-                .tint(.white.opacity(0.24))
-            Button("Open Privacy Policy", action: onOpenPrivacyPolicy)
-                .buttonStyle(.bordered)
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 10) {
+                Button("Open Data Controls", action: onOpenDataControls)
+                    .buttonStyle(.borderedProminent)
+                    .tint(.white.opacity(0.24))
+                Button("Open Privacy Policy", action: onOpenPrivacyPolicy)
+                    .buttonStyle(.bordered)
+            }
+            .foregroundColor(.herText.opacity(0.92))
         }
-        .foregroundColor(.herText.opacity(0.92))
     }
 }
 
