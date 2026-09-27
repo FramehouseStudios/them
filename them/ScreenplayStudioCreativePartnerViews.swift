@@ -73,7 +73,7 @@ struct ScreenplayStudioCreativePartnerCopy: Equatable {
 
     static let standard = ScreenplayStudioCreativePartnerCopy(
         title: "Creative partner",
-        subtitle: "Mode, Voice Pin, and page requests move through one calmer lane.",
+        subtitle: "Choose how io.them helps, pin a voice, and send a request to the page.",
         modeMetaLabel: "Mode",
         modeSectionTitle: "Companion mode",
         modePickerLabel: "Companion Mode",

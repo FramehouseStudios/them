@@ -2300,7 +2300,7 @@ Replace is best when this file should become the script you edit. Append is safe
                     .font(.system(size: 11, weight: .semibold, design: .default))
                     .foregroundStyle(Color.herText.opacity(0.74))
                 Spacer(minLength: 0)
-                Button(isDirectionOneComposerExpanded ? "Hide" : "⌘K") {
+                Button(isDirectionOneComposerExpanded ? "Hide" : (StudioCommandBarShortcut.hint ?? "Open")) {
                     if isDirectionOneComposerExpanded {
                         collapseStudioCommandBar()
                     } else {
@@ -2425,7 +2425,7 @@ Replace is best when this file should become the script you edit. Append is safe
                             .font(.system(size: 12, weight: .semibold, design: .default))
                             .foregroundStyle(Color.herText.opacity(0.82))
                         Spacer(minLength: 0)
-                        Text("⌘K")
+                        Text(StudioCommandBarShortcut.hint ?? "")
                             .font(.system(size: 11, weight: .medium, design: .monospaced))
                             .foregroundStyle(Color.herText.opacity(0.54))
                     }

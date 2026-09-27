@@ -19,7 +19,7 @@ final class ScreenplayStudioCreativePartnerPresentationTests: XCTestCase {
         XCTAssertEqual(presentation.copy.title, "Creative partner")
         XCTAssertEqual(
             presentation.copy.subtitle,
-            "Mode, Voice Pin, and page requests move through one calmer lane."
+            "Choose how io.them helps, pin a voice, and send a request to the page."
         )
         XCTAssertEqual(presentation.copy.modeMetaLabel, "Mode")
         XCTAssertEqual(presentation.copy.modeSectionTitle, "Companion mode")

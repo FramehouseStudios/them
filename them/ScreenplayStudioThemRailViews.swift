@@ -9,8 +9,20 @@ struct ScreenplayStudioThemRailOverviewPresentation: Equatable {
     static let standard = ScreenplayStudioThemRailOverviewPresentation(
         title: "io.them",
         subtitle: "Keep io.them's instincts, memory, and craft signals together.",
-        detail: "The rail should feel like one creative partner. Companion context, live asks, and screenplay intelligence now move through the same calmer surface."
+        detail: "Ask for a note, choose how io.them helps, and see what it remembers about this script."
     )
+}
+
+/// The command bar's keyboard shortcut, shown only where a hardware keyboard
+/// is the norm. On iPhone the "⌘K" hint read as a stray symbol (seen live).
+enum StudioCommandBarShortcut {
+    static var hint: String? {
+        #if os(macOS)
+        return "⌘K"
+        #else
+        return nil
+        #endif
+    }
 }
 
 struct ScreenplayStudioLiveIntentPresentation: Equatable {
