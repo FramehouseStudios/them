@@ -28,7 +28,9 @@ extension ScreenplayStudioScreen {
         var title: String {
             switch self {
             case .advice: return "Advice"
-            case .rewrite: return "Rewrite"
+            // Page destination selects this intent, including for new
+            // material ("write one line where…"), so "Rewrite" misdescribed it.
+            case .rewrite: return "Write pages"
             case .voicePin: return "Voice Pin"
             }
         }
@@ -41,6 +43,17 @@ extension ScreenplayStudioScreen {
                 return "Intent: Produce screenplay-ready rewritten material that directly answers the writer."
             case .voicePin:
                 return "Intent: Hold this as concise companion-side development guidance, not final page copy."
+            }
+        }
+
+        /// The intent that matches a destination. The destination is saved
+        /// across launches and the intent is not, so after a relaunch the bar
+        /// read "Advice" with "Page" selected; this puts them back in step.
+        func matching(_ mode: PromptRoutingMode) -> StudioPromptIntent {
+            switch mode {
+            case .page: return .rewrite
+            case .voicePin: return self == .rewrite ? .voicePin : self
+            case .automatic: return self == .rewrite ? .advice : self
             }
         }
 
