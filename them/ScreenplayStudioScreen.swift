@@ -2558,9 +2558,9 @@ private var directionOneHeaderProjectBlock: some View {
             .lineLimit(1)
         HStack(spacing: 5) {
             Circle()
-                .fill(vm.hasUnsavedDraftChanges ? Color.orange.opacity(0.88) : Color.green.opacity(0.72))
+                .fill(vm.hasUnsavedDraftChanges || vm.selectedProject == nil ? Color.orange.opacity(0.88) : Color.green.opacity(0.72))
                 .frame(width: 5, height: 5)
-            Text(vm.isSaving ? "Saving…" : (vm.hasUnsavedDraftChanges ? "Unsaved" : "Saved"))
+            Text(vm.selectedProject == nil ? screenplayPageSavedMetadataText : (vm.isSaving ? "Saving…" : (vm.hasUnsavedDraftChanges ? "Unsaved" : "Saved")))
                 .font(.system(size: 10, weight: .regular, design: .default))
                 .foregroundStyle(directionOneChromeSecondaryText)
             if vm.isLoading {
