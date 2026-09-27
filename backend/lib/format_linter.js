@@ -180,19 +180,21 @@ function ruleSceneHeadingShape(lines, text, suggestions) {
 }
 
 function ruleCharacterCueCaps(lines, text, suggestions) {
-  // A line that LOOKS LIKE a cue (all caps, 2-40 chars) but isn't
-  // strictly all-caps gets flagged. Mixed case in cues is the usual
-  // submission-rejection trigger.
+  // A line in cue position (after a blank line, with dialogue directly under
+  // it) that isn't strictly all-caps gets flagged. Mixed case in cues is the
+  // usual submission-rejection trigger. Parentheticals ("(whispering)") and
+  // short sentences ("Silence.") sit in similar positions and are not cues.
   for (let i = 0; i < lines.length; i += 1) {
     const trimmed = lines[i].trim();
     if (!trimmed) continue;
     if (trimmed.length < 2 || trimmed.length > 40) continue;
     if (/:$/.test(trimmed)) continue;
+    if (trimmed.startsWith("(")) continue;
+    if (/[.!?,;]$/.test(trimmed)) continue;
     if (startsWithSceneHeadingPrefix(trimmed.toUpperCase())) continue;
-    // Heuristic: line is followed by what looks like dialogue (next non-blank
-    // line is mixed-case sentence-shape).
-    let nextIdx = i + 1;
-    while (nextIdx < lines.length && !lines[nextIdx].trim()) nextIdx += 1;
+    if (i > 0 && lines[i - 1].trim()) continue;
+    // Dialogue sits directly under a cue; a blank line means this isn't one.
+    const nextIdx = i + 1;
     if (nextIdx >= lines.length) continue;
     const next = lines[nextIdx].trim();
     if (!next || next.length < 2) continue;
