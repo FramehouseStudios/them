@@ -181,10 +181,12 @@ final class MemoriesViewModel: ObservableObject {
             }
 
             if isDeltaFetch, payload.deltaNoChange == true {
+                crossDeviceUnchangedStreak += 1
                 lastSync = result.sync
                 adoptMemoryStateVersion(payload.stateVersion, fallback: result.sync.stateVersion)
                 return
             }
+            crossDeviceUnchangedStreak = 0
 
             var incoming = payload.memories.map(memoryItem(from:))
             if incoming.isEmpty && !payload.conversationSamples.isEmpty {
@@ -263,8 +265,16 @@ final class MemoriesViewModel: ObservableObject {
         }
     }
 
+    /// Consecutive cross-device polls that came back unchanged; paces the poll.
+    private(set) var crossDeviceUnchangedStreak = 0
+
     func refreshCrossDeviceMemoriesIfNeeded() async {
-        await refreshPendingScreenplayQuestion(force: true)
+        // The timer uses the cached session (90 s TTL). Forcing a bootstrap
+        // here minted a new backend session start every 3 s, which counted as
+        // a user-initiated session and changed the state version so the
+        // memories delta never came back unchanged. The outbox and
+        // question-resolved notifications still force a fresh read.
+        await refreshPendingScreenplayQuestion(force: false)
         let sinceVersion = latestSeenStateVersion
             .trimmingCharacters(in: .whitespacesAndNewlines)
         await load(
@@ -863,6 +873,7 @@ struct MemoriesScreen: View {
         .autoconnect()
 
     @StateObject private var vm = MemoriesViewModel()
+    @State private var crossDeviceTick = 0
     var startTalkingAction: () -> Void = {}
     var returnAction: () -> Void = {}
     var openStudioAction: () -> Void = {}
@@ -917,6 +928,12 @@ struct MemoriesScreen: View {
         }
         .onReceive(Self.crossDeviceRefreshTimer) { _ in
             guard !IOThemRuntime.isRunningTests else { return }
+            crossDeviceTick &+= 1
+            guard CrossDevicePollPolicy.shouldPoll(
+                tick: crossDeviceTick,
+                hasActiveContext: true,
+                unchangedStreak: vm.crossDeviceUnchangedStreak
+            ) else { return }
             Task { await vm.refreshCrossDeviceMemoriesIfNeeded() }
         }
         .onReceive(
