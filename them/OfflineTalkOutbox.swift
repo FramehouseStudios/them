@@ -572,11 +572,18 @@ actor OfflineTalkOutbox {
         publish(snapshotFor(entries))
     }
 
+    /// Last snapshot this outbox announced. `drainDue` runs on every health
+    /// poll; announcing an unchanged snapshot made the Memories sheet and the
+    /// Studio force a session bootstrap every 5 s (seen live 2026-09-27).
+    private var lastPublishedSnapshot: OfflineTalkOutboxSnapshot?
+
     private func publish(_ snapshot: OfflineTalkOutboxSnapshot) {
-        DispatchQueue.main.async {
+        guard snapshot != lastPublishedSnapshot else { return }
+        lastPublishedSnapshot = snapshot
+        DispatchQueue.main.async { [self] in
             NotificationCenter.default.post(
                 name: .themOfflineTalkOutboxUpdated,
-                object: nil,
+                object: self,
                 userInfo: snapshot.notificationUserInfo
             )
         }
