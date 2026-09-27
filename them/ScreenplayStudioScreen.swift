@@ -88,6 +88,7 @@ struct ScreenplayStudioScreen: View {
     @State private var isDirectionOneComposerExpanded = false
     @State private var showingDirectionOneSettings = false
     @State private var confirmingClearDraft = false
+    @State private var pendingRestoreVersion: BackendScreenplayVersion?
     @State private var lastVoiceFeedback: String = ""
     @State private var voiceFeedbackOpacity: Double = 0
     @State private var isDirectionOnePageFocusTransitionVisible = false
@@ -843,6 +844,7 @@ Replace is best when this file should become the script you edit. Append is safe
             .onChange(of: vm.revisionColor) { _, _ in
                 Task { await vm.refreshRevisionColor() }
             }
+            .studioRestoreVersionConfirmation(pendingVersion: $pendingRestoreVersion, savedAt: { dateFromTimestamp($0.updatedAt ?? $0.createdAt) }) { vm.loadSnapshot($0) }
             .onChange(of: navigatorShowHidden) { _, _ in
                 refreshNavigatorEntries()
             }
@@ -4421,7 +4423,7 @@ private func refreshStudioCreativeInstincts(
                 retryStudioBackgroundPersistence()
             },
             onRestore: { version in
-                vm.loadSnapshot(version)
+                pendingRestoreVersion = version
             }
         )
     }
@@ -5217,7 +5219,7 @@ private var projectsSidebarContent: some View {
                 Task { await vm.createRevisionSnapshot() }
             },
             onRestoreSnapshot: { version in
-                vm.loadSnapshot(version)
+                pendingRestoreVersion = version
             }
         )
     }
