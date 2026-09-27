@@ -5102,6 +5102,9 @@ final class ScreenplayStudioViewModel: ObservableObject {
         await refreshScreenplayExportFormats(reportErrors: false)
     }
 
+    /// Consecutive cross-device polls that found no state change; paces the poll.
+    private(set) var crossDeviceUnchangedStreak = 0
+
     func refreshCrossDeviceStateIfNeeded() async {
         await resumeQueuedDraftSavesIfNeeded()
         // A transient launch-time project-list failure must not permanently
@@ -5132,6 +5135,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
             if !incomingStateVersion.isEmpty {
                 lastSeenScreenplayStateVersion = incomingStateVersion
             }
+            crossDeviceUnchangedStreak = shouldRefresh ? 0 : crossDeviceUnchangedStreak + 1
             guard shouldRefresh else { return }
 
             let locallySelectedProjectID = selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
