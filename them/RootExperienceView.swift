@@ -14127,7 +14127,7 @@ private struct TasksPanel: View {
                     .foregroundColor(.herText.opacity(0.92))
             }
 
-            if let recap {
+            if let recap, recap.hasRecap != false {
                 Text(recap.recap)
                     .font(.system(size: 14, weight: .regular, design: .default))
                     .foregroundColor(.herText.opacity(0.80))

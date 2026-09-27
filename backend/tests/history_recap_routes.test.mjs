@@ -118,6 +118,7 @@ function defaultDeps(overrides = {}) {
       localDay: "2023-11-14",
       generatedAt: 1700000000400,
       recap: "Mara hears the projector start.",
+      hasRecap: true,
       highlights: ["The projector starts."],
       outcomes: [],
       nextActions: ["Finish the archive scene."],
@@ -532,6 +533,7 @@ test("[recap-routes] GET /recap and /recap/today return recap envelopes", async 
     assert.equal(weekly.status, 200);
     assert.equal(weekly.body.window, "last_7_days");
     assert.equal(weekly.body.recap, "Mara hears the projector start.");
+    assert.equal(weekly.body.has_recap, true);
 
     const today = await getJson(baseURL, "/recap/today");
     assert.equal(today.status, 200);
