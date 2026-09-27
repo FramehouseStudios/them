@@ -470,9 +470,13 @@ function createReadStateHelpers(deps = {}) {
       }
     );
     const openTasks = taskSnapshot.tasks.filter((task) => task.status === "open");
-    const recapLine =
+    const recapFromActivity =
       normalizeSnippet(windowThreads[0]?.assistant || windowThreads[0]?.preview || "", 220) ||
-      normalizeSnippet(memory?.lastConversationRecap, 220) ||
+      normalizeSnippet(memory?.lastConversationRecap, 220);
+    // hasRecap lets clients tell a real recap from the empty-state sentence below.
+    const hasRecap = Boolean(recapFromActivity);
+    const recapLine =
+      recapFromActivity ||
       (windowRange.window === "today"
         ? "No major recap yet today."
         : `No major recap found for ${windowRange.label}.`);
@@ -497,6 +501,7 @@ function createReadStateHelpers(deps = {}) {
       localDay: dayStamp,
       generatedAt: nowTs,
       recap: recapLine,
+      hasRecap,
       highlights,
       outcomes,
       nextActions,

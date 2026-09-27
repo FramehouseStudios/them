@@ -75,6 +75,7 @@ function mountRecapRoutes(app, deps = {}) {
       local_day: recap.localDay,
       generated_at: recap.generatedAt,
       recap: recap.recap,
+      has_recap: recap.hasRecap,
       highlights: recap.highlights,
       outcomes: recap.outcomes,
       next_actions: recap.nextActions,

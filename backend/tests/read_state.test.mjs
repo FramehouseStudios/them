@@ -216,4 +216,23 @@ test("[read-state] daily recap keeps outcomes and next actions inside the reques
   assert.deepEqual(recap.outcomes, ["Polish the midpoint"]);
   assert.deepEqual(recap.nextActions, ["Write the climax"]);
   assert.equal(recap.recap, "Mara chooses the dangerous route.");
+  assert.equal(recap.hasRecap, true);
+});
+
+test("[read-state] daily recap marks the empty-state sentence as not a recap", () => {
+  const now = (10 * DAY_MS) + 12_000;
+  const helpers = createReadStateHelpers(deps());
+  const recap = helpers.buildDailyRecapPayload({ tasks: [] }, [], now, "today");
+
+  assert.equal(recap.recap, "No major recap yet today.");
+  assert.equal(recap.hasRecap, false);
+});
+
+test("[read-state] daily recap counts a remembered conversation recap as a recap", () => {
+  const now = (10 * DAY_MS) + 12_000;
+  const helpers = createReadStateHelpers(deps());
+  const recap = helpers.buildDailyRecapPayload({ tasks: [], lastConversationRecap: "We found Nora's want." }, [], now, "today");
+
+  assert.equal(recap.recap, "We found Nora's want.");
+  assert.equal(recap.hasRecap, true);
 });

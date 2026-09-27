@@ -1022,6 +1022,7 @@ nonisolated struct BackendDailyRecapResponse: Decodable {
     let localDay: String
     let generatedAt: TimeInterval
     let recap: String
+    let hasRecap: Bool? // false when `recap` is only the empty-state sentence; nil from older servers
     let highlights: [String]
     let outcomes: [String]
     let nextActions: [String]
