@@ -8752,20 +8752,29 @@ Current draft version:
         isDraftingPreviewActive: Bool,
         isCommitNoticeVisible: Bool
     ) -> some View {
+        // On a phone the chip cluster is wider than the column, so it goes
+        // under the title in its own scrolling row instead of squeezing
+        // "DRAFT PAGE" into a three-character column.
+        let stacksChipsUnderTitle = isDirectionOneCompactLayout
         VStack(alignment: .leading, spacing: 11) {
-            HStack(alignment: .top, spacing: 14) {
+            AnyLayout(stacksChipsUnderTitle ? AnyLayout(VStackLayout(alignment: .leading, spacing: 10)) : AnyLayout(HStackLayout(alignment: .top, spacing: 14))) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("DRAFT PAGE")
                         .font(.system(size: 9, weight: .semibold, design: .monospaced))
                         .tracking(0.8)
                         .foregroundStyle(Color.herText.opacity(0.40))
+                        .lineLimit(1)
                     Text(screenplayPageDraftTitle)
                         .font(.system(size: 15, weight: .semibold, design: .default))
                         .foregroundStyle(Color.herText.opacity(0.88))
                         .lineLimit(1)
                 }
-                Spacer(minLength: 0)
+                .layoutPriority(1)
+                if !stacksChipsUnderTitle {
+                    Spacer(minLength: 0)
+                }
 
+                ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
                     screenplayPagesOverviewChip
                     if vm.selectedProject == nil {
@@ -8836,6 +8845,8 @@ Current draft version:
 #endif
                 }
                 .fixedSize(horizontal: true, vertical: false)
+                }
+                .frame(maxWidth: stacksChipsUnderTitle ? .infinity : nil, alignment: .trailing)
             }
 
             ScrollView(.horizontal, showsIndicators: false) {
