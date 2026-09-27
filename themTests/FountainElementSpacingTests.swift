@@ -74,3 +74,43 @@ final class ScreenplayIntegrityDialogueTests: XCTestCase {
         XCTAssertEqual(FountainFormatter.screenplayIntegrityIssues(in: draft).count, 1)
     }
 }
+
+final class ScreenplayParagraphElementBlankLineTests: XCTestCase {
+    private let scene = "INT. PIER - NIGHT\n\nFog rolls over the water.\n\nNORA\nIs anyone out there?\n\nNobody answers."
+
+    func testReloadedActionAfterDialogueStaysAction() {
+        let elements = bootstrapScreenplayParagraphElements(for: scene)
+        XCTAssertEqual(elements, [.sceneHeading, nil, .action, nil, .character, .dialogue, nil, .action])
+    }
+
+    func testDialogueStillFollowsItsCueWithoutABlankLine() {
+        let elements = bootstrapScreenplayParagraphElements(for: "NORA\nIs anyone out there?\nHello?")
+        XCTAssertEqual(elements, [.character, .dialogue, .dialogue])
+    }
+
+    func testReconciledLineAfterBlankDoesNotInheritDialogue() {
+        let previous = "NORA\nIs anyone out there?\n\n"
+        let next = "NORA\nIs anyone out there?\n\nNobody answers."
+        let elements = reconcileScreenplayParagraphElements(
+            previousText: previous,
+            nextText: next,
+            previousElements: bootstrapScreenplayParagraphElements(for: previous),
+            activeLineIndex: nil,
+            explicitCurrentLineElement: nil
+        )
+        XCTAssertEqual(elements.last ?? nil, .action)
+    }
+
+    func testExplicitElementOnTheActiveLineStillWins() {
+        let previous = "NORA\nIs anyone out there?\n\n"
+        let next = "NORA\nIs anyone out there?\n\n(quietly)"
+        let elements = reconcileScreenplayParagraphElements(
+            previousText: previous,
+            nextText: next,
+            previousElements: bootstrapScreenplayParagraphElements(for: previous),
+            activeLineIndex: 3,
+            explicitCurrentLineElement: .dialogue
+        )
+        XCTAssertEqual(elements.last ?? nil, .dialogue)
+    }
+}

@@ -2331,7 +2331,7 @@ struct ScreenplayStackMetrics {
     }
 }
 
-private extension NSAttributedString.Key {
+extension NSAttributedString.Key {
     static let screenplayElementRaw = NSAttributedString.Key("io.them.them.screenplayElementRaw")
 }
 
@@ -2448,10 +2448,6 @@ private func applyScreenplayParagraphAttributes(
     textStorage.endEditing()
 }
 
-private func screenplayLineTexts(_ text: String) -> [String] {
-    text.components(separatedBy: .newlines)
-}
-
 private func normalizedScreenplayNodeText(_ text: String) -> String {
     text
         .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -2477,142 +2473,6 @@ func screenplayLineIndex(for location: Int, in text: String) -> Int {
         if character == "\n" { count += 1 }
     }
     return max(0, breaks)
-}
-
-private func bootstrapScreenplayParagraphElements(
-    for text: String,
-    attributedText: NSAttributedString? = nil
-) -> [ScreenplayEditorElement?] {
-    let lines = screenplayLineTexts(text)
-    let nsText = text as NSString
-    var result: [ScreenplayEditorElement?] = []
-    var previousElement: ScreenplayEditorElement? = nil
-    var lineStart = 0
-
-    for (index, line) in lines.enumerated() {
-        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-        let lineLength = (line as NSString).length
-        let hasTrailingNewline = index < lines.count - 1
-        let rangeLength = lineLength + (hasTrailingNewline ? 1 : 0)
-
-        guard !trimmed.isEmpty else {
-            result.append(nil)
-            lineStart += rangeLength
-            continue
-        }
-
-        var attributedElement: ScreenplayEditorElement?
-        if let attributedText, attributedText.length > 0 {
-            let lookupLocation = min(lineStart, max(0, nsText.length - 1))
-            if lookupLocation >= 0, lookupLocation < attributedText.length,
-               let raw = attributedText.attribute(.screenplayElementRaw, at: lookupLocation, effectiveRange: nil) as? String {
-                attributedElement = ScreenplayEditorElement(rawValue: raw)
-            }
-        }
-
-        let element = attributedElement ?? ScreenplayEditorElement.inferredElement(
-            for: trimmed,
-            previousElement: previousElement
-        )
-        result.append(element)
-        previousElement = element
-        lineStart += rangeLength
-    }
-
-    return result
-}
-
-private func reconcileScreenplayParagraphElements(
-    previousText: String,
-    nextText: String,
-    previousElements: [ScreenplayEditorElement?],
-    activeLineIndex: Int?,
-    explicitCurrentLineElement: ScreenplayEditorElement?
-) -> [ScreenplayEditorElement?] {
-    let previousLines = screenplayLineTexts(previousText)
-    let nextLines = screenplayLineTexts(nextText)
-
-    guard !previousLines.isEmpty else {
-        var bootstrapped = bootstrapScreenplayParagraphElements(for: nextText)
-        if let activeLineIndex,
-           activeLineIndex < nextLines.count,
-           let explicitCurrentLineElement,
-           !nextLines[activeLineIndex].trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            bootstrapped[activeLineIndex] = explicitCurrentLineElement
-        }
-        return bootstrapped
-    }
-
-    var prefixCount = 0
-    while prefixCount < previousLines.count,
-          prefixCount < nextLines.count,
-          previousLines[prefixCount] == nextLines[prefixCount] {
-        prefixCount += 1
-    }
-
-    var suffixCount = 0
-    while suffixCount < (previousLines.count - prefixCount),
-          suffixCount < (nextLines.count - prefixCount),
-          previousLines[previousLines.count - 1 - suffixCount] == nextLines[nextLines.count - 1 - suffixCount] {
-        suffixCount += 1
-    }
-
-    var result = Array<ScreenplayEditorElement?>(repeating: nil, count: nextLines.count)
-
-    for index in 0..<min(prefixCount, nextLines.count) {
-        result[index] = index < previousElements.count ? previousElements[index] : nil
-    }
-
-    if suffixCount > 0 {
-        for offset in 0..<suffixCount {
-            let nextIndex = nextLines.count - suffixCount + offset
-            let previousIndex = previousLines.count - suffixCount + offset
-            result[nextIndex] = previousIndex < previousElements.count ? previousElements[previousIndex] : nil
-        }
-    }
-
-    let previousChangedStart = prefixCount
-    let previousChangedEnd = max(previousChangedStart, previousLines.count - suffixCount)
-    let nextChangedStart = prefixCount
-    let nextChangedEnd = max(nextChangedStart, nextLines.count - suffixCount)
-    let previousChangedCount = max(0, previousChangedEnd - previousChangedStart)
-
-    var previousFlow = screenplayPreviousFlowElement(before: nextChangedStart, in: result)
-
-    for nextIndex in nextChangedStart..<nextChangedEnd {
-        let line = nextLines[nextIndex]
-        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
-            result[nextIndex] = nil
-            continue
-        }
-
-        let relativeIndex = nextIndex - nextChangedStart
-        let preserved: ScreenplayEditorElement? = {
-            guard relativeIndex < previousChangedCount else { return nil }
-            let previousIndex = previousChangedStart + relativeIndex
-            guard previousIndex < previousElements.count else { return nil }
-            return previousElements[previousIndex]
-        }()
-
-        let resolved: ScreenplayEditorElement
-        if activeLineIndex == nextIndex, let explicitCurrentLineElement {
-            resolved = explicitCurrentLineElement
-        } else if let preserved {
-            resolved = preserved
-        } else {
-            resolved = ScreenplayEditorElement.inferredElement(for: trimmed, previousElement: previousFlow)
-        }
-
-        result[nextIndex] = resolved
-        previousFlow = resolved
-    }
-
-    if result.count != nextLines.count {
-        return bootstrapScreenplayParagraphElements(for: nextText)
-    }
-
-    return result
 }
 
 nonisolated struct ScreenplayLiveDraftTextPersistencePolicy {

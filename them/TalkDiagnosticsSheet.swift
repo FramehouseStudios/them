@@ -142,9 +142,7 @@ struct TalkDiagnosticsSheet: View {
 
     private var refreshedLine: String {
         guard let refreshedAt else { return "Not refreshed yet" }
-        let formatter = RelativeDateTimeFormatter()
-        formatter.unitsStyle = .short
-        return "Updated \(formatter.localizedString(for: refreshedAt, relativeTo: Date()))"
+        return "Updated \(RelativeDateFormatter.shortString(for: refreshedAt))"
     }
 
     private func diagnosticsCard<Content: View>(
