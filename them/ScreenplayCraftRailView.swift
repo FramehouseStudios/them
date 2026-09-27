@@ -268,7 +268,8 @@ struct ScreenplayCraftRailView: View {
                 Spacer(minLength: 8)
 
                 VStack(alignment: .trailing, spacing: 6) {
-                    craftChip(versionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Draft" : "v" + String(versionId.suffix(6)).uppercased())
+                    // Which pages the read is of; a version-id suffix ("v624087") meant nothing to writers.
+                    craftChip(versionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Draft" : "Saved version")
                     if isAnalyzing {
                         craftChip("Analyzing")
                     }
