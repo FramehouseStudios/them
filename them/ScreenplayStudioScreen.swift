@@ -4676,6 +4676,7 @@ private var projectsSidebarContent: some View {
             Task { await vm.createProject() }
         },
         onSelect: { projectID in
+            if isDirectionOneCompactLayout { withAnimation(.spring(response: 0.28, dampingFraction: 0.84)) { isDirectionOneSidebarVisible = false } } // phone: show the picked page
             Task { await vm.selectProject(projectID) }
         },
         featureSpine: {
