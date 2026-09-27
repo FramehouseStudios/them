@@ -75,6 +75,28 @@ final class ScreenplayStudioDraftToolsPresentationTests: XCTestCase {
         )
     }
 
+    func testFlattenedOneLinePreviewUsesThePagesDraftLines() {
+        let draft = "INT. DOCK - DAY\n\nRain hammers the boards.\n\nNORA\n(whispering)\nWho's there?"
+        let page = BackendScreenplayPaginationPage(
+            page: 1,
+            startLine: 1,
+            endLine: 7,
+            lineCount: 7,
+            preview: "INT. DOCK - DAY Rain hammers the boards. NORA (whispering) Who's there?",
+            estMinutes: 0.3
+        )
+        let lines = ScreenplayStudioDraftToolsPresentationPlanner.paginationThumbnailLines(for: page, draft: draft, maxLines: 8)
+        XCTAssertEqual(Array(lines.prefix(7)), ["INT. DOCK - DAY", "", "Rain hammers the boards.", "", "NORA", "(whispering)", "Who's there?"])
+    }
+
+    func testOneLinePreviewForAOneLinePageStillWins() {
+        let page = BackendScreenplayPaginationPage(page: 1, startLine: 1, endLine: 1, lineCount: 1, preview: "FADE IN:", estMinutes: nil)
+        XCTAssertEqual(
+            ScreenplayStudioDraftToolsPresentationPlanner.paginationThumbnailLines(for: page, draft: "", maxLines: 2),
+            ["FADE IN:", ""]
+        )
+    }
+
     func testSnapshotProjectionOrdersCapsAndPreservesRestoreRules() throws {
         var versions = (1...12).map { index in
             makeVersion(

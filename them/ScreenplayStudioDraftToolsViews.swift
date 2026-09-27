@@ -179,7 +179,12 @@ enum ScreenplayStudioDraftToolsPresentationPlanner {
             .components(separatedBy: "\n")
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
-        if !previewLines.isEmpty {
+        // The paginate endpoint flattens a page into one excerpt line; a
+        // one-line preview for a multi-line page drew a nearly blank
+        // thumbnail, so the page's own draft lines win in that case.
+        let previewIsFlattened = previewLines.count == 1 && page.endLine > page.startLine
+            && page.startLine >= 1 && page.startLine <= draft.components(separatedBy: .newlines).count
+        if !previewLines.isEmpty, !previewIsFlattened {
             let clippedPreview = previewLines.prefix(safeMaxLines).map { String($0.prefix(36)) }
             if clippedPreview.count >= safeMaxLines {
                 return clippedPreview
@@ -869,7 +874,7 @@ private struct ScreenplayStudioDraftPageTools: View {
                             .foregroundStyle(Color.herText.opacity(0.90))
                         Spacer(minLength: 0)
                         if let estMinutes = page.estMinutes, estMinutes > 0 {
-                            Text(String(format: "%.1fm", estMinutes))
+                            Text(String(format: "%.1f min", estMinutes))
                                 .font(IOThemTypography.UI.monoMicroRegular)
                                 .foregroundStyle(Color.herText.opacity(0.48))
                         }
@@ -879,7 +884,7 @@ private struct ScreenplayStudioDraftPageTools: View {
                         .font(IOThemTypography.UI.monoMicroRegular)
                         .foregroundStyle(Color.herText.opacity(0.56))
 
-                    Text(row.isActive ? "Current cursor page" : "Jump to this page")
+                    Text(row.isActive ? "You're on this page" : "Jump to this page")
                         .font(IOThemTypography.UI.labelMedium)
                         .foregroundStyle(
                             row.isActive
@@ -887,11 +892,6 @@ private struct ScreenplayStudioDraftPageTools: View {
                                 : Color.herText.opacity(0.62)
                         )
 
-                    Text("Thumbnail browser")
-                        .font(IOThemTypography.UI.microMedium)
-                        .foregroundStyle(Color.herText.opacity(0.44))
-                        .textCase(.uppercase)
-                        .tracking(0.5)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
