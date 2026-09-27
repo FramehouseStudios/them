@@ -884,7 +884,7 @@ struct RootExperienceView: View {
                         .tracking(0.8)
                 }
                 if !signalState.intent.summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    Text(signalState.intent.summary)
+                    Text(signalState.intent.kind.homeCardLine)
                         .font(.system(size: 12, weight: .regular, design: .default))
                         .foregroundColor(.herText.opacity(0.84))
                         .multilineTextAlignment(.center)
@@ -910,6 +910,7 @@ struct RootExperienceView: View {
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
                     .stroke(Color.white.opacity(0.20), lineWidth: 1)
             )
+            .padding(.horizontal, 20) // keeps the card off the screen edges on a phone
         }
     }
 
