@@ -543,6 +543,11 @@ struct BackendCharacterTraitCardState: Identifiable, Equatable {
         return String(characters).trimmingCharacters(in: CharacterSet(charactersIn: "-"))
     }
 
+    /// The archetype engine calls anything under this "mixed secondary
+    /// signals"; below it the card names no archetype instead of printing a
+    /// 10% guess as a read.
+    static let archetypeDisplayMinimumScore = 0.3
+
     static func make(
         response: BackendCharacterTraitsResponse?,
         archetypes: BackendCharacterArchetypesResponse? = nil
@@ -561,8 +566,9 @@ struct BackendCharacterTraitCardState: Identifiable, Equatable {
             let archetypeEntry = archetypesByName[cleanedName.lowercased()]
             let primaryArchetype = clean(archetypeEntry?.primary?.archetype ?? "")
             let score = archetypeEntry?.primary?.score ?? 0
-            let archetypeLabel = displayArchetype(primaryArchetype)
-            let scoreLabel = score > 0 ? "\(Int((score * 100).rounded()))%" : ""
+            let showsArchetype = score >= archetypeDisplayMinimumScore
+            let archetypeLabel = showsArchetype ? displayArchetype(primaryArchetype) : ""
+            let scoreLabel = showsArchetype ? "\(Int((score * 100).rounded()))%" : ""
             let styleParts = [
                 clean(traits?.speechStyle.pace ?? ""),
                 clean(traits?.speechStyle.syntax ?? "")
@@ -605,7 +611,7 @@ struct BackendCharacterTraitCardState: Identifiable, Equatable {
                 detail: detailBits.isEmpty ? "Waiting for more dialogue evidence" : detailBits.joined(separator: " | "),
                 hasTraits: traits?.hasContent ?? false,
                 archetypeLabel: archetypeLabel,
-                archetypeSummary: clean(archetypeEntry?.summary ?? ""),
+                archetypeSummary: archetypeLabel.isEmpty ? "" : "Reads as \(archetypeLabel.lowercased()).",
                 archetypeScoreLabel: scoreLabel,
                 hasArchetype: !archetypeLabel.isEmpty,
                 fieldProvenance: Array(fieldProvenance.prefix(6))
