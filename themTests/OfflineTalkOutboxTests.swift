@@ -42,6 +42,20 @@ final class OfflineTalkOutboxTests: XCTestCase {
         XCTAssertEqual(snapshot.pendingCount, 1)
     }
 
+    func testDrainingAnEmptyOutboxAnnouncesOnlyOnce() async throws {
+        let outbox = OfflineTalkOutbox(storageDirectory: directory)
+        let counter = NotificationCounter(name: .themOfflineTalkOutboxUpdated, object: outbox)
+        defer { counter.stop() }
+
+        for _ in 0..<4 {
+            _ = await outbox.drainDue()
+        }
+        await Task.yield()
+        try await Task.sleep(nanoseconds: 200_000_000)
+
+        XCTAssertEqual(counter.count, 1, "an idle outbox drained on every health poll must not re-announce the same empty snapshot")
+    }
+
     func testDrainDueSendsPendingEntryAndRemovesItOnSuccess() async throws {
         let outbox = OfflineTalkOutbox(storageDirectory: directory)
         var request = URLRequest(url: URL(string: "https://them.test/talk")!)
@@ -305,5 +319,28 @@ extension OfflineTalkOutboxTests {
             OfflineTalkOutboxSendResult(statusCode: 503, headers: [:], body: longHint)
         }
         XCTAssertEqual(parked.parkedCount, 1)
+    }
+}
+
+private final class NotificationCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var observer: NSObjectProtocol?
+    private var value = 0
+
+    init(name: Notification.Name, object: AnyObject) {
+        observer = NotificationCenter.default.addObserver(forName: name, object: object, queue: nil) { [weak self] _ in
+            guard let self else { return }
+            self.lock.lock(); self.value += 1; self.lock.unlock()
+        }
+    }
+
+    var count: Int {
+        lock.lock(); defer { lock.unlock() }
+        return value
+    }
+
+    func stop() {
+        if let observer { NotificationCenter.default.removeObserver(observer) }
+        observer = nil
     }
 }
