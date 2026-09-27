@@ -589,6 +589,28 @@ test("[memories] GET /memories?sinceVersion=v9 → delta-no-change envelope", as
   });
 });
 
+test("[memories] delta with a creative ledger is unchanged only when the client's creative revision matches", async () => {
+  const creativeMemoryStore = {
+    getCreativeMemoryLedger: async () => ({
+      projects: [{ projectId: "p1", projectTitle: "Motel Door", updatedAt: 5_000, questionEffectiveness: [], storyMovePreferenceOverrides: [] }],
+    }),
+  };
+  await withTestServer(defaultDeps({ creativeMemoryStore }), async (baseURL) => {
+    const full = await getJson(baseURL, "/memories?sinceVersion=v9");
+    assert.equal(full.status, 200);
+    assert.equal(full.body.delta_no_change, false, "an old client without the revision still gets the full payload");
+    const revision = full.body.creative_memory_revision;
+    assert.match(revision, /^cm_/);
+
+    const unchanged = await getJson(baseURL, `/memories?sinceVersion=v9&sinceCreativeRevision=${revision}`);
+    assert.equal(unchanged.body.delta_no_change, true);
+    assert.deepEqual(unchanged.body.memories, []);
+
+    const stale = await getJson(baseURL, "/memories?sinceVersion=v9&sinceCreativeRevision=cm_stale");
+    assert.equal(stale.body.delta_no_change, false, "a moved creative ledger returns the full payload");
+  });
+});
+
 test("[memories] GET /memories with If-None-Match hit → 304 empty", async () => {
   const deps = defaultDeps({ ifNoneMatchStateHit: () => true });
   await withTestServer(deps, async (baseURL) => {

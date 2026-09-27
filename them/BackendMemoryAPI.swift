@@ -7311,6 +7311,7 @@ actor BackendMemoryAPI {
         var extraQuery: [URLQueryItem] = []
         if !normalizedSince.isEmpty {
             extraQuery.append(URLQueryItem(name: "sinceVersion", value: normalizedSince))
+            if !latestCreativeMemoryRevision.isEmpty { extraQuery.append(URLQueryItem(name: "sinceCreativeRevision", value: latestCreativeMemoryRevision)) }
         }
         if !normalizedProjectID.isEmpty {
             extraQuery.append(URLQueryItem(
