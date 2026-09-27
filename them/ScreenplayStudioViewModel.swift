@@ -2114,7 +2114,10 @@ final class ScreenplayStudioViewModel: ObservableObject {
             errorText = "Enter a project title first."
             return
         }
-        let seededDraft = fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        let seededDraft = StudioNewProjectSeedPolicy.seedDraft(
+            currentDraft: fountainDraft,
+            hasSelectedProject: selectedProject != nil
+        )
         isSaving = true
         defer { isSaving = false }
         errorText = ""
