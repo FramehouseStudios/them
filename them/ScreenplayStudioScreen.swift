@@ -5350,11 +5350,8 @@ private var projectsSidebarContent: some View {
     ) -> ScreenplayStudioBeatProvenanceHistoryPresentation {
         let createdDate = dateFromTimestamp(history.createdAt) ?? Date(timeIntervalSince1970: history.createdAt)
         let refreshedDate = dateFromTimestamp(history.lastRefreshedAt) ?? Date(timeIntervalSince1970: history.lastRefreshedAt)
-        return ScreenplayStudioBeatProvenanceHistoryPresentation(
-            createdText: "Created from \(history.createdFrom.title) · \(relativeTimestamp(createdDate))",
-            refreshedText: "Last refreshed from \(history.lastRefreshedFrom.title) · \(relativeTimestamp(refreshedDate))",
-            accessibilityLabel: "Created from \(history.createdFrom.title), last refreshed from \(history.lastRefreshedFrom.title)"
-        )
+        let lines = BeatProvenanceText.lines(for: history, createdWhen: relativeTimestamp(createdDate), refreshedWhen: relativeTimestamp(refreshedDate))
+        return ScreenplayStudioBeatProvenanceHistoryPresentation(createdText: lines.created, refreshedText: lines.refreshed, accessibilityLabel: lines.accessibilityLabel)
     }
 
     private var beatsComposerCard: some View {
