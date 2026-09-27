@@ -2251,86 +2251,6 @@ private enum ScreenplayLocalStudioCommand: Equatable {
     case focusPage
 }
 
-struct ScreenplayStackMetrics {
-    let printableWidth: CGFloat
-    let dialogueLeading: CGFloat
-    let dialogueTrailing: CGFloat
-    let characterLeading: CGFloat
-    let characterTrailing: CGFloat
-    let parentheticalLeading: CGFloat
-    let parentheticalTrailing: CGFloat
-    let transitionTrailing: CGFloat
-    let sceneHeadingSpacingAfter: CGFloat
-    let actionCueSpacingAfter: CGFloat
-    let transitionSpacingBefore: CGFloat
-    static let editorTextInsetHorizontal: CGFloat = 56
-    static let editorTextInsetVertical: CGFloat = 30
-    static let pageSurfaceHorizontalPadding: CGFloat = 30
-
-    static func paperGuidePositions(in pageWidth: CGFloat) -> (left: CGFloat, right: CGFloat) {
-        let editorWidth = max(0, pageWidth - (pageSurfaceHorizontalPadding * 2))
-        let inset = pageSurfaceHorizontalPadding + editorTextInsetHorizontal(forEditorWidth: editorWidth)
-        return (left: inset, right: max(inset, pageWidth - inset))
-    }
-
-    static func editor(containerWidth: CGFloat) -> ScreenplayStackMetrics {
-        let printableWidth = min(max(containerWidth, 120), 520)
-        guard printableWidth < 420 else {
-            return calibrated(forPrintableWidth: printableWidth)
-        }
-
-        let desktopReference = calibrated(forPrintableWidth: 420)
-        let scale = printableWidth / 420
-        return ScreenplayStackMetrics(
-            printableWidth: printableWidth,
-            dialogueLeading: max(22, desktopReference.dialogueLeading * scale),
-            dialogueTrailing: max(18, desktopReference.dialogueTrailing * scale),
-            characterLeading: max(38, desktopReference.characterLeading * scale),
-            characterTrailing: max(22, desktopReference.characterTrailing * scale),
-            parentheticalLeading: max(30, desktopReference.parentheticalLeading * scale),
-            parentheticalTrailing: max(24, desktopReference.parentheticalTrailing * scale),
-            transitionTrailing: min(max(printableWidth * 0.035, 6), 18),
-            sceneHeadingSpacingAfter: min(max(printableWidth * 0.010, 3), 6),
-            actionCueSpacingAfter: min(max(printableWidth * 0.014, 4), 8),
-            transitionSpacingBefore: min(max(printableWidth * 0.012, 4), 8)
-        )
-    }
-
-    static func editorTextInsetHorizontal(forEditorWidth editorWidth: CGFloat) -> CGFloat {
-        guard editorWidth > 0 else { return editorTextInsetHorizontal }
-        return min(editorTextInsetHorizontal, max(16, (editorWidth - 140) * 0.20))
-    }
-
-    static let guideSample = calibrated(forPrintableWidth: 520)
-
-    static func calibrated(forPrintableWidth printableWidth: CGFloat) -> ScreenplayStackMetrics {
-        let dialogueLeading = min(max(printableWidth * 0.245, 110), 132)
-        let dialogueTrailing = min(max(printableWidth * 0.225, 98), 120)
-        let characterLeading = min(max(dialogueLeading + 56, printableWidth * 0.34), 184)
-        let characterTrailing = min(max(dialogueTrailing + 18, printableWidth * 0.23), 132)
-        let parentheticalLeading = min(max(characterLeading - 12, dialogueLeading + 34), 172)
-        let parentheticalTrailing = min(max(characterTrailing + 14, dialogueTrailing + 22), 148)
-        let transitionTrailing = min(max(printableWidth * 0.035, 10), 18)
-        let sceneHeadingSpacingAfter = min(max(printableWidth * 0.010, 4), 6)
-        let actionCueSpacingAfter = min(max(printableWidth * 0.014, 5), 8)
-        let transitionSpacingBefore = min(max(printableWidth * 0.012, 5), 8)
-
-        return ScreenplayStackMetrics(
-            printableWidth: printableWidth,
-            dialogueLeading: dialogueLeading,
-            dialogueTrailing: dialogueTrailing,
-            characterLeading: characterLeading,
-            characterTrailing: characterTrailing,
-            parentheticalLeading: parentheticalLeading,
-            parentheticalTrailing: parentheticalTrailing,
-            transitionTrailing: transitionTrailing,
-            sceneHeadingSpacingAfter: sceneHeadingSpacingAfter,
-            actionCueSpacingAfter: actionCueSpacingAfter,
-            transitionSpacingBefore: transitionSpacingBefore
-        )
-    }
-}
-
 extension NSAttributedString.Key {
     static let screenplayElementRaw = NSAttributedString.Key("io.them.them.screenplayElementRaw")
 }
@@ -9197,11 +9117,10 @@ struct MacCursorInsertTextEditor: NSViewRepresentable {
 
             let selection = textView.selectedRange()
             let offsetIntoLine = max(0, selection.location - context.lineRange.location)
-            let nextLength = (normalized as NSString).length
 
             isApplyingProgrammaticChange = true
             textView.textStorage?.replaceCharacters(in: context.lineRange, with: normalized)
-            textView.setSelectedRange(NSRange(location: context.lineRange.location + min(offsetIntoLine, nextLength), length: 0))
+            textView.setSelectedRange(NSRange(location: context.lineRange.location + ScreenplayTypingNormalization.cursorOffset(afterNormalizing: context.lineText, to: normalized, originalOffset: offsetIntoLine), length: 0))
             isApplyingProgrammaticChange = false
             synchronizeParagraphElementsWithCurrentText(in: textView)
             parent.text = textView.string
@@ -11585,10 +11504,9 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
 
             let selection = textView.selectedRange
             let offsetIntoLine = max(0, selection.location - context.lineRange.location)
-            let nextLength = (normalized as NSString).length
             let nextText = (textView.text as NSString?)?.replacingCharacters(in: context.lineRange, with: normalized) ?? normalized
 
-            replaceEditorText(in: context.lineRange, with: normalized, cursor: context.lineRange.location + min(offsetIntoLine, nextLength), in: textView)
+            replaceEditorText(in: context.lineRange, with: normalized, cursor: context.lineRange.location + ScreenplayTypingNormalization.cursorOffset(afterNormalizing: context.lineText, to: normalized, originalOffset: offsetIntoLine), in: textView)
             synchronizeParagraphElementsWithCurrentText(in: textView)
             publishText(textView.text ?? nextText)
             publishUserEdit(expectedText: textView.text ?? nextText)
