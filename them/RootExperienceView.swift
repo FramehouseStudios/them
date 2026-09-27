@@ -10642,9 +10642,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
 
     private func relativeTimestamp(_ date: Date) -> String {
         guard date > .distantPast else { return "just now" }
-        let formatter = RelativeDateTimeFormatter()
-        formatter.unitsStyle = .short
-        return formatter.localizedString(for: date, relativeTo: Date())
+        return RelativeDateFormatter.shortString(for: date)
     }
 
     @MainActor

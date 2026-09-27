@@ -157,6 +157,10 @@ enum ScreenplayStudioDraftToolsPresentationPlanner {
         Array(issues.prefix(max(0, limit)))
     }
 
+    static func lineRangeText(start: Int, end: Int) -> String {
+        end <= start ? "Line \(start)" : "Lines \(start)–\(end)"
+    }
+
     static func integrityTitle(issueCount: Int) -> String {
         issueCount == 1
             ? "1 non-screenplay block detected"
@@ -560,7 +564,7 @@ struct ScreenplayStudioDraftIntegrityWarningSection: View {
                 .foregroundStyle(Color.herText.opacity(0.80))
                 .lineLimit(3)
 
-            Text("Lines \(issue.startLine)-\(issue.endLine) · \(issue.reason)")
+            Text("\(ScreenplayStudioDraftToolsPresentationPlanner.lineRangeText(start: issue.startLine, end: issue.endLine)) · \(issue.reason)")
                 .font(IOThemTypography.UI.microRegular)
                 .foregroundStyle(Color.herText.opacity(0.58))
 
@@ -604,59 +608,53 @@ struct ScreenplayStudioPageIntegrityBanner: View {
     var body: some View {
         let primaryIssue = issues.first
 
-        HStack(alignment: .top, spacing: 10) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .font(IOThemTypography.UI.captionStrong)
-                .foregroundStyle(Color.orange.opacity(0.92))
-                .padding(.top, 1)
-
-            VStack(alignment: .leading, spacing: 5) {
-                Text(ScreenplayStudioDraftToolsPresentationPlanner.integrityTitle(issueCount: issues.count))
+        // Text and actions stack vertically: side by side on a phone-width
+        // page squeezed each button to one letter per line.
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: "exclamationmark.triangle.fill")
                     .font(IOThemTypography.UI.captionStrong)
-                    .foregroundStyle(Color.herText.opacity(0.88))
+                    .foregroundStyle(Color.orange.opacity(0.92))
+                    .padding(.top, 1)
+                    .accessibilityHidden(true)
 
-                if let primaryIssue {
-                    Text("Lines \(primaryIssue.startLine)-\(primaryIssue.endLine) read like companion prose, not screenplay: \"\(primaryIssue.preview)\"")
-                        .font(IOThemTypography.UI.labelRegular)
-                        .foregroundStyle(Color.herText.opacity(0.72))
-                        .lineLimit(2)
-                } else {
-                    Text("Non-screenplay text is sitting on the page and should be reviewed before it stays in the draft.")
-                        .font(IOThemTypography.UI.labelRegular)
-                        .foregroundStyle(Color.herText.opacity(0.72))
-                }
-            }
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(ScreenplayStudioDraftToolsPresentationPlanner.integrityTitle(issueCount: issues.count))
+                        .font(IOThemTypography.UI.captionStrong)
+                        .foregroundStyle(Color.herText.opacity(0.88))
 
-            Spacer(minLength: 0)
-
-            HStack(spacing: 8) {
-                Button("Review") {
                     if let primaryIssue {
-                        actions.onReview(primaryIssue)
+                        Text("\(ScreenplayStudioDraftToolsPresentationPlanner.lineRangeText(start: primaryIssue.startLine, end: primaryIssue.endLine)) read like companion prose, not screenplay: \"\(primaryIssue.preview)\"")
+                            .font(IOThemTypography.UI.labelRegular)
+                            .foregroundStyle(Color.herText.opacity(0.72))
+                            .lineLimit(2)
                     } else {
-                        actions.onOpenInspector()
+                        Text("Non-screenplay text is sitting on the page and should be reviewed before it stays in the draft.")
+                            .font(IOThemTypography.UI.labelRegular)
+                            .foregroundStyle(Color.herText.opacity(0.72))
                     }
                 }
-                .buttonStyle(.bordered)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
 
-                if issues.count > 1 {
-                    Button("Move all to Pin", action: actions.onMoveAllToPin)
-                        .buttonStyle(.bordered)
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) {
+                    reviewButton(primaryIssue)
+                    pinButtons(primaryIssue)
+                    removeButton(primaryIssue)
                 }
-
-                if let primaryIssue {
-                    Button("Move to Pin") {
-                        actions.onMoveToPin(primaryIssue)
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 8) {
+                        reviewButton(primaryIssue)
+                        removeButton(primaryIssue)
                     }
-                    .buttonStyle(.bordered)
-
-                    Button("Remove") {
-                        actions.onRemove(primaryIssue)
+                    HStack(spacing: 8) {
+                        pinButtons(primaryIssue)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .tint(.orange.opacity(0.28))
                 }
             }
+            .controlSize(.small)
+            .padding(.leading, 26)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
@@ -669,6 +667,46 @@ struct ScreenplayStudioPageIntegrityBanner: View {
                 .stroke(Color.orange.opacity(0.16), lineWidth: 1)
         )
         .accessibilityIdentifier("studio.page.integrity.banner")
+    }
+
+    private func reviewButton(_ primaryIssue: ScreenplayPageIntegrityIssue?) -> some View {
+        Button("Review") {
+            if let primaryIssue {
+                actions.onReview(primaryIssue)
+            } else {
+                actions.onOpenInspector()
+            }
+        }
+        .buttonStyle(.bordered)
+        .fixedSize()
+    }
+
+    @ViewBuilder
+    private func pinButtons(_ primaryIssue: ScreenplayPageIntegrityIssue?) -> some View {
+        if let primaryIssue {
+            Button("Move to Pin") {
+                actions.onMoveToPin(primaryIssue)
+            }
+            .buttonStyle(.bordered)
+            .fixedSize()
+        }
+        if issues.count > 1 {
+            Button("Move all to Pin", action: actions.onMoveAllToPin)
+                .buttonStyle(.bordered)
+                .fixedSize()
+        }
+    }
+
+    @ViewBuilder
+    private func removeButton(_ primaryIssue: ScreenplayPageIntegrityIssue?) -> some View {
+        if let primaryIssue {
+            Button("Remove") {
+                actions.onRemove(primaryIssue)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(.orange.opacity(0.28))
+            .fixedSize()
+        }
     }
 }
 
@@ -837,7 +875,7 @@ private struct ScreenplayStudioDraftPageTools: View {
                         }
                     }
 
-                    Text("Lines \(page.startLine)-\(page.endLine)")
+                    Text(ScreenplayStudioDraftToolsPresentationPlanner.lineRangeText(start: page.startLine, end: page.endLine))
                         .font(IOThemTypography.UI.monoMicroRegular)
                         .foregroundStyle(Color.herText.opacity(0.56))
 

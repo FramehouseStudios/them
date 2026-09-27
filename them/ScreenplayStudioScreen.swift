@@ -6481,7 +6481,7 @@ private var projectsSidebarContent: some View {
                         .foregroundStyle(Color.herText.opacity(0.78))
                         .fixedSize(horizontal: false, vertical: true)
                     if let resolvedAnchor {
-                        Text("Lines \(resolvedAnchor.startLine)-\(resolvedAnchor.endLine)")
+                        Text(ScreenplayStudioDraftToolsPresentationPlanner.lineRangeText(start: resolvedAnchor.startLine, end: resolvedAnchor.endLine))
                             .font(.system(size: 10, weight: .medium, design: .monospaced))
                             .foregroundStyle(Color.herText.opacity(0.58))
                     }
@@ -17420,9 +17420,7 @@ Look at the city.
     }
 
     private func relativeTimestamp(_ date: Date) -> String {
-        let formatter = RelativeDateTimeFormatter()
-        formatter.unitsStyle = .short
-        return formatter.localizedString(for: date, relativeTo: Date())
+        RelativeDateFormatter.shortString(for: date)
     }
 
     private func dateFromTimestamp(_ value: TimeInterval?) -> Date? {

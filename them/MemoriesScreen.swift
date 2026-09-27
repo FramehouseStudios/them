@@ -3655,15 +3655,40 @@ struct SoftPrimaryButtonStyle: ButtonStyle {
 
 // MARK: - Helpers
 
+/// The one place the app turns a past event time into "5 min. ago" text.
+/// Every caller describes something that already happened, so a date at or
+/// after the reference time (server clock skew, millisecond rounding) reads
+/// "just now" instead of "in 0 sec.".
 enum RelativeDateFormatter {
+    static let justNowWindow: TimeInterval = 5
+
     static let shared: RelativeDateTimeFormatter = {
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .full
         return formatter
     }()
 
+    static let short: RelativeDateTimeFormatter = {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .short
+        return formatter
+    }()
+
     static func relativeString(for date: Date, relativeTo referenceDate: Date = .now) -> String {
-        shared.localizedString(for: date, relativeTo: referenceDate)
+        pastString(for: date, relativeTo: referenceDate, formatter: shared)
+    }
+
+    static func shortString(for date: Date, relativeTo referenceDate: Date = .now) -> String {
+        pastString(for: date, relativeTo: referenceDate, formatter: short)
+    }
+
+    private static func pastString(
+        for date: Date,
+        relativeTo referenceDate: Date,
+        formatter: RelativeDateTimeFormatter
+    ) -> String {
+        guard referenceDate.timeIntervalSince(date) >= justNowWindow else { return "just now" }
+        return formatter.localizedString(for: date, relativeTo: referenceDate)
     }
 }
 
