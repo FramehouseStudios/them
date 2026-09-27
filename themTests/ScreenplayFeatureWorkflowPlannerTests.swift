@@ -1109,6 +1109,31 @@ final class ScreenplayFeatureWorkflowPlannerTests: XCTestCase {
         XCTAssertTrue(snapshot.hasAcceptedBatch)
     }
 
+    func testEmptyNewProjectReadsAsTheStartOfActOneWithNoPages() {
+        let snapshot = ScreenplayFeatureWorkflowPlanner.buildSnapshot(
+            project: nil,
+            outline: BackendScreenplayOutline(updatedAt: nil, actCount: 0, sceneCount: 0, beatCount: 0, acts: [], scenes: [], beats: []),
+            structuredDraft: ScreenplayStructuredDraft(updatedAt: Date(), lineCount: 1, sceneCount: 0, paragraphs: [], scenes: [], characters: []),
+            projectBinding: .empty,
+            featureSpine: ScreenplayFeatureSpine(),
+            lastCommittedWrite: nil,
+            acceptedPageBatchCount: 0,
+            currentCursorLine: 1,
+            draftText: ""
+        )
+
+        XCTAssertEqual(snapshot.currentActTitle, "Act I", "an empty page is the start of the movie, not Act III")
+        XCTAssertEqual(snapshot.draftProgressLabel, "No draft pages")
+        XCTAssertEqual(snapshot.actProgressLabel, "No pages yet")
+    }
+
+    func testInferredActFollowsTheCursorsPageNotItsShareOfTheDraft() {
+        XCTAssertEqual(ScreenplayFeatureWorkflowPlanner.inferredActTitle(currentCursorLine: 3, lineCount: 3), "Act I")
+        XCTAssertEqual(ScreenplayFeatureWorkflowPlanner.inferredActTitle(currentCursorLine: 30 * 55, lineCount: 6_000), "Act I")
+        XCTAssertEqual(ScreenplayFeatureWorkflowPlanner.inferredActTitle(currentCursorLine: 31 * 55, lineCount: 6_000), "Act II")
+        XCTAssertEqual(ScreenplayFeatureWorkflowPlanner.inferredActTitle(currentCursorLine: 95 * 55, lineCount: 6_000), "Act III")
+    }
+
     func testPlannerFallsBackToFeatureSpineWhenOutlineIsEmpty() {
         let snapshot = ScreenplayFeatureWorkflowPlanner.buildSnapshot(
             project: nil,

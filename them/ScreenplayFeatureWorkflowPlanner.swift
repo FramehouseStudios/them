@@ -396,7 +396,11 @@ enum ScreenplayFeatureWorkflowPlanner {
         let currentOutlineScene = currentBinding?.outlineSceneID.flatMap { sceneID in
             sortedScenes.first(where: { $0.id == sceneID })
         }
-        let draftLineCount = max(structuredDraft.lineCount, lineCount(in: draftText))
+        // An empty editor still reports one structured line; an empty page is
+        // zero lines, not "1 page drafted" (seen live on a new project).
+        let draftLineCount = draftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? 0
+            : max(structuredDraft.lineCount, lineCount(in: draftText))
         let estimatedPageCount = draftLineCount > 0
             ? max(1, Int(ceil(Double(draftLineCount) / 55.0)))
             : 0
@@ -1109,11 +1113,15 @@ enum ScreenplayFeatureWorkflowPlanner {
         )
     }
 
-    private static func inferredActTitle(currentCursorLine: Int, lineCount: Int) -> String {
+    /// Fallback act when neither the outline nor the feature spine names one.
+    /// A feature's acts are set by page (Act I through ~p30, Act II through
+    /// ~p90), so the guess uses the cursor's page. It used the cursor's share
+    /// of the current draft, which put line 1 of a one-line draft in Act III.
+    static func inferredActTitle(currentCursorLine: Int, lineCount: Int) -> String {
         guard lineCount > 0 else { return "Act I" }
-        let ratio = Double(max(1, currentCursorLine)) / Double(max(1, lineCount))
-        if ratio < 0.25 { return "Act I" }
-        if ratio < 0.78 { return "Act II" }
+        let page = Int(ceil(Double(max(1, min(currentCursorLine, lineCount))) / 55.0))
+        if page <= 30 { return "Act I" }
+        if page <= 90 { return "Act II" }
         return "Act III"
     }
 
