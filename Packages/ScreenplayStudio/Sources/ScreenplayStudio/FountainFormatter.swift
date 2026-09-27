@@ -109,6 +109,7 @@ public enum FountainFormatter {
     public static func isLikelyFountainBlock(_ rawText: String) -> Bool {
         let raw = sanitizeRawScreenplayText(rawText)
         guard !raw.isEmpty else { return false }
+        if hasStructuralFountainLines(raw) { return true }
 
         let candidate = looksLikeStructuredFountain(raw)
             ? normalizeStructuredFountain(raw)
@@ -145,6 +146,7 @@ public enum FountainFormatter {
     ) -> Bool {
         let raw = sanitizeRawScreenplayText(rawText)
         guard !raw.isEmpty else { return false }
+        if hasStructuralFountainLines(raw) { return true }
         guard isLikelyFountainBlock(raw) else { return false }
 
         let candidate = looksLikeStructuredFountain(raw)
@@ -1383,6 +1385,21 @@ public enum FountainFormatter {
         guard !isTransitionLine(trimmed) else { return false }
         // Trailing caret = Fountain dual-dialogue marker; still a cue.
         return trimmed.range(of: #"^[A-Z0-9 '\-().]+(?:\s*\^)?$"#, options: .regularExpression) != nil
+    }
+
+    /// Headings, transitions and cue/dialogue pairs checked on the lines as
+    /// the writer typed them. The prose normalizer used below rewrites a lone
+    /// dialogue block ("NORA / Is anyone out there?" → "Nora. / Is anyone out
+    /// there?"), so the page-integrity scan flagged real dialogue as companion
+    /// prose and offered to remove it (seen live 2026-09-27).
+    private static func hasStructuralFountainLines(_ raw: String) -> Bool {
+        let lines = raw
+            .components(separatedBy: "\n")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        return lines.contains { isSceneHeadingLine($0) }
+            || lines.contains { isTransitionLine($0) }
+            || hasCharacterDialoguePair(lines)
     }
 
     private static func hasCharacterDialoguePair(_ lines: [String]) -> Bool {
