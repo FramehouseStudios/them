@@ -51,6 +51,12 @@ test("[talk-diagnostics] provider JSON is reduced to safe class + request id", (
   assert.ok(!serialized.includes(secretKey), "diagnostics must not leak provider credentials");
 });
 
+test("[talk-diagnostics] credit exhaustion without the word quota is provider_quota", () => {
+  assert.equal(classifyTalkFailure({ stage: "chat", message: "You have no credits remaining. Add credits to continue." }), "provider_quota");
+  assert.equal(classifyTalkFailure({ status: 402, stage: "chat", message: "Payment Required" }), "provider_quota");
+  assert.equal(classifyTalkFailure({ status: 429, stage: "chat", message: "Too Many Requests" }), "provider_rate_limited");
+});
+
 test("[talk-diagnostics] timeout/auth/server classifications are stable", () => {
   assert.equal(
     classifyTalkFailure({ status: 504, stage: "stt", message: "Transcription timed out." }),

@@ -1322,7 +1322,11 @@ function studioRenderStreamErrorEvent({ rid = "", error } = {}) {
     providerType: error?.type,
     providerCode: error?.code,
   });
-  if (!PUBLIC_PROVIDER_CLASSES.has(errorClass)) {
+  // Only errors our own code raised with a specific stage (validation etc.)
+  // keep their message. A bare provider error (no stage) goes out as the
+  // public line, so provider text such as billing URLs stays in the log.
+  const raisedByStudio = Boolean(error?.stage) && stage !== "studio_render";
+  if (!PUBLIC_PROVIDER_CLASSES.has(errorClass) && raisedByStudio) {
     return { request_id: rid, stage, error: rawMessage };
   }
   const reference = rid ? ` Reference ${String(rid).slice(0, 8)}.` : "";

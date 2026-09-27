@@ -81,7 +81,9 @@ function classifyTalkFailure({
   if (status === 401 || status === 403 || /(auth|api[_ -]?key|permission|forbidden|unauthorized)/.test(material)) {
     return "provider_auth";
   }
-  if (/insufficient[_ -]?quota|quota/.test(material)) {
+  // OpenAI now words exhausted prepaid credit as "You have no credits
+  // remaining. Add credits…", with no "quota" in it; 402 is Payment Required.
+  if (status === 402 || /insufficient[_ -]?quota|quota|no credits remaining|add credits|credit balance|billing hard limit/.test(material)) {
     return "provider_quota";
   }
   if (status === 429 || /rate[_ -]?limit|too many requests/.test(material)) {
