@@ -269,7 +269,12 @@ final class MemoriesViewModel: ObservableObject {
     private(set) var crossDeviceUnchangedStreak = 0
 
     func refreshCrossDeviceMemoriesIfNeeded() async {
-        await refreshPendingScreenplayQuestion(force: true)
+        // The timer uses the cached session (90 s TTL). Forcing a bootstrap
+        // here minted a new backend session start every 3 s, which counted as
+        // a user-initiated session and changed the state version so the
+        // memories delta never came back unchanged. The outbox and
+        // question-resolved notifications still force a fresh read.
+        await refreshPendingScreenplayQuestion(force: false)
         let sinceVersion = latestSeenStateVersion
             .trimmingCharacters(in: .whitespacesAndNewlines)
         await load(
