@@ -805,13 +805,23 @@ struct DataControlsScreen: View {
     /// shown only when the AppTransaction environment proves a non-production
     /// build: `.xcode` (Debug) or `.sandbox` (TestFlight). App Store builds
     /// report `.production` and stay hidden; any lookup failure also hides it.
+    ///
+    /// Debug builds short-circuit to visible without touching StoreKit: with no
+    /// App Store receipt, `AppTransaction.shared` raises a system "Sign in to
+    /// Apple Account" prompt every time this screen opens (seen on the
+    /// simulator). `AppTransaction.shared` is a `VerificationResult`, so the
+    /// payload is read with `payloadValue`; an unverified result stays hidden.
     private func resolveV1LaunchDoctorVisibility() async -> Bool {
+        #if DEBUG
+        return true
+        #else
         do {
-            let transaction = try await AppTransaction.shared
+            let transaction = try await AppTransaction.shared.payloadValue
             return transaction.environment == .sandbox || transaction.environment == .xcode
         } catch {
             return false
         }
+        #endif
     }
 
     private func actionButton(title: String, subtitle: String, action: DataControlAction) -> some View {
