@@ -15,3 +15,25 @@ final class CreativeIntentHomeCopyTests: XCTestCase {
         }
     }
 }
+
+final class CreativePresenceDetailCopyTests: XCTestCase {
+    func testRailPresenceLineIsWrittenForTheWriter() {
+        for kind in CreativeIntentKind.allCases {
+            let state = CreativeCompanionSignalState(
+                intent: CreativeIntentSnapshot(
+                    kind: kind, label: kind.title, summary: "model guidance", nextMove: "",
+                    confidence: 0.8, sourceText: "", updatedAt: Date()
+                ),
+                presence: CreativePresenceSnapshot(title: "", detail: "", updatedAt: Date()),
+                proactiveSuggestion: nil
+            )
+            for domain in [StudioMemoryDomain.project, .companion] {
+                let detail = CreativeCompanionSignalEngine.retone(state, companionMode: .coach, memoryDomain: domain).presence.detail
+                XCTAssertFalse(detail.isEmpty, "\(kind)")
+                for jargon in ["continuity", "lane", "the user", "Locked on"] {
+                    XCTAssertFalse(detail.localizedCaseInsensitiveContains(jargon), "\(kind): \(detail)")
+                }
+            }
+        }
+    }
+}

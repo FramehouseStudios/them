@@ -354,25 +354,27 @@ nonisolated enum CreativeCompanionSignalEngine {
             title = "Steady Comfort"
         }
 
-        let recentContinuity = recentTurns.isEmpty
-            ? "Fresh lane."
-            : "\(min(recentTurns.count, 6)) turns of continuity active."
+        // Shown to the writer in the Studio rail; not part of the model prompt.
+        let rememberedTurns = min(recentTurns.count, 6)
+        let recentContinuity = rememberedTurns == 0
+            ? ""
+            : " Remembering your last \(rememberedTurns == 1 ? "turn" : "\(rememberedTurns) turns")."
         let detail: String
         switch kind {
         case .screenplayPageWrite:
-            detail = "Locked on the page. Keep the writing playable, clear, and forward-moving. \(recentContinuity)"
+            detail = "On the page with you, keeping it playable and moving.\(recentContinuity)"
         case .storyDevelopment:
-            detail = "Holding the creative thread and keeping the next story choice concrete. \(recentContinuity)"
+            detail = "Working out the next story choice with you.\(recentContinuity)"
         case .mixedSupport:
-            detail = "Staying emotionally aware without losing the screenplay problem. \(recentContinuity)"
+            detail = "Keeping you and the scene in view.\(recentContinuity)"
         case .companionSupport:
-            detail = "Prioritizing steadiness and low-pressure support before pushing the work. \(recentContinuity)"
+            detail = "Steady first. The pages can wait.\(recentContinuity)"
         case .practicalSupport:
-            detail = "Keeping the answer direct and actionable instead of drifting into abstractions. \(recentContinuity)"
+            detail = "Direct answers and one next step.\(recentContinuity)"
         case .reflectiveSupport:
             detail = memoryDomain == .project
-                ? "Listening for the creative tension underneath the note. \(recentContinuity)"
-                : "Listening for the feeling under the ask before moving too fast. \(recentContinuity)"
+                ? "Listening for the tension under the note.\(recentContinuity)"
+                : "Listening for what's under the ask.\(recentContinuity)"
         }
 
         return CreativePresenceSnapshot(
