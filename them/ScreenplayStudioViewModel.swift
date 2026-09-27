@@ -1781,7 +1781,9 @@ final class ScreenplayStudioViewModel: ObservableObject {
             outlineRevision = 0
             outlineRevisionProjectID = ""
             clearFeatureSpineFields()
-            syncLiveDraftBridgeProjectContext(clearWhenEmpty: true)
+            // A failed list load is not "no project": leave the page's binding
+            // (project and base version) as it was, so offline edits can be
+            // adopted by that project when the list loads.
             return
         }
         guard authContextIsCurrent(authContext),
@@ -1792,17 +1794,37 @@ final class ScreenplayStudioViewModel: ObservableObject {
               ) else {
             return
         }
+        let projectsWereLoaded = didLoadScreenplayProjectsFromBackend
         didLoadScreenplayProjectsFromBackend = true
         lastSeenScreenplayStateVersion = result.payload.stateVersion?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         projects = result.payload.screenplayProjects
         let bridgePreferredProjectID = ScreenplayLiveDraftBridge.shared.preferredProjectID
+        let pageBaseVersionID = ScreenplayLiveDraftBridge.shared.preferredVersionID.trimmingCharacters(in: .whitespacesAndNewlines)
         selectedProjectID = ScreenplayProjectSelectionRestorePolicy.selectedProjectId(
             activeProjectId: result.payload.screenplayActiveProjectId,
             preferredProjectId: bridgePreferredProjectID,
             projects: projects
         )
+        let adoptsOfflineEdits = ScreenplayOfflineEditAdoptionPolicy.shouldAdopt(
+            projectsWereLoaded: projectsWereLoaded,
+            selectedProjectId: selectedProjectID,
+            pageProjectId: bridgePreferredProjectID,
+            page: fountainDraft,
+            hasUnsavedEdits: hasUnsavedDraftChanges || isManualDraftEditing
+        )
+        if adoptsOfflineEdits {
+            loadedDraftProjectID = selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
         await loadSelectedProjectOutline()
+        if adoptsOfflineEdits, hasUnsavedDraftChanges, conflictState == nil {
+            // The offline words were written on top of the page's base version;
+            // save them on it. A newer save elsewhere comes back as a conflict.
+            if latestVersionID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, !pageBaseVersionID.isEmpty {
+                latestVersionID = pageBaseVersionID
+            }
+            if autosaveEnabled { await saveCurrentDraft(source: "studio_autosave") }
+        }
         guard authContextIsCurrent(authContext) else { return }
         await refreshPendingScreenplayQuestion()
         guard authContextIsCurrent(authContext) else { return }
@@ -5140,6 +5162,14 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 includeDrafts: false
             )
             guard authContextIsCurrent(authContext) else { return }
+            // The launch load failed (offline), so no project is selected and
+            // the diff path below has nothing to refresh: the Studio stayed on
+            // "Live Draft" after the backend came back. Now that the list
+            // answers, run the launch load once.
+            if !didLoadScreenplayProjectsFromBackend {
+                await load()
+                return
+            }
             let incomingStateVersion = result.payload.stateVersion?
                 .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             let shouldRefresh = CrossDeviceStateVersionPolicy.shouldRefresh(
