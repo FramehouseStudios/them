@@ -192,6 +192,8 @@ import { mountFountainImportRoute } from "./lib/fountain_import_route.js";
 import { mountFDXExportRoute } from "./lib/fdx_export_route.js";
 import { mountFountainExportRoute } from "./lib/fountain_export_route.js";
 import { mountScreenplayProjectsRoutes } from "./lib/screenplay_projects_routes.js";
+import { createDraftCharacterLearner } from "./lib/draft_character_learning.js";
+import { mp3BitrateKbpsForHeader, mp3SampleRateForHeader } from "./lib/mp3_header_tables.js";
 import { mountScreenplayCompanionRoutes } from "./lib/screenplay_companion_routes.js";
 import { mountRealtimeRoutes } from "./lib/realtime_routes.js";
 import { mountRealtimeClientSecretRoute } from "./lib/realtime_client_secret_route.js";
@@ -18824,33 +18826,6 @@ function buildTalkTestDebugOfflineReply({ transcript, assistantSelfName }) {
   return `I heard "${spokenTranscript}". I'm here with you.`;
 }
 
-function mp3BitrateKbpsForHeader(versionKey, layerNumber, bitrateIndex) {
-  const key = `${versionKey}-L${layerNumber}`;
-  const tables = {
-    "1-L1": [0, 32, 64, 96, 128, 160, 192, 224, 256, 288, 320, 352, 384, 416, 448, 0],
-    "1-L2": [0, 32, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 384, 0],
-    "1-L3": [0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 0],
-    "2-L1": [0, 32, 48, 56, 64, 80, 96, 112, 128, 144, 160, 176, 192, 224, 256, 0],
-    "2-L2": [0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160, 0],
-    "2-L3": [0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160, 0],
-    "2.5-L1": [0, 32, 48, 56, 64, 80, 96, 112, 128, 144, 160, 176, 192, 224, 256, 0],
-    "2.5-L2": [0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160, 0],
-    "2.5-L3": [0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160, 0],
-  };
-  const table = tables[key];
-  return table ? Number(table[bitrateIndex] || 0) : 0;
-}
-
-function mp3SampleRateForHeader(versionKey, sampleRateIndex) {
-  const tables = {
-    "1": [44100, 48000, 32000, 0],
-    "2": [22050, 24000, 16000, 0],
-    "2.5": [11025, 12000, 8000, 0],
-  };
-  const table = tables[versionKey];
-  return table ? Number(table[sampleRateIndex] || 0) : 0;
-}
-
 function parseMp3FrameHeader(buffer, offset = 0) {
   const source = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer || []);
   if (offset < 0 || (offset + 4) > source.length) return null;
@@ -31953,7 +31928,9 @@ function escapeXmlText(value) {
 // boundary because project content is per-user private data. Helpers
 // are passed as deps so the route file is independently testable.
 // See docs/specs/T-decompose-backend-index.md.
+const draftCharacterLearner = createDraftCharacterLearner({ recordCharacterMention: creativeMemoryStore.recordCharacterMention });
 mountScreenplayProjectsRoutes(app, {
+  onScreenplayVersionSaved: draftCharacterLearner.onVersionSaved,
   commitScreenplayOwnerMutation,
   getOrCreateScreenplayOwnerRecord,
   getScreenplayProjectRecord,

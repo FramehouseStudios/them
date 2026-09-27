@@ -103,6 +103,8 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
     normalizeStoredScreenplayStudioAskNoteHistory,
     normalizeStoredScreenplayWriteAnchors,
     normalizeStoredScreenplayBindings,
+    // Optional best-effort side effects
+    onScreenplayVersionSaved,
   } = deps;
 
   const requiredFns = {
@@ -1690,6 +1692,11 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
         stage: "screenplay_version",
         error: "screenplay_persistence_failed",
       });
+    }
+    if (typeof onScreenplayVersionSaved === "function") {
+      try {
+        onScreenplayVersionSaved({ req, project: committedProject, draft: committedVersion.draft });
+      } catch (_error) { /* never let a side effect fail a committed save */ }
     }
     applyReadStateHeaders(res, buildScreenplayReadMeta(req, committedOwner));
     return res.status(201).json(buildScreenplayEnvelope(req, committedOwner, {

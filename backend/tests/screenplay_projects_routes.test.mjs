@@ -1509,6 +1509,39 @@ test("[screenplay-projects-routes] POST /version saves a draft and returns 201",
   });
 });
 
+test("[screenplay-projects-routes] POST /version hands the committed draft to onScreenplayVersionSaved", async () => {
+  const calls = [];
+  const deps = defaultDeps({ onScreenplayVersionSaved: (input) => calls.push(input) });
+  await withTestServer(deps, async (baseURL) => {
+    const draft = "INT. PIER - NIGHT\n\nNORA\nIs anyone out there?";
+    const r = await postJson(baseURL, "/screenplay/projects/p1/version", { draft });
+    assert.equal(r.status, 201);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].project.id, "p1");
+    assert.equal(calls[0].draft, draft);
+    assert.ok(calls[0].req, "the hook receives the request so it can resolve the memory user");
+  });
+});
+
+test("[screenplay-projects-routes] POST /version still saves when onScreenplayVersionSaved throws", async () => {
+  const deps = defaultDeps({ onScreenplayVersionSaved: () => { throw new Error("hook exploded"); } });
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, "/screenplay/projects/p1/version", { draft: "INT. ROOM - DAY\n\nAction." });
+    assert.equal(r.status, 201);
+    assert.equal(r.body.status, "saved");
+  });
+});
+
+test("[screenplay-projects-routes] POST /version does not call onScreenplayVersionSaved for a rejected save", async () => {
+  const calls = [];
+  const deps = defaultDeps({ onScreenplayVersionSaved: (input) => calls.push(input) });
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, "/screenplay/projects/p1/version", { draft: "" });
+    assert.notEqual(r.status, 201);
+    assert.equal(calls.length, 0);
+  });
+});
+
 test("[screenplay-projects-routes] POST /version surfaces adapter persistence failure", async () => {
   const deps = defaultDeps({
     markScreenplayOwnerDirty: () => ({
