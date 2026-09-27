@@ -5155,7 +5155,7 @@ private var projectsSidebarContent: some View {
                 version: version,
                 phaseTitle: ScreenplayStudioDraftToolsPresentationPlanner.snapshotPhaseTitle(version),
                 relativeTimestampText: dateFromTimestamp(version.updatedAt ?? version.createdAt).map {
-                    relativeTimestamp($0)
+                    StudioVersionTimeLabel.text(for: $0)
                 },
                 notes: ScreenplayStudioDraftToolsPresentationPlanner.snapshotNotes(version),
                 canRestore: ScreenplayStudioDraftToolsPresentationPlanner.snapshotCanRestore(version)
