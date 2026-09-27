@@ -684,6 +684,10 @@ function mountMemoriesRoutes(app, deps = {}) {
     const nowTs = Date.now();
     const limit = parseQueryLimit(req.query?.limit, 24, 120);
     const sinceVersion = String(req.query?.sinceVersion || "").trim();
+    // Optional (additive): the creative-memory revision the client already
+    // has. With it, a signed-in writer's poll can come back unchanged; without
+    // it, a delta with a creative ledger always returns the full payload.
+    const sinceCreativeRevision = String(req.query?.sinceCreativeRevision || "").trim();
     const selected = selectMemoryRecordForRead(req, nowTs);
     const context = await loadCanonicalMemoryContext(req, res, {
       action: "read",
@@ -742,7 +746,8 @@ function mountMemoriesRoutes(app, deps = {}) {
     res.setHeader("Cache-Control", "no-store");
     applyReadStateHeaders(res, readMeta);
     applyCreativeMemoryRevisionHeader(res, creativeMemoryRevision);
-    if (sinceVersion && sinceVersion === readMeta.stateVersion && !creativeMemory) {
+    const creativeUnchanged = !creativeMemory || (sinceCreativeRevision && sinceCreativeRevision === creativeMemoryRevision);
+    if (sinceVersion && sinceVersion === readMeta.stateVersion && creativeUnchanged) {
       return res.status(200).json({
         source: selected.source,
         source_ip: selected.ip,
