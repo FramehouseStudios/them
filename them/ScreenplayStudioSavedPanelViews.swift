@@ -18,7 +18,6 @@ struct ScreenplayStudioSavedPanelPresentation {
     let isSaving: Bool
     let hasDraft: Bool
     let autosaveStatusText: String
-    let latestVersionID: String
     let backgroundSyncNoticeText: String
     let hasSelectedProject: Bool
     let snapshotVersions: [ScreenplayStudioSnapshotPresentation]
@@ -39,9 +38,6 @@ struct ScreenplayStudioSavedPanelPresentation {
         !backgroundSyncNoticeText.isEmpty
     }
 
-    var latestVersionTag: String? {
-        ScreenplayStudioSavedPanelPresentationPlanner.latestVersionTag(for: latestVersionID)
-    }
 
     var versionsState: ScreenplayStudioSavedVersionsState {
         ScreenplayStudioSavedPanelPresentationPlanner.versionsState(
@@ -62,12 +58,6 @@ struct ScreenplayStudioSavedPanelActions {
 }
 
 enum ScreenplayStudioSavedPanelPresentationPlanner {
-    static func latestVersionTag(for versionID: String) -> String? {
-        let cleanID = versionID.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !cleanID.isEmpty else { return nil }
-        return "Version \(String(cleanID.suffix(6)).uppercased())"
-    }
-
     static func versionsState(
         hasSelectedProject: Bool,
         versionCount: Int
@@ -103,12 +93,14 @@ struct ScreenplayStudioSavedPanel: View {
                             .font(IOThemTypography.UI.captionStrong)
                     }
                     .foregroundStyle(Color.herText.opacity(0.88))
+                    .lineLimit(1)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
                     .background(Color.herStudioActiveFill.opacity(0.18))
                     .clipShape(Capsule())
                 }
                 .buttonStyle(.plain)
+                .fixedSize() // wrapped to "Save / Script" beside a long status chip
                 .disabled(presentation.saveDisabled)
                 .accessibilityHint(
                     presentation.hasSelectedProject
@@ -118,10 +110,6 @@ struct ScreenplayStudioSavedPanel: View {
                 .accessibilityIdentifier("studio.saved.save")
 
                 savedStatusChip(presentation.autosaveStatusText, prominence: .muted)
-
-                if let latestVersionTag = presentation.latestVersionTag {
-                    savedStatusChip(latestVersionTag, prominence: .muted)
-                }
             }
 
             Text(StudioSavedPanelCopy.intro)
@@ -197,18 +185,17 @@ struct ScreenplayStudioSavedPanel: View {
                     }
                 }
 
-                HStack(spacing: 6) {
-                    if let timestamp = snapshot.relativeTimestampText {
-                        Text(timestamp)
-                            .font(IOThemTypography.UI.labelRegular)
-                            .foregroundStyle(Color.herText.opacity(0.62))
-                    }
-                    if let notes = snapshot.notes {
-                        Text(notes)
-                            .font(IOThemTypography.UI.labelRegular)
-                            .foregroundStyle(Color.herText.opacity(0.62))
-                            .lineLimit(1)
-                    }
+                if let timestamp = snapshot.relativeTimestampText {
+                    Text(timestamp)
+                        .font(IOThemTypography.UI.labelRegular)
+                        .foregroundStyle(Color.herText.opacity(0.62))
+                }
+                // Own line: beside the time it was cut to "Restored from Today…".
+                if let notes = snapshot.notes {
+                    Text(notes)
+                        .font(IOThemTypography.UI.labelRegular)
+                        .foregroundStyle(Color.herText.opacity(0.62))
+                        .lineLimit(2)
                 }
             }
 

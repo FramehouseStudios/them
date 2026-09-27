@@ -4407,7 +4407,6 @@ private func refreshStudioCreativeInstincts(
             isSaving: vm.isSaving,
             hasDraft: !vm.fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
             autosaveStatusText: vm.autosaveStatusText,
-            latestVersionID: vm.latestVersionID,
             backgroundSyncNoticeText: studioBackgroundSyncNoticeText,
             hasSelectedProject: vm.selectedProject != nil,
             snapshotVersions: draftSnapshotPresentations

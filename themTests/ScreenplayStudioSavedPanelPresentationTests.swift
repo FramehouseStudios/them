@@ -8,7 +8,6 @@ final class ScreenplayStudioSavedPanelPresentationTests: XCTestCase {
         let saving = makePresentation(
             isSaving: true,
             hasDraft: true,
-            latestVersionID: "  version-abcdef  ",
             backgroundSyncNoticeText: "Saved locally.",
             hasSelectedProject: true
         )
@@ -16,34 +15,29 @@ final class ScreenplayStudioSavedPanelPresentationTests: XCTestCase {
         XCTAssertEqual(saving.saveTitle, "Saving…")
         XCTAssertEqual(saving.saveSystemImage, "arrow.clockwise")
         XCTAssertTrue(saving.saveDisabled)
-        XCTAssertEqual(saving.latestVersionTag, "Version ABCDEF")
         XCTAssertTrue(saving.showsBackgroundSyncNotice)
         XCTAssertEqual(saving.versionsState, .empty)
 
         let blankDraft = makePresentation(
             isSaving: false,
             hasDraft: false,
-            latestVersionID: " \n ",
             backgroundSyncNoticeText: "",
             hasSelectedProject: true
         )
         XCTAssertEqual(blankDraft.saveTitle, "Save Script")
         XCTAssertEqual(blankDraft.saveSystemImage, "square.and.arrow.down")
         XCTAssertTrue(blankDraft.saveDisabled)
-        XCTAssertNil(blankDraft.latestVersionTag)
         XCTAssertFalse(blankDraft.showsBackgroundSyncNotice)
         XCTAssertEqual(blankDraft.versionsState, .empty)
 
         let readyWithoutProject = makePresentation(
             isSaving: false,
             hasDraft: true,
-            latestVersionID: "v2",
             backgroundSyncNoticeText: " ",
             hasSelectedProject: false,
             snapshots: [makeSnapshot(id: "version-2", canRestore: true)]
         )
         XCTAssertTrue(readyWithoutProject.saveDisabled)
-        XCTAssertEqual(readyWithoutProject.latestVersionTag, "Version V2")
         XCTAssertTrue(readyWithoutProject.showsBackgroundSyncNotice)
         XCTAssertEqual(readyWithoutProject.versionsState, .needsProject)
     }
@@ -66,7 +60,6 @@ final class ScreenplayStudioSavedPanelPresentationTests: XCTestCase {
         let presentation = makePresentation(
             isSaving: false,
             hasDraft: true,
-            latestVersionID: "newest-version",
             backgroundSyncNoticeText: "",
             hasSelectedProject: true,
             snapshots: [newest, older]
@@ -87,7 +80,6 @@ final class ScreenplayStudioSavedPanelPresentationTests: XCTestCase {
     private func makePresentation(
         isSaving: Bool,
         hasDraft: Bool,
-        latestVersionID: String,
         backgroundSyncNoticeText: String,
         hasSelectedProject: Bool,
         snapshots: [ScreenplayStudioSnapshotPresentation] = []
@@ -96,7 +88,6 @@ final class ScreenplayStudioSavedPanelPresentationTests: XCTestCase {
             isSaving: isSaving,
             hasDraft: hasDraft,
             autosaveStatusText: "Autosaved",
-            latestVersionID: latestVersionID,
             backgroundSyncNoticeText: backgroundSyncNoticeText,
             hasSelectedProject: hasSelectedProject,
             snapshotVersions: snapshots
