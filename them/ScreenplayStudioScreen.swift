@@ -10708,6 +10708,10 @@ Return revised screenplay lines only.
         }
 
         backendThreadViewStatePersistTask?.cancel()
+        let threadView = hasMeaningfulFullThreadBrowseState(record) ? record.backendPayload : BackendScreenplayThreadViewState.empty
+        let acknowledgedKeys = normalizedAcknowledgedStudioDiffKeys(currentAcknowledgedStudioDiffRecords())
+        let acknowledgedEntries = normalizedAcknowledgedStudioDiffBackendEntries(currentAcknowledgedStudioDiffRecords(), writeIDs: currentAcknowledgedStudioDiffWriteIDs())
+        guard !StudioProjectSidecarSyncPolicy.threadViewMatchesServer(project, threadView: threadView, acknowledgedKeys: acknowledgedKeys, acknowledgedEntries: acknowledgedEntries) else { return }
         backendThreadViewStatePersistTask = Task {
             try? await Task.sleep(nanoseconds: 700_000_000)
             guard !Task.isCancelled else { return }
@@ -10720,23 +10724,9 @@ Return revised screenplay lines only.
                     characters: project.characters ?? [],
                     setting: project.setting ?? "",
                     tone: project.tone ?? "",
-                    studioThreadViewState: hasMeaningfulFullThreadBrowseState(record)
-                        ? record.backendPayload
-                        : BackendScreenplayThreadViewState(
-                            searchText: "",
-                            selectedFilterRaw: "",
-                            selectedSceneKey: "",
-                            scrollTargetKey: "",
-                            collapsedSectionKeys: [],
-                            focusedDiffKey: "",
-                            reopenedLineageKeys: [],
-                            latestReopenedWriteID: ""
-                        ),
-                    studioDiffAcknowledgedKeys: normalizedAcknowledgedStudioDiffKeys(currentAcknowledgedStudioDiffRecords()),
-                    studioDiffAcknowledgedEntries: normalizedAcknowledgedStudioDiffBackendEntries(
-                        currentAcknowledgedStudioDiffRecords(),
-                        writeIDs: currentAcknowledgedStudioDiffWriteIDs()
-                    )
+                    studioThreadViewState: threadView,
+                    studioDiffAcknowledgedKeys: acknowledgedKeys,
+                    studioDiffAcknowledgedEntries: acknowledgedEntries
                 )
                 if let nextProject = result.payload.project {
                     await MainActor.run {
@@ -11745,6 +11735,7 @@ Return revised screenplay lines only.
 
         let historyPayload = backendStudioAskNoteHistoryPayload(from: entries)
         backendAskNoteHistoryPersistTask?.cancel()
+        guard !StudioProjectSidecarSyncPolicy.askNoteHistoryMatchesServer(project, history: historyPayload) else { return }
         backendAskNoteHistoryPersistTask = Task {
             try? await Task.sleep(nanoseconds: 700_000_000)
             guard !Task.isCancelled else { return }
