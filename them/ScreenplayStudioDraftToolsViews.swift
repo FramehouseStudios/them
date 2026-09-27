@@ -961,7 +961,8 @@ private struct ScreenplayStudioDraftRevisionTools: View {
     private var revisionSummary: some View {
         VStack(alignment: .leading, spacing: 8) {
             if let summary = presentation.summary {
-                HStack(spacing: 8) {
+                // Two by two: four across broke "Removed" into "Remov / ed" in the phone rail.
+                LazyVGrid(columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)], alignment: .leading, spacing: 8) {
                     metricChip("Revised", value: "\(summary.revised)")
                     metricChip("Added", value: "\(summary.added)")
                     metricChip("Moved", value: "\(summary.moved)")
@@ -986,7 +987,7 @@ private struct ScreenplayStudioDraftRevisionTools: View {
                             RoundedRectangle(cornerRadius: 3, style: .continuous)
                                 .fill(revisionFillColor(range.color))
                                 .frame(width: 14, height: 8)
-                            Text("\(range.status.capitalized) lines \(range.startLine)-\(range.endLine)")
+                            Text("\(range.status.capitalized) · \(ScreenplayStudioDraftToolsPresentationPlanner.lineRangeText(start: range.startLine, end: range.endLine))")
                                 .font(IOThemTypography.UI.caption)
                                 .foregroundStyle(Color.herText.opacity(0.72))
                         }
@@ -1001,10 +1002,12 @@ private struct ScreenplayStudioDraftRevisionTools: View {
             Text(title)
                 .font(IOThemTypography.UI.caption)
                 .foregroundStyle(Color.herText.opacity(0.70))
+                .lineLimit(1)
             Text(value)
                 .font(IOThemTypography.UI.prominentCallout)
                 .foregroundStyle(Color.herText.opacity(0.95))
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
         .background(
@@ -1105,25 +1108,30 @@ private struct ScreenplayStudioDraftSnapshotTools: View {
 
     private func snapshotRow(_ snapshot: ScreenplayStudioSnapshotPresentation) -> some View {
         HStack(spacing: 8) {
-            Text(snapshot.phaseTitle)
-                .font(IOThemTypography.UI.captionStrong)
-                .foregroundStyle(Color.herText.opacity(0.88))
-            if let timestamp = snapshot.relativeTimestampText {
-                Text(timestamp)
-                    .font(IOThemTypography.UI.labelRegular)
-                    .foregroundStyle(Color.herText.opacity(0.66))
+            // Title over time and note: side by side in the phone rail they
+            // squeezed the button into "Restor / e".
+            VStack(alignment: .leading, spacing: 2) {
+                Text(snapshot.phaseTitle)
+                    .font(IOThemTypography.UI.captionStrong)
+                    .foregroundStyle(Color.herText.opacity(0.88))
+                if let timestamp = snapshot.relativeTimestampText {
+                    Text(timestamp)
+                        .font(IOThemTypography.UI.labelRegular)
+                        .foregroundStyle(Color.herText.opacity(0.66))
+                }
+                if let notes = snapshot.notes {
+                    Text(notes)
+                        .font(IOThemTypography.UI.labelRegular)
+                        .foregroundStyle(Color.herText.opacity(0.66))
+                        .lineLimit(1)
+                }
             }
-            if let notes = snapshot.notes {
-                Text(notes)
-                    .font(IOThemTypography.UI.labelRegular)
-                    .foregroundStyle(Color.herText.opacity(0.66))
-                    .lineLimit(1)
-            }
-            Spacer()
+            Spacer(minLength: 8)
             Button("Restore") {
                 onRestoreSnapshot(snapshot.version)
             }
             .buttonStyle(.bordered)
+            .fixedSize()
             .disabled(!snapshot.canRestore)
             .accessibilityIdentifier("studio.draft.snapshot.restore.\(snapshot.id)")
         }
