@@ -96,6 +96,40 @@ Hello.
   assert.ok(!rules(r.suggestions).includes("character_cue_caps"));
 });
 
+test("[character_cue_caps] a parenthetical under a cue is not a mixed-case cue", () => {
+  const text = `INT. DOCK - DAY
+
+NORA
+(whispering)
+Who's there? I told you never to follow me.
+`;
+  const r = lintScreenplay({ text });
+  assert.ok(!rules(r.suggestions).includes("character_cue_caps"), JSON.stringify(r.suggestions));
+});
+
+test("[character_cue_caps] short action lines are not cues", () => {
+  const text = `INT. DOCK - DAY
+
+Silence.
+Rain on the boards.
+
+Nora waits
+`;
+  const r = lintScreenplay({ text });
+  assert.ok(!rules(r.suggestions).includes("character_cue_caps"), JSON.stringify(r.suggestions));
+});
+
+test("[character_cue_caps] a mixed-case cue with a parenthetical is still flagged", () => {
+  const text = `INT. DOCK - DAY
+
+Nora
+(whispering)
+Who's there?
+`;
+  const r = lintScreenplay({ text });
+  assert.ok(rules(r.suggestions).includes("character_cue_caps"));
+});
+
 // ---------- parenthetical_density ----------
 
 test("[parenthetical_density] flags long parentheticals", () => {
