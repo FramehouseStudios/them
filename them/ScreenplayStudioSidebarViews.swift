@@ -133,7 +133,8 @@ struct ScreenplayStudioProjectsSidebar<FeatureSpine: View>: View {
                     .font(isActive ? IOThemTypography.UI.calloutStrong : IOThemTypography.UI.calloutMedium)
                     .foregroundStyle(textColor.opacity(isActive ? 0.96 : 0.88))
                     .lineLimit(2)
-                Text("Scenes \(project.sceneCount ?? 0) • Beats \(project.beatCount ?? 0)")
+                Text(StudioProjectRowSubtitle.text(for: project))
+                    .lineLimit(1)
                     .font(IOThemTypography.UI.labelRegular)
                     .foregroundStyle(secondaryTextColor.opacity(isActive ? 0.92 : 0.82))
             }
