@@ -548,14 +548,33 @@ final class ScreenplayCraftModelsTests: XCTestCase {
         ))
 
         XCTAssertTrue(state.shouldRender)
-        XCTAssertEqual(state.countLabel, "3 samples")
-        XCTAssertEqual(state.trendLabel, "Momentum rising")
-        XCTAssertEqual(state.levelMixLabel, "High 1 / Medium 1")
+        XCTAssertEqual(state.countLabel, "3 check-ins")
+        XCTAssertEqual(state.trendLabel, "Momentum slipping", "a rising block score means the writer is getting stuck")
+        XCTAssertEqual(state.levelMixLabel, "Stuck 1 · Slowing 1")
         XCTAssertEqual(state.sparklineScores, [0, 1, 0.7])
         XCTAssertEqual(state.latestLevel, .medium)
     }
 
 
+
+    func testBlockSignalHistoryFallingScoreIsMomentumBuildingAndCleanHistoryIsNeverStuck() {
+        let state = BackendBlockSignalHistoryTrendState.make(history: BackendBlockSignalHistoryResponse(
+            schemaVersion: 1,
+            entries: [
+                BackendBlockSignalHistoryEntry(at: 1, score: 0.4, level: .low),
+                BackendBlockSignalHistoryEntry(at: 2, score: 0.1, level: .low)
+            ],
+            counts: BackendBlockSignalHistoryCounts(
+                total: 2,
+                byLevel: BackendBlockSignalHistoryCountsByLevel(low: 2, medium: 0, high: 0)
+            ),
+            newestAt: 2,
+            oldestAt: 1,
+            error: nil
+        ))
+        XCTAssertEqual(state.trendLabel, "Momentum building")
+        XCTAssertEqual(state.levelMixLabel, "Never stuck")
+    }
 
     func testTwistSuggestResponseDecodesBackendEnvelope() throws {
         let response = try JSONDecoder().decode(ScreenplayCraftTwistSuggestResponse.self, from: Data(#"""

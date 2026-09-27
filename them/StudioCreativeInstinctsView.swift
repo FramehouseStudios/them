@@ -262,10 +262,9 @@ struct StudioCreativeInstinctsView: View {
                 } else if hasSelectedProject {
                     Button(action: onRefresh) {
                         Image(systemName: "arrow.clockwise")
-                            .font(IOThemTypography.UI.caption.weight(.semibold))
-                            .frame(width: 26, height: 26)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.bordered) // matches the other rail cards' refresh buttons
+                    .controlSize(.small)
                     .help("Refresh creative instincts")
                     .accessibilityLabel("Refresh creative instincts")
                     .accessibilityIdentifier("studio.story-preferences.refresh")
