@@ -41,6 +41,7 @@
 // app/client must send bearer auth plus the active client token.
 
 import express from "express";
+import { classifyTalkFailure } from "./talk_failure_diagnostics.js";
 import {
   buildModelPrompt,
   FEATURE_MAP_BLOCK_OPEN,
@@ -1289,11 +1290,7 @@ function mountRealtimeStudioRenderRoutes(app, deps = {}) {
       console.error(
         `[${rid}] studio_render_stream error stage=${String(error?.stage || "studio_render")} message=${String(error?.message || error || "Studio render stream failed.")}`,
       );
-      pushEvent("error", {
-        request_id: rid,
-        stage: String(error?.stage || "studio_render"),
-        error: String(error?.message || error || "Studio render stream failed."),
-      });
+      pushEvent("error", studioRenderStreamErrorEvent({ rid, error }));
     } finally {
       if (!res.writableEnded) {
         res.end();
@@ -1302,4 +1299,39 @@ function mountRealtimeStudioRenderRoutes(app, deps = {}) {
   });
 }
 
-export { mountRealtimeStudioRenderRoutes, STUDIO_RENDER_BODY_LIMIT };
+// Provider failures (quota, auth, rate limit, timeout, outage) must not reach
+// the client as the provider's raw error body: it named OpenAI's billing page
+// and was shown to writers verbatim (seen live 2026-09-27). They get the same
+// classified public message /talk uses; the raw text stays in the server log.
+// Other failures (validation, app errors) keep their message.
+const PUBLIC_PROVIDER_CLASSES = new Set([
+  "provider_quota",
+  "provider_auth",
+  "provider_rate_limited",
+  "provider_timeout",
+  "provider_unavailable",
+]);
+
+function studioRenderStreamErrorEvent({ rid = "", error } = {}) {
+  const stage = String(error?.stage || "studio_render");
+  const rawMessage = String(error?.message || error || "Studio render stream failed.");
+  const errorClass = classifyTalkFailure({
+    status: Number(error?.status || error?.statusCode || 0),
+    stage: "chat",
+    message: rawMessage,
+    providerType: error?.type,
+    providerCode: error?.code,
+  });
+  if (!PUBLIC_PROVIDER_CLASSES.has(errorClass)) {
+    return { request_id: rid, stage, error: rawMessage };
+  }
+  const reference = rid ? ` Reference ${String(rid).slice(0, 8)}.` : "";
+  return {
+    request_id: rid,
+    stage,
+    error_class: errorClass,
+    error: `Studio render failed during response generation (${errorClass}).${reference}`,
+  };
+}
+
+export { mountRealtimeStudioRenderRoutes, STUDIO_RENDER_BODY_LIMIT, studioRenderStreamErrorEvent };

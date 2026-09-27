@@ -1469,6 +1469,9 @@ final class ScreenplayStudioViewModel: ObservableObject {
     @Published var isSaving: Bool = false
     @Published var errorText: String = ""
     @Published var infoText: String = ""
+    /// The last command-bar failure, shown under the field (the rail's status
+    /// strip sits below everything on a phone, so failures went unseen).
+    @Published var studioPromptErrorText: String = ""
 
     @Published var projects: [BackendScreenplayProjectSummary] = []
     @Published var selectedProjectID: String = ""
