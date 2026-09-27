@@ -9171,7 +9171,7 @@ Current draft version:
         return draftAlertBanner(
             title: recoveryAlreadyOnPage ? "Local draft protected" : "Unsaved local draft found",
             message: recoveryAlreadyOnPage
-                ? "Saved locally \(savedText). Retry Save when the connection is back, or discard the recovery copy."
+                ? "Saved on this device \(savedText). It saves to your account by itself when the connection is back."
                 : "Saved \(savedText). Recover it or keep the server draft.",
             hint: recoveryAlreadyOnPage
                 ? "Press 1 to keep the local draft on the page or 2 to discard the recovery copy."
@@ -9182,13 +9182,15 @@ Current draft version:
             NumberedChoiceActionButton(
                 number: "1",
                 title: recoveryAlreadyOnPage ? "Keep Local" : "Recover Local",
-                prominence: .prominent
+                prominence: .prominent,
+                tint: Color.orange.opacity(0.88)
             ) {
                 vm.restoreDraftFromRecovery()
             }
             NumberedChoiceActionButton(
                 number: "2",
-                title: recoveryAlreadyOnPage ? "Discard Copy" : "Keep Server"
+                title: recoveryAlreadyOnPage ? "Discard Copy" : "Keep Server",
+                tint: Color.herText.opacity(0.78)
             ) {
                 if recoveryAlreadyOnPage {
                     vm.discardLocalRecoveryCopy()
@@ -9216,24 +9218,14 @@ Current draft version:
             tint: Color.red.opacity(0.88),
             excerpt: conflict.serverDraftExcerpt
         ) {
-            Button {
+            NumberedChoiceActionButton(number: "1", title: "Load Server", tint: Color.herText.opacity(0.78)) {
                 vm.applyServerVersionFromConflict()
-            } label: {
-                Text("1 Load Server")
             }
-            .buttonStyle(.bordered)
-            .tint(Color.white.opacity(0.24))
-            .keyboardShortcut("1", modifiers: [])
             .accessibilityIdentifier("studio.conflict.load-server")
 
-            Button {
+            NumberedChoiceActionButton(number: "2", title: "Keep Mine", prominence: .prominent, tint: Color.red.opacity(0.78)) {
                 Task { await vm.keepLocalDraftAfterConflict() }
-            } label: {
-                Text("2 Keep Mine")
             }
-            .buttonStyle(.borderedProminent)
-            .tint(Color.white.opacity(0.24))
-            .keyboardShortcut("2", modifiers: [])
             .accessibilityIdentifier("studio.conflict.keep-mine")
         }
     }
@@ -9285,7 +9277,7 @@ Current draft version:
         .padding(12)
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(tint.opacity(0.10))
+                .fill(tint.opacity(0.10)).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous)) // page must not show through
         )
         .overlay(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
