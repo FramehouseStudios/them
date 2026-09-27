@@ -8657,6 +8657,16 @@ Current draft version:
 
                     content()
                         .frame(minHeight: minHeight, maxHeight: maxHeight)
+                        // The placeholder sits on the content itself, so it
+                        // starts under the header whatever height the header
+                        // takes (the phone layout stacks its rows).
+                        .overlay(alignment: .topLeading) {
+                            if showEmptyPlaceholder {
+                                ScreenplayStudioPageEmptyPlaceholder(
+                                    hasSelectedProject: vm.selectedProject != nil
+                                )
+                            }
+                        }
                         .padding(.top, IOThemSpacing.ScreenplayPageChrome.contentTopPadding)
                         .padding(.horizontal, ScreenplayStackMetrics.pageSurfaceHorizontalPadding)
                         .padding(.bottom, IOThemSpacing.ScreenplayPageChrome.contentBottomPadding)
@@ -8673,13 +8683,6 @@ Current draft version:
                         isCommitNoticeVisible: isCommitNoticeVisible
                     )
                 )
-                .overlay(alignment: .topLeading) {
-                    if showEmptyPlaceholder {
-                        ScreenplayStudioPageEmptyPlaceholder(
-                            hasSelectedProject: vm.selectedProject != nil
-                        )
-                    }
-                }
                 .overlay {
                     RoundedRectangle(cornerRadius: IOThemSpacing.ScreenplayPageChrome.cornerRadius, style: .continuous)
                         .stroke(

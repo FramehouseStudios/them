@@ -34,10 +34,9 @@ struct ScreenplayStudioPageEmptyPlaceholder: View {
 
     var body: some View {
         GeometryReader { proxy in
-            let editorWidth = max(
-                0,
-                proxy.size.width - (ScreenplayStackMetrics.pageSurfaceHorizontalPadding * 2)
-            )
+            // Laid over the page content (inside the surface's horizontal
+            // padding), so the proxy width is already the editor width.
+            let editorWidth = max(0, proxy.size.width)
             let editorTextInset = ScreenplayStackMetrics.editorTextInsetHorizontal(
                 forEditorWidth: editorWidth
             )
@@ -102,21 +101,9 @@ struct ScreenplayStudioPageEmptyPlaceholder: View {
 
                 Spacer(minLength: 0)
             }
-            .padding(
-                .top,
-                IOThemSpacing.ScreenplayPageChrome.headerHeight
-                + IOThemSpacing.ScreenplayPageChrome.contentTopPadding
-                + ScreenplayStackMetrics.editorTextInsetVertical
-            )
-            .padding(
-                .leading,
-                ScreenplayStackMetrics.pageSurfaceHorizontalPadding + editorTextInset
-            )
-            .padding(
-                .trailing,
-                ScreenplayStackMetrics.pageSurfaceHorizontalPadding + editorTextInset
-            )
-            .padding(.bottom, IOThemSpacing.ScreenplayPageChrome.contentBottomPadding)
+            .padding(.top, ScreenplayStackMetrics.editorTextInsetVertical)
+            .padding(.leading, editorTextInset)
+            .padding(.trailing, editorTextInset)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .allowsHitTesting(false)
         }
