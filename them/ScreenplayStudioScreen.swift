@@ -1112,7 +1112,7 @@ Replace is best when this file should become the script you edit. Append is safe
             .onReceive(Self.crossDeviceRefreshTimer) { _ in
                 guard !IOThemRuntime.isRunningTests else { return }
                 crossDeviceTick &+= 1
-                guard StudioCrossDevicePollPolicy.shouldPoll(tick: crossDeviceTick, hasSelectedProject: vm.selectedProject != nil, unchangedStreak: vm.crossDeviceUnchangedStreak) else { return }
+                guard CrossDevicePollPolicy.shouldPoll(tick: crossDeviceTick, hasActiveContext: vm.selectedProject != nil, unchangedStreak: vm.crossDeviceUnchangedStreak) else { return }
                 Task {
                     await vm.refreshCrossDeviceStateIfNeeded()
                     if directionOneRightPanelTab == .them {
