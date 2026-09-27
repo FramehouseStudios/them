@@ -1404,12 +1404,12 @@ public enum FountainFormatter {
 
     private static func hasCharacterDialoguePair(_ lines: [String]) -> Bool {
         guard lines.count >= 2 else { return false }
-        for index in 0..<(lines.count - 1) {
-            let current = lines[index]
-            let next = lines[index + 1]
-            if isCharacterCueLine(current), !next.hasPrefix("(") {
-                return true
-            }
+        for index in 0..<(lines.count - 1) where isCharacterCueLine(lines[index]) {
+            // A cue may carry parentheticals before its dialogue:
+            // "NORA / (whispering) / Who's there?" is one dialogue block.
+            var next = index + 1
+            while next < lines.count, lines[next].hasPrefix("(") { next += 1 }
+            if next < lines.count { return true }
         }
         return false
     }

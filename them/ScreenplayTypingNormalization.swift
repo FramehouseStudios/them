@@ -15,4 +15,26 @@ enum ScreenplayTypingNormalization {
     static func lineWhileTyping(_ line: String) -> String {
         line.uppercased()
     }
+
+    /// Where the cursor belongs after a finished line is normalized.
+    ///
+    /// Normalizing can add text around the writer's words: a parenthetical
+    /// "Whispering" becomes "(whispering)". Keeping the raw offset put the
+    /// cursor one character short, so the Return that triggered the
+    /// normalization split the word and the next line was typed inside the
+    /// parentheses ("(whisperin" / "Who's there?g)", seen live 2026-09-27).
+    /// A cursor at the end stays at the end; otherwise it follows the
+    /// original text inside the normalized line.
+    static func cursorOffset(afterNormalizing original: String, to normalized: String, originalOffset: Int) -> Int {
+        let old = original as NSString
+        let new = normalized as NSString
+        if originalOffset >= old.length { return new.length }
+        let trimmed = original.trimmingCharacters(in: .whitespaces)
+        let located = new.range(of: trimmed, options: [.caseInsensitive])
+        if !trimmed.isEmpty, located.location != NSNotFound {
+            let leading = (original as NSString).range(of: trimmed).location
+            return min(max(0, located.location + originalOffset - leading), new.length)
+        }
+        return min(originalOffset, new.length)
+    }
 }

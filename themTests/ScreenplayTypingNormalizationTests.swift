@@ -34,3 +34,26 @@ final class ScreenplayTypingNormalizationTests: XCTestCase {
         XCTAssertEqual(typeLine("Nora", rewrite: ScreenplayTypingNormalization.lineWhileTyping), "NORA")
     }
 }
+
+final class ScreenplayNormalizedCursorTests: XCTestCase {
+    func testReturnAtTheEndOfAParentheticalLandsAfterTheClosingParen() {
+        let offset = ScreenplayTypingNormalization.cursorOffset(afterNormalizing: "Whispering", to: "(whispering)", originalOffset: 10)
+        XCTAssertEqual(offset, 12)
+    }
+
+    func testMidWordCursorFollowsTheWordInsideAddedParens() {
+        // Cursor between "Whisper" and "ing".
+        let offset = ScreenplayTypingNormalization.cursorOffset(afterNormalizing: "Whispering", to: "(whispering)", originalOffset: 7)
+        XCTAssertEqual(offset, 8)
+        XCTAssertEqual(("(whispering)" as NSString).substring(to: offset), "(whisper")
+    }
+
+    func testHeadingThatOnlyChangesCaseKeepsTheOffset() {
+        XCTAssertEqual(ScreenplayTypingNormalization.cursorOffset(afterNormalizing: "int. dock - day", to: "INT. DOCK - DAY", originalOffset: 4), 4)
+    }
+
+    func testUnrelatedRewriteClampsInsteadOfOverflowing() {
+        XCTAssertEqual(ScreenplayTypingNormalization.cursorOffset(afterNormalizing: "cut to", to: "CUT TO:", originalOffset: 2), 2)
+        XCTAssertEqual(ScreenplayTypingNormalization.cursorOffset(afterNormalizing: "abcdefgh", to: "XY", originalOffset: 5), 2)
+    }
+}

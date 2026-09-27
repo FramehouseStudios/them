@@ -69,6 +69,16 @@ final class ScreenplayIntegrityDialogueTests: XCTestCase {
         XCTAssertTrue(FountainFormatter.isStrongStudioPageWriteCandidate("NORA\nIs anyone out there?", allowActionOnly: true))
     }
 
+    func testAParentheticalBetweenCueAndDialogueIsStillScreenplay() {
+        let draft = "INT. DOCK - DAY\n\nRain hammers the boards.\n\nNORA\n(whispering)\nWho's there?"
+        XCTAssertEqual(FountainFormatter.screenplayIntegrityIssues(in: draft), [])
+        XCTAssertTrue(FountainFormatter.isStrongStudioPageWriteCandidate("NORA\n(whispering)\nWho's there?", allowActionOnly: true))
+    }
+
+    func testACueWithOnlyAParentheticalIsNotADialogueBlock() {
+        XCTAssertFalse(FountainFormatter.isStrongStudioPageWriteCandidate("NORA\n(beat)"))
+    }
+
     func testRealCompanionChatterIsStillFlagged() {
         let draft = "INT. PIER - NIGHT\n\nFog rolls over the water.\n\nSure! Do you want me to write the next scene for you?"
         XCTAssertEqual(FountainFormatter.screenplayIntegrityIssues(in: draft).count, 1)
