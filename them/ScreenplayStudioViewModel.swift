@@ -5321,6 +5321,14 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 }
             }
             if selectedProjectID == normalizedProjectID {
+                // Activation is this device's own write. Adopt the list and state
+                // version it returns so the next cross-device poll does not treat
+                // it as a remote change and reload the whole project again.
+                if let stateVersion = normalizedOrNil(result.payload.stateVersion ?? ""),
+                   let screenplayProjects = result.payload.screenplayProjects {
+                    projects = screenplayProjects
+                    lastSeenScreenplayStateVersion = stateVersion
+                }
                 infoText = "Project ready."
             }
         } catch {

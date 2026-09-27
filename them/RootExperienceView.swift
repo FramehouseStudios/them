@@ -3806,9 +3806,9 @@ struct RootExperienceView: View {
             }
             .padding(24)
             .frame(maxWidth: 430)
-            .background(
+            .background( // Material keeps the home orb's ring from crossing the title.
                 RoundedRectangle(cornerRadius: 24, style: .continuous)
-                    .fill(Color.white.opacity(0.18))
+                    .fill(Color.white.opacity(0.18)).background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 24, style: .continuous)
