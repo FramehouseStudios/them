@@ -12,16 +12,6 @@ struct ScreenplayStudioBeatsInspectorLayout<BeatMap: View, Composer: View>: View
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Shape the story in bigger moves.")
-                    .font(IOThemTypography.UI.calloutMedium)
-                    .foregroundStyle(Color.herText.opacity(0.78))
-                Text("Keep the next turn of the script visible. Beats can stay loose while you ideate, or link directly to scenes and acts as the outline locks in.")
-                    .font(IOThemTypography.UI.caption)
-                    .foregroundStyle(Color.herText.opacity(0.64))
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
             HStack(spacing: 8) {
                 directionOneMiniStat("Beats", value: "\(beatCount)")
                 directionOneMiniStat("Scenes linked", value: "\(linkedSceneCount)")
@@ -773,9 +763,11 @@ struct ScreenplayStudioBeatInspectorCard: View {
             Text(history.createdText)
                 .font(IOThemTypography.UI.microMedium)
                 .foregroundStyle(Color.herText.opacity(0.52))
-            Text(history.refreshedText)
-                .font(IOThemTypography.UI.microMedium)
-                .foregroundStyle(Color.herText.opacity(0.52))
+            if !history.refreshedText.isEmpty {
+                Text(history.refreshedText)
+                    .font(IOThemTypography.UI.microMedium)
+                    .foregroundStyle(Color.herText.opacity(0.52))
+            }
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(history.accessibilityLabel)
@@ -1493,7 +1485,8 @@ struct ScreenplayStudioBeatComposer: View {
                 multilineField("Summarize the shift, reveal, or conflict.", text: $summary)
             }
 
-            HStack(alignment: .top, spacing: 10) {
+            // Stacked: side by side, the pickers truncated to "Choos…" in the rail.
+            VStack(alignment: .leading, spacing: 12) {
                 fieldSection(title: "Scene link", detail: "Optional") {
                     ScreenplayStudioBeatScenePicker(
                         selectedScene: selectedScene,
@@ -1564,13 +1557,11 @@ struct ScreenplayStudioBeatComposer: View {
     }
 
     private var saveRow: some View {
-        HStack(alignment: .center, spacing: 12) {
+        VStack(alignment: .leading, spacing: 10) {
             Text("You can save this loose now and connect it more precisely later.")
                 .font(IOThemTypography.UI.labelRegular)
                 .foregroundStyle(Color.herText.opacity(0.56))
                 .fixedSize(horizontal: false, vertical: true)
-
-            Spacer(minLength: 0)
 
             Button(action: onSave) {
                 Label(
@@ -1578,7 +1569,8 @@ struct ScreenplayStudioBeatComposer: View {
                     systemImage: isEditing ? "checkmark.circle.fill" : "plus.circle.fill"
                 )
                 .font(IOThemTypography.UI.prominentCallout)
-                .padding(.horizontal, 16)
+                .lineLimit(1)
+                .frame(maxWidth: .infinity)
                 .padding(.vertical, 10)
             }
             .buttonStyle(.borderedProminent)
