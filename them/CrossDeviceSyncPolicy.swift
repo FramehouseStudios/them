@@ -114,6 +114,29 @@ nonisolated enum CrossDeviceSelectedProjectPolicy {
     }
 }
 
+/// Edits typed while the project list could not load (offline launch) belong
+/// to the project the page was last bound to, but no project was "loaded",
+/// so the first successful load treated the page as unrelated and replaced
+/// it with the server draft: the offline words vanished (seen live
+/// 2026-09-27). When this returns true the load binds the page to that
+/// project first, so the normal local-edit protection keeps it.
+nonisolated enum ScreenplayOfflineEditAdoptionPolicy {
+    static func shouldAdopt(
+        projectsWereLoaded: Bool,
+        selectedProjectId: String,
+        pageProjectId: String,
+        page: String,
+        hasUnsavedEdits: Bool
+    ) -> Bool {
+        let selected = selectedProjectId.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !projectsWereLoaded
+            && hasUnsavedEdits
+            && !selected.isEmpty
+            && selected == pageProjectId.trimmingCharacters(in: .whitespacesAndNewlines)
+            && !page.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+}
+
 nonisolated enum ScreenplayRemoteDraftConflictPolicy {
     /// A server draft that matches the page except for surrounding whitespace
     /// brings nothing new, and writing it over the editor deletes the line the
