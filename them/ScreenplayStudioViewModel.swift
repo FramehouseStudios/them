@@ -5704,12 +5704,30 @@ final class ScreenplayStudioViewModel: ObservableObject {
             }
             return
         }
-        persistLocalDraftRecovery(
-            projectId: selectedProjectID,
-            draft: draft,
-            baseVersionId: latestVersionID,
-            dirty: hasUnsavedDraftChanges
+        // With no project selected (offline launch) the page still belongs to
+        // the project it is bound to; without this the words had no recovery
+        // copy at all, because the store needs a project id.
+        let recoveryBinding = ScreenplayOfflineRecoveryBinding.target(
+            selectedProjectId: selectedProjectID,
+            selectedVersionId: latestVersionID,
+            projectsLoaded: didLoadScreenplayProjectsFromBackend,
+            pageProjectId: ScreenplayLiveDraftBridge.shared.preferredProjectID,
+            pageVersionId: ScreenplayLiveDraftBridge.shared.preferredVersionID
         )
+        if !ScreenplayOfflineRecoveryBinding.overwritesPendingRecovery(
+            dirty: hasUnsavedDraftChanges,
+            targetProjectId: recoveryBinding.projectId,
+            draft: draft,
+            pendingProjectId: recoveryCandidate?.projectId,
+            pendingDraft: recoveryCandidate?.draft
+        ) {
+            persistLocalDraftRecovery(
+                projectId: recoveryBinding.projectId,
+                draft: draft,
+                baseVersionId: recoveryBinding.versionId,
+                dirty: hasUnsavedDraftChanges
+            )
+        }
         if selectedProject == nil {
             autosaveStatusText = hasUnsavedDraftChanges ? "Create project to save" : "Live draft"
             return

@@ -137,6 +137,45 @@ nonisolated enum ScreenplayOfflineEditAdoptionPolicy {
     }
 }
 
+/// Which project a page's local recovery copy is filed under.
+nonisolated enum ScreenplayOfflineRecoveryBinding {
+    static func target(
+        selectedProjectId: String,
+        selectedVersionId: String,
+        projectsLoaded: Bool,
+        pageProjectId: String,
+        pageVersionId: String
+    ) -> (projectId: String, versionId: String) {
+        let selected = selectedProjectId.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !selected.isEmpty || projectsLoaded {
+            return (selected, selectedVersionId)
+        }
+        // Only while the project list has not loaded: the page's own binding.
+        return (pageProjectId.trimmingCharacters(in: .whitespacesAndNewlines),
+                pageVersionId.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
+    /// A clean page (usually the server draft just loaded) must not replace
+    /// words the recovery banner is still offering for the same project.
+    /// Seen live 2026-09-27: words typed offline were offered on the online
+    /// relaunch, then the next debounce stored the server text as clean and
+    /// the offer, and the words, were gone within a quarter second.
+    static func overwritesPendingRecovery(
+        dirty: Bool,
+        targetProjectId: String,
+        draft: String,
+        pendingProjectId: String?,
+        pendingDraft: String?
+    ) -> Bool {
+        guard !dirty, let pendingProjectId, let pendingDraft else { return false }
+        let target = targetProjectId.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !target.isEmpty
+            && pendingProjectId.trimmingCharacters(in: .whitespacesAndNewlines) == target
+            && pendingDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+                != draft.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
 nonisolated enum ScreenplayRemoteDraftConflictPolicy {
     /// A server draft that matches the page except for surrounding whitespace
     /// brings nothing new, and writing it over the editor deletes the line the
