@@ -68,6 +68,52 @@ nonisolated enum CrossDeviceStateVersionPolicy {
     }
 }
 
+/// Decides whether a changed owner state version means the open project must
+/// be re-read. The state version also moves on this device's own writes (draft
+/// saves, activation, sidecar upserts); re-reading then fetched the detail,
+/// outline, collaborators and comments and re-ran page analysis for nothing.
+/// The poll already has the fresh project list, so it compares the open
+/// project's summary with what this device holds and reloads only on a real
+/// difference. Missing and empty values count as equal.
+nonisolated enum CrossDeviceSelectedProjectPolicy {
+    static func needsReload(
+        local: BackendScreenplayProjectSummary?,
+        incoming: BackendScreenplayProjectSummary?,
+        localVersionID: String,
+        localOutlineRevision: Int
+    ) -> Bool {
+        guard let local, let incoming, local.id == incoming.id else { return true }
+        let incomingVersionID = (incoming.lastVersionId ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if !incomingVersionID.isEmpty,
+           incomingVersionID != localVersionID.trimmingCharacters(in: .whitespacesAndNewlines) {
+            return true
+        }
+        if let incomingRevision = incoming.outlineRevision, incomingRevision != localOutlineRevision {
+            return true
+        }
+        return ReloadRelevantFields(incoming) != ReloadRelevantFields(local)
+    }
+
+    private struct ReloadRelevantFields: Equatable {
+        let text: [String]
+        let lists: [[String]]
+        let counts: [Int]
+        let archived: Bool
+
+        init(_ project: BackendScreenplayProjectSummary) {
+            text = [
+                project.title, project.setting, project.tone, project.promptSeed, project.logline,
+                project.themeArgument, project.centralQuestion, project.protagonistWant,
+                project.protagonistNeed, project.antagonisticForce, project.actPosition,
+                project.endingImage, project.lastPhase, project.activeVersionId,
+            ].map { ($0 ?? "").trimmingCharacters(in: .whitespacesAndNewlines) }
+            lists = [project.tags, project.characters, project.unresolvedSetups].map { $0 ?? [] }
+            counts = [project.commentCount ?? 0, project.collaboratorCount ?? 0]
+            archived = project.archived ?? false
+        }
+    }
+}
+
 nonisolated enum ScreenplayRemoteDraftConflictPolicy {
     /// A server draft that matches the page except for surrounding whitespace
     /// brings nothing new, and writing it over the editor deletes the line the

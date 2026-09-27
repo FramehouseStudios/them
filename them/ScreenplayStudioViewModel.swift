@@ -1677,6 +1677,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
     private var remoteLiveDraftFollowFallbackTask: Task<Void, Never>?
     private var lastSavedDraftFingerprint = ""
     private var lastRevisionBaseDraft = ""
+    private var lastDraftInsightsSignature: Int?
     private var loadedDraftProjectID: String = ""
     private var lastManualDraftEditAt: Date = .distantPast
     private var lastSeenScreenplayStateVersion = ""
@@ -4345,6 +4346,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
     }
 
     func refreshDraftInsights(source: String = "Draft") async {
+        lastDraftInsightsSignature = draftInsightsSignature(for: fountainDraft)
         await recomputePagination(for: fountainDraft, source: source)
         await recomputeRevision(for: fountainDraft, source: source)
         await refreshFormatLint(source: source)
@@ -5148,7 +5150,14 @@ final class ScreenplayStudioViewModel: ObservableObject {
             projects = result.payload.screenplayProjects
             selectedProjectID = locallySelectedProjectID
             guard !locallySelectedProjectID.isEmpty else { return }
-            await loadSelectedProjectOutline(reportErrors: false, remoteRefresh: true)
+            if CrossDeviceSelectedProjectPolicy.needsReload(
+                local: selectedProject,
+                incoming: projects.first { $0.id == locallySelectedProjectID },
+                localVersionID: latestVersionID,
+                localOutlineRevision: outlineRevision
+            ) {
+                await loadSelectedProjectOutline(reportErrors: false, remoteRefresh: true)
+            }
             guard authContextIsCurrent(authContext) else { return }
             await refreshPendingScreenplayQuestion()
         } catch {
@@ -5627,9 +5636,17 @@ final class ScreenplayStudioViewModel: ObservableObject {
             }
         }
 
-        await recomputePagination(for: draft, source: "Draft")
-        await recomputeRevision(for: draft, source: "Draft")
-        Task { await self.refreshFormatLint(source: "Draft") }
+        let insightsSignature = draftInsightsSignature(for: draft)
+        if StudioDraftInsightsSignature.shouldRecompute(
+            last: lastDraftInsightsSignature,
+            current: insightsSignature,
+            hasVisibleError: !paginationErrorText.isEmpty || !revisionErrorText.isEmpty || !formatLintErrorText.isEmpty
+        ) {
+            lastDraftInsightsSignature = insightsSignature
+            await recomputePagination(for: draft, source: "Draft")
+            await recomputeRevision(for: draft, source: "Draft")
+            Task { await self.refreshFormatLint(source: "Draft") }
+        }
         if ScreenplayCoverageRefreshPolicy.shouldRefresh(
             current: coverageReport,
             draft: draft,
@@ -6233,6 +6250,18 @@ final class ScreenplayStudioViewModel: ObservableObject {
             return .versionlessProject
         }
         return .canonicalVersion(version)
+    }
+
+    private func draftInsightsSignature(for draft: String) -> Int {
+        StudioDraftInsightsSignature.make(
+            draft: draft,
+            title: selectedProject?.title ?? "",
+            phase: selectedProject?.lastPhase ?? "scene_draft",
+            linesPerPage: linesPerPage,
+            revisionBaseDraft: lastRevisionBaseDraft,
+            revisionColor: revisionColor,
+            frameworkID: selectedCraftFrameworkID
+        )
     }
 
     private func recomputePagination(for draft: String, source: String) async {
