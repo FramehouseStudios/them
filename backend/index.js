@@ -13452,8 +13452,9 @@ function evaluateKpiTargets(snapshot) {
   };
 }
 
-function recordUserInitiatedSession(ip, nowTs = Date.now()) {
+function recordUserInitiatedSession(ip, nowTs = Date.now(), { heartbeat = false } = {}) {
   const state = getUserMetricState(ip, nowTs);
+  if (heartbeat) { state.lastSeenAt = nowTs; return buildUserMetricSnapshot(state, nowTs); } // token refresh: not a new session
   const activeStartedAt = Number(state.activeSessionStartedAt || 0);
   if (activeStartedAt > 0 && nowTs > activeStartedAt) {
     const elapsedSec = Math.max(1, Math.round((nowTs - activeStartedAt) / 1000));
@@ -32356,7 +32357,6 @@ mountRecapRoutes(app, {
 });
 
 app.post("/session", sessionRateLimitGuard, async (req, res) => {
-  console.log(`[session] has_app_token_header=${Boolean(req.get("X-APP-TOKEN"))}`);
   const requesterIp = clientIp(req);
   const authUserId = resolveAuthenticatedUserId(req);
   const requestedClientToken = normalizeClientToken(req.get("X-Client-Token"));
@@ -32396,7 +32396,7 @@ app.post("/session", sessionRateLimitGuard, async (req, res) => {
     expiresAt = issued.expiresAt;
   }
 
-  const sessionKpis = recordUserInitiatedSession(requesterIp);
+  const sessionKpis = recordUserInitiatedSession(requesterIp, Date.now(), { heartbeat: Boolean(existingSession) });
   const sessionTargets = evaluateKpiTargets(sessionKpis);
   const sessionNowTs = Date.now();
   const activeSession = clientSessions.get(token) || null;
