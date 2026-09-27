@@ -107,7 +107,7 @@ struct ScreenplayStudioOutlineInspectorLayout<Compass: View, StorySpine: View, F
         VStack(alignment: .leading, spacing: 18) {
             inspectorPanelLead(
                 title: "Track the spine of the movie.",
-                detail: "Keep acts, scenes, and loose structure visible while the page evolves. The rail should tell you what the story is doing at a glance."
+                detail: "Keep acts, scenes, and loose structure visible while the page evolves."
             )
 
             HStack(spacing: 10) {

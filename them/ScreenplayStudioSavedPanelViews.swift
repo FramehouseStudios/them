@@ -124,7 +124,7 @@ struct ScreenplayStudioSavedPanel: View {
                 }
             }
 
-            Text("Command+S saves the current script here and keeps recent versions inside Studio.")
+            Text(StudioSavedPanelCopy.intro)
                 .font(IOThemTypography.UI.labelRegular)
                 .foregroundStyle(Color.herText.opacity(0.66))
                 .accessibilityIdentifier("studio.saved.panel")
@@ -163,7 +163,7 @@ struct ScreenplayStudioSavedPanel: View {
                 .foregroundStyle(Color.herText.opacity(0.48))
                 .accessibilityIdentifier("studio.saved.empty.no-project")
         case .empty:
-            Text("No saved versions yet. Press Command+S or use Save Script to create the first one.")
+            Text(StudioSavedPanelCopy.empty)
                 .font(IOThemTypography.UI.labelRegular)
                 .foregroundStyle(Color.herText.opacity(0.48))
                 .accessibilityIdentifier("studio.saved.empty.no-versions")
@@ -269,4 +269,24 @@ struct ScreenplayStudioSavedPanel: View {
 private enum ScreenplayStudioSavedStatusChipProminence {
     case success
     case muted
+}
+
+/// The Saved panel named Command+S on an iPhone (seen live); the shortcut is
+/// only mentioned where a keyboard is the norm.
+enum StudioSavedPanelCopy {
+    static var intro: String {
+        #if os(macOS)
+        return "Command+S saves the current script here and keeps recent versions inside Studio."
+        #else
+        return "Save Script keeps this version here, with your recent versions inside Studio."
+        #endif
+    }
+
+    static var empty: String {
+        #if os(macOS)
+        return "No saved versions yet. Press Command+S or use Save Script to create the first one."
+        #else
+        return "No saved versions yet. Use Save Script to create the first one."
+        #endif
+    }
 }

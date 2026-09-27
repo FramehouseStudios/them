@@ -75,6 +75,8 @@ func directionOneMiniStat(_ label: String, value: String) -> some View {
             .font(IOThemTypography.UI.micro)
             .foregroundStyle(Color.herText.opacity(0.42))
             .textCase(.uppercase)
+            .lineLimit(1)
+            .minimumScaleFactor(0.7)
     }
     .frame(maxWidth: .infinity)
     .padding(.horizontal, 12)
