@@ -2448,7 +2448,7 @@ Replace is best when this file should become the script you edit. Append is safe
 
 private var directionOneColumnSurface: some View {
     Rectangle()
-        .fill(directionOneChromePanelSoft.opacity(0.98))
+        .fill(directionOneChromePanelSoft.opacity(0.98)).background(isDirectionOneCompactLayout ? Color.white : Color.clear) // opaque when the drawer overlays the page
 }
     private var isDirectionOneRailOverlayPresented: Bool {
         showingDirectionOneSettings || isFocusedPageDiffOverlayPresented

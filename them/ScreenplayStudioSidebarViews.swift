@@ -56,15 +56,26 @@ struct ScreenplayStudioProjectsSidebar<FeatureSpine: View>: View {
                 .padding(.top, 2)
 
             HStack(spacing: 8) {
-                TextField("New project title", text: $newProjectTitle)
+                // Styled with the sidebar's own colors: the old white-on-black
+                // field hid its placeholder on the light drawer (seen live).
+                TextField("New project title", text: $newProjectTitle, prompt: Text("New project title").foregroundStyle(tertiaryTextColor))
                     .textFieldStyle(.plain)
                     .font(IOThemTypography.UI.captionMedium)
-                    .foregroundStyle(Color.white.opacity(0.94))
+                    .foregroundStyle(textColor)
+                    .submitLabel(.done)
+                    .onSubmit {
+                        guard !newProjectTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, !isSaving else { return }
+                        onCreate()
+                    }
                     .padding(.horizontal, 10)
                     .padding(.vertical, 7)
                     .background(
                         RoundedRectangle(cornerRadius: 6, style: .continuous)
-                            .fill(Color.black.opacity(0.86))
+                            .fill(selectionFill)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .stroke(tertiaryTextColor.opacity(0.35), lineWidth: 1)
                     )
                 Button("Create", action: onCreate)
                     .buttonStyle(.borderedProminent)
