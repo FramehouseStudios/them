@@ -1719,6 +1719,110 @@ final class V1SmokeUITests: XCTestCase {
     }
 
     @MainActor
+    func test_offline_launch_edits_survive_online_relaunch_without_false_conflict() async throws {
+        try await verifyOfflineLaunchRecovery(competingServerEdit: false)
+    }
+
+    @MainActor
+    func test_offline_launch_recovery_preserves_a_competing_server_edit() async throws {
+        try await verifyOfflineLaunchRecovery(competingServerEdit: true)
+    }
+
+    @MainActor
+    private func verifyOfflineLaunchRecovery(competingServerEdit: Bool) async throws {
+        let baseURL = try XCTUnwrap(URL(string: "http://127.0.0.1:31337"))
+        guard await backendRestoreContractIsAvailable(baseURL: baseURL) else {
+            throw XCTSkip("Offline recovery requires the isolated local backend on port 31337.")
+        }
+        let fixture = try await seedBackendRestoreContractFixture(baseURL: baseURL)
+        let marker = "OFFLINE-RELAUNCH-\(UUID().uuidString.uppercased())"
+        var app = launchApp(
+            openStudio: true, restoreProjectID: fixture.projectID,
+            restoreVersionID: fixture.versionID, restoreLoadToken: fixture.loadToken,
+            launchEnvironment: fixture.appLaunchEnvironment
+        )
+        XCTAssertTrue(waitForRestoreSnapshot(in: app, timeout: 45) { snapshot in
+            stringValue(snapshot["selected_project_id"]) == fixture.projectID
+                && stringValue(snapshot["draft_tail_preview"]).contains("He waits, still.")
+                && !boolValue(snapshot["is_saving"])
+        }, "The online baseline page must load before testing offline recovery.")
+        app.terminate()
+
+        var offlineEnvironment = fixture.appLaunchEnvironment
+        offlineEnvironment["THEM_UITEST_BACKEND_BASE_URL"] = "http://127.0.0.1:1"
+        app = launchApp(openStudio: true, resetState: false, launchEnvironment: offlineEnvironment)
+        let editor = app.textViews["studio.draft.editor"]
+        XCTAssertTrue(editor.waitForExistence(timeout: 15))
+        editor.tap()
+        editor.typeText("\n\n" + marker)
+        XCTAssertTrue(waitForRestoreSnapshot(in: app, timeout: 15) { snapshot in
+            stringValue(snapshot["draft_tail_preview"]).contains(marker)
+                && boolValue(snapshot["has_unsaved_draft_changes"])
+        }, "Offline typing must remain on the page before relaunch.")
+        app.terminate()
+
+        let headers = [
+            "X-APP-TOKEN": fixture.appLaunchEnvironment["THEM_UITEST_APP_TOKEN"] ?? "them-dev",
+            "X-Client-Token": fixture.appLaunchEnvironment["THEM_UITEST_CLIENT_TOKEN"] ?? "",
+            "Authorization": "Bearer \(fixture.appLaunchEnvironment["THEM_UITEST_AUTH_DEBUG_ACCESS_TOKEN"] ?? "")",
+        ]
+        let competingDraft = fixture.expectedDraft + "\n\nAnother writer opens the door."
+        if competingServerEdit {
+            let changed = try await requestJSON(
+                baseURL: baseURL, path: "/screenplay/projects/\(fixture.projectID)/version",
+                method: "POST", headers: headers,
+                body: ["draft": competingDraft, "base_version_id": fixture.versionID,
+                       "conflict_strategy": "reject_if_stale", "source": "recovery_test_other_device"]
+            )
+            try assertHTTP(changed, context: "Competing server edit")
+        }
+        app = launchApp(openStudio: true, resetState: false, launchEnvironment: fixture.appLaunchEnvironment)
+        defer { app.terminate() }
+        XCTAssertTrue(app.otherElements["studio.surface"].waitForExistence(timeout: 15))
+        let recover = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Recover Local")).firstMatch
+        if recover.waitForExistence(timeout: 10) { recover.tap() }
+        var finalSnapshot: [String: Any] = [:]
+        XCTAssertTrue(waitForRestoreSnapshot(in: app, timeout: 45) { snapshot in
+            finalSnapshot = snapshot
+            guard stringValue(snapshot["draft_tail_preview"]).contains(marker),
+                  !boolValue(snapshot["is_saving"]) else { return false }
+            if competingServerEdit {
+                return boolValue(snapshot["has_unsaved_draft_changes"])
+                    && stringValue(snapshot["autosave_status_text"]) == "Conflict detected"
+            }
+            return !boolValue(snapshot["has_unsaved_draft_changes"])
+                && stringValue(snapshot["latest_version_id"]) != fixture.versionID
+                && stringValue(snapshot["autosave_status_text"]) != "Conflict detected"
+        }, "Recovery must save unchanged bases and preserve genuine conflicts: \(finalSnapshot)")
+        let stored = try await requestJSON(
+            baseURL: baseURL, path: "/screenplay/projects/\(fixture.projectID)",
+            method: "GET", headers: headers, body: nil,
+            queryItems: [URLQueryItem(name: "include_drafts", value: "1"),
+                         URLQueryItem(name: "version_limit", value: "24")]
+        )
+        try assertHTTP(stored, context: "Read back recovered project")
+        let envelope = stored.payload["payload"] as? [String: Any] ?? stored.payload
+        let project = try XCTUnwrap(envelope["project"] as? [String: Any])
+        let versions = try XCTUnwrap(project["versions"] as? [[String: Any]])
+        let activeID = stringValue(project["active_version_id"])
+        let active = try XCTUnwrap(versions.first { stringValue($0["id"]) == activeID })
+        if competingServerEdit {
+            XCTAssertEqual(stringValue(active["draft"]), competingDraft,
+                           "Recovery must not overwrite the competing server draft.")
+        } else {
+            XCTAssertTrue(stringValue(active["draft"]).contains(marker),
+                          "A Saved label alone is not proof: words must exist on the server.")
+            app.terminate()
+            app = launchApp(openStudio: true, resetState: false, launchEnvironment: fixture.appLaunchEnvironment)
+            XCTAssertTrue(waitForRestoreSnapshot(in: app, timeout: 30) { snapshot in
+                stringValue(snapshot["draft_tail_preview"]).contains(marker)
+                    && stringValue(snapshot["latest_version_id"]) == activeID
+                    && !boolValue(snapshot["has_unsaved_draft_changes"])
+            }, "Saved words and version must restore together on the next launch.")
+        }
+    }
+
+    @MainActor
     func test_screenplay_save_outbox_survives_relaunch_and_reconnects_once() async throws {
         let configuredPort = Int(
             ProcessInfo.processInfo.environment["THEM_UITEST_SCREENPLAY_SAVE_BACKEND_PORT"] ?? ""

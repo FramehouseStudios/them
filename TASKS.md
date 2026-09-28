@@ -31,12 +31,15 @@ hand-written tables lives in `tasks/HISTORY-2026-05.md`.
 ### T-reconnect-base-version — Preserve the proven base of offline writer edits
 - **Owner:** codex
 - **Branch:** codex/T-reconnect-base-version
-- **Status:** in-progress
+- **Status:** review
 - **Pillar:** longitudinal learning
 - **Done when:** reconnect and relaunch preserve offline words, unchanged server
   drafts save without false conflicts, genuine competing versions still conflict,
   and focused/full tests plus local simulator proof pass.
 - **Baseline:** `docs/reconnect-baseline-2026-09-27.md`.
+- **Proof:** 793 unit tests and two signed offline-recovery workflows pass;
+  2,836 backend tests pass, two external-service cases skip. Legacy unknown
+  bases and the old launch-triggered outbox fixture remain follow-ups.
 
 - Claim a row by editing it to `Owner=<you>, Status=in-progress` **as the first commit on your new branch**. If two agents try to claim the same row, the merge conflict on this file is the correct signal — do not work around it; resolve the intent.
 - New rows must include a one-line "done when" before they go to `ready` or `ready-for-support`. A row without a definition of done does not belong in this file.

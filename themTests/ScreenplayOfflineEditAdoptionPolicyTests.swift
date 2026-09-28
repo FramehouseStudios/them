@@ -29,6 +29,31 @@ final class ScreenplayOfflineEditAdoptionPolicyTests: XCTestCase {
 }
 
 final class ScreenplayOfflineRecoveryBindingTests: XCTestCase {
+    func testSelectionBeforeOfflineFetchPreservesTheSamePagesKnownBase() {
+        let target = ScreenplayOfflineRecoveryBinding.target(
+            selectedProjectId: " p1 ", selectedVersionId: "",
+            projectsLoaded: false, pageProjectId: "p1", pageVersionId: " v9 "
+        )
+        XCTAssertEqual(target.projectId, "p1")
+        XCTAssertEqual(target.versionId, "v9")
+    }
+
+    func testMissingBaseNeverBorrowsAnotherProjectsVersion() {
+        let target = ScreenplayOfflineRecoveryBinding.target(
+            selectedProjectId: "p2", selectedVersionId: "",
+            projectsLoaded: false, pageProjectId: "p1", pageVersionId: "v9"
+        )
+        XCTAssertEqual(target.versionId, "")
+    }
+
+    func testLoadedSelectionDoesNotBorrowTheBridgesVersion() {
+        let target = ScreenplayOfflineRecoveryBinding.target(
+            selectedProjectId: "p1", selectedVersionId: "",
+            projectsLoaded: true, pageProjectId: "p1", pageVersionId: "v9"
+        )
+        XCTAssertEqual(target.versionId, "")
+    }
+
     func testOfflinePageIsFiledUnderItsOwnProject() {
         let target = ScreenplayOfflineRecoveryBinding.target(
             selectedProjectId: "", selectedVersionId: "",

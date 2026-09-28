@@ -1815,14 +1815,16 @@ final class ScreenplayStudioViewModel: ObservableObject {
         )
         if adoptsOfflineEdits {
             loadedDraftProjectID = selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
+            // Establish the page's base before hydration checks for conflicts
+            // or publishes context back to the durable bridge.
+            if latestVersionID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                latestVersionID = pageBaseVersionID
+            }
         }
         await loadSelectedProjectOutline()
         if adoptsOfflineEdits, hasUnsavedDraftChanges, conflictState == nil {
             // The offline words were written on top of the page's base version;
             // save them on it. A newer save elsewhere comes back as a conflict.
-            if latestVersionID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, !pageBaseVersionID.isEmpty {
-                latestVersionID = pageBaseVersionID
-            }
             if autosaveEnabled { await saveCurrentDraft(source: "studio_autosave") }
         }
         guard authContextIsCurrent(authContext) else { return }
@@ -4203,9 +4205,9 @@ final class ScreenplayStudioViewModel: ObservableObject {
         isHydratingDraft = true
         fountainDraft = candidate.draft
         isHydratingDraft = false
-        if !candidate.baseVersionId.isEmpty {
-            latestVersionID = candidate.baseVersionId
-        }
+        // An unknown recovered base must use the empty-base conflict preflight,
+        // never borrow the server version loaded while these words were offline.
+        latestVersionID = candidate.baseVersionId
         syncLiveDraftBridgeProjectContext()
         hasUnsavedDraftChanges = fingerprint(for: candidate.draft) != lastSavedDraftFingerprint
         autosaveStatusText = "Recovered local draft"
@@ -5207,6 +5209,15 @@ final class ScreenplayStudioViewModel: ObservableObject {
     ) async {
         let authContext = currentStudioAuthContext()
         let id = selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let page = ScreenplayLiveDraftBridge.shared
+        let recoveryBinding = ScreenplayOfflineRecoveryBinding.target(
+            selectedProjectId: id, selectedVersionId: latestVersionID,
+            projectsLoaded: didLoadScreenplayProjectsFromBackend,
+            pageProjectId: page.preferredProjectID, pageVersionId: page.preferredVersionID
+        )
+        if !id.isEmpty, recoveryBinding.projectId == id {
+            latestVersionID = recoveryBinding.versionId
+        }
         clearTransientProjectStateForSelectionChange(to: id)
         guard !id.isEmpty else {
             selectedProject = nil

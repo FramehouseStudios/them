@@ -148,7 +148,13 @@ nonisolated enum ScreenplayOfflineRecoveryBinding {
     ) -> (projectId: String, versionId: String) {
         let selected = selectedProjectId.trimmingCharacters(in: .whitespacesAndNewlines)
         if !selected.isEmpty || projectsLoaded {
-            return (selected, selectedVersionId)
+            let version = selectedVersionId.trimmingCharacters(in: .whitespacesAndNewlines)
+            // Selection can precede its first successful fetch. A failed fetch
+            // must not replace this same page's remembered base with an empty ID.
+            let sameOfflinePage = !projectsLoaded && !selected.isEmpty
+                && selected == pageProjectId.trimmingCharacters(in: .whitespacesAndNewlines)
+            return (selected, version.isEmpty && sameOfflinePage
+                    ? pageVersionId.trimmingCharacters(in: .whitespacesAndNewlines) : version)
         }
         // Only while the project list has not loaded: the page's own binding.
         return (pageProjectId.trimmingCharacters(in: .whitespacesAndNewlines),
