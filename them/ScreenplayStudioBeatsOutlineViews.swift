@@ -13,9 +13,9 @@ struct ScreenplayStudioBeatsInspectorLayout<BeatMap: View, Composer: View>: View
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             HStack(spacing: 8) {
-                directionOneMiniStat("Beats", value: "\(beatCount)")
-                directionOneMiniStat("Scenes linked", value: "\(linkedSceneCount)")
-                directionOneMiniStat("Acts linked", value: "\(linkedActCount)")
+                directionOneMiniStat(StudioCountTitle.text(beatCount, "Beat", "Beats"), value: "\(beatCount)")
+                directionOneMiniStat(StudioCountTitle.text(linkedSceneCount, "Scene linked", "Scenes linked"), value: "\(linkedSceneCount)")
+                directionOneMiniStat(StudioCountTitle.text(linkedActCount, "Act linked", "Acts linked"), value: "\(linkedActCount)")
             }
 
             inspectorSubsectionLabel("Beat map")
@@ -96,9 +96,9 @@ struct ScreenplayStudioOutlineInspectorLayout<Compass: View, StorySpine: View, F
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             HStack(spacing: 10) {
-                directionOneMiniStat("Acts", value: "\(actCount)")
-                directionOneMiniStat("Scenes", value: "\(sceneCount)")
-                directionOneMiniStat("Beats", value: "\(beatCount)")
+                directionOneMiniStat(StudioCountTitle.text(actCount, "Act", "Acts"), value: "\(actCount)")
+                directionOneMiniStat(StudioCountTitle.text(sceneCount, "Scene", "Scenes"), value: "\(sceneCount)")
+                directionOneMiniStat(StudioCountTitle.text(beatCount, "Beat", "Beats"), value: "\(beatCount)")
             }
 
             compass()
@@ -1633,5 +1633,12 @@ struct ScreenplayStudioBeatComposer: View {
 private extension String {
     var cleanStudioField: String {
         trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+/// Count tile titles read "1 Beat", not "1 Beats".
+enum StudioCountTitle {
+    static func text(_ count: Int, _ singular: String, _ plural: String) -> String {
+        count == 1 ? singular : plural
     }
 }
