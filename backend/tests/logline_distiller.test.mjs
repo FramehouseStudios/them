@@ -291,3 +291,20 @@ test("[drift-alert] computeDrift attaches alert on the empty-history path too", 
   assert.equal(drift.alert.actionable, false);
   assert.match(drift.alert.recommendation, /no logline history/i);
 });
+
+test("distillLoglineWithSource reports the template when the model call fails", async () => {
+  const { distillLoglineWithSource } = await import("../lib/logline_distiller.js");
+  const text = "INT. DOCK - DAY\n\nNORA\nWho's there?\n";
+  const failing = { kind: "openai", classifyScene: async () => { throw new Error("429 insufficient_quota"); } };
+  const failed = await distillLoglineWithSource({ text, classifier: failing });
+  assert.equal(failed.source, "stub");
+  assert.match(failed.logline, /NORA/);
+
+  const empty = { kind: "openai", classifyScene: async () => ({ rationale: "" }) };
+  assert.equal((await distillLoglineWithSource({ text, classifier: empty })).source, "stub");
+
+  const working = { kind: "openai", classifyScene: async () => ({ rationale: "A dockworker hunts the stranger who follows her." }) };
+  const ok = await distillLoglineWithSource({ text, classifier: working });
+  assert.equal(ok.source, "openai");
+  assert.match(ok.logline, /dockworker/);
+});

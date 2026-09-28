@@ -117,11 +117,15 @@ function deterministicLogline({ text, frameworkId }) {
 
 // ---------- LLM distillation ----------
 
+// Returns { logline, source }: "openai" only when the model's answer is the
+// logline; every fallback is reported as "stub" so the rail never labels the
+// offline template as a model result.
 async function llmLogline({ text, frameworkId, classifier }) {
+  const fallback = () => ({ logline: deterministicLogline({ text, frameworkId }), source: "stub" });
   if (!classifier || typeof classifier.classifyScene !== "function") {
     // Fall back to deterministic if the classifier doesn't expose a
     // scene-level method we can repurpose.
-    return deterministicLogline({ text, frameworkId });
+    return fallback();
   }
   // We piggyback on the classifier's classifyScene by sending the
   // full screenplay excerpt as a "scene" with a prompt that asks for
@@ -141,16 +145,16 @@ async function llmLogline({ text, frameworkId, classifier }) {
     const candidate = result?.rationale && typeof result.rationale === "string"
       ? result.rationale
       : "";
-    if (!candidate) return deterministicLogline({ text, frameworkId });
-    return normalizeLogline(candidate);
+    if (!candidate) return fallback();
+    return { logline: normalizeLogline(candidate), source: "openai" };
   } catch (_e) {
-    return deterministicLogline({ text, frameworkId });
+    return fallback();
   }
 }
 
 // ---------- public surface ----------
 
-async function distillLogline({
+async function distillLoglineWithSource({
   text = "",
   frameworkId = null,
   classifier = null,
@@ -162,7 +166,11 @@ async function distillLogline({
   if (useLLM && classifier) {
     return llmLogline({ text, frameworkId, classifier });
   }
-  return deterministicLogline({ text, frameworkId });
+  return { logline: deterministicLogline({ text, frameworkId }), source: "stub" };
+}
+
+async function distillLogline(options = {}) {
+  return (await distillLoglineWithSource(options)).logline;
 }
 
 function storageKey({ projectId, versionId, distilledAtMs }) {
@@ -323,6 +331,7 @@ function loglineDistillerDeps() {
 
 export {
   distillLogline,
+  distillLoglineWithSource,
   recordLogline,
   getLoglineHistory,
   computeDrift,
