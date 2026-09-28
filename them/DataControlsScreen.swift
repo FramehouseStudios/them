@@ -129,10 +129,11 @@ struct DataControlsScreen: View {
     @State private var statusMessage = ""
     @State private var stateVersion = ""
     @State private var showingV1LaunchDoctor = false
-    // The V1 Launch Doctor is release-QA tooling: it stays hidden unless the
-    // AppTransaction environment proves a non-production build (.xcode or
-    // .sandbox). Any lookup failure keeps it hidden.
-    @State private var isV1LaunchDoctorEntryVisible = false
+    // Release-QA tooling (the V1 Launch Doctor, the voice transport and
+    // realtime provider pickers) stays hidden unless the AppTransaction
+    // environment proves a non-production build (.xcode or .sandbox). Any
+    // lookup failure keeps it hidden.
+    @State private var isReleaseQAToolingVisible = false
     @State private var showingAccountDeletionReauth = false
     @State private var accountDeletionAuthProvider = "email"
     @State private var accountDeletionPassword = ""
@@ -163,12 +164,16 @@ struct DataControlsScreen: View {
                         offlineOutboxStatus
                         outlineRecoveryStatus
                         memoryStatus
-                        voiceTransportSettings
-                        realtimeProviderSettings
+                        // A writer could pick the "Stub" provider here, which
+                        // production refuses (realtime_stub_disabled_in_production).
+                        if isReleaseQAToolingVisible {
+                            voiceTransportSettings
+                            realtimeProviderSettings
+                        }
                         #if os(macOS)
                         visualContextSettings
                         #endif
-                        if isV1LaunchDoctorEntryVisible {
+                        if isReleaseQAToolingVisible {
                             v1LaunchDoctorEntry
                         }
                         actionButtons
@@ -241,7 +246,13 @@ struct DataControlsScreen: View {
         }
         .accessibilityIdentifier("data.controls.screen")
         .task {
-            isV1LaunchDoctorEntryVisible = await resolveV1LaunchDoctorVisibility()
+            isReleaseQAToolingVisible = await resolveV1LaunchDoctorVisibility()
+            if !isReleaseQAToolingVisible {
+                // A TestFlight choice must not strand an App Store install on
+                // a provider production refuses.
+                realtimeSupplierModeRaw = ClementineRealtimeSupplierMode
+                    .releaseSafe(rawValue: realtimeSupplierModeRaw).rawValue
+            }
         }
         .sheet(isPresented: $showingV1LaunchDoctor) {
             V1LaunchDoctorView {

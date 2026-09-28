@@ -73,6 +73,12 @@ enum ClementineRealtimeSupplierMode: String, CaseIterable, Identifiable {
         ClementineRealtimeSupplierMode(rawValue: rawValue) ?? .serverDefault
     }
 
+    /// Production builds never keep the stub: the backend refuses it there.
+    static func releaseSafe(rawValue: String) -> ClementineRealtimeSupplierMode {
+        let mode = normalized(rawValue: rawValue)
+        return mode == .stub ? .serverDefault : mode
+    }
+
     static func storedProviderParameter(defaults: UserDefaults = .standard) -> String {
         let rawValue = defaults.string(forKey: storageKey) ?? serverDefault.rawValue
         return normalized(rawValue: rawValue).providerParameter
