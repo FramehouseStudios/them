@@ -33,7 +33,7 @@ import {
   REQUIRE_USER_AUTH,
   SHUTDOWN_GRACE_MS,
   SHOULD_START_SERVER,
-  STUDIO_RENDER_TEST_REPLY,
+  STUDIO_RENDER_TEST_REPLY, STUDIO_REPLY_DESK_DIR,
   UNIFIED_PERSONA_PRESET,
   USER_STORE_PATH,
   assertProductionEnv,
@@ -197,7 +197,7 @@ import { mp3BitrateKbpsForHeader, mp3SampleRateForHeader } from "./lib/mp3_heade
 import { mountScreenplayCompanionRoutes } from "./lib/screenplay_companion_routes.js";
 import { mountRealtimeRoutes } from "./lib/realtime_routes.js";
 import { mountRealtimeClientSecretRoute } from "./lib/realtime_client_secret_route.js";
-import { mountRealtimeStudioRenderRoutes } from "./lib/realtime_studio_render_routes.js";
+import { mountRealtimeStudioRenderRoutes } from "./lib/realtime_studio_render_routes.js"; import { createStudioStandIn } from "./lib/studio_reply_desk.js";
 import { mountRealtimeTurnCommitRoute } from "./lib/realtime_turn_commit_route.js";
 import { mountRealtimeCallRoute } from "./lib/realtime_call_route.js";
 import { structuralScreenplayModelReasonForTask } from "./lib/structural_screenplay_quality.js";
@@ -20338,6 +20338,8 @@ function resolveStudioTextModelPolicy(modelTier = "fast") {
   };
 }
 
+// Dev-only stand-in for the model on Studio renders; disabled in production (config.js).
+const studioStandIn = createStudioStandIn({ testReply: STUDIO_RENDER_TEST_REPLY, deskDir: STUDIO_REPLY_DESK_DIR });
 async function renderStudioRealtimeText({
   systemPrompt = "",
   transcript = "",
@@ -20354,9 +20356,9 @@ async function renderStudioRealtimeText({
     err.status = 400;
     throw err;
   }
-  if (STUDIO_RENDER_TEST_REPLY) {
-    return STUDIO_RENDER_TEST_REPLY;
-  }
+  // Dev only: a fixed test reply or the reply desk answers instead of OpenAI.
+  const standInReply = await studioStandIn.reply({ systemPrompt: cleanSystemPrompt, transcript: cleanTranscript });
+  if (standInReply !== null) return standInReply;
 
   const policy = resolveStudioTextModelPolicy(modelTier);
   const requestResult = await requestOpenAIText({
@@ -20443,12 +20445,10 @@ async function streamStudioRealtimeText({
     err.status = 400;
     throw err;
   }
-  if (STUDIO_RENDER_TEST_REPLY) {
-    if (typeof onDelta === "function") {
-      await onDelta(STUDIO_RENDER_TEST_REPLY, STUDIO_RENDER_TEST_REPLY);
-    }
-    return STUDIO_RENDER_TEST_REPLY;
-  }
+  // Dev only: a fixed test reply or the reply desk answers instead of OpenAI,
+  // streamed through onDelta like a real reply (lib/studio_reply_desk.js).
+  const standInStreamReply = await studioStandIn.reply({ systemPrompt: cleanSystemPrompt, transcript: cleanTranscript, onDelta });
+  if (standInStreamReply !== null) return standInStreamReply;
 
   const policy = resolveStudioTextModelPolicy(modelTier);
   const requestResult = await requestOpenAIText({
@@ -32735,7 +32735,7 @@ mountRealtimeStudioRenderRoutes(app, {
   createRequestId,
   normalizeSnippet,
   getOpenAIApiKey: () => OPENAI_API_KEY,
-  shouldAllowStudioRenderWithoutOpenAIKey: () => Boolean(STUDIO_RENDER_TEST_REPLY),
+  shouldAllowStudioRenderWithoutOpenAIKey: () => studioStandIn.enabled,
   creativeMemoryStore,
   resolveUserId: (req) => String(req?.authUser?.id || req?.user?.id || req?.userId || "").trim(),
 });
