@@ -4097,7 +4097,7 @@ Detail:
             lastCommittedWrite: liveDraftBridge.lastCommittedWrite,
             acceptedPageBatchCount: acceptedStudioPageWriteExchanges.count,
             currentCursorLine: liveDraftBridge.currentCursorLine,
-            draftText: vm.fountainDraft
+            draftText: vm.fountainDraft, paginatedPageCount: vm.paginationPages.count
         )
     }
 

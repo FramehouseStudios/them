@@ -384,7 +384,8 @@ enum ScreenplayFeatureWorkflowPlanner {
         lastCommittedWrite: ScreenplayCommittedWrite?,
         acceptedPageBatchCount: Int,
         currentCursorLine: Int,
-        draftText: String
+        draftText: String,
+        paginatedPageCount: Int = 0
     ) -> ScreenplayFeatureWorkflowSnapshot {
         let sortedActs = outline.acts.sorted(by: orderedActs)
         let sortedScenes = outline.scenes.sorted(by: orderedScenes)
@@ -401,9 +402,15 @@ enum ScreenplayFeatureWorkflowPlanner {
         let draftLineCount = draftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             ? 0
             : max(structuredDraft.lineCount, lineCount(in: draftText))
-        let estimatedPageCount = draftLineCount > 0
-            ? max(1, Int(ceil(Double(draftLineCount) / 55.0)))
-            : 0
+        // The paginator's count is what the page header shows; raw lines / 55
+        // ignored wrapping and said "3 pages drafted" beside "4 pages".
+        let estimatedPageCount = draftLineCount == 0 ? 0
+            : (paginatedPageCount > 0 ? paginatedPageCount : max(1, Int(ceil(Double(draftLineCount) / 55.0))))
+        // Where the writer is, in scenes rather than raw lines ("Line 1/163").
+        let draftSceneProgress: String? = structuredDraft.scenes.isEmpty ? nil : {
+            let index = structuredDraft.scenes.lastIndex { $0.line <= max(1, currentCursorLine) } ?? 0
+            return "Scene \(index + 1)/\(structuredDraft.scenes.count)"
+        }()
 
         let currentAct = resolveCurrentAct(
             sortedActs: sortedActs,
@@ -411,7 +418,8 @@ enum ScreenplayFeatureWorkflowPlanner {
             currentBinding: currentBinding,
             featureSpine: featureSpine,
             currentCursorLine: currentCursorLine,
-            lineCount: draftLineCount
+            lineCount: draftLineCount,
+            draftSceneProgress: draftSceneProgress
         )
         let sequenceGuide = ScreenplayFeatureProgressionGuide.guide(
             actPosition: currentAct.title,
@@ -444,7 +452,7 @@ enum ScreenplayFeatureWorkflowPlanner {
         let nextSceneTitle = sceneTitle(nextScene)
         let nextSceneDetail = sceneDetail(nextScene, fallback: currentDraftScene?.shortLabel ?? "")
         let actDetail = currentAct.detail.isEmpty ? structuralObligation : currentAct.detail
-        let draftProgressLabel = draftProgress(lineCount: draftLineCount)
+        let draftProgressLabel = draftProgress(pageCount: estimatedPageCount)
         let acceptedBatch = acceptedBatchSummary(
             lastCommittedWrite: lastCommittedWrite,
             acceptedPageBatchCount: acceptedPageBatchCount
@@ -690,7 +698,8 @@ enum ScreenplayFeatureWorkflowPlanner {
         currentBinding: ScreenplayProjectSceneBindingSnapshot?,
         featureSpine: ScreenplayFeatureSpine,
         currentCursorLine: Int,
-        lineCount: Int
+        lineCount: Int,
+        draftSceneProgress: String? = nil
     ) -> (act: BackendScreenplayAct?, title: String, detail: String, progressLabel: String) {
         if let currentOutlineScene,
            let act = sortedActs.first(where: { $0.id == currentOutlineScene.actId }) {
@@ -705,7 +714,7 @@ enum ScreenplayFeatureWorkflowPlanner {
             let title = clean(bindingActTitle, fallback: "Feature")
             let act = sortedActs.first(where: { clean($0.title, fallback: "").caseInsensitiveCompare(title) == .orderedSame })
             let progress = act.map { progressLabelForAct(act: $0, currentSceneID: currentOutlineScene?.id, sortedActs: sortedActs) }
-                ?? cursorProgressLabel(currentCursorLine: currentCursorLine, lineCount: lineCount)
+                ?? (draftSceneProgress ?? cursorProgressLabel(currentCursorLine: currentCursorLine, lineCount: lineCount))
             return (act, title, clean(act?.summary ?? "", fallback: ""), progress)
         }
 
@@ -717,7 +726,7 @@ enum ScreenplayFeatureWorkflowPlanner {
                 spineAct,
                 clean(act?.summary ?? "", fallback: ""),
                 act.map { progressLabelForAct(act: $0, currentSceneID: nil, sortedActs: sortedActs) }
-                    ?? cursorProgressLabel(currentCursorLine: currentCursorLine, lineCount: lineCount)
+                    ?? (draftSceneProgress ?? cursorProgressLabel(currentCursorLine: currentCursorLine, lineCount: lineCount))
             )
         }
 
@@ -728,7 +737,7 @@ enum ScreenplayFeatureWorkflowPlanner {
             inferredAct.map { clean($0.title, fallback: inferred) } ?? inferred,
             clean(inferredAct?.summary ?? "", fallback: ""),
             inferredAct.map { progressLabelForAct(act: $0, currentSceneID: nil, sortedActs: sortedActs) }
-                ?? cursorProgressLabel(currentCursorLine: currentCursorLine, lineCount: lineCount)
+                ?? (draftSceneProgress ?? cursorProgressLabel(currentCursorLine: currentCursorLine, lineCount: lineCount))
         )
     }
 
@@ -1073,10 +1082,9 @@ enum ScreenplayFeatureWorkflowPlanner {
         return "Line \(safeLine)/\(lineCount)"
     }
 
-    private static func draftProgress(lineCount: Int) -> String {
-        guard lineCount > 0 else { return "No draft pages" }
-        let estimatedPages = max(1, Int(ceil(Double(lineCount) / 55.0)))
-        return "\(estimatedPages) page\(estimatedPages == 1 ? "" : "s") drafted"
+    private static func draftProgress(pageCount: Int) -> String {
+        guard pageCount > 0 else { return "No draft pages" }
+        return "\(pageCount) page\(pageCount == 1 ? "" : "s") drafted"
     }
 
     private static func acceptedBatchSummary(
