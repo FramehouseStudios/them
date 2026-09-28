@@ -38,6 +38,8 @@
 // owner record. Caller-supplied X-User-Id is never trusted.
 
 import express from "express";
+
+import { ifNoneMatchStateHit } from "./read_state.js";
 import {
   defaultResolveScreenplayUserId,
   requireScreenplayUserId,
@@ -634,6 +636,14 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
     const includeVersions = parseBool(req.query?.include_versions);
     const includeDrafts = parseBool(req.query?.include_drafts);
     const limit = Math.max(1, Math.min(96, parsePositiveInt(req.query?.limit, 24)));
+    // Studio polls this list every 15 s to notice changes from other
+    // devices; an unchanged list answers 304 instead of ~18 KB of JSON.
+    const readMeta = buildScreenplayReadMeta(req, owner);
+    if (ifNoneMatchStateHit(req, readMeta.etag, readMeta.stateVersion)) {
+      applyReadStateHeaders(res, readMeta);
+      res.setHeader("Cache-Control", "no-store");
+      return res.status(304).end();
+    }
     const payloadProjects = [...(owner.projects || [])]
       .sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0))
       .slice(0, limit)
@@ -642,7 +652,7 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
         includeDrafts,
         versionLimit: includeVersions ? 12 : 0,
       }));
-    applyReadStateHeaders(res, buildScreenplayReadMeta(req, owner));
+    applyReadStateHeaders(res, readMeta);
     res.setHeader("Cache-Control", "no-store");
     return res.status(200).json(buildScreenplayEnvelope(req, owner, {
       stage: "screenplay_projects",
