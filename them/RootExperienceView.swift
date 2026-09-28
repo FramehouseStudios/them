@@ -4060,6 +4060,9 @@ struct RootExperienceView: View {
             liveScreenplayVersionID = ""
             sessionContinuitySnapshot = nil
             dismissedSessionContinuityFingerprint = ""
+            // A realtime bootstrap (and its failure, e.g. "Sign in to use
+            // live writing…") belongs to the identity that requested it.
+            realtimeVoice.clear()
             if isStudioSurfaceActive {
                 closeStudio()
             }
