@@ -2071,45 +2071,6 @@ nonisolated enum BackendRememberedLoginCredentialPolicy {
     }
 }
 
-nonisolated enum BackendAppleSignInNonceError: LocalizedError {
-    case invalidLength
-    case randomGenerationFailed(OSStatus)
-
-    var errorDescription: String? {
-        switch self {
-        case .invalidLength:
-            return "Apple sign in could not create a valid security nonce."
-        case .randomGenerationFailed:
-            return "Apple sign in could not create secure random data."
-        }
-    }
-}
-
-nonisolated enum BackendAppleSignInNonce {
-    static func generateRawNonce(byteCount: Int = 32) throws -> String {
-        guard byteCount >= 16, byteCount <= 128 else {
-            throw BackendAppleSignInNonceError.invalidLength
-        }
-        var bytes = [UInt8](repeating: 0, count: byteCount)
-        let status = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
-        guard status == errSecSuccess else {
-            throw BackendAppleSignInNonceError.randomGenerationFailed(status)
-        }
-        return base64URL(Data(bytes))
-    }
-
-    static func sha256Base64URL(_ rawNonce: String) -> String {
-        base64URL(Data(SHA256.hash(data: Data(rawNonce.utf8))))
-    }
-
-    private static func base64URL(_ data: Data) -> String {
-        data.base64EncodedString()
-            .replacingOccurrences(of: "+", with: "-")
-            .replacingOccurrences(of: "/", with: "_")
-            .replacingOccurrences(of: "=", with: "")
-    }
-}
-
 #if DEBUG
 nonisolated struct BackendLocalDemoAccount: Equatable, Sendable {
     let email: String
@@ -6786,6 +6747,7 @@ actor BackendMemoryAPI {
     private var syncState: BackendSyncState = .empty
     private var historyCacheByLimit: [Int: HistoryCacheEntry] = [:]
     private var memoriesCacheByLimit: [Int: MemoriesCacheEntry] = [:]
+    private var screenplayProjectsListCache = ScreenplayProjectsListCache()
     private var latestSeenStateVersion: String = ""
     private var latestCreativeMemoryRevision: String = ""
     private var inFlightStateVersions: Set<String> = []
@@ -7688,7 +7650,7 @@ actor BackendMemoryAPI {
         includeDrafts: Bool = false
     ) async throws -> BackendReadResult<BackendScreenplayProjectsResponse> {
         _ = try? await bootstrapSession(force: false)
-        let request = try makeRequest(
+        var request = try makeRequest(
             path: "/screenplay/projects",
             limit: max(1, limit),
             extraQueryItems: [
@@ -7696,9 +7658,18 @@ actor BackendMemoryAPI {
                 URLQueryItem(name: "include_drafts", value: includeDrafts ? "1" : "0"),
             ]
         )
+        let listOwner = ScreenplayProjectsListCache.isEligible(includeVersions: includeVersions, includeDrafts: includeDrafts)
+            ? (BackendAuthClient.currentAuthSessionState().user?.userId ?? "") : ""
+        if let etag = screenplayProjectsListCache.etag(owner: listOwner, limit: max(1, limit)) {
+            request.setValue(etag, forHTTPHeaderField: "If-None-Match")
+        }
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else {
             throw BackendMemoryAPIError.invalidResponse
+        }
+        if http.statusCode == 304, let cached = screenplayProjectsListCache.payload(owner: listOwner, limit: max(1, limit)) {
+            updateSyncState(mergeSyncStates(base: syncState, incoming: syncFromHeaders(http, fallbackStatus: "up")), emitTurnEvent: false)
+            return BackendReadResult(payload: cached, sync: syncState, notModified: true)
         }
         guard (200...299).contains(http.statusCode) else {
             let message = decodeErrorMessage(from: data)
@@ -7720,6 +7691,7 @@ actor BackendMemoryAPI {
             backendBootId: payload.backendBootId
         )
         updateSyncState(mergeSyncStates(base: bodySync, incoming: headerSync), emitTurnEvent: true)
+        screenplayProjectsListCache.store(owner: listOwner, limit: max(1, limit), etag: http.value(forHTTPHeaderField: "ETag") ?? "", payload: payload)
         return BackendReadResult(payload: payload, sync: syncState, notModified: false)
     }
 
