@@ -555,7 +555,7 @@ struct RootExperienceView: View {
     @State private var showingProfileAccount = false
     @State private var resumeStudioAfterAccountSignIn = false
     @State private var accountSheetContextMessage: String?
-    @State private var pendingMagicMomentDeferral: MagicMomentSignInDeferral?
+    @State private var pendingMagicMomentDeferral: MagicMomentSignInDeferral? = IOThemRuntime.isRunningTests ? nil : MagicMomentSignInDeferral.load()
     @State private var isRestoringWorkspaceAuthSession = false
     @State private var studioOwnerUserIDSnapshot: String?
     @State private var studioWasAuthenticatedSnapshot: Bool?
@@ -924,22 +924,22 @@ struct RootExperienceView: View {
     /// area, which a fresh home does not show.
     @ViewBuilder
     private var homeFirstPageWaitingCard: some View {
-        if pendingMagicMomentDeferral != nil, !showingProfileAccount {
+        if pendingMagicMomentDeferral != nil, !showingProfileAccount, !isMagicMomentSubmitting {
             VStack(alignment: .leading, spacing: 10) {
                 Text("Your First Page")
                     .font(.system(size: 11, weight: .semibold, design: .default))
                     .foregroundColor(.herText.opacity(0.86))
                     .textCase(.uppercase)
                     .tracking(0.8)
-                Text(MagicMomentSignInDeferral.signInMessage)
+                Text(magicMomentOnboardingError.isEmpty ? MagicMomentSignInDeferral.waitingMessage(isSignedIn: authSignedIn) : MagicMomentSignInDeferral.failureMessage(magicMomentOnboardingError))
                     .font(.system(size: 12, weight: .regular, design: .default))
                     .foregroundColor(.herText.opacity(0.82))
                     .lineSpacing(4)
                     .fixedSize(horizontal: false, vertical: true)
                 Button {
-                    openAccount(resumeStudioAfterSignIn: true)
+                    continuePendingFirstPage()
                 } label: {
-                    Text("Sign In")
+                    Text(magicMomentOnboardingError.isEmpty ? "Continue" : "Try Again")
                         .font(.system(size: 12, weight: .regular, design: .default))
                         .foregroundColor(.herText.opacity(0.92))
                         .padding(.horizontal, 10)
@@ -948,7 +948,7 @@ struct RootExperienceView: View {
                         .clipShape(Capsule())
                 }
                 .buttonStyle(.plain)
-                .accessibilityIdentifier("home.first-page-waiting.sign-in")
+                .accessibilityIdentifier("home.first-page-waiting.continue")
             }
             .frame(maxWidth: 500, alignment: .leading)
             .padding(.horizontal, 14)
@@ -3023,9 +3023,11 @@ struct RootExperienceView: View {
                 .sheet(isPresented: $showingProfileAccount) {
                     ProfileAccountScreen(
                         onSessionChanged: handleAccountSessionChanged,
-                        contextMessage: accountSheetContextMessage
+                        contextMessage: accountSheetContextMessage,
+                        startsInCreateAccount: pendingMagicMomentDeferral != nil
                     )
                 }
+                .onChange(of: pendingMagicMomentDeferral) { _, deferral in MagicMomentSignInDeferral.persist(deferral) }
         )
     }
 
@@ -3856,7 +3858,7 @@ struct RootExperienceView: View {
         )
         if MagicMomentSignInDeferral.shouldDefer(decision) {
             pendingMagicMomentDeferral = MagicMomentSignInDeferral(name: cleanName, sceneSeed: sceneSeed)
-            openAccount(resumeStudioAfterSignIn: true)
+            openAccount(resumeStudioAfterSignIn: true, contextMessage: MagicMomentSignInDeferral.signInMessage)
             lastIssueSummary = MagicMomentSignInDeferral.signInMessage
             return
         }
@@ -3885,13 +3887,34 @@ struct RootExperienceView: View {
                 magicMomentOnboardingError = error
                 lastIssueSummary = error
                 screenplayDraftBridge.autoInsertStatusText = error
+                // Studio showed none of the above on a phone; home's first-page
+                // card keeps the scene and offers Try Again.
+                pendingMagicMomentDeferral = MagicMomentSignInDeferral(name: cleanName, sceneSeed: sceneSeed)
+                closeStudio()
                 showOfflineTalkOutboxBanner(error)
                 return
             }
 
+            pendingMagicMomentDeferral = nil
             onboardingSceneSeed = ""
             magicMomentOnboardingError = ""
         }
+    }
+
+    /// The home first-page card: sign in first if needed, otherwise write it.
+    private func continuePendingFirstPage() {
+        guard let deferral = pendingMagicMomentDeferral, !isMagicMomentSubmitting else { return }
+        let session = BackendAuthClient.currentAuthSessionState()
+        if HomeTalkSignInGate.requiresSignIn(
+            isAuthenticated: session.isAuthenticated,
+            accessTokenExpired: session.accessExpired,
+            refreshTokenPresent: session.refreshTokenPresent,
+            isRunningUITests: IOThemRuntime.isRunningUITests
+        ) {
+            openAccount(resumeStudioAfterSignIn: true, contextMessage: MagicMomentSignInDeferral.signInMessage)
+            return
+        }
+        submitMagicMomentFirstPage(name: deferral.name, sceneSeed: deferral.sceneSeed)
     }
 
     @MainActor
@@ -4040,7 +4063,7 @@ struct RootExperienceView: View {
 
     private func openAccount(resumeStudioAfterSignIn: Bool = false, contextMessage: String? = nil) {
         resumeStudioAfterAccountSignIn = resumeStudioAfterSignIn
-        accountSheetContextMessage = resumeStudioAfterSignIn ? StudioSignInPrompt.message : contextMessage
+        accountSheetContextMessage = contextMessage ?? (resumeStudioAfterSignIn ? StudioSignInPrompt.message : nil)
         showingProfileAccount = true
         if resumeStudioAfterSignIn {
             lastIssueSummary = StudioSignInPrompt.message
@@ -4095,7 +4118,8 @@ struct RootExperienceView: View {
         resumeStudioAfterAccountSignIn = false
         showingProfileAccount = false
         let deferral = pendingMagicMomentDeferral
-        pendingMagicMomentDeferral = nil
+        // Kept until the page is written: a failure or a relaunch mid-write
+        // must not drop the scene (submitMagicMomentFirstPage clears it).
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
             if let deferral {
                 submitMagicMomentFirstPage(name: deferral.name, sceneSeed: deferral.sceneSeed)
@@ -8108,7 +8132,9 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 return authRequiredMessage
             }
             let failureReason = error.localizedDescription
-            markBackendUnavailable(reason: failureReason)
+            // A reply that says the provider failed (quota, outage) means the
+            // backend answered; only a request that got no response pauses talk.
+            if BackendHealthProbePolicy.isTransportFailure(error) { markBackendUnavailable(reason: failureReason) }
             lastIssueSummary = failureReason
 #if DEBUG || os(macOS)
             setStudioDebugPreferenceString("root_submit_error", forKey: "studio_debug_root_submit_stage")
