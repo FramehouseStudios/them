@@ -91,3 +91,10 @@ test("[coverage] format problems lower the format pillar and are named", () => {
 test("[coverage] an empty draft is refused", () => {
   assert.throws(() => rateScreenplay({ draft: "   " }), /draft_required/);
 });
+
+test("[coverage] a page with no dialogue gets a move to write the first exchange, not rewrite one", () => {
+  const report = rateScreenplay({ draft: "EXT. PIER - DAWN\n\nGulls. A bell rings. Fog lifts. The tide turns.", title: "Drawer Check" });
+  assert.ok(report.missing.includes("No dialogue to read.") || report.missing.includes("No character cues found."), report.missing.join(" | "));
+  assert.doesNotMatch(report.move, /flattest exchange/);
+  assert.match(report.move, /first exchange|Name who is in the scene/);
+});
