@@ -2348,17 +2348,22 @@ Replace is best when this file should become the script you edit. Append is safe
                     .accessibilityIdentifier("studio.prompt.field")
 #if os(iOS)
                     .toolbar {
+                        // Keyboard toolbar items show for every focused field on
+                        // the screen, so without this check a Send for the command
+                        // bar floated over the keyboard while writing the page.
                         ToolbarItemGroup(placement: .keyboard) {
-                            Spacer()
-                            Button("Send") {
-                                submitStudioPromptSeed()
+                            if studioPromptFocused {
+                                Spacer()
+                                Button("Send") {
+                                    submitStudioPromptSeed()
+                                }
+                                .accessibilityIdentifier("studio.prompt.keyboard-send")
+                                .disabled(
+                                    isSubmittingStudioPrompt ||
+                                    isSubmittingPrompt ||
+                                    studioPromptSeed.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                )
                             }
-                            .accessibilityIdentifier("studio.prompt.keyboard-send")
-                            .disabled(
-                                isSubmittingStudioPrompt ||
-                                isSubmittingPrompt ||
-                                studioPromptSeed.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                            )
                         }
                     }
 #endif
