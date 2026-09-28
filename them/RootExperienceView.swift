@@ -14649,6 +14649,9 @@ private struct CompanionControlsPanel: View {
     @ObservedObject var bridge: ScreenplayLiveDraftBridge
     let onDone: () -> Void
     @State private var pendingClear: CompanionClearConfirmation?
+    /// Usage counters (turns, mode switches, clears) are instrumentation,
+    /// not writer-facing; a first visit showed a wall of zeros.
+    @State private var showsAnalytics = false
 
     var body: some View {
         NavigationStack {
@@ -14664,7 +14667,9 @@ private struct CompanionControlsPanel: View {
                     VStack(alignment: .leading, spacing: 18) {
                         header
                         modeSection
-                        analyticsSection
+                        if showsAnalytics {
+                            analyticsSection
+                        }
                         threadSection
                         controlsSection
                     }
@@ -14679,6 +14684,7 @@ private struct CompanionControlsPanel: View {
             }
         }
         .task {
+            showsAnalytics = await ReleaseQAToolingGate.isVisible()
             await bridge.hydrateBackendCompanionState(force: false)
         }
     }
