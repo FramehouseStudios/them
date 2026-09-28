@@ -115,7 +115,7 @@ function pacingRead(coverage) {
 }
 
 function dialogueRead(sceneScores) {
-  if (!sceneScores.length) return { score: 3, notes: ["No dialogue to read."] };
+  if (!sceneScores.length) return { score: 3, notes: ["No dialogue to read."], empty: true };
   const avg = (key) => sceneScores.reduce((a, s) => a + (s.dimensions[key]?.score ?? s.dimensions[key] ?? 1), 0) / sceneScores.length;
   const subtext = avg("subtext_density");
   const anti = avg("anti_cliche");
@@ -132,7 +132,7 @@ function dialogueRead(sceneScores) {
 function characterRead(coverage, sceneScores) {
   const characters = Array.isArray(coverage.characters) ? coverage.characters : [];
   const notes = [];
-  if (!characters.length) return { score: 3, notes: ["No character cues found."] };
+  if (!characters.length) return { score: 3, notes: ["No character cues found."], empty: true };
   const top = characters[0];
   const speaking = characters.filter((c) => (c.lineCount || 0) >= 3).length;
   let score = 5;
@@ -183,8 +183,13 @@ function theMove(pillars) {
   const [name, read] = lowest;
   switch (name) {
     case "structure": return "Mark the three turns on the page first: where act one commits, where the midpoint flips the tactic, where the low point strips it. Move scenes until a boundary lands on each.";
-    case "dialogue": return "Take the flattest exchange and rewrite every line as a tactic: nobody says the feeling, everybody wants something.";
-    case "character": return read.topShare > 0.6 ? "Give the second character the better argument for one scene and let them win it." : "Pick one scene and write the want and the obstacle in the first two lines of action.";
+    // A page with no dialogue or cues has no exchange to rewrite (the old
+    // move contradicted "No dialogue to read." on the same card).
+    case "dialogue": return read.empty
+      ? "Put two people in the scene who want different things and write their first exchange: nobody says the feeling, everybody wants something."
+      : "Take the flattest exchange and rewrite every line as a tactic: nobody says the feeling, everybody wants something.";
+    case "character": if (read.empty) return "Name who is in the scene with a cue, give them one line, and let the want show in it.";
+      return read.topShare > 0.6 ? "Give the second character the better argument for one scene and let them win it." : "Pick one scene and write the want and the obstacle in the first two lines of action.";
     case "pacing": return "Cut into the longest scene at its turn and leave on the exit image.";
     case "format": return "Fix the sluglines and cues first; a reader forgives a weak scene before a broken page.";
     default: return "Write the next scene.";

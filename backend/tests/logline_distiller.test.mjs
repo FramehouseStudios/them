@@ -73,7 +73,8 @@ She walks to the window.
 `;
   const out = await distillLogline({ text });
   assert.match(out, /JUNE/);
-  assert.match(out, /KITCHEN - NIGHT/);
+  assert.match(out, /a kitchen at night/i);
+  assert.doesNotMatch(out, /INT\.|EXT\.| - /, "no raw slugline in the logline");
 });
 
 test("distillLogline (stub) handles screenplay without a cue", async () => {
@@ -82,7 +83,13 @@ test("distillLogline (stub) handles screenplay without a cue", async () => {
 The clock ticks. The light fades.
 `;
   const out = await distillLogline({ text });
-  assert.match(out, /ROOM - DAY/i);
+  assert.match(out, /a room by day/i);
+});
+
+test("distillLogline (stub) turns a slugline into a place, not a raw heading", async () => {
+  const out = await distillLogline({ text: "EXT. PIER - DAWN\n\nGulls. A bell rings.\n" });
+  assert.match(out, /^A story set in a pier at dawn about a defining challenge\.?$/i);
+  assert.doesNotMatch(out, /ext\.| - /i);
 });
 
 test("distillLogline (stub) handles empty input safely", async () => {
@@ -118,7 +125,7 @@ test("distillLogline (LLM mode) falls back to stub on classifier error", async (
     classifier: breaker,
   });
   assert.match(out, /ALICE/);
-  assert.match(out, /ROOM/);
+  assert.match(out, /a room/i);
 });
 
 // ---------- persistence ----------

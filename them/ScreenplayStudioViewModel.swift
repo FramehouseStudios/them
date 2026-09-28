@@ -4384,8 +4384,12 @@ final class ScreenplayStudioViewModel: ObservableObject {
 
     /// Clementine's read of the current draft (grade, verdict, pillars). Runs
     /// after an import and on demand from the Craft tab; `speak` hands the
-    /// spoken read to the home voice.
-    func refreshCoverage(source: String = "Draft", speak: Bool = false) async {
+    /// spoken read to the home voice. `announce` posts the grade to the status
+    /// line; the background refresh that follows the draft keeps it quiet, or
+    /// every few typed lines greeted the writer with "Clementine's read: D,
+    /// pass." (seen on a three-line page, 2026-09-28). The Craft card still
+    /// shows the full read.
+    func refreshCoverage(source: String = "Draft", speak: Bool = false, announce: Bool = true) async {
         let draft = fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !draft.isEmpty else {
             coverageReport = nil
@@ -4403,8 +4407,10 @@ final class ScreenplayStudioViewModel: ObservableObject {
             coverageReport = result.payload
             coverageErrorText = ""
             StudioOutlineRegistry.shared.coverageSummary = StudioCoverageSummary(report: result.payload)
-            let readLine = "Clementine's read: \(result.payload.grade), \(result.payload.verdict.lowercased())."
-            infoText = infoText.isEmpty ? readLine : "\(infoText) \(readLine)"
+            if announce {
+                let readLine = "Clementine's read: \(result.payload.grade), \(result.payload.verdict.lowercased())."
+                infoText = infoText.isEmpty ? readLine : "\(infoText) \(readLine)"
+            }
             if speak {
                 ScreenplayCoveragePresentation.requestSpeech(result.payload.spoken)
             }
@@ -5700,7 +5706,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
             isRefreshing: isCoverageRefreshing,
             isStreaming: isStreamingDraftPreviewActive
         ) {
-            Task { await self.refreshCoverage(source: "Draft", speak: false) }
+            Task { await self.refreshCoverage(source: "Draft", speak: false, announce: false) }
         }
 
         if isStreamingDraftPreviewActive {

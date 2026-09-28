@@ -102,15 +102,31 @@ function firstCharacterCue(text) {
   return "";
 }
 
+// "EXT. PIER - DAWN" -> "a pier at dawn". The raw slugline used to leak
+// into prose ("A story set ext. pier - dawn about a defining challenge.").
+function settingPhrase(heading) {
+  const body = String(heading || "")
+    .replace(/^(INT\.?\/EXT\.?|EXT\.?\/INT\.?|I\/E\.?|INT\.|EXT\.|EST\.)\s*/i, "")
+    .trim();
+  const [placeRaw, ...rest] = body.split(/\s+-\s+/);
+  const place = String(placeRaw || "").trim().toLowerCase();
+  if (!place) return "";
+  const time = rest.join(" ").trim().toLowerCase();
+  const article = /^(the|a|an)\s/.test(place) ? "" : (/^[aeiou]/.test(place) ? "an " : "a ");
+  const DAYPARTS = { day: " by day", morning: " in the morning", afternoon: " in the afternoon", evening: " in the evening" };
+  const when = !time || /^(continuous|later|same|moments later)$/.test(time) ? "" : (DAYPARTS[time] || ` at ${time}`);
+  return `${article}${place}${when}`;
+}
+
 function deterministicLogline({ text, frameworkId }) {
   const heading = firstSceneHeading(text);
   const cue = firstCharacterCue(text);
-  if (heading && cue) {
-    const setting = heading.replace(/^(INT\.|EXT\.|INT\/EXT|I\/E\.)\s*/i, "").trim();
+  const setting = settingPhrase(heading);
+  if (setting && cue) {
     return normalizeLogline(`In ${setting}, ${cue} faces a defining challenge that tests who they are.`);
   }
   if (cue) return normalizeLogline(`${cue} faces a defining challenge that tests who they are.`);
-  if (heading) return normalizeLogline(`A story set ${heading.toLowerCase()} about a defining challenge.`);
+  if (setting) return normalizeLogline(`A story set in ${setting} about a defining challenge.`);
   const fw = frameworkId ? ` (${frameworkId})` : "";
   return normalizeLogline(`A character faces a defining challenge that changes them forever${fw}.`);
 }
