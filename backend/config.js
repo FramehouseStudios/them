@@ -68,6 +68,11 @@ const REQUIRE_USER_AUTH = resolveRequireUserAuth(process.env);
 const STUDIO_RENDER_TEST_REPLY = NODE_ENV === "production"
   ? ""
   : String(process.env.STUDIO_RENDER_TEST_REPLY || "").trim();
+// Dev only: Studio renders wait for a reply file here instead of calling
+// OpenAI (lib/studio_reply_desk.js). Never set in production.
+const STUDIO_REPLY_DESK_DIR = NODE_ENV === "production"
+  ? ""
+  : String(process.env.STUDIO_REPLY_DESK_DIR || "").trim();
 const UNIFIED_PERSONA_PRESET = "clementine";
 const CLEMENTINE_EMPTY_TRANSCRIPT_PROMPT_DEFAULT = "I missed that. Say it one more time.";
 const CURRENT_FILE_PATH = fileURLToPath(import.meta.url);
@@ -190,6 +195,7 @@ export {
   SHUTDOWN_GRACE_MS,
   SHOULD_START_SERVER,
   STUDIO_RENDER_TEST_REPLY,
+  STUDIO_REPLY_DESK_DIR,
   UNIFIED_PERSONA_PRESET,
   USER_STORE_PATH,
 };
