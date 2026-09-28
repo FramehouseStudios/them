@@ -121,6 +121,9 @@ struct DataControlsScreen: View {
     @State private var outlineRecoveryExportDocument: ScreenplayOutlineMutationRecoveryDocument?
     @State private var outlineRecoveryExportFilename = "io-them-screenplay-outline-recovery.json"
     @State private var isPresentingOutlineRecoveryExporter = false
+    /// The one save sheet also carries the account archive on iPhone, where a
+    /// file written into the app's own Documents folder cannot be reached.
+    @State private var exporterCarriesAccountArchive = false
     @State private var isRefreshingMemoryStats = false
     @State private var memoryStats: BackendMemoryStatsResponse?
     @State private var memoryStatsError = ""
@@ -281,13 +284,15 @@ struct DataControlsScreen: View {
             contentType: .json,
             defaultFilename: outlineRecoveryExportFilename
         ) { result in
+            let label = exporterCarriesAccountArchive ? "Account archive" : "Outline recovery export"
             switch result {
             case .success(let url):
-                statusMessage = "Outline recovery export saved: \(url.lastPathComponent)"
+                statusMessage = "\(label) saved: \(url.lastPathComponent)"
             case .failure(let error):
-                statusMessage = "Outline recovery export failed: \(error.localizedDescription)"
+                statusMessage = "\(label) was not saved: \(error.localizedDescription)"
             }
             outlineRecoveryExportDocument = nil
+            exporterCarriesAccountArchive = false
         }
     }
 
@@ -1293,13 +1298,21 @@ struct DataControlsScreen: View {
             do {
                 let result = try await BackendMemoryAPI.shared.exportAccountData()
                 stateVersion = ""
+                #if os(macOS)
                 let url = try writeExportFile(
                     filename: result.filename,
                     data: result.data
                 )
                 statusMessage = "Account export saved: \(url.path)"
-                #if os(macOS)
                 NSWorkspace.shared.activateFileViewerSelecting([url])
+                #else
+                // Saved into the app's own Documents folder, the archive was
+                // unreachable and the status line showed a raw container path.
+                outlineRecoveryExportDocument = ScreenplayOutlineMutationRecoveryDocument(data: result.data)
+                outlineRecoveryExportFilename = AccountExportFilename.clean(result.filename)
+                exporterCarriesAccountArchive = true
+                isPresentingOutlineRecoveryExporter = true
+                statusMessage = "Choose where to save your account archive."
                 #endif
             } catch {
                 statusMessage = "Export failed: \(error.localizedDescription)"
@@ -1307,22 +1320,15 @@ struct DataControlsScreen: View {
         }
     }
 
+    #if os(macOS)
     private func writeExportFile(filename: String, data: Data) throws -> URL {
-        let safeName = filename.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            ? "io-them-account-export.json"
-            : filename
-        let directory: URL
-        #if os(macOS)
-        directory = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+        let directory = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
             ?? FileManager.default.temporaryDirectory
-        #else
-        directory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
-            ?? FileManager.default.temporaryDirectory
-        #endif
-        let url = directory.appendingPathComponent(safeName)
+        let url = directory.appendingPathComponent(AccountExportFilename.clean(filename))
         try data.write(to: url, options: .atomic)
         return url
     }
+    #endif
 
     #if DEBUG
     @MainActor
@@ -1430,4 +1436,12 @@ struct DataControlsScreen: View {
 
 #Preview {
     DataControlsScreen()
+}
+
+/// The account archive's file name, with a fallback when the server sends none.
+enum AccountExportFilename {
+    static func clean(_ filename: String) -> String {
+        let trimmed = filename.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "io-them-account-export.json" : trimmed
+    }
 }
