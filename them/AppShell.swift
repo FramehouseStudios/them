@@ -966,6 +966,10 @@ struct ProfileAccountScreen: View {
     /// Shown at the top while signed out, e.g. when Studio sent the writer
     /// here; without it the sheet did not say why it had opened.
     var contextMessage: String? = nil
+    /// A writer arriving from "Start your first page" has no account yet, so
+    /// the sheet opens on Create account instead of "Welcome back". A device
+    /// with a remembered login still opens on Sign in.
+    var startsInCreateAccount = false
 
     @Environment(\.dismiss) private var dismiss
 
@@ -1237,6 +1241,9 @@ struct ProfileAccountScreen: View {
         }
         #endif
         .task {
+            if startsInCreateAccount, case .notRemembered = BackendAuthClient.rememberedLoginCredentialLoadResult() {
+                authMode = .signUp
+            }
             restoreRememberedLoginCredentials()
             await reloadScreen(forceRefresh: false, reloadSessions: true)
         }
