@@ -168,6 +168,8 @@ final class ClementineRealtimeWebViewBridge: NSObject, ObservableObject {
     private weak var webView: WKWebView?
     private var bridgeRequest: URLRequest?
     private var bridgeReady = false
+    /// The bridge page this web view was already asked to load.
+    private var requestedBridgeURL: String?
     private var pendingBootstrap: BackendRealtimeBootstrap?
     private var shouldStartWhenReady = false
     private var cancelledResponseOrdinal = 0
@@ -212,31 +214,47 @@ final class ClementineRealtimeWebViewBridge: NSObject, ObservableObject {
     }
 
     func attach(webView: WKWebView) {
+        if self.webView !== webView {
+            requestedBridgeURL = nil
+            bridgeReady = false
+        }
         self.webView = webView
         if let bridgeRequest {
             loadBridgeIfNeeded(request: bridgeRequest)
         }
     }
 
+    /// SwiftUI calls this from `updateUIView` on every render. It used to
+    /// reload the page whenever the bridge had not yet posted `bridge_ready`
+    /// and re-publish `status` each time, which re-rendered the host, which
+    /// reloaded again: the main thread sat at 100% and the app ignored
+    /// touches (seen with Realtime Preview on). A page is now requested once
+    /// per URL and web view; a navigation failure allows the next attempt.
     func loadBridgeIfNeeded(request: URLRequest) {
         bridgeRequest = request
         guard let webView else {
-            status = .loadingBridge
+            updateStatus(.loadingBridge)
             return
         }
 
-        let requestURL = request.url
-        let needsReload = webView.url?.absoluteString != requestURL?.absoluteString || !bridgeReady
-        guard needsReload else {
-            if case .idle = status {
+        let requestURL = request.url?.absoluteString
+        guard requestedBridgeURL == nil || requestedBridgeURL != requestURL else {
+            if bridgeReady, case .idle = status {
                 status = .ready
             }
             return
         }
 
         bridgeReady = false
-        status = .loadingBridge
+        requestedBridgeURL = requestURL
+        updateStatus(.loadingBridge)
         webView.load(request)
+    }
+
+    private func updateStatus(_ next: Status) {
+        if status != next {
+            status = next
+        }
     }
 
     func connect(bootstrap: BackendRealtimeBootstrap, bridgeRequest: URLRequest) {
@@ -274,6 +292,7 @@ final class ClementineRealtimeWebViewBridge: NSObject, ObservableObject {
         disconnect()
         bridgeRequest = nil
         bridgeReady = false
+        requestedBridgeURL = nil
         onUserTranscriptPartial = nil
         onUserTranscriptFinal = nil
         onAssistantTranscriptFinal = nil
@@ -595,13 +614,14 @@ extension ClementineRealtimeWebViewBridge: WKNavigationDelegate {
     nonisolated func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         Task { @MainActor in
             if !self.bridgeReady {
-                self.status = .loadingBridge
+                self.updateStatus(.loadingBridge)
             }
         }
     }
 
     nonisolated func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
         Task { @MainActor in
+            self.requestedBridgeURL = nil
             self.publishConnectionLoss(
                 .local(
                     cause: .bridgeNavigationFailed,
@@ -613,6 +633,7 @@ extension ClementineRealtimeWebViewBridge: WKNavigationDelegate {
 
     nonisolated func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
         Task { @MainActor in
+            self.requestedBridgeURL = nil
             self.publishConnectionLoss(
                 .local(
                     cause: .bridgeNavigationFailed,
