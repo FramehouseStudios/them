@@ -100,6 +100,12 @@ struct ScreenplayStudioSnapshotPresentation: Identifiable {
     let relativeTimestampText: String?
     let notes: String?
     let canRestore: Bool
+    /// The version holds exactly the page on screen, so restoring it would
+    /// only save a duplicate. Its button reads "On page" and stays disabled.
+    var isOnPage = false
+
+    var restoreTitle: String { isOnPage ? "On page" : "Restore" }
+    var restoreEnabled: Bool { canRestore && !isOnPage }
 }
 
 struct ScreenplayStudioDraftSnapshotsPresentation {
@@ -243,6 +249,11 @@ enum ScreenplayStudioDraftToolsPresentationPlanner {
 
     static func snapshotCanRestore(_ version: BackendScreenplayVersion) -> Bool {
         !(version.draft ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    static func snapshotIsOnPage(_ version: BackendScreenplayVersion, currentDraft: String) -> Bool {
+        let saved = (version.draft ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return !saved.isEmpty && saved == currentDraft.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     static func visibleRevisionRanges(
@@ -1127,12 +1138,12 @@ private struct ScreenplayStudioDraftSnapshotTools: View {
                 }
             }
             Spacer(minLength: 8)
-            Button("Restore") {
+            Button(snapshot.restoreTitle) {
                 onRestoreSnapshot(snapshot.version)
             }
             .buttonStyle(.bordered)
             .fixedSize()
-            .disabled(!snapshot.canRestore)
+            .disabled(!snapshot.restoreEnabled)
             .accessibilityIdentifier("studio.draft.snapshot.restore.\(snapshot.id)")
         }
         .padding(.horizontal, 8)

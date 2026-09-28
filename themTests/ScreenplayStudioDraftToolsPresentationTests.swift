@@ -148,6 +148,21 @@ final class ScreenplayStudioDraftToolsPresentationTests: XCTestCase {
         )
         XCTAssertNil(ScreenplayStudioDraftToolsPresentationPlanner.snapshotNotes(blank))
         XCTAssertFalse(ScreenplayStudioDraftToolsPresentationPlanner.snapshotCanRestore(blank))
+        XCTAssertFalse(ScreenplayStudioDraftToolsPresentationPlanner.snapshotIsOnPage(blank, currentDraft: ""))
+    }
+
+    func testVersionMatchingThePageReadsOnPageAndCannotBeRestored() {
+        let saved = makeVersion(id: "v1", phase: "draft", createdAt: 0, updatedAt: nil, notes: nil, draft: "INT. DOCK - DAY\n\nRain.\n")
+        XCTAssertTrue(ScreenplayStudioDraftToolsPresentationPlanner.snapshotIsOnPage(saved, currentDraft: "INT. DOCK - DAY\n\nRain."))
+        XCTAssertFalse(ScreenplayStudioDraftToolsPresentationPlanner.snapshotIsOnPage(saved, currentDraft: "INT. DOCK - DAY\n\nRain. Wind."))
+
+        let onPage = ScreenplayStudioSnapshotPresentation(version: saved, phaseTitle: "Draft", relativeTimestampText: nil, notes: nil, canRestore: true, isOnPage: true)
+        XCTAssertEqual(onPage.restoreTitle, "On page")
+        XCTAssertFalse(onPage.restoreEnabled)
+
+        let older = ScreenplayStudioSnapshotPresentation(version: saved, phaseTitle: "Draft", relativeTimestampText: nil, notes: nil, canRestore: true)
+        XCTAssertEqual(older.restoreTitle, "Restore")
+        XCTAssertTrue(older.restoreEnabled)
     }
 
     func testWarningIntegrityRefreshAndRevisionPresentationRulesRemainExact() {
