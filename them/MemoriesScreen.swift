@@ -874,6 +874,10 @@ struct MemoriesScreen: View {
 
     @StateObject private var vm = MemoriesViewModel()
     @State private var crossDeviceTick = 0
+    /// The Memory Quality card (trigger, prompt refresh, backfill counts) is
+    /// QA telemetry, not something a writer acts on; like Companion
+    /// Analytics it shows only in Debug, TestFlight and Xcode builds.
+    @State private var showsQualityOverview = false
     var startTalkingAction: () -> Void = {}
     var returnAction: () -> Void = {}
     var openStudioAction: () -> Void = {}
@@ -923,6 +927,7 @@ struct MemoriesScreen: View {
         }
         .accessibilityIdentifier("memories.screen")
         .task {
+            showsQualityOverview = await ReleaseQAToolingGate.isVisible()
             guard !vm.installPendingScreenplayQuestionUITestFixtureIfNeeded() else { return }
             await vm.load()
         }
@@ -996,7 +1001,7 @@ struct MemoriesScreen: View {
                         }
                     )
                 }
-                if let snapshot = vm.qualitySnapshot {
+                if showsQualityOverview, let snapshot = vm.qualitySnapshot {
                     MemoryQualityOverviewCard(snapshot: snapshot)
                 }
                 if !vm.recentActionReceipts.isEmpty {
@@ -2165,6 +2170,23 @@ struct MemoryCard: View {
         )
     }
 
+    @ViewBuilder
+    private var memoryCardLastUsedText: some View {
+        if let lastUsed = item.lastUsedDate, lastUsed > .distantPast {
+            Text("Last used \(RelativeDateFormatter.relativeString(for: lastUsed))")
+                .font(.system(size: 12, weight: .regular, design: .default))
+                .foregroundStyle(MemoriesTheme.textPrimary.opacity(0.54))
+                .lineLimit(1)
+        }
+    }
+
+    private var memoryCardRememberedText: some View {
+        Text("Remembered \(rememberedDateText)")
+            .font(.system(size: 13, weight: .regular, design: .default))
+            .foregroundStyle(MemoriesTheme.textPrimary.opacity(0.56))
+            .lineLimit(1)
+    }
+
     var body: some View {
         Button(action: onTap) {
             VStack(alignment: .leading, spacing: 14) {
@@ -2181,25 +2203,20 @@ struct MemoryCard: View {
                     }
                 }
 
+                // A plain tail truncation: the old fade mask was offset 16 pt
+                // and left the summary blank on a phone (seen 2026-09-28).
                 Text(item.summary)
                     .font(.system(size: 15, weight: .regular, design: .default))
                     .foregroundStyle(MemoriesTheme.textPrimary.opacity(0.9))
-                    .lineSpacing(7)
+                    .lineSpacing(4)
                     .lineLimit(3)
-                    .mask(
-                        LinearGradient(
-                            colors: [.black, .black, .black.opacity(0)],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                        .offset(y: 16)
-                    )
+                    .truncationMode(.tail)
 
                 if !item.reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     Text("Why: \(item.reason)")
                         .font(.system(size: 12, weight: .regular, design: .default))
                         .foregroundStyle(MemoriesTheme.textPrimary.opacity(0.72))
-                        .lineLimit(1)
+                        .lineLimit(2)
                 }
 
                 HStack(spacing: 8) {
@@ -2224,20 +2241,22 @@ struct MemoryCard: View {
 
                 Spacer(minLength: 0)
 
-                HStack {
-                    if let lastUsed = item.lastUsedDate, lastUsed > .distantPast {
-                        Text("Last used \(RelativeDateFormatter.relativeString(for: lastUsed))")
-                            .font(.system(size: 12, weight: .regular, design: .default))
-                            .foregroundStyle(MemoriesTheme.textPrimary.opacity(0.54))
+                // One line when it fits; stacked on a phone instead of cutting
+                // "Remembered 10 seconds ago" to "Remembered 10 seco…".
+                ViewThatFits(in: .horizontal) {
+                    HStack {
+                        memoryCardLastUsedText
+                        Spacer()
+                        memoryCardRememberedText
                     }
-                    Spacer()
-                    Text("Remembered \(rememberedDateText)")
-                        .font(.system(size: 13, weight: .regular, design: .default))
-                        .foregroundStyle(MemoriesTheme.textPrimary.opacity(0.56))
+                    VStack(alignment: .leading, spacing: 2) {
+                        memoryCardLastUsedText
+                        memoryCardRememberedText
+                    }
                 }
             }
             .padding(26)
-            .frame(maxWidth: .infinity, minHeight: 200, maxHeight: 200, alignment: .topLeading)
+            .frame(maxWidth: .infinity, minHeight: 200, alignment: .topLeading)
             .contentShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
         }
         .buttonStyle(.plain)
