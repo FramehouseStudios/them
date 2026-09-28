@@ -956,8 +956,16 @@ nonisolated enum ProfileAppleSignInErrorPolicy {
     }
 }
 
+/// Why the account sheet opened when a feature needs sign-in.
+enum StudioSignInPrompt {
+    static let message = "Sign in to open Studio. Your pages save to your account and follow you to your other devices."
+}
+
 struct ProfileAccountScreen: View {
     let onSessionChanged: () -> Void
+    /// Shown at the top while signed out, e.g. when Studio sent the writer
+    /// here; without it the sheet did not say why it had opened.
+    var contextMessage: String? = nil
 
     @Environment(\.dismiss) private var dismiss
 
@@ -1040,6 +1048,12 @@ struct ProfileAccountScreen: View {
                         .font(.system(size: 14, weight: .regular))
                         .foregroundStyle(.white.opacity(0.62))
 
+                        if !sessionState.isAuthenticated,
+                           let contextMessage,
+                           !contextMessage.isEmpty {
+                            feedbackPill(text: contextMessage, tint: Color.white.opacity(0.10))
+                                .accessibilityIdentifier("profile.context")
+                        }
                         if !statusMessage.isEmpty {
                             feedbackPill(text: statusMessage, tint: Color.green.opacity(0.20))
                         }
