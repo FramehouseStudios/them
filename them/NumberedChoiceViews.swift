@@ -14,6 +14,12 @@ enum NumberedChoicePresentation {
     static func label(number: String, title: String, showsKeyNumbers: Bool = showsKeyNumbers) -> String {
         showsKeyNumbers ? "\(number) \(title)" : title
     }
+
+    /// Other keyboard-only instructions ("Press 1 …", "⌥⌘B") follow the same
+    /// rule: shown where a keyboard is the norm, nil elsewhere.
+    static func keyboardHint(_ text: String, showsKeyNumbers: Bool = showsKeyNumbers) -> String? {
+        showsKeyNumbers ? text : nil
+    }
 }
 
 enum NumberedChoiceProminence {

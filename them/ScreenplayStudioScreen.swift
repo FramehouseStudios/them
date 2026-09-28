@@ -520,9 +520,7 @@ struct ScreenplayStudioScreen: View {
             } message: {
                 Text(
                     """
-Import \(pendingDraftImportSourceName.isEmpty ? "this file" : pendingDraftImportSourceName) by replacing the current draft or appending to it.
-
-Press 1 to replace or 2 to append.
+Import \(pendingDraftImportSourceName.isEmpty ? "this file" : pendingDraftImportSourceName) by replacing the current draft or appending to it.\(NumberedChoicePresentation.keyboardHint("\n\nPress 1 to replace or 2 to append.") ?? "")
 
 Replace is best when this file should become the script you edit. Append is safest only for partial scenes, selected pages, or fragments you intentionally want to add after the current draft.
 """
@@ -6194,7 +6192,7 @@ private var projectsSidebarContent: some View {
                 .accessibilityIdentifier("studio.page-write.toast.collapsed")
                 .accessibilityLabel("Wrote to page. \(source.label). Collapsed.")
                 .accessibilityValue(preview)
-                .accessibilityHint("Press Return to reopen. Press Escape to dismiss.")
+                .accessibilityHint(NumberedChoicePresentation.keyboardHint("Press Return to reopen. Press Escape to dismiss.") ?? "Reopens the page-write actions.")
                 .studioExitCommand {
                     dismissLastCommittedWriteActions()
                 }

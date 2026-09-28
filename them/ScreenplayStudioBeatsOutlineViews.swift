@@ -1165,7 +1165,7 @@ struct ScreenplayStudioBeatQuickCaptureRow: View {
                     title: createsImmediately ? "Make from Selection" : "Use Selection",
                     subtitle: "Pull the current highlighted block into a beat.",
                     systemImage: "text.badge.plus",
-                    shortcutHint: "⌥⌘B",
+                    shortcutHint: NumberedChoicePresentation.keyboardHint("⌥⌘B"),
                     action: onCaptureSelection
                 )
             }
@@ -1182,7 +1182,7 @@ struct ScreenplayStudioBeatQuickCaptureRow: View {
                     title: updatesSelectedBeatImmediately ? "Update Selected Beat" : "Use for Selected Beat",
                     subtitle: selectedBeatUpdateSubtitle,
                     systemImage: "arrow.triangle.merge",
-                    shortcutHint: "⌥⌘U",
+                    shortcutHint: NumberedChoicePresentation.keyboardHint("⌥⌘U"),
                     action: onUpdateSelectedBeat
                 )
             }

@@ -3061,11 +3061,11 @@ struct RootExperienceView: View {
                     }
                     Button("Cancel", role: .cancel) {}
                 } message: {
-                    Text(
+                    Text(["Choose what to send to support.", NumberedChoicePresentation.keyboardHint(
                         supportDiagnosticsEnabled
-                            ? "Choose what to send to support. Press 1 for an email summary, 2 for talk diagnostics, or 3 for a debug bundle."
-                            : "Choose what to send to support. Press 1 for an email summary."
-                    )
+                            ? "Press 1 for an email summary, 2 for talk diagnostics, or 3 for a debug bundle."
+                            : "Press 1 for an email summary."
+                    )].compactMap { $0 }.joined(separator: " "))
                 }
                 .sheet(isPresented: $showingTalkDiagnostics) {
                     TalkDiagnosticsSheet(
