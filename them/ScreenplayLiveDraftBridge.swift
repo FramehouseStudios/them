@@ -8427,7 +8427,7 @@ private final class HollywoodScreenplayTextView: NSTextView {
 
         let normalized = FountainFormatter.normalizePastedScreenplayBlock(
             pasted,
-            existingDraft: draftProvider()
+            existingDraft: draftProvider(), fromWriter: true
         )
         guard !normalized.isEmpty, normalized != pasted else {
             super.paste(sender)
@@ -10398,7 +10398,7 @@ final class HollywoodScreenplayUITextView: UITextView {
 
         let normalized = FountainFormatter.normalizePastedScreenplayBlock(
             pasted,
-            existingDraft: draftProvider()
+            existingDraft: draftProvider(), fromWriter: true
         )
         guard !normalized.isEmpty, normalized != pasted else {
             super.paste(sender)
