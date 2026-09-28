@@ -2008,6 +2008,19 @@ struct BackendTaskAction {
     let completedAt: TimeInterval?
 }
 
+/// What a signed-out writer is told when a live feature needs an account.
+/// Visual context (the active-window screenshot) exists only on the Mac, so
+/// the iPhone copy does not offer it.
+enum BackendAuthRequiredCopy {
+    static var message: String {
+        #if os(macOS)
+        "Sign in to use live writing, voice, and visual context."
+        #else
+        "Sign in to use live writing and voice."
+        #endif
+    }
+}
+
 enum BackendError: LocalizedError {
     case stage(String, String)
     case http(Int, String)
@@ -2084,7 +2097,7 @@ enum BackendError: LocalizedError {
         switch self {
         case let .stage(stage, message):
             if requiresUserAuthentication {
-                return "Sign in to use live writing, voice, and visual context."
+                return BackendAuthRequiredCopy.message
             }
             if let plain = BackendTalkFailureCopy.message(stage: stage, serverMessage: message) {
                 return plain

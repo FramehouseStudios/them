@@ -8340,7 +8340,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
               normalized.contains("revoked_user_token") else {
             return nil
         }
-        return "Sign in to use live writing, voice, and visual context."
+        return BackendAuthRequiredCopy.message
     }
 
     @MainActor
