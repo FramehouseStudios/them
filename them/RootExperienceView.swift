@@ -14496,7 +14496,9 @@ private struct RecapPanel: View {
             statChip("Turns", value: "\(stats.turnsToday)")
             statChip("Open", value: "\(stats.openTasks)")
             statChip("Done", value: "\(stats.completedToday)")
-            statChip("Total", value: "\(stats.totalTasks)")
+            // Open and Done count today's window; this one counts every task,
+            // so "Total 1" beside zeros read as a mistake.
+            statChip("All tasks", value: "\(stats.totalTasks)")
         }
     }
 
