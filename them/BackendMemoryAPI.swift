@@ -9656,6 +9656,17 @@ actor BackendMemoryAPI {
         )
     }
 
+    /// The canonical headers carry the signed-in writer's bearer token; this
+    /// request used to build its own without it and got a 401 on every turn
+    /// wherever login is required (production).
+    func makeEvolutionSyncRequest() -> URLRequest {
+        var request = URLRequest(url: baseURL().appendingPathComponent("session").appendingPathComponent("evolution"))
+        request.httpMethod = "PATCH"
+        request.timeoutInterval = 8
+        applyStandardHeaders(to: &request, includeContentType: true)
+        return request
+    }
+
     /// Syncs client-side emotional state from HerEvolutionStore to the backend after each turn.
     /// This reconciles the two memory systems so the server's persona has the same emotional
     /// context as the local relationship tracker (depth, romance tension, trust, etc.).
@@ -9682,22 +9693,7 @@ actor BackendMemoryAPI {
                 ) else {
                     return
                 }
-                let url = baseURL().appendingPathComponent("session").appendingPathComponent("evolution")
-                var request = URLRequest(url: url)
-                request.httpMethod = "PATCH"
-                request.timeoutInterval = 8
-                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-                request.setValue("application/json", forHTTPHeaderField: "Accept")
-                if let token = appToken(), !token.isEmpty {
-                    request.setValue(token, forHTTPHeaderField: "X-APP-TOKEN")
-                }
-                if let userId = userID(), !userId.isEmpty {
-                    request.setValue(userId, forHTTPHeaderField: "X-User-Id")
-                }
-                if let ct = clientToken(), !ct.isEmpty {
-                    request.setValue(ct, forHTTPHeaderField: "X-Client-Token")
-                }
-                request.setValue(personaFlowKey, forHTTPHeaderField: "X-Persona-Key")
+                var request = makeEvolutionSyncRequest()
 
                 var payload: [String: Any] = [
                     "stage": stage,
