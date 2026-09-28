@@ -309,6 +309,17 @@ public enum FountainFormatter {
         case .sceneHeading:
             return normalizeSceneHeading(sanitized)
         case .action:
+            // What the writer typed in caps stays in caps. Sentence-casing
+            // turned the cue "JOE" into the action line "Joe." (and its
+            // dialogue into action), and "A GUNSHOT." into "A gunshot."
+            let cueWithExtension = isCharacterCueLine(sanitized) && sanitized.hasSuffix(")")
+            if ScreenplayEditorElement.looksLikeCharacterCue(sanitized) || cueWithExtension,
+               sanitized.filter(\.isLetter).count >= 2 {
+                return normalizeCharacterCue(sanitized)
+            }
+            if sanitized == sanitized.uppercased(), sanitized.contains(where: \.isLetter) {
+                return ensurePeriod(normalizeActionText(sanitized))
+            }
             let action = normalizeActionText(sanitized)
             let normalized = applyingFirstAppearanceFormatting(
                 to: [FountainElement(kind: .action, text: action)],
@@ -425,6 +436,14 @@ public enum FountainFormatter {
         }
 
         let lines = text.components(separatedBy: "\n")
+        // A cue with its line under it ("MAE" / "We're closed, hon.") is
+        // already Fountain. As prose it became the action line "Mae." and the
+        // dialogue became action too (seen live 2026-09-28 typing on a phone).
+        let nonEmpty = lines.map { $0.trimmingCharacters(in: .whitespaces) }
+        if nonEmpty.count >= 2, !nonEmpty[1].isEmpty, isCharacterCueLine(nonEmpty[0]),
+           nonEmpty[0].filter(\.isLetter).count >= 2 {
+            return true
+        }
         if lines.count >= 3 {
             let hasBlankLine = lines.contains { $0.trimmingCharacters(in: .whitespaces).isEmpty }
             let hasUpperLine = lines.contains { line in
@@ -1576,6 +1595,7 @@ public enum FountainFormatter {
                 let candidate = String(text[matchRange]).trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !candidate.isEmpty else { continue }
                 guard !isLikelyLocationLikeName(candidate) else { continue }
+                guard !startsWithFunctionWord(candidate) else { continue }
                 if !matches.contains(candidate) {
                     matches.append(candidate)
                 }
@@ -1583,6 +1603,17 @@ public enum FountainFormatter {
         }
 
         return matches
+    }
+
+    /// "She waits" matched the "<Name> waits" pattern and became "SHE waits."
+    private static func startsWithFunctionWord(_ candidate: String) -> Bool {
+        let first = candidate.split(separator: " ").first.map { $0.lowercased() } ?? ""
+        let functionWords: Set<String> = [
+            "she", "he", "they", "it", "we", "i", "you", "his", "her", "hers", "their", "its", "our", "my", "your",
+            "the", "a", "an", "this", "that", "these", "those", "someone", "somebody", "everyone", "everybody",
+            "nobody", "no", "one", "then", "now", "suddenly", "finally", "still", "later", "there", "here",
+        ]
+        return functionWords.contains(first)
     }
 
     private static func isLikelyLocationLikeName(_ candidate: String) -> Bool {

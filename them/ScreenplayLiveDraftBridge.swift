@@ -11384,6 +11384,12 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
             let nextText = textView.text ?? ""
 
             synchronizeParagraphElementsWithCurrentText(in: textView)
+            // A cue typed on an Action line ("JOE") is laid out as a cue now,
+            // as a reload would; it stayed at the action margin until then.
+            if context.currentElement == .action,
+               ScreenplayEditorElement.inferredElement(for: context.lineText, previousElement: context.previousElement) == .character {
+                updateParagraphElementMetadata(.character, lineIndex: screenplayLineIndex(for: context.lineRange.location, in: nextText), in: nextText)
+            }
             let nextElement = ScreenplayEditorElement.nextElementAfterReturn(
                 currentLine: context.lineText,
                 currentElement: context.currentElement,

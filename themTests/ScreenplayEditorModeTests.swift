@@ -103,4 +103,24 @@ final class ScreenplayEditorModeTests: XCTestCase {
 
         XCTAssertEqual(normalized, "FADE OUT:")
     }
+
+    func testCueTypedOnAnActionLineStaysACue() {
+        // Seen live 2026-09-28: "JOE" + Return in Action mode became "Joe."
+        XCTAssertEqual(FountainFormatter.normalizeEditorLine("JOE", as: .action), "JOE")
+        XCTAssertEqual(FountainFormatter.normalizeEditorLine("NORA (V.O.)", as: .action), "NORA (V.O.)")
+        XCTAssertEqual(ScreenplayEditorElement.inferredElement(for: "JOE", previousElement: nil), .character)
+    }
+
+    func testAllCapsActionKeepsItsCaps() {
+        XCTAssertEqual(FountainFormatter.normalizeEditorLine("A GUNSHOT RINGS OUT.", as: .action), "A GUNSHOT RINGS OUT.")
+    }
+
+    func testMixedCaseActionStillGetsItsPeriod() {
+        XCTAssertEqual(FountainFormatter.normalizeEditorLine("She waits", as: .action), "She waits.")
+        XCTAssertEqual(FountainFormatter.normalizeEditorLine("The door opens", as: .action), "The door opens.")
+    }
+
+    func testANamedCharacterIsStillIntroducedInCaps() {
+        XCTAssertEqual(FountainFormatter.normalizeEditorLine("Nora waits by the door", as: .action), "NORA waits by the door.")
+    }
 }

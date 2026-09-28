@@ -122,3 +122,16 @@ import Foundation
     #expect(sequence[4] == .parenthetical)
     #expect(sequence[5] == .dialogue)
 }
+
+@Test func pastedCueAndLineStayACueAndDialogue() {
+    // Typed on a phone 2026-09-28: the block arrived after the action line and
+    // "MAE" became the action line "Mae." with the dialogue as action.
+    let existing = "INT. DINER - NIGHT\n\nThe last customer counts coins onto the counter.\n\n"
+    #expect(FountainFormatter.normalizePastedScreenplayBlock("MAE\nWe're closed, hon.\n", existingDraft: existing) == "MAE\nWe're closed, hon.")
+    #expect(FountainFormatter.normalizePastedScreenplayBlock("NORA (V.O.)\nIs anyone out there?") == "NORA (V.O.)\nIs anyone out there?")
+}
+
+@Test func proseStartingWithAShortCapitalWordIsNotACue() {
+    let out = FountainFormatter.normalizePastedScreenplayBlock("I\nwalk to the door and wait.")
+    #expect(!out.hasPrefix("I\n"))
+}
