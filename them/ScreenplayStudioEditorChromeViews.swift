@@ -29,6 +29,17 @@ struct ScreenplayStudioPageMetadataDivider: View {
     }
 }
 
+/// The empty page's hint names the gesture the writer actually has.
+enum ScreenplayPagePlacementHint {
+    static var text: String {
+        #if os(macOS)
+        "Start with a scene heading, or click to place the first line."
+        #else
+        "Start with a scene heading, or tap to place the first line."
+        #endif
+    }
+}
+
 struct ScreenplayStudioPageEmptyPlaceholder: View {
     let hasSelectedProject: Bool
 

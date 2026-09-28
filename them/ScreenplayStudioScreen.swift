@@ -8769,8 +8769,13 @@ Current draft version:
         // under the title in its own scrolling row instead of squeezing
         // "DRAFT PAGE" into a three-character column.
         let stacksChipsUnderTitle = isDirectionOneCompactLayout
+        // The compact top bar already names the open project and its save
+        // state; repeating both here pushed the first line of the script
+        // past the middle of a phone screen.
+        let showsPageTitle = !(isDirectionOneCompactLayout && vm.selectedProject != nil)
         VStack(alignment: .leading, spacing: 11) {
             AnyLayout(stacksChipsUnderTitle ? AnyLayout(VStackLayout(alignment: .leading, spacing: 10)) : AnyLayout(HStackLayout(alignment: .top, spacing: 14))) {
+                if showsPageTitle {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("DRAFT PAGE")
                         .font(.system(size: 9, weight: .semibold, design: .monospaced))
@@ -8783,6 +8788,7 @@ Current draft version:
                         .lineLimit(1)
                 }
                 .layoutPriority(1)
+                }
                 if !stacksChipsUnderTitle {
                     Spacer(minLength: 0)
                 }
@@ -8883,7 +8889,7 @@ Current draft version:
                     )
                     if showEditingHint {
                         ScreenplayStudioPageMetadataDivider()
-                        Text("Start with a scene heading, or click to place the first line.")
+                        Text(ScreenplayPagePlacementHint.text)
                             .font(.system(size: 10.5, weight: .medium, design: .default))
                             .foregroundStyle(Color.herText.opacity(0.48))
                             .fixedSize(horizontal: false, vertical: true)
