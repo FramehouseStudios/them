@@ -16,9 +16,16 @@ struct ScreenplayStackMetrics {
     static let editorTextInsetVertical: CGFloat = 30
     static let pageSurfaceHorizontalPadding: CGFloat = 30
 
+    /// The frame between the page card and the writing area. On a phone the
+    /// full 30 pt on each side cost more width than the text's own margins.
+    static func pageSurfaceHorizontalPadding(forPageWidth pageWidth: CGFloat) -> CGFloat {
+        pageWidth < 420 ? 12 : pageSurfaceHorizontalPadding
+    }
+
     static func paperGuidePositions(in pageWidth: CGFloat) -> (left: CGFloat, right: CGFloat) {
-        let editorWidth = max(0, pageWidth - (pageSurfaceHorizontalPadding * 2))
-        let inset = pageSurfaceHorizontalPadding + editorTextInsetHorizontal(forEditorWidth: editorWidth)
+        let surfacePadding = pageSurfaceHorizontalPadding(forPageWidth: pageWidth)
+        let editorWidth = max(0, pageWidth - (surfacePadding * 2))
+        let inset = surfacePadding + editorTextInsetHorizontal(forEditorWidth: editorWidth)
         return (left: inset, right: max(inset, pageWidth - inset))
     }
 
