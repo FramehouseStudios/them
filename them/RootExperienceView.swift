@@ -3396,6 +3396,25 @@ struct RootExperienceView: View {
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 8) {
                     Button {
+                        showingMemories = false
+                        showingConversationHistory = false
+                        showingNotes = false
+                        showingTasks = false
+                        showingRecap = false
+                        openStudio()
+                    } label: {
+                        Text("Studio")
+                            .font(.system(size: 12, weight: .regular, design: .default))
+                            .foregroundColor(.herText.opacity(0.95))
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(Color.white.opacity(0.28))
+                            .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("home.open-studio")
+
+                    Button {
                         openMemories()
                     } label: {
                         Text("Memories")
@@ -3514,25 +3533,6 @@ struct RootExperienceView: View {
                             .clipShape(Capsule())
                     }
                     .buttonStyle(.plain)
-
-                    Button {
-                        showingMemories = false
-                        showingConversationHistory = false
-                        showingNotes = false
-                        showingTasks = false
-                        showingRecap = false
-                        openStudio()
-                    } label: {
-                        Text("Studio")
-                            .font(.system(size: 12, weight: .regular, design: .default))
-                            .foregroundColor(.herText.opacity(0.95))
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                            .background(Color.white.opacity(0.28))
-                            .clipShape(Capsule())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier("home.open-studio")
 
                     Button {
                         openAccount()
