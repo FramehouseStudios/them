@@ -2569,9 +2569,9 @@ private var directionOneHeaderProjectBlock: some View {
             .lineLimit(1)
         HStack(spacing: 5) {
             Circle()
-                .fill(vm.hasUnsavedDraftChanges || vm.selectedProject == nil || screenplayPageSavedMetadataText == "Not saved" ? Color.orange.opacity(0.88) : Color.green.opacity(0.72))
+                .fill(screenplayPageSavedMetadataText == StudioBlankPageStatus.label ? directionOneChromeSecondaryText.opacity(0.5) : (vm.hasUnsavedDraftChanges || vm.selectedProject == nil || screenplayPageSavedMetadataText == "Not saved" ? Color.orange.opacity(0.88) : Color.green.opacity(0.72)))
                 .frame(width: 5, height: 5)
-            Text(vm.selectedProject == nil || screenplayPageSavedMetadataText == "Not saved" ? screenplayPageSavedMetadataText : (vm.isSaving ? "Saving…" : (vm.hasUnsavedDraftChanges ? "Unsaved" : "Saved")))
+            Text(vm.selectedProject == nil || ["Not saved", StudioBlankPageStatus.label].contains(screenplayPageSavedMetadataText) ? screenplayPageSavedMetadataText : (vm.isSaving ? "Saving…" : (vm.hasUnsavedDraftChanges ? "Unsaved" : "Saved")))
                 .font(.system(size: 10, weight: .regular, design: .default))
                 .foregroundStyle(directionOneChromeSecondaryText)
             if vm.isLoading {
@@ -8653,7 +8653,7 @@ Current draft version:
             ZStack(alignment: .top) {
                 VStack(spacing: 0) {
                     screenplayPageHeaderStrip(
-                        showEditingHint: showEmptyPlaceholder,
+                        showEditingHint: ScreenplayPagePlacementHint.showsInHeader(pageIsEmpty: showEmptyPlaceholder, isCompact: isDirectionOneCompactLayout),
                         isDraftingPreviewActive: isDraftingPreviewActive,
                         isCommitNoticeVisible: isCommitNoticeVisible
                     )
@@ -8928,6 +8928,7 @@ Current draft version:
         if vm.hasUnsavedDraftChanges {
             return "Unsaved"
         }
+        if StudioBlankPageStatus.applies(pageIsEmpty: !hasDraft, hasSavedVersion: !vm.latestVersionID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, hasUnsavedChanges: vm.hasUnsavedDraftChanges, isSaving: vm.isSaving) { return StudioBlankPageStatus.label }
         if let savedDate = screenplayPageSavedDate {
             return relativeTimestamp(savedDate)
         }

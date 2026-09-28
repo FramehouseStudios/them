@@ -38,6 +38,24 @@ enum ScreenplayPagePlacementHint {
         "Start with a scene heading, or tap to place the first line."
         #endif
     }
+
+    /// On a phone the header row scrolls sideways, so the hint showed as a
+    /// clipped fourth stat ("Start with a sc"), and the empty page already
+    /// says the same thing inside the paper.
+    static func showsInHeader(pageIsEmpty: Bool, isCompact: Bool) -> Bool {
+        pageIsEmpty && !isCompact
+    }
+}
+
+/// A project with nothing written and no saved version showed an orange
+/// "Not saved" twice (top bar and header), which reads as a warning when
+/// there is nothing to lose. The drawer already calls it a blank page.
+enum StudioBlankPageStatus {
+    static let label = "Blank page"
+
+    static func applies(pageIsEmpty: Bool, hasSavedVersion: Bool, hasUnsavedChanges: Bool, isSaving: Bool) -> Bool {
+        pageIsEmpty && !hasSavedVersion && !hasUnsavedChanges && !isSaving
+    }
 }
 
 struct ScreenplayStudioPageEmptyPlaceholder: View {
