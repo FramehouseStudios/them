@@ -554,6 +554,7 @@ struct RootExperienceView: View {
     @State private var showingTrustCenter = false
     @State private var showingProfileAccount = false
     @State private var resumeStudioAfterAccountSignIn = false
+    @State private var accountSheetContextMessage: String?
     @State private var pendingMagicMomentDeferral: MagicMomentSignInDeferral?
     @State private var isRestoringWorkspaceAuthSession = false
     @State private var studioOwnerUserIDSnapshot: String?
@@ -3022,7 +3023,7 @@ struct RootExperienceView: View {
                 .sheet(isPresented: $showingProfileAccount) {
                     ProfileAccountScreen(
                         onSessionChanged: handleAccountSessionChanged,
-                        contextMessage: resumeStudioAfterAccountSignIn ? StudioSignInPrompt.message : nil
+                        contextMessage: accountSheetContextMessage
                     )
                 }
         )
@@ -3206,8 +3207,7 @@ struct RootExperienceView: View {
                             .foregroundColor(.herText.opacity(0.92))
 
                         Button {
-                            guard canStartTalk else { return }
-                            startConversationLoopIfNeeded()
+                            startHomeTalk()
                         } label: {
                             Text(usesRealtimePreviewTransport ? "Start live voice with io.them" : "Hold to speak to io.them")
                                 .font(.system(size: 17, weight: .regular, design: .default))
@@ -3228,11 +3228,10 @@ struct RootExperienceView: View {
                         .allowsHitTesting(canStartTalk)
                         .accessibilityIdentifier("home.talk.button")
                         .simultaneousGesture(
-                            LongPressGesture(minimumDuration: 0.08, maximumDistance: 80).onEnded { _ in
-                                guard canStartTalk else { return }
-                                startConversationLoopIfNeeded()
-                            }
+                            LongPressGesture(minimumDuration: 0.08, maximumDistance: 80).onEnded { _ in startHomeTalk() }
                         )
+                    } else {
+                        HomeTalkActiveStatusView(status: studioTalkStatusText, onStop: stopCurrentInteraction)
                     }
                     if let banner = connectionBannerText {
                         Text(banner)
@@ -4039,8 +4038,9 @@ struct RootExperienceView: View {
         }
     }
 
-    private func openAccount(resumeStudioAfterSignIn: Bool = false) {
+    private func openAccount(resumeStudioAfterSignIn: Bool = false, contextMessage: String? = nil) {
         resumeStudioAfterAccountSignIn = resumeStudioAfterSignIn
+        accountSheetContextMessage = resumeStudioAfterSignIn ? StudioSignInPrompt.message : contextMessage
         showingProfileAccount = true
         if resumeStudioAfterSignIn {
             lastIssueSummary = StudioSignInPrompt.message
@@ -4087,6 +4087,10 @@ struct RootExperienceView: View {
             await screenplayDraftBridge.hydrateBackendCompanionState(force: true)
         }
 
+        if accountSheetContextMessage == HomeTalkSignInGate.message {
+            accountSheetContextMessage = nil
+            showingProfileAccount = false // back to Talk, which sent the writer here
+        }
         guard resumeStudioAfterAccountSignIn else { return }
         resumeStudioAfterAccountSignIn = false
         showingProfileAccount = false
@@ -11328,6 +11332,21 @@ Write this approved story direction directly into screenplay pages now. Maintain
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.20) {
             startConversationLoopIfNeeded()
         }
+    }
+
+    private func startHomeTalk() {
+        guard canStartTalk else { return }
+        let session = BackendAuthClient.currentAuthSessionState()
+        if HomeTalkSignInGate.requiresSignIn(
+            isAuthenticated: session.isAuthenticated,
+            accessTokenExpired: session.accessExpired,
+            refreshTokenPresent: session.refreshTokenPresent,
+            isRunningUITests: IOThemRuntime.isRunningUITests
+        ) {
+            openAccount(contextMessage: HomeTalkSignInGate.message)
+            return
+        }
+        startConversationLoopIfNeeded()
     }
 
     private func startConversationLoopIfNeeded() {
