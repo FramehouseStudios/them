@@ -65,7 +65,11 @@ public enum FountainFormatter {
         normalizeHollywoodDraft(rawText, existingDraft: existingDraft)
     }
 
-    public static func normalizeHollywoodDraft(_ rawText: String, existingDraft: String = "") -> String {
+    /// `fromWriter`: the text was typed or pasted by the writer. Their casing is
+    /// kept; only AI-written text gets names guessed from action ("Maya
+    /// hesitates" -> "MAYA hesitates"), which also caught "Fog sits on the
+    /// water" in a writer's paste (seen live 2026-09-28).
+    public static func normalizeHollywoodDraft(_ rawText: String, existingDraft: String = "", fromWriter: Bool = false) -> String {
         let sanitized = sanitizeRawScreenplayText(rawText)
         guard !sanitized.isEmpty else { return "" }
         let cleaned = stripMetaInstructionPrefix(sanitized)
@@ -73,19 +77,20 @@ public enum FountainFormatter {
 
         let candidate: String
         if looksLikeStructuredFountain(cleaned) {
-            candidate = normalizeStructuredFountain(cleaned, existingDraft: existingDraft)
+            candidate = normalizeStructuredFountain(cleaned, existingDraft: existingDraft, fromWriter: fromWriter)
         } else {
             let elements = applyingFirstAppearanceFormatting(
                 to: parseNaturalLanguage(cleaned, existingDraft: existingDraft),
-                existingDraft: existingDraft
+                existingDraft: existingDraft,
+                fromWriter: fromWriter
             )
             candidate = renderElements(elements)
         }
 
-        return normalizeStructuredFountain(candidate, existingDraft: existingDraft)
+        return normalizeStructuredFountain(candidate, existingDraft: existingDraft, fromWriter: fromWriter)
     }
 
-    public static func normalizePastedScreenplayBlock(_ rawText: String, existingDraft: String = "") -> String {
+    public static func normalizePastedScreenplayBlock(_ rawText: String, existingDraft: String = "", fromWriter: Bool = false) -> String {
         let sanitized = sanitizeRawScreenplayText(rawText)
         guard !sanitized.isEmpty else { return "" }
         let cleaned = stripMetaInstructionPrefix(sanitized)
@@ -102,7 +107,7 @@ public enum FountainFormatter {
             return cleaned
         }
 
-        return normalizeHollywoodDraft(cleaned, existingDraft: existingDraft)
+        return normalizeHollywoodDraft(cleaned, existingDraft: existingDraft, fromWriter: fromWriter)
     }
 
     // Lightweight client-side validation for Studio auto-insert.
@@ -323,7 +328,8 @@ public enum FountainFormatter {
             let action = normalizeActionText(sanitized)
             let normalized = applyingFirstAppearanceFormatting(
                 to: [FountainElement(kind: .action, text: action)],
-                existingDraft: existingDraft
+                existingDraft: existingDraft,
+                fromWriter: true
             )
             return renderElements(normalized)
         case .character:
@@ -455,7 +461,7 @@ public enum FountainFormatter {
         return false
     }
 
-    private static func normalizeStructuredFountain(_ text: String, existingDraft: String = "") -> String {
+    private static func normalizeStructuredFountain(_ text: String, existingDraft: String = "", fromWriter: Bool = false) -> String {
         let rawLines = sanitizeRawScreenplayText(text).components(separatedBy: "\n")
         var elements: [FountainElement] = []
         var previousKind: FountainElement.Kind?
@@ -595,7 +601,7 @@ public enum FountainFormatter {
             }
         }
 
-        let normalizedElements = applyingFirstAppearanceFormatting(to: elements, existingDraft: existingDraft)
+        let normalizedElements = applyingFirstAppearanceFormatting(to: elements, existingDraft: existingDraft, fromWriter: fromWriter)
         return renderElements(normalizedElements)
     }
 
@@ -1435,14 +1441,16 @@ public enum FountainFormatter {
 
     private static func applyingFirstAppearanceFormatting(
         to elements: [FountainElement],
-        existingDraft: String
+        existingDraft: String,
+        fromWriter: Bool = false
     ) -> [FountainElement] {
         guard !elements.isEmpty else { return elements }
 
         var introducedNames = characterNames(inDraft: existingDraft)
-        let candidateNames = characterNames(in: elements).union(
-            inferredActionCharacterNames(in: elements, excluding: introducedNames)
-        )
+        // Writer text: only names that speak in this block are characters.
+        let candidateNames = fromWriter
+            ? characterNames(in: elements)
+            : characterNames(in: elements).union(inferredActionCharacterNames(in: elements, excluding: introducedNames))
         guard !candidateNames.isEmpty else { return elements }
         var normalized: [FountainElement] = []
         normalized.reserveCapacity(elements.count)

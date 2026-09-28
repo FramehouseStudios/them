@@ -135,3 +135,10 @@ import Foundation
     let out = FountainFormatter.normalizePastedScreenplayBlock("I\nwalk to the door and wait.")
     #expect(!out.hasPrefix("I\n"))
 }
+
+@Test func pastedActionKeepsTheWritersCase() {
+    // Seen live 2026-09-28 pasting four pages: "Fog sits on the water." -> "FOG sits...".
+    let block = "EXT. PIER - DAWN\n\nFog sits on the water. Gulls argue over a bait bucket. JOE stands at the rail.\n\nJOE\nYou followed me."
+    let out = FountainFormatter.normalizePastedScreenplayBlock(block, fromWriter: true)
+    #expect(out.contains("Fog sits on the water. Gulls argue over a bait bucket."))
+}

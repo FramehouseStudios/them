@@ -120,7 +120,17 @@ final class ScreenplayEditorModeTests: XCTestCase {
         XCTAssertEqual(FountainFormatter.normalizeEditorLine("The door opens", as: .action), "The door opens.")
     }
 
-    func testANamedCharacterIsStillIntroducedInCaps() {
-        XCTAssertEqual(FountainFormatter.normalizeEditorLine("Nora waits by the door", as: .action), "NORA waits by the door.")
+    func testActionWordsAreNotMistakenForCharacters() {
+        // Seen live 2026-09-28: "Fog sits on the water." became "FOG sits...".
+        XCTAssertEqual(FountainFormatter.normalizeEditorLine("Fog sits on the water.", as: .action), "Fog sits on the water.")
+        // A name with no cue yet is left as typed rather than guessed at.
+        XCTAssertEqual(FountainFormatter.normalizeEditorLine("Nora waits by the door", as: .action), "Nora waits by the door.")
+    }
+
+    func testASpeakingCharacterIsIntroducedInCapsOnFirstAppearance() {
+        let block = "INT. HALL - NIGHT\n\nNora waits by the door. Fog rolls in.\n\nNORA\nAnyone?"
+        let out = FountainFormatter.normalizePastedScreenplayBlock(block, fromWriter: true)
+        XCTAssertTrue(out.contains("NORA waits by the door."), out)
+        XCTAssertTrue(out.contains("Fog rolls in."), out)
     }
 }
