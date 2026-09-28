@@ -445,7 +445,7 @@ final class ScreenplayCraftModelsTests: XCTestCase {
         )
 
         XCTAssertEqual(state.currentLogline, "A pilot chases a vanished signal.")
-        XCTAssertEqual(state.sourceLabel, "Stored · Stub")
+        XCTAssertEqual(state.sourceLabel, "Stored · Template")
         XCTAssertEqual(state.driftLabel, "Drift 100%")
         XCTAssertEqual(state.historyCountLabel, "4 saved")
         XCTAssertEqual(state.recentHistory, ["Second", "First"])

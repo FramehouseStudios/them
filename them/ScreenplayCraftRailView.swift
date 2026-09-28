@@ -81,10 +81,10 @@ struct ScreenplayCraftLoglineRailState: Equatable {
         let rawScore = drift?.score ?? 0
         let score = min(max(rawScore, 0), 1)
         let percent = Int((score * 100).rounded())
-        let source = logline?.source.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let source = ScreenplayLoglineSourceLabel.text(for: logline?.source ?? "")
         let stored = logline?.stored == true ? "Stored" : "Preview"
-        let sourceLabel = source.isEmpty ? stored : "\(stored) · \(source.capitalized)"
-        let recent = history.reversed().prefix(3).map { $0.logline }
+        let sourceLabel = source.isEmpty ? stored : "\(stored) · \(source)"
+        let recent = ScreenplayLoglineSourceLabel.distinctRecent(history.reversed().map { $0.logline }, limit: 3)
         return ScreenplayCraftLoglineRailState(
             currentLogline: current,
             sourceLabel: sourceLabel,
@@ -1363,5 +1363,32 @@ struct ScreenplayFormatLintCardListView: View {
         case "soft": return Color.herStudioActiveFill.opacity(0.82)
         default: return Color.herText.opacity(0.58)
         }
+    }
+}
+
+/// What wrote the logline, in the writer's words. "stub" read as "Stub" and
+/// "openai" as "Openai"; the offline template is now named as a template.
+enum ScreenplayLoglineSourceLabel {
+    static func text(for rawSource: String) -> String {
+        switch rawSource.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "": return ""
+        case "openai": return "OpenAI"
+        case "stub": return "Template"
+        default: return rawSource.trimmingCharacters(in: .whitespacesAndNewlines).capitalized
+        }
+    }
+
+    /// Recent loglines without repeats: the same template saved twice
+    /// showed up twice in a row.
+    static func distinctRecent(_ loglines: [String], limit: Int) -> [String] {
+        var seen = Set<String>()
+        var result: [String] = []
+        for line in loglines {
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty, seen.insert(trimmed).inserted else { continue }
+            result.append(trimmed)
+            if result.count == limit { break }
+        }
+        return result
     }
 }

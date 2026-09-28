@@ -28,7 +28,7 @@ import { simulateCoverage } from "./coverage_simulator.js";
 import { trackPayoffs } from "./payoff_tracker.js";
 import { classifyGenre } from "./genre_classifier.js";
 import {
-  distillLogline,
+  distillLoglineWithSource,
   recordLogline,
   getLoglineHistory,
   computeDrift,
@@ -420,8 +420,9 @@ function mountCraftRoutes(app, deps = {}) {
     if (!owned) return;
     const { persistence, classifier } = loglineDistillerDeps();
     try {
-      const logline = await distillLogline({ text, frameworkId, classifier });
-      const source = classifier?.kind === "openai" ? "openai" : "stub";
+      // The source is what actually wrote the logline, not the configured
+      // classifier: a failed model call falls back to the template.
+      const { logline, source } = await distillLoglineWithSource({ text, frameworkId, classifier });
       if (persistence) {
         const entry = await recordLogline({
           persistence, projectId: owned.storageProjectId, versionId, logline, frameworkId, source,
