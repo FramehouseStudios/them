@@ -1009,6 +1009,7 @@ struct ProfileAccountScreen: View {
     @State private var appleSignInRawNonce: String?
     @State private var appleAuthSessionGeneration: Int?
     @State private var managedSessions: [BackendAuthManagedSession] = []
+    @State private var showsPasswordReset = false
 
     var body: some View {
         ZStack {
@@ -1035,25 +1036,18 @@ struct ProfileAccountScreen: View {
             .ignoresSafeArea()
 
             ScrollView {
+                if !sessionState.isAuthenticated {
+                    signedOutAuthLayout
+                } else {
                 VStack(alignment: .leading, spacing: 22) {
                     VStack(alignment: .leading, spacing: 10) {
-                        Text(sessionState.isAuthenticated ? "Account" : "Profile")
+                        Text("Account")
                             .font(.system(size: 34, weight: .semibold))
                             .foregroundStyle(.white)
-                        Text(
-                            sessionState.isAuthenticated
-                                ? (sessionState.emailVerified ? "You’re signed in and the live backend is running on your account." : "You’re signed in. Verify your email to finish account setup.")
-                                : "Sign in to keep your projects, preferences, and writing sessions connected."
-                        )
+                        Text(sessionState.emailVerified ? "You’re signed in and the live backend is running on your account." : "You’re signed in. Verify your email to finish account setup.")
                         .font(.system(size: 14, weight: .regular))
                         .foregroundStyle(.white.opacity(0.62))
 
-                        if !sessionState.isAuthenticated,
-                           let contextMessage,
-                           !contextMessage.isEmpty {
-                            feedbackPill(text: contextMessage, tint: Color.white.opacity(0.10))
-                                .accessibilityIdentifier("profile.context")
-                        }
                         if !statusMessage.isEmpty {
                             feedbackPill(text: statusMessage, tint: Color.green.opacity(0.20))
                         }
@@ -1066,7 +1060,7 @@ struct ProfileAccountScreen: View {
 
                     accountCard(
                         title: "Account Status",
-                        subtitle: sessionState.isAuthenticated ? "Your account is connected." : "You can explore in guest mode, then sign in when you’re ready to protect and sync your work."
+                        subtitle: "Your account is connected."
                     ) {
                         HStack(spacing: 10) {
                             statusChip(sessionState.isAuthenticated ? "Signed In" : "Signed Out")
@@ -1143,123 +1137,6 @@ struct ProfileAccountScreen: View {
                                 secondaryActionButton(title: isWorking ? "Working…" : "Sign Out Other Sessions", disabled: isWorking) {
                                     Task { await revokeOtherSessions() }
                                 }
-                            }
-                        }
-                    } else {
-                        accountCard(
-                            title: authMode == .signIn ? "Sign In" : "Create Account",
-                            subtitle: "Sign in with your email and a password, or continue with Apple."
-                        ) {
-                            Picker("Auth Mode", selection: $authMode) {
-                                ForEach(ProfileAuthMode.allCases) { mode in
-                                    Text(mode.rawValue).tag(mode)
-                                }
-                            }
-                            .pickerStyle(.segmented)
-
-                            accountField(
-                                title: "Email",
-                                prompt: "you@example.com",
-                                text: $email,
-                                identifier: "profile-auth-email"
-                            )
-                            accountField(
-                                title: "Password",
-                                prompt: "Enter password",
-                                text: $password,
-                                secure: true,
-                                identifier: "profile-auth-password"
-                            )
-
-                            if authMode == .signUp {
-                                accountField(title: "Confirm Password", prompt: "Repeat password", text: $confirmPassword, secure: true)
-                            }
-
-                            VStack(alignment: .leading, spacing: 10) {
-                                Toggle("Remember me", isOn: rememberMeBinding)
-                                    .accessibilityIdentifier("profile-auth-remember-me")
-                                Toggle("Save password in Apple Keychain", isOn: savePasswordBinding)
-                                    .accessibilityIdentifier("profile-auth-save-password")
-
-                                Text("Signed-in sessions already restore securely on this device. Saving the password is optional and keeps it in Apple Keychain, never app preferences.")
-                                    .font(.system(size: 11, weight: .regular))
-                                    .foregroundStyle(.white.opacity(0.44))
-                                    .fixedSize(horizontal: false, vertical: true)
-                            }
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundStyle(.white.opacity(0.82))
-                            .tint(Color.white.opacity(0.72))
-
-                            primaryActionButton(title: isWorking ? "Working…" : authMode.actionTitle, disabled: authInteractionDisabled) {
-                                Task {
-                                    if authMode == .signIn {
-                                        await signIn()
-                                    } else {
-                                        await signUp()
-                                    }
-                                }
-                            }
-
-#if DEBUG
-                            if let demoAccount = BackendAuthClient.localDemoAccount() {
-                                Divider().overlay(Color.white.opacity(0.10))
-                                    .padding(.vertical, 2)
-
-                                VStack(alignment: .leading, spacing: 12) {
-                                    Text("Local Demo Account")
-                                        .font(.system(size: 15, weight: .semibold))
-                                        .foregroundStyle(.white.opacity(0.90))
-                                    Text("Debug builds on a local backend only. This uses normal email signup and login; it is not an Apple ID or a production backdoor.")
-                                        .font(.system(size: 12, weight: .regular))
-                                        .foregroundStyle(.white.opacity(0.54))
-
-                                    tokenBlock(title: "Demo email", token: demoAccount.email)
-                                    tokenBlock(title: "Demo password", token: demoAccount.password)
-
-                                    secondaryActionButton(title: isWorking ? "Working…" : "Create or Sign In Demo", disabled: authInteractionDisabled) {
-                                        Task { await useLocalDemoAccount(demoAccount) }
-                                    }
-                                    .accessibilityIdentifier("profile-auth-use-local-demo")
-
-                                    Text("The Remember me choices above apply to this account too.")
-                                        .font(.system(size: 11, weight: .regular))
-                                        .foregroundStyle(.white.opacity(0.42))
-                                }
-                            }
-#endif
-
-                            Divider().overlay(Color.white.opacity(0.10))
-                                .padding(.vertical, 2)
-
-                            VStack(alignment: .leading, spacing: 12) {
-                                Text("Sign in with Apple")
-                                    .font(.system(size: 15, weight: .semibold))
-                                    .foregroundStyle(.white.opacity(0.90))
-                                Text("Uses an Apple-issued identity token and creates the backend account automatically on first sign in. Apple never gives this app your Apple ID password.")
-                                    .font(.system(size: 12, weight: .regular))
-                                    .foregroundStyle(.white.opacity(0.54))
-
-                                SignInWithAppleButton(.signIn, onRequest: configureAppleIDRequest, onCompletion: handleAppleAuthorizationResult)
-                                    .signInWithAppleButtonStyle(.white)
-                                    .frame(maxWidth: 360)
-                                    .frame(height: 46)
-                                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                                    .disabled(authInteractionDisabled)
-
-                                if isAppleSigningIn {
-                                    HStack(spacing: 10) {
-                                        ProgressView()
-                                            .controlSize(.regular)
-                                            .tint(.white)
-                                        Text("Waiting for Apple authorization…")
-                                            .font(.system(size: 12, weight: .regular))
-                                            .foregroundStyle(.white.opacity(0.58))
-                                    }
-                                }
-
-                                Text("The local demo email/password cannot be used in the Apple button. A new Apple identity needs a verified email from Apple; if Apple does not share one, use email sign-in for that account.")
-                                    .font(.system(size: 11, weight: .regular))
-                                    .foregroundStyle(.white.opacity(0.42))
                             }
                         }
                     }
@@ -1341,6 +1218,7 @@ struct ProfileAccountScreen: View {
                     }
                 }
                 .padding(.bottom, 40)
+                }
             }
         }
         #if os(iOS)
@@ -1378,6 +1256,229 @@ struct ProfileAccountScreen: View {
         }
         // Drawn dark like Voice & Studio; see the note there.
         .environment(\.colorScheme, .dark)
+    }
+
+    // MARK: - Signed out: sign in / create account
+
+    /// The rose accent used by the sheet's switches, as the primary action.
+    private static let accentRose = Color(red: 0.98, green: 0.72, blue: 0.65)
+
+    private var signedOutAuthLayout: some View {
+        VStack(spacing: 0) {
+            signedOutHero
+            VStack(alignment: .leading, spacing: 18) {
+                if let contextMessage, !contextMessage.isEmpty {
+                    feedbackPill(text: contextMessage, tint: Color.white.opacity(0.10))
+                        .accessibilityIdentifier("profile.context")
+                }
+                if !statusMessage.isEmpty {
+                    feedbackPill(text: statusMessage, tint: Color.green.opacity(0.20))
+                }
+                if !errorMessage.isEmpty {
+                    feedbackPill(text: errorMessage, tint: Color.red.opacity(0.18))
+                }
+
+                appleSignInBlock
+                signedOutDivider(authMode == .signIn ? "or sign in with email" : "or sign up with email")
+
+                accountField(
+                    title: "Email",
+                    prompt: "you@example.com",
+                    text: $email,
+                    identifier: "profile-auth-email"
+                )
+                accountField(
+                    title: "Password",
+                    prompt: "Enter password",
+                    text: $password,
+                    secure: true,
+                    identifier: "profile-auth-password"
+                )
+                if authMode == .signUp {
+                    accountField(title: "Confirm Password", prompt: "Repeat password", text: $confirmPassword, secure: true)
+                }
+
+                VStack(alignment: .leading, spacing: 10) {
+                    Toggle("Remember me", isOn: rememberMeBinding)
+                        .accessibilityIdentifier("profile-auth-remember-me")
+                    Toggle("Save password in Apple Keychain", isOn: savePasswordBinding)
+                        .accessibilityIdentifier("profile-auth-save-password")
+                }
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(.white.opacity(0.82))
+                .tint(Self.accentRose.opacity(0.85))
+
+                Button {
+                    Task {
+                        if authMode == .signIn {
+                            await signIn()
+                        } else {
+                            await signUp()
+                        }
+                    }
+                } label: {
+                    Text(isWorking ? "Working…" : authMode.actionTitle)
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(themHex(0x3A1A1E))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 16)
+                        .background(Capsule().fill(Self.accentRose))
+                }
+                .buttonStyle(.plain)
+                .disabled(authInteractionDisabled)
+                .opacity(authInteractionDisabled ? 0.55 : 1)
+                .accessibilityIdentifier("profile-auth-submit")
+
+                if authMode == .signIn {
+                    passwordResetDisclosure
+                }
+
+                HStack(spacing: 5) {
+                    Text(authMode == .signIn ? "New here?" : "Already have an account?")
+                        .foregroundStyle(.white.opacity(0.60))
+                    Button(authMode == .signIn ? "Create an account" : "Sign in") {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            authMode = authMode == .signIn ? .signUp : .signIn
+                            showsPasswordReset = false
+                        }
+                        clearFeedback()
+                    }
+                    .fontWeight(.semibold)
+                    .foregroundStyle(Self.accentRose)
+                    .accessibilityIdentifier("profile-auth-switch-mode")
+                }
+                .font(.system(size: 14))
+                .frame(maxWidth: .infinity)
+                .padding(.top, 4)
+
+#if DEBUG
+                if let demoAccount = BackendAuthClient.localDemoAccount() {
+                    signedOutDivider("local debug")
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Local Demo Account")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(.white.opacity(0.90))
+                        Text("Debug builds on a local backend only. Normal email signup and login; not an Apple ID or a production backdoor.")
+                            .font(.system(size: 12, weight: .regular))
+                            .foregroundStyle(.white.opacity(0.54))
+                        tokenBlock(title: "Demo email", token: demoAccount.email)
+                        tokenBlock(title: "Demo password", token: demoAccount.password)
+                        secondaryActionButton(title: isWorking ? "Working…" : "Create or Sign In Demo", disabled: authInteractionDisabled) {
+                            Task { await useLocalDemoAccount(demoAccount) }
+                        }
+                        .accessibilityIdentifier("profile-auth-use-local-demo")
+                    }
+                }
+#endif
+            }
+            .padding(.horizontal, 24)
+            .padding(.top, 30)
+            .padding(.bottom, 40)
+            .frame(maxWidth: 560, alignment: .leading)
+            .frame(maxWidth: .infinity)
+            .background(
+                UnevenRoundedRectangle(topLeadingRadius: 32, topTrailingRadius: 32, style: .continuous)
+                    .fill(themHex(0x16141A))
+                    .shadow(color: .black.opacity(0.25), radius: 18, y: -4)
+            )
+            .padding(.top, -32)
+        }
+    }
+
+    /// The home screen's peach-to-rose light, so signing in feels like the app.
+    private var signedOutHero: some View {
+        VStack(spacing: 10) {
+            Text(authMode == .signIn ? "Welcome back" : "Create account")
+                .font(.system(size: 32, weight: .semibold))
+                .foregroundStyle(Color.herText)
+            Text(authMode == .signIn
+                 ? "Sign in to pick your pages up where you left them."
+                 : "Your scenes, characters, and voice sessions, saved to your account.")
+                .font(.system(size: 15, weight: .regular))
+                .foregroundStyle(Color.herText.opacity(0.72))
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 32)
+        .padding(.top, 88)
+        .padding(.bottom, 72)
+        .background(
+            LinearGradient(
+                colors: [.herPeachTop, .herPeachMid, .herPeachBottom],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        )
+    }
+
+    private var appleSignInBlock: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            SignInWithAppleButton(authMode == .signIn ? .signIn : .signUp, onRequest: configureAppleIDRequest, onCompletion: handleAppleAuthorizationResult)
+                .signInWithAppleButtonStyle(.white)
+                // The system button keeps its first label; a new identity per
+                // mode makes it read "Sign up with Apple" when creating.
+                .id(authMode)
+                .frame(height: 52)
+                .frame(maxWidth: .infinity)
+                .clipShape(Capsule())
+                .disabled(authInteractionDisabled)
+            if isAppleSigningIn {
+                HStack(spacing: 10) {
+                    ProgressView()
+                        .controlSize(.regular)
+                        .tint(.white)
+                    Text("Waiting for Apple authorization…")
+                        .font(.system(size: 12, weight: .regular))
+                        .foregroundStyle(.white.opacity(0.58))
+                }
+            }
+        }
+    }
+
+    private func signedOutDivider(_ label: String) -> some View {
+        HStack(spacing: 12) {
+            Rectangle().fill(Color.white.opacity(0.14)).frame(height: 1)
+            Text(label)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.white.opacity(0.50))
+                .fixedSize()
+            Rectangle().fill(Color.white.opacity(0.14)).frame(height: 1)
+        }
+        .padding(.vertical, 2)
+    }
+
+    @ViewBuilder
+    private var passwordResetDisclosure: some View {
+        Button(showsPasswordReset ? "Hide password reset" : "Forgot password?") {
+            withAnimation(.easeInOut(duration: 0.2)) { showsPasswordReset.toggle() }
+            if resetEmail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                resetEmail = email
+            }
+        }
+        .font(.system(size: 14, weight: .medium))
+        .foregroundStyle(.white.opacity(0.72))
+        .frame(maxWidth: .infinity)
+        .accessibilityIdentifier("profile-auth-forgot-password")
+
+        if showsPasswordReset {
+            VStack(alignment: .leading, spacing: 12) {
+                accountField(title: "Reset Email", prompt: "you@example.com", text: $resetEmail)
+                secondaryActionButton(title: isWorking ? "Working…" : "Request Reset", disabled: isWorking) {
+                    Task { await requestPasswordReset() }
+                }
+                if !debugPasswordResetToken.isEmpty {
+                    tokenBlock(title: "Debug reset token", token: debugPasswordResetToken)
+                }
+                accountField(title: "Reset Token", prompt: "Paste emailed or debug token", text: $resetToken)
+                accountField(title: "New Password", prompt: "Choose a new password", text: $newPassword, secure: true)
+                primaryActionButton(title: isWorking ? "Working…" : "Update Password", disabled: isWorking) {
+                    Task { await resetPassword() }
+                }
+            }
+            .padding(16)
+            .background(RoundedRectangle(cornerRadius: 20, style: .continuous).fill(Color.white.opacity(0.05)))
+        }
     }
 
     private var authProviderStatusLabel: String? {
