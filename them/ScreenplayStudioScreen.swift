@@ -4683,7 +4683,12 @@ private var projectsSidebarContent: some View {
         tertiaryTextColor: directionOneChromeTertiaryText,
         selectionFill: directionOneChromeSelectionFill,
         onCreate: {
-            Task { await vm.createProject() }
+            Task {
+                let before = vm.selectedProjectID
+                await vm.createProject()
+                // Phone: land on the new blank page, as picking a project does; a failure stays in the drawer.
+                if isDirectionOneCompactLayout, vm.errorText.isEmpty, vm.selectedProjectID != before { withAnimation(.spring(response: 0.28, dampingFraction: 0.84)) { isDirectionOneSidebarVisible = false } }
+            }
         },
         onSelect: { projectID in
             if isDirectionOneCompactLayout { withAnimation(.spring(response: 0.28, dampingFraction: 0.84)) { isDirectionOneSidebarVisible = false } } // phone: show the picked page
