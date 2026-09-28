@@ -947,6 +947,18 @@ nonisolated enum ProfileAppleSignInErrorPolicy {
 struct ProfileAccountScreen: View {
     let onSessionChanged: () -> Void
 
+    @Environment(\.dismiss) private var dismiss
+
+    /// The Mac window keeps wide margins; on a phone 48 pt a side left the
+    /// cards about 300 pt wide.
+    private static var horizontalPadding: CGFloat {
+        #if os(macOS)
+        48
+        #else
+        20
+        #endif
+    }
+
     private static let rememberedLoginUnavailableMessage =
         "Remembered login is waiting for Apple Keychain to become available."
 
@@ -1023,7 +1035,7 @@ struct ProfileAccountScreen: View {
                             feedbackPill(text: errorMessage, tint: Color.red.opacity(0.18))
                         }
                     }
-                    .padding(.horizontal, 48)
+                    .padding(.horizontal, Self.horizontalPadding)
                     .padding(.top, 32)
 
                     accountCard(
@@ -1305,6 +1317,20 @@ struct ProfileAccountScreen: View {
                 .padding(.bottom, 40)
             }
         }
+        #if os(iOS)
+        // Every other sheet has a way out besides a swipe; this one had none.
+        .overlay(alignment: .topTrailing) {
+            Button("Done") { dismiss() }
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.92))
+                .padding(.horizontal, 16)
+                .padding(.vertical, 9)
+                .background(Capsule().fill(Color.white.opacity(0.14)))
+                .padding(.top, 14)
+                .padding(.trailing, 16)
+                .accessibilityIdentifier("profile.done")
+        }
+        #endif
         .task {
             restoreRememberedLoginCredentials()
             await reloadScreen(forceRefresh: false, reloadSessions: true)
@@ -2002,7 +2028,7 @@ struct ProfileAccountScreen: View {
                 .stroke(Color.white.opacity(0.11), lineWidth: 1)
         )
         .shadow(color: .black.opacity(0.18), radius: 24, x: 0, y: 14)
-        .padding(.horizontal, 48)
+        .padding(.horizontal, Self.horizontalPadding)
     }
 
     @ViewBuilder

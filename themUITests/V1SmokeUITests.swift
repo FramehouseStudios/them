@@ -3699,8 +3699,12 @@ final class V1SmokeUITests: XCTestCase {
             let underflow = (window.minY + margin) - frame.minY
             let distance = overflow > 0 ? overflow : -max(underflow, 0)
             guard distance != 0 else { break }
+            // A drag shorter than the scroll threshold does not scroll at all
+            // (a 10 pt correction failed six times in a row), so small
+            // corrections overshoot into the window instead.
+            let travel = distance > 0 ? distance + 60 : distance - 60
             let anchor = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.6))
-            let target = anchor.withOffset(CGVector(dx: 0, dy: -min(max(distance, -220), 220)))
+            let target = anchor.withOffset(CGVector(dx: 0, dy: -min(max(travel, -220), 220)))
             anchor.press(forDuration: 0.05, thenDragTo: target)
             RunLoop.current.run(until: Date().addingTimeInterval(0.3))
             if isFullyOnScreen() { return true }
