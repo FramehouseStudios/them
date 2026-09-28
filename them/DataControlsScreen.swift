@@ -1,7 +1,6 @@
 import SwiftUI
 import UniformTypeIdentifiers
 import AuthenticationServices
-import StoreKit
 #if os(macOS)
 import AppKit
 #endif
@@ -100,7 +99,7 @@ private enum DataControlAction: Identifiable, Equatable {
 struct DataControlsScreen: View {
     var onDone: () -> Void = {}
 
-    @AppStorage("clementine_voice_transport_mode")
+    @AppStorage(ClementineVoiceTransportMode.storageKey)
     private var voiceTransportModeRaw: String = ClementineVoiceTransportMode.turnBased.rawValue
     @AppStorage(ClementineRealtimeSupplierMode.storageKey)
     private var realtimeSupplierModeRaw: String = ClementineRealtimeSupplierMode.serverDefault.rawValue
@@ -246,12 +245,9 @@ struct DataControlsScreen: View {
         }
         .accessibilityIdentifier("data.controls.screen")
         .task {
-            isReleaseQAToolingVisible = await resolveV1LaunchDoctorVisibility()
+            isReleaseQAToolingVisible = await ReleaseQAToolingGate.isVisible()
             if !isReleaseQAToolingVisible {
-                // A TestFlight choice must not strand an App Store install on
-                // a provider production refuses.
-                realtimeSupplierModeRaw = ClementineRealtimeSupplierMode
-                    .releaseSafe(rawValue: realtimeSupplierModeRaw).rawValue
+                ReleaseQAToolingGate.resetHiddenChoices()
             }
         }
         .sheet(isPresented: $showingV1LaunchDoctor) {
@@ -810,29 +806,6 @@ struct DataControlsScreen: View {
             )
         }
         .buttonStyle(.plain)
-    }
-
-    /// The V1 Launch Doctor is release-QA tooling, not writer-facing UI. It is
-    /// shown only when the AppTransaction environment proves a non-production
-    /// build: `.xcode` (Debug) or `.sandbox` (TestFlight). App Store builds
-    /// report `.production` and stay hidden; any lookup failure also hides it.
-    ///
-    /// Debug builds short-circuit to visible without touching StoreKit: with no
-    /// App Store receipt, `AppTransaction.shared` raises a system "Sign in to
-    /// Apple Account" prompt every time this screen opens (seen on the
-    /// simulator). `AppTransaction.shared` is a `VerificationResult`, so the
-    /// payload is read with `payloadValue`; an unverified result stays hidden.
-    private func resolveV1LaunchDoctorVisibility() async -> Bool {
-        #if DEBUG
-        return true
-        #else
-        do {
-            let transaction = try await AppTransaction.shared.payloadValue
-            return transaction.environment == .sandbox || transaction.environment == .xcode
-        } catch {
-            return false
-        }
-        #endif
     }
 
     private func actionButton(title: String, subtitle: String, action: DataControlAction) -> some View {

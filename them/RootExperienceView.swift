@@ -659,7 +659,7 @@ struct RootExperienceView: View {
     @AppStorage(ClementineVoiceSettings.voiceSpeedKey) private var clementineSpeakingPace: Double = 1.0
     @AppStorage("studio_typed_reply_audio_enabled") private var studioTypedReplyAudioEnabled: Bool = true
     @AppStorage("clementine_visual_context_enabled") private var visualContextEnabled: Bool = false
-    @AppStorage("clementine_voice_transport_mode")
+    @AppStorage(ClementineVoiceTransportMode.storageKey)
     private var voiceTransportModeRaw: String = ClementineVoiceTransportMode.turnBased.rawValue
     @AppStorage(ClementineRealtimeSupplierMode.storageKey)
     private var realtimeSupplierModeRaw: String = ClementineRealtimeSupplierMode.serverDefault.rawValue

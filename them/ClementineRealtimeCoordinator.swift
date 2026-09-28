@@ -6,6 +6,8 @@ enum ClementineVoiceTransportMode: String, CaseIterable, Identifiable {
     case turnBased = "turn_based"
     case realtimePreview = "realtime_preview"
 
+    static let storageKey = "clementine_voice_transport_mode"
+
     var id: String { rawValue }
 
     var title: String {
