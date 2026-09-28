@@ -4124,7 +4124,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
                     updatedAt: now
                 ),
                 presence: CreativePresenceSnapshot(
-                    title: "Continuity Restored",
+                    title: HomeSessionContinuityCardPolicy.restoredContinuityPresenceTitle,
                     detail: String(presenceDetail.prefix(360)).trimmingCharacters(in: .whitespacesAndNewlines),
                     updatedAt: now
                 ),

@@ -16,4 +16,15 @@ nonisolated enum HomeSessionContinuityCardPolicy {
         guard !needsOnboardingName else { return false }
         return fingerprint != dismissedFingerprint
     }
+
+    /// Presence title of the companion signal built from a restored session.
+    static let restoredContinuityPresenceTitle = "Continuity Restored"
+
+    /// The restored-continuity companion card under Talk repeated the
+    /// "Where we left off" card above it (same project, same next step);
+    /// while that card shows, the repeat is hidden. Other signals stay.
+    static func hidesCompanionSignal(presenceTitle: String, continuityCardVisible: Bool) -> Bool {
+        continuityCardVisible
+            && presenceTitle.trimmingCharacters(in: .whitespacesAndNewlines) == restoredContinuityPresenceTitle
+    }
 }

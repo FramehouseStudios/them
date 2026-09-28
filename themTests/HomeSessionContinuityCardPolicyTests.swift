@@ -22,4 +22,11 @@ final class HomeSessionContinuityCardPolicyTests: XCTestCase {
             hasMeaningfulSnapshot: true, fingerprint: "b", dismissedFingerprint: "a", needsOnboardingName: false
         ), "a new thread shows again")
     }
+
+    func testRestoredSignalHidesOnlyWhileTheCardShows() {
+        let title = HomeSessionContinuityCardPolicy.restoredContinuityPresenceTitle
+        XCTAssertTrue(HomeSessionContinuityCardPolicy.hidesCompanionSignal(presenceTitle: title, continuityCardVisible: true))
+        XCTAssertFalse(HomeSessionContinuityCardPolicy.hidesCompanionSignal(presenceTitle: title, continuityCardVisible: false))
+        XCTAssertFalse(HomeSessionContinuityCardPolicy.hidesCompanionSignal(presenceTitle: "Live Intent", continuityCardVisible: true))
+    }
 }

@@ -874,7 +874,11 @@ struct RootExperienceView: View {
     @ViewBuilder
     private var homeCompanionSignalCard: some View {
         let signalState = activeCompanionSignals
-        if signalState.hasContent {
+        if signalState.hasContent,
+           !HomeSessionContinuityCardPolicy.hidesCompanionSignal(
+               presenceTitle: signalState.presence.title,
+               continuityCardVisible: homeSessionContinuityCardIsVisible
+           ) {
             VStack(spacing: 6) {
                 if !signalState.presence.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     Text(signalState.presence.title)
@@ -960,15 +964,19 @@ struct RootExperienceView: View {
         }
     }
 
+    private var homeSessionContinuityCardIsVisible: Bool {
+        guard let snapshot = sessionContinuitySnapshot else { return false }
+        return HomeSessionContinuityCardPolicy.shouldShow(
+            hasMeaningfulSnapshot: snapshot.isMeaningful,
+            fingerprint: sessionContinuityFingerprint(snapshot),
+            dismissedFingerprint: dismissedSessionContinuityFingerprint,
+            needsOnboardingName: evolution.needsOnboardingName
+        )
+    }
+
     @ViewBuilder
     private var homeSessionContinuityCard: some View {
-        if let snapshot = sessionContinuitySnapshot,
-           HomeSessionContinuityCardPolicy.shouldShow(
-               hasMeaningfulSnapshot: snapshot.isMeaningful,
-               fingerprint: sessionContinuityFingerprint(snapshot),
-               dismissedFingerprint: dismissedSessionContinuityFingerprint,
-               needsOnboardingName: evolution.needsOnboardingName
-           ) {
+        if let snapshot = sessionContinuitySnapshot, homeSessionContinuityCardIsVisible {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(alignment: .firstTextBaseline, spacing: 10) {
                     Text("Where We Left Off")
