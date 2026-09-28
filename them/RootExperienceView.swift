@@ -3020,7 +3020,10 @@ struct RootExperienceView: View {
                     .themDesktopSheetFrame(minWidth: 900, minHeight: 680)
                 }
                 .sheet(isPresented: $showingProfileAccount) {
-                    ProfileAccountScreen(onSessionChanged: handleAccountSessionChanged)
+                    ProfileAccountScreen(
+                        onSessionChanged: handleAccountSessionChanged,
+                        contextMessage: resumeStudioAfterAccountSignIn ? StudioSignInPrompt.message : nil
+                    )
                 }
         )
     }
@@ -4040,7 +4043,7 @@ struct RootExperienceView: View {
         resumeStudioAfterAccountSignIn = resumeStudioAfterSignIn
         showingProfileAccount = true
         if resumeStudioAfterSignIn {
-            lastIssueSummary = "Sign in to open Studio and sync your screenplay projects."
+            lastIssueSummary = StudioSignInPrompt.message
         }
     }
 
