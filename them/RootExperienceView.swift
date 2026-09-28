@@ -554,6 +554,10 @@ struct RootExperienceView: View {
     @State private var showingTrustCenter = false
     @State private var showingProfileAccount = false
     @State private var resumeStudioAfterAccountSignIn = false
+    /// "Voice to Scene" from onboarding while signed out: listen only after
+    /// sign-in lands in Studio. It used to open the sign-in sheet and ask for
+    /// the microphone at the same moment (seen live 2026-09-28).
+    @State private var startVoiceAfterStudioSignIn = false
     @State private var accountSheetContextMessage: String?
     @State private var pendingMagicMomentDeferral: MagicMomentSignInDeferral? = IOThemRuntime.isRunningTests ? nil : MagicMomentSignInDeferral.load()
     @State private var isRestoringWorkspaceAuthSession = false
@@ -3020,7 +3024,10 @@ struct RootExperienceView: View {
                     )
                     .themDesktopSheetFrame(minWidth: 900, minHeight: 680)
                 }
-                .sheet(isPresented: $showingProfileAccount) {
+                .sheet(isPresented: $showingProfileAccount, onDismiss: {
+                    // Dismissed without signing in: a later sign-in must not start the mic.
+                    if !BackendAuthClient.currentAuthSessionState().isAuthenticated { startVoiceAfterStudioSignIn = false }
+                }) {
                     ProfileAccountScreen(
                         onSessionChanged: handleAccountSessionChanged,
                         contextMessage: accountSheetContextMessage,
@@ -3922,6 +3929,17 @@ struct RootExperienceView: View {
         guard !isMagicMomentSubmitting else { return }
         guard completeOnboarding(askForPersonality: false) else { return }
         magicMomentOnboardingError = ""
+        let session = BackendAuthClient.currentAuthSessionState()
+        if HomeTalkSignInGate.requiresSignIn(
+            isAuthenticated: session.isAuthenticated,
+            accessTokenExpired: session.accessExpired,
+            refreshTokenPresent: session.refreshTokenPresent,
+            isRunningUITests: IOThemRuntime.isRunningUITests
+        ) {
+            startVoiceAfterStudioSignIn = true
+            openAccount(resumeStudioAfterSignIn: true, contextMessage: HomeTalkSignInGate.message)
+            return
+        }
         openStudio()
         startConversationLoopIfNeeded()
     }
@@ -4120,11 +4138,14 @@ struct RootExperienceView: View {
         let deferral = pendingMagicMomentDeferral
         // Kept until the page is written: a failure or a relaunch mid-write
         // must not drop the scene (submitMagicMomentFirstPage clears it).
+        let startVoice = startVoiceAfterStudioSignIn
+        startVoiceAfterStudioSignIn = false
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
             if let deferral {
                 submitMagicMomentFirstPage(name: deferral.name, sceneSeed: deferral.sceneSeed)
             } else {
                 openStudio()
+                if startVoice { startConversationLoopIfNeeded() }
             }
         }
     }
