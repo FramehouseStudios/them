@@ -263,6 +263,18 @@ extension ScreenplayStudioScreen {
 
         var id: String { rawValue }
 
+        /// Files browses local folders and saves through the Mac save panel.
+        /// On iPhone (V1 is mobile-only, D-desktop-posture-v1) its Open Folder
+        /// and Save Draft As buttons did nothing, so the drawer offers
+        /// Projects only; exports live in Draft tools.
+        static var available: [SidebarSection] {
+            #if os(macOS)
+            allCases
+            #else
+            [.projects]
+            #endif
+        }
+
         var title: String {
             switch self {
             case .projects: return "Projects"

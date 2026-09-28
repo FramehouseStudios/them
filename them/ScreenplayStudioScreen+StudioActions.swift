@@ -51,7 +51,8 @@ extension ScreenplayStudioScreen {
             selectedDraftToolsSection = section
             vm.infoText = "Opened \(section.rawValue.capitalized) in Draft tools."
         case "open_sidebar":
-            guard let section = SidebarSection(rawValue: action.section ?? "") else { return }
+            guard let section = SidebarSection(rawValue: action.section ?? ""),
+                  SidebarSection.available.contains(section) else { return }
             withAnimation(.spring(response: 0.28, dampingFraction: 0.84)) {
                 isDirectionOneSidebarVisible = true
                 selectedSidebarSection = section
