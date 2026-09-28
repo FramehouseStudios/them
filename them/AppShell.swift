@@ -386,6 +386,7 @@ struct VoiceSettingsScreen: View {
 
     @StateObject private var evolution = HerEvolutionStore.shared
     @StateObject private var liveDraftBridge = ScreenplayLiveDraftBridge.shared
+    @State private var isReleaseQAToolingVisible = false
 
     var body: some View {
         ZStack {
@@ -529,8 +530,12 @@ struct VoiceSettingsScreen: View {
                         ClementinePackStoreSettingsSection()
                     }
 
-                    settingsSection("Realtime") {
-                        realtimeSupplierPicker
+                    // Release-QA only, like its twin in Data Controls: a
+                    // writer who picked Stub lost live voice in production.
+                    if isReleaseQAToolingVisible {
+                        settingsSection("Realtime") {
+                            realtimeSupplierPicker
+                        }
                     }
 
                     settingsSection("Studio") {
@@ -597,9 +602,16 @@ struct VoiceSettingsScreen: View {
         .onAppear {
             liveDraftBridge.autoInsertEnabled = autoInsert
         }
+        .task {
+            isReleaseQAToolingVisible = await ReleaseQAToolingGate.isVisible()
+        }
         .onChange(of: autoInsert) { _, newValue in
             liveDraftBridge.autoInsertEnabled = newValue
         }
+        // The sheet is drawn dark; in the app's light scheme its system
+        // controls kept light-mode colors: an off switch showed only a white
+        // knob and unselected segments were dark text on a dark card.
+        .environment(\.colorScheme, .dark)
     }
 
     private var realtimeSupplierPicker: some View {
@@ -751,7 +763,7 @@ struct VoiceSettingsScreen: View {
                 Spacer()
                 Toggle("Printing", isOn: $printingEnabled)
                     .labelsHidden()
-                    .tint(.white.opacity(0.35))
+                    .tint(Color(red: 0.98, green: 0.72, blue: 0.65).opacity(0.80))
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 14)
@@ -1325,7 +1337,8 @@ struct ProfileAccountScreen: View {
                 .foregroundStyle(.white.opacity(0.92))
                 .padding(.horizontal, 16)
                 .padding(.vertical, 9)
-                .background(Capsule().fill(Color.white.opacity(0.14)))
+                // Material, not a tint: the button floats over scrolling text.
+                .background(.regularMaterial, in: Capsule())
                 .padding(.top, 14)
                 .padding(.trailing, 16)
                 .accessibilityIdentifier("profile.done")
@@ -1349,6 +1362,8 @@ struct ProfileAccountScreen: View {
         ) { _ in
             restoreRememberedLoginCredentials()
         }
+        // Drawn dark like Voice & Studio; see the note there.
+        .environment(\.colorScheme, .dark)
     }
 
     private var authProviderStatusLabel: String? {
