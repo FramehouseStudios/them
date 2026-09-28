@@ -748,6 +748,24 @@ test("[persistent-screenplay-memory] distills durable context from sparse draft 
   assert.doesNotMatch(nonPageRecord.lastWritePreview, /scene is working/);
 });
 
+test("a chat reply that wrote nothing is not the project's write preview", () => {
+  // Seen live: "hello" → reflex "Hey — I'm here." was stored as lastWritePreview,
+  // and the home card then said "The last live thread was: Hey — I'm here."
+  const record = buildScreenplayProjectMemoryRecordFromStudioMeta(
+    {
+      screenplayProjectId: "chat-only",
+      screenplayPageCount: 3,
+    },
+    {
+      reply: "Hey — I'm here.",
+      nowTs: 1_800_000_102_000,
+    }
+  );
+  assert.ok(record);
+  assert.equal(record.lastAssistantReply, "Hey — I'm here.");
+  assert.equal(record.lastWritePreview, "");
+});
+
 test("[persistent-screenplay-memory] generated page replies update payoff and arc runway", () => {
   const replyPages = [
     "INT. COURTHOUSE - NIGHT",
