@@ -2233,11 +2233,21 @@ actor BackendAuthRefreshCoordinator {
     }
 
     private var activeRefreshes: [Key: ActiveRefresh] = [:]
+    private var waitingCallers: [Key: Int] = [:]
+
+    /// Callers currently waiting on the flight for `key` (lets tests join a
+    /// flight deterministically instead of racing a sleep).
+    func callerCount(for key: Key) -> Int { waitingCallers[key] ?? 0 }
 
     func run(
         key: Key,
         _ operation: @escaping @Sendable () async throws -> BackendAuthSessionState
     ) async throws -> BackendAuthSessionState {
+        waitingCallers[key, default: 0] += 1
+        defer {
+            let remaining = (waitingCallers[key] ?? 1) - 1
+            waitingCallers[key] = remaining > 0 ? remaining : nil
+        }
         let active: ActiveRefresh
         if let existing = activeRefreshes[key] {
             active = existing

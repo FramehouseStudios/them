@@ -2010,20 +2010,31 @@ final class BackendCredentialMigrationTests: XCTestCase {
             )
         )
 
+        // The flight stays open (gate) until both callers have joined it; a
+        // fixed 80 ms sleep let a slow second task start after the first
+        // flight had finished and flaked the count to 2 under load.
+        let gate = AuthRefreshAsyncGate()
         let first = Task {
             try await coordinator.run(key: key) {
                 await counter.increment()
-                try await Task.sleep(nanoseconds: 80_000_000)
+                await gate.markStartedAndWait()
                 return .signedOut
             }
         }
+        await gate.waitUntilStarted()
         let second = Task {
             try await coordinator.run(key: key) {
                 await counter.increment()
-                try await Task.sleep(nanoseconds: 80_000_000)
                 return .signedOut
             }
         }
+        let deadline = Date().addingTimeInterval(5)
+        while await coordinator.callerCount(for: key) < 2, Date() < deadline {
+            await Task.yield()
+        }
+        let joinedCallers = await coordinator.callerCount(for: key)
+        XCTAssertEqual(joinedCallers, 2)
+        await gate.release()
 
         let firstResult = try await first.value
         let secondResult = try await second.value
