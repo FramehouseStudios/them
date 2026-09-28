@@ -3,14 +3,14 @@ import XCTest
 
 final class BackendHealthProbePolicyTests: XCTestCase {
     func testPollIntervalBacksOffWhileDownAndResetsWhenUp() {
-        XCTAssertEqual(BackendHealthProbePolicy.pollInterval(consecutiveFailures: 0), 5)
+        XCTAssertEqual(BackendHealthProbePolicy.pollInterval(consecutiveFailures: 0), 30)
         XCTAssertEqual(BackendHealthProbePolicy.pollInterval(consecutiveFailures: 1), 5)
         XCTAssertEqual(BackendHealthProbePolicy.pollInterval(consecutiveFailures: 2), 10)
         XCTAssertEqual(BackendHealthProbePolicy.pollInterval(consecutiveFailures: 3), 20)
         XCTAssertEqual(BackendHealthProbePolicy.pollInterval(consecutiveFailures: 4), 40)
         XCTAssertEqual(BackendHealthProbePolicy.pollInterval(consecutiveFailures: 5), 60)
         XCTAssertEqual(BackendHealthProbePolicy.pollInterval(consecutiveFailures: 50), 60)
-        XCTAssertEqual(BackendHealthProbePolicy.pollInterval(consecutiveFailures: -3), 5)
+        XCTAssertEqual(BackendHealthProbePolicy.pollInterval(consecutiveFailures: -3), 30)
     }
 
     func testTransportFailuresAreTheOnesWithoutAnHTTPAnswer() {
