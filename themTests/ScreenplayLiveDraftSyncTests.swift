@@ -490,6 +490,27 @@ final class ScreenplayLiveDraftSyncServiceTests: XCTestCase {
         service.detach()
     }
 
+    func testHelloWithoutTextAgreesOnTheTextWhoseChecksumWasSent() async {
+        // Seen live 2026-09-28: the first op after every launch got a 409
+        // checksum_mismatch. The stream opened with the checksum of the
+        // editor text at that moment; the project finished loading before
+        // hello arrived, and the mirror took the newer editor text as agreed.
+        let transport = FakeLiveDraftTransport()
+        let editor = FakeLiveDraftEditor(projectID: "proj-1", text: "EXT. PIER - DAWN")
+        let service = makeService(transport: transport)
+        service.attach(to: editor)
+        await waitUntil { !transport.openedStreams.isEmpty }
+        XCTAssertEqual(transport.openedStreams.first?.checksum, LiveDraftText.checksum("EXT. PIER - DAWN"))
+
+        editor.text = "EXT. PIER - DAWN\n\nGulls."
+        transport.emit("hello", #"{"seq":2,"checksum":"\#(LiveDraftText.checksum("EXT. PIER - DAWN"))","seeded":false}"#)
+        await waitUntil { !transport.postedOps.isEmpty }
+        XCTAssertEqual(transport.postedOps.first?.baseChecksum, LiveDraftText.checksum("EXT. PIER - DAWN"), "the base is the text the server confirmed")
+        XCTAssertEqual(transport.postedOps.first?.baseSeq, 2)
+        XCTAssertEqual(transport.postedOps.first?.op, LiveDraftOp(start: 16, deleteCount: 0, insert: "\n\nGulls."))
+        service.detach()
+    }
+
     func testOutOfOrderOpTriggersResync() async {
         let transport = FakeLiveDraftTransport()
         transport.snapshotText = "resynced"

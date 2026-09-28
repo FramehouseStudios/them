@@ -508,6 +508,9 @@ final class ScreenplayLiveDraftSyncService: ObservableObject {
     private var mirrorText = ""
     private var mirrorSeq: Int?
     private var mirrorChecksum = ""
+    /// The editor text whose checksum opened the current stream. A hello
+    /// without text confirms this text, not whatever the editor holds by then.
+    private var streamOpenedText = ""
     private var isApplyingRemote = false
     private var isPublishInFlight = false
     private var isConnected = false
@@ -649,7 +652,8 @@ final class ScreenplayLiveDraftSyncService: ObservableObject {
     private func runStreamLoop(projectID: String) async {
         while !Task.isCancelled, projectID == activeProjectID {
             status = .connecting
-            let checksum = LiveDraftText.checksum(editor?.liveDraftText ?? "")
+            streamOpenedText = editor?.liveDraftText ?? ""
+            let checksum = LiveDraftText.checksum(streamOpenedText)
             let stream = transport.openStream(projectID: projectID, deviceID: deviceID, checksum: checksum)
             var delay = LiveDraftSyncPolicy.reconnectDelay(attempt: reconnectAttempt)
             do {
@@ -741,9 +745,15 @@ final class ScreenplayLiveDraftSyncService: ObservableObject {
         status = .live(peerCount: peerDeviceIDs.count)
         switch resolution {
         case .inSync:
-            mirrorText = localText
-            mirrorSeq = payload.seq
-            mirrorChecksum = LiveDraftText.checksum(localText)
+            // Without text the server confirmed the checksum we opened with.
+            // Taking the current editor text instead made the first op after
+            // launch fail with checksum_mismatch whenever the page loaded in
+            // between (seen live 2026-09-28), and that edit was never sent.
+            let agreed = payload.text ?? streamOpenedText
+            setMirror(text: agreed, seq: payload.seq, checksum: LiveDraftText.checksum(agreed))
+            if localText != agreed {
+                schedulePublish(after: LiveDraftSyncPolicy.publishCoalesceInterval)
+            }
         case .adoptRemote:
             reconcileRemote(
                 text: payload.text ?? "",
