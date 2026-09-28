@@ -1127,6 +1127,30 @@ final class ScreenplayFeatureWorkflowPlannerTests: XCTestCase {
         XCTAssertEqual(snapshot.actProgressLabel, "No pages yet")
     }
 
+    func testFourScenePasteReportsThePaginatorsPagesAndTheCurrentScene() {
+        // Seen live 2026-09-28: a pasted 4-scene script showed "4 pages" in
+        // the header but "3 pages drafted" and "Line 1/163" in the compass.
+        let sluglines = ["INT. DINER - NIGHT", "EXT. PIER - DAWN", "INT. BUS STATION - DAY", "EXT. HIGHWAY SHOULDER - DUSK"]
+        let scenes = sluglines.enumerated().map { index, slug in
+            ScreenplayDraftSceneSnapshot(id: "s\(index)", line: 1 + index * 40, endLine: 40 + index * 40, slugline: slug, shortLabel: slug, characterCues: ["MAE"], dialogueLineCount: 8)
+        }
+        let draft = ScreenplayStructuredDraft(updatedAt: Date(), lineCount: 163, sceneCount: 4, paragraphs: [], scenes: scenes, characters: ["MAE", "JOE"])
+        let snapshot = ScreenplayFeatureWorkflowPlanner.buildSnapshot(
+            project: nil,
+            outline: BackendScreenplayOutline(updatedAt: nil, actCount: 0, sceneCount: 0, beatCount: 0, acts: [], scenes: [], beats: []),
+            structuredDraft: draft,
+            projectBinding: .empty,
+            featureSpine: ScreenplayFeatureSpine(),
+            lastCommittedWrite: nil,
+            acceptedPageBatchCount: 0,
+            currentCursorLine: 130,
+            draftText: String(repeating: "line\n", count: 163),
+            paginatedPageCount: 4
+        )
+        XCTAssertEqual(snapshot.draftProgressLabel, "4 pages drafted")
+        XCTAssertEqual(snapshot.actProgressLabel, "Scene 4/4")
+    }
+
     func testInferredActFollowsTheCursorsPageNotItsShareOfTheDraft() {
         XCTAssertEqual(ScreenplayFeatureWorkflowPlanner.inferredActTitle(currentCursorLine: 3, lineCount: 3), "Act I")
         XCTAssertEqual(ScreenplayFeatureWorkflowPlanner.inferredActTitle(currentCursorLine: 30 * 55, lineCount: 6_000), "Act I")
