@@ -2183,10 +2183,14 @@ Replace is best when this file should become the script you edit. Append is safe
 
     private func directionOneSidebarColumn(width: CGFloat) -> some View {
         VStack(spacing: 0) {
-            sidebarModeTabs
-                .padding(.horizontal, 12)
-                .padding(.top, 14)
-                .padding(.bottom, 10)
+            if SidebarSection.available.count > 1 {
+                sidebarModeTabs
+                    .padding(.horizontal, 12)
+                    .padding(.top, 14)
+                    .padding(.bottom, 10)
+            } else {
+                Color.clear.frame(height: 14)
+            }
 
             Group {
                 switch selectedSidebarSection {

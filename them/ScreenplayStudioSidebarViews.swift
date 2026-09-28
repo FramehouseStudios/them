@@ -8,7 +8,7 @@ struct ScreenplayStudioSidebarModeTabs: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            ForEach(ScreenplayStudioScreen.SidebarSection.allCases) { section in
+            ForEach(ScreenplayStudioScreen.SidebarSection.available) { section in
                 let isActive = selection == section
                 Button {
                     selection = section

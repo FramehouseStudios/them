@@ -811,12 +811,19 @@ final class V1SmokeUITests: XCTestCase {
             }
         }
 
-        let filesTab = app.buttons["studio.sidebar.files"]
-        if !filesTab.waitForExistence(timeout: 2) {
+        let newProjectField = app.textFields["New project title"]
+        if !newProjectField.waitForExistence(timeout: 2) {
             let leftToggle = app.buttons["studio.sidebar.left.toggle"]
             XCTAssertTrue(leftToggle.waitForExistence(timeout: 4), "Missing project drawer toggle")
             leftToggle.tap()
         }
+        XCTAssertTrue(newProjectField.waitForExistence(timeout: 4))
+#if os(iOS)
+        // The Mac-only Files browser is not offered on iPhone.
+        XCTAssertFalse(app.buttons["studio.sidebar.files"].exists)
+        XCTAssertFalse(app.buttons["Open Folder"].exists)
+#else
+        let filesTab = app.buttons["studio.sidebar.files"]
         XCTAssertTrue(filesTab.waitForExistence(timeout: 4))
         filesTab.tap()
         XCTAssertTrue(app.buttons["Open Folder"].waitForExistence(timeout: 4))
@@ -825,8 +832,9 @@ final class V1SmokeUITests: XCTestCase {
         let projectsTab = app.buttons["studio.sidebar.projects"]
         XCTAssertTrue(projectsTab.waitForExistence(timeout: 4))
         projectsTab.tap()
-        XCTAssertTrue(app.textFields["New project title"].waitForExistence(timeout: 4))
+        XCTAssertTrue(newProjectField.waitForExistence(timeout: 4))
         XCTAssertTrue(projectsTab.isSelected)
+#endif
     }
 
     func test_saved_panel_routes_to_passive_presentation_and_exposes_accessible_actions() {
