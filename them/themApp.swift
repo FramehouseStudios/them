@@ -27,6 +27,7 @@ struct themApp: App {
         #endif
         configureAudioSession()
         ClementinePackStore.startLaunchRecoveryIfNeeded()
+        ReleaseQAToolingGate.resetHiddenChoicesAtLaunchIfNeeded()
     }
 
     var body: some Scene {

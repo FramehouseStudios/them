@@ -6,6 +6,8 @@ enum ClementineVoiceTransportMode: String, CaseIterable, Identifiable {
     case turnBased = "turn_based"
     case realtimePreview = "realtime_preview"
 
+    static let storageKey = "clementine_voice_transport_mode"
+
     var id: String { rawValue }
 
     var title: String {
@@ -71,6 +73,12 @@ enum ClementineRealtimeSupplierMode: String, CaseIterable, Identifiable {
 
     static func normalized(rawValue: String) -> ClementineRealtimeSupplierMode {
         ClementineRealtimeSupplierMode(rawValue: rawValue) ?? .serverDefault
+    }
+
+    /// Production builds never keep the stub: the backend refuses it there.
+    static func releaseSafe(rawValue: String) -> ClementineRealtimeSupplierMode {
+        let mode = normalized(rawValue: rawValue)
+        return mode == .stub ? .serverDefault : mode
     }
 
     static func storedProviderParameter(defaults: UserDefaults = .standard) -> String {
