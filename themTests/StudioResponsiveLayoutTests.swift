@@ -10,8 +10,24 @@ final class StudioResponsiveLayoutTests: XCTestCase {
     }
 
     func testCompactPageNeverExceedsEditorContentWidth() {
-        XCTAssertEqual(StudioResponsiveLayout.pageWidth(editorWidth: 370), 314)
-        XCTAssertLessThanOrEqual(StudioResponsiveLayout.pageWidth(editorWidth: 320), 264)
+        XCTAssertEqual(StudioResponsiveLayout.pageWidth(editorWidth: 370), 358)
+        XCTAssertLessThanOrEqual(StudioResponsiveLayout.pageWidth(editorWidth: 320), 308)
+    }
+
+    func testPhonePageFrameIsNarrowAndGuidesFollowIt() {
+        XCTAssertEqual(ScreenplayStackMetrics.pageSurfaceHorizontalPadding(forPageWidth: 358), 12)
+        XCTAssertEqual(ScreenplayStackMetrics.pageSurfaceHorizontalPadding(forPageWidth: 504), 30)
+        let guides = ScreenplayStackMetrics.paperGuidePositions(in: 358)
+        let editorWidth: CGFloat = 358 - 24
+        XCTAssertEqual(guides.left, 12 + ScreenplayStackMetrics.editorTextInsetHorizontal(forEditorWidth: editorWidth), accuracy: 0.001)
+        XCTAssertEqual(guides.right, 358 - guides.left, accuracy: 0.001)
+    }
+
+    func testPhonePageKeepsOnlyAHairlineGutter() {
+        XCTAssertEqual(StudioResponsiveLayout.pageGutter(editorWidth: 370), 6)
+        XCTAssertEqual(StudioResponsiveLayout.pageTopGutter(editorWidth: 370), 12)
+        XCTAssertEqual(StudioResponsiveLayout.pageGutter(editorWidth: 900), 28)
+        XCTAssertEqual(StudioResponsiveLayout.pageTopGutter(editorWidth: 900), 34)
     }
 
     func testDesktopPageRetainsScreenplayReadingWidth() {

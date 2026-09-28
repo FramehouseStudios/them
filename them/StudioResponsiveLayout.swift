@@ -7,8 +7,20 @@ enum StudioResponsiveLayout {
         containerWidth > 0 && containerWidth < drawerLayoutThreshold
     }
 
+    /// Side gutter between the editor column and the page. On a phone every
+    /// point of it came straight out of the dialogue column (about 17
+    /// characters wide at 28 pt), so narrow editors keep only a hairline.
+    static func pageGutter(editorWidth: CGFloat) -> CGFloat {
+        editorWidth < 640 ? 6 : 28
+    }
+
+    /// Space above the page; narrow editors keep the page near the top bar.
+    static func pageTopGutter(editorWidth: CGFloat) -> CGFloat {
+        editorWidth < 640 ? 12 : 34
+    }
+
     static func pageWidth(editorWidth: CGFloat) -> CGFloat {
-        let available = max(0, editorWidth - 56)
+        let available = max(0, editorWidth - pageGutter(editorWidth: editorWidth) * 2)
         guard editorWidth >= 640 else { return available }
         let preferred = max(editorWidth * 0.56, min(500, available))
         return min(560, min(available, preferred))

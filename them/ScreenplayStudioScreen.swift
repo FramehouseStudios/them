@@ -2852,8 +2852,8 @@ private var directionOneScriptEditor: some View {
                 }
             }
             .frame(maxWidth: .infinity)
-            .padding(.horizontal, 28)
-            .padding(.top, 34)
+            .padding(.horizontal, StudioResponsiveLayout.pageGutter(editorWidth: proxy.size.width))
+            .padding(.top, StudioResponsiveLayout.pageTopGutter(editorWidth: proxy.size.width))
             .padding(.bottom, 28)
         }
         .background(Color.clear)
@@ -2884,6 +2884,7 @@ private var directionOneScriptEditor: some View {
 
 
             screenplayPageSurface(
+                pageWidth: pageWidth,
                 minHeight: pageMinHeight,
                 maxHeight: pageMaxHeight,
                 isDropTargeted: draftDropIsTargeted,
@@ -8635,6 +8636,7 @@ Current draft version:
 #endif
 
     private func screenplayPageSurface<Content: View>(
+        pageWidth: CGFloat,
         minHeight: CGFloat,
         maxHeight: CGFloat,
         isDropTargeted: Bool,
@@ -8676,7 +8678,7 @@ Current draft version:
                             }
                         }
                         .padding(.top, IOThemSpacing.ScreenplayPageChrome.contentTopPadding)
-                        .padding(.horizontal, ScreenplayStackMetrics.pageSurfaceHorizontalPadding)
+                        .padding(.horizontal, ScreenplayStackMetrics.pageSurfaceHorizontalPadding(forPageWidth: pageWidth))
                         .padding(.bottom, IOThemSpacing.ScreenplayPageChrome.contentBottomPadding)
                         .contentShape(Rectangle())
                         .onTapGesture {
