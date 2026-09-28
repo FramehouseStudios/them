@@ -201,11 +201,11 @@ struct ScreenplayStudioSavedPanel: View {
 
             Spacer(minLength: 0)
 
-            Button("Restore") {
+            Button(snapshot.restoreTitle) {
                 actions.onRestore(snapshot.version)
             }
             .buttonStyle(.bordered)
-            .disabled(!snapshot.canRestore)
+            .disabled(!snapshot.restoreEnabled)
             .accessibilityIdentifier("studio.saved.restore.\(snapshot.id)")
         }
         .padding(.horizontal, 10)

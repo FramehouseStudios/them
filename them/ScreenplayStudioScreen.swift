@@ -5164,11 +5164,10 @@ private var projectsSidebarContent: some View {
             ScreenplayStudioSnapshotPresentation(
                 version: version,
                 phaseTitle: ScreenplayStudioDraftToolsPresentationPlanner.snapshotPhaseTitle(version),
-                relativeTimestampText: dateFromTimestamp(version.updatedAt ?? version.createdAt).map {
-                    StudioVersionTimeLabel.text(for: $0)
-                },
+                relativeTimestampText: dateFromTimestamp(version.updatedAt ?? version.createdAt).map { StudioVersionTimeLabel.text(for: $0) },
                 notes: ScreenplayStudioDraftToolsPresentationPlanner.snapshotNotes(version),
-                canRestore: ScreenplayStudioDraftToolsPresentationPlanner.snapshotCanRestore(version)
+                canRestore: ScreenplayStudioDraftToolsPresentationPlanner.snapshotCanRestore(version),
+                isOnPage: ScreenplayStudioDraftToolsPresentationPlanner.snapshotIsOnPage(version, currentDraft: vm.fountainDraft)
             )
         }
     }
