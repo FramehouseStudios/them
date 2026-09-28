@@ -16688,7 +16688,7 @@ function buildScreenplayProjectMemoryRecordFromStudioMeta(
     pageReplyPreview ||
     studio.screenplayDraftExcerpt ||
     studio.screenplayResolvedAnchorExcerpt ||
-    reply ||
+    // not `reply`: a chat turn that wrote nothing ("Hey — I'm here.") became "the last live thread"
     "";
   const wroteScreenplayText = Boolean(
     studio.screenplayInsertedText ||
