@@ -448,10 +448,7 @@ public enum FountainFormatter {
 
         if firstLine.hasPrefix(".") && firstLine.count > 1 { return true }
 
-        if upper.hasSuffix("TO:") || upper == "FADE IN:" || upper == "FADE IN ON:" ||
-            upper == "FADE OUT:" || upper == "FADE OUT." ||
-            upper == "FADE TO BLACK:" || upper == "FADE TO BLACK." ||
-            upper == "SMASH TO BLACK:" || upper == "THE END" {
+        if ScreenplayEditorElement.looksLikeTransition(upper) {
             return true
         }
 
@@ -889,7 +886,7 @@ public enum FountainFormatter {
 
         if trimmed.hasPrefix("INT.") || trimmed.hasPrefix("EXT.") ||
             trimmed.hasPrefix("INT/EXT.") || trimmed.hasPrefix("I/E.") {
-            return trimmed.replacingOccurrences(of: #"\s*-\s*"#, with: " - ", options: .regularExpression)
+            return spacedHeadingSeparators(trimmed)
         }
 
         let intReplacements = ["INT "]
@@ -945,14 +942,22 @@ public enum FountainFormatter {
             location = "INT. " + location
         }
 
-        let normalizedLocation = location.replacingOccurrences(
-            of: #"\s*-\s*"#,
-            with: " - ",
-            options: .regularExpression
-        )
+        let normalizedLocation = spacedHeadingSeparators(location)
 
         if timeOfDay.isEmpty { return normalizedLocation }
         return normalizedLocation + " - " + timeOfDay
+    }
+
+    /// "DINER-NIGHT" / "DINER -- NIGHT" -> "DINER - NIGHT", but a hyphen
+    /// inside a word stays: "EXT. TWO-LANE ROAD" was printed "TWO - LANE".
+    public static func spacedHeadingSeparators(_ heading: String) -> String {
+        heading
+            .replacingOccurrences(of: #"\s+-{1,2}\s*|\s*-{1,2}\s+"#, with: " - ", options: .regularExpression)
+            .replacingOccurrences(
+                of: #"(?<=\S)-{1,2}(?=(DAY|NIGHT|DAWN|DUSK|MORNING|AFTERNOON|EVENING|SUNSET|SUNRISE|LATER|MOMENTS LATER|CONTINUOUS|SAME)$)"#,
+                with: " - ",
+                options: .regularExpression
+            )
     }
 
     // MARK: - Character + Dialogue
@@ -1063,10 +1068,13 @@ public enum FountainFormatter {
 
         if upper == "FADE IN" || upper == "FADE IN:" { return "FADE IN:" }
         if upper == "FADE IN ON" || upper == "FADE IN ON:" { return "FADE IN ON:" }
-        if upper == "FADE OUT" || upper == "FADE OUT." || upper == "FADE OUT:" { return "FADE OUT:" }
-        if upper == "FADE TO BLACK" || upper == "FADE TO BLACK." || upper == "FADE TO BLACK:" { return "FADE TO BLACK:" }
+        // Ending transitions close with a period, the industry form and the
+        // one the backend's page contract accepts; "FADE OUT:" read there
+        // as neither a transition nor a cue.
+        if upper == "FADE OUT" || upper == "FADE OUT." || upper == "FADE OUT:" { return "FADE OUT." }
+        if upper == "FADE TO BLACK" || upper == "FADE TO BLACK." || upper == "FADE TO BLACK:" { return "FADE TO BLACK." }
         if upper == "SMASH TO BLACK" || upper == "SMASH TO BLACK." || upper == "SMASH TO BLACK:" {
-            return "SMASH TO BLACK:"
+            return "SMASH TO BLACK."
         }
         if upper == "THE END" {
             return "THE END"

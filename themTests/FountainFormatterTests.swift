@@ -186,12 +186,24 @@ final class FountainFormatterTests: XCTestCase {
         XCTAssertFalse(result.contains("PARIS"))
     }
 
-    func testFormatNormalizesFadeOutToColonTransition() {
-        let raw = "fade out"
+    func testFormatNormalizesFadeOutToPeriodTransition() {
+        // "FADE OUT." is the industry form and the backend page contract's;
+        // "FADE OUT:" was read there as neither a transition nor a cue.
+        XCTAssertEqual(FountainFormatter.format(rawText: "fade out"), "FADE OUT.")
+        XCTAssertEqual(FountainFormatter.format(rawText: "FADE OUT:"), "FADE OUT.")
+        XCTAssertEqual(FountainFormatter.format(rawText: "fade to black"), "FADE TO BLACK.")
+        XCTAssertTrue(ScreenplayEditorElement.looksLikeTransition("FADE OUT."))
+        XCTAssertTrue(ScreenplayEditorElement.looksLikeTransition("SMASH TO BLACK."))
+    }
 
-        let result = FountainFormatter.format(rawText: raw)
-
-        XCTAssertEqual(result, "FADE OUT:")
+    func testSceneHeadingKeepsHyphenatedWords() {
+        // Seen live 2026-09-28: "EXT. TWO-LANE ROAD - DAY" printed "TWO - LANE".
+        XCTAssertEqual(FountainFormatter.spacedHeadingSeparators("EXT. TWO-LANE ROAD - DAY"), "EXT. TWO-LANE ROAD - DAY")
+        XCTAssertEqual(FountainFormatter.spacedHeadingSeparators("INT. MOTHER-IN-LAW'S KITCHEN -NIGHT"), "INT. MOTHER-IN-LAW'S KITCHEN - NIGHT")
+        XCTAssertEqual(FountainFormatter.spacedHeadingSeparators("INT. DINER-NIGHT"), "INT. DINER - NIGHT")
+        XCTAssertEqual(FountainFormatter.spacedHeadingSeparators("INT. DINER -- NIGHT"), "INT. DINER - NIGHT")
+        let draft = FountainFormatter.normalizeHollywoodDraft("EXT. TWO-LANE ROAD - DAY\n\nA truck idles.")
+        XCTAssertTrue(draft.hasPrefix("EXT. TWO-LANE ROAD - DAY"), draft)
     }
 
     func testNormalizeEditorLineWrapsAndCleansParenthetical() {

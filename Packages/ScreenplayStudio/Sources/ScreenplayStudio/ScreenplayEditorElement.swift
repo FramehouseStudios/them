@@ -59,7 +59,7 @@ public enum ScreenplayEditorElement: String, CaseIterable, Identifiable, Codable
         case .character: return "Centered uppercase character cue"
         case .dialogue: return "Dialogue under the character cue"
         case .parenthetical: return "Small performance note in parentheses"
-        case .transition: return "Right-aligned CUT TO: / FADE OUT:"
+        case .transition: return "Right-aligned CUT TO: / FADE OUT."
         }
     }
 
@@ -207,8 +207,11 @@ public enum ScreenplayEditorElement: String, CaseIterable, Identifiable, Codable
             || upper.hasPrefix("I/E.")
     }
 
+    /// The one transition test for the editor, formatter and typography.
+    /// Ending transitions take a period ("FADE OUT.", the backend's form);
+    /// the colon spellings older drafts carry still count.
     public static func looksLikeTransition(_ line: String) -> Bool {
-        let upper = line.uppercased()
+        let upper = line.trimmingCharacters(in: .whitespaces).uppercased()
         return upper.hasSuffix("TO:")
             || upper == "FADE IN:"
             || upper == "FADE IN ON:"
@@ -217,6 +220,8 @@ public enum ScreenplayEditorElement: String, CaseIterable, Identifiable, Codable
             || upper == "FADE TO BLACK:"
             || upper == "FADE TO BLACK."
             || upper == "SMASH TO BLACK:"
+            || upper == "SMASH TO BLACK."
+            || upper == "CUT TO BLACK."
             || upper == "THE END"
     }
 
