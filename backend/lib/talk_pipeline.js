@@ -257,6 +257,16 @@ function mountTalkPipelineRoutes(app, {
     talkUpload,
     talkHandler
   );
+  if (typeof handleTalkRequest?.transcribe === "function") {
+    app.post(
+      "/talk/transcribe",
+      talkRateLimitGuard,
+      requireClientTokenForTalk,
+      talkConcurrencyGuard,
+      talkUpload,
+      handleTalkRequest.transcribe
+    );
+  }
 }
 
 export {

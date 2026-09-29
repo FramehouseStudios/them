@@ -79,6 +79,7 @@ function registerMethodNotAllowedRoutes(app) {
   app.all("/realtime/turn_commit", methodNotAllowed("POST"));
   app.all("/realtime/call", methodNotAllowed("POST"));
   app.all("/talk", methodNotAllowed("POST"));
+  app.all("/talk/transcribe", methodNotAllowed("POST"));
   app.all("/talk/turn/:turnId", methodNotAllowed("GET"));
 }
 

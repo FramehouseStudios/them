@@ -39,4 +39,11 @@ final class VoicePageWriteWhileTalkingTests: XCTestCase {
         XCTAssertTrue(VoicePageWriteWhileTalking.routedOnHeardWords(heard: "write the diner scene", routedText: "write the diner scene "))
         XCTAssertFalse(VoicePageWriteWhileTalking.routedOnHeardWords(heard: "write it", routedText: stale), "routed on older, longer text")
     }
+
+    func testStudioVoiceTurnsWithoutHeardWordsAreTranscribedFirst() {
+        XCTAssertTrue(VoicePageWriteWhileTalking.shouldTranscribeFirst(clientTranscript: "", livePartial: "", studioActive: true))
+        XCTAssertFalse(VoicePageWriteWhileTalking.shouldTranscribeFirst(clientTranscript: "The page", livePartial: "", studioActive: true), "already known: no second STT")
+        XCTAssertFalse(VoicePageWriteWhileTalking.shouldTranscribeFirst(clientTranscript: "", livePartial: "write the diner scene", studioActive: true), "on-device words heard this turn")
+        XCTAssertFalse(VoicePageWriteWhileTalking.shouldTranscribeFirst(clientTranscript: "", livePartial: "", studioActive: false), "outside Studio Talk transcribes as before")
+    }
 }
