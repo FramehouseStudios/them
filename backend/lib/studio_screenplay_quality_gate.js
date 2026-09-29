@@ -295,6 +295,9 @@ function repairContextLines(body = {}, quality = {}) {
   // must see it too. Before, the repair was told to "spend the supplied
   // character-arc obligation" without being given it, failed the same check
   // again, and the writer got nothing (seen 2026-09-28 on a two-page write).
+  // missing_character_arc_pressure is judged on characterArcState; give the
+  // repair that text too, for the same reason as the arc memory below.
+  entries.splice(1, 0, ["CHARACTER_ARC_PRESSURE", feature.characterArcState]);
   const arc = normalizeCharacterArcMemory(feature);
   if (arc) {
     entries.splice(1, 0,
