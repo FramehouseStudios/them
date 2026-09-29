@@ -24,8 +24,12 @@ nonisolated enum PageWriteReadBackOffer {
 
     /// A stable pick per write, so the same write never reads two ways.
     static func line(seed: String) -> String {
+        pick(lines, seed: seed)
+    }
+
+    static func pick(_ options: [String], seed: String) -> String {
         let sum = seed.unicodeScalars.reduce(0) { ($0 &+ Int($1.value)) % 9_973 }
-        return lines[sum % lines.count]
+        return options[sum % options.count]
     }
 
     /// The writer's own words: the composer sends "<intent instruction>\n\n

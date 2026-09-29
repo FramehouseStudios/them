@@ -654,6 +654,7 @@ struct RootExperienceView: View {
     @State private var lastRealtimeCommitAt: Date = .distantPast
     @State private var lastRealtimeCommitError = ""
     @State private var realtimeStudioRenderTask: Task<String?, Never>?
+    @State private var queuedVoicePageWrite: String?
     @State private var realtimeStudioRenderUserMessage = ""
     @State private var realtimeStudioRenderedReply = ""
     @State private var activeTurnBasedLatencyTurnID = ""
@@ -3981,7 +3982,8 @@ struct RootExperienceView: View {
         case .openWorkspace:
             break
         }
-        cancelRealtimeStudioDraftStream(restorePreview: true)
+        // Re-opening an open Studio must not drop a spoken page that is still typing.
+        if !isStudioSurfaceActive { cancelRealtimeStudioDraftStream(restorePreview: true) }
         if !conversationLoopEnabled && (realtimeTransport.isLive || realtimeTransport.isBusy) {
             realtimeTransport.disconnect()
         }
@@ -4731,21 +4733,61 @@ You're okay. Let's slow it down for one beat and get our footing back. Pick the 
             guard !spokenText.isEmpty else {
                 return (true, feedback.isError ? feedback.confirmation : nil)
             }
-            promptSpeaker.stop()
-            typedReplySpeaker.cancel()
-            promptSpeaker.speak(spokenText, style: feedback.spokenStyle)
-            let resumeDelay = max(0.95, promptSpeaker.estimatedDuration(for: spokenText, style: feedback.spokenStyle) + 0.35)
-            DispatchQueue.main.asyncAfter(deadline: .now() + resumeDelay) {
-                if self.pendingGoodbyeStopAfterPlayback || !self.conversationLoopEnabled {
-                    self.voice.stopRecording()
-                    self.voice.teardown()
-                } else {
-                    self.voice.resumeRecordingIfNeeded()
-                }
-            }
+            speakStudioAside(spokenText, style: feedback.spokenStyle)
         }
 
         return (true, feedback.isError ? feedback.confirmation : nil)
+    }
+
+    /// A short line in the device voice, then back to listening.
+    @MainActor
+    private func speakStudioAside(_ text: String, style: ScreenplayAuditionVoiceStyle = .natural) {
+        promptSpeaker.stop()
+        typedReplySpeaker.cancel()
+        promptSpeaker.speak(text, style: style)
+        let resumeDelay = max(0.95, promptSpeaker.estimatedDuration(for: text, style: style) + 0.35)
+        DispatchQueue.main.asyncAfter(deadline: .now() + resumeDelay) {
+            if self.pendingGoodbyeStopAfterPlayback || !self.conversationLoopEnabled {
+                self.voice.stopRecording()
+                self.voice.teardown()
+            } else {
+                self.voice.resumeRecordingIfNeeded()
+            }
+        }
+    }
+
+    /// The spoken page types while the conversation carries on; see VoicePageWriteWhileTalking.
+    @MainActor
+    private func writeVoicePageWhileTalking(_ request: String) {
+        guard realtimeStudioRenderTask == nil else {
+            queuedVoicePageWrite = request
+            return speakStudioAside(VoicePageWriteWhileTalking.queuedLine)
+        }
+        startRealtimeStudioDraftStreamIfNeeded(for: request)
+        guard let stream = realtimeStudioRenderTask else { return }
+        speakStudioAside(VoicePageWriteWhileTalking.startLine(seed: request))
+        Task { @MainActor in
+            let written = (await stream.value ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let finishedOnItsOwn = realtimeStudioRenderTask == stream // a cancel clears it first
+            if finishedOnItsOwn { cancelRealtimeStudioDraftStream(restorePreview: false) }
+            if let next = queuedVoicePageWrite {
+                queuedVoicePageWrite = nil
+                return writeVoicePageWhileTalking(next)
+            }
+            let canSpeak = VoicePageWriteWhileTalking.canSpeakOffer(
+                micQuiet: voice.mode == .idle || voice.mode == .armedListening,
+                assistantPlaying: voice.isAssistantPlaying?() ?? false,
+                replyInFlight: isThinking || inFlightTalkTask != nil
+            )
+            guard !written.isEmpty else { // the stream returns text only when the page went down
+                if finishedOnItsOwn, canSpeak { speakStudioAside(VoicePageWriteWhileTalking.heldBackLine) }
+                return
+            }
+            let line = PageWriteReadBackOffer.line(seed: screenplayDraftBridge.lastCommittedWrite?.writeID ?? request)
+            screenplayDraftBridge.readBackOfferedAt = Date()
+            showStudioCommandNotice(line)
+            if canSpeak { speakStudioAside(line) }
+        }
     }
 
     @MainActor
@@ -6042,13 +6084,11 @@ Write this approved story direction directly into screenplay pages now. Maintain
         // Phase 1 latency pass: start playback on the first streamed segment as soon
         // as it is ready. We stop recording before playback begins to avoid bleed.
         let allowEarlyStreamPlayback = true
-        let didStartEarlyStudioDraftStream = false
         var didStartEarlyStreamPlayback = false
         var didRecordAssistantPlaybackStart = false
         var didStartSyncedVoiceInsert = false
         var didInterruptSyncedVoiceInsert = false
         var didCommitSyncedVoiceFallback = false
-        var didCommitEarlyStudioDraftPreviewFallback = false
         var pendingStreamRemainderURL: URL?
         let syncedPlaybackClock = SegmentedPlaybackClock()
         var debugSyncedPlaybackSeekApplied = false
@@ -6245,18 +6285,6 @@ Write this approved story direction directly into screenplay pages now. Maintain
                         tokenOverride: debugVoiceTurnToken,
                         promptPreviewOverride: effectiveTranscript
                     )
-                }
-            }
-            if debugInsertedPreview.isEmpty, didStartEarlyStudioDraftStream {
-                let committedPreview = screenplayDraftBridge.lastCommittedWrite?.insertedText
-                    .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                if !committedPreview.isEmpty {
-                    debugInsertedPreview = String(committedPreview.prefix(220))
-                } else if screenplayDraftBridge.isStreamingDraftPreviewActive {
-                    let stagedPreview = liveScreenplayText.trimmingCharacters(in: .whitespacesAndNewlines)
-                    if !stagedPreview.isEmpty {
-                        debugInsertedPreview = String(stagedPreview.prefix(220))
-                    }
                 }
             }
             appendStudioDebugVoiceDraftBreadcrumb(
@@ -6524,6 +6552,19 @@ Write this approved story direction directly into screenplay pages now. Maintain
 #endif
             return
         }
+        if VoicePageWriteWhileTalking.streams(
+            useScreenplayMode: preparedPrompt.useScreenplayMode,
+            shouldWriteToPage: preparedPrompt.shouldWriteToPage,
+            autoInsertEnabled: screenplayDraftBridge.autoInsertEnabled,
+            studioActive: isStudioSurfaceActive
+        ) {
+            isThinking = false
+            speculativeTalk.cancel()
+            voice.markAssistantPlaybackEnded()
+            showReplyEcho(user: preparedPrompt.directorText, assistant: VoicePageWriteWhileTalking.startLine(seed: preparedPrompt.directorText))
+            writeVoicePageWhileTalking(preparedPrompt.directorText)
+            return
+        }
         clientLatency.beginTurn(
             id: clientLatencyTurnID,
             transport: .turnBasedVoice,
@@ -6537,13 +6578,6 @@ Write this approved story direction directly into screenplay pages now. Maintain
         let pageReadBackOfferLine = preparedPrompt.shouldWriteToPage
             ? PageWriteReadBackOffer.line(seed: preparedPrompt.directorText) : ""
         let shouldUseSyncedStudioVoiceInsert = false
-        if isStudioSurfaceActive {
-            cancelRealtimeStudioDraftStream(
-                restorePreview: true,
-                debugVoiceTurnToken: debugVoiceTurnToken,
-                promptPreviewOverride: preparedPrompt.directorText
-            )
-        }
         let turnHints = voice.lastFinalTurnHints
         let effectiveTurnTailSilenceMs: Int = {
 #if DEBUG || os(macOS)
@@ -7127,13 +7161,6 @@ Write this approved story direction directly into screenplay pages now. Maintain
                                     )
                                 }
 #endif
-                                if didStartEarlyStudioDraftStream {
-                                    cancelRealtimeStudioDraftStream(
-                                        restorePreview: false,
-                                        debugVoiceTurnToken: debugVoiceTurnToken,
-                                        promptPreviewOverride: preparedPrompt.directorText
-                                    )
-                                }
                             }
                         }
                     },
@@ -7310,49 +7337,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 allowImmediateCommit: !shouldUseSyncedStudioVoiceInsert,
                 requireAuthoritativePageOutput: shouldUseSyncedStudioVoiceInsert
             )
-            let insertedScreenplayText: String?
-            if let talkInsertedScreenplayText {
-                insertedScreenplayText = talkInsertedScreenplayText
-                if didStartEarlyStudioDraftStream {
-                    cancelRealtimeStudioDraftStream(
-                        restorePreview: false,
-                        debugVoiceTurnToken: debugVoiceTurnToken,
-                        promptPreviewOverride: preparedPrompt.directorText
-                    )
-                }
-            } else if didStartEarlyStudioDraftStream,
-                      preparedPrompt.shouldWriteToPage,
-                      let committedPreviewText = commitCurrentStudioPagePreviewIfNeeded(
-                        userTranscript: result.transcript ?? "",
-                        promptSource: .voice
-                      ) {
-                didCommitEarlyStudioDraftPreviewFallback = true
-                insertedScreenplayText = committedPreviewText
-                cancelRealtimeStudioDraftStream(
-                    restorePreview: false,
-                    debugVoiceTurnToken: debugVoiceTurnToken,
-                    promptPreviewOverride: preparedPrompt.directorText
-                )
-            } else if didStartEarlyStudioDraftStream,
-                      let committedPreviewText = commitActiveRealtimeStudioDraftPreviewIfNeeded() {
-                didCommitEarlyStudioDraftPreviewFallback = true
-                insertedScreenplayText = committedPreviewText
-                cancelRealtimeStudioDraftStream(
-                    restorePreview: false,
-                    debugVoiceTurnToken: debugVoiceTurnToken,
-                    promptPreviewOverride: preparedPrompt.directorText
-                )
-            } else {
-                insertedScreenplayText = nil
-                if didStartEarlyStudioDraftStream {
-                    cancelRealtimeStudioDraftStream(
-                        restorePreview: false,
-                        debugVoiceTurnToken: debugVoiceTurnToken,
-                        promptPreviewOverride: preparedPrompt.directorText
-                    )
-                    restoreRealtimeStudioDraftPreview()
-                }
-            }
+            let insertedScreenplayText = talkInsertedScreenplayText
             let effectiveInsertedScreenplayText: String? = {
                 let cleanInsertedText = (insertedScreenplayText ?? "")
                     .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -7402,23 +7387,6 @@ Write this approved story direction directly into screenplay pages now. Maintain
             debugReplyPreview = String((confirmedReply ?? "").prefix(220))
             if let effectiveInsertedScreenplayText {
                 debugInsertedPreview = String(effectiveInsertedScreenplayText.prefix(220))
-            }
-            let hasRecordedRequestCommit = debugVoiceTurnToken.map { token in
-                currentStudioDebugVoiceDraftBreadcrumbs().contains {
-                    $0.token == token && $0.event == "request_committed"
-                }
-            } ?? false
-            if didStartEarlyStudioDraftStream, let effectiveInsertedScreenplayText, !hasRecordedRequestCommit {
-                appendStudioDebugVoiceDraftBreadcrumb(
-                    event: "request_committed",
-                    detail: didCommitEarlyStudioDraftPreviewFallback
-                        ? "Early Studio draft preview committed to the page."
-                        : "Final Studio draft write committed.",
-                    replyPreview: String(effectiveInsertedScreenplayText.prefix(220)),
-                    tokenOverride: debugVoiceTurnToken,
-                    promptPreviewOverride: preparedPrompt.directorText
-                )
-                persistDebugVoiceTurnProgress()
             }
 #endif
 
@@ -7511,13 +7479,6 @@ Write this approved story direction directly into screenplay pages now. Maintain
             if shouldUseSyncedStudioVoiceInsert {
                 screenplayDraftBridge.interruptSyncedVoiceTurn(reason: .other)
             }
-            if didStartEarlyStudioDraftStream {
-                cancelRealtimeStudioDraftStream(
-                    restorePreview: true,
-                    debugVoiceTurnToken: debugVoiceTurnToken,
-                    promptPreviewOverride: preparedPrompt.directorText
-                )
-            }
             if didStartEarlyStreamPlayback {
                 orbAudio.stop()
             }
@@ -7531,13 +7492,6 @@ Write this approved story direction directly into screenplay pages now. Maintain
             isThinking = false
             if shouldUseSyncedStudioVoiceInsert {
                 screenplayDraftBridge.interruptSyncedVoiceTurn(reason: .cancel)
-            }
-            if didStartEarlyStudioDraftStream {
-                cancelRealtimeStudioDraftStream(
-                    restorePreview: true,
-                    debugVoiceTurnToken: debugVoiceTurnToken,
-                    promptPreviewOverride: preparedPrompt.directorText
-                )
             }
             if didStartEarlyStreamPlayback {
                 orbAudio.stop()
@@ -7557,13 +7511,6 @@ Write this approved story direction directly into screenplay pages now. Maintain
             showOfflineTalkOutboxBanner(queued.localizedDescription)
             if shouldUseSyncedStudioVoiceInsert {
                 screenplayDraftBridge.failSyncedVoiceTurn(reason: queued.localizedDescription)
-            }
-            if didStartEarlyStudioDraftStream {
-                cancelRealtimeStudioDraftStream(
-                    restorePreview: true,
-                    debugVoiceTurnToken: debugVoiceTurnToken,
-                    promptPreviewOverride: preparedPrompt.directorText
-                )
             }
             if didStartEarlyStreamPlayback {
                 orbAudio.stop()
@@ -7587,13 +7534,6 @@ Write this approved story direction directly into screenplay pages now. Maintain
             )
             if shouldUseSyncedStudioVoiceInsert, committedSyncedFallback == nil {
                 screenplayDraftBridge.failSyncedVoiceTurn(reason: failureReason)
-            }
-            if didStartEarlyStudioDraftStream {
-                cancelRealtimeStudioDraftStream(
-                    restorePreview: true,
-                    debugVoiceTurnToken: debugVoiceTurnToken,
-                    promptPreviewOverride: preparedPrompt.directorText
-                )
             }
             if didStartEarlyStreamPlayback {
                 orbAudio.stop()
@@ -12390,7 +12330,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
         realtimeAssistantTranscriptFallbackTask?.cancel()
         realtimeAssistantTranscriptFallbackTask = nil
         cancelRealtimeRecovery(clearTurn: true)
-        cancelRealtimeStudioDraftStream(restorePreview: true)
+        if voiceTransportMode == .realtimePreview { cancelRealtimeStudioDraftStream(restorePreview: true) }
         realtimeTransport.disconnect()
         speculativeTalk.cancel()
         orbAudio.stop()
