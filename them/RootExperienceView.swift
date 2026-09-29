@@ -6535,11 +6535,9 @@ Write this approved story direction directly into screenplay pages now. Maintain
         if preparedPrompt.shouldAutoOpenStudio, !isStudioSurfaceActive {
             openStudio()
         }
-        let localStudioCommand = runLocalStudioCommandIfNeeded(
-            preparedPrompt.directorText,
-            source: .voice,
-            shouldSpeakConfirmation: true
-        )
+        let heardThisTurn = VoicePageWriteWhileTalking.heardWords(clientTranscript: cleanClientTranscriptOverride, livePartial: livePartialTranscript)
+        let localStudioCommand = heardThisTurn.isEmpty ? (handled: false, error: nil)
+            : runLocalStudioCommandIfNeeded(heardThisTurn, source: .voice, shouldSpeakConfirmation: true)
         if localStudioCommand.handled {
             isThinking = false
             speculativeTalk.cancel()
@@ -6552,7 +6550,8 @@ Write this approved story direction directly into screenplay pages now. Maintain
 #endif
             return
         }
-        if VoicePageWriteWhileTalking.streams(
+        if VoicePageWriteWhileTalking.routedOnHeardWords(heard: heardThisTurn, routedText: preparedPrompt.directorText),
+           VoicePageWriteWhileTalking.streams(
             useScreenplayMode: preparedPrompt.useScreenplayMode,
             shouldWriteToPage: preparedPrompt.shouldWriteToPage,
             autoInsertEnabled: screenplayDraftBridge.autoInsertEnabled,
