@@ -444,3 +444,30 @@ test("[studio-quality] direct evaluator catches malformed output before persiste
   assert.match(repairRequest.transcript, /WRITER_REQUEST:/);
   assert.match(repairRequest.transcript, /FAILED_DRAFT_TO_REPAIR:/);
 });
+
+test("[studio-quality] an arc-memory repair is given the arc memory it is judged against", () => {
+  // Seen 2026-09-28: the repair was told to "spend the supplied character-arc
+  // obligation" but the arc fields never reached it, so it failed again.
+  const body = {
+    screenplay_act: "Act I",
+    character_arc_memory: {
+      character: "MAE",
+      want: "to finally stay somewhere",
+      need: "to let someone take care of her",
+      wound: "left alone at a bus station as a girl",
+      false_belief: "leaving first is the only safe way",
+      current_tactic: "jokes about pie to dodge the question",
+    },
+  };
+  const repairRequest = buildStudioScreenplayRepairRequest({
+    systemPrompt: "Write pages.",
+    transcript: "Write the next two pages: Mae finally gets in the truck.",
+    body,
+    failedReply: "EXT. HIGHWAY - DUSK\n\nMae gets in.",
+    quality: { ok: false, reason: "missing_character_arc_memory", requestedPages: 2 },
+  });
+  assert.match(repairRequest.transcript, /CHARACTER_ARC: MAE/);
+  assert.match(repairRequest.transcript, /ARC_WANT: to finally stay somewhere/);
+  assert.match(repairRequest.transcript, /ARC_WOUND: left alone at a bus station as a girl/);
+  assert.ok(repairRequest.transcript.indexOf("ARC_WANT") < repairRequest.transcript.indexOf("FAILED_DRAFT_TO_REPAIR"));
+});
