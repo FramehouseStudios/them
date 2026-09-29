@@ -69,6 +69,7 @@ const EXPECTED = [
   ["/realtime/turn_commit", "POST"],
   ["/realtime/call", "POST"],
   ["/talk", "POST"],
+  ["/talk/transcribe", "POST"],
   ["/talk/turn/:turnId", "GET"],
 ];
 

@@ -44,6 +44,13 @@ nonisolated enum VoicePageWriteWhileTalking {
         return override.isEmpty ? livePartial.trimmingCharacters(in: .whitespacesAndNewlines) : override
     }
 
+    /// In Studio a voice turn without heard words asks the backend for them first
+    /// (POST /talk/transcribe), so routing, local commands and the offer's answer use
+    /// what was actually said. The Talk request then reuses them instead of a second STT.
+    static func shouldTranscribeFirst(clientTranscript: String, livePartial: String, studioActive: Bool) -> Bool {
+        studioActive && heardWords(clientTranscript: clientTranscript, livePartial: livePartial).isEmpty
+    }
+
     /// A page streams only when the turn was routed on the words heard this time.
     static func routedOnHeardWords(heard: String, routedText: String) -> Bool {
         !heard.isEmpty && heard == routedText.trimmingCharacters(in: .whitespacesAndNewlines)

@@ -49,6 +49,7 @@ const CURATED_ROUTES = Object.freeze([
 
   // talk pipeline
   Object.freeze({ method: "POST", path: "/talk", group: "talk-pipeline" }),
+  Object.freeze({ method: "POST", path: "/talk/transcribe", group: "talk-pipeline" }),
   Object.freeze({ method: "GET", path: "/talk/turn/:turnId", group: "talk-pipeline" }),
 
   // ops (long-standing public observability pair)

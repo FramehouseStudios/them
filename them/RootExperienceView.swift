@@ -6081,6 +6081,15 @@ Write this approved story direction directly into screenplay pages now. Maintain
         clientTranscriptOverride: String? = nil,
         debugVoiceTurnToken: Int? = nil
     ) async {
+        if VoicePageWriteWhileTalking.shouldTranscribeFirst(clientTranscript: clientTranscriptOverride ?? "", livePartial: livePartialTranscript, studioActive: isStudioSurfaceActive),
+           let heard = try? await backend.transcribeUtterance(wavData) {
+            guard !heard.isEmpty else { // nothing said: keep listening, no second STT
+                isThinking = false
+                voice.markAssistantPlaybackEnded()
+                return voice.resumeRecordingIfNeeded()
+            }
+            return await sendUtterance(wavData, clientTranscriptOverride: heard, debugVoiceTurnToken: debugVoiceTurnToken)
+        }
         // Phase 1 latency pass: start playback on the first streamed segment as soon
         // as it is ready. We stop recording before playback begins to avoid bleed.
         let allowEarlyStreamPlayback = true

@@ -33227,7 +33227,7 @@ function requireOpenAIProviderForTalk(_req, res, next) {
 }
 
 app.post(
-  "/talk",
+  ["/talk", "/talk/transcribe"],
   requireOpenAIProviderForTalk,
   providerBudgetGuard.middleware("talk")
 );

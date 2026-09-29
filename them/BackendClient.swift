@@ -3402,6 +3402,50 @@ final class BackendClient {
         )
     }
 
+    /// The words of an utterance (POST /talk/transcribe), so a voice turn is routed on what
+    /// was said. The follow-up talk sends them back as client_transcript and skips STT.
+    func transcribeUtterance(_ audio: Data, timeout: TimeInterval = 12) async throws -> String {
+        let resolvedBaseURL = try await resolveBaseURL()
+        let userID = resolveUserID()
+        let clientToken = try await resolveClientToken(for: resolvedBaseURL, userID: userID)
+        let boundary = "Boundary-\(UUID().uuidString)"
+        var request = URLRequest(url: resolvedBaseURL.appendingPathComponent("talk/transcribe"))
+        request.httpMethod = "POST"
+        request.timeoutInterval = timeout
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        request.setValue(personaFlowKey, forHTTPHeaderField: "X-Persona-Key")
+        request.setValue(clientToken, forHTTPHeaderField: "X-Client-Token")
+        if !userID.isEmpty {
+            request.setValue(userID, forHTTPHeaderField: "X-User-Id")
+        }
+        if let token = appToken() {
+            request.setValue(token, forHTTPHeaderField: "X-APP-TOKEN")
+        }
+        attachAuthorizationHeader(to: &request)
+
+        var body = Data()
+        body.appendString("--\(boundary)\r\n")
+        body.appendString("Content-Disposition: form-data; name=\"file\"; filename=\"recording.wav\"\r\n")
+        body.appendString("Content-Type: audio/wav\r\n\r\n")
+        body.append(audio)
+        body.appendString("\r\n")
+        body.appendString("--\(boundary)--\r\n")
+        request.httpBody = body
+
+        let (data, response) = try await urlSession.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw BackendError.http(-1, "Invalid transcribe response.")
+        }
+        guard (200...299).contains(http.statusCode) else {
+            if let stageError = parseStageError(from: data) {
+                throw BackendError.stage(stageError.stage, stageError.message)
+            }
+            throw BackendError.http(http.statusCode, "Transcription failed.")
+        }
+        let payload = try JSONDecoder().decode(BackendTranscribeResponse.self, from: data)
+        return payload.transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     func prepareSpeculativeTalk(
         audioSnapshot: Data,
         systemPrompt: String,
@@ -7276,4 +7320,8 @@ private func collectAsyncBytes(_ bytes: URLSession.AsyncBytes) async throws -> D
         data.append(chunk)
     }
     return data
+}
+
+nonisolated struct BackendTranscribeResponse: Decodable {
+    let transcript: String
 }

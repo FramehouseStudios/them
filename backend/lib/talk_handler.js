@@ -109,6 +109,7 @@ import { resolveCompanionArcsPolicy, applyCompanionArcsPolicy } from "./companio
 import { composeTalkSystemPrompt } from "./talk_prompt.js";
 import { runTalkGenerate } from "./talk_generate.js";
 import { resolveTalkPageAudioLine } from "./talk_page_audio.js";
+import { transcribeTalkAudio, uploadedTalkAudio, talkAudioUploadProblem } from "./talk_stt.js";
 
 const REQUIRED_DEPS = Object.freeze(["OPENAI_API_KEY","CLEMENTINE_PROFILE","recordTalkMetric","scaleBackplane","storeTalkTurnMeta","resolveCanonicalWritableMemoryContext","createTalkMemoryCommitter","clientIp","commitTalkIdempotencySuccess","isAuthoritativeTalkScreenplayOutput","normalizeAcceptedCausalFacts","applyClementineVoiceDirection"]);
 
@@ -1671,7 +1672,42 @@ function createTalkHandler(deps) {
     }
   }
 
-  return async function handleTalkRequest(req, res) {
+  // POST /talk/transcribe: the words of an utterance and nothing else, so the
+  // app can route a voice turn on what was said before it writes or speaks.
+  // The follow-up /talk sends them back as client_transcript and skips STT.
+  async function handleTalkTranscribeRequest(req, res) {
+    const rid = req.requestId || randomUUID().slice(0, 8);
+    res.setHeader("Cache-Control", "no-store");
+    const uploadedFile = uploadedTalkAudio(req);
+    const uploadProblem = talkAudioUploadProblem(req, uploadedFile);
+    if (uploadProblem) return res.status(uploadProblem.status).json(uploadProblem.body);
+    try {
+      const heard = await transcribeTalkAudio({
+        sttSupplier,
+        uploadedFile,
+        rid,
+        logger,
+        config: { STT_MODEL_PRIMARY, STT_MODEL_FALLBACK, STT_EMPTY_RETRY_ENABLED, STT_EMPTY_RETRY_MIN_BYTES, STT_EMPTY_RETRY_WITHOUT_LANGUAGE },
+        buildTalkFailureDiagnostics,
+        createTalkFailureError,
+      });
+      logger.log(`[${rid}] talk_transcribe chars=${heard.transcript.length} stt_ms=${heard.ms} model=${heard.model}`);
+      return res.json({ transcript: heard.transcript, stt_ms: heard.ms, request_id: rid });
+    } catch (err) {
+      const diagnostic = buildTalkFailureDiagnostics(err, {
+        requestId: rid,
+        providerStage: err?.stage || "stt",
+        status: Number(err?.status || 500),
+      });
+      applyTalkFailureHeaders(res, diagnostic);
+      return res.status(diagnostic.status).json(buildTalkFailureBody(diagnostic));
+    }
+  }
+
+  handleTalkRequest.transcribe = handleTalkTranscribeRequest;
+  return handleTalkRequest;
+
+  async function handleTalkRequest(req, res) {
   logger.log(`\n==================== NEW TALK ====================`);
 
   const reqId = randomUUID().slice(0, 8);
@@ -1743,10 +1779,7 @@ function createTalkHandler(deps) {
       });
   };
 
-  const uploadedFile = req.file ||
-    req.files?.file?.[0] ||
-    req.files?.audio?.[0] ||
-    null;
+  const uploadedFile = uploadedTalkAudio(req);
   const uploadedFieldName = uploadedFile
     ? (req.files?.file?.[0] ? "file" : (req.files?.audio?.[0] ? "audio" : "file"))
     : "none";
@@ -1763,35 +1796,8 @@ function createTalkHandler(deps) {
       `[${rid}] latency_profile stream_mode=${talkStreamMode} stream_audio=${streamAudioRequested ? "1" : "0"} thinking_ms=${thinkingDelayMs}`
     );
 
-    const reqContentType = String(req.headers["content-type"] || "").toLowerCase();
-    if (!reqContentType.includes("multipart/form-data")) {
-      return res.status(415).json({
-        stage: "upload",
-        error: "Expected multipart/form-data request.",
-      });
-    }
-
-    // Multer errors: file too large, etc.
-    if (!uploadedFile?.buffer) {
-      return res.status(400).json({ stage: "upload", error: "Missing audio file field ('file' or 'audio')." });
-    }
-
-    // Validate mimetype (allow octet-stream if curl didn't send a type)
-    const mime = (uploadedFile.mimetype || "").toLowerCase();
-    const name = (uploadedFile.originalname || "").toLowerCase();
-    const allowedExts = [".m4a", ".mp3", ".wav", ".aac", ".ogg", ".flac", ".webm"];
-    const extOk = allowedExts.some((ext) => name.endsWith(ext));
-    const mimeOk =
-      mime.startsWith("audio/") ||
-      mime === "application/octet-stream" ||
-      mime === "binary/octet-stream" ||
-      mime === "";
-
-    if (!mimeOk && !extOk) {
-      return res
-        .status(415)
-        .json({ stage: "upload", error: `Unsupported file type: ${mime || "unknown"}` });
-    }
+    const uploadProblem = talkAudioUploadProblem(req, uploadedFile);
+    if (uploadProblem) return res.status(uploadProblem.status).json(uploadProblem.body);
 
     const memoryContext = await resolveCanonicalWritableMemoryContext(req, Date.now());
     const requesterIp = normalizeClientIp(memoryContext?.requesterIp || ip);
@@ -1871,121 +1877,20 @@ function createTalkHandler(deps) {
       sttMs = 0;
       logger.log(`[${rid}] client_transcript_override active chars=${transcript.length}`);
     } else {
-      let sttResult;
-      try {
-        sttResult = await sttSupplier.transcribe({
-          uploadedFile,
-          modelName: STT_MODEL_PRIMARY,
-        });
-      } catch (err) {
-        throw createTalkFailureError({
-          requestId: rid,
-          providerStage: "stt",
-          status: Number(err?.status || 500),
-          message: String(err?.message || "Transcription failed."),
-        });
-      }
-      sttMs = Date.now() - sttStart;
-
-      if (!sttResult.response.ok) {
-        const diagnostic = buildTalkFailureDiagnostics(
-          { stage: "stt", status: sttResult.response.status, rawBody: sttResult.rawText },
-          {
-            requestId: rid,
-            providerStage: "stt",
-            status: sttResult.response.status,
-            rawBody: sttResult.rawText,
-          }
-        );
-        logger.log(`[${rid}] STT failed model=${sttResult.model} ${diagnostic.supportMessage}`);
-        throw createTalkFailureError({
-          requestId: rid,
-          providerStage: "stt",
-          status: sttResult.response.status,
-          rawBody: sttResult.rawText,
-        });
-      }
-
-      try {
-        sttJson = JSON.parse(sttResult.rawText);
-      } catch (_) {
-        throw createTalkFailureError({
-          requestId: rid,
-          providerStage: "stt",
-          status: 502,
-          message: "Transcription response was invalid JSON.",
-          errorClass: "response_invalid",
-        });
-      }
-      transcript = String(sttJson?.text || "").trim();
-      sttModelUsed = sttResult.model;
-      sttUsedLanguageHint = true;
-
-      const canRetryEmptyTranscript =
-        !transcript &&
-        STT_EMPTY_RETRY_ENABLED &&
-        Number(uploadedFile?.size || 0) >= STT_EMPTY_RETRY_MIN_BYTES;
-      if (canRetryEmptyTranscript) {
-        const retryAttempts = [];
-        if (STT_MODEL_FALLBACK && STT_MODEL_FALLBACK !== STT_MODEL_PRIMARY) {
-          retryAttempts.push({
-            model: STT_MODEL_FALLBACK,
-            includeLanguage: !STT_EMPTY_RETRY_WITHOUT_LANGUAGE,
-          });
-        }
-        if (STT_EMPTY_RETRY_WITHOUT_LANGUAGE) {
-          retryAttempts.push({
-            model: STT_MODEL_PRIMARY,
-            includeLanguage: false,
-          });
-        }
-        for (const attempt of retryAttempts) {
-          if (transcript) break;
-          logger.log(
-            `[${rid}] stt_empty_retry model=${attempt.model} lang=${attempt.includeLanguage ? "on" : "off"} bytes=${Number(uploadedFile?.size || 0)}`
-          );
-          try {
-            const fallbackResult = await sttSupplier.transcribe({
-              uploadedFile,
-              modelName: attempt.model,
-              includeLanguage: attempt.includeLanguage,
-            });
-            sttMs += Math.max(0, Number(fallbackResult.elapsedMs || 0));
-            if (!fallbackResult.response.ok) {
-              const fallbackDiagnostic = buildTalkFailureDiagnostics(
-                { stage: "stt", status: fallbackResult.response.status, rawBody: fallbackResult.rawText },
-                {
-                  requestId: rid,
-                  providerStage: "stt",
-                  status: fallbackResult.response.status,
-                  rawBody: fallbackResult.rawText,
-                }
-              );
-              logger.log(
-                `[${rid}] STT fallback failed model=${fallbackResult.model} ${fallbackDiagnostic.supportMessage}`
-              );
-              continue;
-            }
-            const fallbackJson = JSON.parse(fallbackResult.rawText);
-            const fallbackTranscript = String(fallbackJson?.text || "").trim();
-            if (fallbackTranscript) {
-              transcript = fallbackTranscript;
-              sttJson = fallbackJson;
-              sttModelUsed = fallbackResult.model;
-              sttUsedLanguageHint = attempt.includeLanguage;
-            }
-          } catch (err) {
-            const fallbackDiagnostic = buildTalkFailureDiagnostics(err, {
-              requestId: rid,
-              providerStage: "stt",
-              status: Number(err?.status || 500),
-            });
-            logger.log(
-              `[${rid}] STT fallback error model=${attempt.model} lang=${attempt.includeLanguage ? "on" : "off"} ${fallbackDiagnostic.supportMessage}`
-            );
-          }
-        }
-      }
+      const heard = await transcribeTalkAudio({
+        sttSupplier,
+        uploadedFile,
+        rid,
+        logger,
+        config: { STT_MODEL_PRIMARY, STT_MODEL_FALLBACK, STT_EMPTY_RETRY_ENABLED, STT_EMPTY_RETRY_MIN_BYTES, STT_EMPTY_RETRY_WITHOUT_LANGUAGE },
+        buildTalkFailureDiagnostics,
+        createTalkFailureError,
+      });
+      transcript = heard.transcript;
+      sttJson = heard.sttJson;
+      sttModelUsed = heard.model;
+      sttUsedLanguageHint = heard.usedLanguageHint;
+      sttMs = heard.ms;
 
       if (!transcript) {
         const now = Date.now();
@@ -5770,7 +5675,7 @@ ${directorOutputRule}
     applyTalkFailureHeaders(res, diagnostic);
     return res.status(statusCode).json(buildTalkFailureBody(diagnostic));
   }
-  };
+  }
 }
 
 export { createTalkHandler, REQUIRED_DEPS };
