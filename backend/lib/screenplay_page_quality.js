@@ -73,6 +73,24 @@ const CHARACTER_ARC_TOKEN_STOPWORDS = Object.freeze(new Set([
   "wants",
 ]));
 
+// Craft and planning vocabulary from the Feature Compass ("Make the
+// protagonist's wound, want, world, and tonal promise visible through
+// behavior. Plant the emotional question the ending must answer."). A page
+// honours an act obligation through its story (names, objects, places), not
+// by echoing these words; matching them rejected strong first pages (seen
+// live 2026-09-28: missing_act_one_commitment on a new project's page 1).
+const FEATURE_OBLIGATION_CRAFT_STOPWORDS = Object.freeze(new Set([
+  ...CHARACTER_ARC_TOKEN_STOPWORDS,
+  "act", "acts", "action", "advance", "advances", "anyone", "answer", "concrete", "continue", "continues", "draft", "drafted", "estimate", "unfinished", "write", "writes", "audience", "beat", "beats", "behavior", "behaviour",
+  "break", "catalyst", "choice", "choices", "climax", "commit", "commitment", "conflict", "consequence",
+  "consequences", "decide", "decides", "decision", "dialogue", "echo", "emotion", "emotional", "ending",
+  "escalate", "escalates", "explain", "explains", "film", "force", "forces", "form", "goal", "image",
+  "incident", "inciting", "incomplete", "later", "make", "makes", "midpoint", "moment", "moments",
+  "movie", "next", "obligation", "open", "opens", "opening", "ordinary", "plant", "plants", "pressure", "promise",
+  "question", "raise", "raises", "reveal", "reversal", "rule", "show", "shows", "smaller", "stakes",
+  "story", "theme", "thematic", "tonal", "tone", "turns", "unavoidable", "visible", "world", "wound",
+]));
+
 const CHARACTER_ARC_MEMORY_VALUE_FIELDS = Object.freeze([
   "want",
   "need",
@@ -1089,19 +1107,7 @@ function evaluateCharacterArcMemoryCoverage({
   };
 }
 
-function inferFeatureActKind(featureContext = {}) {
-  if (!featureContext || typeof featureContext !== "object") return false;
-  const actText = [
-    featureContext.act,
-    featureContext.currentAct,
-    featureContext.current_act,
-    featureContext.requestedAct,
-    featureContext.requested_act,
-    featureContext.featureSequence,
-    featureContext.feature_sequence,
-    featureContext.featureObligation,
-    featureContext.feature_obligation,
-  ].map((value) => normalizeLineText(value).toLowerCase()).filter(Boolean).join(" ");
+function actKindFromText(actText = "") {
   if (/\bact\s*(?:iii|3|three)\b|\bthird act\b|\bfinal act\b|\bfinale\b|\bclimax\b|\bbreak into three\b/.test(actText)) {
     return "act3";
   }
@@ -1111,6 +1117,30 @@ function inferFeatureActKind(featureContext = {}) {
   if (/\bact\s*(?:i|1|one)\b|\bfirst act\b|\bopening image\b|\bcatalyst\b|\bcommitment\b|\bordinary world\b/.test(actText)) {
     return "act1";
   }
+  return "";
+}
+
+function inferFeatureActKind(featureContext = {}) {
+  if (!featureContext || typeof featureContext !== "object") return false;
+  const joined = (values) => values.map((value) => normalizeLineText(value).toLowerCase()).filter(Boolean).join(" ");
+  // The named act wins. Sequence and obligation text only break a tie: an
+  // Act I obligation reads "…a choice that makes Act II unavoidable", which
+  // matched Act II first and rejected first pages as missing_act_two_reversal.
+  const namedAct = actKindFromText(joined([
+    featureContext.act,
+    featureContext.currentAct,
+    featureContext.current_act,
+    featureContext.requestedAct,
+    featureContext.requested_act,
+  ]));
+  if (namedAct) return namedAct;
+  const describedAct = actKindFromText(joined([
+    featureContext.featureSequence,
+    featureContext.feature_sequence,
+    featureContext.featureObligation,
+    featureContext.feature_obligation,
+  ]));
+  if (describedAct) return describedAct;
   const pageCount = positiveIntegerOrZero(featureContext.pageCount ?? featureContext.page_count);
   const targetPages = positiveIntegerOrZero(
     featureContext.targetPages ??
@@ -1200,7 +1230,9 @@ function evaluateFeatureActObligationCoverage({
 
   const obligationTokens = new Set();
   for (const phrase of obligationPhrases) {
-    for (const token of qualityTokenSet(phrase)) obligationTokens.add(token);
+    for (const token of qualityTokenSet(phrase)) {
+      if (!FEATURE_OBLIGATION_CRAFT_STOPWORDS.has(token)) obligationTokens.add(token);
+    }
   }
   const textTokens = qualityTokenSet(text);
   const matchedTokens = [...obligationTokens].filter((token) => textTokens.has(token));
@@ -1285,7 +1317,9 @@ function firstNextTurnTokens(featureContext = null) {
     200
   );
   if (!turns.length) return new Set();
-  return qualityTokenSet(turns[0]);
+  // Only the turn's story words count ("Mae hands Joe the pie"), not the
+  // planner's wording ("Write the next scene: Continue the unfinished page").
+  return new Set([...qualityTokenSet(turns[0])].filter((token) => !FEATURE_OBLIGATION_CRAFT_STOPWORDS.has(token)));
 }
 
 function evaluateFirstNextTurnCoverage({ text = "", featureContext = null } = {}) {

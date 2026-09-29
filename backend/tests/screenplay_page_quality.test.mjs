@@ -3,6 +3,7 @@ import { test } from "node:test";
 
 import {
   classifyScreenplayLines,
+  evaluateFeatureActObligationCoverage,
   evaluateMomentumRescueQuality,
   evaluateScreenplayPageQuality,
   isLikelyOutlineOrCraftArtifactLine,
@@ -1720,4 +1721,74 @@ test("[screenplay-page-quality] identifies placeholders and low-signal action wi
     isLowSignalActionLine("June folds the receipt into a white square.", "action"),
     false,
   );
+});
+
+test("[screenplay-page-quality] Act I obligations written in craft vocabulary do not demand the page echo it", () => {
+  // Seen live 2026-09-28: a new project's first page was rejected as
+  // missing_act_one_commitment because it did not say "protagonist",
+  // "wound" or "answer" — the Feature Compass's generic Act I advice.
+  const result = evaluateFeatureActObligationCoverage({
+    text: [
+      "INT. ST. AGNES HOSPITAL - BASEMENT CORRIDOR - NIGHT",
+      "NORA lifts a green canvas coat from the lost and found cage.",
+      "NORA",
+      "It's my brother's.",
+    ].join("\n"),
+    featureContext: {
+      act: "Act I",
+      featureObligation: "Make the protagonist's wound, want, world, and tonal promise visible through behavior. Plant the emotional question the ending must answer.",
+      currentBeat: "Force the protagonist into a choice that makes Act II unavoidable.",
+      nextScenePlan: "Open on behavior that shows the wound before anyone explains it.",
+      sceneObjective: "Continue the unfinished page with a concrete emotional turn.",
+      featureSequence: "Act I - Opening Image / Ordinary World (p1-p12); No draft pages",
+      nextThreeTurns: [
+        "Write the next scene: Continue the unfinished page with a concrete emotional turn.",
+        "Pay off the next story turn: Turn the character pressure into a visible choice or reversal.",
+        "Advance Opening Image / Ordinary World: Plant the emotional question the ending must answer.",
+      ],
+    },
+  });
+  assert.equal(result.ok, true);
+});
+
+test("[screenplay-page-quality] an Act I obligation that mentions Act II is still Act I", () => {
+  // "Force the protagonist into a choice that makes Act II unavoidable" was
+  // read as Act II and a first page was rejected as missing_act_two_reversal.
+  const result = evaluateFeatureActObligationCoverage({
+    text: "INT. ST. AGNES HOSPITAL - NIGHT\nNORA lifts the green coat.",
+    featureContext: {
+      act: "Act I",
+      featureObligation: "Force the protagonist into a choice that makes Act II unavoidable.",
+    },
+  });
+  assert.notEqual(result.featureActKind, "act2");
+  assert.notEqual(result.reason, "missing_act_two_reversal");
+});
+
+test("[screenplay-page-quality] a first page is not held to the planner's filler next turn", () => {
+  const quality = evaluateScreenplayPageQuality({
+    text: [
+      "INT. ST. AGNES HOSPITAL - BASEMENT CORRIDOR - NIGHT",
+      "",
+      "NORA OKAFOR (30s), night nurse, stops at a wire cage marked LOST AND FOUND.",
+      "",
+      "She lifts a green canvas coat. A bus transfer falls from the torn pocket.",
+      "",
+      "NORA",
+      "Danny.",
+      "",
+      "DESMOND",
+      "Cage is for Monday, hon.",
+      "",
+      "NORA",
+      "It's my brother's.",
+      "",
+      "She turns the transfer over. In pencil: ROOM 4 - ASK FOR JUNE.",
+    ].join("\n"),
+    featureContext: {
+      act: "Act I",
+      nextThreeTurns: ["Write the next scene: Continue the unfinished page with a concrete emotional turn."],
+    },
+  });
+  assert.notEqual(quality.reason, "missing_next_turn_continuation");
 });
