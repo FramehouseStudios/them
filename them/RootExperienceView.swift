@@ -6042,7 +6042,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
         // Phase 1 latency pass: start playback on the first streamed segment as soon
         // as it is ready. We stop recording before playback begins to avoid bleed.
         let allowEarlyStreamPlayback = true
-        var didStartEarlyStudioDraftStream = false
+        let didStartEarlyStudioDraftStream = false
         var didStartEarlyStreamPlayback = false
         var didRecordAssistantPlaybackStart = false
         var didStartSyncedVoiceInsert = false
@@ -6532,22 +6532,12 @@ Write this approved story direction directly into screenplay pages now. Maintain
         _ = await applyConversationalStudioCorrectionIfNeeded(
             preparedPrompt.directorText
         )
-        let shouldUseSyncedStudioVoiceInsert =
-            preparedPrompt.useScreenplayMode &&
-            preparedPrompt.shouldWriteToPage &&
-            screenplayDraftBridge.autoInsertEnabled
-        let shouldStartEarlyStudioDraftStream =
-            preparedPrompt.useScreenplayMode &&
-            preparedPrompt.shouldWriteToPage &&
-            screenplayDraftBridge.autoInsertEnabled &&
-            !shouldUseSyncedStudioVoiceInsert
-        if shouldStartEarlyStudioDraftStream {
-            startRealtimeStudioDraftStreamIfNeeded(
-                for: preparedPrompt.directorText,
-                debugVoiceTurnToken: debugVoiceTurnToken
-            )
-            didStartEarlyStudioDraftStream = true
-        } else if isStudioSurfaceActive {
+        // She no longer reads a new page aloud in step with its reveal: the page
+        // goes down at once and she offers a read-back (PageWriteReadBackOffer).
+        let pageReadBackOfferLine = preparedPrompt.shouldWriteToPage
+            ? PageWriteReadBackOffer.line(seed: preparedPrompt.directorText) : ""
+        let shouldUseSyncedStudioVoiceInsert = false
+        if isStudioSurfaceActive {
             cancelRealtimeStudioDraftStream(
                 restorePreview: true,
                 debugVoiceTurnToken: debugVoiceTurnToken,
@@ -6620,6 +6610,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
         }
         var initialStudioMetadata = initialStudioTalkMetadata(from: preparedPrompt)
         initialStudioMetadata?.studioCapabilitiesJSON = StudioCapabilitiesSnapshot.current(bridge: screenplayDraftBridge, studioOpen: isStudioSurfaceActive).json()
+        initialStudioMetadata?.pageAudioLine = pageReadBackOfferLine
         let talkScreenplayGenerationTranscript: String? = {
             guard preparedPrompt.shouldWriteToPage else { return nil }
             let confirmedContext = confirmedStudioPageWriteContext(for: preparedPrompt.directorText)
@@ -7376,6 +7367,10 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 }
                 return nil
             }()
+            if effectiveInsertedScreenplayText != nil, result.timingSource == "page_offer" {
+                screenplayDraftBridge.readBackOfferedAt = Date() // she just asked; the answer routes first
+                showStudioCommandNotice(pageReadBackOfferLine)
+            }
             updateStudioAssistantPin(
                 from: result,
                 insertedText: effectiveInsertedScreenplayText,

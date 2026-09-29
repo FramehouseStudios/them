@@ -108,6 +108,7 @@ import {
 import { resolveCompanionArcsPolicy, applyCompanionArcsPolicy } from "./companion_arcs_policy.js";
 import { composeTalkSystemPrompt } from "./talk_prompt.js";
 import { runTalkGenerate } from "./talk_generate.js";
+import { resolveTalkPageAudioLine } from "./talk_page_audio.js";
 
 const REQUIRED_DEPS = Object.freeze(["OPENAI_API_KEY","CLEMENTINE_PROFILE","recordTalkMetric","scaleBackplane","storeTalkTurnMeta","resolveCanonicalWritableMemoryContext","createTalkMemoryCommitter","clientIp","commitTalkIdempotencySuccess","isAuthoritativeTalkScreenplayOutput","normalizeAcceptedCausalFacts","applyClementineVoiceDirection"]);
 
@@ -4868,7 +4869,34 @@ ${directorOutputRule}
       }
     }
     if (!speculativeReuseApplied) {
-      if (talkScreenplayOutput?.target === "page") {
+      const pageAudioLine = talkScreenplayOutput?.target === "page" ? resolveTalkPageAudioLine(req.body) : "";
+      if (pageAudioLine) {
+        // The page goes down silently; she offers a read-back instead of reading it.
+        try {
+          const offerSpeech = await ttsSupplier.synthesize({
+            text: pageAudioLine,
+            speed: cycleUiReflection.voiceSpeed,
+            rid,
+            label: "page_offer",
+            voiceProfile: interactiveVoiceProfile,
+          });
+          firstMp3 = Buffer.from(offerSpeech?.buffer || []);
+          ttsProviderUsed = String(offerSpeech?.provider || ttsProviderUsed);
+          ttsVoiceUsed = String(offerSpeech?.voice || ttsVoiceUsed);
+          talkAudioDurationMs = estimateTalkSpeechDurationMs(pageAudioLine, cycleUiReflection.voiceSpeed);
+          talkScreenplayTimingSource = "page_offer";
+        } catch (err) {
+          const status = Number(err?.status || 500);
+          ttsMs = Date.now() - ttsStart;
+          logger.log(`[${rid}] page offer TTS failed ${buildTalkFailureDiagnostics(err, { requestId: rid, providerStage: "tts", status }).supportMessage}`);
+          throw createTalkFailureError({
+            requestId: rid,
+            providerStage: "tts",
+            status,
+            message: String(err?.message || "Speech synthesis failed."),
+          });
+        }
+      } else if (talkScreenplayOutput?.target === "page") {
         try {
           const screenplaySpeech = await ttsSupplier.synthesizeScreenplayPage({
             screenplayOutput: talkScreenplayOutput,

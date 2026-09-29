@@ -4673,6 +4673,13 @@ final class BackendClient {
                 body.appendString(String(studioCapabilities.prefix(6000)))
                 body.appendString("\r\n")
             }
+            let pageAudioLine = studioMetadata.pageAudioLine.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !pageAudioLine.isEmpty {
+                body.appendString("--\(boundary)\r\n")
+                body.appendString("Content-Disposition: form-data; name=\"page_audio_line\"\r\n\r\n")
+                body.appendString(String(pageAudioLine.prefix(240)))
+                body.appendString("\r\n")
+            }
             let documentRevisionId = studioMetadata.screenplayDocumentRevisionId.trimmingCharacters(in: .whitespacesAndNewlines)
             if !documentRevisionId.isEmpty {
                 body.appendString("--\(boundary)\r\n")
