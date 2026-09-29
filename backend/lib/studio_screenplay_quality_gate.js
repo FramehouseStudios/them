@@ -2,6 +2,7 @@ import { inferScreenplayTask } from "./prompt_assembly.js";
 import {
   classifyScreenplayLines,
   evaluateScreenplayPageQuality,
+  normalizeCharacterArcMemory,
 } from "./screenplay_page_quality.js";
 import {
   evaluateScreenplayCanonContinuity,
@@ -290,6 +291,23 @@ function repairContextLines(body = {}, quality = {}) {
     ["NEXT_SCENE_PLAN", feature.nextScenePlan],
     ["ACCEPTED_CONSEQUENCE_DUE", feature.nextSceneExecutionBrief?.consequence],
   ];
+  // The gate judges the page against the character arc memory, so the repair
+  // must see it too. Before, the repair was told to "spend the supplied
+  // character-arc obligation" without being given it, failed the same check
+  // again, and the writer got nothing (seen 2026-09-28 on a two-page write).
+  const arc = normalizeCharacterArcMemory(feature);
+  if (arc) {
+    entries.splice(1, 0,
+      ["CHARACTER_ARC", arc.character],
+      ["ARC_WANT", arc.want],
+      ["ARC_NEED", arc.need],
+      ["ARC_WOUND", arc.wound],
+      ["ARC_FALSE_BELIEF", arc.falseBelief],
+      ["ARC_CURRENT_TACTIC", arc.currentTactic],
+      ["ARC_RELATIONSHIP_PRESSURE", arc.relationshipPressure],
+      ["ARC_NEXT_EMOTIONAL_TURN", arc.nextEmotionalTurn],
+    );
+  }
   const lines = entries
     .map(([label, value]) => {
       const clean = cleanInline(value, 240);

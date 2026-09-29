@@ -2102,6 +2102,7 @@ function evaluateScreenplayPageQuality({
 export {
   classifyScreenplayLines,
   evaluateCharacterArcMemoryCoverage,
+  normalizeCharacterArcMemory,
   evaluateMomentumRescueQuality,
   evaluateScreenplayPageQuality,
   evaluateFeatureActObligationCoverage,
