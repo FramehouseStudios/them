@@ -8950,19 +8950,11 @@ Current draft version:
         return dateFromTimestamp(project.lastVersionAt ?? project.updatedAt ?? project.createdAt)
     }
 
+    /// The same count as the "N pages" chip: the backend's last pagination
+    /// lagged behind a fresh write, so the header read "4 pages" over "PAGES 3".
     private var screenplayPagePageCountText: String {
-        if !vm.paginationPages.isEmpty {
-            return "\(vm.paginationPages.count)"
-        }
-        guard !screenplayPageShouldShowEmptyPlaceholder else {
-            return "0"
-        }
-        let normalized = vm.fountainDraft
-            .replacingOccurrences(of: "\r\n", with: "\n")
-            .replacingOccurrences(of: "\r", with: "\n")
-        let lineCount = max(1, normalized.components(separatedBy: "\n").count)
-        let estimated = Int(ceil(Double(lineCount) / Double(max(vm.linesPerPage, 1))))
-        return "\(max(1, estimated))"
+        guard !screenplayPageShouldShowEmptyPlaceholder else { return "0" }
+        return "\(ScreenplayPageLayout.pageCount(for: vm.fountainDraft, linesPerPage: vm.linesPerPage))"
     }
 
     private var screenplayPageRevisionStateText: String {
