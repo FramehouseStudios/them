@@ -691,6 +691,11 @@ final class HerVoiceController: ObservableObject {
     }
 
     // MARK: - Mic permission
+    /// Already allowed: listening can resume without a permission prompt.
+    nonisolated static var microphoneAuthorized: Bool {
+        AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
+    }
+
     private func requestMicPermission(_ done: @escaping (Bool) -> Void) {
         switch AVCaptureDevice.authorizationStatus(for: .audio) {
         case .authorized:

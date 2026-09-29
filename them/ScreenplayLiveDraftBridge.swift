@@ -2793,6 +2793,8 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
     @Published var pendingStudioAction: ScreenplayStudioActionRequest?
     @Published var pendingStudioActionPreview: ScreenplayStudioActionPreview?
     @Published var editorSelection: ScreenplayEditorSelectionSnapshot?
+    /// Set when Clementine has just offered a read-back (PageWriteReadBackOffer).
+    var readBackOfferedAt: Date?
     @Published var lastCommittedWrite: ScreenplayCommittedWrite? {
         didSet {
             persistAuthoritativeCommittedDraft(lastCommittedWrite)
@@ -6887,17 +6889,6 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         return String(excerpt.prefix(maxCharacters))
     }
 
-    private func currentPageReadbackText(maxCharacters: Int = 520) -> String {
-        let excerpt = screenplayLineTexts(draftText)
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-            .joined(separator: " ")
-            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !excerpt.isEmpty else { return "" }
-        return String(excerpt.prefix(maxCharacters))
-    }
-
     private func characterDialogueReadbackText(
         for rawCharacter: String,
         maxCharacters: Int = 520
@@ -7432,6 +7423,16 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         _ rawText: String,
         source: ScreenplayStudioUserPrompt.Source = .voice
     ) -> ScreenplayLocalStudioCommandFeedback? {
+        if let offeredAt = readBackOfferedAt {
+            let answer = Date().timeIntervalSince(offeredAt) < PageWriteReadBackOffer.lifetime
+                ? PageWriteReadBackOffer.choice(for: rawText) : nil
+            // An answer or a real new request closes the offer; a stray word
+            // or mic noise (a turn reached /talk before the answer) does not.
+            if answer != nil || PageWriteReadBackOffer.closesOffer(rawText) || Date().timeIntervalSince(offeredAt) >= PageWriteReadBackOffer.lifetime {
+                readBackOfferedAt = nil
+            }
+            if let answer { return readBackOfferFeedback(answer) }
+        }
         guard let command = localStudioCommand(in: rawText) else { return nil }
 
         if command != .confirmPendingAction && command != .cancelPendingAction,
@@ -8049,7 +8050,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             )
         case .readBackCurrentPage:
             target = .voicePin
-            let excerpt = currentPageReadbackText()
+            let excerpt = PageWriteReadBackOffer.pageText(in: draftText, containingLine: currentCursorLine)
             feedback = ScreenplayLocalStudioCommandFeedback(
                 confirmation: excerpt.isEmpty
                     ? "The current page is still empty."

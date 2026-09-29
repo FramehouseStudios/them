@@ -4723,7 +4723,9 @@ You're okay. Let's slow it down for one beat and get our footing back. Pick the 
 
         showStudioCommandNotice(feedback.confirmation)
 
-        if source == .voice, shouldSpeakConfirmation, feedback.shouldSpeakConfirmation, !feedback.isError {
+        // A typed "the page" answers a read-back offer aloud too when replies are spoken.
+        let speaksTypedReadBack = source == .typed && studioTypedReplyAudioEnabled && feedback.spokenText != nil
+        if source == .voice || speaksTypedReadBack, shouldSpeakConfirmation || speaksTypedReadBack, feedback.shouldSpeakConfirmation, !feedback.isError {
             let spokenText = (feedback.spokenText ?? feedback.confirmation)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             guard !spokenText.isEmpty else {
@@ -7843,7 +7845,8 @@ Write this approved story direction directly into screenplay pages now. Maintain
             let shouldStreamStudioPageWrite = shouldUseStreamingStudioPageWriteTransport(
                 shouldWriteToPage: shouldWriteToPage
             )
-            let shouldSpeakTypedReply = studioTypedReplyAudioEnabled
+            // Pages are offered back, not read unasked (PageWriteReadBackOffer).
+            let shouldSpeakTypedReply = studioTypedReplyAudioEnabled && !shouldWriteToPage
             if shouldSpeakTypedReply {
                 orbAudio.stop()
                 promptSpeaker.stop()
@@ -8027,6 +8030,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 replyText: cleanReply,
                 shouldSpeak: shouldSpeakTypedReply
             )
+            if shouldWriteToPage, !(insertedScreenplayText ?? "").isEmpty { offerReadBackAfterPageWrite() }
             recordStudioConversationMemoryIfNeeded(
                 user: cleanPrompt,
                 assistant: cleanReply,
@@ -8126,6 +8130,23 @@ Write this approved story direction directly into screenplay pages now. Maintain
 #endif
             return failureReason
         }
+    }
+
+    /// Instead of reading the new page aloud, offer: what was just written,
+    /// the page, or the whole script; then keep listening for the answer.
+    @MainActor
+    private func offerReadBackAfterPageWrite() {
+        let line = PageWriteReadBackOffer.line(seed: screenplayDraftBridge.lastCommittedWrite?.writeID ?? UUID().uuidString)
+        screenplayDraftBridge.readBackOfferedAt = Date()
+        showStudioCommandNotice(line)
+        guard studioTypedReplyAudioEnabled else { return }
+        promptSpeaker.stop()
+        typedReplySpeaker.cancel()
+        promptSpeaker.speak(line, style: .natural)
+        let listenAfter = max(0.95, promptSpeaker.estimatedDuration(for: line, style: .natural) + 0.35)
+        // Keep listening for the answer, but never raise the mic prompt from a typed turn.
+        guard HerVoiceController.microphoneAuthorized else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + listenAfter) { self.startConversationLoopIfNeeded() }
     }
 
     @MainActor
