@@ -641,8 +641,26 @@ function fitSystemPromptForTurnLatency(
   return joined.length <= budget ? joined.trim() : protectedSection.trim();
 }
 
+// Studio renders cap the system prompt at a fixed size. A plain cut from the
+// end dropped the safety contract, which is appended last (seen 2026-09-28:
+// the prompt ended "...if a request is about real-life harm, s..."). Over the
+// cap, the rest is trimmed and the safety contract is kept whole.
+const ALWAYS_KEPT_TAGS = Object.freeze(["clementine_safety_contract"]);
+
+function capSystemPromptKeepingSafety(prompt, maxChars, { normalize = (text, max) => String(text || "").slice(0, max) } = {}) {
+  const text = String(prompt || "");
+  if (text.length <= maxChars) return normalize(text, maxChars);
+  const kept = extractTaggedBlocks(text, ALWAYS_KEPT_TAGS);
+  if (!kept.length) return normalize(text, maxChars);
+  const keptText = normalize(kept.map((entry) => entry.block).join("\n"), Number.MAX_SAFE_INTEGER);
+  if (keptText.length >= maxChars - 2) return normalize(keptText, maxChars);
+  const rest = normalize(removeTaggedBlocks(text, kept), maxChars - keptText.length - 2);
+  return rest ? `${rest} ${keptText}` : keptText;
+}
+
 export {
   DEFAULT_PROTECTED_TAGS,
+  capSystemPromptKeepingSafety,
   extractTaggedBlocks,
   fitSystemPromptForTurnLatency,
 };
