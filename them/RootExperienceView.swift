@@ -882,7 +882,8 @@ struct RootExperienceView: View {
         if signalState.hasContent,
            !HomeSessionContinuityCardPolicy.hidesCompanionSignal(
                presenceTitle: signalState.presence.title,
-               continuityCardVisible: homeSessionContinuityCardIsVisible
+               continuityCardVisible: homeSessionContinuityCardIsVisible,
+               continuityCardDismissed: !dismissedSessionContinuityFingerprint.isEmpty
            ) {
             VStack(spacing: 6) {
                 if !signalState.presence.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -982,80 +983,14 @@ struct RootExperienceView: View {
     @ViewBuilder
     private var homeSessionContinuityCard: some View {
         if let snapshot = sessionContinuitySnapshot, homeSessionContinuityCardIsVisible {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(alignment: .firstTextBaseline, spacing: 10) {
-                    Text("Where We Left Off")
-                        .font(.system(size: 11, weight: .semibold, design: .default))
-                        .foregroundColor(.herText.opacity(0.86))
-                        .textCase(.uppercase)
-                        .tracking(0.8)
-                    Spacer(minLength: 8)
-                    Button {
-                        dismissedSessionContinuityFingerprint = sessionContinuityFingerprint(snapshot)
-                    } label: {
-                        Text("Hide")
-                            .font(.system(size: 11, weight: .regular, design: .default))
-                            .foregroundColor(.herText.opacity(0.74))
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Hide restored memory")
-                }
-
-                Text(sessionContinuityTitle(snapshot))
-                    .font(.system(size: 15, weight: .semibold, design: .default))
-                    .foregroundColor(.herText.opacity(0.92))
-                    .lineLimit(1)
-
-                Text(sessionContinuityBody(snapshot))
-                    .font(.system(size: 12, weight: .regular, design: .default))
-                    .foregroundColor(.herText.opacity(0.82))
-                    .lineSpacing(4)
-                    .lineLimit(3)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                HStack(spacing: 8) {
-                    Button {
-                        openStudio()
-                    } label: {
-                        Text("Continue Writing")
-                            .font(.system(size: 12, weight: .regular, design: .default))
-                            .foregroundColor(.herText.opacity(0.92))
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 7)
-                            .background(Color.white.opacity(0.20))
-                            .clipShape(Capsule())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier("home.session-continuity.open-studio")
-
-                    Button {
-                        openMemories()
-                    } label: {
-                        Text("Review Memory")
-                            .font(.system(size: 12, weight: .regular, design: .default))
-                            .foregroundColor(.herText.opacity(0.86))
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 7)
-                            .background(Color.white.opacity(0.14))
-                            .clipShape(Capsule())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier("home.session-continuity.open-memories")
-                }
-            }
-            .frame(maxWidth: 500, alignment: .leading)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 12)
-            .background(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(Color.white.opacity(0.16))
+            HomeLeftOffBanner(
+                title: sessionContinuityTitle(snapshot),
+                summary: sessionContinuityBody(snapshot),
+                onContinue: { openStudio() },
+                onReviewMemory: { openMemories() },
+                onHide: { dismissedSessionContinuityFingerprint = sessionContinuityFingerprint(snapshot) }
             )
-            .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .stroke(Color.white.opacity(0.20), lineWidth: 1)
-            )
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel("Where we left off. \(sessionContinuityBody(snapshot))")
+            .transition(.move(edge: .top).combined(with: .opacity))
         }
     }
 
@@ -3207,7 +3142,6 @@ struct RootExperienceView: View {
                 }
 
                 homeFirstPageWaitingCard
-                homeSessionContinuityCard
 
                 VStack(spacing: 14) {
                     if showTalkPrompt {
@@ -3678,6 +3612,9 @@ struct RootExperienceView: View {
                     .padding(.top, 18)
                     .padding(.trailing, 18)
                 }
+                homeSessionContinuityCard
+                    .padding(.horizontal, 18)
+                    .padding(.top, 10)
                 Spacer()
             }
             .opacity(evolution.needsOnboardingName ? 0 : 1)

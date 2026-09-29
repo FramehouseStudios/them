@@ -28,5 +28,7 @@ final class HomeSessionContinuityCardPolicyTests: XCTestCase {
         XCTAssertTrue(HomeSessionContinuityCardPolicy.hidesCompanionSignal(presenceTitle: title, continuityCardVisible: true))
         XCTAssertFalse(HomeSessionContinuityCardPolicy.hidesCompanionSignal(presenceTitle: title, continuityCardVisible: false))
         XCTAssertFalse(HomeSessionContinuityCardPolicy.hidesCompanionSignal(presenceTitle: "Live Intent", continuityCardVisible: true))
+        XCTAssertTrue(HomeSessionContinuityCardPolicy.hidesCompanionSignal(presenceTitle: title, continuityCardVisible: false, continuityCardDismissed: true))
+        XCTAssertFalse(HomeSessionContinuityCardPolicy.hidesCompanionSignal(presenceTitle: "Live Intent", continuityCardVisible: false, continuityCardDismissed: true))
     }
 }
