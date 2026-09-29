@@ -23,8 +23,14 @@ nonisolated enum HomeSessionContinuityCardPolicy {
     /// The restored-continuity companion card under Talk repeated the
     /// "Where we left off" card above it (same project, same next step);
     /// while that card shows, the repeat is hidden. Other signals stay.
-    static func hidesCompanionSignal(presenceTitle: String, continuityCardVisible: Bool) -> Bool {
-        continuityCardVisible
+    /// Hiding the card hides the repeat too: otherwise the recap the writer
+    /// just dismissed came straight back under Talk.
+    static func hidesCompanionSignal(
+        presenceTitle: String,
+        continuityCardVisible: Bool,
+        continuityCardDismissed: Bool = false
+    ) -> Bool {
+        (continuityCardVisible || continuityCardDismissed)
             && presenceTitle.trimmingCharacters(in: .whitespacesAndNewlines) == restoredContinuityPresenceTitle
     }
 }
