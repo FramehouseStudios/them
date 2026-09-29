@@ -187,6 +187,33 @@ final class FountainFormatterAIPageFidelityTests: XCTestCase {
         XCTAssertTrue(ScreenplayEditorElement.looksLikeTransition("FADE OUT."))
     }
 
+    func testAContinuousHeadingStaysAHeading() {
+        // Live 2026-09-29: "INT. BUS DEPOT - NIGHT - CONTINUOUS" after "INT. BUS DEPOT - NIGHT"
+        // lost its heading and left a bare "Continuous." action line.
+        let existing = "INT. BUS DEPOT - NIGHT\n\nRain on the roof.\n\nMae climbs aboard."
+        let page = "INT. BUS DEPOT - NIGHT - CONTINUOUS\n\nRain hammers the depot roof."
+        let deduped = FountainFormatter.removingDuplicateLeadingSceneHeading(
+            from: page,
+            existingDraft: existing,
+            insertionUTF16Location: (existing as NSString).length
+        )
+        XCTAssertFalse(nonBlankLines(deduped).contains { $0.lowercased().hasPrefix("continuous") }, deduped)
+        XCTAssertEqual(nonBlankLines(deduped).first, "INT. BUS DEPOT - NIGHT - CONTINUOUS")
+        let normalized = FountainFormatter.normalizeHollywoodDraft(page, existingDraft: existing)
+        XCTAssertEqual(nonBlankLines(normalized).first, "INT. BUS DEPOT - NIGHT - CONTINUOUS", normalized)
+        XCTAssertEqual(nonBlankLines(FountainFormatter.normalizeHollywoodDraft("INT. ATTIC - DAY (FLASHBACK)\n\nDust.")).first, "INT. ATTIC - DAY (FLASHBACK)")
+    }
+
+    func testAnExactRepeatOfTheCurrentHeadingIsStillDropped() {
+        let existing = "INT. BUS DEPOT - NIGHT\n\nRain on the roof."
+        let deduped = FountainFormatter.removingDuplicateLeadingSceneHeading(
+            from: "INT. BUS DEPOT - NIGHT\n\nMae waits.",
+            existingDraft: existing,
+            insertionUTF16Location: (existing as NSString).length
+        )
+        XCTAssertEqual(nonBlankLines(deduped), ["Mae waits."])
+    }
+
     func testVoiceStyleHeadingsStillConvert() {
         XCTAssertTrue(FountainFormatter.normalizeHollywoodDraft("inside the diner at night").hasPrefix("INT."))
     }
