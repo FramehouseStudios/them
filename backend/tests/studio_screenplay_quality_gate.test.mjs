@@ -471,3 +471,14 @@ test("[studio-quality] an arc-memory repair is given the arc memory it is judged
   assert.match(repairRequest.transcript, /ARC_WOUND: left alone at a bus station as a girl/);
   assert.ok(repairRequest.transcript.indexOf("ARC_WANT") < repairRequest.transcript.indexOf("FAILED_DRAFT_TO_REPAIR"));
 });
+
+test("[studio-quality] an arc-pressure repair is given the character arc state it is judged against", () => {
+  const repairRequest = buildStudioScreenplayRepairRequest({
+    systemPrompt: "Write pages.",
+    transcript: "Write the first page.",
+    body: { screenplay_act: "Act I", screenplay_character_arc_state: "Need: to stop hiding what she found" },
+    failedReply: "INT. KITCHEN - NIGHT\n\nLena comes in.",
+    quality: { ok: false, reason: "missing_character_arc_pressure", requestedPages: 1 },
+  });
+  assert.match(repairRequest.transcript, /CHARACTER_ARC_PRESSURE: Need: to stop hiding what she found/);
+});
