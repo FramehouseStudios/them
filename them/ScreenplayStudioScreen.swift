@@ -88,6 +88,7 @@ struct ScreenplayStudioScreen: View {
     @State private var isDirectionOneComposerExpanded = false
     @State private var showingDirectionOneSettings = false
     @State private var confirmingClearDraft = false
+    @State private var showingTitlePage = false
     @State private var pendingRestoreVersion: BackendScreenplayVersion?
     @State private var lastVoiceFeedback: String = ""
     @State private var voiceFeedbackOpacity: Double = 0
@@ -547,6 +548,7 @@ Replace is best when this file should become the script you edit. Append is safe
                 fullStudioThreadSheet
             }
             .sheet(isPresented: $vm.isPagesOverviewPresented) { screenplayPagesOverviewSheet }
+            .studioTitlePageSheet(isPresented: $showingTitlePage, vm: vm, projectTitle: directionOneProjectTitle) { liveDraftBridge.draftText = $0 }
             .background(studioFocusShortcutLayer)
     }
 
@@ -2562,8 +2564,8 @@ private var directionOneHeaderLeftToggle: some View {
 }
 
 private var directionOneHeaderProjectBlock: some View {
-    VStack(alignment: .leading, spacing: 2) {
-        Text(directionOneProjectTitle)
+    Button { showingTitlePage = true } label: { VStack(alignment: .leading, spacing: 2) {
+        Label(directionOneProjectTitle, systemImage: "doc.text")
             .font(.system(size: 14, weight: .semibold, design: .default))
             .foregroundStyle(directionOneChromeText.opacity(0.96))
             .lineLimit(1)
@@ -2580,7 +2582,7 @@ private var directionOneHeaderProjectBlock: some View {
                     .tint(directionOneChromeSecondaryText)
             }
         }
-    }
+    } }.buttonStyle(.plain).accessibilityHint("Opens the title page").accessibilityIdentifier("studio.header.title-page")
 }
 
 private var directionOneHeaderDraftShortcuts: some View {
@@ -4580,6 +4582,8 @@ private func refreshStudioCreativeInstincts(
             }
 
             Divider()
+
+            Button("Title Page…") { showingDirectionOneSettings = false; DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { showingTitlePage = true } } // after the popover closes.font(.system(size: 12, weight: .regular, design: .default))
 
             Button("Reload Project") {
                 if let id = vm.selectedProject?.id {
@@ -7337,7 +7341,7 @@ private var projectsSidebarContent: some View {
         let seed = """
 Replace the current draft version of this section with the original page write below.
 
-\(screenplayReplacementScopeInstruction(for: currentText.isEmpty ? original : currentText))
+\(StudioReplacementScope.instruction(for: currentText.isEmpty ? original : currentText))
 
 Return screenplay lines only.
 
@@ -7372,7 +7376,7 @@ Rewrite this section for the current draft.
 
 Keep the strongest dramatic intent from both versions, resolve the weaknesses between them, and return screenplay lines only.
 
-\(screenplayReplacementScopeInstruction(for: currentText.isEmpty ? original : currentText))
+\(StudioReplacementScope.instruction(for: currentText.isEmpty ? original : currentText))
 
 Original page write:
 \(original)
@@ -7432,22 +7436,6 @@ Current draft version:
             endLine: resolved.endLine,
             currentText: cleanCurrentText
         )
-    }
-
-    private func screenplayReplacementScopeInstruction(for text: String) -> String {
-        screenplayBlockIncludesSceneHeading(text)
-            ? "Keep the rewrite scoped to this exact block. Only include the scene heading if it is already part of the block."
-            : "Keep the rewrite scoped to this exact block. Do not add the scene heading or surrounding scene text."
-    }
-
-    private func screenplayBlockIncludesSceneHeading(_ text: String) -> Bool {
-        text
-            .components(separatedBy: "\n")
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).uppercased() }
-            .contains { line in
-                !line.isEmpty &&
-                (line.hasPrefix("INT.") || line.hasPrefix("EXT.") || line.hasPrefix("INT/EXT.") || line.hasPrefix("I/E."))
-            }
     }
 
     private func fullThreadDraftComparisonTitle(_ comparison: FullThreadDraftComparison) -> String {
@@ -9404,7 +9392,7 @@ Current draft version:
 Revise this page write and keep the same story intent.
 
 \(preset.instruction)
-\(screenplayReplacementScopeInstruction(for: committedWrite.insertedText))
+\(StudioReplacementScope.instruction(for: committedWrite.insertedText))
 
 Return revised screenplay lines only.
 

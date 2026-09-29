@@ -20,6 +20,8 @@
 //     dialogue lines remain on both sides.
 //   - Long action blocks overflow line by line.
 
+import { readTitlePage } from "./screenplay_title_page.js";
+
 export const LINES_PER_PAGE = 54;
 export const MIN_LINES_PER_PAGE = 24;
 export const MAX_LINES_PER_PAGE = 120;
@@ -144,6 +146,8 @@ export function paginateScreenplay(draft, { linesPerPage: requested } = {}) {
   }
   const lines = normalized.split("\n");
   const kinds = classifyLines(lines);
+  // The title page is its own sheet, never part of page 1 or the page count.
+  for (const index of readTitlePage(lines).lineIndexes) kinds[index] = "blank";
   const blocks = buildBlocks(lines, kinds);
 
   const pages = [];

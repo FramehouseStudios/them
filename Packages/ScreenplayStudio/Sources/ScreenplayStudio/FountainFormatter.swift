@@ -70,6 +70,14 @@ public enum FountainFormatter {
     /// hesitates" -> "MAYA hesitates"), which also caught "Fog sits on the
     /// water" in a writer's paste (seen live 2026-09-28).
     public static func normalizeHollywoodDraft(_ rawText: String, existingDraft: String = "", fromWriter: Bool = false) -> String {
+        // A title page ("Title: …", "Author: …") read as dialogue became cues
+        // TITLE and AUTHOR; the script is normalized, the title page kept.
+        ScreenplayTitlePage.preservingTitlePage(in: rawText) {
+            normalizeHollywoodBody($0, existingDraft: existingDraft, fromWriter: fromWriter)
+        }
+    }
+
+    private static func normalizeHollywoodBody(_ rawText: String, existingDraft: String, fromWriter: Bool) -> String {
         let sanitized = sanitizeRawScreenplayText(rawText)
         guard !sanitized.isEmpty else { return "" }
         let cleaned = stripMetaInstructionPrefix(sanitized)
@@ -91,6 +99,12 @@ public enum FountainFormatter {
     }
 
     public static func normalizePastedScreenplayBlock(_ rawText: String, existingDraft: String = "", fromWriter: Bool = false) -> String {
+        ScreenplayTitlePage.preservingTitlePage(in: rawText) {
+            normalizePastedBody($0, existingDraft: existingDraft, fromWriter: fromWriter)
+        }
+    }
+
+    private static func normalizePastedBody(_ rawText: String, existingDraft: String, fromWriter: Bool) -> String {
         let sanitized = sanitizeRawScreenplayText(rawText)
         guard !sanitized.isEmpty else { return "" }
         let cleaned = stripMetaInstructionPrefix(sanitized)

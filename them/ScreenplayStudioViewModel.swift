@@ -4375,6 +4375,59 @@ final class ScreenplayStudioViewModel: ObservableObject {
         scheduleProgrammaticDraftAutosaveIfNeeded(source: "studio_import")
     }
 
+    /// The draft's title page, if it opens with one.
+    var titlePage: ScreenplayTitlePage? {
+        ScreenplayTitlePage.split(fountainDraft).titlePage
+    }
+
+    /// Writes the title page into the top of the draft (an empty page removes
+    /// it) and, when its title changed, renames the project to match, so the
+    /// Studio header, drawer and exports all say the same title.
+    func applyTitlePage(_ page: ScreenplayTitlePage) {
+        let nextDraft = ScreenplayTitlePage.applying(page, to: fountainDraft)
+        if nextDraft != fountainDraft {
+            isHydratingDraft = true
+            fountainDraft = nextDraft
+            isHydratingDraft = false
+            hasUnsavedDraftChanges = fingerprint(for: nextDraft) != lastSavedDraftFingerprint
+            autosaveStatusText = page.isEmpty ? "Title page removed" : "Title page updated"
+            persistLocalDraftRecovery(
+                projectId: selectedProjectID,
+                draft: nextDraft,
+                baseVersionId: latestVersionID,
+                dirty: hasUnsavedDraftChanges
+            )
+            Task { await refreshDraftInsights() }
+            scheduleProgrammaticDraftAutosaveIfNeeded(source: "studio_title_page")
+        }
+
+        let title = page.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let project = selectedProject, !title.isEmpty, title != project.title else { return }
+        Task { await renameProject(project, to: title) }
+    }
+
+    private func renameProject(_ project: BackendScreenplayProjectSummary, to title: String) async {
+        do {
+            let result = try await BackendMemoryAPI.shared.upsertScreenplayProject(
+                projectId: project.id,
+                title: title,
+                phase: project.lastPhase ?? "scene_draft",
+                tags: project.tags ?? [],
+                characters: project.characters ?? [],
+                setting: project.setting ?? "",
+                tone: project.tone ?? ""
+            )
+            if let nextProject = result.payload.project {
+                upsertProject(nextProject)
+                selectedProject = ScreenplayProjectSummaryMerge.keepingVersions(nextProject, from: selectedProject)
+            }
+        } catch {
+            // The title page itself is in the draft and saves with it; only
+            // the project's name did not change.
+            errorText = "Title page saved, but the project could not be renamed. \(error.localizedDescription)"
+        }
+    }
+
     func refreshDraftInsights(source: String = "Draft") async {
         lastDraftInsightsSignature = draftInsightsSignature(for: fountainDraft)
         await recomputePagination(for: fountainDraft, source: source)

@@ -1,5 +1,6 @@
 import Foundation
 import CryptoKit
+import ScreenplayStudio
 import os.log
 import Security
 
@@ -8914,12 +8915,12 @@ actor BackendMemoryAPI {
     }
 
     private func screenplayExportDocumentPayload(draft: String, title: String) -> [String: Any] {
-        var payload: [String: Any] = [:]
+        let parts = ScreenplayTitlePage.split(draft) // the title page is <TitlePage>, never scene action
+        var titleFields = parts.titlePage?.exportFields ?? [:]
         let cleanTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !cleanTitle.isEmpty {
-            payload["title"] = ["title": cleanTitle]
-        }
-        payload["scenes"] = screenplayExportScenes(from: draft)
+        if titleFields["title"] == nil, !cleanTitle.isEmpty { titleFields["title"] = cleanTitle }
+        var payload: [String: Any] = ["scenes": screenplayExportScenes(from: parts.body)]
+        if !titleFields.isEmpty { payload["title"] = titleFields }
         return payload
     }
 
