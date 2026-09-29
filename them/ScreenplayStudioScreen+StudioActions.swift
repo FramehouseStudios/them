@@ -32,6 +32,23 @@ extension ScreenplayStudioScreen {
 }
 
 extension ScreenplayStudioScreen {
+    /// The first page's own project, made the way the drawer's Create makes
+    /// one (blank page, selected). Waits for the Studio's own load first, so
+    /// a late load of the previous script cannot take the selection back.
+    func startFirstPageProject(_ notification: Notification) {
+        let title = (notification.userInfo?[FirstPageFreshProject.titleKey] as? String) ?? "New Scene"
+        Task { @MainActor in
+            for _ in 0..<60 where vm.isLoading { try? await Task.sleep(for: .milliseconds(150)) }
+            var projectID = vm.selectedProjectID
+            if !FirstPageFreshProject.canReuse(selectedProjectID: projectID, draft: vm.fountainDraft) {
+                vm.newProjectTitle = title
+                await vm.createProject()
+                projectID = vm.selectedProjectID == projectID ? "" : vm.selectedProjectID // unchanged = create failed
+            }
+            NotificationCenter.default.post(name: FirstPageFreshProject.ready, object: nil, userInfo: [FirstPageFreshProject.projectIDKey: projectID])
+        }
+    }
+
     func handleStudioActionNotification(_ notification: Notification) {
         guard let action = StudioActionDispatcher.action(from: notification) else { return }
         performStudioAction(action)
