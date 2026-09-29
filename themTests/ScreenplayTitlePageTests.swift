@@ -102,7 +102,16 @@ final class ScreenplayTitlePageTests: XCTestCase {
         let writerIndex = try XCTUnwrap(pageText.range(of: "Sam")).lowerBound.utf16Offset(in: pageText)
         XCTAssertGreaterThan(titlePage.characterBounds(at: titleIndex).midY, titlePage.characterBounds(at: writerIndex).midY)
         XCTAssertGreaterThan(titlePage.characterBounds(at: titleIndex).midY, titlePage.bounds(for: .mediaBox).midY, "title in the upper half")
-        for index in 0..<2 {
+        XCTAssertNil(ScreenplayPrintService.pageNumberLabel(for: 1))
+        XCTAssertEqual(ScreenplayPrintService.pageNumberLabel(for: 2), "2.")
+        let secondScriptPage = try XCTUnwrap(document.page(at: 2))
+        let number = try XCTUnwrap((secondScriptPage.string ?? "").range(of: "2."))
+        let numberBounds = secondScriptPage.characterBounds(at: number.lowerBound.utf16Offset(in: secondScriptPage.string ?? ""))
+        let media = secondScriptPage.bounds(for: .mediaBox)
+        XCTAssertGreaterThan(numberBounds.minX, media.midX, "page number sits top right")
+        XCTAssertGreaterThan(numberBounds.minY, media.maxY - 72, "page number sits in the top margin")
+        XCTAssertFalse((document.page(at: 1)?.string ?? "").hasPrefix("1."), "first script page is unnumbered")
+        for index in 0..<3 {
             let image = document.page(at: index)?.thumbnail(of: CGSize(width: 612, height: 792), for: .mediaBox)
             let url = FileManager.default.temporaryDirectory.appendingPathComponent("title-page-\(index).png")
             try image?.pngData()?.write(to: url)

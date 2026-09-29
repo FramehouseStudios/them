@@ -142,17 +142,21 @@ enum ScreenplayPrintService {
             // bottom-left). Flipping it printed every page upside down with
             // its lines in reverse order. Rects below are given top-down and
             // converted with topDown(_:in:).
-            // Page number
-            let headerText = "\(pageNumber)."
-            let headerAttr = NSAttributedString(string: headerText, attributes: [
-                .font: UIFont(name: "Courier", size: 10) ?? UIFont.systemFont(ofSize: 10),
-                .foregroundColor: UIColor.black.withAlphaComponent(0.7)
-            ])
-            let headerPath = CGPath(rect: topDown(CGRect(x: 108, y: 36, width: 400, height: 20), in: pageRect), transform: nil)
-            let headerFrame = CTFramesetterCreateFrame(CTFramesetterCreateWithAttributedString(headerAttr), CFRange(location: 0, length: headerAttr.length), headerPath, nil)
-            CTFrameDraw(headerFrame, context)
-            var path = CGPath(rect: contentRect, transform: nil)
-            var frame = CTFramesetterCreateFrame(framesetter, range, path, nil)
+            // Page number: top right, half an inch down, in the script's
+            // Courier 12; the first page of a screenplay is not numbered.
+            if let headerText = pageNumberLabel(for: pageNumber) {
+                let rightAligned = NSMutableParagraphStyle()
+                rightAligned.alignment = .right
+                let headerAttr = NSAttributedString(string: headerText, attributes: [
+                    .font: UIFont(name: "Courier", size: 12) ?? UIFont.monospacedSystemFont(ofSize: 12, weight: .regular),
+                    .foregroundColor: UIColor.black,
+                    .paragraphStyle: rightAligned
+                ])
+                let headerPath = CGPath(rect: topDown(CGRect(x: pageRect.width - 72 - 120, y: 36, width: 120, height: 20), in: pageRect), transform: nil)
+                let headerFrame = CTFramesetterCreateFrame(CTFramesetterCreateWithAttributedString(headerAttr), CFRange(location: 0, length: headerAttr.length), headerPath, nil)
+                CTFrameDraw(headerFrame, context)
+            }
+            var frame = CTFramesetterCreateFrame(framesetter, range, CGPath(rect: contentRect, transform: nil), nil)
             var visible = CTFrameGetVisibleStringRange(frame)
             // Widow: pull back last line if next page would have single line — dual-aware for MORE/CONT'D pagination orphan
             if range.location + visible.length < fullLength {
@@ -263,6 +267,11 @@ enum ScreenplayPrintService {
         }
         if !clean(page.source).isEmpty { centered.append(clean(page.source)) }
         return (centered, clean(page.contact), clean(page.draftDate))
+    }
+
+    /// "2." on every script page after the first; page 1 is unnumbered.
+    static func pageNumberLabel(for pageNumber: Int) -> String? {
+        pageNumber > 1 ? "\(pageNumber)." : nil
     }
 
     /// A rect measured from the top of the page, in PDF space.
