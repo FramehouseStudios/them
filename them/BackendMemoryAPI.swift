@@ -1389,9 +1389,9 @@ nonisolated struct BackendStudioThreadCommitMetadata: Hashable {
     var screenplayEmotionalContinuity: String = ""
     var screenplayPageCount: Int? = nil
     var screenplayTargetPages: Int? = nil
-    /// What the Studio offers this turn (tabs, sections, colors, scenes), so
-    /// Clementine can operate only what exists. See StudioCapabilitiesSnapshot.
+    /// What the Studio offers (StudioCapabilitiesSnapshot), so Clementine operates only what exists.
     var studioCapabilitiesJSON: String = ""
+    var pageAudioLine: String = "" // spoken instead of the page; see PageWriteReadBackOffer
 
     var isMeaningful: Bool {
         !screenplayProjectId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||

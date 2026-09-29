@@ -59,6 +59,7 @@ const ALLOWED_MODULE_BINDINGS = new Set([
   "removePendingScreenplayLearningQuestion",
   "resolvePendingScreenplayLearningAnswer",
   "runTalkGenerate",
+  "resolveTalkPageAudioLine",
   "selectPendingScreenplayLearningQuestion",
   "selectStoryMoveLibraryLinesForContext",
   "upsertPendingScreenplayLearningQuestion",
