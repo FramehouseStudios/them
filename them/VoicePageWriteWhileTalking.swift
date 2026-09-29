@@ -35,6 +35,20 @@ nonisolated enum VoicePageWriteWhileTalking {
 
     /// She never talks over the writer, over herself, or over a reply that is
     /// on its way; the offer then waits on screen.
+    /// The words the app itself heard in this utterance: a client transcript, else this turn's
+    /// on-device partial. A voice turn's prepared text falls back to the previous turn's
+    /// transcript until the backend transcribes the audio, so nothing may act on it locally
+    /// (live 2026-09-29: a stale typed page request re-streamed every ~15 s after each offer).
+    static func heardWords(clientTranscript: String, livePartial: String) -> String {
+        let override = clientTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
+        return override.isEmpty ? livePartial.trimmingCharacters(in: .whitespacesAndNewlines) : override
+    }
+
+    /// A page streams only when the turn was routed on the words heard this time.
+    static func routedOnHeardWords(heard: String, routedText: String) -> Bool {
+        !heard.isEmpty && heard == routedText.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     /// `micQuiet`: the mic is idle or armed, not capturing speech or muted.
     static func canSpeakOffer(micQuiet: Bool, assistantPlaying: Bool, replyInFlight: Bool) -> Bool {
         micQuiet && !assistantPlaying && !replyInFlight

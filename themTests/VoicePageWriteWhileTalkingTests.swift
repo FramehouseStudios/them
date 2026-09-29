@@ -25,4 +25,18 @@ final class VoicePageWriteWhileTalkingTests: XCTestCase {
             XCTAssertNil(PageWriteReadBackOffer.choice(for: spoken), spoken)
         }
     }
+
+    func testOnlyWordsHeardThisTurnCanActLocally() {
+        // Real voice turns carry no client transcript; without on-device speech the app has
+        // heard nothing yet, and the stale typed request must not be re-run.
+        let stale = "Intent: Produce screenplay-ready rewritten material.\n\nWriter request: Write the next scene"
+        let heard = VoicePageWriteWhileTalking.heardWords(clientTranscript: "", livePartial: "")
+        XCTAssertEqual(heard, "")
+        XCTAssertFalse(VoicePageWriteWhileTalking.routedOnHeardWords(heard: heard, routedText: stale))
+
+        XCTAssertEqual(VoicePageWriteWhileTalking.heardWords(clientTranscript: "", livePartial: " write the diner scene "), "write the diner scene")
+        XCTAssertEqual(VoicePageWriteWhileTalking.heardWords(clientTranscript: "The page", livePartial: "the pa"), "The page")
+        XCTAssertTrue(VoicePageWriteWhileTalking.routedOnHeardWords(heard: "write the diner scene", routedText: "write the diner scene "))
+        XCTAssertFalse(VoicePageWriteWhileTalking.routedOnHeardWords(heard: "write it", routedText: stale), "routed on older, longer text")
+    }
 }
