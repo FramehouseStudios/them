@@ -575,7 +575,13 @@ public enum FountainFormatter {
 
             let lower = lineToClassify.lowercased()
             let upper = lineToClassify.uppercased()
-            if isSceneHeadingLine(lineToClassify) || looksLikeSceneHeading(lower, upper: upper) {
+            // Under a cue only a parenthetical or dialogue can follow; the
+            // place/time guess turned "(barely)" and "He was in this
+            // building." into scene headings and cut lines at "night".
+            let mayGuessHeading = previousKind != .character
+                && previousKind != .parenthetical
+                && !isParentheticalLine(lineToClassify)
+            if isSceneHeadingLine(lineToClassify) || (mayGuessHeading && looksLikeSceneHeading(lower, upper: upper)) {
                 let normalizedHeading = normalizeSceneHeading(lineToClassify)
                 if previousKind == .sceneHeading,
                    elements.last?.text == normalizedHeading {
@@ -828,8 +834,15 @@ public enum FountainFormatter {
             return true
         }
 
-        let interiorKeywords = ["interior", "inside", "int "]
-        let exteriorKeywords = ["exterior", "outside", "ext "]
+        // A full sentence of action is never a slug: "Inside: umbrellas, a
+        // walker, a single child's boot. …" and "NORA OKAFOR (30s), night
+        // nurse, … pushes a cart." were both turned into headings.
+        let sentenceWords = lower.split(whereSeparator: \.isWhitespace)
+        if sentenceWords.count > 8, let last = lower.last, ".!?".contains(last) { return false }
+
+        // "inside the diner", not "Inside: umbrellas, a walker…".
+        let interiorKeywords = ["interior ", "inside ", "int "]
+        let exteriorKeywords = ["exterior ", "outside ", "ext "]
         let sceneStartKeywords = interiorKeywords + exteriorKeywords + [
             "we're in ", "we are in ", "the scene is ", "scene:", "new scene",
             "location:", "we open on ", "we open in ", "we cut to ",
@@ -856,7 +869,10 @@ public enum FountainFormatter {
         let hasTime = words.contains {
             timeWords.contains($0.trimmingCharacters(in: .punctuationCharacters))
         }
-        let hasPlace = placeWords.contains(where: { lower.contains($0) })
+        // Whole words: "car" is not in "cardigan", "bar" not in "barely".
+        let hasPlace = placeWords.contains(where: { place in
+            lower.range(of: "\\b\(NSRegularExpression.escapedPattern(for: place))\\b", options: .regularExpression) != nil
+        })
         let firstWord = words.first?.trimmingCharacters(in: .punctuationCharacters) ?? ""
         if ["a", "an", "the"].contains(firstWord),
            hasPlace {
@@ -986,6 +1002,9 @@ public enum FountainFormatter {
                     "this", "now", "next"
                 ]
                 let isMetaPrefix = metaPrefixes.contains { charLower.hasPrefix($0) }
+                // "Inside: umbrellas, a walker…" is action, not a speaker
+                // called INSIDE (seen live 2026-09-28 on an AI page).
+                if nonSpeakerColonLabels.contains(charLower) { continue }
                 if charWords.count <= 3 && !char.contains(".") && !isMetaPrefix {
                     return (char, dial)
                 }
@@ -994,12 +1013,30 @@ public enum FountainFormatter {
         return nil
     }
 
+    private static let nonSpeakerColonLabels: Set<String> = [
+        "inside", "outside", "later", "meanwhile", "suddenly", "behind", "above", "below", "beneath",
+        "nearby", "overhead", "elsewhere", "somewhere", "note", "notes", "sound", "music", "title",
+        "super", "caption", "sign", "label", "flashback", "montage", "pov", "angle", "insert",
+        "beat", "silence", "pause", "text", "on screen", "close on",
+    ]
+
+    /// "NORA OKAFOR (30s), night nurse, …" introduces a character in action.
+    /// Read as inline dialogue it became cue NORA plus "OKAFOR (30s), night…",
+    /// which the heading heuristic then cut at "night" (text lost).
+    private static func isCharacterIntroduction(_ text: String) -> Bool {
+        text.range(
+            of: #"^[A-Z][A-Z0-9 .'\-]*\s*\(\s*(?:\d{1,2}s?|(?:early|mid|late)[- ]\d{2}s|teens?|twenties|thirties|forties|fifties|sixties|seventies|eighties)\s*\)"#,
+            options: [.regularExpression, .caseInsensitive]
+        ) != nil
+    }
+
     private static func extractInlineCharacterDialogue(
         _ text: String
     ) -> (character: String, parenthetical: String?, dialogue: String)? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
         guard !isSceneHeadingLine(trimmed), !isTransitionLine(trimmed) else { return nil }
+        guard !isCharacterIntroduction(trimmed) else { return nil }
 
         let pattern = #"^([A-Z][A-Z0-9 '\-]{0,28})(?:\s+\(([^)]+)\))?\s+([\"'A-Z].+)$"#
         guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else { return nil }
