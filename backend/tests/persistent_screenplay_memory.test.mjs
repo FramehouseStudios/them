@@ -2409,3 +2409,32 @@ test("continuity never reads the compass placeholder back as the story", async (
   assert.doesNotMatch(snapshot.opening_line, /Act I \/ Act I/);
   assert.match(snapshot.opening_line, /Next move: Pay off the missing keys/);
 });
+
+test("[persistent-screenplay-memory] the lead is a speaker and payoffs are labels, not action lines", () => {
+  // Seen live 2026-09-28: "Fluorescent must change tactics after: …" (from
+  // "Fluorescent tubes hum.") and "Inside: Umbrellas, A Walker, A Single
+  // Child'S Boot. … returns as proof or cost in Act III." were then
+  // enforced on the next pages.
+  const draftExcerpt = [
+    "INT. ST. AGNES HOSPITAL - BASEMENT CORRIDOR - NIGHT",
+    "",
+    "Fluorescent tubes hum. A mop bucket drifts on its own down a slight slope.",
+    "",
+    "Inside: umbrellas, a walker, a single child's boot. And a green canvas coat with a torn left pocket.",
+    "",
+    "NORA",
+    "It's my brother's coat.",
+    "",
+    "Nora looks up at the elevator. The one for the fourth floor flickers.",
+  ].join("\n");
+  const record = buildScreenplayProjectMemoryRecordFromStudioMeta(
+    { screenplayProjectId: "night-nurse", screenplayTarget: "page", screenplayDraftExcerpt: draftExcerpt },
+    { reply: "", nowTs: 1_800_000_100_000 }
+  );
+  assert.ok(record);
+  assert.doesNotMatch(record.characterArcState, /Fluorescent/);
+  assert.match(record.characterArcState, /^Nora /);
+  for (const payoff of record.actThreePayoffPath) {
+    assert.doesNotMatch(payoff, /Umbrellas, A Walker/, payoff);
+  }
+});
