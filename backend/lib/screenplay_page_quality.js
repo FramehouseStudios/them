@@ -91,6 +91,32 @@ const FEATURE_OBLIGATION_CRAFT_STOPWORDS = Object.freeze(new Set([
   "story", "theme", "thematic", "tonal", "tone", "turns", "unavoidable", "visible", "world", "wound",
 ]));
 
+// Every word of the Feature Compass template (them/ScreenplayFeaturePlanning.swift,
+// the canonical owner) and its fallbacks. That template is craft advice for
+// each act step; checked by word overlap it rejected strong Act II and Act III
+// pages at every step. tests/screenplay_page_quality.test.mjs parses the Swift
+// template and fails if a word here goes missing.
+const FEATURE_PLANNER_TEMPLATE_WORDS = Object.freeze(new Set([
+  "a-story", "allies", "answers", "argument", "arrive", "away", "b-story", "becomes", "beneath",
+  "born", "bring", "build", "burns", "cash", "central", "change", "changed", "changes", "choose",
+  "chosen", "cinematic", "clever", "collapse", "competence", "confront", "contrast",
+  "conversation", "cost", "dangerous", "debate", "decisive", "decoration", "desire", "different",
+  "dilemma", "disrupt", "dread", "drive", "each", "earlier", "enough", "event", "exit", "expose",
+  "exposition", "express", "external", "failing", "fallout", "feel", "generate", "give", "ground",
+  "inevitable", "inner", "instead", "intimate", "irreversible", "just", "land", "leave", "lesson",
+  "life", "loss", "lost", "maximum", "meaning", "merely", "most", "narrows", "ordinary-world",
+  "painful", "payoffs", "personal", "plan", "planted", "plot", "power", "practical", "premise",
+  "price", "public", "pursuit", "real", "receive", "redefines", "relational", "relationship",
+  "repeating", "resolve", "rules", "safe", "same", "secrets", "self", "setback", "sharpen",
+  "sharper", "staying", "stop", "strategy", "strip", "synthesize", "tactic", "tactics", "target",
+  "tests", "thought", "three", "toward", "trap", "trick", "truth", "unresolved", "victory",
+  "wanted", "watch", "what", "will", "working",
+]));
+
+function isPlanningWord(token) {
+  return FEATURE_OBLIGATION_CRAFT_STOPWORDS.has(token) || FEATURE_PLANNER_TEMPLATE_WORDS.has(token);
+}
+
 const CHARACTER_ARC_MEMORY_VALUE_FIELDS = Object.freeze([
   "want",
   "need",
@@ -1231,7 +1257,7 @@ function evaluateFeatureActObligationCoverage({
   const obligationTokens = new Set();
   for (const phrase of obligationPhrases) {
     for (const token of qualityTokenSet(phrase)) {
-      if (!FEATURE_OBLIGATION_CRAFT_STOPWORDS.has(token)) obligationTokens.add(token);
+      if (!isPlanningWord(token)) obligationTokens.add(token);
     }
   }
   const textTokens = qualityTokenSet(text);
@@ -1258,7 +1284,9 @@ function evaluateFeatureActObligationCoverage({
   const characterArcPressure = normalizeLineText(
     featureContext?.characterArcState ?? featureContext?.character_arc_state
   );
-  const characterArcTokens = qualityTokenSet(characterArcPressure);
+  // Arc pressure is story ("choosing public truth over private control"):
+  // only craft words drop out here, not the whole template vocabulary.
+  const characterArcTokens = new Set([...qualityTokenSet(characterArcPressure)].filter((token) => !FEATURE_OBLIGATION_CRAFT_STOPWORDS.has(token)));
   let matchedCharacterArcTokens = [];
   let visibleSharedControlSignals = 0;
   if (characterArcTokens.size > 0) {
@@ -1319,7 +1347,7 @@ function firstNextTurnTokens(featureContext = null) {
   if (!turns.length) return new Set();
   // Only the turn's story words count ("Mae hands Joe the pie"), not the
   // planner's wording ("Write the next scene: Continue the unfinished page").
-  return new Set([...qualityTokenSet(turns[0])].filter((token) => !FEATURE_OBLIGATION_CRAFT_STOPWORDS.has(token)));
+  return new Set([...qualityTokenSet(turns[0])].filter((token) => !isPlanningWord(token)));
 }
 
 function evaluateFirstNextTurnCoverage({ text = "", featureContext = null } = {}) {

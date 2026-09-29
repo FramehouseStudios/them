@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
@@ -1791,4 +1792,79 @@ test("[screenplay-page-quality] a first page is not held to the planner's filler
     },
   });
   assert.notEqual(quality.reason, "missing_next_turn_continuation");
+});
+
+// The Feature Compass steps as the app sends them (them/ScreenplayFeaturePlanning.swift).
+function featureCompassSteps() {
+  const swift = readFileSync(new URL("../../them/ScreenplayFeaturePlanning.swift", import.meta.url), "utf8");
+  const block = swift.slice(swift.indexOf("private static let template: [Step] = ["), swift.indexOf("private static func stepForPage"));
+  return block.split("Step(").slice(1).map((step) => {
+    const field = (name) => (step.match(new RegExp(`${name}: "([^"]+)"`)) || [])[1] || "";
+    const moves = [...(step.match(/nextMoves: \[([\s\S]*?)\]/) || ["", ""])[1].matchAll(/"([^"]+)"/g)].map((match) => match[1]);
+    return { act: field("act"), label: field("label"), pressure: field("pressure"), obligation: field("obligation"), moves };
+  });
+}
+
+test("[screenplay-page-quality] every Feature Compass template word is treated as planning, not story", () => {
+  // Drift guard: a new template word would otherwise be demanded of pages.
+  const steps = featureCompassSteps();
+  assert.equal(steps.length, 8);
+  const words = new Set();
+  for (const step of steps) {
+    for (const text of [step.pressure, step.obligation, ...step.moves]) {
+      for (const token of (text.toLowerCase().replace(/'s\b/g, "").match(/[a-z0-9][a-z0-9-]{2,}/g) || [])) {
+        if (token.length >= 4) words.add(token);
+      }
+    }
+  }
+  const leftover = [...words].filter((token) => {
+    const result = evaluateFeatureActObligationCoverage({
+      text: "INT. ROOM - DAY\nA door.",
+      featureContext: { act: "Act II", featureObligation: token },
+    });
+    return result.obligationTokenCount > 0;
+  });
+  assert.deepEqual(leftover, []);
+});
+
+test("[screenplay-page-quality] strong Act II and final pages pass at every Feature Compass step", () => {
+  const pages = ["feature_act_two_page.fountain", "feature_final_page.fountain"]
+    .map((name) => readFileSync(new URL(`./fixtures/${name}`, import.meta.url), "utf8"));
+  for (const text of pages) {
+    for (const step of featureCompassSteps()) {
+      const quality = evaluateScreenplayPageQuality({
+        text,
+        lines: classifyScreenplayLines(text),
+        targetPages: 1,
+        hasSceneAnchor: true,
+        featureContext: {
+          act: step.act,
+          featureSequence: `${step.act} - ${step.label}; 60 pages drafted`,
+          featureObligation: `${step.pressure} ${step.obligation}`,
+          actPressureState: step.pressure,
+          currentBeat: step.pressure,
+          sceneObjective: step.moves[0],
+          nextThreeTurns: step.moves.map((move) => `${step.label}: ${move}`),
+        },
+      });
+      assert.equal(quality.ok, true, `${step.act} ${step.label}: ${quality.reason}`);
+    }
+  }
+});
+
+test("[screenplay-page-quality] Act III still holds a page to the story's own setups", () => {
+  const featureContext = {
+    act: "Act III",
+    featureObligation: "Force the decisive choice, resolve the central question, and land a final image with emotional contrast.",
+    unresolvedSetups: ["The bus transfer's pencil handwriting is not Danny's.", "Desmond's thermos on the loading dock."],
+    endingImage: "Nora fixes Danny's collar in the green canvas coat.",
+  };
+  const finalPage = readFileSync(new URL("./fixtures/feature_final_page.fountain", import.meta.url), "utf8");
+  const unrelated = "INT. ROADSIDE DINER - NIGHT\n\nMAE wipes the counter in slow circles. JOE counts coins onto the formica.\n\nMAE\nWe are closed, hon.\n\nJOE\nThe sign says open.\n";
+  const run = (text) => evaluateScreenplayPageQuality({ text, lines: classifyScreenplayLines(text), targetPages: 1, hasSceneAnchor: true, featureContext });
+  assert.equal(run(finalPage).ok, true);
+  assert.equal(run(unrelated).reason, "missing_act_three_payoff");
+  const lines = classifyScreenplayLines(finalPage).filter((line) => line.text);
+  assert.deepEqual(lines.slice(-2).map((line) => line.text), ["FADE OUT.", "THE END"]);
+  assert.equal(lines.at(-2).element, "transition");
 });
