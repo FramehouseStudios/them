@@ -1333,6 +1333,9 @@ nonisolated struct BackendScreenplayCharacterVoiceMemory: Codable, Hashable {
 
 nonisolated struct BackendStudioThreadCommitMetadata: Hashable {
     let screenplayProjectId: String
+    /// The project's title, so the server's continuity memory can name it;
+    /// with only the id, "Where we left off" showed "project_f17c3…".
+    var screenplayProjectTitle: String = ""
     let screenplayDocumentRevisionId: String
     let screenplayTarget: String
     let screenplayPromptSource: String
@@ -6603,6 +6606,7 @@ actor BackendMemoryAPI {
         }
 
         appendString("screenplay_project_id", studioMetadata.screenplayProjectId, limit: 96)
+        appendString("screenplay_project_title", studioMetadata.screenplayProjectTitle, limit: 160)
         appendString("screenplay_document_revision_id", studioMetadata.screenplayDocumentRevisionId, limit: 96)
         appendString("screenplay_target", studioMetadata.screenplayTarget, limit: 80)
         appendString("screenplay_prompt_source", studioMetadata.screenplayPromptSource, limit: 120)

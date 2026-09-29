@@ -4799,6 +4799,7 @@ final class BackendClient {
                 body.appendString("\r\n")
             }
             appendStudioField("screenplay_draft_excerpt", studioMetadata.screenplayDraftExcerpt, limit: 6000)
+            appendStudioField("screenplay_project_title", studioMetadata.screenplayProjectTitle, limit: 160)
             appendStudioField("screenplay_act", studioMetadata.screenplayAct, limit: 120)
             appendStudioField("screenplay_scene_objective", studioMetadata.screenplaySceneObjective, limit: 280)
             appendStudioField("screenplay_scene_summary", studioMetadata.screenplaySceneSummary, limit: 280)

@@ -133,7 +133,7 @@ import {
   MEMORY_BLOCK_OPEN,
 } from "./lib/prompt_assembly.js";
 import { DEFAULT_FEATURE_TARGET_PAGES, findSequenceForPage } from "./lib/feature_screenplay_map.js";
-import { fitSystemPromptForTurnLatency as fitSystemPromptForTurnLatencyBase, capSystemPromptKeepingSafety } from "./lib/system_prompt_trim.js";
+import { fitSystemPromptForTurnLatency as fitSystemPromptForTurnLatencyBase, capSystemPromptKeepingSafety } from "./lib/system_prompt_trim.js"; import { withoutInterfaceCopy } from "./lib/continuity_interface_copy.js";
 import { createScaleBackplane } from "./lib/scale_backplane.mjs";
 import { createPersistence } from "./lib/persistence_adapter.js";
 import { checkKnownDomainsAtStartup } from "./lib/known_domains_startup_check.js";
@@ -4198,7 +4198,7 @@ function buildSessionContinuityOpeningLine(snapshot = {}) {
   const sentenceFragment = (value, maxChars) => normalizeSnippet(value, maxChars)
     .replace(/[.!?]+$/g, "")
     .trim();
-  const project = normalizeSnippet(snapshot.projectTitle || snapshot.projectId || "", 120);
+  const project = normalizeSnippet(snapshot.projectTitle || "", 120); // never the raw project id
   const position = normalizeSnippet(
     [snapshot.act, snapshot.featureSequence].filter(Boolean).join(" / "),
     180
@@ -4461,7 +4461,7 @@ function buildSessionContinuitySnapshot(memory = null, creativeMemory = null) {
           : "creative_project_continuity"
         : "creative_memory",
     project_id: normalizeSnippet(project?.projectId || episode?.projectId || "", 96),
-    project_title: normalizeSnippet(episode?.projectTitle || project?.projectTitle || project?.projectId || "", 160),
+    project_title: normalizeSnippet(episode?.projectTitle || project?.projectTitle || "", 160), // a title, never the id
     act: normalizeSnippet(acceptedScene?.act || project?.act || "", 120),
     feature_sequence: normalizeSnippet(acceptedScene?.featureSequence || project?.featureSequence || "", 220),
     feature_obligation: normalizeSnippet(project?.featureObligation || "", 280),
@@ -4477,7 +4477,7 @@ function buildSessionContinuitySnapshot(memory = null, creativeMemory = null) {
     ending_image: normalizeSnippet(project?.endingImage || "", 240),
     act_pressure_state: normalizeSnippet(project?.actPressureState || "", 280),
     character_arc_state: normalizeSnippet(project?.characterArcState || "", 280),
-    last_scene_outcome: normalizeSnippet(acceptedScene?.outcome || project?.lastSceneOutcome || "", 240),
+    last_scene_outcome: normalizeSnippet(withoutInterfaceCopy(acceptedScene?.outcome) || withoutInterfaceCopy(project?.lastSceneOutcome), 240),
     next_scene_plan: normalizeSnippet(acceptedScene?.nextScenePlan || project?.nextScenePlan || "", 340),
     next_scene_moves: Array.isArray(project?.nextSceneMoves)
       ? project.nextSceneMoves.slice(0, 5).map((item) => normalizeSnippet(item, 180)).filter(Boolean)
@@ -4619,7 +4619,7 @@ function buildTalkScreenplayPromptSessionContext(req, studioMeta = null, memory 
   const lastSceneOutcome = normalizeSnippet(
     body.lastSceneOutcome ?? body.last_scene_outcome ?? body.screenplayLastSceneOutcome ?? body.screenplay_last_scene_outcome,
     240
-  ) || memoryProject?.lastSceneOutcome || "";
+  ) || withoutInterfaceCopy(memoryProject?.lastSceneOutcome) || "";
   const nextScenePlan = normalizeSnippet(
     body.nextScenePlan ?? body.next_scene_plan ?? body.screenplayNextScenePlan ?? body.screenplay_next_scene_plan,
     340
@@ -16708,7 +16708,7 @@ function buildScreenplayProjectMemoryRecordFromStudioMeta(
     : (studio.screenplayCurrentBeat || distilled.currentBeat);
   const resolvedLastSceneOutcome = acceptedPageTextAdvancedRunway && distilled.lastSceneOutcome
     ? distilled.lastSceneOutcome
-    : (studio.screenplayLastSceneOutcome || distilled.lastSceneOutcome);
+    : (withoutInterfaceCopy(studio.screenplayLastSceneOutcome) || distilled.lastSceneOutcome);
   const resolvedNextScenePlan = acceptedPageTextAdvancedRunway && distilled.nextScenePlan
     ? distilled.nextScenePlan
     : (studio.screenplayNextScenePlan || characterArcContinuity.nextScenePlan || distilled.nextScenePlan);

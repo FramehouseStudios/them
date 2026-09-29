@@ -2357,3 +2357,26 @@ test("[persistent-screenplay-memory] authenticated devices select the freshest a
   );
   assert.equal(selectedActive.pendingScreenplayLearningQuestions[0].id, "stale-question");
 });
+
+test("continuity never names a project by its raw id or quotes app interface text as story", async () => {
+  // Seen 2026-09-28 on Home: "Where we left off · project_f17c381264b645b5 …
+  // JOE and MAE were carrying this: Write or accept a page batch a…".
+  const memory = {
+    ...createEmptyEmotionMemory(),
+    screenplayProjectMemory: sanitizeScreenplayProjectMemoryItems([
+      {
+        projectId: "project_f17c381264b645b5",
+        projectTitle: "",
+        act: "Act I",
+        lastSceneOutcome: "Write or accept a page batch and it will stay reviewable here.",
+        characterFocus: ["JOE", "MAE"],
+        updatedAt: 900,
+      },
+    ]),
+    screenplayProjectMemoryUpdatedAt: 900,
+  };
+  const snapshot = buildSessionContinuitySnapshot(memory, {});
+  assert.doesNotMatch(snapshot.opening_line, /project_f17c381264b645b5/);
+  assert.equal(snapshot.last_scene_outcome, "");
+  assert.doesNotMatch(snapshot.opening_line, /Write or accept a page batch/);
+});
