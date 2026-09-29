@@ -462,7 +462,9 @@ enum ScreenplayFeatureWorkflowPlanner {
         )
         let continuityAnchors = makeContinuityAnchors(project: project, featureSpine: featureSpine)
         let nextSceneTitle = sceneTitle(nextScene)
-        let nextSceneDetail = sceneDetail(nextScene, fallback: currentDraftScene?.shortLabel ?? "")
+        // With no planned next scene, the scene under the cursor is where the page already is, not
+        // where it goes next ("Write the next scene: BUS DEPOT" pinned the story there, 2026-09-29).
+        let nextSceneDetail = sceneDetail(nextScene, fallback: "")
         let actDetail = currentAct.detail.isEmpty ? structuralObligation : currentAct.detail
         let draftProgressLabel = draftProgress(pageCount: estimatedPageCount)
         let acceptedBatch = acceptedBatchSummary(

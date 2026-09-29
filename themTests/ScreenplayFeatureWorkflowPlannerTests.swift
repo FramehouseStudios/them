@@ -1326,6 +1326,32 @@ final class ScreenplayFeatureWorkflowPlannerTests: XCTestCase {
         XCTAssertFalse(prompt?.contains("Sixth memory should not appear.") == true)
     }
 
+    func testWithNoPlannedNextSceneTheCurrentSceneIsNotTheNextMove() {
+        let snapshot = ScreenplayFeatureWorkflowPlanner.buildSnapshot(
+            project: nil,
+            outline: BackendScreenplayOutline(updatedAt: nil, actCount: 0, sceneCount: 0, beatCount: 0, acts: [], scenes: [], beats: []),
+            structuredDraft: ScreenplayStructuredDraft(
+                updatedAt: Date(),
+                lineCount: 12,
+                sceneCount: 1,
+                paragraphs: [],
+                scenes: [ScreenplayDraftSceneSnapshot(id: "s1", line: 1, endLine: 12, slugline: "INT. BUS DEPOT - NIGHT", shortLabel: "BUS DEPOT", characterCues: ["MAE", "DRIVER"], dialogueLineCount: 2)],
+                characters: []
+            ),
+            projectBinding: .empty,
+            featureSpine: ScreenplayFeatureSpine(),
+            lastCommittedWrite: nil,
+            acceptedPageBatchCount: 0,
+            currentCursorLine: 8,
+            draftText: "INT. BUS DEPOT - NIGHT\n\nRain on the roof.\n\nMAE\nLast one tonight?"
+        )
+        XCTAssertEqual(snapshot.nextSceneTitle, ScreenplayFeatureWorkflowPlanner.unknownNextSceneTitle)
+        XCTAssertFalse(snapshot.nextSceneDetail.uppercased().contains("BUS DEPOT"), snapshot.nextSceneDetail)
+        for move in snapshot.nextMoves {
+            XCTAssertFalse(move.detail.uppercased().contains("BUS DEPOT"), move.detail)
+        }
+    }
+
     func testUnknownNextSceneIsNotSentAsTheStorySceneSummary() {
         // Seen 2026-09-28 on Home: "JOE and MAE were carrying this: the next
         // scene: DINER. Next move: Next scene: the next scene."
