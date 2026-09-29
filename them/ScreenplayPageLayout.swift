@@ -1,4 +1,5 @@
 import Foundation
+import ScreenplayStudio
 
 /// Local mirror of the backend `POST /screenplay/paginate` rules so the Studio
 /// home page can show printed pages while the writer types, without a round
@@ -119,7 +120,9 @@ struct ScreenplayPageLayout {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalized.isEmpty else { return [] }
         let lines = normalized.components(separatedBy: "\n")
-        let kinds = classify(lines)
+        var kinds = classify(lines)
+        // Mirrors the backend: the title page is its own sheet, never page 1.
+        for index in 0..<min(ScreenplayTitlePage.leadingLineCount(in: normalized), kinds.count) { kinds[index] = .blank }
         let blocks = buildBlocks(lines: lines, kinds: kinds)
 
         var pages: [Page] = []
