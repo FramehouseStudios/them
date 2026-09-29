@@ -1359,8 +1359,12 @@ function firstNextTurnTokens(featureContext = null) {
   );
   if (!turns.length) return new Set();
   // Only the turn's story words count ("Mae hands Joe the pie"), not the
-  // planner's wording ("Write the next scene: Continue the unfinished page").
-  return new Set([...qualityTokenSet(turns[0])].filter((token) => !isPlanningWord(token)));
+  // planner's wording ("Write the next scene: Continue the unfinished page"),
+  // and not the place the page is already in: with no next scene the planner
+  // falls back to the current heading ("Write the next scene: BUS DEPOT", seen
+  // live 2026-09-29), which would pin the story to that location.
+  const currentPlace = qualityTokenSet(featureContext?.scene ?? featureContext?.currentScene ?? "");
+  return new Set([...qualityTokenSet(turns[0])].filter((token) => !isPlanningWord(token) && !currentPlace.has(token)));
 }
 
 function evaluateFirstNextTurnCoverage({ text = "", featureContext = null } = {}) {
