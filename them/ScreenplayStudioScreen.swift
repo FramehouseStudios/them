@@ -9989,7 +9989,7 @@ Return revised screenplay lines only.
         }()
 
         return StudioAskNoteExchange(
-            id: UUID(),
+            id: StudioExchangeStableID.uuid(threadID: thread.id, turn: thread.turn),
             backendThreadID: thread.id,
             backendTurn: thread.turn > 0 ? thread.turn : nil,
             requestID: normalizedStudioRequestID(thread.requestId),
@@ -10712,6 +10712,8 @@ Return revised screenplay lines only.
         let acknowledgedKeys = normalizedAcknowledgedStudioDiffKeys(currentAcknowledgedStudioDiffRecords())
         let acknowledgedEntries = normalizedAcknowledgedStudioDiffBackendEntries(currentAcknowledgedStudioDiffRecords(), writeIDs: currentAcknowledgedStudioDiffWriteIDs())
         guard !StudioProjectSidecarSyncPolicy.threadViewMatchesServer(project, threadView: threadView, acknowledgedKeys: acknowledgedKeys, acknowledgedEntries: acknowledgedEntries) else { return }
+        let sentThreadView = StudioThreadViewSidecar(threadView: threadView, keys: acknowledgedKeys, entries: acknowledgedEntries)
+        guard !StudioSidecarSentMemo.isRepeat("threadView", projectID: project.id, payload: sentThreadView) else { return }
         backendThreadViewStatePersistTask = Task {
             try? await Task.sleep(nanoseconds: 700_000_000)
             guard !Task.isCancelled else { return }
@@ -10728,6 +10730,7 @@ Return revised screenplay lines only.
                     studioDiffAcknowledgedKeys: acknowledgedKeys,
                     studioDiffAcknowledgedEntries: acknowledgedEntries
                 )
+                await MainActor.run { StudioSidecarSentMemo.record("threadView", projectID: project.id, payload: sentThreadView) }
                 if let nextProject = result.payload.project {
                     await MainActor.run {
                         vm.applyProjectMetadataUpdate(nextProject)
@@ -11735,7 +11738,8 @@ Return revised screenplay lines only.
 
         let historyPayload = backendStudioAskNoteHistoryPayload(from: entries)
         backendAskNoteHistoryPersistTask?.cancel()
-        guard !StudioProjectSidecarSyncPolicy.askNoteHistoryMatchesServer(project, history: historyPayload) else { return }
+        guard !StudioProjectSidecarSyncPolicy.askNoteHistoryMatchesServer(project, history: historyPayload),
+              !StudioSidecarSentMemo.isRepeat("askNoteHistory", projectID: project.id, payload: historyPayload) else { return }
         backendAskNoteHistoryPersistTask = Task {
             try? await Task.sleep(nanoseconds: 700_000_000)
             guard !Task.isCancelled else { return }
@@ -11750,6 +11754,7 @@ Return revised screenplay lines only.
                     tone: project.tone ?? "",
                     studioAskNoteHistory: historyPayload
                 )
+                await MainActor.run { StudioSidecarSentMemo.record("askNoteHistory", projectID: project.id, payload: historyPayload) }
                 if let nextProject = result.payload.project {
                     await MainActor.run {
                         vm.applyProjectMetadataUpdate(nextProject)

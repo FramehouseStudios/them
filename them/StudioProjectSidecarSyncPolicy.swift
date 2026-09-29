@@ -78,3 +78,41 @@ extension BackendScreenplayThreadViewState {
         latestReopenedWriteID: ""
     )
 }
+
+/// The last sidecar payload sent per project, so an identical one is not sent
+/// again. The server stores a normalized copy (it cuts `insertedText` to
+/// 2,400 characters, fills a blank note title with "Clementine"), so a long
+/// page write never "matches the server"; each saved response was applied,
+/// the history re-persisted, and the Studio upserted the whole project about
+/// once a second while open (seen live 2026-09-28: 124 upserts, ~10 MB of
+/// responses, in 2.5 minutes). Cleared on relaunch, so at most one repeat
+/// per project per launch.
+@MainActor
+enum StudioSidecarSentMemo {
+    private static var sent: [String: Data] = [:]
+
+    static func isRepeat<Payload: Encodable>(_ kind: String, projectID: String, payload: Payload) -> Bool {
+        guard let data = encoded(payload) else { return false }
+        return sent["\(kind)|\(projectID)"] == data
+    }
+
+    static func record<Payload: Encodable>(_ kind: String, projectID: String, payload: Payload) {
+        guard let data = encoded(payload) else { return }
+        sent["\(kind)|\(projectID)"] = data
+    }
+
+    static func reset() { sent = [:] }
+
+    private static func encoded<Payload: Encodable>(_ payload: Payload) -> Data? {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        return try? encoder.encode(payload)
+    }
+}
+
+/// The thread-view sidecar as one comparable value for `StudioSidecarSentMemo`.
+struct StudioThreadViewSidecar: Encodable {
+    let threadView: BackendScreenplayThreadViewState
+    let keys: [String]
+    let entries: [BackendScreenplayDiffAcknowledgementEntry]
+}
