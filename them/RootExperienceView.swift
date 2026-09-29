@@ -10586,14 +10586,9 @@ Write this approved story direction directly into screenplay pages now. Maintain
         if promptImageMotifs.isEmpty, !promptEndingImage.isEmpty {
             promptImageMotifs = ["Ending image: \(promptEndingImage)"]
         }
-        let promptCharacterArcMemory = BackendScreenplayCharacterArcMemory(
-            character: characterFocus.first ?? "",
-            act: promptAct,
-            want: promptProtagonistWant,
-            need: promptProtagonistNeed,
-            relationshipPressure: promptAntagonisticForce,
-            currentTactic: promptCurrentBeat.isEmpty ? promptSceneObjective : promptCurrentBeat,
-            nextEmotionalTurn: promptCharacterArcTurns.first ?? promptNextThreeTurns.first ?? promptNextScenePlan
+        let promptCharacterArcMemory = ScreenplayCharacterArcMemoryPolicy.memory(
+            character: characterFocus.first ?? "", act: promptAct,
+            want: promptProtagonistWant, need: promptProtagonistNeed, opposition: promptAntagonisticForce
         )
         let promptCharacterVoiceMemories = screenplayDraftBridge.screenplayCharacterVoiceMemories(
             matching: characterFocus
@@ -10619,7 +10614,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
             actThreePayoffPath: promptActThreePayoffPath,
             actPressureState: promptActPressureState,
             characterArcState: promptCharacterArcState,
-            characterArcMemory: promptCharacterArcMemory.isMeaningful ? promptCharacterArcMemory : nil,
+            characterArcMemory: promptCharacterArcMemory,
             characterVoiceMemories: promptCharacterVoiceMemories,
             lastSceneOutcome: promptLastSceneOutcome,
             beatSequence: promptBeatSequence,
