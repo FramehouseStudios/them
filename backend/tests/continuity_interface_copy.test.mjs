@@ -21,6 +21,7 @@ test("the compass placeholder for an unknown next scene is never a story fact", 
   assert.equal(withoutInterfaceCopy("the next scene: DINER"), "");
   assert.equal(withoutInterfaceCopy("Next scene: the next scene. DINER"), "");
   assert.equal(withoutInterfaceCopy("Write the next scene: DINER"), "");
+  assert.equal(withoutInterfaceCopy("JOE's next emotional turn: Write the next scene: DINER."), "");
   assert.equal(withoutInterfaceCopy("Next scene: INT. DINER - NIGHT. Mae lies."), "Next scene: INT. DINER - NIGHT. Mae lies.");
   assert.equal(withoutInterfaceCopy("She dreads the next scene of her life."), "She dreads the next scene of her life.");
 });

@@ -12,8 +12,9 @@ const INTERFACE_COPY = [
   // scene summary / next plan: "the next scene: DINER",
   // "Next scene: the next scene. DINER", "Write the next scene: DINER".
   /^the next scene(:.*)?$/i,
-  /^next scene: the next scene\b/i,
-  /^write the next scene\b/i,
+  // Also wrapped by memory as "JOE's next emotional turn: Write the next scene: DINER."
+  /\bnext scene: the next scene\b/i,
+  /\bwrite the next scene\b/i,
 ];
 
 function withoutInterfaceCopy(value) {
