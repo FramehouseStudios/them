@@ -26,6 +26,12 @@ final class ScreenplayTitlePageTests: XCTestCase {
         XCTAssertTrue(parts.body.hasPrefix("INT. DINER - NIGHT"))
     }
 
+    func testLeadingLineCountCoversTheBlockOnly() {
+        XCTAssertEqual(ScreenplayTitlePage.leadingLineCount(in: draft), 6)
+        XCTAssertEqual(ScreenplayTitlePage.leadingLineCount(in: "\n" + draft), 7)
+        XCTAssertEqual(ScreenplayTitlePage.leadingLineCount(in: "INT. DINER - NIGHT\n\nMae waits."), 0)
+    }
+
     func testDialogueInColonFormIsNeverATitlePage() {
         XCTAssertNil(ScreenplayTitlePage.split("SAM: Hi.\nMAE: Hello.").titlePage)
         XCTAssertNil(ScreenplayTitlePage.split("TITLE: NEW YORK, 1979\nTraffic crawls past the diner.").titlePage)

@@ -137,6 +137,17 @@ public struct ScreenplayTitlePage: Equatable, Sendable {
         return (page, block, body)
     }
 
+    /// How many lines at the top of the draft (leading blanks included)
+    /// are the title page; 0 when it does not open with one. The editor
+    /// styles these as the title page, not as action on page 1.
+    public static func leadingLineCount(in draft: String) -> Int {
+        let parts = split(draft)
+        guard parts.titlePage != nil else { return 0 }
+        let lines = draft.replacingOccurrences(of: "\r\n", with: "\n").components(separatedBy: "\n")
+        let leadingBlanks = lines.prefix { $0.trimmingCharacters(in: .whitespaces).isEmpty }.count
+        return leadingBlanks + parts.block.components(separatedBy: "\n").count
+    }
+
     /// The draft with this title page in place of any existing one. An empty
     /// page removes the title page and leaves the script untouched.
     public static func applying(_ page: ScreenplayTitlePage, to draft: String) -> String {

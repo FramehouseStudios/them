@@ -2334,6 +2334,8 @@ private func applyScreenplayParagraphAttributes(
 
     var lineStart = 0
     let lines = screenplayLineTexts(fullText)
+    // Title page keys ("Title: …") read as its own sheet: centered, muted.
+    let titlePageLines = ScreenplayTitlePage.leadingLineCount(in: fullText)
     for (index, line) in lines.enumerated() {
         let lineLength = (line as NSString).length
         let hasTrailingNewline = index < lines.count - 1
@@ -2359,6 +2361,15 @@ private func applyScreenplayParagraphAttributes(
             .foregroundColor: foregroundColor,
             .paragraphStyle: paragraphStyle,
         ]
+        if index < titlePageLines, let centered = paragraphStyle.mutableCopy() as? NSMutableParagraphStyle {
+            centered.alignment = .center
+            attributes[.paragraphStyle] = centered
+            #if os(iOS)
+            attributes[.foregroundColor] = (foregroundColor as? UIColor)?.withAlphaComponent(0.55) ?? foregroundColor
+            #else
+            attributes[.foregroundColor] = (foregroundColor as? NSColor)?.withAlphaComponent(0.55) ?? foregroundColor
+            #endif
+        }
         if index < elements.count, let element = elements[index] {
             attributes[.screenplayElementRaw] = element.rawValue
         }

@@ -15,6 +15,13 @@ final class ScreenplayPageLayoutTests: XCTestCase {
         XCTAssertEqual(ScreenplayPageLayout.summaryText(pageCount: 2), "2 pages")
     }
 
+    func test_title_page_is_not_part_of_page_one() {
+        // Same rule as backend paginateScreenplay (screenplay_title_page.test.mjs).
+        let pages = ScreenplayPageLayout.paginate("Title: The Long Night\nAuthor: Sam\n\nINT. DINER - NIGHT\n\nMae waits.")
+        XCTAssertEqual(pages.count, 1)
+        XCTAssertEqual(pages.first?.lines, ["INT. DINER - NIGHT", "", "Mae waits."])
+    }
+
     func test_letter_page_model_constants() {
         XCTAssertEqual(ScreenplayPageLayout.defaultLinesPerPage, 54)
         XCTAssertEqual(ScreenplayPageLayout.charsPerLine(.action), 62)
