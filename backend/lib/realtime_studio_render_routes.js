@@ -871,6 +871,8 @@ function mountRealtimeStudioRenderRoutes(app, deps = {}) {
     // without these deps in local tests and cold-user sessions.
     creativeMemoryStore = null,
     resolveUserId = (req) => String(req?.authUser?.id || req?.user?.id || req?.userId || "").trim(),
+    // SSE comment interval while the stream is open; see the keepalive below.
+    streamKeepAliveMs = 10_000,
   } = deps;
 
   const required = {
@@ -1089,6 +1091,20 @@ function mountRealtimeStudioRenderRoutes(app, deps = {}) {
     res.on("close", () => {
       closed = true;
     });
+
+    // A comment line keeps the connection busy while the model thinks or a
+    // quality-gate repair runs. Without it the app's 30 s idle timeout
+    // cancelled requests the server was still working on (seen 2026-09-28:
+    // two good pages sent for repair, then "The request timed out.").
+    // SSE clients ignore ":" lines.
+    const keepAlive = streamKeepAliveMs > 0 ? setInterval(() => {
+      if (closed || res.writableEnded) return clearInterval(keepAlive);
+      res.write(": keepalive\n\n");
+      if (typeof res.flush === "function") res.flush();
+    }, streamKeepAliveMs) : null;
+    keepAlive?.unref?.();
+    res.on("close", () => keepAlive && clearInterval(keepAlive));
+    res.on("finish", () => keepAlive && clearInterval(keepAlive));
 
     const pushEvent = (event, payload) => {
       if (closed || res.writableEnded) return;

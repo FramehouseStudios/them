@@ -1574,3 +1574,32 @@ test("[studio-render-stream] sse: response body is read to completion (no hung c
     assert.match(r.text, /event: done\b/);
   });
 });
+
+test("[studio-render] a slow stream sends keepalive comments so the client's idle timeout does not fire", async () => {
+  // Seen 2026-09-28: a quality-gate repair sent no bytes for 30 s and the
+  // app cancelled a request the server was still working on.
+  const deps = defaultDeps({
+    streamKeepAliveMs: 20,
+    streamStudioRealtimeText: async ({ onDelta }) => {
+      await new Promise((r) => setTimeout(r, 90));
+      await onDelta("hello ", "hello ");
+      await onDelta("world", "hello world");
+      return "hello world";
+    },
+  });
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postSse(baseURL, "/realtime/studio_render_stream", { transcript: "stream me" });
+    assert.equal(r.status, 200);
+    const firstEvent = r.text.indexOf("event: delta");
+    const keepalives = r.text.slice(0, firstEvent).split(": keepalive").length - 1;
+    assert.ok(keepalives >= 2, `expected keepalives before the first delta, got ${keepalives}`);
+    assert.match(r.text, /event: done/);
+  });
+});
+
+test("[studio-render] keepalive can be turned off and stops once the stream ends", async () => {
+  await withTestServer(defaultDeps({ streamKeepAliveMs: 0 }), async (baseURL) => {
+    const r = await postSse(baseURL, "/realtime/studio_render_stream", { transcript: "stream me" });
+    assert.doesNotMatch(r.text, /keepalive/);
+  });
+});
