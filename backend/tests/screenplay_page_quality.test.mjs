@@ -1887,3 +1887,39 @@ test("[screenplay-page-quality] memory's distilled arc line only asks that the c
   assert.equal(withCast.ok, true, "a distilled line naming no character binds nothing");
   assert.equal(run("Mara can only win by choosing public truth over private control.").reason, "missing_character_arc_pressure");
 });
+
+test("[screenplay-page-quality] the current place is not the next turn (live 2026-09-29)", () => {
+  // With no planned next scene the planner falls back to the current heading;
+  // the page must not be forced to say "depot" again to prove it moved on.
+  const text = [
+    "EXT. CITY STREETS - NIGHT",
+    "",
+    "The bus pulls away into the rain. Mae holds the green coat on her lap.",
+    "",
+    "She finds a folded transfer in the torn pocket: ROOM 4 - ASK FOR JUNE.",
+    "",
+    "MAE",
+    "Where's the last stop?",
+    "",
+    "DRIVER",
+    "St. Agnes. The hospital.",
+  ].join("\n");
+  const featureContext = {
+    scene: "INT. BUS DEPOT - NIGHT",
+    nextThreeTurns: ["Write the next scene: BUS DEPOT"],
+  };
+  const coverage = evaluateScreenplayPageQuality({
+    text,
+    lines: classifyScreenplayLines(text),
+    featureContext,
+  });
+  assert.notEqual(coverage.reason, "missing_next_turn_continuation");
+
+  // A real next turn is still required.
+  const withTurn = evaluateScreenplayPageQuality({
+    text,
+    lines: classifyScreenplayLines(text),
+    featureContext: { ...featureContext, nextThreeTurns: ["The sister's voicemail reframes the cover-up."] },
+  });
+  assert.equal(withTurn.reason, "missing_next_turn_continuation");
+});
