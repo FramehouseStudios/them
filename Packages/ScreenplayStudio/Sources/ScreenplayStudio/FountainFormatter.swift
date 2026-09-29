@@ -1388,6 +1388,10 @@ public enum FountainFormatter {
         }
 
         let rawRest = String(trimmed[restRange])
+        // "INT. DEPOT - NIGHT - CONTINUOUS" / "... - NIGHT (FLASHBACK)": the rest is heading, not action.
+        if let first = rawRest.trimmingCharacters(in: .whitespacesAndNewlines).first, first == "-" || first == "(" {
+            return (trimmed, nil)
+        }
         guard rawRest.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
                 rawRest.hasPrefix(" ") ||
                 rawRest.hasPrefix("\t") ||
@@ -1418,6 +1422,10 @@ public enum FountainFormatter {
         }
 
         let rawRest = String(trimmed[restRange])
+        // "INT. DEPOT - NIGHT - CONTINUOUS" / "... - NIGHT (FLASHBACK)": the rest is heading, not action.
+        if let first = rawRest.trimmingCharacters(in: .whitespacesAndNewlines).first, first == "-" || first == "(" {
+            return (trimmed, nil)
+        }
         guard rawRest.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
                 rawRest.hasPrefix(" ") ||
                 rawRest.hasPrefix("\t") ||
