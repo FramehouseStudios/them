@@ -10152,9 +10152,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
 
     private func sessionContinuityTitle(_ snapshot: BackendSessionContinuitySnapshot) -> String {
         let title = snapshot.projectTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !title.isEmpty { return title }
-        let projectId = snapshot.projectId.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !projectId.isEmpty { return projectId }
+        if !title.isEmpty { return title } // never the raw project id ("project_f17c3…")
         let act = snapshot.act.trimmingCharacters(in: .whitespacesAndNewlines)
         if !act.isEmpty { return act }
         return "Your screenplay"
@@ -10743,6 +10741,13 @@ Write this approved story direction directly into screenplay pages now. Maintain
     }
 
     @MainActor
+    /// The open project's title when `projectId` is the bound project, else "".
+    private func studioProjectTitle(for projectId: String) -> String {
+        let binding = screenplayDraftBridge.projectBinding
+        guard !projectId.isEmpty, binding.projectID.caseInsensitiveCompare(projectId) == .orderedSame else { return "" }
+        return binding.projectTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     private func activeRealtimeScreenplayProjectIdentity() -> (id: String, title: String) {
         let projectId = screenplayDraftBridge.committedWriteProjectIDSnapshot()
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -11829,7 +11834,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 .suffix(6_000)
         )
         let metadata = BackendStudioThreadCommitMetadata(
-            screenplayProjectId: projectId,
+            screenplayProjectId: projectId, screenplayProjectTitle: studioProjectTitle(for: projectId),
             screenplayDocumentRevisionId: anchorMetadata?.documentRevisionID ?? "",
             screenplayTarget: target,
             screenplayPromptSource: ScreenplayStudioUserPrompt.Source.voice.rawValue,
@@ -11904,7 +11909,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
             : "insert_after_anchor"
         let promptContinuity = screenplayPromptContinuityContext(featureWorkflowRequestID: requestID)
         let metadata = BackendStudioThreadCommitMetadata(
-            screenplayProjectId: projectId,
+            screenplayProjectId: projectId, screenplayProjectTitle: studioProjectTitle(for: projectId),
             screenplayDocumentRevisionId: anchorMetadata?.documentRevisionID ?? "",
             screenplayTarget: shouldWriteToPage ? "page" : "voice_pin",
             screenplayPromptSource: promptSource.rawValue,
@@ -12068,7 +12073,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
             featureWorkflowRequestID: requestID
         )
         let metadata = BackendStudioThreadCommitMetadata(
-            screenplayProjectId: projectId,
+            screenplayProjectId: projectId, screenplayProjectTitle: studioProjectTitle(for: projectId),
             screenplayDocumentRevisionId: anchorMetadata.documentRevisionID,
             screenplayTarget: isPageWrite ? "page" : "voice_pin",
             screenplayPromptSource: promptSource.rawValue,

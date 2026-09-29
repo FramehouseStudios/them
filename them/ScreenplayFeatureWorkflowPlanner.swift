@@ -156,7 +156,10 @@ struct ScreenplayFeatureWorkflowSessionContext: Codable, Equatable {
                 : "Need: \(featureSpine.protagonistNeed)",
             limit: 280
         )
-        self.lastSceneOutcome = Self.clean(snapshot.acceptedBatchDetail, limit: 240)
+        // acceptedBatchDetail is interface copy ("Write or accept a page batch
+        // and it will stay reviewable here.", "Latest: L45-L49…"), not a story
+        // outcome; sent as one it was saved to memory and read back on Home.
+        self.lastSceneOutcome = ""
         self.nextScenePlan = Self.clean(
             "Next scene: \(snapshot.nextSceneTitle). \(snapshot.nextSceneDetail)",
             limit: 340
