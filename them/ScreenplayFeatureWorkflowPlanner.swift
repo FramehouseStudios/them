@@ -132,8 +132,11 @@ struct ScreenplayFeatureWorkflowSessionContext: Codable, Equatable {
         self.createdAt = createdAt
         self.act = Self.clean(snapshot.currentActTitle, limit: 120)
         self.sceneObjective = Self.clean(snapshot.nextSceneDetail, limit: 280)
+        let knownNextSceneTitle = snapshot.nextSceneTitle == ScreenplayFeatureWorkflowPlanner.unknownNextSceneTitle
+            ? ""
+            : snapshot.nextSceneTitle
         self.sceneSummary = Self.clean(
-            "\(snapshot.nextSceneTitle): \(snapshot.nextSceneDetail)",
+            knownNextSceneTitle.isEmpty ? snapshot.nextSceneDetail : "\(knownNextSceneTitle): \(snapshot.nextSceneDetail)",
             limit: 280
         )
         self.currentBeat = Self.clean(snapshot.structuralObligation, limit: 220)
@@ -161,7 +164,9 @@ struct ScreenplayFeatureWorkflowSessionContext: Codable, Equatable {
         // outcome; sent as one it was saved to memory and read back on Home.
         self.lastSceneOutcome = ""
         self.nextScenePlan = Self.clean(
-            "Next scene: \(snapshot.nextSceneTitle). \(snapshot.nextSceneDetail)",
+            knownNextSceneTitle.isEmpty
+                ? "Next scene: \(snapshot.nextSceneDetail)"
+                : "Next scene: \(knownNextSceneTitle). \(snapshot.nextSceneDetail)",
             limit: 340
         )
         self.nextSceneMoves = Self.cleanList(
@@ -207,7 +212,7 @@ struct ScreenplayFeatureWorkflowSessionContext: Codable, Equatable {
         ], limit: 6, itemLimit: 140)
         self.continuityNotes = Self.cleanList([
             "Feature Compass accepted batch: \(snapshot.acceptedBatchDetail)",
-            "Feature Compass next scene: \(snapshot.nextSceneTitle)",
+            knownNextSceneTitle.isEmpty ? "" : "Feature Compass next scene: \(knownNextSceneTitle)",
             "Feature Compass structural obligation: \(snapshot.structuralObligation)",
             snapshot.featureSequenceTitle.isEmpty ? "" : "Feature sequence: \(snapshot.featureSequenceTitle)",
             snapshot.comingNextSequence.isEmpty ? "" : "Coming next sequence: \(snapshot.comingNextSequence)"
@@ -378,6 +383,10 @@ struct ScreenplayFeatureWorkflowSessionContext: Codable, Equatable {
 
 @MainActor
 enum ScreenplayFeatureWorkflowPlanner {
+    /// Shown in the compass when no next scene is known. It is a placeholder,
+    /// never a scene, so it must not be sent as the story's scene summary.
+    static let unknownNextSceneTitle = "the next scene"
+
     static func buildSnapshot(
         project: BackendScreenplayProjectSummary?,
         outline: BackendScreenplayOutline,
@@ -1152,10 +1161,10 @@ enum ScreenplayFeatureWorkflowPlanner {
     }
 
     private static func sceneTitle(_ scene: BackendScreenplayScene?) -> String {
-        guard let scene else { return "the next scene" }
+        guard let scene else { return unknownNextSceneTitle }
         let slugline = clean(scene.slugline ?? "", fallback: "")
         if !slugline.isEmpty { return slugline }
-        return clean(scene.title, fallback: "the next scene")
+        return clean(scene.title, fallback: unknownNextSceneTitle)
     }
 
     private static func sceneDetail(_ scene: BackendScreenplayScene?, fallback: String) -> String {

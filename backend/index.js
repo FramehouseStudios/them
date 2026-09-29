@@ -133,7 +133,7 @@ import {
   MEMORY_BLOCK_OPEN,
 } from "./lib/prompt_assembly.js";
 import { DEFAULT_FEATURE_TARGET_PAGES, findSequenceForPage } from "./lib/feature_screenplay_map.js";
-import { fitSystemPromptForTurnLatency as fitSystemPromptForTurnLatencyBase, capSystemPromptKeepingSafety } from "./lib/system_prompt_trim.js"; import { withoutInterfaceCopy } from "./lib/continuity_interface_copy.js";
+import { fitSystemPromptForTurnLatency as fitSystemPromptForTurnLatencyBase, capSystemPromptKeepingSafety } from "./lib/system_prompt_trim.js"; import { continuityPosition, withoutInterfaceCopy } from "./lib/continuity_interface_copy.js";
 import { createScaleBackplane } from "./lib/scale_backplane.mjs";
 import { createPersistence } from "./lib/persistence_adapter.js";
 import { checkKnownDomainsAtStartup } from "./lib/known_domains_startup_check.js";
@@ -4200,7 +4200,7 @@ function buildSessionContinuityOpeningLine(snapshot = {}) {
     .trim();
   const project = normalizeSnippet(snapshot.projectTitle || "", 120); // never the raw project id
   const position = normalizeSnippet(
-    [snapshot.act, snapshot.featureSequence].filter(Boolean).join(" / "),
+    continuityPosition(snapshot.act, snapshot.featureSequence),
     180
   );
   const characters = Array.isArray(snapshot.characterFocus)
@@ -4466,8 +4466,8 @@ function buildSessionContinuitySnapshot(memory = null, creativeMemory = null) {
     feature_sequence: normalizeSnippet(acceptedScene?.featureSequence || project?.featureSequence || "", 220),
     feature_obligation: normalizeSnippet(project?.featureObligation || "", 280),
     scene_objective: normalizeSnippet(project?.sceneObjective || "", 280),
-    scene_summary: normalizeSnippet(acceptedScene?.summary || project?.sceneSummary || "", 280),
-    current_beat: normalizeSnippet(acceptedScene?.summary || project?.currentBeat || episode?.summary || "", 220),
+    scene_summary: normalizeSnippet(withoutInterfaceCopy(acceptedScene?.summary) || withoutInterfaceCopy(project?.sceneSummary), 280),
+    current_beat: normalizeSnippet(withoutInterfaceCopy(acceptedScene?.summary) || withoutInterfaceCopy(project?.currentBeat) || withoutInterfaceCopy(episode?.summary), 220),
     logline: normalizeSnippet(project?.logline || "", 280),
     theme_argument: normalizeSnippet(project?.themeArgument || "", 280),
     central_question: normalizeSnippet(project?.centralQuestion || "", 280),
@@ -4478,12 +4478,12 @@ function buildSessionContinuitySnapshot(memory = null, creativeMemory = null) {
     act_pressure_state: normalizeSnippet(project?.actPressureState || "", 280),
     character_arc_state: normalizeSnippet(project?.characterArcState || "", 280),
     last_scene_outcome: normalizeSnippet(withoutInterfaceCopy(acceptedScene?.outcome) || withoutInterfaceCopy(project?.lastSceneOutcome), 240),
-    next_scene_plan: normalizeSnippet(acceptedScene?.nextScenePlan || project?.nextScenePlan || "", 340),
+    next_scene_plan: normalizeSnippet(withoutInterfaceCopy(acceptedScene?.nextScenePlan) || withoutInterfaceCopy(project?.nextScenePlan), 340),
     next_scene_moves: Array.isArray(project?.nextSceneMoves)
-      ? project.nextSceneMoves.slice(0, 5).map((item) => normalizeSnippet(item, 180)).filter(Boolean)
+      ? project.nextSceneMoves.slice(0, 5).map((item) => normalizeSnippet(withoutInterfaceCopy(item), 180)).filter(Boolean)
       : [],
     next_three_turns: Array.isArray(project?.nextThreeTurns)
-      ? project.nextThreeTurns.slice(0, 3).map((item) => normalizeSnippet(item, 180)).filter(Boolean)
+      ? project.nextThreeTurns.slice(0, 3).map((item) => normalizeSnippet(withoutInterfaceCopy(item), 180)).filter(Boolean)
       : [],
     act_three_payoff_path: filterRetiredStoryObligationsForApi(
       project?.actThreePayoffPath,

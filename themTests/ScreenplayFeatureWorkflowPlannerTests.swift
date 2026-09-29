@@ -1326,6 +1326,37 @@ final class ScreenplayFeatureWorkflowPlannerTests: XCTestCase {
         XCTAssertFalse(prompt?.contains("Sixth memory should not appear.") == true)
     }
 
+    func testUnknownNextSceneIsNotSentAsTheStorySceneSummary() {
+        // Seen 2026-09-28 on Home: "JOE and MAE were carrying this: the next
+        // scene: DINER. Next move: Next scene: the next scene."
+        let snapshot = ScreenplayFeatureWorkflowSnapshot(
+            currentActTitle: "Act I",
+            currentActDetail: "",
+            actProgressLabel: "Scene 2/3",
+            draftProgressLabel: "4 pages drafted",
+            acceptedBatchTitle: "",
+            acceptedBatchDetail: "",
+            acceptedBatchLineRange: nil,
+            structuralObligation: "Establish the ordinary world.",
+            nextSceneTitle: ScreenplayFeatureWorkflowPlanner.unknownNextSceneTitle,
+            nextSceneDetail: "DINER",
+            nextMoves: [],
+            pageWritePrompt: "",
+            planningPrompt: "",
+            sceneDoctorPrompt: ""
+        )
+
+        let context = ScreenplayFeatureWorkflowSessionContext(
+            requestID: "studio-1",
+            submittedPrompt: "continue",
+            snapshot: snapshot
+        )
+
+        XCTAssertEqual(context.sceneSummary, "DINER")
+        XCTAssertEqual(context.nextScenePlan, "Next scene: DINER")
+        XCTAssertFalse(context.continuityNotes.contains { $0.contains("the next scene") })
+    }
+
     func testFeatureWorkflowSnapshotBuildsSessionContextForBackendMetadata() {
         let snapshot = ScreenplayFeatureWorkflowSnapshot(
             currentActTitle: "Act II",
