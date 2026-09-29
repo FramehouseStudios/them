@@ -2153,7 +2153,8 @@ test("[persistent-screenplay-memory] cold session restores from durable project 
     age_in_scenes: 8,
   }]);
   assert.ok(snapshot.opening_line.includes("Rain Docket"));
-  assert.ok(snapshot.opening_line.includes("Act II / Act II - Bad Guys Close In"));
+  assert.ok(snapshot.opening_line.includes("Act II - Bad Guys Close In"));
+  assert.ok(!snapshot.opening_line.includes("Act II / Act II"));
   assert.ok(snapshot.opening_line.includes("Judge Vale sees the locket in Mara's hand."));
   assert.ok(snapshot.opening_line.includes("The thread waiting longest is The red locket hidden in the courthouse clock"));
   assert.ok(snapshot.opening_line.includes("still open after 17 accepted scenes"));
@@ -2379,4 +2380,32 @@ test("continuity never names a project by its raw id or quotes app interface tex
   assert.doesNotMatch(snapshot.opening_line, /project_f17c381264b645b5/);
   assert.equal(snapshot.last_scene_outcome, "");
   assert.doesNotMatch(snapshot.opening_line, /Write or accept a page batch/);
+});
+
+test("continuity never reads the compass placeholder back as the story", async () => {
+  const memory = {
+    ...createEmptyEmotionMemory(),
+    screenplayProjectMemory: sanitizeScreenplayProjectMemoryItems([
+      {
+        projectId: "project_diner",
+        projectTitle: "Diner",
+        act: "Act I",
+        featureSequence: "Act I - Opening Image / Ordinary World (p1-p12); 4 pages drafted",
+        sceneSummary: "the next scene: DINER",
+        currentBeat: "the next scene: DINER",
+        nextScenePlan: "Next scene: the next scene. DINER",
+        nextThreeTurns: ["Write the next scene: DINER", "Pay off the missing keys: Mae checks the till."],
+        characterFocus: ["JOE", "MAE"],
+        updatedAt: 900,
+      },
+    ]),
+    screenplayProjectMemoryUpdatedAt: 900,
+  };
+  const snapshot = buildSessionContinuitySnapshot(memory, {});
+  assert.equal(snapshot.scene_summary, "");
+  assert.equal(snapshot.next_scene_plan, "");
+  assert.deepEqual(snapshot.next_three_turns, ["Pay off the missing keys: Mae checks the till."]);
+  assert.doesNotMatch(snapshot.opening_line, /the next scene/i);
+  assert.doesNotMatch(snapshot.opening_line, /Act I \/ Act I/);
+  assert.match(snapshot.opening_line, /Next move: Pay off the missing keys/);
 });
