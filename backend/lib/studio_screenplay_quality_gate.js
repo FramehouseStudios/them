@@ -187,11 +187,23 @@ function compactQualityCounts(counts = {}) {
   };
 }
 
+// "Write the final page… end the story and fade out": the writer names the
+// ending, whatever page count the Feature Compass estimates (a short film
+// ends on page 4 while the compass still reads Act I of 110).
+const WRITER_ASKS_FOR_THE_ENDING = /\b(?:final|last) (?:page|scene|pages)\b|\bend (?:the|this|my) (?:story|script|film|movie|screenplay)\b|\b(?:write|draft) the ending\b|\bfade (?:out|to black)\b/i;
+
+function writerAsksForTheEnding(transcript = "") {
+  // Only the writer's words: planner text ("the ending must answer") is not a request.
+  const writerRequest = String(transcript || "").split(/Writer request:/i).pop();
+  return WRITER_ASKS_FOR_THE_ENDING.test(writerRequest);
+}
+
 function evaluateStudioScreenplayReply({ reply = "", transcript = "", body = {} } = {}) {
   const text = normalizeScreenplayOutputContractText(String(reply || "").trim());
   const lines = classifyScreenplayLines(text);
   const requestedPages = studioScreenplayRequestedPages({ body, transcript });
   const featureContext = studioScreenplayFeatureContext(body);
+  if (writerAsksForTheEnding(transcript)) featureContext.requestedAct = "Act III";
   const result = evaluateScreenplayPageQuality({
     text,
     lines,
@@ -669,6 +681,7 @@ async function enforceStudioStructuralAnalysisQuality({
 }
 
 export {
+  writerAsksForTheEnding,
   buildStudioScreenplayRepairRequest,
   enforceStudioScreenplayQuality,
   enforceStudioStructuralAnalysisQuality,

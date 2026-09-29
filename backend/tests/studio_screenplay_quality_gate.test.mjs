@@ -482,3 +482,11 @@ test("[studio-quality] an arc-pressure repair is given the character arc state i
   });
   assert.match(repairRequest.transcript, /CHARACTER_ARC_PRESSURE: Need: to stop hiding what she found/);
 });
+
+test("[studio-screenplay-quality-gate] the writer's own request for the ending makes the page Act III", async () => {
+  const { writerAsksForTheEnding } = await import("../lib/studio_screenplay_quality_gate.js");
+  assert.equal(writerAsksForTheEnding("Write this directly into screenplay pages now. Writer request: Write the final page: dawn at the loading dock, end the story and fade out."), true);
+  assert.equal(writerAsksForTheEnding("Writer request: write the ending"), true);
+  assert.equal(writerAsksForTheEnding("Writer request: Write the next page: Nora goes up to Room 4."), false);
+  assert.equal(writerAsksForTheEnding("Plant the emotional question the ending must answer. Writer request: Write the next page."), false);
+});

@@ -16346,11 +16346,11 @@ function collectScreenplayMemorySetups(lines = [], maxItems = 5) {
   return out;
 }
 
-function inferScreenplayMemoryPrimaryActionName(actionLines = []) {
+function inferScreenplayMemoryPrimaryActionName(actionLines = [], knownCharacters = []) {
   for (const line of Array.isArray(actionLines) ? actionLines : []) {
     const match = normalizeSnippet(line, 180).match(/^([A-Z][a-zA-Z]{2,})\b/);
     const name = match?.[1] || "";
-    if (name && !SCREENPLAY_MEMORY_ACTION_NAME_BLOCKLIST.has(name)) return name;
+    if (name && !SCREENPLAY_MEMORY_ACTION_NAME_BLOCKLIST.has(name) && knownCharacters.some((cue) => String(cue).split(/\s+/)[0].toLowerCase() === name.toLowerCase())) return name; // a speaker, never "Fluorescent" from "Fluorescent tubes hum."
   }
   return "";
 }
@@ -16396,7 +16396,7 @@ function buildDistilledScreenplayPayoffPath({
     out.push(clean);
   };
   const payoffSources = mergeScreenplayProjectMemoryList(
-    unresolvedSetups,
+    unresolvedSetups.filter((item) => countScreenplayMemoryWords(item) <= 4), // labels, not "Inside: Umbrellas, A Walker…" whole lines
     motifs,
     5,
     120
@@ -16528,7 +16528,7 @@ function distillScreenplayProjectMemoryFromText(text = "") {
   const sceneSummary = sceneLabel && summaryMoment
     ? `${sceneLabel}: ${summaryMoment}`
     : summaryMoment;
-  const primaryActionCharacter = inferScreenplayMemoryPrimaryActionName(actionLines);
+  const primaryActionCharacter = inferScreenplayMemoryPrimaryActionName(actionLines, characterFocus);
   const primaryCharacter = primaryActionCharacter || characterFocus[0] || "";
   const imageMotifs = collectScreenplayMemoryMotifs(
     [...actionLines, ...dialogueLines, ...sceneHeadings],

@@ -733,12 +733,11 @@ function evaluateCharacterVoiceFingerprintCoverage({
       return dialogueLines.some((line) => voiceTellMatchesDialogue(tell, line));
     });
     const silenceMatched = silencePatternMatchesDialogue(memory.silence, dialogueLines);
-    const requiredSignals = Math.min(2, Math.max(
-      1,
-      (memory.tactics.length ? 1 : 0) +
-      (memory.emotionalTells.length ? 1 : 0) +
-      (memory.silence ? 1 : 0)
-    ));
+    // One recognisable trait is enough: voices learned from a page or two
+    // are thin evidence, and a climax changes how people talk. Requiring two
+    // rejected a strong final page for a cuffed guard who stopped asking
+    // questions. A page that drops the voice entirely still fails.
+    const requiredSignals = (memory.tactics.length || memory.emotionalTells.length || memory.silence) ? 1 : 0;
     const matchedSignalCount = (
       (matchedTactics.length ? 1 : 0) +
       (matchedEmotionalTells.length ? 1 : 0) +
@@ -1286,7 +1285,21 @@ function evaluateFeatureActObligationCoverage({
   );
   // Arc pressure is story ("choosing public truth over private control"):
   // only craft words drop out here, not the whole template vocabulary.
-  const characterArcTokens = new Set([...qualityTokenSet(characterArcPressure)].filter((token) => !FEATURE_OBLIGATION_CRAFT_STOPWORDS.has(token)));
+  // Memory's own summary ("Nora is under pressure from: <the last action
+  // line>") only asks that the character carry the page; requiring the
+  // previous page's last line again rejected every next page.
+  const distilledArc = characterArcPressure.match(/^([A-Za-z][\w'-]*) (?:is under pressure from|must change tactics after):/);
+  const knownCharacters = sanitizeQualityList(featureContext?.characterFocus ?? featureContext?.character_focus, 12, 60)
+    .map((cue) => cue.split(/\s+/)[0].toLowerCase());
+  // Older memory named a non-character ("Fluorescent" from "Fluorescent
+  // tubes hum."); such a line binds nothing.
+  const distilledArcNamesNobody = Boolean(distilledArc) && knownCharacters.length > 0
+    && !knownCharacters.includes(distilledArc[1].toLowerCase());
+  const characterArcTokens = distilledArcNamesNobody
+    ? new Set()
+    : distilledArc
+    ? qualityTokenSet(distilledArc[1])
+    : new Set([...qualityTokenSet(characterArcPressure)].filter((token) => !FEATURE_OBLIGATION_CRAFT_STOPWORDS.has(token)));
   let matchedCharacterArcTokens = [];
   let visibleSharedControlSignals = 0;
   if (characterArcTokens.size > 0) {
@@ -1543,7 +1556,9 @@ function hasExplicitNextSceneExecutionBrief(featureContext = null) {
 }
 
 function executionBriefFieldCoverage({ name = "", phrase = "", textTokens = new Set(), minimumMatches = 1 } = {}) {
-  const tokens = [...qualityTokenSet(phrase)];
+  // Brief fields are often the Feature Compass template ("Act I - Opening
+  // Image…: Plant the emotional question…"); only story words must appear.
+  const tokens = [...qualityTokenSet(phrase)].filter((token) => !isPlanningWord(token));
   const matchedTokens = tokens.filter((token) => textTokens.has(token));
   const requiredMatches = Math.min(Math.max(0, Number(minimumMatches || 0)), tokens.length);
   return {
@@ -1558,7 +1573,7 @@ function executionBriefFieldCoverage({ name = "", phrase = "", textTokens = new 
 }
 
 function executionBriefSupportMinimum(phrase = "") {
-  const tokenCount = qualityTokenSet(phrase).size;
+  const tokenCount = [...qualityTokenSet(phrase)].filter((token) => !isPlanningWord(token)).length;
   if (tokenCount < 1) return 0;
   return tokenCount >= 4 ? 2 : 1;
 }
@@ -1599,8 +1614,16 @@ function evaluateNextSceneExecutionBriefCoverage({ text = "", featureContext = n
     };
   }
 
-  const matchedSupportFields = supportFields.filter((field) => field.ok);
-  const minimumSupportFields = Math.min(3, supportFields.length);
+  // With a brief from the app, only the support fields it actually names
+  // bind. Filling the rest from project memory held a new scene to props of
+  // an old one ("Inside: umbrellas, a walker…" as the obstacle, "Rain
+  // returns…" as the payoff) and rejected a clean Act II page.
+  const brief = directBriefSource(featureContext);
+  const enforcedSupportFields = hasExplicitNextSceneExecutionBrief(featureContext)
+    ? supportFields.filter((field) => normalizeLineText(brief[field.name]))
+    : supportFields;
+  const matchedSupportFields = enforcedSupportFields.filter((field) => field.ok);
+  const minimumSupportFields = Math.min(3, enforcedSupportFields.length);
   if (matchedSupportFields.length < minimumSupportFields) {
     return {
       ok: false,
@@ -2075,10 +2098,11 @@ function evaluateScreenplayPageQuality({
       featureObligation: characterArcMemoryCoverage,
     };
   }
-  const characterVoiceFingerprintCoverage = evaluateCharacterVoiceFingerprintCoverage({
-    lines,
-    featureContext,
-  });
+  // Act III pays off setup through changed behaviour; holding a character
+  // to their Act I voice there fights the act's own obligation.
+  const characterVoiceFingerprintCoverage = inferFeatureActKind(featureContext) === "act3"
+    ? { ok: true, reason: "act_three_voice_may_change" }
+    : evaluateCharacterVoiceFingerprintCoverage({ lines, featureContext });
   if (!characterVoiceFingerprintCoverage.ok) {
     return {
       ok: false,

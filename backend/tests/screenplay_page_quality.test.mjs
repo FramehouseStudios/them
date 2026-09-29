@@ -1868,3 +1868,22 @@ test("[screenplay-page-quality] Act III still holds a page to the story's own se
   assert.deepEqual(lines.slice(-2).map((line) => line.text), ["FADE OUT.", "THE END"]);
   assert.equal(lines.at(-2).element, "transition");
 });
+
+test("[screenplay-page-quality] memory's distilled arc line only asks that the character carry the page", () => {
+  const text = readFileSync(new URL("./fixtures/feature_final_page.fountain", import.meta.url), "utf8");
+  const run = (characterArcState) => evaluateScreenplayPageQuality({
+    text,
+    lines: classifyScreenplayLines(text),
+    targetPages: 1,
+    hasSceneAnchor: true,
+    featureContext: { act: "Act III", characterArcState },
+  });
+  assert.equal(run("Nora is under pressure from: Nora's breath fogs the glass.").ok, true);
+  assert.equal(run("Fluorescent must change tactics after: Nora's breath fogs the glass.").reason, "missing_character_arc_pressure");
+  const withCast = evaluateScreenplayPageQuality({
+    text, lines: classifyScreenplayLines(text), targetPages: 1, hasSceneAnchor: true,
+    featureContext: { act: "Act III", characterFocus: ["DESMOND", "NORA", "JUNE"], characterArcState: "Fluorescent must change tactics after: Nora's breath fogs the glass." },
+  });
+  assert.equal(withCast.ok, true, "a distilled line naming no character binds nothing");
+  assert.equal(run("Mara can only win by choosing public truth over private control.").reason, "missing_character_arc_pressure");
+});
