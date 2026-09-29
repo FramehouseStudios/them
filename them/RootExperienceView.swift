@@ -3823,7 +3823,8 @@ struct RootExperienceView: View {
 
         Task { @MainActor in
             await Task.yield()
-            let error = await submitStudioPrompt(prompt, routingMode: .page, requestID: requestID)
+            var error = await startFirstPageProject(sceneSeed: sceneSeed)
+            if error == nil { error = await submitStudioPrompt(prompt, routingMode: .page, requestID: requestID) }
             magicMomentLastDurationMs = Date().timeIntervalSince(startedAt) * 1_000
             isMagicMomentSubmitting = false
 
@@ -3843,6 +3844,31 @@ struct RootExperienceView: View {
             onboardingSceneSeed = ""
             magicMomentOnboardingError = ""
         }
+    }
+
+    /// Opens a project of its own for the first page (FirstPageFreshProject)
+    /// and waits until writes target it; nil when ready, else what went wrong.
+    @MainActor
+    private func startFirstPageProject(sceneSeed: String) async -> String? {
+        let failure = "Couldn't open a project for this scene. Your scene is saved; try again."
+        try? await Task.sleep(for: .milliseconds(600)) // let the Studio mount
+        let ready = Task { @MainActor () -> String in
+            for await note in NotificationCenter.default.notifications(named: FirstPageFreshProject.ready) {
+                return (note.userInfo?[FirstPageFreshProject.projectIDKey] as? String) ?? ""
+            }
+            return ""
+        }
+        let timeout = Task { try? await Task.sleep(for: .seconds(20)); ready.cancel() }
+        await Task.yield()
+        NotificationCenter.default.post(name: FirstPageFreshProject.requested, object: nil, userInfo: [FirstPageFreshProject.titleKey: FirstPageFreshProject.title(fromSceneSeed: sceneSeed)])
+        let projectID = await ready.value
+        timeout.cancel()
+        guard !projectID.isEmpty else { return failure }
+        for _ in 0..<50 {
+            if FirstPageFreshProject.isBound(to: projectID, boundProjectID: screenplayDraftBridge.committedWriteProjectIDSnapshot(), draft: screenplayDraftBridge.draftText) { return nil }
+            try? await Task.sleep(for: .milliseconds(200))
+        }
+        return failure
     }
 
     /// The home first-page card: sign in first if needed, otherwise write it.
@@ -10351,7 +10377,8 @@ Write this approved story direction directly into screenplay pages now. Maintain
             limit: 6
         )
 
-        if let sessionContinuitySnapshot, sessionContinuitySnapshot.isMeaningful {
+        if let sessionContinuitySnapshot, sessionContinuitySnapshot.isMeaningful,
+           SessionContinuityPromptScope.applies(snapshotProjectID: sessionContinuitySnapshot.projectId, boundProjectID: screenplayDraftBridge.committedWriteProjectIDSnapshot()) {
             let sessionNotes = sessionContinuityPromptNotes(from: sessionContinuitySnapshot)
             continuityNotes = mergedContextList(sessionNotes, continuityNotes, limit: 8)
             if promptAct.isEmpty { promptAct = sessionContinuitySnapshot.act }

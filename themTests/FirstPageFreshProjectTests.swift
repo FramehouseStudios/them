@@ -1,0 +1,33 @@
+import XCTest
+@testable import them
+
+final class FirstPageFreshProjectTests: XCTestCase {
+    func testTitleComesFromTheSceneTheWriterTyped() {
+        XCTAssertEqual(
+            FirstPageFreshProject.title(fromSceneSeed: "A night nurse finds her missing brother’s coat in the hospital lost and found."),
+            "Night Nurse Finds Her Missing"
+        )
+        XCTAssertEqual(FirstPageFreshProject.title(fromSceneSeed: "  "), "New Scene")
+    }
+
+    func testWritesAreReadyOnceBoundToTheChosenEmptyProject() {
+        XCTAssertTrue(FirstPageFreshProject.isBound(to: "new", boundProjectID: "new", draft: "  \n"))
+        XCTAssertFalse(FirstPageFreshProject.isBound(to: "new", boundProjectID: "old", draft: ""))
+        XCTAssertFalse(FirstPageFreshProject.isBound(to: "new", boundProjectID: "new", draft: "INT. DINER - NIGHT"), "the old script is still loaded")
+        XCTAssertFalse(FirstPageFreshProject.isBound(to: "", boundProjectID: "", draft: ""))
+    }
+
+    func testAnEmptyOpenProjectIsReusedSoRetriesDoNotPileUpProjects() {
+        XCTAssertTrue(FirstPageFreshProject.canReuse(selectedProjectID: "p1", draft: ""))
+        XCTAssertFalse(FirstPageFreshProject.canReuse(selectedProjectID: "p1", draft: "INT. DINER - NIGHT"))
+        XCTAssertFalse(FirstPageFreshProject.canReuse(selectedProjectID: "", draft: ""))
+    }
+}
+
+final class SessionContinuityPromptScopeTests: XCTestCase {
+    func testWhereWeLeftOffOnlyFillsPromptsForItsOwnProject() {
+        XCTAssertTrue(SessionContinuityPromptScope.applies(snapshotProjectID: "project_diner", boundProjectID: " project_diner "))
+        XCTAssertFalse(SessionContinuityPromptScope.applies(snapshotProjectID: "project_diner", boundProjectID: "project_hospital"))
+        XCTAssertFalse(SessionContinuityPromptScope.applies(snapshotProjectID: "project_diner", boundProjectID: ""))
+    }
+}

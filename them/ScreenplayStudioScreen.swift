@@ -557,6 +557,7 @@ Replace is best when this file should become the script you edit. Append is safe
             .onReceive(NotificationCenter.default.publisher(for: .themStudioActionRequested)) { notification in
                 handleStudioActionNotification(notification)
             }
+            .onReceive(NotificationCenter.default.publisher(for: FirstPageFreshProject.requested)) { startFirstPageProject($0) }
             .onReceive(NotificationCenter.default.publisher(for: .themTurnCommitted)) { notification in
                 guard let event = BackendTurnCommittedEvent(notification: notification) else { return }
                 handleStudioTurnCommittedEvent(event)
