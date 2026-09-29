@@ -106,22 +106,29 @@ enum ScreenplayPrintMemory {
 // MARK: - PDF generation (shared)
 enum ScreenplayPrintService {
     static func makePDF(draft: String, title: String) throws -> Data {
-        let clean = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !clean.isEmpty else { throw PrintError.emptyDraft }
+        let fullDraft = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !fullDraft.isEmpty else { throw PrintError.emptyDraft }
         #if os(macOS)
         // Reuse ScreenplayLocalExport on macOS (CoreText path, already Letter)
-        return try ScreenplayLocalExport.makeArtifact(draft: clean, title: title, format: "pdf").data
+        return try ScreenplayLocalExport.makeArtifact(draft: fullDraft, title: title, format: "pdf").data
         #else
         // iOS: CoreText paginated PDF, same as macOS path but UIKit colors.
+        // The title page prints as its own unnumbered sheet, not as action
+        // lines on page 1.
+        let titleParts = ScreenplayTitlePage.split(fullDraft)
+        let clean = titleParts.body.trimmingCharacters(in: .whitespacesAndNewlines)
         let paper = ScreenplayPrintMemory.effectivePaper
         let pageRect: CGRect = (paper == .a4) ? CGRect(x: 0, y: 0, width: 595, height: 842) : CGRect(x: 0, y: 0, width: 612, height: 792)
-        let contentRect = CGRect(x: 108, y: 72, width: pageRect.width - 216, height: pageRect.height - 144)
+        let contentRect = topDown(CGRect(x: 108, y: 72, width: pageRect.width - 216, height: pageRect.height - 144), in: pageRect)
         let attributed = iOSAttributedDraft(for: clean, printableWidth: contentRect.width)
         let framesetter = CTFramesetterCreateWithAttributedString(attributed as CFAttributedString)
         let data = NSMutableData()
         guard let consumer = CGDataConsumer(data: data as CFMutableData) else { throw PrintError.emptyDraft }
         var mediaBox = pageRect
         guard let context = CGContext(consumer: consumer, mediaBox: &mediaBox, nil) else { throw PrintError.emptyDraft }
+        if let titlePage = titleParts.titlePage, !titlePage.isEmpty {
+            drawTitlePage(titlePage, in: context, pageRect: pageRect)
+        }
         var range = CFRange(location: 0, length: 0)
         let fullLength = attributed.length
         let elements = ScreenplayEditorElement.inferredSequence(for: clean)
@@ -131,15 +138,17 @@ enum ScreenplayPrintService {
             context.beginPDFPage(nil)
             context.saveGState()
             context.textMatrix = .identity
-            context.translateBy(x: 0, y: pageRect.height)
-            context.scaleBy(x: 1, y: -1)
+            // No flipped CTM: CoreText lays text out in PDF space (origin at the
+            // bottom-left). Flipping it printed every page upside down with
+            // its lines in reverse order. Rects below are given top-down and
+            // converted with topDown(_:in:).
             // Page number
             let headerText = "\(pageNumber)."
             let headerAttr = NSAttributedString(string: headerText, attributes: [
                 .font: UIFont(name: "Courier", size: 10) ?? UIFont.systemFont(ofSize: 10),
                 .foregroundColor: UIColor.black.withAlphaComponent(0.7)
             ])
-            let headerPath = CGPath(rect: CGRect(x: 108, y: 36, width: 400, height: 20), transform: nil)
+            let headerPath = CGPath(rect: topDown(CGRect(x: 108, y: 36, width: 400, height: 20), in: pageRect), transform: nil)
             let headerFrame = CTFramesetterCreateFrame(CTFramesetterCreateWithAttributedString(headerAttr), CFRange(location: 0, length: headerAttr.length), headerPath, nil)
             CTFrameDraw(headerFrame, context)
             var path = CGPath(rect: contentRect, transform: nil)
@@ -192,7 +201,7 @@ enum ScreenplayPrintService {
                 let prevEl = breakLine > 0 && elements.indices.contains(breakLine-1) ? elements[breakLine-1] : nil
                 if (prevEl == .dialogue || prevEl == .character) && (nextEl == .dialogue || nextEl == .parenthetical) {
                     let moreAttr = NSAttributedString(string: "(MORE)", attributes: [.font: UIFont(name: "Courier", size: 10) ?? UIFont.systemFont(ofSize: 10), .foregroundColor: UIColor.black])
-                    let morePath = CGPath(rect: CGRect(x: 250, y: 730, width: 112, height: 14), transform: nil)
+                    let morePath = CGPath(rect: topDown(CGRect(x: 250, y: pageRect.height - 62, width: 112, height: 14), in: pageRect), transform: nil)
                     let moreFrame = CTFramesetterCreateFrame(CTFramesetterCreateWithAttributedString(moreAttr), CFRange(location: 0, length: moreAttr.length), morePath, nil)
                     CTFrameDraw(moreFrame, context)
                 }
@@ -213,7 +222,7 @@ enum ScreenplayPrintService {
                     }
                     if let name = charName, !name.isEmpty {
                         let contAttr = NSAttributedString(string: "\(name) (CONT'D)", attributes: [.font: UIFont(name: "Courier", size: 12) ?? UIFont.monospacedSystemFont(ofSize: 12, weight: .regular), .foregroundColor: UIColor.black])
-                        let contPath = CGPath(rect: CGRect(x: 220, y: 72, width: 200, height: 14), transform: nil)
+                        let contPath = CGPath(rect: topDown(CGRect(x: 220, y: 72, width: 200, height: 14), in: pageRect), transform: nil)
                         let contFrame = CTFramesetterCreateFrame(CTFramesetterCreateWithAttributedString(contAttr), CFRange(location: 0, length: contAttr.length), contPath, nil)
                         CTFrameDraw(contFrame, context)
                     }
@@ -242,10 +251,53 @@ enum ScreenplayPrintService {
         let lines = draft.components(separatedBy: .newlines).count
         return max(1, Int(ceil(Double(lines) / 55.0)))
     }
-    /// Keep header pagination stable: "1." top-right per Final Draft, not centered.
-    static func titlePageLines(for title: String) -> [String] {
-        return [title.uppercased(), "written by", "io.them — Clementine"]
+    /// Title page text blocks in reading order. The credit names the writer
+    /// they typed; the app never credits itself.
+    static func titlePageBlocks(for page: ScreenplayTitlePage) -> (centered: [String], contact: String, draftDate: String) {
+        let clean = { (value: String) in value.trimmingCharacters(in: .whitespacesAndNewlines) }
+        var centered: [String] = []
+        if !clean(page.title).isEmpty { centered.append(clean(page.title).uppercased()) }
+        if !clean(page.author).isEmpty {
+            centered.append(clean(page.credit).isEmpty ? ScreenplayTitlePage.defaultCredit : clean(page.credit))
+            centered.append(clean(page.author))
+        }
+        if !clean(page.source).isEmpty { centered.append(clean(page.source)) }
+        return (centered, clean(page.contact), clean(page.draftDate))
     }
+
+    /// A rect measured from the top of the page, in PDF space.
+    static func topDown(_ rect: CGRect, in page: CGRect) -> CGRect {
+        CGRect(x: rect.minX, y: page.height - rect.maxY, width: rect.width, height: rect.height)
+    }
+
+    #if !os(macOS)
+    private static func drawTitlePage(_ page: ScreenplayTitlePage, in context: CGContext, pageRect: CGRect) {
+        let blocks = titlePageBlocks(for: page)
+        let font = UIFont(name: "Courier", size: 12) ?? UIFont.monospacedSystemFont(ofSize: 12, weight: .regular)
+        func draw(_ text: String, in rect: CGRect, alignment: NSTextAlignment) {
+            guard !text.isEmpty else { return }
+            let style = NSMutableParagraphStyle()
+            style.alignment = alignment
+            let attributed = NSAttributedString(string: text, attributes: [
+                .font: font, .foregroundColor: UIColor.black, .paragraphStyle: style
+            ])
+            let framesetter = CTFramesetterCreateWithAttributedString(attributed as CFAttributedString)
+            let frame = CTFramesetterCreateFrame(framesetter, CFRange(location: 0, length: attributed.length), CGPath(rect: topDown(rect, in: pageRect), transform: nil), nil)
+            CTFrameDraw(frame, context)
+        }
+        context.beginPDFPage(nil)
+        context.saveGState()
+        context.textMatrix = .identity
+        let width = pageRect.width - 216
+        // Title a third of the way down; credit and author below it.
+        draw(blocks.centered.joined(separator: "\n\n"), in: CGRect(x: 108, y: pageRect.height * 0.62 - 240, width: width, height: 240), alignment: .center)
+        // Contact bottom-left, draft date bottom-right, above the 1" margin.
+        draw(blocks.contact, in: CGRect(x: 108, y: pageRect.height - 168, width: width / 2, height: 96), alignment: .left)
+        draw(blocks.draftDate, in: CGRect(x: 108 + width / 2, y: pageRect.height - 168, width: width / 2, height: 96), alignment: .right)
+        context.restoreGState()
+        context.endPDFPage()
+    }
+    #endif
 
     #if !os(macOS)
     private static func iOSAttributedDraft(for draft: String, printableWidth: CGFloat) -> NSAttributedString {
