@@ -60,9 +60,7 @@ public enum FountainTypography {
             return .sceneHeading
         }
 
-        if upper.hasSuffix("TO:") || upper == "FADE IN:" || upper == "FADE OUT:" ||
-            upper == "FADE TO BLACK:" || upper == "THE END" ||
-            upper == "SMASH TO BLACK:" {
+        if ScreenplayEditorElement.looksLikeTransition(upper) {
             return .transition
         }
 

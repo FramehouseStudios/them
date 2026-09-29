@@ -95,13 +95,13 @@ final class ScreenplayEditorModeTests: XCTestCase {
         )
     }
 
-    func testEditorLineNormalizationBuildsTransitionWithColon() {
+    func testEditorLineNormalizationBuildsEndingTransitionWithPeriod() {
         let normalized = FountainFormatter.normalizeEditorLine(
             "fade out",
             as: .transition
         )
 
-        XCTAssertEqual(normalized, "FADE OUT:")
+        XCTAssertEqual(normalized, "FADE OUT.")
     }
 
     func testCueTypedOnAnActionLineStaysACue() {
