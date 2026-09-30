@@ -10229,7 +10229,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
         let emotionalContinuity = [sceneObjective, sceneSummary]
             .first(where: { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) ?? ""
         let estimatedPageCount = structuredDraft.lineCount > 0
-            ? max(1, Int(ceil(Double(structuredDraft.lineCount) / 55.0)))
+            ? max(1, ScreenplayPageLayout.pageCount(for: screenplayDraftBridge.draftText)) // the page chip's count; lines/55 said p49 at page 65
             : 0
         let activeActTitle = activeBinding?.actTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let resolvedAct = activeActTitle.isEmpty ? featureSpine.actPosition : activeActTitle
