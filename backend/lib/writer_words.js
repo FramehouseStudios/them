@@ -7,7 +7,12 @@
 // request:", is the writer speaking; any other turn is theirs whole.
 export function writerWordsFromTurn(transcript = "") {
   const source = String(transcript || "");
-  const direction = source.match(/Writer's immediate direction:\s*([^\n]+)/i)?.[1];
+  // The brief can arrive flattened onto one line; the direction ends where the
+  // app's next bullet starts ("- Current feature position:", written right
+  // after it by ScreenplayFeatureWorkflowPlanner), or "Write the next page. -
+  // Current feature position: Act II ..." was stored as the writer's
+  // correction (2026-09-30).
+  const direction = source.match(/Writer's immediate direction:\s*(.+?)(?=\s+-\s+Current feature position:|\n|$)/i)?.[1];
   if (direction) return direction.trim();
   const parts = source.split(/Writer request:/i);
   if (parts.length > 1) return parts.pop().trim();

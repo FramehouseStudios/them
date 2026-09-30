@@ -133,7 +133,7 @@ import {
   MEMORY_BLOCK_OPEN,
 } from "./lib/prompt_assembly.js";
 import { DEFAULT_FEATURE_TARGET_PAGES, findSequenceForPage } from "./lib/feature_screenplay_map.js";
-import { fitSystemPromptForTurnLatency as fitSystemPromptForTurnLatencyBase, capSystemPromptKeepingSafety } from "./lib/system_prompt_trim.js"; import { activeProjectMemoryItem, continuityNextMove, continuitySnapshotOptions, isLikelyCharacterName, recapCharacterNames, continuityPosition, continuityStoryState, draftReachedTheEnd, withoutInterfaceCopy } from "./lib/continuity_interface_copy.js";
+import { fitSystemPromptForTurnLatency as fitSystemPromptForTurnLatencyBase, capSystemPromptKeepingSafety } from "./lib/system_prompt_trim.js"; import { activeProjectMemoryItem, continuityNextMove, continuitySnapshotOptions, isDistilledMemoryTemplate, isLikelyCharacterName, recapCharacterNames, continuityPosition, continuityStoryState, draftReachedTheEnd, withoutInterfaceCopy } from "./lib/continuity_interface_copy.js";
 import { createScaleBackplane } from "./lib/scale_backplane.mjs";
 import { createPersistence } from "./lib/persistence_adapter.js";
 import { checkKnownDomainsAtStartup } from "./lib/known_domains_startup_check.js";
@@ -4478,7 +4478,7 @@ function buildSessionContinuitySnapshot(memory = null, creativeMemory = null, { 
     antagonistic_force: normalizeSnippet(project?.antagonisticForce || "", 260),
     ending_image: normalizeSnippet(project?.endingImage || "", 240),
     act_pressure_state: normalizeSnippet(project?.actPressureState || "", 280),
-    character_arc_state: normalizeSnippet(project?.characterArcState || "", 280),
+    character_arc_state: normalizeSnippet(isDistilledMemoryTemplate(project?.characterArcState) ? "" : project?.characterArcState || "", 280),
     last_scene_outcome: normalizeSnippet(withoutInterfaceCopy(acceptedScene?.outcome) || withoutInterfaceCopy(project?.lastSceneOutcome), 240),
     next_scene_plan: normalizeSnippet(withoutInterfaceCopy(acceptedScene?.nextScenePlan) || withoutInterfaceCopy(project?.nextScenePlan), 340),
     next_scene_moves: Array.isArray(project?.nextSceneMoves)
@@ -4501,7 +4501,7 @@ function buildSessionContinuitySnapshot(memory = null, creativeMemory = null, { 
       storyObligationCorrections
     ),
     character_arc_turns: Array.isArray(project?.characterArcTurns)
-      ? project.characterArcTurns.slice(0, 6).map((item) => normalizeSnippet(item, 180)).filter(Boolean)
+      ? project.characterArcTurns.slice(0, 6).map((item) => normalizeSnippet(item, 180)).filter((item) => item && !isDistilledMemoryTemplate(item))
       : [],
     image_motifs: Array.isArray(project?.imageMotifs)
       ? project.imageMotifs.slice(0, 6).map((item) => normalizeSnippet(item, 140)).filter(Boolean)
@@ -30501,8 +30501,8 @@ function filterRetiredStoryObligationsForApi(values = [], corrections = []) {
       .filter((item) => item.action === "retire")
       .map((item) => item.obligation.toLowerCase())
   );
-  return normalizeScreenplayStringList(values, 8, 220)
-    .filter((item) => !retired.has(item.toLowerCase()));
+  return normalizeScreenplayStringList(values, 8, 220) // memory's own templates guide prompts; they are not the writer's story
+    .filter((item) => !retired.has(item.toLowerCase()) && !isDistilledMemoryTemplate(item));
 }
 
 function storyObligationStateForCreativeProject(project = null) {
@@ -30714,7 +30714,7 @@ function buildMemoryCards(memory, historyThreads = [], limit = 24, creativeMemor
         antagonisticForce: normalizeSnippet(item.antagonisticForce, 260),
         endingImage: normalizeSnippet(item.endingImage, 240),
         actPressureState: normalizeSnippet(item.actPressureState, 280),
-        characterArcState: normalizeSnippet(item.characterArcState, 280),
+        characterArcState: normalizeSnippet(isDistilledMemoryTemplate(item.characterArcState) ? "" : item.characterArcState, 280),
         lastSceneOutcome: normalizeSnippet(item.lastSceneOutcome, 240),
         nextScenePlan: normalizeSnippet(item.nextScenePlan, 340),
         nextSceneMoves: normalizeScreenplayStringList(item.nextSceneMoves, 5, 180),

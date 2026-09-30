@@ -108,4 +108,4 @@ function continuitySnapshotOptions(owner = null, getLatestVersion = null) {
   };
 }
 
-export { continuitySnapshotOptions, isLikelyCharacterName, recapCharacterNames, activeProjectMemoryItem, continuityNextMove, continuityPosition, continuityStoryState, draftReachedTheEnd, withoutInterfaceCopy };
+export { continuitySnapshotOptions, isDistilledMemoryTemplate, isLikelyCharacterName, recapCharacterNames, activeProjectMemoryItem, continuityNextMove, continuityPosition, continuityStoryState, draftReachedTheEnd, withoutInterfaceCopy };
