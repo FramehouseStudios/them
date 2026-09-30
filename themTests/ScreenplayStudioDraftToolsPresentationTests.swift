@@ -303,6 +303,17 @@ final class ScreenplayStudioDraftToolsPresentationTests: XCTestCase {
         XCTAssertEqual(ScreenplayStudioDraftToolsPresentationPlanner.revisionTint(for: "unknown"), .neutral)
     }
 
+    func testASavedVersionSaysWhatItHolds() {
+        // 74-page run 2026-09-30: every autosave row read the same.
+        let draft = "FADE IN:\n\nINT. SENATE CORRIDOR - NIGHT\n\nNora counts.\n\nEXT. STATE CAPITOL - NIGHT\n\nRain on the dome."
+        let version = makeVersion(id: "v-contents", phase: "scene_draft", createdAt: 1, updatedAt: 1, notes: nil, draft: draft)
+        XCTAssertEqual(ScreenplayStudioDraftToolsPresentationPlanner.snapshotContents(version), "1 page · ends at EXT. STATE CAPITOL - NIGHT")
+        let noHeading = makeVersion(id: "v-plain", phase: nil, createdAt: 1, updatedAt: 1, notes: nil, draft: "Nora counts.")
+        XCTAssertEqual(ScreenplayStudioDraftToolsPresentationPlanner.snapshotContents(noHeading), "1 page")
+        let empty = makeVersion(id: "v-empty", phase: nil, createdAt: 1, updatedAt: 1, notes: nil, draft: nil)
+        XCTAssertNil(ScreenplayStudioDraftToolsPresentationPlanner.snapshotContents(empty))
+    }
+
     private func makeVersion(
         id: String,
         phase: String?,
