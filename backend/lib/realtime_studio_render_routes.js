@@ -466,7 +466,7 @@ function studioMomentumMeta({ body = {}, creativeMemory = null } = {}) {
     obstacle: dueGraphThread.setup || projectThreads[0] || projectSetups[0] || "",
     arc: graphState.characterArcState || project.characterArcState || "",
     payoff: dueGraphThread.promisedPayoff || dueGraphThread.promised_payoff || projectPayoffs[0] || "",
-    image: graphState.endingImage || project.endingImage || projectImages[0] || "",
+    image: graphState.endingImage || project.endingImage || "",
     exit: projectNextTurns[1] || "",
   };
   const executionBrief = directExecutionBrief && typeof directExecutionBrief === "object"

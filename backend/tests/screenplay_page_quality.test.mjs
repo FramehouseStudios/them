@@ -1429,7 +1429,7 @@ test("[screenplay-page-quality] accepts continuations that execute the next-scen
   assert.equal(quality.ok, true);
   assert.deepEqual(
     quality.featureObligation.executionBriefCoverage.matchedSupportFieldNames,
-    ["obstacle", "arc", "payoff", "image", "exit"],
+    ["obstacle", "arc", "payoff", "exit"],
   );
 });
 
@@ -2064,4 +2064,31 @@ test("[screenplay-page-quality] interruptions and pressing count as tactics", ()
   ].join("\n");
   const quality = evaluateScreenplayPageQuality({ text, lines: classifyScreenplayLines(text), targetPages: 1, hasSceneAnchor: true });
   assert.ok(quality.counts.dialogueTacticSignal >= 2, JSON.stringify(quality.counts));
+});
+
+test("[screenplay-page-quality] memory's line templates and noticed motifs do not bind", () => {
+  // Seen live 2026-09-30: the Senate floor page was held to "Nora is under
+  // pressure from: Teddy mumbles in his sleep." and the motif "window".
+  const text = [
+    "INT. SENATE CHAMBER - NIGHT",
+    "",
+    "Nora folds a note and hands it to Senator Ruiz, who stands.",
+    "",
+    "RUIZ",
+    "Pursuant to Rule 17, I demand that the budget be read in full before the session ends.",
+    "",
+    "Across the chamber, Decker finds Nora in the crowd.",
+  ].join("\n");
+  const quality = evaluateScreenplayPageQuality({
+    text, lines: classifyScreenplayLines(text), targetPages: 1, hasSceneAnchor: true,
+    featureContext: {
+      act: "Act I",
+      characterFocus: ["NORA", "RUIZ", "DECKER"],
+      unresolvedStoryThreads: ["The budget reading can outlast the session."],
+      characterArcState: "Nora is under pressure from: Teddy mumbles in his sleep.",
+      imageMotifs: ["window"],
+      endingImage: "",
+    },
+  });
+  assert.equal(quality.ok, true, `${quality.reason} ${JSON.stringify(quality.featureObligation?.executionBriefCoverage?.supportFields)}`);
 });

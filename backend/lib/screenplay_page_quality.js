@@ -1555,13 +1555,14 @@ function nextSceneExecutionBriefValues(featureContext = null) {
       actThreePayoffPath[0],
       unresolvedSetups[0],
     ], 220),
+    // A motif memory noticed ("window", "rain") is not an image the writer
+    // asked this page to stage.
     image: firstBriefValue([
       brief.image,
       brief.imageToStage,
       brief.image_to_stage,
       featureContext?.imageToStage,
       featureContext?.image_to_stage,
-      imageMotifs[0],
       featureContext?.endingImage,
       featureContext?.ending_image,
       featureContext?.finalImage,
@@ -1604,9 +1605,12 @@ function hasExplicitNextSceneExecutionBrief(featureContext = null) {
 
 // A lane quoting the page itself ("Nora is under pressure from: FADE IN:
 // EXT. STATE CAPITOL - NIGHT A granite dome…") is not a story obligation.
+// So is memory's own template around the last action line ("Nora is under
+// pressure from: Teddy mumbles in his sleep.") — a line, not an arc.
 function isPageTextLane(phrase = "") {
   const text = normalizeLineText(phrase);
-  return /\b(?:FADE IN|FADE OUT|CUT TO)\b|\b(?:INT|EXT)\.\s/.test(text);
+  return /\b(?:FADE IN|FADE OUT|CUT TO)\b|\b(?:INT|EXT)\.\s/.test(text) ||
+    /^[A-Za-z][\w'-]* (?:is under pressure from|must change tactics after):/.test(text);
 }
 
 // "Rain returns as proof or cost in Act III." is the Act III payoff path;
@@ -1689,7 +1693,9 @@ function evaluateNextSceneExecutionBriefCoverage({ text = "", featureContext = n
   const matchedSupportFields = enforcedSupportFields.filter((field) => field.ok);
   // One lane may rest: with three lanes ("window" as the image of a
   // stairwell scene) every lane had to land on one page (seen live 2026-09-30).
-  const minimumSupportFields = Math.min(3, Math.max(1, enforcedSupportFields.length - 1));
+  const minimumSupportFields = enforcedSupportFields.length === 0
+    ? 0
+    : Math.min(3, Math.max(1, enforcedSupportFields.length - 1));
   if (matchedSupportFields.length < minimumSupportFields) {
     return {
       ok: false,
