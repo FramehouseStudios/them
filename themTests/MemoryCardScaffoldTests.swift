@@ -31,5 +31,7 @@ final class MemoryCardScaffoldTests: XCTestCase {
         XCTAssertTrue(ScreenplayFeatureProgressionGuide.isPlannerScaffold("Plant the emotional question the ending must answer."))
         XCTAssertTrue(ScreenplayFeatureProgressionGuide.isPlannerScaffold("  "))
         XCTAssertFalse(ScreenplayFeatureProgressionGuide.isPlannerScaffold("Mara names the judge."))
+        // Memories Story Spine "Pressure" showed the step's pressure and obligation joined.
+        XCTAssertTrue(ScreenplayFeatureProgressionGuide.isPlannerScaffold("Make the protagonist's wound, want, world, and tonal promise visible through behavior. Plant the emotional question the ending must answer."))
     }
 }

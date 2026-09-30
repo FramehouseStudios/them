@@ -1602,7 +1602,7 @@ private struct StorySpineSnapshot: Hashable {
     }
 
     var positionText: String {
-        join([spine.act, spine.featureSequence], separator: " / ") ?? "Feature"
+        RestoredContinuityCopy.position(act: spine.act ?? "", featureSequence: spine.featureSequence ?? "").nilIfBlank ?? "Feature"
     }
 
     var pageText: String {
@@ -1613,12 +1613,15 @@ private struct StorySpineSnapshot: Hashable {
         return ""
     }
 
+    // Memories are what was learned about this script: not the page itself and
+    // not the Feature Compass template ("Plant the emotional question the ending
+    // must answer." showed as "Pressure", seen 2026-09-30).
     var currentBeat: String {
-        first([spine.currentBeat, spine.lastSceneOutcome, spine.sceneSummary, projectItem.summary])
+        storyFirst([spine.currentBeat, spine.lastSceneOutcome, spine.sceneSummary, projectItem.summary])
     }
 
     var pressureText: String {
-        first([spine.actPressureState, spine.featureObligation, spine.sceneObjective, spine.characterArcState])
+        storyFirst([spine.actPressureState, spine.featureObligation, spine.sceneObjective, spine.characterArcState])
     }
 
     var characterArcText: String {
@@ -1626,12 +1629,7 @@ private struct StorySpineSnapshot: Hashable {
     }
 
     var nextMove: String {
-        first([
-            cleanList(spine.nextThreeTurns).first,
-            spine.nextScenePlan,
-            cleanList(spine.nextSceneMoves).first,
-            projectItem.referenceHint,
-        ])
+        storyFirst(cleanList(spine.nextThreeTurns) + [spine.nextScenePlan] + cleanList(spine.nextSceneMoves) + [projectItem.referenceHint])
     }
 
     var openPromise: String {
@@ -1664,6 +1662,12 @@ private struct StorySpineSnapshot: Hashable {
 
     var obligationCorrections: [BackendStoryObligationCorrection] {
         spine.storyObligationCorrections ?? []
+    }
+
+    private func storyFirst(_ values: [String?]) -> String {
+        let story = RestoredContinuityCopy.threads(values.compactMap(clean))
+            .filter { !ScreenplayFeatureProgressionGuide.isPlannerScaffold($0) }
+        return story.first ?? ""
     }
 
     private func first(_ values: [String?]) -> String {

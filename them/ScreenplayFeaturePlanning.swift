@@ -179,7 +179,7 @@ struct ScreenplayFeatureProgressionGuide: Equatable {
     static func isPlannerScaffold(_ text: String) -> Bool {
         let clean = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !clean.isEmpty else { return true }
-        let templateLines = template.flatMap { [$0.pressure, $0.obligation] + $0.nextMoves }
+        let templateLines = template.flatMap { [$0.pressure, $0.obligation, "\($0.pressure) \($0.obligation)"] + $0.nextMoves }
         if templateLines.contains(where: { $0.caseInsensitiveCompare(clean) == .orderedSame }) { return true }
         return RestoredContinuityCopy.writerMove(clean).isEmpty
     }
