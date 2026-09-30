@@ -1282,11 +1282,25 @@ final class ScreenplayFeatureWorkflowPlannerTests: XCTestCase {
         XCTAssertTrue(prompt?.contains("Make Mara's public lie cost her the brother scene.") == true)
         XCTAssertTrue(prompt?.contains("Keep the midpoint victory emotionally contaminated.") == true)
         XCTAssertTrue(prompt?.contains("finished Fountain screenplay pages") == true)
+        XCTAssertTrue(prompt?.contains("Write 3-5 pages") == true)
+
+        let onePage = ScreenplayFeatureWorkflowPlanner.enrichedContinuationPrompt(for: "Write the next page of Act II.", snapshot: snapshot)
+        XCTAssertTrue(onePage?.contains("Write one page in Fountain format only.") == true, onePage ?? "")
+        XCTAssertTrue(onePage?.contains("write the next page as finished") == true, onePage ?? "")
+        XCTAssertFalse(onePage?.contains("3-5") == true, onePage ?? "")
 
         XCTAssertNil(ScreenplayFeatureWorkflowPlanner.enrichedContinuationPrompt(
             for: "Rewrite this as a colder confrontation.",
             snapshot: snapshot
         ))
+    }
+
+    func testTheWritersPageCountReplacesTheDefaultBatch() {
+        XCTAssertEqual(ScreenplayFeatureWorkflowPlanner.writersPageCount("Write the next page of Act I."), 1)
+        XCTAssertEqual(ScreenplayFeatureWorkflowPlanner.writersPageCount("write two more pages"), 2)
+        XCTAssertEqual(ScreenplayFeatureWorkflowPlanner.writersPageCount("write the next 3 pages"), 3)
+        XCTAssertNil(ScreenplayFeatureWorkflowPlanner.writersPageCount("continue from here"))
+        XCTAssertNil(ScreenplayFeatureWorkflowPlanner.writersPageCount("write the next pages"))
     }
 
     func testContinuationPromptMemoryContextIsDedupedAndCapped() {
