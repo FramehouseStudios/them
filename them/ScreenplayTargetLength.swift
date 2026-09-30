@@ -51,8 +51,44 @@ nonisolated enum ScreenplayTargetLength {
         defaults.set(all, forKey: key(ownerUserID))
     }
 
+    /// The account keeps each script's length (set from any device). A device
+    /// with no choice of its own adopts it: after a reinstall a finished
+    /// 75-page script was planned as Act II of 110 (2026-09-30). A length
+    /// chosen on this device is kept.
+    static func adoptAccountPages(
+        from projects: [BackendScreenplayProjectSummary],
+        ownerUserID: String = BackendAuthClient.currentAuthSessionState().user?.userId ?? "",
+        defaults: UserDefaults = .standard
+    ) {
+        for project in projects {
+            guard let pages = project.targetPages, range.contains(pages),
+                  chosenPages(forProject: project.id, ownerUserID: ownerUserID, defaults: defaults) == nil else { continue }
+            set(pages, forProject: project.id, ownerUserID: ownerUserID, defaults: defaults)
+        }
+    }
+
     private static func key(_ ownerUserID: String) -> String {
         ScreenplayOwnerScopedStoragePolicy.storageKey(baseKey: baseKey, ownerUserID: ownerUserID)
+    }
+}
+
+/// Keeps the length on the account for the writer's other devices, once they
+/// stop stepping: seven quick taps sent seven requests that landed out of order
+/// and left 80 on the account while this device showed 75 (2026-09-30). This
+/// device already holds the value, so a failed send changes nothing here.
+@MainActor
+final class ScreenplayTargetLengthAccountSync {
+    static let shared = ScreenplayTargetLengthAccountSync()
+    private init() {}
+    private var pending: [String: Task<Void, Never>] = [:]
+
+    func send(_ pages: Int, forProject projectID: String, after delay: Duration = .milliseconds(700)) {
+        pending[projectID]?.cancel()
+        pending[projectID] = Task {
+            try? await Task.sleep(for: delay)
+            guard !Task.isCancelled else { return }
+            try? await BackendMemoryAPI.shared.updateScreenplayProjectTargetPages(projectId: projectID, targetPages: pages)
+        }
     }
 }
 
@@ -69,6 +105,7 @@ struct ScreenplayTargetLengthControl: View {
                 pages = next
                 ScreenplayTargetLength.set(next, forProject: projectID)
                 onChange()
+                ScreenplayTargetLengthAccountSync.shared.send(next, forProject: projectID)
             }
         ), in: ScreenplayTargetLength.range, step: ScreenplayTargetLength.step) {
             VStack(alignment: .leading, spacing: 2) {

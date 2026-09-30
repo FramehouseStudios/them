@@ -692,6 +692,35 @@ test("[screenplay-projects-routes] POST /screenplay/projects persists Studio ask
   });
 });
 
+test("[screenplay-projects-routes] POST /settings keeps the writer's target length on the account", async () => {
+  // 2026-09-30: the length lived only on one phone; a reinstall planned a
+  // finished 75-page script as Act II of 110.
+  const deps = defaultDeps();
+  await withTestServer(deps, async (baseURL) => {
+    const saved = await postJson(baseURL, "/screenplay/projects/p2/settings", { target_pages: 75 });
+    assert.equal(saved.status, 200);
+    assert.equal(saved.body.status, "saved");
+    assert.equal(saved.body.target_pages, 75);
+    assert.equal(deps._owner.projects.find((item) => item.id === "p2").targetPages, 75);
+
+    const tooLong = await postJson(baseURL, "/screenplay/projects/p2/settings", { target_pages: 900 });
+    assert.equal(tooLong.status, 400);
+    assert.equal(tooLong.body.error, "target_pages_out_of_range");
+    assert.equal(deps._owner.projects.find((item) => item.id === "p2").targetPages, 75, "a bad value changes nothing");
+
+    const cleared = await postJson(baseURL, "/screenplay/projects/p2/settings", { target_pages: null });
+    assert.equal(cleared.status, 200);
+    assert.equal(cleared.body.target_pages, 0);
+
+    const empty = await postJson(baseURL, "/screenplay/projects/p2/settings", {});
+    assert.equal(empty.status, 400);
+    assert.equal(empty.body.error, "no_settings");
+
+    const missing = await postJson(baseURL, "/screenplay/projects/nope/settings", { target_pages: 90 });
+    assert.equal(missing.status, 404);
+  });
+});
+
 test("[screenplay-projects-routes] POST /activate persists the active project for restore", async () => {
   const deps = defaultDeps();
   await withTestServer(deps, async (baseURL) => {

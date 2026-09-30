@@ -191,7 +191,7 @@ import { mountPromptRoutes } from "./lib/prompt_routes.js";
 import { mountFountainImportRoute } from "./lib/fountain_import_route.js";
 import { mountFDXExportRoute } from "./lib/fdx_export_route.js";
 import { mountFountainExportRoute } from "./lib/fountain_export_route.js";
-import { mountScreenplayProjectsRoutes } from "./lib/screenplay_projects_routes.js";
+import { mountScreenplayProjectsRoutes, normalizeScreenplayTargetPages } from "./lib/screenplay_projects_routes.js";
 import { createDraftCharacterLearner } from "./lib/draft_character_learning.js";
 import { mp3BitrateKbpsForHeader, mp3SampleRateForHeader } from "./lib/mp3_header_tables.js";
 import { mountScreenplayCompanionRoutes } from "./lib/screenplay_companion_routes.js";
@@ -10448,13 +10448,12 @@ function normalizeStoredScreenplayProject(entry) {
     logline: normalizeSnippet(entry.logline, 500),
     themeArgument: normalizeSnippet(entry.themeArgument ?? entry.theme_argument ?? entry.theme, 500),
     centralQuestion: normalizeSnippet(
-      entry.centralQuestion ?? entry.central_question ?? entry.dramaticQuestion ?? entry.dramatic_question,
-      500
-    ),
+      entry.centralQuestion ?? entry.central_question ?? entry.dramaticQuestion ?? entry.dramatic_question, 500),
     protagonistWant: normalizeSnippet(entry.protagonistWant ?? entry.protagonist_want, 500),
     protagonistNeed: normalizeSnippet(entry.protagonistNeed ?? entry.protagonist_need, 500),
     antagonisticForce: normalizeSnippet(entry.antagonisticForce ?? entry.antagonistic_force, 500),
     actPosition: normalizeSnippet(entry.actPosition ?? entry.act_position ?? entry.act, 80),
+    targetPages: normalizeScreenplayTargetPages(entry.targetPages ?? entry.target_pages),
     endingImage: normalizeSnippet(entry.endingImage ?? entry.ending_image ?? entry.finalImage ?? entry.final_image, 500),
     unresolvedSetups: normalizeScreenplayStringList(entry.unresolvedSetups ?? entry.unresolved_setups, 24, 220),
     createdAt: Math.max(0, Number(entry.createdAt || 0)),
@@ -10737,6 +10736,7 @@ function toScreenplayProjectPayload(project, options = {}) {
     protagonist_need: safeProject.protagonistNeed || "",
     antagonistic_force: safeProject.antagonisticForce || "",
     act_position: safeProject.actPosition || "",
+    target_pages: normalizeScreenplayTargetPages(safeProject.targetPages),
     ending_image: safeProject.endingImage || "",
     unresolved_setups: Array.isArray(safeProject.unresolvedSetups) ? safeProject.unresolvedSetups : [],
     created_at: Math.max(0, Number(safeProject.createdAt || 0)),

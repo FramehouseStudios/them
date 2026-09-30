@@ -2573,6 +2573,8 @@ nonisolated struct BackendScreenplayProjectSummary: Decodable, Hashable {
     let beatCount: Int?
     let outlineUpdatedAt: TimeInterval?
     var outlineRevision: Int? = nil
+    /// The writer's target length for this script (0 or nil: not set).
+    var targetPages: Int? = nil
     let collaboratorCount: Int?
     let approvedEmails: [String]?
     let commentCount: Int?
@@ -5245,9 +5247,7 @@ nonisolated enum BackendAuthClient {
 
     private static func run<T: Decodable>(_ request: URLRequest, as type: T.Type) async throws -> T {
         let (data, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            throw BackendMemoryAPIError.invalidResponse
-        }
+        guard let http = response as? HTTPURLResponse else { throw BackendMemoryAPIError.invalidResponse }
         guard BackendAPIResponseValidator.hasMatchingOrigin(
             requestURL: request.url,
             responseURL: http.url
@@ -6892,9 +6892,7 @@ actor BackendMemoryAPI {
         let taskID = nextSessionBootstrapTaskID
         let task = Task { () throws -> SessionBootstrapHTTPResult in
             let (data, response) = try await urlSession.data(for: request)
-            guard let http = response as? HTTPURLResponse else {
-                throw BackendMemoryAPIError.invalidResponse
-            }
+            guard let http = response as? HTTPURLResponse else { throw BackendMemoryAPIError.invalidResponse }
             return SessionBootstrapHTTPResult(
                 data: data,
                 statusCode: http.statusCode,
@@ -7076,9 +7074,7 @@ actor BackendMemoryAPI {
     func fetchOpsRoutesManifest() async throws -> BackendOpsRouteManifestResponse {
         let request = try makeRequest(path: "/ops/routes")
         let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            throw BackendMemoryAPIError.invalidResponse
-        }
+        guard let http = response as? HTTPURLResponse else { throw BackendMemoryAPIError.invalidResponse }
         guard (200...299).contains(http.statusCode) else {
             let message = decodeErrorMessage(from: data)
             throw BackendMemoryAPIError.server(status: http.statusCode, message: message)
@@ -7091,9 +7087,7 @@ actor BackendMemoryAPI {
     func fetchMemoryStats() async throws -> BackendMemoryStatsResponse {
         let request = try makeRequest(path: "/memory/stats")
         let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            throw BackendMemoryAPIError.invalidResponse
-        }
+        guard let http = response as? HTTPURLResponse else { throw BackendMemoryAPIError.invalidResponse }
         guard (200...299).contains(http.statusCode) else {
             let message = decodeErrorMessage(from: data)
             throw BackendMemoryAPIError.server(status: http.statusCode, message: message)
@@ -7104,9 +7098,7 @@ actor BackendMemoryAPI {
     func fetchTalkStats() async throws -> BackendTalkStatsResponse {
         let request = try makeRequest(path: "/talk/stats")
         let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            throw BackendMemoryAPIError.invalidResponse
-        }
+        guard let http = response as? HTTPURLResponse else { throw BackendMemoryAPIError.invalidResponse }
         guard (200...299).contains(http.statusCode) else {
             let message = decodeErrorMessage(from: data)
             throw BackendMemoryAPIError.server(status: http.statusCode, message: message)
@@ -7121,9 +7113,7 @@ actor BackendMemoryAPI {
         }
         let request = try makeRequest(path: "/talk/errors", extraQueryItems: queryItems)
         let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            throw BackendMemoryAPIError.invalidResponse
-        }
+        guard let http = response as? HTTPURLResponse else { throw BackendMemoryAPIError.invalidResponse }
         guard (200...299).contains(http.statusCode) else {
             let message = decodeErrorMessage(from: data)
             throw BackendMemoryAPIError.server(status: http.statusCode, message: message)
@@ -7134,9 +7124,7 @@ actor BackendMemoryAPI {
     private func fetchHealth(path: String, baseURL: URL) async throws -> BackendHealthStatus {
         let request = try makeRequest(path: path, baseURL: baseURL)
         let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            throw BackendMemoryAPIError.invalidResponse
-        }
+        guard let http = response as? HTTPURLResponse else { throw BackendMemoryAPIError.invalidResponse }
         validatePersonaContract(response: http, path: path)
         let raw = String(data: data, encoding: .utf8) ?? ""
         let decoder = JSONDecoder()
@@ -7243,9 +7231,7 @@ actor BackendMemoryAPI {
             request.setValue(cached.etag, forHTTPHeaderField: "If-None-Match")
         }
         let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            throw BackendMemoryAPIError.invalidResponse
-        }
+        guard let http = response as? HTTPURLResponse else { throw BackendMemoryAPIError.invalidResponse }
 
         if canUseSharedCache, http.statusCode == 304, let cached = historyCacheByLimit[limit] {
             let headerSync = syncFromHeaders(http, fallbackStatus: "up")
@@ -7955,6 +7941,19 @@ actor BackendMemoryAPI {
         )
         updateSyncState(mergeSyncStates(base: bodySync, incoming: headerSync), emitTurnEvent: true)
         return BackendReadResult(payload: parsed, sync: syncState, notModified: false)
+    }
+
+    /// The writer's target length for a script, kept on the account so other
+    /// devices plan acts against it too. nil clears it.
+    func updateScreenplayProjectTargetPages(projectId: String, targetPages: Int?) async throws {
+        let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedProjectId.isEmpty else { throw BackendMemoryAPIError.server(status: 400, message: "project_id_required") }
+        var request = try makeWriteRequest(path: "/screenplay/projects/\(normalizedProjectId)/settings")
+        applyProjectOwnerHeaders(to: &request, includeUserIdentity: true, includeAuthToken: true, clientTokenOverride: nil)
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["target_pages": targetPages.map { $0 as Any } ?? NSNull()])
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else { throw BackendMemoryAPIError.invalidResponse }
+        guard (200...299).contains(http.statusCode) else { throw BackendMemoryAPIError.server(status: http.statusCode, message: decodeErrorMessage(from: data)) }
     }
 
     func activateScreenplayProject(
