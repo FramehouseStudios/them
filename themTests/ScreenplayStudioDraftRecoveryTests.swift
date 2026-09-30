@@ -396,6 +396,25 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         XCTAssertTrue(guide.nextScenePlan.contains("Final Plan"))
     }
 
+    func testFeatureProgressionGuideKeepsTheWritersActPastTheFirstPages() {
+        // A six-page draft marked "Act II" was planned as Act I's opening image.
+        let early = ScreenplayFeatureProgressionGuide.guide(actPosition: "Act II", currentPage: 6, targetPages: 110)
+        XCTAssertEqual(early.currentAct, "Act II")
+        XCTAssertEqual(early.progressText, "Act estimate")
+
+        // Page past the writer's act: the act's last sequence, not Act III.
+        let late = ScreenplayFeatureProgressionGuide.guide(actPosition: "Act II", currentPage: 100, targetPages: 110)
+        XCTAssertEqual(late.currentAct, "Act II")
+
+        // Page inside the writer's act: the page still picks the sequence.
+        let inside = ScreenplayFeatureProgressionGuide.guide(actPosition: "Act II", currentPage: 47, targetPages: 110)
+        XCTAssertEqual(inside.sequenceLabel, "Midpoint Pressure")
+        XCTAssertEqual(inside.progressText, "p47 / 110")
+
+        // No explicit act: the page decides, as before.
+        XCTAssertEqual(ScreenplayFeatureProgressionGuide.guide(actPosition: "", currentPage: 6, targetPages: 110).currentAct, "Act I")
+    }
+
     func testStructuredDraftRestoresRecentActionBeatsForPromptMemory() {
         let draft = ScreenplayStructuredDraft(
             updatedAt: Date(timeIntervalSince1970: 100),
