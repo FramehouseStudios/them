@@ -347,7 +347,8 @@ final class MemoriesViewModel: ObservableObject {
                 result = try await BackendMemoryAPI.shared.updateCharacterBibleMemory(
                     id: itemID,
                     key: key,
-                    characterBible: characterBible
+                    characterBible: characterBible,
+                    projectID: memoryProjectID(itemID)
                 )
             } else {
                 result = try await BackendMemoryAPI.shared.updateMemoryCard(
@@ -394,14 +395,12 @@ final class MemoriesViewModel: ObservableObject {
 
     func forgetMemory(itemID: String, key: String) async throws {
         _ = try? await BackendMemoryAPI.shared.bootstrapSession()
-        var projectID = ""
-        if case .loaded(let items) = state { projectID = items.first { $0.id == itemID }?.projectID ?? "" }
         let result: BackendReadResult<BackendMemoryMutationResponse>
         do {
             result = try await BackendMemoryAPI.shared.forgetMemoryCard(
                 id: itemID,
                 key: key,
-                projectID: projectID
+                projectID: memoryProjectID(itemID)
             )
         } catch {
             if let backendError = error as? BackendMemoryAPIError,
@@ -843,6 +842,12 @@ final class MemoriesViewModel: ObservableObject {
         merged[memory.id] = memory
         let items = merged.values.sorted { $0.rememberedDate > $1.rememberedDate }
         state = items.isEmpty ? .empty : .loaded(items)
+    }
+
+    /// The script a loaded card belongs to ("" when unknown or unstamped).
+    private func memoryProjectID(_ itemID: String) -> String {
+        guard case .loaded(let items) = state else { return "" }
+        return items.first { $0.id == itemID }?.projectID ?? ""
     }
 
     private func removeMemoryItem(id: String, key: String) {
