@@ -187,3 +187,34 @@ func reconcileScreenplayParagraphElements(
 
     return result
 }
+
+/// The lines of a finished write (a page Clementine wrote, streamed in as
+/// fragments) are classified from their final text. A streamed line otherwise
+/// keeps the element its first fragment got, so cues and dialogue showed as
+/// action until the Studio was reopened (live 2026-09-30). `lines` is 1-based.
+func reinferScreenplayParagraphElements(
+    _ elements: [ScreenplayEditorElement?],
+    text: String,
+    lines: ClosedRange<Int>
+) -> [ScreenplayEditorElement?] {
+    let lineTexts = screenplayLineTexts(text)
+    guard elements.count == lineTexts.count, !lineTexts.isEmpty else { return elements }
+    let start = max(0, lines.lowerBound - 1)
+    let end = min(lineTexts.count - 1, lines.upperBound - 1)
+    guard start <= end else { return elements }
+    var result = elements
+    var previous: ScreenplayEditorElement? = start > 0 &&
+        !lineTexts[start - 1].trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? result[start - 1] : nil
+    for index in start...end {
+        let trimmed = lineTexts[index].trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            result[index] = nil
+            previous = nil
+            continue
+        }
+        let inferred = ScreenplayEditorElement.inferredElement(for: trimmed, previousElement: previous)
+        result[index] = inferred
+        previous = inferred
+    }
+    return result
+}
