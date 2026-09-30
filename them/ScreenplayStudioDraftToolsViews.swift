@@ -104,6 +104,11 @@ struct ScreenplayStudioSnapshotPresentation: Identifiable {
     /// only save a duplicate. Its button reads "On page" and stays disabled.
     var isOnPage = false
 
+    /// What the version holds ("12 pages · ends at INT. SENATE FLOOR - NIGHT"):
+    /// every autosave read "Scene Draft · 9 min. ago · Saved from Clementine
+    /// page write", so picking a restore point was guesswork (74-page run,
+    /// 2026-09-30).
+    var contentsText: String? { ScreenplayStudioDraftToolsPresentationPlanner.snapshotContents(version) }
     var restoreTitle: String { isOnPage ? "On page" : "Restore" }
     var restoreEnabled: Bool { canRestore && !isOnPage }
 }
@@ -245,6 +250,23 @@ enum ScreenplayStudioDraftToolsPresentationPlanner {
             return nil
         }
         return notes
+    }
+
+    /// Saved versions never change, so their contents line is worked out once.
+    private static let snapshotContentsCache = NSCache<NSString, NSString>()
+
+    static func snapshotContents(_ version: BackendScreenplayVersion) -> String? {
+        let draft = (version.draft ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !draft.isEmpty else { return nil }
+        let key = "\(version.id):\(draft.count)" as NSString
+        if let cached = snapshotContentsCache.object(forKey: key) { return cached as String }
+        let lines = draft.components(separatedBy: "\n")
+        let kinds = ScreenplayPageLayout.classify(lines)
+        let lastHeading = kinds.lastIndex(of: .sceneHeading).map { lines[$0].trimmingCharacters(in: .whitespacesAndNewlines) }
+        let pages = ScreenplayPageLayout.summaryText(pageCount: ScreenplayPageLayout.pageCount(for: draft))
+        let text = lastHeading.map { "\(pages) · ends at \($0.count > 44 ? String($0.prefix(43)) + "…" : $0)" } ?? pages
+        snapshotContentsCache.setObject(text as NSString, forKey: key)
+        return text
     }
 
     static func snapshotCanRestore(_ version: BackendScreenplayVersion) -> Bool {
@@ -1129,6 +1151,12 @@ private struct ScreenplayStudioDraftSnapshotTools: View {
                     Text(timestamp)
                         .font(IOThemTypography.UI.labelRegular)
                         .foregroundStyle(Color.herText.opacity(0.66))
+                }
+                if let contents = snapshot.contentsText {
+                    Text(contents)
+                        .font(IOThemTypography.UI.labelRegular)
+                        .foregroundStyle(Color.herText.opacity(0.78))
+                        .lineLimit(1)
                 }
                 if let notes = snapshot.notes {
                     Text(notes)

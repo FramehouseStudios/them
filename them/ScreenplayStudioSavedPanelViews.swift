@@ -190,6 +190,13 @@ struct ScreenplayStudioSavedPanel: View {
                         .font(IOThemTypography.UI.labelRegular)
                         .foregroundStyle(Color.herText.opacity(0.62))
                 }
+                if let contents = snapshot.contentsText {
+                    Text(contents)
+                        .font(IOThemTypography.UI.labelRegular)
+                        .foregroundStyle(Color.herText.opacity(0.78))
+                        .lineLimit(2)
+                        .accessibilityIdentifier("studio.saved.contents.\(snapshot.id)")
+                }
                 // Own line: beside the time it was cut to "Restored from Today…".
                 if let notes = snapshot.notes {
                     Text(notes)
