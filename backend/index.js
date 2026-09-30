@@ -4272,7 +4272,7 @@ function buildSessionContinuityOpeningLine(snapshot = {}) {
   return normalizeSnippet(parts.join(" "), 640);
 }
 
-function buildSessionContinuitySnapshot(memory = null, creativeMemory = null, { activeProjectId = "", finishedProjectId = "" } = {}) { // finished: its latest draft reached FADE OUT
+function buildSessionContinuitySnapshot(memory = null, creativeMemory = null, { activeProjectId = "", finishedProjectIds = new Set() } = {}) { // finished: latest draft reached FADE OUT
   const projects = sanitizeScreenplayProjectMemoryItems(
     memory?.screenplayProjectMemory,
     SCREENPLAY_PROJECT_MEMORY_MAX
@@ -4463,7 +4463,7 @@ function buildSessionContinuitySnapshot(memory = null, creativeMemory = null, { 
           : "creative_project_continuity"
         : "creative_memory",
     project_id: normalizeSnippet(project?.projectId || episode?.projectId || "", 96),
-    project_title: normalizeSnippet(episode?.projectTitle || project?.projectTitle || "", 160), ...(finishedProjectId && normalizeSnippet(project?.projectId || episode?.projectId || "", 96) === finishedProjectId ? { finished: true } : {}), // a title, never the id
+    project_title: normalizeSnippet(episode?.projectTitle || project?.projectTitle || "", 160), ...(finishedProjectIds?.has?.(normalizeSnippet(project?.projectId || episode?.projectId || "", 96)) ? { finished: true } : {}), // a title, never the id
     act: normalizeSnippet(acceptedScene?.act || project?.act || "", 120),
     feature_sequence: normalizeSnippet(acceptedScene?.featureSequence || project?.featureSequence || "", 220),
     feature_obligation: normalizeSnippet(project?.featureObligation || "", 280),
@@ -32570,7 +32570,7 @@ app.post("/session", sessionRateLimitGuard, async (req, res) => {
   }
   const sessionContinuity = buildSessionContinuitySnapshot(
     sanitizedRestoredMemory, sessionCreativeMemory,
-    { activeProjectId: sessionActiveProjectId, finishedProjectId: draftReachedTheEnd(getLatestScreenplayVersion(sessionActiveProject)?.draft) ? sessionActiveProjectId : "" }
+    { activeProjectId: sessionActiveProjectId, finishedProjectIds: new Set((sessionScreenplayOwner?.projects || []).filter((item) => draftReachedTheEnd(getLatestScreenplayVersion(item)?.draft)).map((item) => item.id)) }
   );
   const sessionStateVersion = buildMemoryStateVersion(sanitizedRestoredMemory);
   const sessionLastUpdatedAt = deriveMemoryLastUpdatedAt(sanitizedRestoredMemory);
