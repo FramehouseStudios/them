@@ -1330,20 +1330,12 @@ function evaluateFeatureActObligationCoverage({
   );
   // Arc pressure is story ("choosing public truth over private control"):
   // only craft words drop out here, not the whole template vocabulary.
-  // Memory's own summary ("Nora is under pressure from: <the last action
-  // line>") only asks that the character carry the page; requiring the
-  // previous page's last line again rejected every next page.
-  const distilledArc = characterArcPressure.match(/^([A-Za-z][\w'-]*) (?:is under pressure from|must change tactics after):/);
-  const knownCharacters = sanitizeQualityList(featureContext?.characterFocus ?? featureContext?.character_focus, 12, 60)
-    .map((cue) => cue.split(/\s+/)[0].toLowerCase());
-  // Older memory named a non-character ("Fluorescent" from "Fluorescent
-  // tubes hum."); such a line binds nothing.
-  const distilledArcNamesNobody = Boolean(distilledArc) && knownCharacters.length > 0
-    && !knownCharacters.includes(distilledArc[1].toLowerCase());
-  const characterArcTokens = distilledArcNamesNobody
+  // Memory's own template ("Nora is under pressure from: <the last action
+  // line>") binds nothing: requiring that line rejected every next page, and
+  // requiring the character rejected a cutaway where the protagonist is only
+  // "she" (seen live 2026-09-30).
+  const characterArcTokens = isDistilledMemoryTemplate(characterArcPressure)
     ? new Set()
-    : distilledArc
-    ? qualityTokenSet(distilledArc[1])
     : new Set([...qualityTokenSet(characterArcPressure)].filter((token) => !FEATURE_OBLIGATION_CRAFT_STOPWORDS.has(token)));
   let matchedCharacterArcTokens = [];
   let visibleSharedControlSignals = 0;

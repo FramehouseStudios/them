@@ -1925,7 +1925,8 @@ test("[screenplay-page-quality] memory's distilled arc line only asks that the c
     featureContext: { act: "Act III", characterArcState },
   });
   assert.equal(run("Nora is under pressure from: Nora's breath fogs the glass.").ok, true);
-  assert.equal(run("Fluorescent must change tactics after: Nora's breath fogs the glass.").reason, "missing_character_arc_pressure");
+  assert.equal(run("Fluorescent must change tactics after: Nora's breath fogs the glass.").ok, true, "memory's distilled line binds nothing");
+  assert.equal(run("Decker is under pressure from: Cal hands him the count.").ok, true, "a cutaway without the named character is fine");
   const withCast = evaluateScreenplayPageQuality({
     text, lines: classifyScreenplayLines(text), targetPages: 1, hasSceneAnchor: true,
     featureContext: { act: "Act III", characterFocus: ["DESMOND", "NORA", "JUNE"], characterArcState: "Fluorescent must change tactics after: Nora's breath fogs the glass." },
