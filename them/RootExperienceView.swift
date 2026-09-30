@@ -10183,15 +10183,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
         )
         let draftCurrentBeat = structuredDraft.currentActionBeat(endingAtLine: currentLine)
 
-        var characterFocus: [String] = []
-        for character in (activeDraftScene?.characterCues ?? []) + structuredDraft.characters {
-            let clean = character.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !clean.isEmpty else { continue }
-            if !characterFocus.contains(where: { $0.caseInsensitiveCompare(clean) == .orderedSame }) {
-                characterFocus.append(clean)
-            }
-            if characterFocus.count >= 8 { break }
-        }
+        var characterFocus = ScreenplayCastFocus.names((activeDraftScene?.characterCues ?? []) + structuredDraft.characters)
 
         var promptLogline = featureSpine.logline
         var promptThemeArgument = featureSpine.themeArgument
@@ -10415,11 +10407,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 ]
                     .first { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty } ?? ""
             }
-            characterFocus = mergedContextList(
-                characterFocus,
-                sessionContinuitySnapshot.characterFocus,
-                limit: 8
-            )
+            characterFocus = ScreenplayCastFocus.names(characterFocus + sessionContinuitySnapshot.characterFocus)
             if promptPageCount <= 0 { promptPageCount = sessionContinuitySnapshot.pageCount }
             if promptTargetPages <= 0 { promptTargetPages = sessionContinuitySnapshot.targetPages }
         }
