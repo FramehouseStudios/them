@@ -80,3 +80,11 @@ test("a declared character name is one the writer capitalized", async () => {
   assert.deepEqual(extractDeclaredCharacterNames("My protagonist is named Maya."), ["Maya"]);
   assert.deepEqual(extractDeclaredCharacterNames("Nora is a lawyer who counts votes."), ["Nora"]);
 });
+
+test("the recap names only the people its story line is about", async () => {
+  const { recapCharacterNames } = await import("../lib/continuity_interface_copy.js");
+  const story = "Osgood stands on the step stool beneath the brass clock, alone.";
+  assert.deepEqual(recapCharacterNames(["CAL", "DECKER", "OSGOOD"], 2, story), ["OSGOOD"]);
+  assert.deepEqual(recapCharacterNames(["CAL", "DECKER"], 2, story), [], "nobody named in the line: no one is credited with it");
+  assert.deepEqual(recapCharacterNames(["CAL", "DECKER", "To"], 2), ["CAL", "DECKER"], "no story line: the cast as stored");
+});
