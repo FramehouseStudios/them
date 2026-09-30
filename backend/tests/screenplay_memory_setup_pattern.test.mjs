@@ -7,6 +7,7 @@ test("[screenplay-memory-setup] movement is not a planted setup", () => {
   for (const line of [
     "She keeps moving. Danny apologizes to the lobbyist on her behalf.",
     "DANNY PRUITT, 23, two weeks on the job, keeps up with a binder the size of a cinder block.",
+    "Nobody does. Keep it that way.",
   ]) {
     assert.equal(SCREENPLAY_MEMORY_SETUP_PATTERN.test(line), false, line);
   }

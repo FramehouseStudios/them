@@ -519,6 +519,10 @@ function isDialogueCounterOrCommand(line = "", otherSpeakerLine = "") {
   const text = normalizeLineText(line);
   if (!text || /\?\s*$/.test(text)) return false;
   if (DIALOGUE_COMMAND_OPENER.test(text.replace(/^[A-Z][a-z]+,\s+/, ""))) return true;
+  // Cutting the other off ("Mrs. Halversen--") and pressing ("So you're going
+  // to let them off.") are tactics too.
+  if (/(?:--|\u2014)\s*$/.test(text)) return true;
+  if (/^so (?:you|we|he|she|they)\b/i.test(text)) return true;
   const previous = qualityTokenSet(otherSpeakerLine);
   if (previous.size === 0) return false;
   // "Yes. Very nice." after "Nice weather today." agrees; a counter turns it.
@@ -1683,7 +1687,9 @@ function evaluateNextSceneExecutionBriefCoverage({ text = "", featureContext = n
     ? supportFields.filter((field) => normalizeLineText(brief[field.name]))
     : supportFields;
   const matchedSupportFields = enforcedSupportFields.filter((field) => field.ok);
-  const minimumSupportFields = Math.min(3, enforcedSupportFields.length);
+  // One lane may rest: with three lanes ("window" as the image of a
+  // stairwell scene) every lane had to land on one page (seen live 2026-09-30).
+  const minimumSupportFields = Math.min(3, Math.max(1, enforcedSupportFields.length - 1));
   if (matchedSupportFields.length < minimumSupportFields) {
     return {
       ok: false,
