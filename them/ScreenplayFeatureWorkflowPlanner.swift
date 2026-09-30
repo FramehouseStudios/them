@@ -418,7 +418,8 @@ enum ScreenplayFeatureWorkflowPlanner {
         // The paginator's count is what the page header shows; raw lines / 55
         // ignored wrapping and said "3 pages drafted" beside "4 pages".
         let estimatedPageCount = draftLineCount == 0 ? 0
-            : (paginatedPageCount > 0 ? paginatedPageCount : max(1, Int(ceil(Double(draftLineCount) / 55.0))))
+            : (paginatedPageCount > 0 ? paginatedPageCount : max(1, ScreenplayPageLayout.pageCount(for: draftText)))
+        let resolvedTargetPages = targetPages ?? ScreenplayTargetLength.pages(forProject: project?.id ?? "")
         // Where the writer is, in scenes rather than raw lines ("Line 1/163").
         let draftSceneProgress: String? = structuredDraft.scenes.isEmpty ? nil : {
             let index = structuredDraft.scenes.lastIndex { $0.line <= max(1, currentCursorLine) } ?? 0
@@ -432,7 +433,14 @@ enum ScreenplayFeatureWorkflowPlanner {
             featureSpine: featureSpine,
             currentCursorLine: currentCursorLine,
             lineCount: draftLineCount,
-            draftSceneProgress: draftSceneProgress
+            draftSceneProgress: draftSceneProgress,
+            // With no outline, binding or writer-set act, the act follows the
+            // real page count against the writer's length: the cursor sat on
+            // line 1 after a relaunch and a 74-page script's next page was
+            // briefed "Current act: Act I" (2026-09-30).
+            pageAct: estimatedPageCount > 0
+                ? ScreenplayFeatureProgressionGuide.guide(actPosition: "", currentPage: estimatedPageCount, targetPages: resolvedTargetPages).currentAct
+                : nil
         )
         let sequenceGuide = ScreenplayFeatureProgressionGuide.guide(
             actPosition: currentAct.title,
@@ -440,7 +448,7 @@ enum ScreenplayFeatureWorkflowPlanner {
                 currentActTitle: currentAct.title,
                 estimatedPageCount: estimatedPageCount
             ),
-            targetPages: targetPages ?? ScreenplayTargetLength.pages(forProject: project?.id ?? "")
+            targetPages: resolvedTargetPages
         )
         let nextScene = resolveNextScene(
             sortedScenes: sortedScenes,
@@ -739,7 +747,8 @@ enum ScreenplayFeatureWorkflowPlanner {
         featureSpine: ScreenplayFeatureSpine,
         currentCursorLine: Int,
         lineCount: Int,
-        draftSceneProgress: String? = nil
+        draftSceneProgress: String? = nil,
+        pageAct: String? = nil
     ) -> (act: BackendScreenplayAct?, title: String, detail: String, progressLabel: String) {
         if let currentOutlineScene,
            let act = sortedActs.first(where: { $0.id == currentOutlineScene.actId }) {
@@ -770,7 +779,7 @@ enum ScreenplayFeatureWorkflowPlanner {
             )
         }
 
-        let inferred = inferredActTitle(currentCursorLine: currentCursorLine, lineCount: lineCount)
+        let inferred = pageAct ?? inferredActTitle(currentCursorLine: currentCursorLine, lineCount: lineCount)
         let inferredAct = sortedActs.first(where: { clean($0.title, fallback: "").localizedCaseInsensitiveContains(inferred) })
         return (
             inferredAct,
@@ -1060,19 +1069,23 @@ enum ScreenplayFeatureWorkflowPlanner {
             return "Play the scene objective on screen: \(objective)"
         }
 
+        // Act III before II before I: "act ii" and "act iii" both contain
+        // "act i", so every page was given Act I's obligation ("...makes Act II
+        // unavoidable") and Memories showed it as the story's Now (2026-09-30).
         let title = currentActTitle.lowercased()
-        if title.contains("act i") || title.contains("act 1") || title.contains("one") {
-            return "Force the protagonist into a choice that makes Act II unavoidable."
-        }
-        if title.contains("act ii") || title.contains("act 2") || title.contains("two") {
-            return "Escalate the central pressure and turn the midpoint into irreversible fallout."
-        }
+        let obligations = ScreenplayFeatureProgressionGuide.structuralObligations
         if title.contains("act iii") || title.contains("act 3") || title.contains("three") {
             let ending = clean(featureSpine.endingImage, fallback: "")
             if !ending.isEmpty {
                 return "Drive the final choice toward the ending image: \(ending)"
             }
-            return "Force the final choice and land the emotional resolution."
+            return obligations.actThree
+        }
+        if title.contains("act ii") || title.contains("act 2") || title.contains("two") {
+            return obligations.actTwo
+        }
+        if title.contains("act i") || title.contains("act 1") || title.contains("one") {
+            return obligations.actOne
         }
 
         let question = clean(featureSpine.centralQuestion, fallback: "")

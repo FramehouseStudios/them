@@ -1158,6 +1158,52 @@ final class ScreenplayFeatureWorkflowPlannerTests: XCTestCase {
         XCTAssertEqual(ScreenplayFeatureWorkflowPlanner.inferredActTitle(currentCursorLine: 95 * 55, lineCount: 6_000), "Act III")
     }
 
+    func testEachActGetsItsOwnStructuralObligation() {
+        // 2026-09-30: "act ii" and "act iii" contain "act i", so every Act II and
+        // Act III page was told to "make Act II unavoidable", and Memories showed
+        // that template as the story's Now.
+        func obligation(act: String, ending: String = "") -> String {
+            ScreenplayFeatureWorkflowPlanner.buildSnapshot(
+                project: nil,
+                outline: BackendScreenplayOutline(updatedAt: nil, actCount: 0, sceneCount: 0, beatCount: 0, acts: [], scenes: [], beats: []),
+                structuredDraft: ScreenplayStructuredDraft(updatedAt: Date(), lineCount: 120, sceneCount: 0, paragraphs: [], scenes: [], characters: []),
+                projectBinding: .empty,
+                featureSpine: ScreenplayFeatureSpine(actPosition: act, endingImage: ending),
+                lastCommittedWrite: nil,
+                acceptedPageBatchCount: 0,
+                currentCursorLine: 72,
+                draftText: "INT. SENATE - NIGHT\n\nNORA counts."
+            ).structuralObligation
+        }
+        let fixed = ScreenplayFeatureProgressionGuide.structuralObligations
+        XCTAssertEqual(obligation(act: "Act I"), fixed.actOne)
+        XCTAssertEqual(obligation(act: "Act II"), fixed.actTwo)
+        XCTAssertEqual(obligation(act: "Act III"), fixed.actThree)
+        XCTAssertEqual(obligation(act: "Act III", ending: "The clock stopped at 11:58."), "Drive the final choice toward the ending image: The clock stopped at 11:58.")
+        XCTAssertTrue(ScreenplayFeatureProgressionGuide.isPlannerScaffold(fixed.actOne), "a template is never the story's Now")
+        XCTAssertTrue(ScreenplayFeatureProgressionGuide.isPlannerScaffold(fixed.actTwo))
+    }
+
+    func testWithNoActNamedTheActFollowsThePageCountNotTheCursor() {
+        // 2026-09-30: after a relaunch the cursor sat on line 1 and a 74-page
+        // script (75-page target) was briefed "Current act: Act I".
+        let snapshot = ScreenplayFeatureWorkflowPlanner.buildSnapshot(
+            project: nil,
+            outline: BackendScreenplayOutline(updatedAt: nil, actCount: 0, sceneCount: 0, beatCount: 0, acts: [], scenes: [], beats: []),
+            structuredDraft: ScreenplayStructuredDraft(updatedAt: Date(), lineCount: 3_900, sceneCount: 0, paragraphs: [], scenes: [], characters: []),
+            projectBinding: .empty,
+            featureSpine: ScreenplayFeatureSpine(),
+            lastCommittedWrite: nil,
+            acceptedPageBatchCount: 0,
+            currentCursorLine: 1,
+            draftText: "INT. SENATE CHAMBER - NIGHT\n\nOsgood stops the clock.",
+            paginatedPageCount: 74,
+            targetPages: 75
+        )
+        XCTAssertEqual(snapshot.currentActTitle, "Act III")
+        XCTAssertEqual(snapshot.structuralObligation, ScreenplayFeatureProgressionGuide.structuralObligations.actThree)
+    }
+
     func testPlannerFallsBackToFeatureSpineWhenOutlineIsEmpty() {
         let snapshot = ScreenplayFeatureWorkflowPlanner.buildSnapshot(
             project: nil,
