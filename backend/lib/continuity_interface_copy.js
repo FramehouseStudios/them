@@ -63,4 +63,12 @@ function continuityNextMove(candidates = []) {
   return firstUsable(candidates, (text) => !isPlannerScaffoldSentence(text));
 }
 
-export { continuityNextMove, continuityPosition, continuityStoryState, withoutInterfaceCopy };
+// A draft that ends on FADE OUT / THE END is finished. The planner's act comes
+// from page count against an assumed 110 pages, so Home called a finished
+// 74-page script "Act II" and offered its next scene (seen live 2026-09-30).
+function draftReachedTheEnd(draft) {
+  const tail = String(draft || "").split("\n").map((line) => line.trim()).filter(Boolean).slice(-3);
+  return tail.some((line) => /^(?:FADE OUT|FADE TO BLACK|THE END)[.:]?$/i.test(line));
+}
+
+export { continuityNextMove, continuityPosition, continuityStoryState, draftReachedTheEnd, withoutInterfaceCopy };
