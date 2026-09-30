@@ -2941,7 +2941,6 @@ private var directionOneScriptEditor: some View {
         }
     }
 
-
     private var studioPerceivedPageSkeleton: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 7) {
@@ -8643,6 +8642,7 @@ Current draft version:
         return VStack(spacing: 16) {
             screenplayCurrentElementLabel
             StudioReadBackOfferBar(bridge: liveDraftBridge) { text in Task { _ = await onSubmitPrompt(text, .automatic, UUID().uuidString) } }
+            StudioStatusLine(bridge: liveDraftBridge)
 
             ZStack(alignment: .top) {
                 VStack(spacing: 0) {
