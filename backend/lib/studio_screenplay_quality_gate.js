@@ -198,11 +198,25 @@ function writerAsksForTheEnding(transcript = "") {
   return WRITER_ASKS_FOR_THE_ENDING.test(writerRequest);
 }
 
+// "Write the next page of Act II." names the act; the app's act comes from a
+// page count against a 110-page plan and said Act I at page 37 of a 75-page
+// script (seen live 2026-09-30). Only the writer's own words count.
+function writerRequestedAct(transcript = "") {
+  const source = String(transcript || "");
+  const direction = source.match(/Writer's immediate direction:\s*([^\n]+)/i)?.[1] ||
+    source.split(/Writer request:/i).slice(1).pop() ||
+    (source.length <= 300 ? source : "");
+  const act = cleanInline(inferScreenplayTask(direction)?.requestedAct, 40);
+  return /^Act (?:I|II|III)$/.test(act) ? act : "";
+}
+
 function evaluateStudioScreenplayReply({ reply = "", transcript = "", body = {} } = {}) {
   const text = normalizeScreenplayOutputContractText(String(reply || "").trim());
   const lines = classifyScreenplayLines(text);
   const requestedPages = studioScreenplayRequestedPages({ body, transcript });
   const featureContext = studioScreenplayFeatureContext(body);
+  const writersAct = writerRequestedAct(transcript);
+  if (writersAct) featureContext.requestedAct = writersAct;
   if (writerAsksForTheEnding(transcript)) featureContext.requestedAct = "Act III";
   const result = evaluateScreenplayPageQuality({
     text,

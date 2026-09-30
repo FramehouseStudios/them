@@ -1196,12 +1196,13 @@ function inferFeatureActKind(featureContext = {}) {
   // The named act wins. Sequence and obligation text only break a tie: an
   // Act I obligation reads "…a choice that makes Act II unavoidable", which
   // matched Act II first and rejected first pages as missing_act_two_reversal.
+  // The writer's requested act outranks the app's page-count act.
+  const requestedAct = actKindFromText(joined([featureContext.requestedAct, featureContext.requested_act]));
+  if (requestedAct) return requestedAct;
   const namedAct = actKindFromText(joined([
     featureContext.act,
     featureContext.currentAct,
     featureContext.current_act,
-    featureContext.requestedAct,
-    featureContext.requested_act,
   ]));
   if (namedAct) return namedAct;
   const describedAct = actKindFromText(joined([
