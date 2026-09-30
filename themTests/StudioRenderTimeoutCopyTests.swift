@@ -12,6 +12,15 @@ final class StudioRenderTimeoutCopyTests: XCTestCase {
         )
     }
 
+    func testAHeldBackFirstPageReassuresOnce() {
+        // 2026-09-30: "...held this page back: ... Your draft is unchanged. Your scene is still saved; try again..."
+        let held = StudioHeldBackReasonCopy.message(reason: "missing_playable_content")
+        XCTAssertEqual(
+            MagicMomentSignInDeferral.failureMessage(held),
+            "Your first page wasn't written yet. Clementine held this page back: nothing happened that an actor could play. Your draft is unchanged."
+        )
+    }
+
     func testOtherStudioRenderStagesKeepTheirMessage() {
         XCTAssertNil(BackendTalkFailureCopy.studioRenderMessage(stage: "studio_render", message: "Studio render stream response was empty."))
         XCTAssertNil(BackendTalkFailureCopy.studioRenderMessage(stage: "chat", message: "timed out"))
