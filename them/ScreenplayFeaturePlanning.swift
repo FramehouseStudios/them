@@ -176,10 +176,19 @@ struct ScreenplayFeatureProgressionGuide: Equatable {
 
     /// The planner's own wording, not something learned about this script: a template
     /// sequence move or obligation, its plan ("Act I - ...: ..."), or a move title.
+    /// Each act's fixed structural obligation (the workflow planner's
+    /// fallback when no beat or scene objective is known). Template, not story.
+    static let structuralObligations = (
+        actOne: "Force the protagonist into a choice that makes Act II unavoidable.",
+        actTwo: "Escalate the central pressure and turn the midpoint into irreversible fallout.",
+        actThree: "Force the final choice and land the emotional resolution."
+    )
+
     static func isPlannerScaffold(_ text: String) -> Bool {
         let clean = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !clean.isEmpty else { return true }
-        let templateLines = template.flatMap { [$0.pressure, $0.obligation, "\($0.pressure) \($0.obligation)"] + $0.nextMoves }
+        let fixedObligations = [structuralObligations.actOne, structuralObligations.actTwo, structuralObligations.actThree]
+        let templateLines = fixedObligations + template.flatMap { [$0.pressure, $0.obligation, "\($0.pressure) \($0.obligation)"] + $0.nextMoves }
         if templateLines.contains(where: { $0.caseInsensitiveCompare(clean) == .orderedSame }) { return true }
         return RestoredContinuityCopy.writerMove(clean).isEmpty
     }

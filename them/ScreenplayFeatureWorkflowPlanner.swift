@@ -1060,19 +1060,23 @@ enum ScreenplayFeatureWorkflowPlanner {
             return "Play the scene objective on screen: \(objective)"
         }
 
+        // Act III before II before I: "act ii" and "act iii" both contain
+        // "act i", so every page was given Act I's obligation ("...makes Act II
+        // unavoidable") and Memories showed it as the story's Now (2026-09-30).
         let title = currentActTitle.lowercased()
-        if title.contains("act i") || title.contains("act 1") || title.contains("one") {
-            return "Force the protagonist into a choice that makes Act II unavoidable."
-        }
-        if title.contains("act ii") || title.contains("act 2") || title.contains("two") {
-            return "Escalate the central pressure and turn the midpoint into irreversible fallout."
-        }
+        let obligations = ScreenplayFeatureProgressionGuide.structuralObligations
         if title.contains("act iii") || title.contains("act 3") || title.contains("three") {
             let ending = clean(featureSpine.endingImage, fallback: "")
             if !ending.isEmpty {
                 return "Drive the final choice toward the ending image: \(ending)"
             }
-            return "Force the final choice and land the emotional resolution."
+            return obligations.actThree
+        }
+        if title.contains("act ii") || title.contains("act 2") || title.contains("two") {
+            return obligations.actTwo
+        }
+        if title.contains("act i") || title.contains("act 1") || title.contains("one") {
+            return obligations.actOne
         }
 
         let question = clean(featureSpine.centralQuestion, fallback: "")
