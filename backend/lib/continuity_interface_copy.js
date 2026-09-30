@@ -4,6 +4,8 @@
 // read back on Home as if it were story. The app no longer sends it; this
 // drops what is already stored.
 
+import { isPlannerScaffoldSentence } from "./screenplay_page_quality.js";
+
 const INTERFACE_COPY = [
   /^write or accept a page batch and it will stay reviewable here\.?$/i,
   /^open the thread to review accepted page writes\.?$/i,
@@ -30,4 +32,35 @@ function continuityPosition(act, featureSequence) {
   return [repeatsAct ? "" : actText, sequence].filter(Boolean).join(" / ");
 }
 
-export { continuityPosition, withoutInterfaceCopy };
+// The page itself is not a story state: a scene heading, a capitalised cue
+// before a line ("... MAE Last one tonight? DRIVER ..."), or a bare heading
+// label ("BUS DEPOT"). Seen on Home 2026-09-30: "MAE and DRIVER were carrying
+// this: INT. BUS DEPOT - NIGHT Rain on the roof ...".
+function isScriptText(text) {
+  return /^(INT|EXT|INT\.\/EXT|I\/E)[.\s]/i.test(text) ||
+    /\b[A-Z][A-Z'\-]{1,}\s+[A-Z][a-z]/.test(text) ||
+    (/[A-Z]/.test(text) && text === text.toUpperCase());
+}
+
+// Memory's distilled arc line only restates the last beat.
+const DISTILLED_ARC = /^[A-Za-z][\w'-]* (?:is under pressure from|must change tactics after):/;
+
+function firstUsable(candidates, isUsable) {
+  for (const candidate of candidates) {
+    const text = withoutInterfaceCopy(candidate);
+    if (text && isUsable(text)) return text;
+  }
+  return "";
+}
+
+// What the characters were carrying, for "Where we left off".
+function continuityStoryState(candidates = []) {
+  return firstUsable(candidates, (text) => !isScriptText(text) && !DISTILLED_ARC.test(text) && !isPlannerScaffoldSentence(text));
+}
+
+// The next move, for "Where we left off": never the planner's own wording.
+function continuityNextMove(candidates = []) {
+  return firstUsable(candidates, (text) => !isPlannerScaffoldSentence(text));
+}
+
+export { continuityNextMove, continuityPosition, continuityStoryState, withoutInterfaceCopy };

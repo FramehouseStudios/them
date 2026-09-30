@@ -117,6 +117,18 @@ function isPlanningWord(token) {
   return FEATURE_OBLIGATION_CRAFT_STOPWORDS.has(token) || FEATURE_PLANNER_TEMPLATE_WORDS.has(token);
 }
 
+// A sentence made only of planner words ("Open on behavior that shows the wound
+// before anyone explains it.") or the planner's plan ("Act I - Opening Image /
+// Ordinary World: ...") is Feature Compass wording, not something about the story.
+function isPlannerScaffoldSentence(value = "") {
+  const text = String(value || "").trim();
+  if (!text) return true;
+  if (/^act\s+(i{1,3}|[1-3])\b[^:]*\s-\s[^:]*:/i.test(text)) return true;
+  if (/^(write the next scene|pay off the next story turn|advance |sharpen the act turn|sequence move:)/i.test(text)) return true;
+  const tokens = [...qualityTokenSet(text)];
+  return tokens.length > 0 && tokens.every((token) => isPlanningWord(token));
+}
+
 const CHARACTER_ARC_MEMORY_VALUE_FIELDS = Object.freeze([
   "want",
   "need",
@@ -2191,6 +2203,7 @@ function evaluateScreenplayPageQuality({
 
 export {
   classifyScreenplayLines,
+  isPlannerScaffoldSentence,
   evaluateCharacterArcMemoryCoverage,
   normalizeCharacterArcMemory,
   evaluateMomentumRescueQuality,
