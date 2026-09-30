@@ -31,12 +31,22 @@ struct ScreenplayFeatureProgressionGuide: Equatable {
         let explicitIndex = sequenceIndex(for: actPosition)
         let safePage = max(0, currentPage)
         let lowPageConflictsWithAct = safePage > 0 && safePage <= 2 && explicitIndex > 0
-        let step = lowPageConflictsWithAct
-            ? template[explicitIndex]
-            : stepForPage(safePage, targetPages: target, fallbackIndex: explicitIndex)
+        let explicitStep = template[explicitIndex]
+        let pageStep = stepForPage(safePage, targetPages: target, fallbackIndex: explicitIndex)
+        // The writer's act outranks a page count that puts the page in another act (a short
+        // draft marked "Act II" was held to Act I's opening); within that act the page decides.
+        let pageActConflicts = safePage > 0 && explicitIndex > 0 && pageStep.act != explicitStep.act
+        let step: Step
+        if lowPageConflictsWithAct || (pageActConflicts && (template.firstIndex(of: pageStep) ?? 0) < explicitIndex) {
+            step = explicitStep
+        } else if pageActConflicts {
+            step = template.last { $0.act == explicitStep.act } ?? explicitStep
+        } else {
+            step = pageStep
+        }
         let next = nextStep(after: step)
         let range = pageRange(for: step, targetPages: target)
-        let progress = safePage > 0 && !lowPageConflictsWithAct
+        let progress = safePage > 0 && !lowPageConflictsWithAct && !pageActConflicts
             ? "p\(min(safePage, target)) / \(target)"
             : "Act estimate"
         let firstMove = step.nextMoves.first ?? "Advance the next irreversible character choice."
