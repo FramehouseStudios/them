@@ -166,6 +166,17 @@ enum StudioActionDispatcher {
         return supported.count
     }
 
+    /// Automation only: hands a JSON action (or array) to the same dispatch a
+    /// Talk reply's `x-studio-actions` uses, so a voice action can be proved
+    /// on a simulator without a model reply.
+    @discardableResult
+    static func dispatchAutomation(json: String, center: NotificationCenter = .default) -> Int {
+        guard IOThemRuntime.isStudioAutomationSession, let data = json.data(using: .utf8) else { return 0 }
+        let actions = (try? JSONDecoder().decode([BackendStudioAction].self, from: data))
+            ?? (try? JSONDecoder().decode(BackendStudioAction.self, from: data)).map { [$0] } ?? []
+        return dispatch(actions, studioOpen: true, openStudio: {}, center: center)
+    }
+
     static func action(from notification: Notification) -> BackendStudioAction? {
         notification.userInfo?[userInfoKey] as? BackendStudioAction
     }

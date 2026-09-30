@@ -113,3 +113,24 @@ test("backend/index.js gate stays at 33603", async () => {
   if(text.length>0 && !text.endsWith("\n")) c+=1;
   assert.equal(c, 33603);
 });
+
+// Every Studio tab opens by voice however it is named (2026-09-30: the
+// "io.them" tab only opened for the internal tag value "them").
+test("[studio-actions] every Studio tab opens by voice, including io.them", async () => {
+  const m = await import("../lib/studio_actions.js");
+  const caps = m.parseStudioCapabilities(JSON.stringify({
+    tabs: ["draft", "beats", "craft", "outline", "them", "saved"], current_tab: "draft", studio_open: true,
+  }));
+  for (const [id, label] of [["draft", "Draft"], ["beats", "Beats"], ["craft", "Craft"], ["outline", "Outline"], ["them", "io.them"], ["saved", "Saved"]]) {
+    const tagged = m.extractStudioActions(`Opening ${label}.\n[[studio: open_tab tab=${id}]]`, caps, { transcript: "" });
+    const spoken = m.extractStudioActions(`Opening the ${label} tab now.`, caps, { transcript: "" });
+    const byLabel = m.extractStudioActions(`Here it is.\n[[studio: open_tab tab=${label}]]`, caps, { transcript: "" });
+    assert.deepEqual(tagged.actions.map((a) => a.tab), [id], `${label} tagged`);
+    assert.deepEqual(spoken.actions.map((a) => a.tab), [id], `${label} spoken`);
+    assert.deepEqual(byLabel.actions.map((a) => a.tab), [id], `${label} tagged by its label`);
+    assert.deepEqual(m.inferWriterCommands(`open the ${label} tab`).map((a) => a.args.tab), [id], `${label} writer command`);
+  }
+  assert.match(m.buildStudioControlsBlock(caps), /them \(the writer sees it as "io\.them"\)/);
+  assert.equal(m.normalizeStudioTab("Clementine"), "them");
+  assert.equal(m.normalizeStudioTab("io. them"), "them");
+});

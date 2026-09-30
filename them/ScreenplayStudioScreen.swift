@@ -293,6 +293,8 @@ struct ScreenplayStudioScreen: View {
     @AppStorage("studio_debug_shortcut_result_error") private var studioDebugShortcutResultError = ""
     @AppStorage("studio_debug_shortcut_result_json") private var studioDebugShortcutResultJSON = ""
     @AppStorage("studio_debug_inspector_interaction_token") private var studioDebugInspectorInteractionToken: Int = 0
+    @AppStorage("studio_debug_studio_action_token") private var studioDebugStudioActionToken: Int = 0
+    @AppStorage("studio_debug_studio_action_json") private var studioDebugStudioActionJSON = ""
     @AppStorage("studio_debug_inspector_interaction_action") private var studioDebugInspectorInteractionActionRaw = ""
     @AppStorage("studio_debug_inspector_interaction_primary") private var studioDebugInspectorInteractionPrimary = ""
     @AppStorage("studio_debug_inspector_interaction_secondary") private var studioDebugInspectorInteractionSecondary = ""
@@ -557,6 +559,7 @@ Replace is best when this file should become the script you edit. Append is safe
             .onReceive(NotificationCenter.default.publisher(for: .themStudioActionRequested)) { notification in
                 handleStudioActionNotification(notification)
             }
+            .onChange(of: studioDebugStudioActionToken) { _, _ in StudioActionDispatcher.dispatchAutomation(json: studioDebugStudioActionJSON) }
             .onReceive(NotificationCenter.default.publisher(for: FirstPageFreshProject.requested)) { startFirstPageProject($0) }
             .onReceive(NotificationCenter.default.publisher(for: .themTurnCommitted)) { notification in
                 guard let event = BackendTurnCommittedEvent(notification: notification) else { return }
@@ -4437,7 +4440,6 @@ private func refreshStudioCreativeInstincts(
         )
     }
 
-
     private func triggerDirectionOnePageFocusTransition() {
         directionOnePageFocusTransitionTask?.cancel()
         directionOnePageFocusTransitionTask = Task { @MainActor in
@@ -4666,11 +4668,9 @@ private var sidebarModeTabs: some View {
         }
     }
 
-
     private func directionOneProjectRecency(_ project: BackendScreenplayProjectSummary) -> TimeInterval {
         project.updatedAt ?? project.lastVersionAt ?? project.createdAt ?? 0
     }
-
 
 private var projectsSidebarContent: some View {
     ScreenplayStudioProjectsSidebar(
