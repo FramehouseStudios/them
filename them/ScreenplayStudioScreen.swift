@@ -6126,8 +6126,8 @@ private var projectsSidebarContent: some View {
 
     private func handleBeatLinkAction(_ beat: BackendScreenplayBeat) {
         guard let scene = currentSceneInspectorSelection ?? linkedScene(for: beat) else {
-            vm.beginEditingBeat(beat)
-            vm.infoText = "Pick a scene in Outline or on the page, then tap Link Scene again."
+            if let page = activeDraftSceneNavigatorItem { Task { await vm.linkBeatToPageScene(beat, slugline: page.label) }; return }
+            vm.beginEditingBeat(beat); vm.infoText = "Write a scene heading on the page first, then tap Pick Scene."
             return
         }
         Task { await vm.linkBeat(beat, to: scene) }
