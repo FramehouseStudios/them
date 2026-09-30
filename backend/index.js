@@ -264,6 +264,7 @@ import {
   trimToMax,
   writeJsonFileAtomic,
 } from "./lib/utils.js";
+import { SCREENPLAY_MEMORY_SETUP_PATTERN } from "./lib/screenplay_memory_setup_pattern.js";
 
 const lifecycleLogger = createLogger();
 
@@ -16262,7 +16263,6 @@ const SCREENPLAY_MEMORY_ACTION_NAME_BLOCKLIST = new Set([
 ]);
 
 const SCREENPLAY_MEMORY_MOTIF_PATTERN = /\b(?:(?:missing|sealed|forged|burned|rain-swollen|blank|flickering|broken|empty|final|lost|public|private)\s+)?(?:receipt|cassette|key|envelope|reel|photograph|photo|tape|microphone|pool|screen|light|lights|rain|glass|door|window|mirror|gun|knife|car|phone|voicemail|affidavit|report|evidence|docket|bench|vent|elevator|courthouse)\b/gi;
-const SCREENPLAY_MEMORY_SETUP_PATTERN = /\b(?:hide|hides|hidden|pocket|pockets|keeps?|missing|sealed|forged|unopened|buried|evidence|receipt|cassette|affidavit|voicemail|report|docket|key|envelope|reel)\b/i;
 
 function countScreenplayMemoryWords(text = "") {
   const matches = normalizeSnippet(text, 500).match(/[A-Za-z0-9'][A-Za-z0-9'-]*/g);
