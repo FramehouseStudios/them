@@ -3,6 +3,7 @@ import { test } from "node:test";
 import express from "express";
 
 import { mountDataRoutes } from "../lib/data_routes.js";
+import { listenEphemeral } from "./helpers/ephemeral_server.mjs";
 
 async function withServer({ clearCreativeMemory }, run) {
   const events = [];
@@ -50,7 +51,7 @@ async function withServer({ clearCreativeMemory }, run) {
   app.use((error, _req, res, _next) => {
     res.status(500).json({ error: error.message });
   });
-  const server = app.listen(0, "127.0.0.1");
+  const server = listenEphemeral(app);
   await new Promise((resolve) => server.once("listening", resolve));
   const address = server.address();
   try {

@@ -9,6 +9,7 @@ import { createAccountMemoryMutationCommitter } from "../lib/account_memory_turn
 import { mountHistoryRoutes } from "../lib/history_routes.js";
 import { createJsonPersistence } from "../lib/persistence_json.js";
 import { mountRecapRoutes } from "../lib/recap_routes.js";
+import { listenEphemeral } from "./helpers/ephemeral_server.mjs";
 
 function parseQueryLimit(value, fallback = 24, max = 200) {
   const parsed = Number.parseInt(String(value ?? ""), 10);
@@ -175,7 +176,7 @@ async function withServer(deps, fn) {
   mountHistoryRoutes(app, deps);
   mountRecapRoutes(app, deps);
   const server = await new Promise((resolve) => {
-    const s = app.listen(0, () => resolve(s));
+    const s = listenEphemeral(app).once("listening", () => resolve(s));
   });
   try {
     const { port } = server.address();
