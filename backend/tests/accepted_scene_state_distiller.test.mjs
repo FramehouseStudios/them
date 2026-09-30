@@ -442,3 +442,20 @@ test("an older scene revision cannot overwrite a newer accepted page", async () 
   assert.match(scene.outcome, /opens the east gate/i);
   assert.doesNotMatch(JSON.stringify(scene), /west gate/i);
 });
+
+test("[accepted-scene-state] a death in dialogue is not an irreversible consequence", () => {
+  // Seen live 2026-09-30: "The dairy thing died in April." (a bill) became
+  // NORA's irreversible death and blocked every later page with NORA in it.
+  const state = buildDeterministicAcceptedSceneState(`INT. SENATE CORRIDOR - NIGHT
+
+A LOBBYIST steps into her path. Nora burns the old whip count in an ashtray.
+
+LOBBYIST
+Nora, two minutes on the dairy thing.
+
+NORA
+The dairy thing died in April. Send flowers.`);
+  const consequences = state.irreversibleConsequences || [];
+  assert.ok(consequences.some((fact) => /burns the old whip count/.test(fact)), JSON.stringify(state));
+  assert.ok(!consequences.some((fact) => /dairy thing died/.test(fact)), JSON.stringify(state));
+});

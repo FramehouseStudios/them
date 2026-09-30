@@ -227,6 +227,10 @@ function deterministicFacts(lines = []) {
   const out = Object.fromEntries(ACCEPTED_SCENE_FACT_FIELDS.map((field) => [field, []]));
   for (const line of lines) {
     for (const [field, patterns] of Object.entries(CAUSAL_PATTERNS)) {
+      // What a character says is not what happened: "The dairy thing died in
+      // April." (a bill) was stored as NORA's irreversible death (seen live
+      // 2026-09-30). Only action lines put an irreversible event on screen.
+      if (field === "irreversibleConsequences" && line.kind === "dialogue") continue;
       if (!patterns.some((pattern) => pattern.test(line.text))) continue;
       pushUniqueFact(out[field], { fact: line.display, evidence: line.text });
       if (out[field].length > FACTS_PER_FIELD_MAX) out[field].length = FACTS_PER_FIELD_MAX;

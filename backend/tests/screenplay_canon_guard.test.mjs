@@ -96,6 +96,22 @@ test("[screenplay-canon-guard] catches present-day resurrection but permits an e
   assert.equal(flashback.ok, true);
 });
 
+test("[screenplay-canon-guard] a speaker is not the subject of the death they mention", () => {
+  // Seen live 2026-09-30: NORA's line about a bill dying made every page with
+  // NORA in it an irreversible_undo.
+  const spoken = evaluateScreenplayCanonContinuity({
+    text: "INT. SENATE CORRIDOR - NIGHT\n\nNora walks the vote count down the corridor.\n\nNORA\nThe dairy thing died in April. Send flowers.",
+    acceptedCausalFacts: [{ kind: "irreversible_consequence", fact: "NORA: The dairy thing died in April. Send flowers." }],
+  });
+  assert.equal(spoken.ok, true, JSON.stringify(spoken.violations));
+
+  const witness = evaluateScreenplayCanonContinuity({
+    text: "INT. MARA'S KITCHEN - DAY\n\nMara opens the window.\n\nMARA\nWe need to leave.",
+    acceptedCausalFacts: [{ kind: "irreversible_consequence", fact: "Eli dies in Mara's arms." }],
+  });
+  assert.equal(witness.ok, true, "Mara was there; Eli died");
+});
+
 test("[screenplay-canon-guard] catches relationship and decision erasure without blocking earned change", () => {
   const relationship = evaluateScreenplayCanonContinuity({
     text: "INT. COURTHOUSE - DAY\n\nEli chooses the case. By lunch, they are back to normal.",
