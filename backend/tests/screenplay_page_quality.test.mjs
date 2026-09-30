@@ -2093,3 +2093,28 @@ test("[screenplay-page-quality] memory's line templates and noticed motifs do no
   });
   assert.equal(quality.ok, true, `${quality.reason} ${JSON.stringify(quality.featureObligation?.executionBriefCoverage?.supportFields)}`);
 });
+
+test("[screenplay-page-quality] memory's template line is not an act obligation", () => {
+  const text = [
+    "INT. DECKER'S OFFICE - NIGHT",
+    "",
+    "Cal reads the clause off his phone. Decker listens with his eyes closed.",
+    "",
+    "DECKER",
+    "If Grace gets that clause, she votes yes.",
+    "",
+    "CAL",
+    "So we lose the vote.",
+    "",
+    "DECKER",
+    "So there is no vote. Call Henry Osgood.",
+  ].join("\n");
+  const quality = evaluateScreenplayPageQuality({
+    text, lines: classifyScreenplayLines(text), targetPages: 1, hasSceneAnchor: true,
+    featureContext: {
+      act: "Act II",
+      characterArcState: "Nora is under pressure from: Teddy mumbles in his sleep. June puts a hand on his back without looking.",
+    },
+  });
+  assert.notEqual(quality.reason, "missing_act_two_reversal", JSON.stringify(quality.featureObligation));
+});

@@ -1287,7 +1287,11 @@ function featureObligationPhrasesForAct(featureActKind = "", featureContext = {}
     );
   }
 
-  return phrases.filter(Boolean);
+  // Memory's own template around an old line ("Nora is under pressure from:
+  // Teddy mumbles in his sleep.") is not an act obligation: its words held an
+  // Act II cutaway to a sleeping boy from fifteen pages back (seen live
+  // 2026-09-30).
+  return phrases.filter(Boolean).filter((phrase) => !isDistilledMemoryTemplate(phrase));
 }
 
 function evaluateFeatureActObligationCoverage({
