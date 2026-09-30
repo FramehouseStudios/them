@@ -1109,6 +1109,7 @@ function mountMemoriesRoutes(app, deps = {}) {
     const nowTs = Date.now();
     const expectedRevision = expectedCreativeMemoryRevision(req);
     const { character, characterBible: rawCharacterBible } = normalizeCharacterBiblePatch(req.body || {});
+    const editProjectId = String(req.body?.project_id ?? "").trim().slice(0, 96);
     const characterBible = enrichCharacterBiblePatchWithCorrectionParser(character, rawCharacterBible);
     if (!character || !characterBible) {
       res.setHeader("Cache-Control", "no-store");
@@ -1134,6 +1135,9 @@ function mountMemoriesRoutes(app, deps = {}) {
         source: "memory_character_bible_edit",
         characterBible,
         expectedRevision,
+        // The same name can live in several scripts; the edit goes to the
+        // card's script (it went to the first NORA found, 2026-09-30).
+        ...(editProjectId ? { metadata: { projectId: editProjectId } } : {}),
       });
     } catch (error) {
       if (isCreativeMemoryRevisionConflict(error)) {
@@ -1187,7 +1191,9 @@ function mountMemoriesRoutes(app, deps = {}) {
     const creativeMemoryRevision = buildCreativeMemoryRevision(creativeMemory);
     const cards = buildMemoryCards(persisted, historyThreads, 160, creativeMemory);
     const normalizedTargetId = normalizeMemoryCardId(`character-${character}`);
-    const updatedCard = cards.find((card) => (
+    const updatedCard = (editProjectId && cards.find((card) => (
+      String(card.key || "") === `character:${character}` && card.projectId === editProjectId
+    ))) || cards.find((card) => (
       normalizeMemoryCardId(card.id) === normalizedTargetId ||
       String(card.key || "") === `character:${character}`
     )) || null;

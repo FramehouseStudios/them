@@ -8389,7 +8389,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         _ = try await BackendMemoryAPI.shared.updateCharacterBibleMemory(
             id: "character-\(character)",
             key: "character:\(character)",
-            characterBible: bible
+            characterBible: bible, projectID: preferredProjectID
         )
         latestAppliedMemory = ScreenplayStudioAppliedMemoryState(
             id: UUID(),

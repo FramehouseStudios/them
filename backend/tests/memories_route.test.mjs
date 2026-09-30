@@ -877,6 +877,39 @@ test("[memories] POST /memories/character-bible/update: records structured chara
   });
 });
 
+test("[memories] POST /memories/character-bible/update: edits the character in the card's own script", async () => {
+  // 2026-09-30: NORA lived in two scripts; an edit went to the first one found.
+  const recordCalls = [];
+  const deps = defaultDeps({
+    creativeMemoryStore: {
+      recordCharacterMention: async (args) => {
+        recordCalls.push(args);
+        return { ok: true, action: "updated", characterName: args.characterName };
+      },
+      getCreativeMemoryForPrompt: async () => ({ characters: [] }),
+    },
+    buildMemoryCards: () => [
+      { id: "character-nora--project_a", key: "character:Nora", projectId: "project_a", source: "character_bible" },
+      { id: "character-nora--project_b", key: "character:Nora", projectId: "project_b", source: "character_bible" },
+    ],
+  });
+  await withTestServer(deps, async (baseURL) => {
+    const scoped = await postJson(baseURL, "/memories/character-bible/update", {
+      card_id: "character-nora--project_b",
+      project_id: "project_b",
+      character_bible: { character: "Nora", corrections: ["Nora counts on her fingers."] },
+    });
+    assert.equal(scoped.status, 200);
+    assert.equal(scoped.body.memory_card.id, "character-nora--project_b");
+    const unscoped = await postJson(baseURL, "/memories/character-bible/update", {
+      character_bible: { character: "Nora", corrections: ["Nora counts on her fingers."] },
+    });
+    assert.equal(unscoped.status, 200);
+  });
+  assert.deepEqual(recordCalls[0].metadata, { projectId: "project_b" });
+  assert.equal("metadata" in recordCalls[1], false, "an older app edits by name as before");
+});
+
 test("[memories] POST /memories/character-bible/update: derives structured replacements from correction prose", async () => {
   const recordCalls = [];
   const deps = defaultDeps({

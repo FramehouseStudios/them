@@ -9094,10 +9094,10 @@ actor BackendMemoryAPI {
     func updateCharacterBibleMemory(
         id: String,
         key: String? = nil,
-        characterBible: BackendCharacterBibleMemory
+        characterBible: BackendCharacterBibleMemory, projectID: String = ""
     ) async throws -> BackendReadResult<BackendMemoryMutationResponse> {
         var payload: [String: Any] = [
-            "card_id": id,
+            "card_id": id, "project_id": projectID,
             "character_bible": characterBible.payload
         ]
         if let key, !key.isEmpty { payload["key"] = key }
