@@ -1494,7 +1494,7 @@ struct RootExperienceView: View {
         }
 
         let voiceToken = studioDebugPreferenceInt("studio_debug_voice_turn_token")
-        if voiceToken > 0 {
+        if voiceToken > studioDebugPreferenceInt("studio_debug_voice_turn_ack_token") { // not the last, already-run turn
             handleStudioDebugVoiceTurnTokenChange(voiceToken)
         }
         #endif
