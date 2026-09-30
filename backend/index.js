@@ -133,7 +133,7 @@ import {
   MEMORY_BLOCK_OPEN,
 } from "./lib/prompt_assembly.js";
 import { DEFAULT_FEATURE_TARGET_PAGES, findSequenceForPage } from "./lib/feature_screenplay_map.js";
-import { fitSystemPromptForTurnLatency as fitSystemPromptForTurnLatencyBase, capSystemPromptKeepingSafety } from "./lib/system_prompt_trim.js"; import { continuityPosition, withoutInterfaceCopy } from "./lib/continuity_interface_copy.js";
+import { fitSystemPromptForTurnLatency as fitSystemPromptForTurnLatencyBase, capSystemPromptKeepingSafety } from "./lib/system_prompt_trim.js"; import { continuityNextMove, continuityPosition, continuityStoryState, withoutInterfaceCopy } from "./lib/continuity_interface_copy.js";
 import { createScaleBackplane } from "./lib/scale_backplane.mjs";
 import { createPersistence } from "./lib/persistence_adapter.js";
 import { checkKnownDomainsAtStartup } from "./lib/known_domains_startup_check.js";
@@ -4207,21 +4207,21 @@ function buildSessionContinuityOpeningLine(snapshot = {}) {
     ? snapshot.characterFocus.slice(0, 2).map((item) => normalizeSnippet(item, 48)).filter(Boolean)
     : [];
   const lastState = sentenceFragment(
-    snapshot.lastSceneOutcome ||
-      snapshot.sceneSummary ||
-      snapshot.currentBeat ||
-      snapshot.actPressureState ||
-      snapshot.characterArcState ||
-      snapshot.memoryExcerpt ||
-      "",
-    180
+    continuityStoryState([ // not the page itself, not the planner's own wording
+      snapshot.lastSceneOutcome,
+      snapshot.sceneSummary,
+      snapshot.currentBeat,
+      snapshot.actPressureState,
+      snapshot.characterArcState,
+      snapshot.memoryExcerpt,
+    ]), 180
   );
   const nextMove = sentenceFragment(
-    snapshot.nextScenePlan ||
-      (Array.isArray(snapshot.nextThreeTurns) ? snapshot.nextThreeTurns[0] : "") ||
-      (Array.isArray(snapshot.actThreePayoffPath) ? snapshot.actThreePayoffPath[0] : "") ||
-      "",
-    180
+    continuityNextMove([
+      snapshot.nextScenePlan,
+      ...(Array.isArray(snapshot.nextThreeTurns) ? snapshot.nextThreeTurns : []),
+      ...(Array.isArray(snapshot.actThreePayoffPath) ? snapshot.actThreePayoffPath.slice(0, 1) : []),
+    ]), 180
   );
   const rawDueStoryThread = snapshot.dueStoryThread ?? snapshot.due_story_thread;
   const dueSetup = sentenceFragment(rawDueStoryThread?.setup || rawDueStoryThread?.promised_payoff || "", 180);
