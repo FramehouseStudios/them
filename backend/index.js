@@ -201,7 +201,7 @@ import { mountRealtimeStudioRenderRoutes } from "./lib/realtime_studio_render_ro
 import { mountRealtimeTurnCommitRoute } from "./lib/realtime_turn_commit_route.js";
 import { mountRealtimeCallRoute } from "./lib/realtime_call_route.js";
 import { structuralScreenplayModelReasonForTask } from "./lib/structural_screenplay_quality.js";
-import { mountMemoriesRoutes } from "./lib/memories_route.js";
+import { mountMemoriesRoutes, withProjectScopedCardIds } from "./lib/memories_route.js";
 import { createAccountMemoryCAS } from "./lib/account_memory_cas.js";
 import {
   createAccountMemoryMutationCommitter,
@@ -30542,7 +30542,7 @@ function buildMemoryCards(memory, historyThreads = [], limit = 24, creativeMemor
   const hasPostClearConversation = recentHistoryThreads.length > 0 ||
     Math.max(0, Number(memory?.lastConversationAt || 0)) > memoriesClearedAt;
   const cards = [];
-  cards.push(...buildCharacterBibleMemoryCards(creativeMemory, nowTs));
+  cards.push(...withProjectScopedCardIds(buildCharacterBibleMemoryCards(creativeMemory, nowTs)));
   const correctionAmbiguities = buildCanonCorrectionAmbiguityCards(creativeMemory, nowTs);
   const correctionReceipts = buildCanonCorrectionReceiptCards(creativeMemory, nowTs);
   const controlledCorrectionMemoryIds = new Set(
@@ -30893,7 +30893,7 @@ function buildMemoryCards(memory, historyThreads = [], limit = 24, creativeMemor
   }
 
   return cards
-    .filter((card) => !forgottenIds.has(normalizeMemoryCardId(card.id)))
+    .filter((card) => !forgottenIds.has(normalizeMemoryCardId(card.id)) && !forgottenIds.has(normalizeMemoryCardId(String(card.id).split("--")[0])))
     .sort((a, b) => Number(b.rememberedAt || 0) - Number(a.rememberedAt || 0))
     .slice(0, Math.max(1, limit));
 }

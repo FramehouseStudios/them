@@ -127,6 +127,25 @@ test("forgetMemoryCard durably removes the selected character or episode", async
   assert.equal(ledger.episodicMemories.length, 1);
 });
 
+test("forgetting a character in one script keeps her bible in the others", async () => {
+  // 2026-09-30: NORA lived in two drafts; forgetting her card erased both.
+  const store = createCreativeMemoryStore({ persistence: freshPersistence() });
+  await store.recordCharacterMention({ userId: "writer-a", characterName: "Nora", metadata: { projectId: "p1" } });
+  await store.recordCharacterMention({ userId: "writer-a", characterName: "Nora", metadata: { projectId: "p2" } });
+  const projectsWithNora = async () => ((await store.getCreativeMemoryLedger({ userId: "writer-a" }))?.characters || [])
+    .filter((item) => item.name === "Nora")
+    .map((item) => item.metadata?.projectId);
+  assert.deepEqual((await projectsWithNora()).sort(), ["p1", "p2"]);
+
+  const scoped = await store.forgetMemoryCard({ userId: "writer-a", key: "character:nora", projectId: "p2" });
+  assert.equal(scoped.forgotten, true);
+  assert.deepEqual(await projectsWithNora(), ["p1"]);
+
+  const unscoped = await store.forgetMemoryCard({ userId: "writer-a", key: "character:nora" });
+  assert.equal(unscoped.forgotten, true, "an older app without a project still forgets by name");
+  assert.deepEqual(await projectsWithNora(), []);
+});
+
 test("recordCharacterMention dedupes by name and merges tags + last_referenced", async () => {
   const store = createCreativeMemoryStore({ persistence: freshPersistence() });
   await store.recordCharacterMention({ userId: "u2", characterName: "Bob", tags: ["antagonist"] });

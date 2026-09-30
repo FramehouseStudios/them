@@ -1492,6 +1492,27 @@ test("[memories] POST /memories/forget: deletes durable character memory before 
   });
 });
 
+test("[memories] POST /memories/forget: forgets the character only in the card's project", async () => {
+  const calls = [];
+  await withTestServer(defaultDeps({
+    creativeMemoryStore: {
+      forgetMemoryCard: async (input) => {
+        calls.push(input);
+        return { ok: true, forgotten: true };
+      },
+    },
+  }), async (baseURL) => {
+    await postJson(baseURL, "/memories/forget", {
+      card_id: "character-nora--project_b",
+      key: "character:NORA",
+      project_id: "project_b",
+    });
+    await postJson(baseURL, "/memories/forget", { card_id: "character-nora", key: "character:NORA" });
+  });
+  assert.equal(calls[0].projectId, "project_b");
+  assert.equal("projectId" in calls[1], false, "an older app sends no project");
+});
+
 test("[memories] POST /memories/forget: forwards both revisions for durable deletion", async () => {
   const calls = [];
   await withTestServer(defaultDeps({

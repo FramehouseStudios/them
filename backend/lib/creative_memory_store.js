@@ -6244,6 +6244,7 @@ function createCreativeMemoryStore({
   async function forgetMemoryCard({
     userId,
     key,
+    projectId = "",
     expectedRevision = "",
   } = {}) {
     const cleanUserId = String(userId || "").trim();
@@ -6268,9 +6269,14 @@ function createCreativeMemoryStore({
       let forgotten = false;
       if (type === "character") {
         const targetName = target.toLowerCase();
+        // A name can live in several scripts; with a project, only that
+        // script's bible goes (forgetting NORA in one draft erased her from
+        // every draft). Without one, every bible with the name goes, as before.
+        const targetProject = String(projectId || "").trim();
         const characters = Array.isArray(current.characters) ? current.characters : [];
         const remaining = characters.filter((character) => (
-          String(character?.name || "").trim().toLowerCase() !== targetName
+          String(character?.name || "").trim().toLowerCase() !== targetName ||
+          (targetProject && projectIdentity(character, "metadata").projectId !== targetProject)
         ));
         forgotten = remaining.length !== characters.length;
         current.characters = remaining;

@@ -3,6 +3,11 @@ import Combine
 
 // MARK: - Model
 
+extension MemoryItem {
+    static func byID(_ items: [MemoryItem]) -> [String: MemoryItem] { NewestByID.map(items, id: \.id, date: \.rememberedDate) }
+    static func uniqued(_ items: [MemoryItem]) -> [MemoryItem] { NewestByID.uniqued(items, id: \.id, date: \.rememberedDate) }
+}
+
 struct MemoryItem: Identifiable, Hashable {
     let id: String
     var key: String
@@ -217,7 +222,7 @@ final class MemoriesViewModel: ObservableObject {
             if isDeltaFetch {
                 switch state {
                 case .loaded(let current):
-                    var merged = Dictionary(uniqueKeysWithValues: current.map { ($0.id, $0) })
+                    var merged = MemoryItem.byID(current)
                     for memory in incoming {
                         merged[memory.id] = memory
                     }
@@ -226,7 +231,7 @@ final class MemoriesViewModel: ObservableObject {
                     items = incoming
                 }
             } else {
-                items = incoming
+                items = MemoryItem.uniqued(incoming)
             }
 
             lastSync = result.sync
@@ -389,11 +394,14 @@ final class MemoriesViewModel: ObservableObject {
 
     func forgetMemory(itemID: String, key: String) async throws {
         _ = try? await BackendMemoryAPI.shared.bootstrapSession()
+        var projectID = ""
+        if case .loaded(let items) = state { projectID = items.first { $0.id == itemID }?.projectID ?? "" }
         let result: BackendReadResult<BackendMemoryMutationResponse>
         do {
             result = try await BackendMemoryAPI.shared.forgetMemoryCard(
                 id: itemID,
-                key: key
+                key: key,
+                projectID: projectID
             )
         } catch {
             if let backendError = error as? BackendMemoryAPIError,
@@ -709,7 +717,7 @@ final class MemoriesViewModel: ObservableObject {
 
         var merged = [String: MemoryItem]()
         if case .loaded(let current) = state {
-            merged = Dictionary(uniqueKeysWithValues: current.map { ($0.id, $0) })
+            merged = MemoryItem.byID(current)
         }
         for memory in incoming {
             merged[memory.id] = memory
@@ -830,7 +838,7 @@ final class MemoriesViewModel: ObservableObject {
     private func replaceMemoryItem(_ memory: MemoryItem) {
         var merged = [String: MemoryItem]()
         if case .loaded(let current) = state {
-            merged = Dictionary(uniqueKeysWithValues: current.map { ($0.id, $0) })
+            merged = MemoryItem.byID(current)
         }
         merged[memory.id] = memory
         let items = merged.values.sorted { $0.rememberedDate > $1.rememberedDate }
@@ -841,12 +849,13 @@ final class MemoriesViewModel: ObservableObject {
         guard case .loaded(let current) = state else { return }
         let normalizedID = id.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let normalizedKey = key.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let normalize = { (value: String) in value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+        // The key ("character:NORA") is shared by one character's cards in
+        // several scripts; it only picks the card when the id matched none.
+        let idMatches = !normalizedID.isEmpty && current.contains { normalize($0.id) == normalizedID }
         let filtered = current.filter { item in
-            let itemID = item.id.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            let itemKey = item.key.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            if !normalizedID.isEmpty && itemID == normalizedID { return false }
-            if !normalizedKey.isEmpty && itemKey == normalizedKey { return false }
-            return true
+            if idMatches { return normalize(item.id) != normalizedID }
+            return normalizedKey.isEmpty || normalize(item.key) != normalizedKey
         }
         state = filtered.isEmpty ? .empty : .loaded(filtered)
     }
