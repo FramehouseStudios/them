@@ -280,7 +280,7 @@ enum ScreenplayLocalExport {
 
         for (index, line) in lines.enumerated() {
             let element = elements.indices.contains(index) ? elements[index] ?? .action : .action
-            let paragraph = paragraphStyle(for: element, printableWidth: printableWidth)
+            let paragraph = paragraphStyle(for: ScreenplayEditorElement.layoutElement(element, line: line), printableWidth: printableWidth)
             let attributes: [NSAttributedString.Key: Any] = [
                 .font: font,
                 .foregroundColor: NSColor.black,

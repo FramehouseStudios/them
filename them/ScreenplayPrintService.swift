@@ -317,7 +317,7 @@ enum ScreenplayPrintService {
         let result = NSMutableAttributedString()
         for (index, line) in lines.enumerated() {
             let element = inferred.indices.contains(index) ? (inferred[index] ?? .action) : .action
-            let para = iOSParagraphStyle(for: element, printableWidth: printableWidth)
+            let para = iOSParagraphStyle(for: ScreenplayEditorElement.layoutElement(element, line: line), printableWidth: printableWidth)
             let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: UIColor.black, .paragraphStyle: para]
             let text = index < lines.count - 1 ? line + "\n" : line
             result.append(NSAttributedString(string: text, attributes: attrs))

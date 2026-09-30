@@ -2351,7 +2351,7 @@ private func applyScreenplayParagraphAttributes(
             return index + 1 < elements.count ? elements[index + 1] : nil
         }()
         let paragraphStyle = screenplayParagraphStyle(
-            for: resolvedElement,
+            for: ScreenplayEditorElement.layoutElement(resolvedElement, line: line),
             previousElement: previousElement,
             nextElement: nextElement,
             containerWidth: containerWidth
