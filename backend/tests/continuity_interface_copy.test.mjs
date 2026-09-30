@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { continuityPosition, withoutInterfaceCopy } from "../lib/continuity_interface_copy.js";
+import { continuityPosition, draftReachedTheEnd, withoutInterfaceCopy } from "../lib/continuity_interface_copy.js";
 
 test("stored Feature Compass interface text is dropped from story outcomes", () => {
   assert.equal(withoutInterfaceCopy("Write or accept a page batch and it will stay reviewable here."), "");
@@ -56,4 +56,13 @@ test("where we left off: the planner's wording is not the next move", async () =
     "Mae hides the coat from the driver.",
   ]), "Mae hides the coat from the driver.");
   assert.equal(continuityNextMove(["Write the next scene: BUS DEPOT"]), "");
+});
+
+test("a draft ending on FADE OUT or THE END is finished; one that mentions it earlier is not", () => {
+  // Seen live 2026-09-30: Home called a finished 74-page script "Act II".
+  assert.equal(draftReachedTheEnd("NORA\nSine die.\n\nFADE OUT.\n\nTHE END\n"), true);
+  assert.equal(draftReachedTheEnd("The lights go down.\n\nFADE TO BLACK."), true);
+  assert.equal(draftReachedTheEnd("FADE IN:\n\nINT. SENATE - NIGHT\n\nNora counts."), false);
+  assert.equal(draftReachedTheEnd("DANNY\nWhen do we fade out?\n\nNora doesn't answer.\n\nShe keeps counting.\n\nThe clock reads 11:40."), false);
+  assert.equal(draftReachedTheEnd(""), false);
 });

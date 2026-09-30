@@ -133,7 +133,7 @@ import {
   MEMORY_BLOCK_OPEN,
 } from "./lib/prompt_assembly.js";
 import { DEFAULT_FEATURE_TARGET_PAGES, findSequenceForPage } from "./lib/feature_screenplay_map.js";
-import { fitSystemPromptForTurnLatency as fitSystemPromptForTurnLatencyBase, capSystemPromptKeepingSafety } from "./lib/system_prompt_trim.js"; import { continuityNextMove, continuityPosition, continuityStoryState, withoutInterfaceCopy } from "./lib/continuity_interface_copy.js";
+import { fitSystemPromptForTurnLatency as fitSystemPromptForTurnLatencyBase, capSystemPromptKeepingSafety } from "./lib/system_prompt_trim.js"; import { continuityNextMove, continuityPosition, continuityStoryState, draftReachedTheEnd, withoutInterfaceCopy } from "./lib/continuity_interface_copy.js";
 import { createScaleBackplane } from "./lib/scale_backplane.mjs";
 import { createPersistence } from "./lib/persistence_adapter.js";
 import { checkKnownDomainsAtStartup } from "./lib/known_domains_startup_check.js";
@@ -4201,7 +4201,7 @@ function buildSessionContinuityOpeningLine(snapshot = {}) {
     .replace(/[.!?]+$/g, "")
     .trim();
   const project = normalizeSnippet(snapshot.projectTitle || "", 120); // never the raw project id
-  const position = normalizeSnippet(
+  const position = snapshot.finished ? "the finished draft, through FADE OUT" : normalizeSnippet(
     continuityPosition(snapshot.act, snapshot.featureSequence),
     180
   );
@@ -4218,7 +4218,7 @@ function buildSessionContinuityOpeningLine(snapshot = {}) {
       snapshot.memoryExcerpt,
     ]), 180
   );
-  const nextMove = sentenceFragment(
+  const nextMove = snapshot.finished ? "read it through, then a rewrite pass" : sentenceFragment(
     continuityNextMove([
       snapshot.nextScenePlan,
       ...(Array.isArray(snapshot.nextThreeTurns) ? snapshot.nextThreeTurns : []),
@@ -4272,7 +4272,7 @@ function buildSessionContinuityOpeningLine(snapshot = {}) {
   return normalizeSnippet(parts.join(" "), 640);
 }
 
-function buildSessionContinuitySnapshot(memory = null, creativeMemory = null) {
+function buildSessionContinuitySnapshot(memory = null, creativeMemory = null, finishedProjectId = "") { // finishedProjectId: its latest draft reached FADE OUT
   const projects = sanitizeScreenplayProjectMemoryItems(
     memory?.screenplayProjectMemory,
     SCREENPLAY_PROJECT_MEMORY_MAX
@@ -4463,7 +4463,7 @@ function buildSessionContinuitySnapshot(memory = null, creativeMemory = null) {
           : "creative_project_continuity"
         : "creative_memory",
     project_id: normalizeSnippet(project?.projectId || episode?.projectId || "", 96),
-    project_title: normalizeSnippet(episode?.projectTitle || project?.projectTitle || "", 160), // a title, never the id
+    project_title: normalizeSnippet(episode?.projectTitle || project?.projectTitle || "", 160), ...(finishedProjectId && normalizeSnippet(project?.projectId || episode?.projectId || "", 96) === finishedProjectId ? { finished: true } : {}), // a title, never the id
     act: normalizeSnippet(acceptedScene?.act || project?.act || "", 120),
     feature_sequence: normalizeSnippet(acceptedScene?.featureSequence || project?.featureSequence || "", 220),
     feature_obligation: normalizeSnippet(project?.featureObligation || "", 280),
@@ -4535,7 +4535,7 @@ function buildSessionContinuitySnapshot(memory = null, creativeMemory = null) {
     ...snapshot,
     opening_line: buildSessionContinuityOpeningLine({
       projectId: snapshot.project_id,
-      projectTitle: snapshot.project_title,
+      projectTitle: snapshot.project_title, finished: snapshot.finished,
       act: snapshot.act,
       featureSequence: snapshot.feature_sequence,
       sceneSummary: snapshot.scene_summary,
@@ -32569,8 +32569,8 @@ app.post("/session", sessionRateLimitGuard, async (req, res) => {
     }
   }
   const sessionContinuity = buildSessionContinuitySnapshot(
-    sanitizedRestoredMemory,
-    sessionCreativeMemory
+    sanitizedRestoredMemory, sessionCreativeMemory,
+    draftReachedTheEnd(getLatestScreenplayVersion(sessionActiveProject)?.draft) ? sessionActiveProjectId : ""
   );
   const sessionStateVersion = buildMemoryStateVersion(sanitizedRestoredMemory);
   const sessionLastUpdatedAt = deriveMemoryLastUpdatedAt(sanitizedRestoredMemory);
