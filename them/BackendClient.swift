@@ -2102,6 +2102,9 @@ enum BackendError: LocalizedError {
             if let plain = BackendTalkFailureCopy.message(stage: stage, serverMessage: message) {
                 return plain
             }
+            if let plain = BackendTalkFailureCopy.studioRenderMessage(stage: stage, message: message) {
+                return plain
+            }
             let label: String
             // The backend prefixes talk stages ("talk_chat"); the label is the same.
             switch stage.lowercased().replacingOccurrences(of: "talk_", with: "") {
@@ -2161,6 +2164,13 @@ nonisolated enum BackendTalkFailureCopy {
         var text = String(serverMessage[range])
         if !text.hasSuffix(".") { text += "." }
         return text
+    }
+
+    /// A Studio page that took too long read "Studio render error: Studio
+    /// render timed out." on the first-page card (2026-09-30).
+    static func studioRenderMessage(stage: String, message: String) -> String? {
+        guard stage.lowercased() == "studio_render", message.lowercased().contains("timed out") else { return nil }
+        return "Clementine took too long to write that page. Your scene is safe. Try again in a moment."
     }
 
     static func message(stage: String, serverMessage: String) -> String? {
