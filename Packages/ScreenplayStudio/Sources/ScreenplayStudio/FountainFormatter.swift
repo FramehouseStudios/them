@@ -1023,11 +1023,26 @@ public enum FountainFormatter {
     /// "NORA OKAFOR (30s), night nurse, …" introduces a character in action.
     /// Read as inline dialogue it became cue NORA plus "OKAFOR (30s), night…",
     /// which the heading heuristic then cut at "night" (text lost).
+    /// "NORA KEANE, 38, chief counsel …" is the same introduction with the age
+    /// after a comma (seen live 2026-09-30: cue NORA + "KEANE, 38, …").
     private static func isCharacterIntroduction(_ text: String) -> Bool {
         text.range(
             of: #"^[A-Z][A-Z0-9 .'\-]*\s*\(\s*(?:\d{1,2}s?|(?:early|mid|late)[- ]\d{2}s|teens?|twenties|thirties|forties|fifties|sixties|seventies|eighties)\s*\)"#,
             options: [.regularExpression, .caseInsensitive]
         ) != nil
+            || text.range(of: #"^[A-Z][A-Z0-9.'\-]*(?:\s+[A-Z][A-Z0-9.'\-]*){0,3},\s*\d{1,2}s?\b"#, options: .regularExpression) != nil
+    }
+
+    /// "A LOBBYIST steps into her path." and "SENATOR ELI MARCHETTI, 71, …"
+    /// are action lines that open with capitals, not a cue with its line: a
+    /// real inline line reads "MAE Last one tonight?".
+    private static func isCapitalizedActionOpening(character: String, dialogue: String) -> Bool {
+        if ["A", "AN", "THE"].contains(character.uppercased()) { return true }
+        let firstWord = dialogue
+            .split(whereSeparator: { $0.isWhitespace })
+            .first
+            .map { String($0).trimmingCharacters(in: CharacterSet.letters.inverted) } ?? ""
+        return firstWord.count >= 2 && firstWord == firstWord.uppercased() && firstWord != firstWord.lowercased()
     }
 
     private static func extractInlineCharacterDialogue(
@@ -1056,6 +1071,7 @@ public enum FountainFormatter {
 
         let dialogue = String(trimmed[dialogueRange]).trimmingCharacters(in: .whitespacesAndNewlines)
         guard dialogue.range(of: #"[a-z]"#, options: .regularExpression) != nil else { return nil }
+        guard !isCapitalizedActionOpening(character: character, dialogue: dialogue) else { return nil }
 
         var parenthetical: String?
         if match.range(at: 2).location != NSNotFound,
