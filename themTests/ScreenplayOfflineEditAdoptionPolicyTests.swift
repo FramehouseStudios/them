@@ -112,4 +112,14 @@ final class ScreenplayOfflineRecoveryBindingTests: XCTestCase {
             pendingProjectId: "p1", pendingDraft: "Page."
         ))
     }
+
+    func testASaveOnTheLaunchPagesOwnBaseIsNotAConflict() {
+        let launch = (projectID: "p1", versionID: "v9")
+        XCTAssertTrue(ScreenplayLaunchPageBasePolicy.isOwnBase(serverVersionID: " v9 ", projectID: "p1", launchPage: launch),
+                      "the account is still on the version this page was built on")
+        XCTAssertFalse(ScreenplayLaunchPageBasePolicy.isOwnBase(serverVersionID: "v10", projectID: "p1", launchPage: launch),
+                       "another save since is a real conflict")
+        XCTAssertFalse(ScreenplayLaunchPageBasePolicy.isOwnBase(serverVersionID: "v9", projectID: "p2", launchPage: launch))
+        XCTAssertFalse(ScreenplayLaunchPageBasePolicy.isOwnBase(serverVersionID: "", projectID: "p1", launchPage: (projectID: "p1", versionID: "")))
+    }
 }

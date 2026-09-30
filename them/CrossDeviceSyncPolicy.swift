@@ -68,6 +68,23 @@ nonisolated enum CrossDeviceStateVersionPolicy {
     }
 }
 
+/// The page restored at launch was built on the version the bridge
+/// remembers. When a save made before the project finished loading finds
+/// the account still on exactly that version, nothing else was saved since:
+/// it is a save on top of it, not a conflict. Seen live 2026-09-30: "Your
+/// account has a different version, saved 10 min. ago" was this device's
+/// own last save. Any other version stays a conflict, and the backend's
+/// reject_if_stale still refuses a base that moved.
+nonisolated enum ScreenplayLaunchPageBasePolicy {
+    static func isOwnBase(serverVersionID: String, projectID: String, launchPage: (projectID: String, versionID: String)) -> Bool {
+        let version = launchPage.versionID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let project = launchPage.projectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !version.isEmpty && !project.isEmpty
+            && project == projectID.trimmingCharacters(in: .whitespacesAndNewlines)
+            && version == serverVersionID.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
 /// The pending question rides on POST /session, which mints a session and
 /// records an episodic recall. The cross-device poll asked for it on every
 /// state-version change, and this device's own saves move that version, so a

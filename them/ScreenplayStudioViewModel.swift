@@ -1707,6 +1707,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
 
     init() {
         fountainDraft = ScreenplayLiveDraftBridge.shared.draftText
+        launchPageBase = (ScreenplayLiveDraftBridge.shared.preferredProjectID, ScreenplayLiveDraftBridge.shared.preferredVersionID)
         draftDebounceCancellable = $fountainDraft
             .removeDuplicates()
             .debounce(for: .milliseconds(900), scheduler: RunLoop.main)
@@ -4212,6 +4213,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
             recoveryCandidate = nil
             return
         }
+        let wordsAlreadyOnPage = fountainDraft == candidate.draft
         isHydratingDraft = true
         fountainDraft = candidate.draft
         isHydratingDraft = false
@@ -4229,6 +4231,12 @@ final class ScreenplayStudioViewModel: ObservableObject {
             baseVersionId: latestVersionID,
             dirty: hasUnsavedDraftChanges
         )
+        // Keep Local on words already on the page changes no text, so no
+        // autosave followed and the copy never reached the account while the
+        // banner said it would (seen live 2026-09-30).
+        if wordsAlreadyOnPage, hasUnsavedDraftChanges, selectedProject != nil {
+            Task { await saveCurrentDraft(source: "studio_manual") }
+        }
     }
 
     func keepServerDraft() {
@@ -5212,6 +5220,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
     /// Consecutive cross-device polls that found no state change; paces the poll.
     private(set) var crossDeviceUnchangedStreak = 0
     private var pendingQuestionAskedAt: Date?
+    /// The project and version the page restored at launch was built on.
+    private var launchPageBase: (projectID: String, versionID: String) = ("", "")
 
     func refreshCrossDeviceStateIfNeeded() async {
         await resumeQueuedDraftSavesIfNeeded()
@@ -6048,6 +6058,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
     }
 
     private func performDraftSave(_ request: DraftSaveRequest) async -> Bool {
+        var request = request
         let normalized = request.draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalized.isEmpty else {
             autosaveStatusText = "Draft empty"
@@ -6135,29 +6146,36 @@ final class ScreenplayStudioViewModel: ObservableObject {
                     )
                     return true
                 }
-
-                conflictState = SaveConflictState(
-                    projectId: request.projectId,
-                    baseVersionId: "",
-                    serverVersionId: serverVersion.id,
-                    serverDraft: serverDraft,
-                    serverDraftExcerpt: serverVersion.draftExcerpt ?? String(serverDraft.prefix(240)),
-                    serverUpdatedAt: serverVersion.updatedAt ?? serverVersion.createdAt ?? 0
-                )
-                hasUnsavedDraftChanges = true
-                autosaveStatusText = "Conflict detected"
-                infoText = "Another device already saved this project. Choose keep mine or load server."
-                persistRecoveryForUnconfirmedSave(
-                    projectId: request.projectId,
-                    draft: fountainDraft,
-                    baseVersionId: "",
-                    surfaceCandidate: false
-                )
-                try? await draftSaveOutbox.removeAll(
-                    projectId: request.projectId,
-                    ownerUserId: request.ownerUserId
-                )
-                return false
+                if ScreenplayLaunchPageBasePolicy.isOwnBase(
+                    serverVersionID: serverVersion.id,
+                    projectID: request.projectId,
+                    launchPage: launchPageBase
+                ) {
+                    request = request.rebased(on: serverVersion.id)
+                } else {
+                    conflictState = SaveConflictState(
+                        projectId: request.projectId,
+                        baseVersionId: "",
+                        serverVersionId: serverVersion.id,
+                        serverDraft: serverDraft,
+                        serverDraftExcerpt: serverVersion.draftExcerpt ?? String(serverDraft.prefix(240)),
+                        serverUpdatedAt: serverVersion.updatedAt ?? serverVersion.createdAt ?? 0
+                    )
+                    hasUnsavedDraftChanges = true
+                    autosaveStatusText = "Conflict detected"
+                    infoText = "Another device already saved this project. Choose keep mine or load server."
+                    persistRecoveryForUnconfirmedSave(
+                        projectId: request.projectId,
+                        draft: fountainDraft,
+                        baseVersionId: "",
+                        surfaceCandidate: false
+                    )
+                    try? await draftSaveOutbox.removeAll(
+                        projectId: request.projectId,
+                        ownerUserId: request.ownerUserId
+                    )
+                    return false
+                }
             }
             let ownerHeaders = projectOwnerHeaderOptions(forProjectID: request.projectId)
             let baseVersionId = request.baseVersionId
@@ -6615,10 +6633,15 @@ final class ScreenplayStudioViewModel: ObservableObject {
         let projectCharacters = selectedProject?.characters ?? []
         let featureSpine = ScreenplayFeatureSpine(project: selectedProject)
 
+        // Before a load (or after restoring a recovery copy) the version is
+        // not known yet; the same project's remembered version is still this
+        // page's base and must not be wiped (seen live 2026-09-30: the next
+        // launch then reported the page's own base as another device's save).
+        let sameProject = !projectID.isEmpty && projectID == bridge.preferredProjectID
         if clearWhenEmpty || !projectID.isEmpty {
             bridge.preferredProjectID = projectID
         }
-        if clearWhenEmpty || !versionID.isEmpty || !bridge.preferredVersionID.isEmpty {
+        if clearWhenEmpty || !versionID.isEmpty || (!bridge.preferredVersionID.isEmpty && !sameProject) {
             bridge.preferredVersionID = versionID
         }
         if clearWhenEmpty || !phase.isEmpty || !bridge.latestPhase.isEmpty {
