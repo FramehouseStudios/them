@@ -1,5 +1,4 @@
 import Foundation
-import NaturalLanguage
 
 /// "Start your first page" is a new story. On an account that already has a
 /// script open (a reinstall, a second phone), the first page used to land in
@@ -35,6 +34,16 @@ nonisolated enum FirstPageFreshProject {
             && draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
+    private static let phraseBreaks: Set<String> = [
+        "on", "in", "at", "to", "for", "with", "from", "by", "of", "into", "onto", "over", "under",
+        "after", "before", "during", "while", "as", "and", "but", "or", "when", "where", "because",
+        "who", "which", "that", "through", "across", "behind", "near", "inside", "outside", "without",
+        "until", "about", "against", "between", "among", "toward", "towards", "than", "if", "so", "then",
+    ]
+    private static let danglingWords: Set<String> = phraseBreaks.union([
+        "a", "an", "the", "her", "his", "their", "its", "my", "your", "our", "this", "these", "those",
+    ])
+
     /// A short working title: the lead phrase of the scene the writer typed,
     /// e.g. "A night nurse finds her missing brother's coat…" ->
     /// "Night Nurse Finds Her Missing Brother's Coat". Five words cut mid-phrase
@@ -52,21 +61,17 @@ nonisolated enum FirstPageFreshProject {
         }
         if let open = start { words.append((String(clause[open...]), open..<clause.endIndex)) }
         let leading: Set<String> = ["a", "an", "the"]
-        let tagger = NLTagger(tagSchemes: [.lexicalClass])
-        tagger.string = clause
-        let tag = { (word: (text: String, range: Range<String.Index>)) in tagger.tag(at: word.range.lowerBound, unit: .word, scheme: .lexicalClass).0 }
         var picked = Array(words.drop { leading.contains($0.text.lowercased()) }.prefix(7))
-        // The title is the lead phrase: it stops where the first preposition or
+        // The title is the lead phrase: it stops where a preposition or
         // conjunction starts the next one ("…the clock | on the senate floor").
-        let breaks: Set<NLTag> = [.preposition, .conjunction, .particle]
-        if let cut = picked.indices.first(where: { $0 >= 2 && tag(picked[$0]).map(breaks.contains) == true }) {
+        // A fixed word list, not a language model: NLTagger returned no tags on
+        // a freshly erased simulator, so titles differed from device to device.
+        if let cut = picked.indices.first(where: { $0 >= 2 && phraseBreaks.contains(picked[$0].text.lowercased()) }) {
             picked = Array(picked.prefix(cut))
         }
-        let danglingTags: Set<NLTag> = [.determiner, .pronoun, .preposition, .conjunction, .particle, .adjective]
-        let danglingWords: Set<String> = ["a", "an", "the", "of", "on", "in", "at", "to", "for", "with", "from", "by", "and", "or", "but", "her", "his", "their", "its", "my", "your", "our"]
         while picked.count > 1, let last = picked.last {
             let word = last.text.lowercased()
-            guard danglingWords.contains(word) || word.hasSuffix("'s") || word.hasSuffix("’s") || tag(last).map(danglingTags.contains) == true else { break }
+            guard danglingWords.contains(word) || word.hasSuffix("'s") || word.hasSuffix("’s") else { break }
             picked.removeLast()
         }
         let titled = picked.map { $0.text.prefix(1).uppercased() + $0.text.dropFirst().lowercased() }
