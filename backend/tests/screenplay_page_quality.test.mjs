@@ -1969,3 +1969,42 @@ test("[screenplay-page-quality] the current place is not the next turn (live 202
   });
   assert.equal(withTurn.reason, "missing_next_turn_continuation");
 });
+
+test("[screenplay-page-quality] page-text and later-act payoff lanes do not bind an Act I page", () => {
+  // Seen live 2026-09-30: page 2 of Act I was held back until it paid off
+  // "Rain returns as proof or cost in Act III." and echoed page 1's text.
+  const text = [
+    "INT. MARCHETTI'S OFFICE - NIGHT",
+    "",
+    "Senator Marchetti shakes a pill into his palm and dry-swallows it.",
+    "",
+    "MARCHETTI",
+    "How many?",
+    "",
+    "DANNY",
+    "Twenty-four.",
+    "",
+    "MARCHETTI",
+    "He sounds proud of it.",
+    "",
+    "NORA",
+    "He's new. He'll learn to be ashamed.",
+  ].join("\n");
+  const quality = evaluateScreenplayPageQuality({
+    text,
+    lines: classifyScreenplayLines(text),
+    targetPages: 1,
+    hasSceneAnchor: true,
+    featureContext: {
+      act: "Act I",
+      nextSceneExecutionBrief: {
+        arc: "Mae is under pressure from: FADE IN: EXT. BUS DEPOT - DAWN Rain drums on the roof.",
+        payoff: "Rain returns as proof or cost in Act III.",
+        image: "the pill bottle",
+        obstacle: "Marchetti hides how many votes they have.",
+      },
+    },
+  });
+  const lanes = quality.featureObligation?.executionBriefCoverage?.supportFields || [];
+  assert.equal(quality.ok, true, `${quality.reason} ${JSON.stringify(lanes)}`);
+});

@@ -297,7 +297,10 @@ function buildDeterministicAcceptedSceneState(pageText = "") {
     fields: {
       summary: summaryLine,
       outcome: outcomeLine,
-      causalHandoff: outcomeLine,
+      // A handoff is changed pressure the next scene inherits. The page's last
+      // action line ("She keeps moving.") is not one, and as a handoff it
+      // became an obstacle every next page had to repeat (seen live 2026-09-30).
+      causalHandoff: lastCausal,
       ...facts,
     },
   });
