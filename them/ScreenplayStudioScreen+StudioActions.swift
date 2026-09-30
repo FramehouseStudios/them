@@ -41,7 +41,7 @@ extension ScreenplayStudioScreen {
             for _ in 0..<60 where vm.isLoading { try? await Task.sleep(for: .milliseconds(150)) }
             var projectID = vm.selectedProjectID
             if !FirstPageFreshProject.canReuse(selectedProjectID: projectID, draft: vm.fountainDraft) {
-                vm.newProjectTitle = title
+                vm.newProjectTitle = FirstPageFreshProject.uniqueTitle(title, among: vm.projects.map(\.title))
                 await vm.createProject()
                 projectID = vm.selectedProjectID == projectID ? "" : vm.selectedProjectID // unchanged = create failed
             }
