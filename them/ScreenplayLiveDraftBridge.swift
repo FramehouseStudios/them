@@ -2693,7 +2693,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
 
     @Published var draftText: String = "" {
         didSet {
-            guard draftText != oldValue else { return }
+            guard draftText != oldValue, !ScreenplayTypingSnapshotCoalescer.shared.owns(draftText) else { return }
             syncStructuredDraftSnapshot(text: draftText)
         }
     }
@@ -3210,7 +3210,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         UserDefaults.standard.set(encoded, forKey: ownerScopedKey(Self.structuredDraftStorageKey))
     }
 
-    private func persistDraftText(_ text: String) {
+    func persistDraftText(_ text: String) {
         guard !isReconcilingAccountStorage else { return }
         if let draft = ScreenplayLiveDraftTextPersistencePolicy.draftForStorage(text) {
             UserDefaults.standard.set(draft, forKey: ownerScopedKey(Self.draftTextStorageKey))
@@ -10887,9 +10887,9 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
             elements: [ScreenplayEditorElement?]
         ) {
             guard representableUpdateDepth > 0 else {
-                ScreenplayLiveDraftBridge.shared.syncStructuredDraftSnapshot(
+                ScreenplayTypingSnapshotCoalescer.shared.schedule(
                     text: text,
-                    elements: elements
+                    elements: elements, bridge: .shared
                 )
                 return
             }

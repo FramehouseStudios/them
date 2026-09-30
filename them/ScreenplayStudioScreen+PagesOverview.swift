@@ -15,7 +15,7 @@ extension ScreenplayStudioScreen {
     /// Header chip on the Studio home page: live printed-page count for the
     /// draft as typed, opening the numbered page overview.
     var screenplayPagesOverviewChip: some View {
-        let pageCount = ScreenplayPageLayout.pageCount(for: vm.fountainDraft, linesPerPage: vm.linesPerPage)
+        let pageCount = ScreenplayTypingSnapshotCoalescer.shared.pageCount(for: vm.fountainDraft, linesPerPage: vm.linesPerPage)
         return Button {
             vm.isPagesOverviewPresented = true
         } label: {
