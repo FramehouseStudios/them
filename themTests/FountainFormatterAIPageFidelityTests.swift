@@ -214,6 +214,12 @@ final class FountainFormatterAIPageFidelityTests: XCTestCase {
         XCTAssertEqual(nonBlankLines(deduped), ["Mae waits."])
     }
 
+    func testNoDoubleBlankLineBeforeACharacterIntroduction() {
+        // Live 2026-09-29: "...paper bag of oranges.\n\n\nJUNE BAPTISTE (70s), ..." was saved.
+        let normalized = FountainFormatter.normalizeHollywoodDraft(actTwoPage, existingDraft: page)
+        XCTAssertFalse(normalized.contains("\n\n\n"), normalized)
+    }
+
     func testVoiceStyleHeadingsStillConvert() {
         XCTAssertTrue(FountainFormatter.normalizeHollywoodDraft("inside the diner at night").hasPrefix("INT."))
     }

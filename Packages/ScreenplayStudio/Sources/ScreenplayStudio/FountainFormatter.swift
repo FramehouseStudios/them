@@ -790,7 +790,7 @@ public enum FountainFormatter {
                 if previous == .sceneHeading {
                     lines.append(element.formatted)
                 } else if previous == .action {
-                    lines.append("")
+                    if lines.last != "" { lines.append("") }
                     lines.append(element.formatted)
                 } else {
                     if previous != nil && lines.last != "" { lines.append("") }
