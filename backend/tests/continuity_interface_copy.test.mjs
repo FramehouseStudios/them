@@ -66,3 +66,17 @@ test("a draft ending on FADE OUT or THE END is finished; one that mentions it ea
   assert.equal(draftReachedTheEnd("DANNY\nWhen do we fade out?\n\nNora doesn't answer.\n\nShe keeps counting.\n\nThe clock reads 11:40."), false);
   assert.equal(draftReachedTheEnd(""), false);
 });
+
+test("the recap names people, not words memory mistook for names", async () => {
+  // Seen 2026-09-30: "OSGOOD and To were carrying this"; memory held ['OSGOOD', 'To', 'Into', 'Try'].
+  const { recapCharacterNames } = await import("../lib/continuity_interface_copy.js");
+  assert.deepEqual(recapCharacterNames(["OSGOOD", "To", "Into", "Try", "Nora"]), ["OSGOOD", "Nora"]);
+  assert.deepEqual(recapCharacterNames(["June", "Will"]), ["June", "Will"], "names that are also words stay");
+});
+
+test("a declared character name is one the writer capitalized", async () => {
+  const { extractDeclaredCharacterNames } = await import("../lib/creative_memory_store.js");
+  assert.deepEqual(extractDeclaredCharacterNames("Walk the lawyer to the hearing, then send the lead into the chamber."), []);
+  assert.deepEqual(extractDeclaredCharacterNames("My protagonist is named Maya."), ["Maya"]);
+  assert.deepEqual(extractDeclaredCharacterNames("Nora is a lawyer who counts votes."), ["Nora"]);
+});

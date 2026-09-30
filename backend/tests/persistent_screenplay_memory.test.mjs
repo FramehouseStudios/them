@@ -2438,3 +2438,22 @@ test("[persistent-screenplay-memory] the lead is a speaker and payoffs are label
     assert.doesNotMatch(payoff, /Umbrellas, A Walker/, payoff);
   }
 });
+
+test("[persistent-screenplay-memory] where we left off follows the project the writer has open", () => {
+  // Seen 2026-09-30: Home offered "Night Nurse" while Sine Die was open.
+  const memory = {
+    ...createEmptyEmotionMemory(),
+    screenplayProjectMemory: sanitizeScreenplayProjectMemoryItems([
+      { projectId: "night-nurse", projectTitle: "Night Nurse", act: "Act I", currentBeat: "June hides the chart.", updatedAt: 2_000 },
+      { projectId: "sine-die", projectTitle: "Sine Die", act: "Act II", currentBeat: "Nora counts the votes again.", updatedAt: 1_000 },
+    ]),
+    screenplayProjectMemoryUpdatedAt: 2_000,
+  };
+  const open = buildSessionContinuitySnapshot(memory, null, { activeProjectId: "sine-die" });
+  assert.equal(open.project_id, "sine-die");
+  assert.match(open.opening_line, /Sine Die/);
+  const noneOpen = buildSessionContinuitySnapshot(memory, null);
+  assert.equal(noneOpen.project_id, "night-nurse", "with no open project, memory's latest still leads");
+  const unknownOpen = buildSessionContinuitySnapshot(memory, null, { activeProjectId: "deleted-project" });
+  assert.equal(unknownOpen.project_id, "night-nurse");
+});

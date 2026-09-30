@@ -133,7 +133,7 @@ import {
   MEMORY_BLOCK_OPEN,
 } from "./lib/prompt_assembly.js";
 import { DEFAULT_FEATURE_TARGET_PAGES, findSequenceForPage } from "./lib/feature_screenplay_map.js";
-import { fitSystemPromptForTurnLatency as fitSystemPromptForTurnLatencyBase, capSystemPromptKeepingSafety } from "./lib/system_prompt_trim.js"; import { continuityNextMove, continuityPosition, continuityStoryState, draftReachedTheEnd, withoutInterfaceCopy } from "./lib/continuity_interface_copy.js";
+import { fitSystemPromptForTurnLatency as fitSystemPromptForTurnLatencyBase, capSystemPromptKeepingSafety } from "./lib/system_prompt_trim.js"; import { activeProjectMemoryItem, continuityNextMove, isLikelyCharacterName, recapCharacterNames, continuityPosition, continuityStoryState, draftReachedTheEnd, withoutInterfaceCopy } from "./lib/continuity_interface_copy.js";
 import { createScaleBackplane } from "./lib/scale_backplane.mjs";
 import { createPersistence } from "./lib/persistence_adapter.js";
 import { checkKnownDomainsAtStartup } from "./lib/known_domains_startup_check.js";
@@ -4206,7 +4206,7 @@ function buildSessionContinuityOpeningLine(snapshot = {}) {
     180
   );
   const characters = Array.isArray(snapshot.characterFocus)
-    ? snapshot.characterFocus.slice(0, 2).map((item) => normalizeSnippet(item, 48)).filter(Boolean)
+    ? recapCharacterNames(snapshot.characterFocus).map((item) => normalizeSnippet(item, 48)).filter(Boolean)
     : [];
   const lastState = sentenceFragment(
     continuityStoryState([ // not the page itself, not the planner's own wording
@@ -4246,9 +4246,9 @@ function buildSessionContinuityOpeningLine(snapshot = {}) {
     parts.push(`We were in ${[project, position].filter(Boolean).join(" - ")}.`);
   }
   if (characters.length && lastState) {
-    parts.push(`${characters.join(" and ")} were carrying this: ${lastState}.`);
+    parts.push(`${characters.join(" and ")} were carrying this: ${lastState}${lastState.endsWith("…") ? "" : "."}`);
   } else if (lastState) {
-    parts.push(`The last live thread was: ${lastState}.`);
+    parts.push(`The last live thread was: ${lastState}${lastState.endsWith("…") ? "" : "."}`);
   }
   if (nextMove) {
     parts.push(`Next move: ${nextMove}.`);
@@ -4272,12 +4272,12 @@ function buildSessionContinuityOpeningLine(snapshot = {}) {
   return normalizeSnippet(parts.join(" "), 640);
 }
 
-function buildSessionContinuitySnapshot(memory = null, creativeMemory = null, finishedProjectId = "") { // finishedProjectId: its latest draft reached FADE OUT
+function buildSessionContinuitySnapshot(memory = null, creativeMemory = null, { activeProjectId = "", finishedProjectId = "" } = {}) { // finished: its latest draft reached FADE OUT
   const projects = sanitizeScreenplayProjectMemoryItems(
     memory?.screenplayProjectMemory,
     SCREENPLAY_PROJECT_MEMORY_MAX
   );
-  const legacyProject = repairScreenplayProjectMemoryForPrompt(projects[0]) || projects[0] || null;
+  const legacyProject = repairScreenplayProjectMemoryForPrompt(activeProjectMemoryItem(projects, activeProjectId)) || activeProjectMemoryItem(projects, activeProjectId) || null;
   const durableProject = creativeMemory?.projectContinuity &&
     typeof creativeMemory.projectContinuity === "object"
     ? creativeMemory.projectContinuity
@@ -4425,12 +4425,12 @@ function buildSessionContinuitySnapshot(memory = null, creativeMemory = null, fi
     : [];
   const characterFocus = mergeScreenplayProjectMemoryList(
     mergeScreenplayProjectMemoryList(
-      acceptedScene?.characterNames || [],
-      project?.characterFocus || [],
+      (acceptedScene?.characterNames || []).filter(isLikelyCharacterName),
+      (project?.characterFocus || []).filter(isLikelyCharacterName),
       4,
       80
     ),
-    episode?.characterNames || [],
+    (episode?.characterNames || []).filter(isLikelyCharacterName),
     4,
     80
   );
@@ -32570,7 +32570,7 @@ app.post("/session", sessionRateLimitGuard, async (req, res) => {
   }
   const sessionContinuity = buildSessionContinuitySnapshot(
     sanitizedRestoredMemory, sessionCreativeMemory,
-    draftReachedTheEnd(getLatestScreenplayVersion(sessionActiveProject)?.draft) ? sessionActiveProjectId : ""
+    { activeProjectId: sessionActiveProjectId, finishedProjectId: draftReachedTheEnd(getLatestScreenplayVersion(sessionActiveProject)?.draft) ? sessionActiveProjectId : "" }
   );
   const sessionStateVersion = buildMemoryStateVersion(sanitizedRestoredMemory);
   const sessionLastUpdatedAt = deriveMemoryLastUpdatedAt(sanitizedRestoredMemory);
