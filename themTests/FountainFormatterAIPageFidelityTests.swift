@@ -102,6 +102,18 @@ final class FountainFormatterAIPageFidelityTests: XCTestCase {
         XCTAssertFalse(normalized.contains("\nA\n"), normalized)
     }
 
+    /// Seen live 2026-09-30: "(to Nora)" saved as "(to nora)"; "On her knee: a
+    /// mason jar of tap water." saved as cue ON HER KNEE + dialogue.
+    func testParentheticalNamesAndColonActionSurvive() {
+        let page = "INT. SENATE GALLERY - NIGHT\n\nOn her knee: a mason jar of tap water. It is the color of weak tea.\n\nMARCHETTI\n(to Nora)\nWho is this?\n\nNORA\n(BEAT)\nDanny.\n\nMAE: Last one tonight?"
+        let normalized = FountainFormatter.normalizeHollywoodDraft(page)
+        XCTAssertTrue(normalized.contains("On her knee: a mason jar of tap water. It is the color of weak tea."), normalized)
+        XCTAssertFalse(normalized.contains("ON HER KNEE"), normalized)
+        XCTAssertTrue(normalized.contains("(to Nora)"), normalized)
+        XCTAssertTrue(normalized.contains("(beat)"), normalized)
+        XCTAssertTrue(normalized.contains("MAE\nLast one tonight?"), normalized)
+    }
+
     func testInlineCueWithItsLineStillSplits() {
         let normalized = FountainFormatter.normalizeHollywoodDraft("INT. BUS DEPOT - NIGHT\n\nMAE Last one tonight?")
         XCTAssertTrue(normalized.contains("MAE\nLast one tonight?"), normalized)

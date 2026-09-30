@@ -36,9 +36,9 @@ public struct FountainElement {
         case .dialogue:
             return text.screenplaySentenceCase()
         case .parenthetical:
-            let inner = text.lowercased()
+            let inner = FountainFormatter.parentheticalCase(text
                 .trimmingCharacters(in: .whitespacesAndNewlines)
-                .trimmingCharacters(in: CharacterSet(charactersIn: "()"))
+                .trimmingCharacters(in: CharacterSet(charactersIn: "()")))
             return "(\(inner))"
         case .transition:
             return text.uppercased()
@@ -1005,7 +1005,10 @@ public enum FountainFormatter {
                 // "Inside: umbrellas, a walker…" is action, not a speaker
                 // called INSIDE (seen live 2026-09-28 on an AI page).
                 if nonSpeakerColonLabels.contains(charLower) { continue }
-                if charWords.count <= 3 && !char.contains(".") && !isMetaPrefix {
+                // "On her knee: a mason jar …" is action; a speaker label is a
+                // name, every word capitalized ("Mae:", "Old Man:").
+                let isNameLabel = charWords.allSatisfy { $0.first?.isUppercase == true }
+                if charWords.count <= 3 && !char.contains(".") && !isMetaPrefix && isNameLabel {
                     return (char, dial)
                 }
             }
@@ -1078,7 +1081,7 @@ public enum FountainFormatter {
            let parentheticalRange = Range(match.range(at: 2), in: trimmed) {
             let inner = String(trimmed[parentheticalRange]).trimmingCharacters(in: .whitespacesAndNewlines)
             if !inner.isEmpty {
-                parenthetical = "(\(inner.lowercased()))"
+                parenthetical = "(\(parentheticalCase(inner)))"
             }
         }
 
@@ -1180,7 +1183,15 @@ public enum FountainFormatter {
         }
 
         guard !inner.isEmpty else { return "()" }
-        return "(\(inner.lowercased()))"
+        return "(\(parentheticalCase(inner)))"
+    }
+
+    /// "(BEAT)" and "(Quietly)" read "(beat)" and "(quietly)", but "(to Nora)"
+    /// keeps the name: it was saved as "(to nora)" (seen live 2026-09-30).
+    static func parentheticalCase(_ inner: String) -> String {
+        guard inner != inner.uppercased() else { return inner.lowercased() }
+        guard let firstSpace = inner.firstIndex(of: " ") else { return inner.lowercased() }
+        return inner[..<firstSpace].lowercased() + inner[firstSpace...]
     }
 
     private static func isAdverbOrParentheticalWord(_ word: String) -> Bool {
