@@ -95,10 +95,14 @@ struct ScreenplayStudioOutlineInspectorLayout<Compass: View, StorySpine: View, F
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            HStack(spacing: 10) {
-                directionOneMiniStat(StudioCountTitle.text(actCount, "Act", "Acts"), value: "\(actCount)")
-                directionOneMiniStat(StudioCountTitle.text(sceneCount, "Scene", "Scenes"), value: "\(sceneCount)")
-                directionOneMiniStat(StudioCountTitle.text(beatCount, "Beat", "Beats"), value: "\(beatCount)")
+            // Outline counts, not the draft's: "0 Scenes" sat above the
+            // compass's "Scene 1/66" when no outline had been built.
+            if hasOutline {
+                HStack(spacing: 10) {
+                    directionOneMiniStat(StudioCountTitle.text(actCount, "Act", "Acts"), value: "\(actCount)")
+                    directionOneMiniStat(StudioCountTitle.text(sceneCount, "Scene", "Scenes"), value: "\(sceneCount)")
+                    directionOneMiniStat(StudioCountTitle.text(beatCount, "Beat", "Beats"), value: "\(beatCount)")
+                }
             }
 
             compass()
@@ -110,7 +114,7 @@ struct ScreenplayStudioOutlineInspectorLayout<Compass: View, StorySpine: View, F
                 inspectorMessageCard(
                     icon: "list.bullet.rectangle",
                     title: "No outline yet",
-                    detail: "Add scenes from the page or capture beats first. Acts and grouped scenes will start filling in here as the draft takes shape."
+                    detail: "Add scenes from the page or capture beats to build one. The compass above reads the draft itself."
                 )
             }
 
@@ -437,10 +441,12 @@ struct ScreenplayStudioFeatureCompassCard: View {
                 .background(Color.white.opacity(0.22))
                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
 
-                VStack(alignment: .leading, spacing: 8) {
-                    inspectorSubsectionLabel("Next three turns")
-                    ForEach(snapshot.nextMoves) { move in
-                        moveRow(move)
+                if !snapshot.nextMoves.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        inspectorSubsectionLabel("Next three turns")
+                        ForEach(snapshot.nextMoves) { move in
+                            moveRow(move)
+                        }
                     }
                 }
 
@@ -458,7 +464,7 @@ struct ScreenplayStudioFeatureCompassCard: View {
                         }
                         .buttonStyle(.borderedProminent)
                         .controlSize(.small)
-                        .disabled(isWriteDisabled)
+                        .disabled(isWriteDisabled || snapshot.isFinishedDraft)
 
                         Button(action: onPlan) {
                             Label("Plan", systemImage: "list.bullet")
