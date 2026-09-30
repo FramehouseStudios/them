@@ -2118,3 +2118,30 @@ test("[screenplay-page-quality] memory's template line is not an act obligation"
   });
   assert.notEqual(quality.reason, "missing_act_two_reversal", JSON.stringify(quality.featureObligation));
 });
+
+test("[screenplay-page-quality] noticed motifs are not an act obligation; the writer's ending image is", () => {
+  // Seen live 2026-09-30: a new project's page 1 staged a window and a
+  // doorway; those two motifs were the only obligation words left, so every
+  // Act I page was held back until it mentioned both.
+  const corridor = [
+    "INT. SENATE CORRIDOR - CONTINUOUS",
+    "",
+    "They round a corner. Nora doesn't slow down.",
+    "",
+    "DANNY",
+    "And we're one vote short.",
+  ].join("\n");
+  const actOne = evaluateFeatureActObligationCoverage({
+    text: corridor,
+    counts: {},
+    featureContext: { act: "Act I", imageMotifs: ["window", "door"], characterFocus: ["NORA", "DANNY"] },
+  });
+  assert.equal(actOne.ok, true, JSON.stringify(actOne));
+
+  const actThree = evaluateFeatureActObligationCoverage({
+    text: corridor,
+    counts: {},
+    featureContext: { act: "Act III", imageMotifs: ["window"], endingImage: "The mason jar of brown tap water on the Governor's desk." },
+  });
+  assert.equal(actThree.ok, false, "a writer-named ending image still binds Act III");
+});

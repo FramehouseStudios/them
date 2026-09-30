@@ -1225,6 +1225,9 @@ function inferFeatureActKind(featureContext = {}) {
   return "";
 }
 
+// Motifs memory noticed ("window", "door") are not obligations; the writer's
+// ending image is. On a new project they were the only words left, so every
+// Act I page had to mention a window and a door (seen live 2026-09-30).
 function featureObligationPhrasesForAct(featureActKind = "", featureContext = {}) {
   if (!featureActKind || !featureContext || typeof featureContext !== "object") return [];
   if (featureActKind === "act3") {
@@ -1240,14 +1243,6 @@ function featureObligationPhrasesForAct(featureActKind = "", featureContext = {}
       ),
       ...sanitizeQualityList(featureContext?.unresolvedSetups ?? featureContext?.unresolved_setups, 6, 200),
       ...sanitizeQualityList(featureContext?.unresolvedStoryThreads ?? featureContext?.unresolved_story_threads, 6, 200),
-      ...sanitizeQualityList(
-        featureContext?.imageMotifs ??
-        featureContext?.image_motifs ??
-        featureContext?.visualMotifs ??
-        featureContext?.visual_motifs,
-        4,
-        120
-      ),
       normalizeLineText(
         featureContext?.endingImage ??
         featureContext?.ending_image ??
@@ -1268,14 +1263,6 @@ function featureObligationPhrasesForAct(featureActKind = "", featureContext = {}
     ...sanitizeQualityList(featureContext?.nextThreeTurns ?? featureContext?.next_three_turns, 3, 180),
     ...sanitizeQualityList(featureContext?.unresolvedSetups ?? featureContext?.unresolved_setups, 6, 200),
     ...sanitizeQualityList(featureContext?.unresolvedStoryThreads ?? featureContext?.unresolved_story_threads, 6, 200),
-    ...sanitizeQualityList(
-      featureContext?.imageMotifs ??
-      featureContext?.image_motifs ??
-      featureContext?.visualMotifs ??
-      featureContext?.visual_motifs,
-      4,
-      120
-    ),
   ].filter(Boolean);
 
   if (featureActKind === "act1") {
