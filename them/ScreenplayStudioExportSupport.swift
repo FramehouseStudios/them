@@ -2,6 +2,8 @@ import Foundation
 #if os(macOS)
 import AppKit
 import UniformTypeIdentifiers
+#else
+import UIKit
 #endif
 
 /// Studio export *actions* (artifact build, save, Google Docs handoff).
@@ -43,6 +45,12 @@ enum ScreenplayStudioExportSupport {
             return "\(filename) saved."
         }
         return "Saved \(filename) to \(folderName)."
+    }
+
+    /// On iPhone the export goes to the share sheet (Files, Mail, AirDrop,
+    /// Final Draft), not to a folder the writer can see.
+    nonisolated static func sharedInfoText(filename: String) -> String {
+        "\(filename) is ready. Choose where to send it."
     }
 
     nonisolated static func googleDocsSharePayload(
@@ -176,12 +184,36 @@ enum ScreenplayStudioExportSupport {
                 noteSavedDirectory: deps.noteSavedDirectory
             )
             if let savedURL {
+#if os(macOS)
                 deps.setInfo(savedInfoText(filename: artifact.filename, savedURL: savedURL))
+#else
+                // The file sat in the app's own temp folder: "Saved script.fdx
+                // to tmp." and nothing the writer could open (2026-09-30).
+                if !deps.isRunningUITests { presentShareSheet(for: savedURL) }
+                deps.setInfo(sharedInfoText(filename: artifact.filename))
+#endif
             }
         } catch {
             deps.setError(ScreenplayExportFormatMenu.displayMessage(for: error, format: format))
         }
     }
+
+#if !os(macOS)
+    @MainActor
+    static func presentShareSheet(for url: URL) {
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        let scene = scenes.first { $0.activationState == .foregroundActive } ?? scenes.first
+        guard var top = scene?.keyWindow?.rootViewController else { return }
+        while let presented = top.presentedViewController { top = presented }
+        let sheet = UIActivityViewController(activityItems: [url], applicationActivities: nil)
+        if let popover = sheet.popoverPresentationController {
+            popover.sourceView = top.view
+            popover.sourceRect = CGRect(x: top.view.bounds.midX, y: top.view.bounds.midY, width: 1, height: 1)
+            popover.permittedArrowDirections = []
+        }
+        top.present(sheet, animated: true)
+    }
+#endif
 
     @MainActor
     static func openInGoogleDocs(deps: Dependencies) {

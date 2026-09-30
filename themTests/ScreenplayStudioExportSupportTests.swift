@@ -68,4 +68,11 @@ final class ScreenplayStudioExportSupportTests: XCTestCase {
         )
     }
 #endif
+
+    func testIPhoneExportSaysWhereTheFileGoesNext() {
+        // 2026-09-30: "Saved script.fdx to tmp." with no way to reach the file.
+        let text = ScreenplayStudioExportSupport.sharedInfoText(filename: "Sine_Die.fdx")
+        XCTAssertTrue(text.contains("Sine_Die.fdx"), "the writer-loop UI test looks for the filename")
+        XCTAssertFalse(text.lowercased().contains("tmp"))
+    }
 }
