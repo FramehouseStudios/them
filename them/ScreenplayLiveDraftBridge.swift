@@ -4048,7 +4048,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         _ snapshot: BackendSessionContinuitySnapshot,
         persist: Bool = true
     ) {
-        guard snapshot.isMeaningful else { return }
+        guard snapshot.isMeaningful, SessionContinuityPromptScope.appliesAtRestore(snapshotProjectID: snapshot.projectId, openProjectID: preferredProjectID) else { return }
         latestAppliedMemory = ScreenplayStudioAppliedMemoryState.from(
             snapshot,
             source: "session_continuity_restore",
