@@ -123,6 +123,19 @@ final class FountainFormatterAIPageFidelityTests: XCTestCase {
         XCTAssertTrue(normalized.contains("Teddy wakes. Looks at Nora."), normalized)
     }
 
+    /// Seen live 2026-09-30: MARCHETTI's one-word line "1974." was deleted as a
+    /// list number, leaving the cue with no dialogue.
+    func testANumberAsDialogueIsNotAListMarker() {
+        let normalized = FountainFormatter.normalizeHollywoodDraft("INT. MARCHETTI'S OFFICE - NIGHT\n\nMARCHETTI\n1974.\n\nNORA\nPage four hundred and six.")
+        XCTAssertTrue(normalized.contains("MARCHETTI\n1974."), normalized)
+        let shouted = FountainFormatter.normalizeHollywoodDraft("INT. OFFICE - NIGHT\n\nDECKER\nNO!\n\nCAL\nSir.")
+        XCTAssertTrue(shouted.contains("DECKER\nNo!"), shouted)
+        let listed = FountainFormatter.normalizeHollywoodDraft("INT. OFFICE - NIGHT\n\n1. Nora opens the door.\n- Danny follows.")
+        XCTAssertTrue(listed.contains("opens the door."), listed)
+        XCTAssertFalse(listed.contains("1. Nora"), listed)
+        XCTAssertFalse(listed.contains("- Danny"), listed)
+    }
+
     func testInlineCueWithItsLineStillSplits() {
         let normalized = FountainFormatter.normalizeHollywoodDraft("INT. BUS DEPOT - NIGHT\n\nMAE Last one tonight?")
         XCTAssertTrue(normalized.contains("MAE\nLast one tonight?"), normalized)
