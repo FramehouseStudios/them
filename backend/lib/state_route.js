@@ -52,11 +52,20 @@ function buildStateContinuityQuery(project = null) {
 }
 
 async function buildStateContinuityPayload(req, memory, {
+  loadContinuitySnapshotOptions = null,
   creativeMemoryStore = null,
   buildSessionContinuitySnapshot = null,
 } = {}) {
   if (typeof buildSessionContinuitySnapshot !== "function") return null;
-  const project = firstScreenplayProjectMemory(memory);
+  let options = {};
+  try {
+    options = typeof loadContinuitySnapshotOptions === "function" ? (await loadContinuitySnapshotOptions(req)) || {} : {};
+  } catch (_err) {
+    options = {};
+  }
+  const memoryProjects = Array.isArray(memory?.screenplayProjectMemory) ? memory.screenplayProjectMemory : [];
+  const project = memoryProjects.find((item) => options.activeProjectId && item?.projectId === options.activeProjectId) ||
+    firstScreenplayProjectMemory(memory);
   const userId = resolveStateRouteUserId(req);
   let creativeMemory = null;
   if (userId && creativeMemoryStore && typeof creativeMemoryStore.getCreativeMemoryForPrompt === "function") {
@@ -72,7 +81,7 @@ async function buildStateContinuityPayload(req, memory, {
       creativeMemory = null;
     }
   }
-  const snapshot = buildSessionContinuitySnapshot(memory, creativeMemory);
+  const snapshot = buildSessionContinuitySnapshot(memory, creativeMemory, options);
   return snapshot && typeof snapshot === "object" ? snapshot : null;
 }
 
@@ -122,6 +131,7 @@ function mountStateRoute(app, deps = {}) {
     setPersistedUserMemoryForIp,
     creativeMemoryStore = null,
     buildSessionContinuitySnapshot = null,
+    loadContinuitySnapshotOptions = null,
   } = deps;
   for (const k of [
     "selectMemoryRecordForRead",
@@ -231,6 +241,7 @@ function mountStateRoute(app, deps = {}) {
     const continuity = await buildStateContinuityPayload(req, memory, {
       creativeMemoryStore,
       buildSessionContinuitySnapshot,
+      loadContinuitySnapshotOptions,
     });
 
     res.setHeader("Cache-Control", "no-store");

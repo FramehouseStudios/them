@@ -277,3 +277,33 @@ test("[state-route] canonical theme backfill preserves and serves a concurrent w
     assert.equal(deps._calls.localWrites, 0);
   });
 });
+
+test("GET /state continuity is anchored like /session: the open project and finished drafts", async () => {
+  // 2026-09-30: Home applies /state after /session; /state built its own
+  // snapshot without the open project or the finished check and said "Act II"
+  // for a script at FADE OUT.
+  const { buildStateContinuityPayload } = await import("../lib/state_route.js");
+  const memory = {
+    screenplayProjectMemory: [
+      { projectId: "night-nurse", projectTitle: "Night Nurse" },
+      { projectId: "sine-die", projectTitle: "Sine Die" },
+    ],
+  };
+  const calls = [];
+  const snapshot = await buildStateContinuityPayload({ authUser: { id: "user-1" } }, memory, {
+    creativeMemoryStore: {
+      async getCreativeMemoryForPrompt(args) { calls.push(args.projectId); return null; },
+    },
+    buildSessionContinuitySnapshot: (mem, creative, options) => ({ has_continuity: true, options }),
+    loadContinuitySnapshotOptions: async () => ({ activeProjectId: "sine-die", finishedProjectIds: new Set(["sine-die"]) }),
+  });
+  assert.deepEqual(calls, ["sine-die"], "creative memory is read for the open project");
+  assert.equal(snapshot.options.activeProjectId, "sine-die");
+  assert.equal(snapshot.options.finishedProjectIds.has("sine-die"), true);
+
+  const failing = await buildStateContinuityPayload({}, memory, {
+    buildSessionContinuitySnapshot: (mem, creative, options) => ({ has_continuity: true, options }),
+    loadContinuitySnapshotOptions: async () => { throw new Error("owner store down"); },
+  });
+  assert.deepEqual(failing.options, {}, "an owner-store failure falls back to memory's latest, as before");
+});
