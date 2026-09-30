@@ -174,6 +174,16 @@ struct ScreenplayFeatureProgressionGuide: Equatable {
         ),
     ]
 
+    /// The planner's own wording, not something learned about this script: a template
+    /// sequence move or obligation, its plan ("Act I - ...: ..."), or a move title.
+    static func isPlannerScaffold(_ text: String) -> Bool {
+        let clean = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !clean.isEmpty else { return true }
+        let templateLines = template.flatMap { [$0.pressure, $0.obligation] + $0.nextMoves }
+        if templateLines.contains(where: { $0.caseInsensitiveCompare(clean) == .orderedSame }) { return true }
+        return RestoredContinuityCopy.writerMove(clean).isEmpty
+    }
+
     private static func stepForPage(_ page: Int, targetPages: Int, fallbackIndex: Int) -> Step {
         guard page > 0 else { return template[fallbackIndex] }
         let safePage = min(max(1, page), targetPages)

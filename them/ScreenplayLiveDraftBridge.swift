@@ -1115,8 +1115,8 @@ struct ScreenplayStudioAppliedMemoryState: Codable, Equatable {
         if let change = currentStoryObligationChange {
             lines.append("\(change.statusLabel): \(change.result)")
         }
-        let nextTurn = Self.cleanList(nextThreeTurns ?? [], limit: 3).first
-            ?? (nextScenePlan ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let nextTurn = (Self.cleanList(nextThreeTurns ?? [], limit: 3) + [nextScenePlan ?? ""]) // not the planner's own wording
+            .first { !ScreenplayFeatureProgressionGuide.isPlannerScaffold($0) }?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if !nextTurn.isEmpty {
             lines.append("Next: \(nextTurn)")
         }
