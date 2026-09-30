@@ -183,11 +183,14 @@ struct ScreenplayFeatureProgressionGuide: Equatable {
         actTwo: "Escalate the central pressure and turn the midpoint into irreversible fallout.",
         actThree: "Force the final choice and land the emotional resolution."
     )
+    /// The planner's scene detail when no next scene is known. Template: it
+    /// showed as the Story Spine's "Now" and "Pressure" (2026-09-30).
+    static let unfinishedPageFallback = "Continue the unfinished page with a concrete emotional turn."
 
     static func isPlannerScaffold(_ text: String) -> Bool {
         let clean = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !clean.isEmpty else { return true }
-        let fixedObligations = [structuralObligations.actOne, structuralObligations.actTwo, structuralObligations.actThree]
+        let fixedObligations = [structuralObligations.actOne, structuralObligations.actTwo, structuralObligations.actThree, unfinishedPageFallback]
         let templateLines = fixedObligations + template.flatMap { [$0.pressure, $0.obligation, "\($0.pressure) \($0.obligation)"] + $0.nextMoves }
         if templateLines.contains(where: { $0.caseInsensitiveCompare(clean) == .orderedSame }) { return true }
         return RestoredContinuityCopy.writerMove(clean).isEmpty

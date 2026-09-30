@@ -1182,6 +1182,7 @@ final class ScreenplayFeatureWorkflowPlannerTests: XCTestCase {
         XCTAssertEqual(obligation(act: "Act III", ending: "The clock stopped at 11:58."), "Drive the final choice toward the ending image: The clock stopped at 11:58.")
         XCTAssertTrue(ScreenplayFeatureProgressionGuide.isPlannerScaffold(fixed.actOne), "a template is never the story's Now")
         XCTAssertTrue(ScreenplayFeatureProgressionGuide.isPlannerScaffold(fixed.actTwo))
+        XCTAssertTrue(ScreenplayFeatureProgressionGuide.isPlannerScaffold(ScreenplayFeatureProgressionGuide.unfinishedPageFallback), "not the story's Now")
     }
 
     func testWithNoActNamedTheActFollowsThePageCountNotTheCursor() {

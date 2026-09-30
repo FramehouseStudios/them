@@ -1210,7 +1210,7 @@ enum ScreenplayFeatureWorkflowPlanner {
 
     private static func sceneDetail(_ scene: BackendScreenplayScene?, fallback: String) -> String {
         guard let scene else {
-            return clean(fallback, fallback: "Continue the unfinished page with a concrete emotional turn.")
+            return clean(fallback, fallback: ScreenplayFeatureProgressionGuide.unfinishedPageFallback)
         }
         let objective = clean(scene.objective ?? "", fallback: "")
         if !objective.isEmpty { return objective }
