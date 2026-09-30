@@ -78,6 +78,44 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         XCTAssertEqual(payload?["savedAt"] as? TimeInterval, 1_700_000_000)
     }
 
+    /// Seen live 2026-09-30: on relaunch a queued older save replayed and its
+    /// success wrote the loaded text over the copy holding two newer pages.
+    func testNewerUnsavedWorkIsRecognisedOnlyWhenItIsNewerAndDifferent() {
+        let newer = "FADE IN:\n\nPage 39.\n\nPage 40."
+        store.save(ownerUserId: ownerUserID, projectId: "p", draft: newer, baseVersionId: "v38", dirty: true, savedAt: 2_000)
+
+        XCTAssertTrue(store.holdsNewerUnsavedWork(ownerUserId: ownerUserID, projectId: "p", than: 1_000, differingFrom: "FADE IN:\n\nPage 39."),
+                      "a save captured before the newer words must not overwrite them")
+        XCTAssertFalse(store.holdsNewerUnsavedWork(ownerUserId: ownerUserID, projectId: "p", than: 3_000, differingFrom: "FADE IN:\n\nPage 39."),
+                       "a save captured after the stored copy is the newer truth")
+        XCTAssertFalse(store.holdsNewerUnsavedWork(ownerUserId: ownerUserID, projectId: "p", than: 1_000, differingFrom: newer + "\n"),
+                       "the same words are not other work")
+
+        store.save(ownerUserId: ownerUserID, projectId: "p", draft: newer, baseVersionId: "v40", dirty: false, savedAt: 2_500)
+        XCTAssertFalse(store.holdsNewerUnsavedWork(ownerUserId: ownerUserID, projectId: "p", than: 1_000, differingFrom: "anything"),
+                       "a saved copy is not unsaved work")
+    }
+
+    /// Seen live 2026-09-30: the same recovered words lost their known base at
+    /// launch, and Recover Local then ran the empty-base conflict preflight.
+    func testADebouncedDraftOvertakenByALoadIsStale() {
+        XCTAssertTrue(ScreenplayDebouncedDraftPolicy.isStale(handled: "FADE IN:\n\nDANNY\nTwo unsaved edits.", current: "FADE IN:"))
+        XCTAssertFalse(ScreenplayDebouncedDraftPolicy.isStale(handled: "FADE IN:", current: "FADE IN:"))
+    }
+
+    func testTheSameWordsKeepTheirKnownBase() {
+        let draft = "FADE IN:\n\nMARCHETTI\nOne more thing."
+        store.save(ownerUserId: ownerUserID, projectId: "p", draft: draft, baseVersionId: "v63", dirty: true, savedAt: 1)
+        store.save(ownerUserId: ownerUserID, projectId: "p", draft: draft + "\n", baseVersionId: "", dirty: true, savedAt: 2)
+        XCTAssertEqual(store.payloads(ownerUserId: ownerUserID)["p"]?["baseVersionId"] as? String, "v63")
+
+        store.save(ownerUserId: ownerUserID, projectId: "p", draft: draft + "\n\nNew words.", baseVersionId: "", dirty: true, savedAt: 3)
+        XCTAssertEqual(store.payloads(ownerUserId: ownerUserID)["p"]?["baseVersionId"] as? String, "",
+                       "different words with an unknown base stay unknown")
+        store.save(ownerUserId: ownerUserID, projectId: "p", draft: draft, baseVersionId: "v64", dirty: false, savedAt: 4)
+        XCTAssertEqual(store.payloads(ownerUserId: ownerUserID)["p"]?["baseVersionId"] as? String, "v64", "a known base is written as given")
+    }
+
     func testClearRemovesOnlyRequestedProjectRecoverySnapshot() {
         store.save(ownerUserId: ownerUserID, projectId: "project-a", draft: "A", baseVersionId: "v-a", dirty: true)
         store.save(ownerUserId: ownerUserID, projectId: "project-b", draft: "B", baseVersionId: "v-b", dirty: true)
