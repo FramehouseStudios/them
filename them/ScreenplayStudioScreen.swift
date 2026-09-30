@@ -9172,7 +9172,7 @@ Current draft version:
         return draftAlertBanner(
             title: recoveryAlreadyOnPage ? "Local draft protected" : "Unsaved local draft found",
             message: recoveryAlreadyOnPage
-                ? "Saved on this device \(savedText). It saves to your account by itself when the connection is back."
+                ? "Saved on this device \(savedText), not yet in your account. Keep Local saves it now."
                 : "Saved \(savedText). Recover it or keep the server draft.",
             hint: recoveryAlreadyOnPage
                 ? "Press 1 to keep the local draft on the page or 2 to discard the recovery copy."
@@ -9213,8 +9213,8 @@ Current draft version:
 
         return draftAlertBanner(
             title: "Server draft changed",
-            message: relativeUpdateText.map { "A newer draft was saved \($0). Choose which version should stay on the page." }
-                ?? "A newer draft was saved on the server. Choose which version should stay on the page.",
+            message: relativeUpdateText.map { "Your account has a different version, saved \($0). Choose which version stays on the page." }
+                ?? "Your account has a different version. Choose which version stays on the page.",
             hint: "Press 1 to load the server draft or 2 to keep your local draft.",
             tint: Color.red.opacity(0.88),
             excerpt: conflict.serverDraftExcerpt
