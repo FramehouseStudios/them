@@ -30,6 +30,13 @@ final class FirstPageFreshProjectTests: XCTestCase {
         XCTAssertFalse(FirstPageFreshProject.canReuse(selectedProjectID: "p1", draft: "INT. DINER - NIGHT"))
         XCTAssertFalse(FirstPageFreshProject.canReuse(selectedProjectID: "", draft: ""))
     }
+
+    func testARepeatedWorkingTitleGetsTheNextNumber() {
+        // 2026-09-30: four "Senate Staffer Counts Votes On" in the projects drawer.
+        XCTAssertEqual(FirstPageFreshProject.uniqueTitle("Clerk Stops The Clock", among: ["Sine Die"]), "Clerk Stops The Clock")
+        XCTAssertEqual(FirstPageFreshProject.uniqueTitle("Clerk Stops The Clock", among: ["clerk stops the clock "]), "Clerk Stops The Clock 2")
+        XCTAssertEqual(FirstPageFreshProject.uniqueTitle("Clerk Stops The Clock", among: ["Clerk Stops The Clock", "Clerk Stops The Clock 2"]), "Clerk Stops The Clock 3")
+    }
 }
 
 final class SessionContinuityPromptScopeTests: XCTestCase {
