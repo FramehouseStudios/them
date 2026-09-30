@@ -207,6 +207,15 @@ public enum ScreenplayEditorElement: String, CaseIterable, Identifiable, Codable
             || upper.hasPrefix("I/E.")
     }
 
+    /// Where a line sits on the page. "FADE IN:" opens a script at the left
+    /// (action) margin; closing and scene transitions ("CUT TO:", "FADE OUT.")
+    /// sit on the right. The editor and print set FADE IN: on the right.
+    public static func layoutElement(_ element: ScreenplayEditorElement, line: String) -> ScreenplayEditorElement {
+        guard element == .transition else { return element }
+        let upper = line.trimmingCharacters(in: .whitespaces).uppercased()
+        return upper == "FADE IN:" || upper == "FADE IN ON:" || upper == "FADE IN" ? .action : element
+    }
+
     /// The one transition test for the editor, formatter and typography.
     /// Ending transitions take a period ("FADE OUT.", the backend's form);
     /// the colon spellings older drafts carry still count.
