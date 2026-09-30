@@ -85,6 +85,28 @@ final class FountainFormatterAIPageFidelityTests: XCTestCase {
         XCTAssertFalse(normalized.contains("INT. INSIDE"))
     }
 
+    /// Seen live 2026-09-30: "NORA KEANE, 38, chief counsel …" was saved as cue
+    /// NORA + "KEANE, 38, …" and "A LOBBYIST steps into her path." as cue A.
+    func testCapitalizedActionOpeningsStayAction() {
+        let lines = [
+            "NORA KEANE, 38, chief counsel to the Minority Whip, moves fast through a crowd of lobbyists.",
+            "DANNY PRUITT, 23, two weeks on the job, keeps up with a binder the size of a cinder block.",
+            "A LOBBYIST steps into her path.",
+            "SENATOR ELI MARCHETTI, 71, big-shouldered, gray, shakes a pill into his palm.",
+        ]
+        let normalized = FountainFormatter.normalizeHollywoodDraft("INT. SENATE CORRIDOR - NIGHT\n\n" + lines.joined(separator: "\n\n"))
+        for line in lines {
+            XCTAssertTrue(normalized.contains(line), "lost: \(line)\n\(normalized)")
+        }
+        XCTAssertFalse(normalized.contains("\nNORA\n"), normalized)
+        XCTAssertFalse(normalized.contains("\nA\n"), normalized)
+    }
+
+    func testInlineCueWithItsLineStillSplits() {
+        let normalized = FountainFormatter.normalizeHollywoodDraft("INT. BUS DEPOT - NIGHT\n\nMAE Last one tonight?")
+        XCTAssertTrue(normalized.contains("MAE\nLast one tonight?"), normalized)
+    }
+
     private let actTwoPage = """
     INT. ST. AGNES HOSPITAL - FOURTH FLOOR - ROOM 4 - NIGHT
 
