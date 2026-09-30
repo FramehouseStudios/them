@@ -114,6 +114,15 @@ final class FountainFormatterAIPageFidelityTests: XCTestCase {
         XCTAssertTrue(normalized.contains("MAE\nLast one tonight?"), normalized)
     }
 
+    /// Seen live 2026-09-30: Teddy, introduced in action on page 4, was
+    /// capitalized again ("TEDDY wakes.") when he first spoke on page 16.
+    func testACharacterIntroducedInActionIsNotIntroducedAgain() {
+        let existing = "INT. SENATE GALLERY - NIGHT\n\nA boy, TEDDY, 9, sleeps against her arm."
+        let next = "INT. SENATE CORRIDOR - NIGHT\n\nTeddy wakes. Looks at Nora.\n\nTEDDY\nIs that the lady?"
+        let normalized = FountainFormatter.normalizeHollywoodDraft(next, existingDraft: existing)
+        XCTAssertTrue(normalized.contains("Teddy wakes. Looks at Nora."), normalized)
+    }
+
     func testInlineCueWithItsLineStillSplits() {
         let normalized = FountainFormatter.normalizeHollywoodDraft("INT. BUS DEPOT - NIGHT\n\nMAE Last one tonight?")
         XCTAssertTrue(normalized.contains("MAE\nLast one tonight?"), normalized)

@@ -1603,6 +1603,18 @@ public enum FountainFormatter {
                 if !canonical.isEmpty {
                     names.insert(canonical)
                 }
+                continue
+            }
+            // Introduced in action before speaking ("A boy, TEDDY, 9, sleeps"):
+            // his first line twelve pages later is not a second introduction
+            // (seen live 2026-09-30: "TEDDY wakes." on page 16).
+            guard !isSceneHeadingLine(trimmed), !isTransitionLine(trimmed) else { continue }
+            guard let capsRun = try? NSRegularExpression(pattern: #"\b[A-Z][A-Z'\-]+(?: [A-Z][A-Z'\-]+)?\b"#) else { continue }
+            let introduced = capsRun.matches(in: trimmed, range: NSRange(trimmed.startIndex..., in: trimmed))
+                .compactMap { Range($0.range, in: trimmed).map { String(trimmed[$0]) } }
+            for name in introduced where name.count >= 2 {
+                names.insert(name)
+                if let first = name.split(separator: " ").first { names.insert(String(first)) }
             }
         }
         return names
