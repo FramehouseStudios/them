@@ -2457,3 +2457,22 @@ test("[persistent-screenplay-memory] where we left off follows the project the w
   const unknownOpen = buildSessionContinuitySnapshot(memory, null, { activeProjectId: "deleted-project" });
   assert.equal(unknownOpen.project_id, "night-nurse");
 });
+
+test("[persistent-screenplay-memory] the recap says finished for whichever project it shows", () => {
+  // Seen 2026-09-30: a new, empty project was open, the recap fell back to the
+  // replayed Sine Die (at FADE OUT) and still called it "Act II".
+  const memory = {
+    ...createEmptyEmotionMemory(),
+    screenplayProjectMemory: sanitizeScreenplayProjectMemoryItems([
+      { projectId: "sine-die-replay", projectTitle: "Sine Die Replay", act: "Act II", currentBeat: "Osgood stops the clock.", updatedAt: 2_000 },
+    ]),
+    screenplayProjectMemoryUpdatedAt: 2_000,
+  };
+  const snapshot = buildSessionContinuitySnapshot(memory, null, {
+    activeProjectId: "clerk-stops-the-clock",
+    finishedProjectIds: new Set(["sine-die-replay"]),
+  });
+  assert.equal(snapshot.project_id, "sine-die-replay");
+  assert.equal(snapshot.finished, true);
+  assert.match(snapshot.opening_line, /the finished draft, through FADE OUT/);
+});
