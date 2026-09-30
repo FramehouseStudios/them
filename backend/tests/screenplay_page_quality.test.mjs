@@ -602,6 +602,12 @@ test("[screenplay-page-quality] counts echo-and-counter and command lines as tac
   assert.ok(quality.counts.dialogueTacticSignal >= 4, JSON.stringify(quality.counts));
 });
 
+test("[screenplay-page-quality] agreeing with the other line is not a counter", () => {
+  const text = "INT. CAFE - DAY\n\nTwo acquaintances sip tea.\n\nANNA\nNice weather today.\n\nBEN\nYes. Very nice.\n\nANNA\nHow is work?\n\nBEN\nFine. How is yours?\n\nANNA\nAlso fine. See you next week.\n\nBEN\nOkay. Bye.";
+  const quality = evaluateScreenplayPageQuality({ text, lines: classifyScreenplayLines(text), targetPages: 1, hasSceneAnchor: true });
+  assert.ok(quality.counts.dialogueTacticSignal <= 1, JSON.stringify(quality.counts));
+});
+
 test("[screenplay-page-quality] accepts tactical character-specific dialogue", () => {
   const dialogue = [
     "They moved the hearing.",

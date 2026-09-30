@@ -521,6 +521,8 @@ function isDialogueCounterOrCommand(line = "", otherSpeakerLine = "") {
   if (DIALOGUE_COMMAND_OPENER.test(text.replace(/^[A-Z][a-z]+,\s+/, ""))) return true;
   const previous = qualityTokenSet(otherSpeakerLine);
   if (previous.size === 0) return false;
+  // "Yes. Very nice." after "Nice weather today." agrees; a counter turns it.
+  if (/^(?:yes|yeah|yep|sure|okay|ok|also|same|right|agreed|exactly|true|fine|me too)\b/i.test(text)) return false;
   // "Maybe we can call someone." after "Maybe we can wait." parrots the frame.
   const opening = (value) => canonicalLowerLine(value).split(/\s+/).slice(0, 2).join(" ");
   if (opening(text) === opening(otherSpeakerLine)) return false;
