@@ -40,6 +40,7 @@
 import express from "express";
 
 import { ifNoneMatchStateHit } from "./read_state.js";
+import { normalizeScreenplayTargetPages } from "./screenplay_target_pages.js";
 import {
   defaultResolveScreenplayUserId,
   requireScreenplayUserId,
@@ -765,6 +766,45 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
         includeVersions: false,
         includeDrafts: false,
       })),
+    }));
+  });
+
+  // The writer's target length for this script, kept on the account so a
+  // second device or a reinstall plans acts against it too (it lived only on
+  // one phone and reverted to 110 pages elsewhere, 2026-09-30).
+  app.post("/screenplay/projects/:projectId/settings", express.json({ limit: "16kb" }), async (req, res) => {
+    const stage = "screenplay_project_settings";
+    const owner = await getFreshAuthorizedScreenplayOwner(req, res, stage);
+    if (!owner) return;
+    const projectId = normalizeSnippet(req.params?.projectId, 64);
+    const project = getScreenplayProjectRecord(owner, projectId);
+    if (!project) {
+      return res.status(404).json({ stage, error: "project_not_found" });
+    }
+    if (!bodyHasAny(req.body || {}, ["target_pages", "targetPages"])) {
+      return res.status(400).json({ stage, error: "no_settings" });
+    }
+    const raw = firstBodyValue(req.body, ["target_pages", "targetPages"]);
+    const targetPages = raw == null || raw === 0 ? 0 : normalizeScreenplayTargetPages(raw);
+    if (raw != null && raw !== 0 && targetPages === 0) {
+      return res.status(400).json({ stage, error: "target_pages_out_of_range", min: 5, max: 180 });
+    }
+    const now = Date.now();
+    project.targetPages = targetPages;
+    const committedOwner = await persistScreenplayOwnerOrFail(res, owner, now, stage);
+    if (!committedOwner) return;
+    const committedProject = getScreenplayProjectRecord(committedOwner, projectId);
+    if (!committedProject) {
+      res.setHeader("Cache-Control", "no-store");
+      return res.status(503).json({ stage, error: "screenplay_persistence_failed" });
+    }
+    applyReadStateHeaders(res, buildScreenplayReadMeta(req, committedOwner));
+    return res.status(200).json(buildScreenplayEnvelope(req, committedOwner, {
+      stage,
+      status: "saved",
+      project_id: committedProject.id,
+      target_pages: normalizeScreenplayTargetPages(committedProject.targetPages),
+      project: toScreenplayProjectPayload(committedProject, { includeVersions: false, includeDrafts: false }),
     }));
   });
 
@@ -1752,4 +1792,4 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
   });
 }
 
-export { mountScreenplayProjectsRoutes };
+export { mountScreenplayProjectsRoutes, normalizeScreenplayTargetPages };

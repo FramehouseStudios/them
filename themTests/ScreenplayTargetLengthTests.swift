@@ -46,4 +46,26 @@ final class ScreenplayTargetLengthTests: XCTestCase {
         XCTAssertEqual(feature.currentAct, "Act II")
         XCTAssertEqual(short.progressText, "p70 / 75")
     }
+
+    private func summary(_ id: String, targetPages: Int?) throws -> BackendScreenplayProjectSummary {
+        var json: [String: Any] = ["id": id, "title": "Sine Die"]
+        if let targetPages { json["target_pages"] = targetPages }
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        return try decoder.decode(BackendScreenplayProjectSummary.self, from: JSONSerialization.data(withJSONObject: json))
+    }
+
+    func testADeviceWithNoChoiceAdoptsTheAccountsLength() throws {
+        // 2026-09-30: after a reinstall a finished 75-page script was planned as Act II of 110.
+        ScreenplayTargetLength.adoptAccountPages(from: [try summary("p1", targetPages: 75), try summary("p2", targetPages: nil), try summary("p3", targetPages: 0)], ownerUserID: "u1", defaults: defaults)
+        XCTAssertEqual(ScreenplayTargetLength.pages(forProject: "p1", ownerUserID: "u1", defaults: defaults), 75)
+        XCTAssertNil(ScreenplayTargetLength.chosenPages(forProject: "p2", ownerUserID: "u1", defaults: defaults))
+        XCTAssertNil(ScreenplayTargetLength.chosenPages(forProject: "p3", ownerUserID: "u1", defaults: defaults), "0 means not set")
+    }
+
+    func testALengthChosenOnThisDeviceIsKept() throws {
+        ScreenplayTargetLength.set(90, forProject: "p1", ownerUserID: "u1", defaults: defaults)
+        ScreenplayTargetLength.adoptAccountPages(from: [try summary("p1", targetPages: 75)], ownerUserID: "u1", defaults: defaults)
+        XCTAssertEqual(ScreenplayTargetLength.pages(forProject: "p1", ownerUserID: "u1", defaults: defaults), 90)
+    }
 }

@@ -1479,7 +1479,9 @@ final class ScreenplayStudioViewModel: ObservableObject {
     /// strip sits below everything on a phone, so failures went unseen).
     @Published var studioPromptErrorText: String = ""
 
-    @Published var projects: [BackendScreenplayProjectSummary] = []
+    @Published var projects: [BackendScreenplayProjectSummary] = [] {
+        didSet { ScreenplayTargetLength.adoptAccountPages(from: projects) }
+    }
     @Published var selectedProjectID: String = ""
     @Published var selectedProject: BackendScreenplayProjectSummary?
     @Published var outline: BackendScreenplayOutline = .empty
