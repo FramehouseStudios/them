@@ -562,6 +562,46 @@ test("[screenplay-page-quality] rejects flat dialogue without tactics", () => {
   assert.equal(quality.counts.dialogueTacticSignal, 0);
 });
 
+test("[screenplay-page-quality] counts echo-and-counter and command lines as tactics", () => {
+  // Seen live 2026-09-30: this walk-and-talk first page was held back as
+  // flat_dialogue_no_tactics. Its tactics are counters and orders, not keywords.
+  const text = [
+    "INT. SENATE CORRIDOR - NIGHT",
+    "",
+    "NORA KEANE moves fast through a crowd of lobbyists, counting on her fingers.",
+    "",
+    "NORA",
+    "Abernathy, Baptiste, Cole.",
+    "",
+    "DANNY",
+    "Cole's a maybe.",
+    "",
+    "NORA",
+    "Cole was a maybe at lunch. Cole had the chowder. Cole is a yes.",
+    "",
+    "DANNY",
+    "That's twenty-four.",
+    "",
+    "NORA",
+    "I know it's twenty-four.",
+    "",
+    "DANNY",
+    "We need twenty-five.",
+    "",
+    "NORA",
+    "Danny, I've been counting to twenty-five since I was four years old.",
+    "",
+    "LOBBYIST",
+    "Nora, two minutes on the dairy thing.",
+    "",
+    "NORA",
+    "The dairy thing died in April. Send flowers.",
+  ].join("\n");
+  const quality = evaluateScreenplayPageQuality({ text, lines: classifyScreenplayLines(text), targetPages: 1, hasSceneAnchor: true });
+  assert.equal(quality.ok, true, quality.reason);
+  assert.ok(quality.counts.dialogueTacticSignal >= 4, JSON.stringify(quality.counts));
+});
+
 test("[screenplay-page-quality] accepts tactical character-specific dialogue", () => {
   const dialogue = [
     "They moved the hearing.",

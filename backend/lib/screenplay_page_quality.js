@@ -509,6 +509,24 @@ function isDialogueTacticLine(line = "", element = "dialogue") {
   return DIALOGUE_TACTIC_PATTERN.test(lower) || DIALOGUE_REVERSAL_PATTERN.test(lower);
 }
 
+// Sharp dialogue often plays its tactic without a tactic word: a speaker
+// takes the other's word and turns it ("Cole's a maybe." / "Cole was a maybe
+// at lunch.") or gives an order ("Send flowers."). Seen live 2026-09-30: a
+// walk-and-talk first page built on both was rejected as flat_dialogue_no_tactics.
+const DIALOGUE_COMMAND_OPENER = /^(?:ask|bring|call|come|find|get|go|hand|keep|leave|let|make|move|pick|put|say|send|sit|stand|stay|try|wait|walk)\s+\S/i;
+
+function isDialogueCounterOrCommand(line = "", otherSpeakerLine = "") {
+  const text = normalizeLineText(line);
+  if (!text || /\?\s*$/.test(text)) return false;
+  if (DIALOGUE_COMMAND_OPENER.test(text.replace(/^[A-Z][a-z]+,\s+/, ""))) return true;
+  const previous = qualityTokenSet(otherSpeakerLine);
+  if (previous.size === 0) return false;
+  // "Maybe we can call someone." after "Maybe we can wait." parrots the frame.
+  const opening = (value) => canonicalLowerLine(value).split(/\s+/).slice(0, 2).join(" ");
+  if (opening(text) === opening(otherSpeakerLine)) return false;
+  return [...qualityTokenSet(text)].some((token) => previous.has(token));
+}
+
 function isDialogueReversalLine(line = "", element = "dialogue") {
   if (normalizeElement(element) !== "dialogue") return false;
   const lower = canonicalLowerLine(line);
@@ -831,6 +849,7 @@ function summarizeLineCounts(lines = []) {
   const dialogueStartCounts = new Map();
   let dialogueRun = 0;
   let currentCharacter = "";
+  let previousDialogue = { speaker: "", text: "" };
 
   for (const line of Array.isArray(lines) ? lines : []) {
     const text = normalizeLineText(line?.text ?? line);
@@ -863,7 +882,13 @@ function summarizeLineCounts(lines = []) {
     if (element === "dialogue") {
       counts.dialogueWords += countWords(text);
       if (currentCharacter) dialogueCharacterNames.add(currentCharacter);
-      if (isDialogueTacticLine(text, element)) counts.dialogueTacticSignal += 1;
+      const otherSpeakerLine = previousDialogue.speaker && previousDialogue.speaker !== currentCharacter
+        ? previousDialogue.text
+        : "";
+      if (isDialogueTacticLine(text, element) || isDialogueCounterOrCommand(text, otherSpeakerLine)) {
+        counts.dialogueTacticSignal += 1;
+      }
+      previousDialogue = { speaker: currentCharacter, text };
       if (isDialogueReversalLine(text, element)) counts.dialogueReversalSignal += 1;
       if (isExpositoryDialogueLine(text, element)) counts.expositoryDialogue += 1;
       if (isGenericDialogueVoiceLine(text, element)) counts.genericDialogueVoice += 1;
