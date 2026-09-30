@@ -49,4 +49,14 @@ final class PageWriteReadBackOfferTests: XCTestCase {
         XCTAssertTrue(text.contains("Danny waits by the vent."), text)
         XCTAssertFalse(text.hasPrefix("INT. WARD - NIGHT"), "not the first page")
     }
+
+    func testEveryOfferButtonRoutesToItsChoice() {
+        let expected: [String: PageWriteReadBackOffer.Choice] = [
+            "What I wrote": .lastWrite, "The page": .page, "Whole script": .script, "Not now": .decline,
+        ]
+        XCTAssertEqual(StudioReadBackOfferBar.answers.count, expected.count)
+        for option in StudioReadBackOfferBar.answers {
+            XCTAssertEqual(PageWriteReadBackOffer.choice(for: option.text), expected[option.title], option.title)
+        }
+    }
 }

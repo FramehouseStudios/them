@@ -2887,7 +2887,6 @@ private var directionOneScriptEditor: some View {
                     .frame(maxWidth: .infinity)
             }
 
-
             screenplayPageSurface(
                 pageWidth: pageWidth,
                 minHeight: pageMinHeight,
@@ -8643,6 +8642,7 @@ Current draft version:
 
         return VStack(spacing: 16) {
             screenplayCurrentElementLabel
+            StudioReadBackOfferBar(bridge: liveDraftBridge) { text in Task { _ = await onSubmitPrompt(text, .automatic, UUID().uuidString) } }
 
             ZStack(alignment: .top) {
                 VStack(spacing: 0) {

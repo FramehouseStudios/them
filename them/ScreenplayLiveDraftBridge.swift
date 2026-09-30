@@ -2794,7 +2794,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
     @Published var pendingStudioActionPreview: ScreenplayStudioActionPreview?
     @Published var editorSelection: ScreenplayEditorSelectionSnapshot?
     /// Set when Clementine has just offered a read-back (PageWriteReadBackOffer).
-    var readBackOfferedAt: Date?
+    @Published var readBackOfferedAt: Date?
     @Published var lastCommittedWrite: ScreenplayCommittedWrite? {
         didSet {
             persistAuthoritativeCommittedDraft(lastCommittedWrite)
