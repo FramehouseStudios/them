@@ -475,3 +475,28 @@ She keeps moving. Danny apologizes to the lobbyist and hurries to catch up.`);
 Nora refuses the deal and walks out.`);
   assert.match(causal.causalHandoff || "", /refuses the deal/);
 });
+
+test("[accepted-scene-state] a usable model read is not padded with keyword facts", async () => {
+  // Seen live 2026-09-30: the model found no decision on the page, and the
+  // keyword fallback still stored "DANNY: And we're one vote short." as one.
+  const pageText = `INT. SENATE CORRIDOR - NIGHT
+
+Nora walks fast past the lobbyists.
+
+DANNY
+And we're one vote short.
+
+NORA
+We've been one vote short since February.`;
+  const state = await distillAcceptedSceneState({
+    pageText,
+    renderText: async () => JSON.stringify({ sceneState: {
+      summary: { fact: "Nora walks fast past the lobbyists.", evidence: "Nora walks fast past the lobbyists." },
+      decisions: [], revelations: [], relationshipChanges: [], irreversibleConsequences: [],
+    } }),
+  });
+  assert.equal(state.decisions, undefined, JSON.stringify(state));
+
+  const unusable = await distillAcceptedSceneState({ pageText, renderText: async () => "not json" });
+  assert.ok((unusable.decisions || []).length > 0, "the keyword fallback still fills in when the model read fails");
+});

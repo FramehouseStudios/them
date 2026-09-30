@@ -385,7 +385,7 @@ function validateAcceptedSceneStatePayload(payload, pageText = "", projectContex
     if (storyObligationChanges.length >= STORY_OBLIGATION_CHANGES_MAX) break;
   }
   if (storyObligationChanges.length) fields.storyObligationChanges = storyObligationChanges;
-  return { fields, acceptedFacts, rejectedFacts };
+  return { fields, acceptedFacts, rejectedFacts, parsed: true };
 }
 
 function mergeAcceptedSceneState(modelResult, fallback) {
@@ -403,7 +403,16 @@ function mergeAcceptedSceneState(modelResult, fallback) {
   }
   for (const field of ACCEPTED_SCENE_FACT_FIELDS) {
     const modelItems = modelResult.fields[field] || [];
-    const existing = Array.isArray(fallback[field]) ? fallback[field] : [];
+    // A grounded model read that found no decision on the page is an answer,
+    // not a gap: the keyword fallback made "DANNY: And we're one vote short."
+    // a decision and "The dairy thing died" a death (seen live 2026-09-30).
+    // Keyword facts fill in only when the model's read was not usable.
+    const modelReadUsable = modelResult.parsed === true &&
+      (modelResult.acceptedFacts > 0 || modelResult.rejectedFacts === 0);
+    const existing = modelReadUsable
+      ? []
+      : (Array.isArray(fallback[field]) ? fallback[field] : []);
+    delete merged[field];
     const facts = [];
     for (const value of [...modelItems.map((item) => item.fact), ...existing]) {
       const fact = clean(value, 240);
