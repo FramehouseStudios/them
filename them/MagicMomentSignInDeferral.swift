@@ -47,7 +47,7 @@ nonisolated struct MagicMomentSignInDeferral: Equatable, Codable {
         let clean = reason.trimmingCharacters(in: .whitespacesAndNewlines)
         let why = clean.isEmpty ? "" : " \(clean.hasSuffix(".") ? clean : clean + ".")"
         // Mapped failure copy often already says the work is safe; say it once.
-        let alreadyReassures = ["safe", "saved", "try again"].contains { clean.lowercased().contains($0) }
+        let alreadyReassures = ["safe", "saved", "unchanged", "try again"].contains { clean.lowercased().contains($0) }
         return "Your first page wasn't written yet.\(why)" + (alreadyReassures ? "" : " Your scene is still saved; try again when you're ready.")
     }
 
