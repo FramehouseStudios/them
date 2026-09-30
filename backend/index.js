@@ -265,6 +265,7 @@ import {
   writeJsonFileAtomic,
 } from "./lib/utils.js";
 import { SCREENPLAY_MEMORY_SETUP_PATTERN } from "./lib/screenplay_memory_setup_pattern.js";
+import { writerWordsFromTurn } from "./lib/writer_words.js";
 
 const lifecycleLogger = createLogger();
 
@@ -16622,10 +16623,10 @@ function buildScreenplayProjectMemoryRecordFromStudioMeta(
     pageCount: studio.screenplayPageCount,
     targetPages: studio.screenplayTargetPages,
   });
-  const correction = extractScreenplayMemoryCorrection(transcript);
+  const correction = extractScreenplayMemoryCorrection(writerWordsFromTurn(transcript));
   const correctionStructuredTargets = correction?.correctedFact
     ? extractWriterCanonStructuredTargets({
-      correctionText: transcript,
+      correctionText: writerWordsFromTurn(transcript),
       knownCharacterNames: studio.screenplayCharacterFocus,
     })
     : [];
@@ -20902,7 +20903,6 @@ ${meta.join("\n")}
 - If the screen and transcript appear to conflict, acknowledge uncertainty instead of inventing details.
 `.trim());
 }
-
 
 function fitSystemPromptForTurnLatency(systemPrompt, args = {}) {
   return fitSystemPromptForTurnLatencyBase(systemPrompt, {

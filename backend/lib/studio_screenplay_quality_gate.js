@@ -1,4 +1,5 @@
 import { inferScreenplayTask } from "./prompt_assembly.js";
+import { isElevatedBrief, writerWordsFromTurn } from "./writer_words.js";
 import {
   classifyScreenplayLines,
   evaluateScreenplayPageQuality,
@@ -203,9 +204,7 @@ function writerAsksForTheEnding(transcript = "") {
 // script (seen live 2026-09-30). Only the writer's own words count.
 function writerRequestedAct(transcript = "") {
   const source = String(transcript || "");
-  const direction = source.match(/Writer's immediate direction:\s*([^\n]+)/i)?.[1] ||
-    source.split(/Writer request:/i).slice(1).pop() ||
-    (source.length <= 300 ? source : "");
+  const direction = isElevatedBrief(source) ? writerWordsFromTurn(source) : (source.length <= 300 ? source : "");
   const act = cleanInline(inferScreenplayTask(direction)?.requestedAct, 40);
   return /^Act (?:I|II|III)$/.test(act) ? act : "";
 }
