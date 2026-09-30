@@ -257,7 +257,7 @@ nonisolated struct BackendTurnCommittedEvent {
 }
 
 nonisolated struct BackendReadResult<Payload> {
-    let payload: Payload
+    var payload: Payload
     let sync: BackendSyncState
     let notModified: Bool
 }
@@ -2687,7 +2687,7 @@ nonisolated struct BackendScreenplayProjectResponse: Decodable {
     let backendBootId: String?
     let screenplayActiveProjectId: String?
     let screenplayProjectCount: Int?
-    let project: BackendScreenplayProjectSummary?
+    var project: BackendScreenplayProjectSummary?
 }
 
 nonisolated struct BackendScreenplayProjectMutationResponse: Decodable {
@@ -2695,7 +2695,7 @@ nonisolated struct BackendScreenplayProjectMutationResponse: Decodable {
     let status: String?
     let created: Bool?
     let projectId: String?
-    let project: BackendScreenplayProjectSummary?
+    var project: BackendScreenplayProjectSummary?
     let screenplayActiveProjectId: String?
     let screenplayProjectCount: Int?
     let screenplayProjects: [BackendScreenplayProjectSummary]?
@@ -2844,7 +2844,7 @@ nonisolated struct BackendScreenplayVersionMutationResponse: Decodable {
     let projectId: String?
     let versionId: String?
     let version: BackendScreenplayVersion?
-    let project: BackendScreenplayProjectSummary?
+    var project: BackendScreenplayProjectSummary?
     let formatScore: Double?
     let storyScore: Double?
     let confidenceClass: String?
@@ -7728,7 +7728,7 @@ actor BackendMemoryAPI {
             extraQueryItems: [
                 URLQueryItem(name: "include_drafts", value: includeDrafts ? "1" : "0"),
                 URLQueryItem(name: "version_limit", value: String(max(1, versionLimit))),
-            ]
+            ] + ScreenplayKnownVersionDrafts.shared.queryItems(forProject: normalizedProjectId)
         )
         applyProjectOwnerHeaders(
             to: &request,
@@ -7746,7 +7746,8 @@ actor BackendMemoryAPI {
         }
         let decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase
-        let payload = try decoder.decode(BackendScreenplayProjectResponse.self, from: data)
+        var payload = try decoder.decode(BackendScreenplayProjectResponse.self, from: data)
+        ScreenplayKnownVersionDrafts.shared.fill(&payload.project)
         let headerSync = syncFromHeaders(http, fallbackStatus: "up")
         let bodySync = syncFromScreenplayEnvelope(
             sessionId: payload.sessionId,
@@ -7907,6 +7908,7 @@ actor BackendMemoryAPI {
         }
         if let projectId, !projectId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             payload["project_id"] = projectId
+            ScreenplayKnownVersionDrafts.shared.addKnownVersionIDs(to: &payload, projectID: projectId)
         }
         if let studioThreadViewState,
            let encoded = try? JSONEncoder().encode(studioThreadViewState),
@@ -7937,7 +7939,8 @@ actor BackendMemoryAPI {
         }
         let decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase
-        let parsed = try decoder.decode(BackendScreenplayProjectMutationResponse.self, from: data)
+        var parsed = try decoder.decode(BackendScreenplayProjectMutationResponse.self, from: data)
+        ScreenplayKnownVersionDrafts.shared.fill(&parsed.project)
         let headerSync = syncFromHeaders(http, fallbackStatus: "up")
         let bodySync = syncFromScreenplayEnvelope(
             sessionId: parsed.sessionId,
@@ -8494,15 +8497,9 @@ actor BackendMemoryAPI {
             "phase": phase,
             "source": source,
         ]
-        if !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            payload["title"] = title
-        }
-        if !notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            payload["notes"] = notes
-        }
-        if let targetPages, targetPages > 0 {
-            payload["target_pages"] = targetPages
-        }
+        if !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { payload["title"] = title }
+        if !notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { payload["notes"] = notes }
+        if let targetPages, targetPages > 0 { payload["target_pages"] = targetPages }
         if !studioWriteAnchors.isEmpty,
            let anchorsPayload = try? JSONSerialization.jsonObject(
             with: JSONEncoder().encode(studioWriteAnchors)
@@ -8527,6 +8524,7 @@ actor BackendMemoryAPI {
         if !normalizedClientRequestId.isEmpty {
             payload["client_request_id"] = String(normalizedClientRequestId.prefix(96))
         }
+        ScreenplayKnownVersionDrafts.shared.addKnownVersionIDs(to: &payload, projectID: normalizedProjectId)
         let requestBody = try JSONSerialization.data(withJSONObject: payload, options: [])
 
 #if DEBUG
@@ -8581,7 +8579,8 @@ actor BackendMemoryAPI {
         let decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase
         if http.statusCode == 409 {
-            let parsed = try decoder.decode(BackendScreenplayVersionMutationResponse.self, from: data)
+            var parsed = try decoder.decode(BackendScreenplayVersionMutationResponse.self, from: data)
+            ScreenplayKnownVersionDrafts.shared.fill(&parsed.project)
             let headerSync = syncFromHeaders(http, fallbackStatus: "up")
             let bodySync = syncFromScreenplayEnvelope(
                 sessionId: parsed.sessionId,
@@ -8601,7 +8600,8 @@ actor BackendMemoryAPI {
             let message = decodeErrorMessage(from: data)
             throw BackendMemoryAPIError.server(status: http.statusCode, message: message)
         }
-        let parsed = try decoder.decode(BackendScreenplayVersionMutationResponse.self, from: data)
+        var parsed = try decoder.decode(BackendScreenplayVersionMutationResponse.self, from: data)
+        ScreenplayKnownVersionDrafts.shared.fill(&parsed.project)
         let headerSync = syncFromHeaders(http, fallbackStatus: "up")
         let bodySync = syncFromScreenplayEnvelope(
             sessionId: parsed.sessionId,

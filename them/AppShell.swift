@@ -1893,6 +1893,7 @@ struct ProfileAccountScreen: View {
     }
 
     private func finishLocalSignOut(status: String) async {
+        ScreenplayKnownVersionDrafts.shared.forgetAll()
         sessionState = .signedOut
         managedSessions = []
         password = ""
