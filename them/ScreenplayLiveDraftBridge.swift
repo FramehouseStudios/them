@@ -3338,7 +3338,6 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         latestFeatureWorkflowContext = nil
     }
 
-
     private func compactSceneLabel(_ label: String) -> String {
         let upper = label
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -10828,6 +10827,7 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
         }
 
         private func publishLastCommittedWrite(_ value: ScreenplayCommittedWrite?, requestID: UUID? = nil) {
+            if let value, let textView, value.startLine > 0 { paragraphElements = reinferScreenplayParagraphElements(paragraphElements, text: textView.text ?? "", lines: value.startLine...max(value.startLine, value.endLine)); applyScreenplayParagraphStyles() } // committed lines are judged as finished text
             guard representableUpdateDepth > 0 else {
                 parent.lastCommittedWrite = value
                 return
