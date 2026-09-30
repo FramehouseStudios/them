@@ -512,6 +512,8 @@ test("cleanup-only helper removes marked sessions across executables and preserv
     join(fixtureRoot, "DerivedData-A", "them.app", "Contents", "MacOS", "them"),
     join(fixtureRoot, "DerivedData-B", "them.app", "Contents", "MacOS", "them"),
     join(fixtureRoot, "Ordinary", "them.app", "Contents", "MacOS", "them"),
+    // An iOS simulator app's layout: a live session the cleanup must spare.
+    join(fixtureRoot, "CoreSimulator", "Devices", "D1", "them.app", "them"),
   ];
   const launchedPids = [];
 
@@ -575,6 +577,7 @@ int main(void) {
     const markedPidA = launchDaemon(executablePaths[0], ["--studio-eval"]);
     const markedPidB = launchDaemon(executablePaths[1], ["-user_id", "fixture", "--studio-eval"]);
     const unmarkedPid = launchDaemon(executablePaths[2], []);
+    const simulatorPid = launchDaemon(executablePaths[3], ["--studio-eval"]);
 
     const cleanup = spawnSync("/bin/bash", [
       helperPath,
@@ -598,6 +601,8 @@ int main(void) {
     assert.equal(stalePids.has(markedPidA), true);
     assert.equal(stalePids.has(markedPidB), true);
     assert.equal(stalePids.has(unmarkedPid), false);
+    assert.equal(stalePids.has(simulatorPid), false, "a simulator app is not an eval session to clean up");
+    assert.equal(processMatches(simulatorPid, executablePaths[3]), true);
     assert.equal(processMatches(markedPidA, executablePaths[0]), false);
     assert.equal(processMatches(markedPidB, executablePaths[1]), false);
     assert.equal(processMatches(unmarkedPid, executablePaths[2]), true);
