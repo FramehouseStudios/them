@@ -11,3 +11,29 @@ nonisolated enum SessionContinuityPromptScope {
             == boundProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
+
+extension SessionContinuityPromptScope {
+    /// Switching from one project to another drops Studio memory learned on the
+    /// old one; memory stamped with the new project stays. Restoring the saved
+    /// project at launch (no previous project) is not a switch.
+    static func keepsAppliedMemory(memoryProjectID: String?, switchingFrom oldProjectID: String, to newProjectID: String) -> Bool {
+        let old = oldProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !old.isEmpty else { return true }
+        let memory = (memoryProjectID ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return !memory.isEmpty && memory == newProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+extension ScreenplayLiveDraftBridge {
+    /// A new blank project showed the previous script's "Project memory applied"
+    /// card (and its brief went into the new project's prompts) until the first write.
+    func dropAppliedMemoryIfItBelongsElsewhere(switchingFrom oldProjectID: String) {
+        guard latestAppliedMemory.hasContent,
+              !SessionContinuityPromptScope.keepsAppliedMemory(
+                memoryProjectID: latestAppliedMemory.projectId,
+                switchingFrom: oldProjectID,
+                to: preferredProjectID
+              ) else { return }
+        latestAppliedMemory = .empty
+    }
+}
