@@ -197,7 +197,17 @@ public enum FountainFormatter {
         return conversationalCount == 0
     }
 
+    /// The Studio page asks for these on every render, several times each.
+    /// On a 74-page draft that re-read the whole script for seconds on the
+    /// main thread, so taps landed late or not at all (2026-09-30). The draft
+    /// is the only input; the answer for the same text is kept.
     public static func screenplayIntegrityIssues(in draft: String) -> [ScreenplayPageIntegrityIssue] {
+        integrityIssuesMemo.value(for: draft) { computeScreenplayIntegrityIssues(in: $0) }
+    }
+
+    private static let integrityIssuesMemo = LastValueMemo<[ScreenplayPageIntegrityIssue]>()
+
+    private static func computeScreenplayIntegrityIssues(in draft: String) -> [ScreenplayPageIntegrityIssue] {
         let normalized = draft
             .replacingOccurrences(of: "\r\n", with: "\n")
             .replacingOccurrences(of: "\r", with: "\n")
@@ -1797,5 +1807,23 @@ private extension String {
         let first = normalized.prefix(1).uppercased()
         let rest = normalized.dropFirst()
         return first + rest
+    }
+}
+
+/// Keeps the answer for the last text it was asked about, for work the
+/// Studio page repeats on every render over the whole script.
+public final class LastValueMemo<Value>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var last: (text: String, value: Value)?
+
+    public init() {}
+
+    public func value(for text: String, compute: (String) -> Value) -> Value {
+        lock.lock()
+        if let last, last.text == text { lock.unlock(); return last.value }
+        lock.unlock()
+        let value = compute(text)
+        lock.lock(); last = (text, value); lock.unlock()
+        return value
     }
 }
