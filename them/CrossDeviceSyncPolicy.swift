@@ -68,6 +68,21 @@ nonisolated enum CrossDeviceStateVersionPolicy {
     }
 }
 
+/// The pending question rides on POST /session, which mints a session and
+/// records an episodic recall. The cross-device poll asked for it on every
+/// state-version change, and this device's own saves move that version, so a
+/// page-writing run minted ~4 sessions a minute and most were refused 429
+/// (seen live 2026-09-30). A poll re-asks at most this often; resolving a
+/// question, sending with one open, or switching projects still asks at once.
+nonisolated enum PendingQuestionPollPolicy {
+    static let minimumInterval: TimeInterval = 300
+
+    static func shouldAsk(lastAskedAt: Date?, now: Date) -> Bool {
+        guard let lastAskedAt else { return true }
+        return now.timeIntervalSince(lastAskedAt) >= minimumInterval
+    }
+}
+
 /// Decides whether a changed owner state version means the open project must
 /// be re-read. The state version also moves on this device's own writes (draft
 /// saves, activation, sidecar upserts); re-reading then fetched the detail,

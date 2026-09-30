@@ -25,4 +25,12 @@ final class CrossDevicePollPolicyTests: XCTestCase {
         XCTAssertTrue(CrossDevicePollPolicy.shouldPoll(tick: 11, hasActiveContext: true, unchangedStreak: 0),
                       "the view model zeroes the streak when the state version moves")
     }
+
+    func testThePollAsksForThePendingQuestionAtMostEveryFiveMinutes() {
+        let now = Date(timeIntervalSince1970: 1_000_000)
+        XCTAssertTrue(PendingQuestionPollPolicy.shouldAsk(lastAskedAt: nil, now: now))
+        XCTAssertFalse(PendingQuestionPollPolicy.shouldAsk(lastAskedAt: now.addingTimeInterval(-20), now: now), "a save every 20 s must not mint a session each time")
+        XCTAssertFalse(PendingQuestionPollPolicy.shouldAsk(lastAskedAt: now.addingTimeInterval(-299), now: now))
+        XCTAssertTrue(PendingQuestionPollPolicy.shouldAsk(lastAskedAt: now.addingTimeInterval(-300), now: now))
+    }
 }
