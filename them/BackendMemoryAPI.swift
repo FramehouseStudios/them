@@ -6585,7 +6585,7 @@ actor BackendMemoryAPI {
                 .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
                 .filter { !$0.isEmpty }
                 .prefix(maxItems)
-                .map { String($0.prefix(limit)) }
+                .map { $0.count <= limit ? $0 : String($0.prefix(limit)).components(separatedBy: " ").dropLast().joined(separator: " ") } // whole words only
             guard !cleanValues.isEmpty else { return }
             payload[key] = Array(cleanValues)
         }
