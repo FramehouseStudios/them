@@ -664,7 +664,32 @@ enum ScreenplayFeatureWorkflowPlanner {
             lines.insert(contentsOf: restoredStudioContext.map { "- \($0)" }, at: lines.count - 1)
         }
 
-        return lines.joined(separator: "\n")
+        return withWritersPageCount(lines.joined(separator: "\n"), prompt: prompt)
+    }
+
+    /// "Write the next page of Act I." asked for one page; the elevated brief
+    /// asked for 3-5 and the gate then held the single page back as
+    /// underfilled_page_text (seen live 2026-09-30). The writer's count wins.
+    static func writersPageCount(_ prompt: String) -> Int? {
+        let text = normalizedPrompt(prompt)
+        let numbers = ["one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10]
+        if let match = text.range(of: #"\b(\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten)\s+(?:more\s+)?pages?\b"#, options: .regularExpression) {
+            let word = String(text[match]).split(separator: " ").first.map(String.init) ?? ""
+            if let count = Int(word) ?? numbers[word], count > 0 { return count }
+        }
+        if text.range(of: #"\bpage\b"#, options: .regularExpression) != nil,
+           text.range(of: #"\bpages\b"#, options: .regularExpression) == nil {
+            return 1
+        }
+        return nil
+    }
+
+    private static func withWritersPageCount(_ brief: String, prompt: String) -> String {
+        guard let count = writersPageCount(prompt) else { return brief }
+        let amount = count == 1 ? "one page" : "\(count) pages"
+        return brief
+            .replacingOccurrences(of: "Write 3-5 pages", with: "Write \(amount)")
+            .replacingOccurrences(of: "write the next 3-5 pages", with: count == 1 ? "write the next page" : "write the next \(count) pages")
     }
 
     private static func cleanContextList(_ values: [String], limit: Int, itemLimit: Int) -> [String] {
