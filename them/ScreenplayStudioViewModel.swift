@@ -1638,7 +1638,10 @@ final class ScreenplayStudioViewModel: ObservableObject {
     @Published var coverageErrorText: String = ""
     @Published var isPaginationRefreshing: Bool = false
     @Published var paginationErrorText: String = ""
-    @Published var linesPerPage: Int = 55
+    /// The paginator's own default (54, as the backend's port): at 55 the
+    /// header said "74 pages" while Saved, Craft and every brief said 75
+    /// (2026-09-30).
+    @Published var linesPerPage: Int = ScreenplayPageLayout.defaultLinesPerPage
     @Published var revisionColor: String = "blue"
     @Published var revisionSummary: BackendScreenplayRevisionSummary?
     @Published var revisionRanges: [BackendScreenplayRevisionRange] = []
