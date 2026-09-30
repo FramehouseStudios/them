@@ -2704,7 +2704,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
     @Published var preferredProjectID: String = "" {
         didSet {
             guard preferredProjectID != oldValue else { return }
-            persistPreferredProjectContext()
+            persistPreferredProjectContext(); dropAppliedMemoryIfItBelongsElsewhere(switchingFrom: oldValue)
         }
     }
     @Published var preferredVersionID: String = "" {
