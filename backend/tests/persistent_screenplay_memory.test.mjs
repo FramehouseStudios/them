@@ -2476,3 +2476,30 @@ test("[persistent-screenplay-memory] the recap says finished for whichever proje
   assert.equal(snapshot.finished, true);
   assert.match(snapshot.opening_line, /the finished draft, through FADE OUT/);
 });
+
+test("[persistent-screenplay-memory] memory's own templates are not shown back as the writer's story", () => {
+  // 2026-09-30: the Studio memory card read "Payoff: Rain returns as proof or cost in
+  // Act III.", "Thread: Who else knows about phone?", "Arc: NORA must change tactics
+  // after: FADE IN: ..." — all memory's templates, none the writer's.
+  const memory = {
+    ...createEmptyEmotionMemory(),
+    screenplayProjectMemory: sanitizeScreenplayProjectMemoryItems([
+      {
+        projectId: "sine-die",
+        projectTitle: "Sine Die",
+        act: "Act III",
+        characterArcState: "NORA is under pressure from: FADE IN: EXT. STATE CAPITOL - NIGHT",
+        characterArcTurns: ["NORA must change tactics after: FADE IN: EXT. STATE CAPITOL", "DECKER: Authoritative correction for DECKER: repeating the premise. - Coming next: Act II - Midpoint Pressure: Drive toward a midpoint reversal", "Nora gives up the badge to save the vote."],
+        actThreePayoffPath: ["Rain returns as proof or cost in Act III.", "The stopped clock decides the vote."],
+        unresolvedStoryThreads: ["Who else knows about phone?", "Decker never saw the fiscal note.", "Correction to honor: Write the next page. - Current feature position: Act I (Scene 22/22); 26 pages drafted. - Latest accepted page batch: Latest: L1062-L1118"],
+        updatedAt: 1_000,
+      },
+    ]),
+    screenplayProjectMemoryUpdatedAt: 1_000,
+  };
+  const snapshot = buildSessionContinuitySnapshot(memory, null, { activeProjectId: "sine-die" });
+  assert.equal(snapshot.character_arc_state, "");
+  assert.deepEqual(snapshot.character_arc_turns, ["Nora gives up the badge to save the vote."]);
+  assert.deepEqual(snapshot.act_three_payoff_path, ["The stopped clock decides the vote."]);
+  assert.deepEqual(snapshot.unresolved_story_threads, ["Decker never saw the fiscal note."]);
+});

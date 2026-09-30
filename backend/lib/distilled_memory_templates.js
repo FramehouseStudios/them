@@ -15,6 +15,9 @@ const DISTILLED_MEMORY_TEMPLATES = Object.freeze([
   /'s next public choice must pay off the private pressure planted here\.$/,
   / is being pushed from private control toward public truth\.$/,
   / must decide what .+ costs them\.$/,
+  // The app's own feature brief, stored as a "correction" before the writer's
+  // direction was cut at the next bullet (2026-09-30): not story either.
+  /- (?:Current feature position|Coming next|Current sequence|Sequence obligation|Sequence page moves|Next scene plan|Latest accepted page batch): /,
 ]);
 
 export function isDistilledMemoryTemplate(value = "") {
