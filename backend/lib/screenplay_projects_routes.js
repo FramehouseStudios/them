@@ -58,6 +58,17 @@ const SAFE_OUTLINE_COLLECTION_LIMITS = Object.freeze({
   beats: 2048,
 });
 
+// Saved versions never change, so a draft the client already holds need not
+// ship again: with known_version_ids the project payload omits those drafts.
+// A 74-page script's save answered 3.2 MB (24 full drafts) and the phone spent
+// ~26 s on it per page (seen live 2026-09-30). Without the field every draft
+// ships, as before.
+function knownVersionIdsFrom(value, normalizeSnippet) {
+  const list = Array.isArray(value) ? value : String(value || "").split(",");
+  const ids = list.map((id) => normalizeSnippet(String(id || ""), 64)).filter(Boolean).slice(0, 64);
+  return ids.length ? new Set(ids) : undefined;
+}
+
 function mountScreenplayProjectsRoutes(app, deps = {}) {
   if (!app || typeof app.get !== "function") {
     throw new Error("mountScreenplayProjectsRoutes requires an Express app");
@@ -685,6 +696,7 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
         includeVersions: true,
         includeDrafts,
         versionLimit,
+        knownVersionIds: knownVersionIdsFrom(req.query?.known_version_ids, normalizeSnippet),
       }),
     }));
   });
@@ -928,6 +940,7 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
         includeVersions: true,
         includeDrafts: true,
         versionLimit: 24,
+        knownVersionIds: knownVersionIdsFrom(req.body?.known_version_ids, normalizeSnippet),
       }),
       screenplay_active_project_id: committedOwner.activeProjectId || "",
       screenplay_project_count: committedOwner.projects.length,
@@ -1592,7 +1605,7 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
         project_id: project.id,
         version_id: replayedVersion.id,
         version: toScreenplayVersionPayload(replayedVersion, { includeDraft: true }),
-        project: toScreenplayProjectPayload(project, { includeVersions: true, includeDrafts: true, versionLimit: 24 }),
+        project: toScreenplayProjectPayload(project, { includeVersions: true, includeDrafts: true, versionLimit: 24, knownVersionIds: knownVersionIdsFrom(req.body?.known_version_ids, normalizeSnippet) }),
         format_score: Number(replayedVersion.formatScore || 0),
         story_score: Number(replayedVersion.storyScore || 0),
         confidence_class: replayedVersion.confidenceClass || "medium",
@@ -1618,7 +1631,7 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
         project_id: project.id,
         version_id: currentVersionId,
         version: latestVersion ? toScreenplayVersionPayload(latestVersion, { includeDraft: true }) : null,
-        project: toScreenplayProjectPayload(project, { includeVersions: true, includeDrafts: true, versionLimit: 24 }),
+        project: toScreenplayProjectPayload(project, { includeVersions: true, includeDrafts: true, versionLimit: 24, knownVersionIds: knownVersionIdsFrom(req.body?.known_version_ids, normalizeSnippet) }),
         format_score: Number(latestVersion?.formatScore || 0),
         story_score: Number(latestVersion?.storyScore || 0),
         confidence_class: latestVersion?.confidenceClass || "medium",
@@ -1709,17 +1722,22 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
       } catch (_error) { /* never let a side effect fail a committed save */ }
     }
     applyReadStateHeaders(res, buildScreenplayReadMeta(req, committedOwner));
+    // A client naming known versions sent this draft and reads only the new
+    // version's id, anchors and bindings on success (server_version matters on
+    // a conflict, answered above): it gets them without the draft twice more.
+    const leanClient = Boolean(knownVersionIdsFrom(req.body?.known_version_ids, normalizeSnippet));
     return res.status(201).json(buildScreenplayEnvelope(req, committedOwner, {
       stage: "screenplay_version",
       status: "saved",
       created_project: false,
       project_id: committedProject.id,
       version_id: committedVersion.id,
-      version: toScreenplayVersionPayload(committedVersion, { includeDraft: true }),
+      version: toScreenplayVersionPayload(committedVersion, { includeDraft: !leanClient }),
       project: toScreenplayProjectPayload(committedProject, {
         includeVersions: true,
         includeDrafts: true,
         versionLimit: 24,
+        knownVersionIds: knownVersionIdsFrom(req.body?.known_version_ids, normalizeSnippet),
       }),
       format_score: committedVersion.formatScore,
       story_score: committedVersion.storyScore,
@@ -1727,7 +1745,7 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
       warnings: committedVersion.warnings,
       base_version_id: baseVersionId,
       server_version_id: committedVersion.id,
-      server_version: toScreenplayVersionPayload(committedVersion, { includeDraft: true }),
+      server_version: toScreenplayVersionPayload(committedVersion, { includeDraft: !leanClient, known: leanClient }),
       conflict: false,
       replayed: false,
     }));

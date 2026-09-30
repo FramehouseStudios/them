@@ -10498,7 +10498,7 @@ function normalizeStoredScreenplayOwner(entry) {
   };
 }
 
-function toScreenplayVersionPayload(version, { includeDraft = true } = {}) {
+function toScreenplayVersionPayload(version, { includeDraft = true, known = false } = {}) { // known: the client holds this immutable version; skip its bulk
   if (!version) return null;
   return {
     id: version.id,
@@ -10514,9 +10514,9 @@ function toScreenplayVersionPayload(version, { includeDraft = true } = {}) {
     story_score: Number(version.storyScore || 0),
     confidence_class: version.confidenceClass || "medium",
     warnings: Array.isArray(version.warnings) ? version.warnings : [],
-    draft: includeDraft ? String(version.draft || "") : null,
+    draft: includeDraft && !known ? String(version.draft || "") : null,
     draft_excerpt: buildDraftExcerpt(version.draftExcerpt || version.draft || "", 220),
-    studio_write_anchors: normalizeStoredScreenplayWriteAnchors(version.studioWriteAnchors).map((anchor) => ({
+    studio_write_anchors: known ? null : normalizeStoredScreenplayWriteAnchors(version.studioWriteAnchors).map((anchor) => ({
       write_id: anchor.writeId,
       anchor_line: anchor.anchorLine > 0 ? anchor.anchorLine : null,
       anchor_end_line: anchor.anchorEndLine > 0 ? anchor.anchorEndLine : null,
@@ -10525,7 +10525,7 @@ function toScreenplayVersionPayload(version, { includeDraft = true } = {}) {
       inserted_text: anchor.insertedText || "",
       updated_at: Math.max(0, Number(anchor.updatedAt || 0)),
     })),
-    screenplay_bindings: normalizeStoredScreenplayBindings(version.screenplayBindings).map((binding) => ({
+    screenplay_bindings: known ? null : normalizeStoredScreenplayBindings(version.screenplayBindings).map((binding) => ({
       draft_scene_id: binding.draftSceneId,
       draft_line: binding.draftLine > 0 ? binding.draftLine : null,
       draft_end_line: binding.draftEndLine > 0 ? binding.draftEndLine : null,
@@ -10719,7 +10719,7 @@ function toScreenplayProjectPayload(project, options = {}) {
     }
   }
   const versions = includeVersions
-    ? versionsForPayload.map((item) => toScreenplayVersionPayload(item, { includeDraft: includeDrafts }))
+    ? versionsForPayload.map((item) => toScreenplayVersionPayload(item, { includeDraft: includeDrafts, known: options.knownVersionIds instanceof Set && options.knownVersionIds.has(item.id) }))
     : undefined;
   return {
     id: safeProject.id,
