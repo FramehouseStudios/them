@@ -44,7 +44,7 @@ test("[studio-actions] capabilities parse with defaults and reject junk", () => 
 test("[studio-actions] the controls block names only what the app offers and the tag syntax", () => {
   const block = buildStudioControlsBlock(caps);
   assert.match(block, /STUDIO CONTROLS/);
-  assert.match(block, /Tabs: draft, beats, craft, outline, them, saved \(open now: them\)/);
+  assert.match(block, /Tabs: draft, beats, craft, outline, them \(the writer sees it as "io\.them"\), saved \(open now: them\)/);
   assert.match(block, /Revision colors, in production order: white, blue, pink/);
   assert.match(block, /"INT\. KITCHEN - NIGHT"/);
   assert.match(block, /\[\[studio: save_revision color=pink\]\]/);

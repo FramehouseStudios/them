@@ -18,6 +18,19 @@
 // machine state rides beside it, not inside it.
 
 export const STUDIO_TABS = Object.freeze(["draft", "beats", "craft", "outline", "them", "saved"]);
+
+// The writer sees the "them" tab labelled "io.them" (her notes, memory and
+// companion settings). She says the label; the app's own resolver maps the
+// same aliases (DirectionOneRightPanelTab.resolved).
+const TAB_ALIASES = Object.freeze({
+  "io.them": "them", "io them": "them", "iothem": "them", clementine: "them", companion: "them", intelligence: "them",
+});
+export function normalizeStudioTab(raw) {
+  const tab = String(raw || "").trim().toLowerCase().replace(/^the\s+/, "").replace(/\s+(tab|panel)$/, "");
+  if (/^io\.?\s?them$/.test(tab)) return "them";
+  return TAB_ALIASES[tab] || tab;
+}
+const TAB_WORD = "draft|beats|craft|outline|saved|io\\.?\\s?them";
 export const DRAFT_TOOLS_SECTIONS = Object.freeze(["pages", "revisions", "snapshots", "saved"]);
 export const SIDEBAR_SECTIONS = Object.freeze(["projects", "files"]);
 export const REVISION_COLORS = Object.freeze(["white", "blue", "pink", "yellow", "green", "goldenrod", "buff", "salmon", "cherry"]);
@@ -144,7 +157,7 @@ export function buildStudioControlsBlock(caps) {
   return [
     "<studio_controls>",
     "STUDIO CONTROLS (you can operate the app; the writer hears you and sees it happen):",
-    `- Tabs: ${caps.tabs.join(", ")}${caps.currentTab ? ` (open now: ${caps.currentTab})` : ""}. Draft tools: ${caps.draftToolsSections.join(", ")}. Sidebar: ${caps.sidebarSections.join(", ")}.`,
+    `- Tabs: ${caps.tabs.map((tab) => (tab === "them" ? "them (the writer sees it as \"io.them\")" : tab)).join(", ")}${caps.currentTab ? ` (open now: ${caps.currentTab})` : ""}. Draft tools: ${caps.draftToolsSections.join(", ")}. Sidebar: ${caps.sidebarSections.join(", ")}.`,
     `- Revision colors, in production order: ${caps.revisionColors.join(", ")}.`,
     `- Scenes on the page: ${scenes}.`,
     `- Beats on the outline: ${beats}.`,
@@ -192,7 +205,7 @@ function validate(type, args, caps) {
   if (!ACTION_TYPES.includes(t)) return { ok: false, reason: `unknown_type:${t}` };
   switch (t) {
     case "open_tab": {
-      const tab = String(args.tab || "").toLowerCase();
+      const tab = normalizeStudioTab(args.tab);
       if (!caps.tabs.includes(tab)) return { ok: false, reason: `unknown_tab:${tab || "none"}` };
       return { ok: true, action: { type: t, tab } };
     }
@@ -253,7 +266,7 @@ const SPOKEN_PATTERNS = [
   { type: "choose_beat", re: /\b(?:pull(?:ed|ing)? up|open(?:ed|ing)?|select(?:ed|ing)?|jump(?:ed|ing)? to|focus(?:ing|ed)? on|look(?:ing)? at|go(?:ing)? to|bring(?:ing)? up)\s+(?:the\s+)?["“]?([A-Za-z][^"”\n.,;:]{1,50}?)["”]?\s+beat\b/i, args: (m) => ({ beat: m[1].trim() }) },
   { type: "jump_to_scene", re: /\b(?:jump(?:ed|ing)? to|go(?:ing)? to|open(?:ed|ing)?|pull(?:ed|ing)? up|take (?:you|us) to)\s+(?:the\s+)?["“]?([A-Za-z][^"”\n.,;:]{1,60}?)["”]?\s+scene\b/i, args: (m) => ({ scene: m[1].trim() }) },
   { type: "undo_last_page_write", re: /\b(?:i'?ll|let me|i'?m going to|i will|let'?s)\s+(?:undo|remove|revert|pull back|take back)\s+(?:the |that |this )?(?:last |latest |most recent )?(?:page write|page|write|pages? i (?:just )?wrote)\b/i, args: () => ({}) },
-  { type: "open_tab", re: /\b(?:open(?:ed|ing)?|pull(?:ed|ing)? up|switch(?:ed|ing)? to|bring(?:ing)? up|brought up)\s+(?:the\s+)?(draft|beats|craft|outline|saved)\s+(?:tab|panel)\b/i, args: (m) => ({ tab: m[1].toLowerCase() }) },
+  { type: "open_tab", re: new RegExp(`\\b(?:open(?:ed|ing)?|pull(?:ed|ing)? up|switch(?:ed|ing)? to|bring(?:ing)? up|brought up)\\s+(?:the\\s+)?(${TAB_WORD})\\s+(?:tab|panel)\\b`, "i"), args: (m) => ({ tab: normalizeStudioTab(m[1]) }) },
   { type: "open_draft_tools", re: /\b(?:open(?:ed|ing)?|pull(?:ed|ing)? up|switch(?:ed|ing)? to|bring(?:ing)? up|brought up)\s+(?:the\s+)?(pages|revisions|snapshots)\b/i, args: (m) => ({ section: m[1].toLowerCase() }) },
   { type: "save_draft", re: /\b(?:sav(?:e|ed|ing))\s+(?:the |this |your )?draft\b/i, args: () => ({}) },
 ];
@@ -273,7 +286,7 @@ export function inferSpokenActions(text) {
 // action, the app must still act. Only imperative control phrasings count;
 // talking *about* a scene or a beat is not a command.
 const WRITER_COMMAND_PATTERNS = [
-  { type: "open_tab", re: /\b(?:open|pull up|switch to|bring up|show me|go to)\s+(?:the\s+)?(draft|beats|craft|outline|saved)\s+(?:tab|panel)\b/i, args: (m) => ({ tab: m[1].toLowerCase() }) },
+  { type: "open_tab", re: new RegExp(`\\b(?:open|pull up|switch to|bring up|show me|go to)\\s+(?:the\\s+)?(${TAB_WORD})\\s+(?:tab|panel)\\b`, "i"), args: (m) => ({ tab: normalizeStudioTab(m[1]) }) },
   { type: "open_draft_tools", re: /\b(?:open|pull up|switch to|bring up|show me|go to)\s+(?:the\s+)?(pages|revisions|snapshots)\b/i, args: (m) => ({ section: m[1].toLowerCase() }) },
   { type: "choose_beat", re: /\b(?:pull up|open|select|jump to|go to|bring up|show me)\s+(?:the\s+)?["“]?([A-Za-z][^"”\n.,;:?]{1,50}?)["”]?\s+beat\b/i, args: (m) => ({ beat: m[1].trim() }) },
   { type: "jump_to_scene", re: /\b(?:jump to|go to|take me to|open|pull up|show me)\s+(?:the\s+)?["“]?([A-Za-z][^"”\n.,;:?]{1,60}?)["”]?\s+scene\b/i, args: (m) => ({ scene: m[1].trim() }) },
