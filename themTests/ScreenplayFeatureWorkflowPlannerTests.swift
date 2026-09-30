@@ -1127,6 +1127,38 @@ final class ScreenplayFeatureWorkflowPlannerTests: XCTestCase {
         XCTAssertEqual(snapshot.actProgressLabel, "No pages yet")
     }
 
+    func testAFinishedDraftOffersNoPageWritingMoves() {
+        // 2026-09-30: the compass on a script ending at THE END said "Write the
+        // next scene — Continue the unfinished page with a concrete emotional turn."
+        let empty = BackendScreenplayOutline(updatedAt: nil, actCount: 0, sceneCount: 0, beatCount: 0, acts: [], scenes: [], beats: [])
+        func snapshot(_ draft: String) -> ScreenplayFeatureWorkflowSnapshot {
+            ScreenplayFeatureWorkflowPlanner.buildSnapshot(
+                project: nil, outline: empty,
+                structuredDraft: ScreenplayStructuredDraft(updatedAt: Date(), lineCount: 12, sceneCount: 1, paragraphs: [], scenes: [], characters: []),
+                projectBinding: .empty, featureSpine: ScreenplayFeatureSpine(), lastCommittedWrite: nil,
+                acceptedPageBatchCount: 3, currentCursorLine: 1, draftText: draft, paginatedPageCount: 74, targetPages: 75
+            )
+        }
+        let finished = snapshot("INT. SENATE FLOOR - NIGHT\n\nThe gavel falls.\n\nFADE OUT.\n\nTHE END\n")
+        XCTAssertTrue(finished.isFinishedDraft)
+        XCTAssertTrue(finished.nextMoves.isEmpty)
+        XCTAssertEqual(finished.structuralObligation, "The draft reaches FADE OUT.")
+        XCTAssertFalse(finished.nextSceneDetail.contains("unfinished page"))
+
+        let open = snapshot("INT. SENATE FLOOR - NIGHT\n\nThe gavel hangs in the air.\n")
+        XCTAssertFalse(open.isFinishedDraft)
+        XCTAssertFalse(open.nextMoves.isEmpty)
+    }
+
+    func testTheEndingRuleMatchesTheBackends() {
+        XCTAssertTrue(ScreenplayDraftEnding.reachesTheEnd("...\n\nFADE OUT.\n\nTHE END\n\n"))
+        XCTAssertTrue(ScreenplayDraftEnding.reachesTheEnd("She leaves.\n\nFADE TO BLACK."))
+        XCTAssertTrue(ScreenplayDraftEnding.reachesTheEnd("She leaves.\n\nfade out:"))
+        XCTAssertFalse(ScreenplayDraftEnding.reachesTheEnd("FADE OUT.\n\nINT. HALL - DAY\n\nOne.\n\nTwo.\n\nThree."), "only the last three lines count")
+        XCTAssertFalse(ScreenplayDraftEnding.reachesTheEnd("She says THE END is near."))
+        XCTAssertFalse(ScreenplayDraftEnding.reachesTheEnd(""))
+    }
+
     func testFourScenePasteReportsThePaginatorsPagesAndTheCurrentScene() {
         // Seen live 2026-09-28: a pasted 4-scene script showed "4 pages" in
         // the header but "3 pages drafted" and "Line 1/163" in the compass.

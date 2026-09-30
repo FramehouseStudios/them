@@ -33,6 +33,8 @@ struct ScreenplayFeatureWorkflowSnapshot: Equatable, Hashable {
     let featureSequenceDetail: String
     let featureSequenceMoves: [String]
     let comingNextSequence: String
+    /// The draft reaches FADE OUT: no page-writing moves are offered.
+    let isFinishedDraft: Bool
 
     init(
         currentActTitle: String,
@@ -52,7 +54,8 @@ struct ScreenplayFeatureWorkflowSnapshot: Equatable, Hashable {
         featureSequenceTitle: String = "",
         featureSequenceDetail: String = "",
         featureSequenceMoves: [String] = [],
-        comingNextSequence: String = ""
+        comingNextSequence: String = "",
+        isFinishedDraft: Bool = false
     ) {
         self.currentActTitle = currentActTitle
         self.currentActDetail = currentActDetail
@@ -72,6 +75,7 @@ struct ScreenplayFeatureWorkflowSnapshot: Equatable, Hashable {
         self.featureSequenceDetail = featureSequenceDetail
         self.featureSequenceMoves = featureSequenceMoves
         self.comingNextSequence = comingNextSequence
+        self.isFinishedDraft = isFinishedDraft
     }
 
     var hasAcceptedBatch: Bool {
@@ -518,6 +522,9 @@ enum ScreenplayFeatureWorkflowPlanner {
             sequenceGuide: sequenceGuide
         )
 
+        // A finished script is not continued page by page: "Write the next
+        // scene / Continue the unfinished page" appended past THE END.
+        let isFinishedDraft = ScreenplayDraftEnding.reachesTheEnd(draftText)
         return ScreenplayFeatureWorkflowSnapshot(
             currentActTitle: currentAct.title,
             currentActDetail: actDetail,
@@ -526,17 +533,18 @@ enum ScreenplayFeatureWorkflowPlanner {
             acceptedBatchTitle: acceptedBatch.title,
             acceptedBatchDetail: acceptedBatch.detail,
             acceptedBatchLineRange: acceptedBatch.lineRange,
-            structuralObligation: structuralObligation,
+            structuralObligation: isFinishedDraft ? ScreenplayDraftEnding.finishedObligation : structuralObligation,
             nextSceneTitle: nextSceneTitle,
-            nextSceneDetail: nextSceneDetail,
-            nextMoves: moves,
+            nextSceneDetail: isFinishedDraft ? ScreenplayDraftEnding.finishedDetail : nextSceneDetail,
+            nextMoves: isFinishedDraft ? [] : moves,
             pageWritePrompt: pageWritePrompt,
             planningPrompt: planningPrompt,
             sceneDoctorPrompt: sceneDoctorPrompt,
             featureSequenceTitle: featureSequenceTitle(sequenceGuide),
             featureSequenceDetail: featureSequenceDetail(sequenceGuide),
             featureSequenceMoves: sequenceGuide.nextMoves,
-            comingNextSequence: sequenceGuide.comingNext
+            comingNextSequence: sequenceGuide.comingNext,
+            isFinishedDraft: isFinishedDraft
         )
     }
 
