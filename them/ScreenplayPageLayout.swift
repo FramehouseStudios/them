@@ -113,8 +113,17 @@ struct ScreenplayPageLayout {
 
     /// Mirrors backend/lib/screenplay_pagination.js line for line; both are
     /// pinned to docs/pagination/fixtures.json.
+    /// The page header, chip and overview paginate the whole script on every
+    /// render; the default page length is kept for the same text (2026-09-30).
     static func paginate(_ draft: String, linesPerPage requested: Int = defaultLinesPerPage) -> [Page] {
         let linesPerPage = min(max(requested, minimumLinesPerPage), maximumLinesPerPage)
+        guard linesPerPage == defaultLinesPerPage else { return computePages(draft, linesPerPage: linesPerPage) }
+        return defaultPagesMemo.value(for: draft) { computePages($0, linesPerPage: defaultLinesPerPage) }
+    }
+
+    private static let defaultPagesMemo = LastValueMemo<[Page]>()
+
+    private static func computePages(_ draft: String, linesPerPage: Int) -> [Page] {
         let normalized = draft
             .replacingOccurrences(of: "\r\n", with: "\n")
             .trimmingCharacters(in: .whitespacesAndNewlines)
