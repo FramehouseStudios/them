@@ -249,6 +249,16 @@ function qualityTokenSet(value = "") {
   return new Set(tokens.filter((token) => token.length >= 4 && !QUALITY_TOKEN_STOPWORDS.has(token)));
 }
 
+// A list item cut mid-word left a fragment the planning-word filter does not
+// know: "...a painful truth that can powe" held page 54 of a 75-page script
+// to the "word" powe (seen 2026-09-30). Items are cut on a word boundary.
+function clipAtWord(text, maxChars) {
+  if (text.length <= maxChars) return text;
+  const cut = text.slice(0, maxChars);
+  const space = cut.lastIndexOf(" ");
+  return (space > 0 ? cut.slice(0, space) : cut).trim();
+}
+
 function sanitizeQualityList(items, maxItems = 6, maxChars = 180) {
   const source = Array.isArray(items)
     ? items
@@ -258,7 +268,7 @@ function sanitizeQualityList(items, maxItems = 6, maxChars = 180) {
   const out = [];
   const seen = new Set();
   for (const item of source) {
-    const clean = normalizeLineText(item).slice(0, Math.max(1, Number(maxChars || 180)));
+    const clean = clipAtWord(normalizeLineText(item), Math.max(1, Number(maxChars || 180)));
     if (!clean) continue;
     const key = clean.toLowerCase();
     if (seen.has(key)) continue;
@@ -1228,6 +1238,15 @@ function inferFeatureActKind(featureContext = {}) {
 // Motifs memory noticed ("window", "door") are not obligations; the writer's
 // ending image is. On a new project they were the only words left, so every
 // Act I page had to mention a window and a door (seen live 2026-09-30).
+// Brief lines reach the gate already clipped (the app and the momentum merge
+// cap items at 120-200 characters): a long line with no closing punctuation
+// ends in a word fragment, and "can powe" held a page to the "word" powe.
+function withoutClippedTail(phrase = "") {
+  const text = String(phrase || "").trim();
+  if (text.length < 100 || /[.!?;:"')\]…]$/.test(text)) return text;
+  return text.replace(/\s+\S+$/, "");
+}
+
 function featureObligationPhrasesForAct(featureActKind = "", featureContext = {}) {
   if (!featureActKind || !featureContext || typeof featureContext !== "object") return [];
   if (featureActKind === "act3") {
@@ -1249,7 +1268,7 @@ function featureObligationPhrasesForAct(featureActKind = "", featureContext = {}
         featureContext?.finalImage ??
         featureContext?.final_image
       ),
-    ].filter(Boolean);
+    ].filter(Boolean).filter((phrase) => !isDistilledMemoryTemplate(phrase)).map(withoutClippedTail);
   }
 
   const phrases = [
@@ -1278,7 +1297,7 @@ function featureObligationPhrasesForAct(featureActKind = "", featureContext = {}
   // Teddy mumbles in his sleep.") is not an act obligation: its words held an
   // Act II cutaway to a sleeping boy from fifteen pages back (seen live
   // 2026-09-30).
-  return phrases.filter(Boolean).filter((phrase) => !isDistilledMemoryTemplate(phrase));
+  return phrases.filter(Boolean).filter((phrase) => !isDistilledMemoryTemplate(phrase)).map(withoutClippedTail);
 }
 
 function evaluateFeatureActObligationCoverage({

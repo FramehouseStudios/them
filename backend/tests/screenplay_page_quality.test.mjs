@@ -2145,3 +2145,56 @@ test("[screenplay-page-quality] noticed motifs are not an act obligation; the wr
   });
   assert.equal(actThree.ok, false, "a writer-named ending image still binds Act III");
 });
+
+test("[screenplay-page-quality] a brief line clipped mid-word does not bind the page to the fragment", () => {
+  // Seen 2026-09-30: page 54 of a 75-page script held back as missing_act_two_reversal;
+  // the only obligation word left was "powe" from "...a painful truth that can powe".
+  const clipped = "Advance Collapse / All Is Lost: Escalate to the loss that forces the protagonist to confront the need beneath the want. Pay off planted dread; leave one painful truth that can powe";
+  const page = [
+    "INT. MARCHETTI'S OFFICE - NIGHT",
+    "",
+    "Nora sets the badge on the desk, face up.",
+    "",
+    "MARCHETTI",
+    "Leave it.",
+  ].join("\n");
+  const result = evaluateFeatureActObligationCoverage({
+    text: page,
+    counts: {},
+    featureContext: { act: "Act II", nextThreeTurns: [clipped] },
+  });
+  assert.equal(result.ok, true, JSON.stringify(result));
+});
+
+test("[screenplay-page-quality] memory's payoff templates do not bind an Act III page", () => {
+  // Seen 2026-09-30: page 60 of 75 (Osgood's clock payoff) held back as
+  // missing_act_three_payoff until it mentioned rain, a window, or Nora's
+  // "private pressure" — all from memory's own templates.
+  const page = [
+    "INT. SENATE CHAMBER - CONTINUOUS",
+    "",
+    "Osgood keeps two fingers on the minute hand.",
+    "",
+    "OSGOOD",
+    "The objection is recorded in the Journal at page four hundred and six.",
+  ].join("\n");
+  const result = evaluateFeatureActObligationCoverage({
+    text: page,
+    counts: {},
+    featureContext: {
+      act: "Act III",
+      actThreePayoffPath: [
+        "Rain returns as proof or cost in Act III.",
+        "Window returns as proof or cost in Act III.",
+        "NORA's next public choice must pay off the private pressure planted here.",
+      ],
+    },
+  });
+  assert.equal(result.ok, true, JSON.stringify(result));
+  const writerPayoff = evaluateFeatureActObligationCoverage({
+    text: page,
+    counts: {},
+    featureContext: { act: "Act III", endingImage: "A mason jar of brown tap water on the Governor's desk." },
+  });
+  assert.equal(writerPayoff.ok, false, "a payoff the writer named still binds");
+});
