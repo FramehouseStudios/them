@@ -1,4 +1,5 @@
 import { inferScreenplayTask } from "./prompt_assembly.js";
+import { isElevatedBrief, writerWordsFromTurn } from "./writer_words.js";
 import {
   classifyScreenplayLines,
   evaluateScreenplayPageQuality,
@@ -198,11 +199,23 @@ function writerAsksForTheEnding(transcript = "") {
   return WRITER_ASKS_FOR_THE_ENDING.test(writerRequest);
 }
 
+// "Write the next page of Act II." names the act; the app's act comes from a
+// page count against a 110-page plan and said Act I at page 37 of a 75-page
+// script (seen live 2026-09-30). Only the writer's own words count.
+function writerRequestedAct(transcript = "") {
+  const source = String(transcript || "");
+  const direction = isElevatedBrief(source) ? writerWordsFromTurn(source) : (source.length <= 300 ? source : "");
+  const act = cleanInline(inferScreenplayTask(direction)?.requestedAct, 40);
+  return /^Act (?:I|II|III)$/.test(act) ? act : "";
+}
+
 function evaluateStudioScreenplayReply({ reply = "", transcript = "", body = {} } = {}) {
   const text = normalizeScreenplayOutputContractText(String(reply || "").trim());
   const lines = classifyScreenplayLines(text);
   const requestedPages = studioScreenplayRequestedPages({ body, transcript });
   const featureContext = studioScreenplayFeatureContext(body);
+  const writersAct = writerRequestedAct(transcript);
+  if (writersAct) featureContext.requestedAct = writersAct;
   if (writerAsksForTheEnding(transcript)) featureContext.requestedAct = "Act III";
   const result = evaluateScreenplayPageQuality({
     text,

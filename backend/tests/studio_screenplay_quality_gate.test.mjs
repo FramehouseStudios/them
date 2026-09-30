@@ -490,3 +490,26 @@ test("[studio-screenplay-quality-gate] the writer's own request for the ending m
   assert.equal(writerAsksForTheEnding("Writer request: Write the next page: Nora goes up to Room 4."), false);
   assert.equal(writerAsksForTheEnding("Plant the emotional question the ending must answer. Writer request: Write the next page."), false);
 });
+
+test("[studio-quality-gate] the writer's named act outranks the app's page-count act", async () => {
+  // Seen live 2026-09-30: "Write the next page of Act II." at page 37 of a
+  // 75-page script was judged against Act I (the app plans for 110 pages)
+  // and held back as missing_act_one_commitment.
+  const { readFileSync } = await import("node:fs");
+  const reply = readFileSync(new URL("./fixtures/sine_die_act_two_page.fountain", import.meta.url), "utf8");
+  const body = {
+    screenplay_act: "Act I",
+    screenplay_feature_sequence: "Act I - Catalyst To Commitment",
+    screenplay_feature_obligation: "The protagonist must choose the movie, not merely receive it.",
+    screenplay_character_arc_state: "Mae must choose the bus over the ward.",
+    screenplay_requested_pages: 1,
+  };
+  const appAct = evaluateStudioScreenplayReply({ reply, transcript: "Write the next page.", body });
+  assert.equal(appAct.featureObligation?.featureActKind ?? "act1", "act1");
+  const writersAct = evaluateStudioScreenplayReply({
+    reply,
+    transcript: "Continue the feature.\n- Writer's immediate direction: Write the next page of Act II.\n- Current feature position: Act I",
+    body,
+  });
+  assert.notEqual(writersAct.reason, "missing_act_one_commitment", JSON.stringify(writersAct.featureObligation));
+});
