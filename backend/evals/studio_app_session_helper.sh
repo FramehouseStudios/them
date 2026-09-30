@@ -129,6 +129,11 @@ pid_matches_marked_studio_eval_process() {
   [[ -n "$candidate_executable" ]] || return 1
   candidate_basename="${candidate_executable##*/}"
   [[ "$candidate_basename" == "$PROCESS_NAME" ]] || return 1
+  # Only the macOS app (them.app/Contents/MacOS/them). An iOS simulator app
+  # (…/CoreSimulator/…/them.app/them --studio-eval) is someone's live session:
+  # the backend test suite's cleanup was SIGTERMing it (seen 2026-09-30).
+  [[ "$candidate_command" == *"/Contents/MacOS/$PROCESS_NAME"* ]] || return 1
+  [[ "$candidate_command" != *"/CoreSimulator/"* ]] || return 1
   [[ "$candidate_command" == *" --studio-eval" || "$candidate_command" == *" --studio-eval "* ]]
 }
 
