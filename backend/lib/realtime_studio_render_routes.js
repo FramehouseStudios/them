@@ -49,6 +49,7 @@ import {
   MEMORY_BLOCK_OPEN,
 } from "./prompt_assembly.js";
 import { normalizeScreenplayOutputContractText } from "./screenplay_output_contract.js";
+import { capSystemPromptKeepingSafety } from "./system_prompt_trim.js";
 import {
   enforceStudioScreenplayQuality,
   enforceStudioStructuralAnalysisQuality,
@@ -919,9 +920,12 @@ function mountRealtimeStudioRenderRoutes(app, deps = {}) {
       });
     }
 
-    const systemPrompt = normalizeSnippet(
+    // The app's prompt runs past 16,000 characters with its safety contract
+    // near the end; a plain cut left the contract half there (2026-09-30).
+    const systemPrompt = capSystemPromptKeepingSafety(
       req.body?.system_prompt ?? req.body?.instructions ?? "",
       16_000,
+      { normalize: normalizeSnippet },
     );
     const shouldApplyScreenplayContract = shouldApplyStudioRenderScreenplayContract(req.body);
     const requestedPages = shouldApplyScreenplayContract
@@ -1058,9 +1062,12 @@ function mountRealtimeStudioRenderRoutes(app, deps = {}) {
       });
     }
 
-    const systemPrompt = normalizeSnippet(
+    // The app's prompt runs past 16,000 characters with its safety contract
+    // near the end; a plain cut left the contract half there (2026-09-30).
+    const systemPrompt = capSystemPromptKeepingSafety(
       req.body?.system_prompt ?? req.body?.instructions ?? "",
       16_000,
+      { normalize: normalizeSnippet },
     );
     const shouldApplyScreenplayContract = shouldApplyStudioRenderScreenplayContract(req.body);
     const requestedPages = shouldApplyScreenplayContract

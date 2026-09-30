@@ -2061,6 +2061,16 @@ function buildFeatureMapBlock(sessionContext, screenplayTask) {
   return buildFeatureScreenplayMapBlock({ sessionContext, screenplayTask, compact: true });
 }
 
+function withoutSafetyContract(text) {
+  let out = text;
+  for (let start = out.indexOf(CLEMENTINE_SAFETY_BLOCK_OPEN); start !== -1; start = out.indexOf(CLEMENTINE_SAFETY_BLOCK_OPEN)) {
+    const end = out.indexOf(CLEMENTINE_SAFETY_BLOCK_CLOSE, start);
+    if (end === -1) break; // not a whole block: left as it is
+    out = `${out.slice(0, start)}${out.slice(end + CLEMENTINE_SAFETY_BLOCK_CLOSE.length)}`;
+  }
+  return out === text ? text : out.replace(/\n{3,}/g, "\n\n").trim();
+}
+
 function buildClementineSafetyContractBlock() {
   return `${CLEMENTINE_SAFETY_BLOCK_OPEN}\n${CLEMENTINE_SAFETY_CONTRACT.join("\n")}\n${CLEMENTINE_SAFETY_BLOCK_CLOSE}`;
 }
@@ -2077,7 +2087,10 @@ function buildModelPrompt({
   screenplayTask = null,
 } = {}) {
   const parts = [];
-  const personaText = trimToString(persona);
+  // A persona that already carries the contract (the app's Studio prompt does)
+  // sent it twice, ~1,000 characters per page write (seen 2026-09-30). The
+  // canonical copy below is the one kept.
+  const personaText = withoutSafetyContract(trimToString(persona));
   if (personaText) parts.push(personaText);
 
   parts.push(buildClementineSafetyContractBlock());
