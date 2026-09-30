@@ -1,3 +1,5 @@
+import { isDistilledMemoryTemplate } from "./distilled_memory_templates.js";
+
 function normalizeLineText(value = "") {
   return String(value || "")
     .replace(/[ \t]{2,}/g, " ")
@@ -1605,12 +1607,11 @@ function hasExplicitNextSceneExecutionBrief(featureContext = null) {
 
 // A lane quoting the page itself ("Nora is under pressure from: FADE IN:
 // EXT. STATE CAPITOL - NIGHT A granite dome…") is not a story obligation.
-// So is memory's own template around the last action line ("Nora is under
-// pressure from: Teddy mumbles in his sleep.") — a line, not an arc.
+// So is memory's own template around a line or a motif ("Nora is under
+// pressure from: Teddy mumbles in his sleep.", "Who controls the photograph?").
 function isPageTextLane(phrase = "") {
   const text = normalizeLineText(phrase);
-  return /\b(?:FADE IN|FADE OUT|CUT TO)\b|\b(?:INT|EXT)\.\s/.test(text) ||
-    /^[A-Za-z][\w'-]* (?:is under pressure from|must change tactics after):/.test(text);
+  return /\b(?:FADE IN|FADE OUT|CUT TO)\b|\b(?:INT|EXT)\.\s/.test(text) || isDistilledMemoryTemplate(text);
 }
 
 // "Rain returns as proof or cost in Act III." is the Act III payoff path;
