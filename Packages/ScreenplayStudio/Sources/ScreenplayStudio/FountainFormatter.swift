@@ -387,13 +387,17 @@ public enum FountainFormatter {
             with: "",
             options: .regularExpression
         )
+        // List markers are stripped only when text follows on the same line:
+        // "\s+" crossed the newline, so MARCHETTI's line "1974." (and the
+        // blank after it) was deleted, leaving an empty cue (seen live
+        // 2026-09-30).
         text = text.replacingOccurrences(
-            of: #"(?m)^\s*[-*•]+\s+"#,
+            of: #"(?m)^[ \t]*[-*•]+[ \t]+(?=\S)"#,
             with: "",
             options: .regularExpression
         )
         text = text.replacingOccurrences(
-            of: #"(?m)^\s*\d+[.)]\s+"#,
+            of: #"(?m)^[ \t]*\d+[.)][ \t]+(?=\S)"#,
             with: "",
             options: .regularExpression
         )
@@ -603,7 +607,10 @@ public enum FountainFormatter {
                 continue
             }
 
-            if isCharacterCueLine(lineToClassify) {
+            // Under a cue the line is spoken, even when it reads like a cue:
+            // "1974." and "NO!" were taken as a second cue and the speaker
+            // was left with no line (seen live 2026-09-30).
+            if isCharacterCueLine(lineToClassify), previousKind != .character, previousKind != .parenthetical {
                 elements.append(FountainElement(kind: .character, text: normalizeCharacterCue(lineToClassify)))
                 previousKind = .character
                 continue
