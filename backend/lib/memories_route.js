@@ -1631,6 +1631,8 @@ function mountMemoriesRoutes(app, deps = {}) {
       }
       try {
         const forgetInput = { userId, key };
+        const projectId = String(req.body?.project_id ?? "").trim().slice(0, 96);
+        if (projectId) forgetInput.projectId = projectId;
         if (expectedRevision) forgetInput.expectedRevision = expectedRevision;
         const receipt = await creativeMemoryStore.forgetMemoryCard(forgetInput);
         if (!receipt?.ok) {
@@ -1914,4 +1916,25 @@ function mountMemoriesRoutes(app, deps = {}) {
   });
 }
 
-export { mountMemoriesRoutes, MEMORIES_MUTATION_BODY_LIMIT };
+/**
+ * Character bibles are kept per project, so the same name in two scripts gave
+ * two cards with one id ("character-nora"). The app keys Memories by id and
+ * crashed merging them (seen twice 2026-09-30); forgetting one hid both. A
+ * duplicated id gets its project appended; an id seen once is unchanged.
+ */
+function withProjectScopedCardIds(cards) {
+  const list = Array.isArray(cards) ? cards : [];
+  const counts = new Map();
+  for (const card of list) counts.set(card?.id, (counts.get(card?.id) || 0) + 1);
+  const used = new Set(list.filter((card) => counts.get(card?.id) === 1).map((card) => card.id));
+  return list.map((card) => {
+    if (counts.get(card?.id) === 1) return card;
+    const project = String(card?.projectId || "").trim().toLowerCase().replace(/[^a-z0-9_]+/g, "");
+    let id = project ? `${card.id}--${project}` : String(card.id);
+    for (let n = 2; used.has(id); n += 1) id = `${project ? `${card.id}--${project}` : card.id}-${n}`;
+    used.add(id);
+    return { ...card, id };
+  });
+}
+
+export { mountMemoriesRoutes, MEMORIES_MUTATION_BODY_LIMIT, withProjectScopedCardIds };

@@ -9106,9 +9106,9 @@ actor BackendMemoryAPI {
 
     func forgetMemoryCard(
         id: String,
-        key: String? = nil
+        key: String? = nil, projectID: String = ""
     ) async throws -> BackendReadResult<BackendMemoryMutationResponse> {
-        var payload: [String: Any] = ["card_id": id]
+        var payload: [String: Any] = projectID.isEmpty ? ["card_id": id] : ["card_id": id, "project_id": projectID]
         if let key, !key.isEmpty { payload["key"] = key }
         return try await runMemoryMutation(path: "/memories/forget", payload: payload)
     }

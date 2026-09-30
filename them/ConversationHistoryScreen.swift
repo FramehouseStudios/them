@@ -111,7 +111,7 @@ final class ConversationHistoryViewModel: ObservableObject {
             if isDeltaFetch {
                 switch state {
                 case .loaded(let current):
-                    var merged = Dictionary(uniqueKeysWithValues: current.map { ($0.id, $0) })
+                    var merged = NewestByID.map(current, id: \.id, date: \.lastUpdated)
                     for thread in incoming {
                         merged[thread.id] = thread
                     }
@@ -120,7 +120,7 @@ final class ConversationHistoryViewModel: ObservableObject {
                     items = incoming
                 }
             } else {
-                items = incoming
+                items = NewestByID.uniqued(incoming, id: \.id, date: \.lastUpdated)
             }
 
             lastSync = result.sync
@@ -274,7 +274,7 @@ final class ConversationHistoryViewModel: ObservableObject {
 
         var merged = [String: ConversationThread]()
         if case .loaded(let current) = state {
-            merged = Dictionary(uniqueKeysWithValues: current.map { ($0.id, $0) })
+            merged = NewestByID.map(current, id: \.id, date: \.lastUpdated)
         }
         for thread in incoming {
             merged[thread.id] = thread
