@@ -397,7 +397,8 @@ enum ScreenplayFeatureWorkflowPlanner {
         acceptedPageBatchCount: Int,
         currentCursorLine: Int,
         draftText: String,
-        paginatedPageCount: Int = 0
+        paginatedPageCount: Int = 0,
+        targetPages: Int? = nil
     ) -> ScreenplayFeatureWorkflowSnapshot {
         let sortedActs = outline.acts.sorted(by: orderedActs)
         let sortedScenes = outline.scenes.sorted(by: orderedScenes)
@@ -439,7 +440,7 @@ enum ScreenplayFeatureWorkflowPlanner {
                 currentActTitle: currentAct.title,
                 estimatedPageCount: estimatedPageCount
             ),
-            targetPages: ScreenplayFeatureProgressionGuide.defaultTargetPages
+            targetPages: targetPages ?? ScreenplayTargetLength.pages(forProject: project?.id ?? "")
         )
         let nextScene = resolveNextScene(
             sortedScenes: sortedScenes,

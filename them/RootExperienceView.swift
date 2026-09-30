@@ -10250,7 +10250,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
             ? ScreenplayFeatureProgressionGuide.guide(
                 actPosition: resolvedAct,
                 currentPage: estimatedPageCount,
-                targetPages: ScreenplayFeatureProgressionGuide.defaultTargetPages
+                targetPages: ScreenplayTargetLength.pages(forProject: screenplayDraftBridge.preferredProjectID)
             )
             : nil
         if let featureGuide {
@@ -10279,7 +10279,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
         var promptImageMotifs: [String] = []
         var promptEmotionalContinuity = emotionalContinuity
         var promptPageCount = estimatedPageCount
-        var promptTargetPages = hasFeatureGuideContext ? ScreenplayFeatureProgressionGuide.defaultTargetPages : 0
+        var promptTargetPages = hasFeatureGuideContext ? ScreenplayTargetLength.pages(forProject: screenplayDraftBridge.preferredProjectID) : 0
         var promptBeatSequence: [String] = []
 
         if promptSceneObjective.isEmpty {
