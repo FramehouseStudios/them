@@ -2129,8 +2129,8 @@ enum BackendError: LocalizedError {
             return "HTTP \(status): \(BackendErrorMessageSanitizer.displayMessage(message, status: status))"
         case let .realtimeUnavailable(unavailable):
             return unavailable.userMessage
-        case .studioRenderQuality:
-            return "Clementine held this page back because it did not pass the screenplay quality check. Your draft is unchanged."
+        case let .studioRenderQuality(quality, _):
+            return StudioHeldBackReasonCopy.message(reason: quality.reason)
         case .continueListening:
             return "Continue listening."
         case .emptyAudio:
