@@ -1150,6 +1150,13 @@ final class ScreenplayFeatureWorkflowPlannerTests: XCTestCase {
         XCTAssertFalse(open.nextMoves.isEmpty)
     }
 
+    func testTheCompassDoesNotRepeatTheObligationAsItsDetail() {
+        let goal = "The vote can't close while the clock is stopped."
+        XCTAssertFalse(ScreenplayStudioFeatureCompassCard.showsDetail(goal, under: "Make the next beat change the story: \(goal)"))
+        XCTAssertTrue(ScreenplayStudioFeatureCompassCard.showsDetail("Maggie walks in.", under: "Escalate the central pressure."))
+        XCTAssertFalse(ScreenplayStudioFeatureCompassCard.showsDetail("  ", under: "Anything."))
+    }
+
     func testTheEndingRuleMatchesTheBackends() {
         XCTAssertTrue(ScreenplayDraftEnding.reachesTheEnd("...\n\nFADE OUT.\n\nTHE END\n\n"))
         XCTAssertTrue(ScreenplayDraftEnding.reachesTheEnd("She leaves.\n\nFADE TO BLACK."))

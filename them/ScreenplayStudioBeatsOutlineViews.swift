@@ -401,6 +401,14 @@ private func inspectorDropTargetBinding(for id: String, target: Binding<String>)
 }
 
 struct ScreenplayStudioFeatureCompassCard: View {
+    /// The detail line is left out when the obligation already says it: a
+    /// beat-driven obligation ("Make the next beat change the story: X")
+    /// printed X again underneath (2026-09-30).
+    nonisolated static func showsDetail(_ detail: String, under obligation: String) -> Bool {
+        let clean = detail.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !clean.isEmpty && !obligation.localizedCaseInsensitiveContains(clean)
+    }
+
     let snapshot: ScreenplayFeatureWorkflowSnapshot
     let acceptedPageBatchCount: Int
     let isWriteDisabled: Bool
@@ -430,7 +438,7 @@ struct ScreenplayStudioFeatureCompassCard: View {
                         .font(IOThemTypography.UI.captionStrong)
                         .foregroundStyle(Color.herText.opacity(0.82))
                         .fixedSize(horizontal: false, vertical: true)
-                    if !snapshot.nextSceneDetail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    if ScreenplayStudioFeatureCompassCard.showsDetail(snapshot.nextSceneDetail, under: snapshot.structuralObligation) {
                         Text(snapshot.nextSceneDetail)
                             .font(IOThemTypography.UI.labelRegular)
                             .foregroundStyle(Color.herText.opacity(0.58))
