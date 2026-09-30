@@ -46,4 +46,17 @@ enum FountainElementSpacing {
         guard !aboveText.isEmpty, needsBlankLineBefore(element, after: elementAbove) else { return nil }
         return lineRange.location
     }
+
+    /// Where to put the blank line above a cue typed straight under text
+    /// ("Rain on the glass." Return "DANNY" Return): the editor showed a cue,
+    /// but the saved `…glass.\nDANNY\nNobody moves…` printed, paginated and
+    /// exported as one action paragraph (2026-09-30). nil when the line is the
+    /// first one or already sits under a blank line.
+    static func blankLineOffsetAboveTypedCue(lineStart: Int, in text: String) -> Int? {
+        let ns = text as NSString
+        guard lineStart > 0, lineStart <= ns.length else { return nil }
+        let above = ns.lineRange(for: NSRange(location: lineStart - 1, length: 0))
+        let aboveText = ns.substring(with: above).trimmingCharacters(in: .whitespacesAndNewlines)
+        return aboveText.isEmpty ? nil : lineStart
+    }
 }

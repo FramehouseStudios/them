@@ -40,6 +40,20 @@ final class FountainElementSpacingTests: XCTestCase {
         ))
         XCTAssertNil(FountainElementSpacing.blankLineInsertionOffset(in: "", cursor: 0, element: .sceneHeading, elementAbove: nil))
     }
+
+    func testACueTypedUnderActionGetsTheBlankLineFountainNeeds() {
+        // 2026-09-30: "…glass.\nDANNY\nNobody moves…" printed as one action paragraph.
+        let text = "INT. HALL - NIGHT\n\nRain on the glass.\nDANNY\n"
+        let cueStart = (text as NSString).range(of: "DANNY").location
+        XCTAssertEqual(FountainElementSpacing.blankLineOffsetAboveTypedCue(lineStart: cueStart, in: text), cueStart)
+        let spaced = "INT. HALL - NIGHT\n\nRain on the glass.\n\nDANNY\n"
+        XCTAssertNil(FountainElementSpacing.blankLineOffsetAboveTypedCue(lineStart: (spaced as NSString).range(of: "DANNY").location, in: spaced))
+        XCTAssertNil(FountainElementSpacing.blankLineOffsetAboveTypedCue(lineStart: 0, in: "DANNY\n"), "first line")
+        let fixed = (text as NSString).replacingCharacters(in: NSRange(location: cueStart, length: 0), with: "\n") + "Nobody moves until eight."
+        let kinds = ScreenplayPageLayout.classify(fixed.components(separatedBy: "\n"))
+        XCTAssertEqual(kinds[4], .character, "the printed page now reads a cue")
+        XCTAssertEqual(kinds[5], .dialogue)
+    }
 }
 
 final class ScreenplayRemoteWhitespaceOnlyDifferenceTests: XCTestCase {
