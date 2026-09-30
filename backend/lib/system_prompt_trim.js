@@ -647,8 +647,22 @@ function fitSystemPromptForTurnLatency(
 // cap, the rest is trimmed and the safety contract is kept whole.
 const ALWAYS_KEPT_TAGS = Object.freeze(["clementine_safety_contract"]);
 
+// The same protected block twice (the app's prompt and the backend's both
+// carry the safety contract) kept one copy whole and cut the other mid-sentence,
+// ~1,000 characters per page write (seen 2026-09-30). Later identical copies go.
+function withoutRepeatedBlocks(text, tagNames) {
+  let out = text;
+  for (const { block } of extractTaggedBlocks(text, tagNames)) {
+    const first = out.indexOf(block);
+    if (first === -1) continue;
+    const head = out.slice(0, first + block.length);
+    out = head + out.slice(head.length).split(block).join("");
+  }
+  return out;
+}
+
 function capSystemPromptKeepingSafety(prompt, maxChars, { normalize = (text, max) => String(text || "").slice(0, max) } = {}) {
-  const text = String(prompt || "");
+  const text = withoutRepeatedBlocks(String(prompt || ""), ALWAYS_KEPT_TAGS);
   if (text.length <= maxChars) return normalize(text, maxChars);
   const kept = extractTaggedBlocks(text, ALWAYS_KEPT_TAGS);
   if (!kept.length) return normalize(text, maxChars);

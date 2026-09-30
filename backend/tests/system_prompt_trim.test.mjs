@@ -7,6 +7,7 @@ import { parseStudioCapabilities, buildStudioControlsBlock, buildCoverageReadBlo
 import {
   extractTaggedBlocks,
   fitSystemPromptForTurnLatency,
+  capSystemPromptKeepingSafety,
 } from "../lib/system_prompt_trim.js";
 
 test("[system-prompt-trim] extracts screenplay-critical tagged blocks in source order", () => {
@@ -614,4 +615,17 @@ test("[system-prompt-trim] a mentor turn keeps her identity whole at the mentor 
     chatModelPlan: { tier: "rich" }, flags: {}, routingLane: "normal_rotation",
   });
   assert.equal(before.includes("the midpoint near page 55"), false);
+});
+
+test("[system-prompt-trim] a repeated safety contract is kept once and never cut mid-sentence", () => {
+  // Seen 2026-09-30: page-write prompts carried the contract twice; one copy
+  // was kept whole and the other cut mid-sentence (~1,000 characters wasted).
+  const contract = "<clementine_safety_contract>\ntruthfulness: do not claim certainty you do not have.\nsafety redirection: if a request is about real-life harm, step out of the fiction.\n</clementine_safety_contract>";
+  const prompt = `You are CLEMENTINE.\n${contract}\n${"Craft note. ".repeat(40)}\n${contract}\n${"Scene context. ".repeat(40)}`;
+  const count = (text) => text.split("<clementine_safety_contract>").length - 1;
+  const capped = capSystemPromptKeepingSafety(prompt, 600);
+  assert.equal(count(capped), 1, capped);
+  assert.ok(capped.includes("step out of the fiction."), "the kept copy is whole");
+  const roomy = capSystemPromptKeepingSafety(prompt, 50_000);
+  assert.equal(count(roomy), 1, "a prompt under the cap loses the extra copy too");
 });

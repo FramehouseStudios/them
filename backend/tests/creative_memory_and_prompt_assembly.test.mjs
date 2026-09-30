@@ -2026,3 +2026,15 @@ test("[prompt-wire] buildModelPromptParts surfaces acceptedTwistsBlock", () => {
   assert.ok(parts.acceptedTwistsBlock.includes("<accepted_twists>"));
   assert.ok(parts.acceptedTwistsBlock.includes("T"));
 });
+
+test("[prompt-assembly] a persona that already carries the safety contract keeps one copy", () => {
+  // Seen 2026-09-30: the app's Studio prompt carries the contract and the
+  // backend added its own, ~1,000 characters per page write.
+  const inner = buildModelPrompt({ persona: "You are CLEMENTINE, a working screenwriter." });
+  const outer = buildModelPrompt({ persona: inner, userInput: "Write the next page." });
+  const count = (text, tag) => text.split(tag).length - 1;
+  assert.equal(count(outer, "<clementine_safety_contract>"), 1);
+  assert.equal(count(outer, "</clementine_safety_contract>"), 1);
+  assert.match(outer, /You are CLEMENTINE/);
+  assert.match(outer, /truthfulness/i, "the contract itself is still there");
+});
