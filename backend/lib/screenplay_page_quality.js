@@ -1598,7 +1598,24 @@ function hasExplicitNextSceneExecutionBrief(featureContext = null) {
   ].some((key) => cleanBriefScalar(featureContext?.[key], 220));
 }
 
-function executionBriefFieldCoverage({ name = "", phrase = "", textTokens = new Set(), minimumMatches = 1 } = {}) {
+// A lane quoting the page itself ("Nora is under pressure from: FADE IN:
+// EXT. STATE CAPITOL - NIGHT A granite dome…") is not a story obligation.
+function isPageTextLane(phrase = "") {
+  const text = normalizeLineText(phrase);
+  return /\b(?:FADE IN|FADE OUT|CUT TO)\b|\b(?:INT|EXT)\.\s/.test(text);
+}
+
+// "Rain returns as proof or cost in Act III." is the Act III payoff path;
+// binding it on page 2 of Act I asks the page to pay off what it just set up.
+function isLaterActPayoffLane(phrase = "", featureContext = null) {
+  if (!/\bact\s*(?:iii|3|three)\b/i.test(normalizeLineText(phrase))) return false;
+  return inferFeatureActKind(featureContext) !== "act3";
+}
+
+function executionBriefFieldCoverage({ name = "", phrase = "", textTokens = new Set(), minimumMatches = 1, featureContext = null } = {}) {
+  if (isPageTextLane(phrase) || isLaterActPayoffLane(phrase, featureContext)) {
+    return { name, phrase, tokens: [], matchedTokens: [], tokenCount: 0, minimumMatches: 0, ok: true, skipped: true };
+  }
   // Brief fields are often the Feature Compass template ("Act I - Opening
   // Image…: Plant the emotional question…"); only story words must appear.
   const tokens = [...qualityTokenSet(phrase)].filter((token) => !isPlanningWord(token));
@@ -1632,12 +1649,12 @@ function evaluateNextSceneExecutionBriefCoverage({ text = "", featureContext = n
     minimumMatches: 2,
   });
   const supportFields = [
-    executionBriefFieldCoverage({ name: "consequence", phrase: values.consequence, textTokens, minimumMatches: executionBriefSupportMinimum(values.consequence) }),
-    executionBriefFieldCoverage({ name: "obstacle", phrase: values.obstacle, textTokens, minimumMatches: executionBriefSupportMinimum(values.obstacle) }),
-    executionBriefFieldCoverage({ name: "arc", phrase: values.arc, textTokens, minimumMatches: executionBriefSupportMinimum(values.arc) }),
-    executionBriefFieldCoverage({ name: "payoff", phrase: values.payoff, textTokens, minimumMatches: executionBriefSupportMinimum(values.payoff) }),
-    executionBriefFieldCoverage({ name: "image", phrase: values.image, textTokens, minimumMatches: executionBriefSupportMinimum(values.image) }),
-    executionBriefFieldCoverage({ name: "exit", phrase: values.exit, textTokens, minimumMatches: executionBriefSupportMinimum(values.exit) }),
+    executionBriefFieldCoverage({ name: "consequence", phrase: values.consequence, textTokens, featureContext, minimumMatches: executionBriefSupportMinimum(values.consequence) }),
+    executionBriefFieldCoverage({ name: "obstacle", phrase: values.obstacle, textTokens, featureContext, minimumMatches: executionBriefSupportMinimum(values.obstacle) }),
+    executionBriefFieldCoverage({ name: "arc", phrase: values.arc, textTokens, featureContext, minimumMatches: executionBriefSupportMinimum(values.arc) }),
+    executionBriefFieldCoverage({ name: "payoff", phrase: values.payoff, textTokens, featureContext, minimumMatches: executionBriefSupportMinimum(values.payoff) }),
+    executionBriefFieldCoverage({ name: "image", phrase: values.image, textTokens, featureContext, minimumMatches: executionBriefSupportMinimum(values.image) }),
+    executionBriefFieldCoverage({ name: "exit", phrase: values.exit, textTokens, featureContext, minimumMatches: executionBriefSupportMinimum(values.exit) }),
   ].filter((field) => field.tokenCount > 0);
   const enforceBrief = hasExplicitNextSceneExecutionBrief(featureContext) || supportFields.length >= 3;
   if (!enforceBrief) {

@@ -459,3 +459,19 @@ The dairy thing died in April. Send flowers.`);
   assert.ok(consequences.some((fact) => /burns the old whip count/.test(fact)), JSON.stringify(state));
   assert.ok(!consequences.some((fact) => /dairy thing died/.test(fact)), JSON.stringify(state));
 });
+
+test("[accepted-scene-state] the deterministic fallback hands off only a causal fact", () => {
+  const quiet = buildDeterministicAcceptedSceneState(`INT. SENATE CORRIDOR - NIGHT
+
+NORA
+We need twenty-five.
+
+She keeps moving. Danny apologizes to the lobbyist and hurries to catch up.`);
+  assert.equal(quiet.outcome, "She keeps moving. Danny apologizes to the lobbyist and hurries to catch up.");
+  assert.equal(quiet.causalHandoff, undefined, JSON.stringify(quiet));
+
+  const causal = buildDeterministicAcceptedSceneState(`INT. SENATE CORRIDOR - NIGHT
+
+Nora refuses the deal and walks out.`);
+  assert.match(causal.causalHandoff || "", /refuses the deal/);
+});
