@@ -9258,7 +9258,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
         applyRealtimeStudioScreenplayQuality(quality)
         backendConnectionState = .up
         backendFailureCount = 0
-        let notice = "Page held back. Your draft is unchanged."
+        let notice = StudioHeldBackReasonCopy.notice(reason: quality.reason)
         lastIssueSummary = error.localizedDescription
         screenplayDraftBridge.autoInsertStatusText = notice
         showStudioCommandNotice(notice)
