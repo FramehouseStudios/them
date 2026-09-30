@@ -6,6 +6,7 @@
 
 import { isPlannerScaffoldSentence } from "./screenplay_page_quality.js";
 import { isLikelyCharacterName } from "./creative_memory_store.js";
+import { isDistilledMemoryTemplate } from "./distilled_memory_templates.js";
 
 const INTERFACE_COPY = [
   /^write or accept a page batch and it will stay reviewable here\.?$/i,
@@ -56,12 +57,13 @@ function firstUsable(candidates, isUsable) {
 
 // What the characters were carrying, for "Where we left off".
 function continuityStoryState(candidates = []) {
-  return firstUsable(candidates, (text) => !isScriptText(text) && !DISTILLED_ARC.test(text) && !isPlannerScaffoldSentence(text));
+  return firstUsable(candidates, (text) => !isScriptText(text) && !DISTILLED_ARC.test(text) && !isPlannerScaffoldSentence(text) && !isDistilledMemoryTemplate(text));
 }
 
-// The next move, for "Where we left off": never the planner's own wording.
+// The next move, for "Where we left off": never the planner's own wording,
+// nor memory's ("Next move: Rain returns as proof or cost in Act III").
 function continuityNextMove(candidates = []) {
-  return firstUsable(candidates, (text) => !isPlannerScaffoldSentence(text));
+  return firstUsable(candidates, (text) => !isPlannerScaffoldSentence(text) && !isDistilledMemoryTemplate(text));
 }
 
 // A draft that ends on FADE OUT / THE END is finished. The planner's act comes
@@ -92,4 +94,18 @@ function recapCharacterNames(names = [], limit = 2, storyText = "") {
   return (story ? people.filter(mentioned) : people).slice(0, limit);
 }
 
-export { isLikelyCharacterName, recapCharacterNames, activeProjectMemoryItem, continuityNextMove, continuityPosition, continuityStoryState, draftReachedTheEnd, withoutInterfaceCopy };
+// What the recap is anchored to, for /session and /state alike: the project
+// the writer has open and every project whose latest draft reached the end.
+// /state built its own snapshot without either, and Home (which applies
+// /state after /session) still said "Act II" for a finished script.
+function continuitySnapshotOptions(owner = null, getLatestVersion = null) {
+  const projects = Array.isArray(owner?.projects) ? owner.projects : [];
+  return {
+    activeProjectId: String(owner?.activeProjectId || "").trim(),
+    finishedProjectIds: new Set(projects
+      .filter((project) => draftReachedTheEnd(typeof getLatestVersion === "function" ? getLatestVersion(project)?.draft : ""))
+      .map((project) => project.id)),
+  };
+}
+
+export { continuitySnapshotOptions, isLikelyCharacterName, recapCharacterNames, activeProjectMemoryItem, continuityNextMove, continuityPosition, continuityStoryState, draftReachedTheEnd, withoutInterfaceCopy };

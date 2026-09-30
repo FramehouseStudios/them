@@ -133,7 +133,7 @@ import {
   MEMORY_BLOCK_OPEN,
 } from "./lib/prompt_assembly.js";
 import { DEFAULT_FEATURE_TARGET_PAGES, findSequenceForPage } from "./lib/feature_screenplay_map.js";
-import { fitSystemPromptForTurnLatency as fitSystemPromptForTurnLatencyBase, capSystemPromptKeepingSafety } from "./lib/system_prompt_trim.js"; import { activeProjectMemoryItem, continuityNextMove, isLikelyCharacterName, recapCharacterNames, continuityPosition, continuityStoryState, draftReachedTheEnd, withoutInterfaceCopy } from "./lib/continuity_interface_copy.js";
+import { fitSystemPromptForTurnLatency as fitSystemPromptForTurnLatencyBase, capSystemPromptKeepingSafety } from "./lib/system_prompt_trim.js"; import { activeProjectMemoryItem, continuityNextMove, continuitySnapshotOptions, isLikelyCharacterName, recapCharacterNames, continuityPosition, continuityStoryState, draftReachedTheEnd, withoutInterfaceCopy } from "./lib/continuity_interface_copy.js";
 import { createScaleBackplane } from "./lib/scale_backplane.mjs";
 import { createPersistence } from "./lib/persistence_adapter.js";
 import { checkKnownDomainsAtStartup } from "./lib/known_domains_startup_check.js";
@@ -32182,8 +32182,7 @@ mountStateRoute(app, {
   buildReadStateMeta,
   maybeBackfillThemesFromHistory,
   normalizeClientToken,
-  parseQueryLimit,
-  parseTurnIdToNumber,
+  parseQueryLimit, parseTurnIdToNumber,
   persistCanonicalWritableMemoryContext,
   resolveCanonicalWritableMemoryContext,
   sanitizePersistedSessionMemory,
@@ -32191,6 +32190,7 @@ mountStateRoute(app, {
   setPersistedUserMemoryForIp,
   creativeMemoryStore,
   buildSessionContinuitySnapshot,
+  loadContinuitySnapshotOptions: async (req) => continuitySnapshotOptions((await refreshScreenplayOwnerRecord(resolveScreenplayOwnerKey(req)))?.owner, getLatestScreenplayVersion),
   logger: console,
 });
 
@@ -32570,7 +32570,7 @@ app.post("/session", sessionRateLimitGuard, async (req, res) => {
   }
   const sessionContinuity = buildSessionContinuitySnapshot(
     sanitizedRestoredMemory, sessionCreativeMemory,
-    { activeProjectId: sessionActiveProjectId, finishedProjectIds: new Set((sessionScreenplayOwner?.projects || []).filter((item) => draftReachedTheEnd(getLatestScreenplayVersion(item)?.draft)).map((item) => item.id)) }
+    continuitySnapshotOptions(sessionScreenplayOwner, getLatestScreenplayVersion)
   );
   const sessionStateVersion = buildMemoryStateVersion(sanitizedRestoredMemory);
   const sessionLastUpdatedAt = deriveMemoryLastUpdatedAt(sanitizedRestoredMemory);

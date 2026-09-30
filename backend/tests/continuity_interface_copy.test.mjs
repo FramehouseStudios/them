@@ -88,3 +88,9 @@ test("the recap names only the people its story line is about", async () => {
   assert.deepEqual(recapCharacterNames(["CAL", "DECKER"], 2, story), [], "nobody named in the line: no one is credited with it");
   assert.deepEqual(recapCharacterNames(["CAL", "DECKER", "To"], 2), ["CAL", "DECKER"], "no story line: the cast as stored");
 });
+
+test("memory's own templates are not the recap's next move or story line", async () => {
+  const { continuityNextMove, continuityStoryState } = await import("../lib/continuity_interface_copy.js");
+  assert.equal(continuityNextMove(["Rain returns as proof or cost in Act III.", "Decker asks for the Journal."]), "Decker asks for the Journal.");
+  assert.equal(continuityStoryState(["NORA's next public choice must pay off the private pressure planted here.", "Nora sets the badge down."]), "Nora sets the badge down.");
+});
