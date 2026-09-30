@@ -89,10 +89,25 @@ function factAnchorTokens(fact = "") {
   return out.slice(0, 10);
 }
 
+// Capitalized words that open sentences, not names.
+const NON_NAME_CAPITALS = new Set([
+  "The", "And", "But", "She", "Her", "His", "They", "Their", "This", "That", "Then", "When", "What",
+  "Who", "Why", "How", "Send", "Get", "Let", "You", "Your", "Our", "Not", "Now", "There", "Here",
+]);
+
+// "NORA: The dairy thing died in April." is Nora speaking, not Nora dying:
+// the speaker of a dialogue fact is never its subject (seen live 2026-09-30,
+// every later page with NORA in it was held back as a dead character's return).
 function factSubjectCandidates(fact = "") {
   const source = String(fact || "");
-  const cue = source.match(/^([A-Z][A-Z0-9 .'-]{1,48}):/);
-  const candidates = cue ? [cue[1]] : (source.match(/\b[A-Z][a-z]{2,}\b/g) || []).slice(0, 2);
+  const cue = source.match(/^([A-Z][A-Z0-9 .'-]{1,48}):\s*/);
+  const said = cue ? source.slice(cue[0].length) : source;
+  // "Eli dies in Mara's arms." — Eli died; Mara is only there.
+  const dying = said.match(/\b([A-Z][a-z]{2,})\s+(?:dies|died|is dead|was killed|is killed|was murdered|is murdered)\b/);
+  if (dying && !NON_NAME_CAPITALS.has(dying[1])) return [dying[1]];
+  const candidates = (said.match(/\b[A-Z][a-z]{2,}\b/g) || [])
+    .filter((word) => !NON_NAME_CAPITALS.has(word))
+    .slice(0, 1);
   return [...new Set(candidates.map((item) => cleanInline(item, 48)).filter(Boolean))];
 }
 
