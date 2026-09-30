@@ -1888,13 +1888,15 @@ final class ScreenplayStudioViewModel: ObservableObject {
         await refreshPendingScreenplayQuestion()
     }
 
-    func refreshPendingScreenplayQuestion() async {
+    func refreshPendingScreenplayQuestion(fromPoll: Bool = false) async {
         guard !IOThemRuntime.isRunningTests else { return }
         let selectedID = selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !selectedID.isEmpty else {
             pendingScreenplayQuestion = nil
             return
         }
+        guard !fromPoll || PendingQuestionPollPolicy.shouldAsk(lastAskedAt: pendingQuestionAskedAt, now: Date()) else { return }
+        pendingQuestionAskedAt = Date()
         do {
             let session = try await BackendMemoryAPI.shared.bootstrapSession(force: true)
             let pending = session.pendingScreenplayQuestion
@@ -5209,6 +5211,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
 
     /// Consecutive cross-device polls that found no state change; paces the poll.
     private(set) var crossDeviceUnchangedStreak = 0
+    private var pendingQuestionAskedAt: Date?
 
     func refreshCrossDeviceStateIfNeeded() async {
         await resumeQueuedDraftSavesIfNeeded()
@@ -5264,7 +5267,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 await loadSelectedProjectOutline(reportErrors: false, remoteRefresh: true)
             }
             guard authContextIsCurrent(authContext) else { return }
-            await refreshPendingScreenplayQuestion()
+            await refreshPendingScreenplayQuestion(fromPoll: true)
         } catch {
             // Background continuity refreshes stay quiet; explicit refresh still reports errors.
         }
