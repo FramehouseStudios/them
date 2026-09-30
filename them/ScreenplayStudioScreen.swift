@@ -4225,7 +4225,7 @@ private var directionOneThemPanel: some View {
     let blockSignalNudge = BackendBlockSignalNudgeState.make(signal: vm.blockSignal)
     let blockSignalHistoryTrend = BackendBlockSignalHistoryTrendState.make(history: vm.blockSignalHistory)
     let presentation = ScreenplayStudioThemRailPresentationPlanner.make(
-        signalState: liveDraftBridge.companionSignalState,
+        signalState: SessionContinuityPromptScope.visibleSignal(liveDraftBridge.companionSignalState, restoredMemoryProjectID: liveDraftBridge.latestAppliedMemory.projectId, openProjectID: vm.selectedProjectID),
         analytics: liveDraftBridge.companionAnalytics,
         isBlockSignalLoading: vm.isBlockSignalLoading,
         blockSignalErrorText: vm.blockSignalErrorText,
@@ -4299,7 +4299,7 @@ private var directionOneThemPanel: some View {
             }
         )
     ) {
-        if liveDraftBridge.latestAppliedMemory.hasContent {
+        if liveDraftBridge.latestAppliedMemory.hasContent, SessionContinuityPromptScope.showsAppliedMemory(memoryProjectID: liveDraftBridge.latestAppliedMemory.projectId, openProjectID: vm.selectedProjectID) {
             studioAppliedMemoryBanner
         }
 
