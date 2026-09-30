@@ -4206,7 +4206,7 @@ function buildSessionContinuityOpeningLine(snapshot = {}) {
     180
   );
   const characters = Array.isArray(snapshot.characterFocus)
-    ? recapCharacterNames(snapshot.characterFocus).map((item) => normalizeSnippet(item, 48)).filter(Boolean)
+    ? recapCharacterNames(snapshot.characterFocus, 2, [snapshot.lastSceneOutcome, snapshot.sceneSummary, snapshot.currentBeat].join(" ")).map((item) => normalizeSnippet(item, 48)).filter(Boolean)
     : [];
   const lastState = sentenceFragment(
     continuityStoryState([ // not the page itself, not the planner's own wording

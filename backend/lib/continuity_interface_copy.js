@@ -81,9 +81,15 @@ function activeProjectMemoryItem(projects = [], activeProjectId = "") {
   return (active && list.find((item) => String(item?.projectId || "").trim().toLowerCase() === active)) || list[0] || null;
 }
 
-// The recap names people, not words memory mistook for them.
-function recapCharacterNames(names = [], limit = 2) {
-  return (Array.isArray(names) ? names : []).filter(isLikelyCharacterName).slice(0, limit);
+// The recap names people, not words memory mistook for them, and with a story
+// line only the people it is about: "CAL and DECKER were carrying this: ...
+// Osgood stands on the step stool" read wrong (2026-09-30). None mentioned
+// means the recap says "The last live thread was: ..." instead.
+function recapCharacterNames(names = [], limit = 2, storyText = "") {
+  const people = (Array.isArray(names) ? names : []).filter(isLikelyCharacterName);
+  const story = String(storyText || "").toLowerCase();
+  const mentioned = (name) => story && new RegExp(`\\b${String(name).toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`).test(story);
+  return (story ? people.filter(mentioned) : people).slice(0, limit);
 }
 
 export { isLikelyCharacterName, recapCharacterNames, activeProjectMemoryItem, continuityNextMove, continuityPosition, continuityStoryState, draftReachedTheEnd, withoutInterfaceCopy };
