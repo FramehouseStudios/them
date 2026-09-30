@@ -5,6 +5,7 @@
 // drops what is already stored.
 
 import { isPlannerScaffoldSentence } from "./screenplay_page_quality.js";
+import { isLikelyCharacterName } from "./creative_memory_store.js";
 
 const INTERFACE_COPY = [
   /^write or accept a page batch and it will stay reviewable here\.?$/i,
@@ -71,4 +72,18 @@ function draftReachedTheEnd(draft) {
   return tail.some((line) => /^(?:FADE OUT|FADE TO BLACK|THE END)[.:]?$/i.test(line));
 }
 
-export { continuityNextMove, continuityPosition, continuityStoryState, draftReachedTheEnd, withoutInterfaceCopy };
+// "Where we left off" is the project the writer has open, not whichever one
+// memory touched last: Home offered "Night Nurse" while Sine Die was open
+// (2026-09-30). Memory's most recent item is the fallback.
+function activeProjectMemoryItem(projects = [], activeProjectId = "") {
+  const list = Array.isArray(projects) ? projects : [];
+  const active = String(activeProjectId || "").trim().toLowerCase();
+  return (active && list.find((item) => String(item?.projectId || "").trim().toLowerCase() === active)) || list[0] || null;
+}
+
+// The recap names people, not words memory mistook for them.
+function recapCharacterNames(names = [], limit = 2) {
+  return (Array.isArray(names) ? names : []).filter(isLikelyCharacterName).slice(0, limit);
+}
+
+export { isLikelyCharacterName, recapCharacterNames, activeProjectMemoryItem, continuityNextMove, continuityPosition, continuityStoryState, draftReachedTheEnd, withoutInterfaceCopy };

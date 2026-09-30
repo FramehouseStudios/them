@@ -138,6 +138,14 @@ const EPISODIC_CHARACTER_NAME_BLOCKLIST = new Set([
   "You",
   "My",
   "Our",
+  // Function words the declared-name pattern took for names ("the lawyer to
+  // ..." stored "To"; Home then said "OSGOOD and To were carrying this",
+  // 2026-09-30). Real names that are also words (June, Will, Hope) stay.
+  "To", "Into", "Onto", "Try", "In", "On", "At", "For", "With", "From", "Of", "Is", "It", "Its",
+  "Be", "But", "Or", "So", "Then", "When", "Now", "Here", "There", "His", "Her", "Their", "Not",
+  "No", "Yes", "Just", "If", "As", "By", "Up", "Out", "Over", "Back", "Down", "Off", "Get", "Go",
+  "Let", "Make", "Take", "Keep", "Write", "Next", "Page", "Scene", "Continue", "Please", "What",
+  "Who", "Why", "How", "Where", "Also", "Still", "Again", "Only", "Even", "About", "After", "Before",
 ]);
 const STORY_MEMORY_KEYWORDS = /\b(?:act\s*(?:i|ii|iii|1|2|3|one|two|three)|all[- ]is[- ]lost|antagonist|arc|beat|beats|character|climax|continue|ending|ending image|feature|film|final image|finale|first act|inciting incident|logline|midpoint|motif|movie|payoff|premise|protagonist|rewrite|scene|screenplay|script|sequence|setup|theme|third act|tone|voice|want|wound)\b/i;
 const EXPLICIT_MEMORY_KEYWORDS = /\b(?:remember|keep in mind|do not forget|don't forget|note that|important|actually,\s*no|correction|for this movie|for this film|for this screenplay|in this movie|in this film|in this script|in my movie|in my film|in my screenplay|in my script)\b/i;
@@ -489,6 +497,10 @@ function normalizeCharacterName(value) {
   if (!clean || EPISODIC_CHARACTER_NAME_BLOCKLIST.has(clean)) return "";
   if (clean.length < 2) return "";
   return clean;
+}
+
+export function isLikelyCharacterName(value) {
+  return Boolean(normalizeCharacterName(value));
 }
 
 function normalizeStringList(items, maxItems = 8, maxChars = 80) {
@@ -2446,7 +2458,7 @@ function escapeRegex(value) {
   return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function extractDeclaredCharacterNames(text = "") {
+export function extractDeclaredCharacterNames(text = "") {
   const source = String(text || "");
   if (!source.trim()) return [];
   const patterns = [
@@ -2459,6 +2471,7 @@ function extractDeclaredCharacterNames(text = "") {
   for (const pattern of patterns) {
     let match;
     while ((match = pattern.exec(source)) !== null) {
+      if (!/^[A-Z]/.test(match[1])) continue; // a name the writer capitalized, not "the lawyer to"
       const name = normalizeCharacterName(match[1]);
       const key = name.toLowerCase();
       if (!name || seen.has(key)) continue;
