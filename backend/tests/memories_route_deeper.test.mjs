@@ -19,6 +19,7 @@ import { test } from "node:test";
 import express from "express";
 
 import { mountMemoriesRoutes } from "../lib/memories_route.js";
+import { listenEphemeral } from "./helpers/ephemeral_server.mjs";
 
 function deps(overrides = {}) {
   const calls = {
@@ -133,7 +134,7 @@ async function withServer(d, fn) {
   // response "Connection: close" and never pools a socket to this port.
   app.use((_req, res, next) => { res.setHeader("Connection", "close"); next(); });
   mountMemoriesRoutes(app, d);
-  const server = app.listen(0);
+  const server = listenEphemeral(app);
   await new Promise((r) => server.once("listening", r));
   const port = server.address().port;
   try { await fn(`http://127.0.0.1:${port}`); }

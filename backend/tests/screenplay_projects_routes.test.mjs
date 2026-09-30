@@ -7,6 +7,7 @@ import { test } from "node:test";
 import express from "express";
 
 import { mountScreenplayProjectsRoutes } from "../lib/screenplay_projects_routes.js";
+import { listenEphemeral } from "./helpers/ephemeral_server.mjs";
 
 function defaultOwner() {
   return {
@@ -183,7 +184,7 @@ async function withTestServer(deps, fn, { authenticated = true, userId = "screen
     });
   }
   mountScreenplayProjectsRoutes(app, deps);
-  const server = app.listen(0, "127.0.0.1");
+  const server = listenEphemeral(app);
   await new Promise((resolve) => server.once("listening", resolve));
   const port = server.address().port;
   try {

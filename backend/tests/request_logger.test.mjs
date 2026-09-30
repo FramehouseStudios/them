@@ -24,6 +24,7 @@ import {
   requestLoggerMiddleware,
   securityHeadersMiddleware,
 } from "../middleware/auth.js";
+import { listenEphemeral } from "./helpers/ephemeral_server.mjs";
 
 function mockRes(statusCode, headers = {}) {
   const listeners = {};
@@ -232,7 +233,7 @@ test("[req-log] Express integration logs the matched template, not concrete PII"
   app.get("/private/:accountId", (_req, res) => res.status(200).json({ ok: true }));
 
   const server = await new Promise((resolve) => {
-    const listening = app.listen(0, "127.0.0.1", () => resolve(listening));
+    const listening = listenEphemeral(app).once("listening", () => resolve(listening));
   });
 
   try {
@@ -266,7 +267,7 @@ test("[req-log] CORS early reject logs one neutral record without origin/query P
   app.get("/private/:accountId", (_req, res) => res.status(200).json({ ok: true }));
 
   const server = await new Promise((resolve) => {
-    const listening = app.listen(0, "127.0.0.1", () => resolve(listening));
+    const listening = listenEphemeral(app).once("listening", () => resolve(listening));
   });
 
   try {
