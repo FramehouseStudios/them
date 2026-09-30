@@ -1579,7 +1579,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         ScreenplayFeatureProgressionGuide.guide(
             actPosition: featureActPosition,
             currentPage: estimatedFeaturePageCount,
-            targetPages: ScreenplayFeatureProgressionGuide.defaultTargetPages
+            targetPages: ScreenplayTargetLength.pages(forProject: selectedProjectID)
         )
     }
 

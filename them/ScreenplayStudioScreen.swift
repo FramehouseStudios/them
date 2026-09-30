@@ -4535,8 +4535,8 @@ private func refreshStudioCreativeInstincts(
                 .toggleStyle(.switch)
 
             Toggle("Autosave draft", isOn: $vm.autosaveEnabled)
-                .font(.system(size: 12, weight: .regular, design: .default))
-                .toggleStyle(.switch)
+                .font(.system(size: 12, weight: .regular, design: .default)).toggleStyle(.switch)
+            ScreenplayTargetLengthControl(projectID: vm.selectedProjectID) { vm.objectWillChange.send() }
 
             Divider()
 
@@ -17392,7 +17392,7 @@ Look at the city.
                 snapshot: featureWorkflowSnapshot,
                 featureSpine: liveDraftBridge.featureSpine,
                 pageCount: vm.estimatedFeaturePageCount,
-                targetPages: ScreenplayFeatureProgressionGuide.defaultTargetPages
+                targetPages: ScreenplayTargetLength.pages(forProject: projectID)
             )
         )
     }
