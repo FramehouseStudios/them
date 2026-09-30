@@ -578,7 +578,6 @@ final class HerVoiceController: ObservableObject {
     func armOnce() {
         HerLog.mic.info("MIC arm() called")
         guard mode == .idle else { return }
-        partialTranscriber.requestAuthorizationIfNeeded()
         requestMicPermission { [weak self] granted in
             guard let self else { return }
             guard granted else {
@@ -587,6 +586,10 @@ final class HerVoiceController: ObservableObject {
                 }
                 return
             }
+            // Speech recognition only previews what the writer says; it is
+            // asked for once the microphone is on. It was asked first, so a
+            // writer with the mic off saw two permission prompts for nothing.
+            self.partialTranscriber.requestAuthorizationIfNeeded()
             Task { @MainActor in
                 self.mode = .armedListening
                 self.resetAdaptiveVAD()
@@ -726,7 +729,7 @@ final class HerVoiceController: ObservableObject {
         let title = restricted ? "Microphone Unavailable" : "Microphone Access Needed"
         let message = restricted
             ? "Microphone access is restricted on this device. Check system restrictions and privacy settings to enable voice conversations."
-            : "Microphone access is off. Enable it in Settings > Privacy > Microphone to talk with io.them."
+            : "Microphone access is off. Turn it on in Settings > Privacy & Security > Microphone to talk with io.them."
         micPermissionNotice = MicPermissionNotice(title: title, message: message)
         HerLog.mic.error("mic permission denied restricted=\(restricted)")
     }
