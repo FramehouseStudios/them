@@ -44,6 +44,18 @@ struct ScreenplayBridgeDraftAdoptionPolicy {
     }
 }
 
+/// The debounced draft handler awaits pagination before it writes the
+/// recovery copy, and a server load can land in that wait. The words it
+/// captured are then stale: written with the new "saved" flag, they marked
+/// two unsaved edits clean after a relaunch and the next load replaced them
+/// with no recovery offered (seen live 2026-09-30). The newer text has its
+/// own debounce, so the stale pass stops.
+enum ScreenplayDebouncedDraftPolicy {
+    static func isStale(handled: String, current: String) -> Bool {
+        handled != current
+    }
+}
+
 struct ScreenplayStudioHistoryMigrationPolicy {
     static let liveDraftKey = "live-draft"
 
@@ -163,13 +175,36 @@ struct ScreenplayLocalDraftRecoveryStore {
         let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedProjectId.isEmpty else { return }
         var nextPayloads = payloads(ownerUserId: ownerUserId)
+        // The same words keep the base already known for them. At launch the
+        // copy was rewritten before its version loaded, the base went blank,
+        // and Recover Local reported this device's own last save as another
+        // device's (seen live 2026-09-30). A known true base is safer than
+        // none: the backend's reject_if_stale still reports a real conflict.
+        var base = baseVersionId.trimmingCharacters(in: .whitespacesAndNewlines)
+        if base.isEmpty,
+           let existing = nextPayloads[normalizedProjectId],
+           String(describing: existing["draft"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines) == draft.trimmingCharacters(in: .whitespacesAndNewlines) {
+            base = String(describing: existing["baseVersionId"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        }
         nextPayloads[normalizedProjectId] = [
             "draft": draft,
-            "baseVersionId": baseVersionId,
+            "baseVersionId": base,
             "dirty": dirty,
             "savedAt": savedAt,
         ]
         defaults.set(nextPayloads, forKey: ownerScopedKey(ownerUserId))
+    }
+
+    /// True when the stored copy is unsaved work written after `time` whose
+    /// words differ from `draft` — work a save captured at `time` never carried.
+    func holdsNewerUnsavedWork(ownerUserId: String, projectId: String, than time: TimeInterval, differingFrom draft: String) -> Bool {
+        let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let stored = payloads(ownerUserId: ownerUserId)[normalizedProjectId],
+              stored["dirty"] as? Bool == true,
+              let storedSavedAt = stored["savedAt"] as? TimeInterval,
+              storedSavedAt > time else { return false }
+        let storedDraft = String(describing: stored["draft"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return !storedDraft.isEmpty && storedDraft != draft.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     func clear(ownerUserId: String, projectId: String) {

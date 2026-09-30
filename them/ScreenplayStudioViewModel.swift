@@ -1341,6 +1341,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
         let screenplayBindings: [BackendScreenplayBindingRecord]
         let baseVersionId: String
         let authContext: ScreenplayStudioAuthContext
+        /// When the words were captured; a replayed save keeps its queue time.
+        let createdAt: TimeInterval
 
         init(
             id: String,
@@ -1354,7 +1356,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
             studioWriteAnchors: [BackendScreenplayWriteAnchor],
             screenplayBindings: [BackendScreenplayBindingRecord],
             baseVersionId: String,
-            authContext: ScreenplayStudioAuthContext
+            authContext: ScreenplayStudioAuthContext,
+            createdAt: TimeInterval = Date().timeIntervalSince1970
         ) {
             self.id = id
             self.projectId = projectId
@@ -1368,6 +1371,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
             self.screenplayBindings = screenplayBindings
             self.baseVersionId = baseVersionId
             self.authContext = authContext
+            self.createdAt = createdAt
         }
 
         init(entry: ScreenplayDraftSaveOutboxEntry, authContext: ScreenplayStudioAuthContext) {
@@ -1383,6 +1387,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
             screenplayBindings = entry.screenplayBindings
             baseVersionId = entry.baseVersionId
             self.authContext = authContext
+            createdAt = entry.createdAt
         }
 
         var outboxEntry: ScreenplayDraftSaveOutboxEntry {
@@ -1399,7 +1404,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 studioWriteAnchors: studioWriteAnchors,
                 screenplayBindings: screenplayBindings,
                 baseVersionId: baseVersionId,
-                createdAt: now,
+                createdAt: createdAt,
                 updatedAt: now,
                 status: .pending,
                 retries: 0,
@@ -1421,7 +1426,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 studioWriteAnchors: studioWriteAnchors,
                 screenplayBindings: screenplayBindings,
                 baseVersionId: serverVersionId.trimmingCharacters(in: .whitespacesAndNewlines),
-                authContext: authContext
+                authContext: authContext,
+                createdAt: createdAt
             )
         }
     }
@@ -1989,7 +1995,9 @@ final class ScreenplayStudioViewModel: ObservableObject {
         conflictState = nil
         autosaveStatusText = "Saved"
         if !selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            clearLocalDraftRecovery(projectId: selectedProjectID)
+            // Only these words are saved; a recovery copy holding other,
+            // unsaved words (a relaunch after a kill) must survive the adopt.
+            clearLocalDraftRecovery(projectId: selectedProjectID, onlyIfItHolds: fountainDraft)
         }
         syncLiveDraftBridgeProjectContext()
     }
@@ -5720,7 +5728,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
     }
 
     private func handleDraftDebouncedChange(_ draft: String) async {
-        guard !isHydratingDraft else { return }
+        guard !isHydratingDraft,
+              !ScreenplayDebouncedDraftPolicy.isStale(handled: draft, current: fountainDraft) else { return }
         let normalized = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         let hasCoveragePresentation = coverageSimulationReport != nil ||
             !coverageSimulationErrorText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -5761,6 +5770,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         ) {
             Task { await self.refreshCoverage(source: "Draft", speak: false, announce: false) }
         }
+        guard !ScreenplayDebouncedDraftPolicy.isStale(handled: draft, current: fountainDraft) else { return }
 
         if isStreamingDraftPreviewActive {
             autosaveStatusText = "Receiving live draft..."
@@ -5768,10 +5778,9 @@ final class ScreenplayStudioViewModel: ObservableObject {
         }
 
         guard !normalized.isEmpty else {
+            // An empty editor is not a discard (it is empty for a moment at
+            // launch); Clear Draft removes the recovery copy itself.
             autosaveStatusText = "Draft empty"
-            if !selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                clearLocalDraftRecovery(projectId: selectedProjectID)
-            }
             return
         }
         // With no project selected (offline launch) the page still belongs to
@@ -6118,7 +6127,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
                         projectId: request.projectId,
                         draft: fountainDraft,
                         baseVersionId: serverVersion.id,
-                        dirty: hasUnsavedDraftChanges
+                        dirty: hasUnsavedDraftChanges,
+                        completingSaveCapturedAt: request.createdAt
                     )
                     return true
                 }
@@ -6285,7 +6295,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 projectId: request.projectId,
                 draft: fountainDraft,
                 baseVersionId: latestVersionID,
-                dirty: hasUnsavedDraftChanges
+                dirty: hasUnsavedDraftChanges,
+                completingSaveCapturedAt: request.createdAt
             )
             await recomputeRevision(for: fountainDraft, source: request.source)
             if !errorText.isEmpty {
@@ -6709,10 +6720,24 @@ final class ScreenplayStudioViewModel: ObservableObject {
         draft: String,
         baseVersionId: String,
         dirty: Bool,
-        savedAt: TimeInterval = Date().timeIntervalSince1970
+        savedAt: TimeInterval = Date().timeIntervalSince1970,
+        completingSaveCapturedAt: TimeInterval? = nil
     ) {
         let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedProjectId.isEmpty else { return }
+        // A finished save must not overwrite newer unsaved words it never
+        // carried: on relaunch a queued older save replayed and wrote the
+        // loaded text over the copy that held two newer pages, and no recovery
+        // was offered (seen live 2026-09-30).
+        if let completingSaveCapturedAt,
+           localDraftRecoveryStore.holdsNewerUnsavedWork(
+               ownerUserId: currentStudioAuthContext().userID,
+               projectId: normalizedProjectId,
+               than: completingSaveCapturedAt,
+               differingFrom: draft
+           ) {
+            return
+        }
         localDraftRecoveryStore.save(
             ownerUserId: currentStudioAuthContext().userID,
             projectId: normalizedProjectId,
@@ -6760,9 +6785,15 @@ final class ScreenplayStudioViewModel: ObservableObject {
         return candidate
     }
 
-    private func clearLocalDraftRecovery(projectId: String) {
+    private func clearLocalDraftRecovery(projectId: String, onlyIfItHolds draft: String? = nil) {
         let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedProjectId.isEmpty else { return }
+        if let draft,
+           let held = localDraftRecoveryStore.payloads(ownerUserId: currentStudioAuthContext().userID)[normalizedProjectId],
+           held["dirty"] as? Bool == true,
+           String(describing: held["draft"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines) != draft.trimmingCharacters(in: .whitespacesAndNewlines) {
+            return
+        }
         localDraftRecoveryStore.clear(
             ownerUserId: currentStudioAuthContext().userID,
             projectId: normalizedProjectId
