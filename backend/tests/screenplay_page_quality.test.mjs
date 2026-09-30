@@ -1429,7 +1429,7 @@ test("[screenplay-page-quality] accepts continuations that execute the next-scen
   assert.equal(quality.ok, true);
   assert.deepEqual(
     quality.featureObligation.executionBriefCoverage.matchedSupportFieldNames,
-    ["obstacle", "arc", "payoff", "image", "exit"],
+    ["obstacle", "arc", "payoff", "exit"],
   );
 });
 
@@ -1925,7 +1925,8 @@ test("[screenplay-page-quality] memory's distilled arc line only asks that the c
     featureContext: { act: "Act III", characterArcState },
   });
   assert.equal(run("Nora is under pressure from: Nora's breath fogs the glass.").ok, true);
-  assert.equal(run("Fluorescent must change tactics after: Nora's breath fogs the glass.").reason, "missing_character_arc_pressure");
+  assert.equal(run("Fluorescent must change tactics after: Nora's breath fogs the glass.").ok, true, "memory's distilled line binds nothing");
+  assert.equal(run("Decker is under pressure from: Cal hands him the count.").ok, true, "a cutaway without the named character is fine");
   const withCast = evaluateScreenplayPageQuality({
     text, lines: classifyScreenplayLines(text), targetPages: 1, hasSceneAnchor: true,
     featureContext: { act: "Act III", characterFocus: ["DESMOND", "NORA", "JUNE"], characterArcState: "Fluorescent must change tactics after: Nora's breath fogs the glass." },
@@ -2007,4 +2008,88 @@ test("[screenplay-page-quality] page-text and later-act payoff lanes do not bind
   });
   const lanes = quality.featureObligation?.executionBriefCoverage?.supportFields || [];
   assert.equal(quality.ok, true, `${quality.reason} ${JSON.stringify(lanes)}`);
+});
+
+test("[screenplay-page-quality] with three brief lanes one may rest", () => {
+  // Seen live 2026-09-30: a stairwell page matched two lanes and was held
+  // back because the third lane was "window".
+  const text = [
+    "INT. BACK STAIRWELL - NIGHT",
+    "",
+    "Nora comes down the stairs fast. Danny is on the step with the binder.",
+    "",
+    "NORA",
+    "How many pages is the budget?",
+    "",
+    "DANNY",
+    "Four hundred and twelve.",
+    "",
+    "NORA",
+    "Then the budget dies at midnight unless Decker trades.",
+  ].join("\n");
+  const brief = {
+    obstacle: "Decker controls the budget calendar.",
+    arc: "Nora risks the binder count on one trade.",
+    image: "window",
+  };
+  const quality = evaluateScreenplayPageQuality({
+    text, lines: classifyScreenplayLines(text), targetPages: 1, hasSceneAnchor: true,
+    featureContext: { act: "Act I", nextSceneExecutionBrief: brief },
+  });
+  assert.equal(quality.ok, true, quality.reason);
+
+  const missesTwo = evaluateScreenplayPageQuality({
+    text, lines: classifyScreenplayLines(text), targetPages: 1, hasSceneAnchor: true,
+    featureContext: { act: "Act I", nextSceneExecutionBrief: { ...brief, obstacle: "The ferry ledger burns." } },
+  });
+  assert.equal(missesTwo.reason, "missing_next_scene_execution_brief");
+});
+
+test("[screenplay-page-quality] interruptions and pressing count as tactics", () => {
+  const text = [
+    "INT. CAFETERIA - NIGHT",
+    "",
+    "June reads the laptop over Nora's shoulder.",
+    "",
+    "NORA",
+    "Mrs. Halversen--",
+    "",
+    "JUNE",
+    "Admission of what?",
+    "",
+    "NORA",
+    "Of liability.",
+    "",
+    "JUNE",
+    "So you're going to let them off.",
+  ].join("\n");
+  const quality = evaluateScreenplayPageQuality({ text, lines: classifyScreenplayLines(text), targetPages: 1, hasSceneAnchor: true });
+  assert.ok(quality.counts.dialogueTacticSignal >= 2, JSON.stringify(quality.counts));
+});
+
+test("[screenplay-page-quality] memory's line templates and noticed motifs do not bind", () => {
+  // Seen live 2026-09-30: the Senate floor page was held to "Nora is under
+  // pressure from: Teddy mumbles in his sleep." and the motif "window".
+  const text = [
+    "INT. SENATE CHAMBER - NIGHT",
+    "",
+    "Nora folds a note and hands it to Senator Ruiz, who stands.",
+    "",
+    "RUIZ",
+    "Pursuant to Rule 17, I demand that the budget be read in full before the session ends.",
+    "",
+    "Across the chamber, Decker finds Nora in the crowd.",
+  ].join("\n");
+  const quality = evaluateScreenplayPageQuality({
+    text, lines: classifyScreenplayLines(text), targetPages: 1, hasSceneAnchor: true,
+    featureContext: {
+      act: "Act I",
+      characterFocus: ["NORA", "RUIZ", "DECKER"],
+      unresolvedStoryThreads: ["The budget reading can outlast the session."],
+      characterArcState: "Nora is under pressure from: Teddy mumbles in his sleep.",
+      imageMotifs: ["window"],
+      endingImage: "",
+    },
+  });
+  assert.equal(quality.ok, true, `${quality.reason} ${JSON.stringify(quality.featureObligation?.executionBriefCoverage?.supportFields)}`);
 });

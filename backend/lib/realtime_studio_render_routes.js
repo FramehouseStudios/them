@@ -59,6 +59,7 @@ import {
 import { buildMomentumRescueFallbackReply } from "./momentum_rescue_fallback.js";
 import { evaluateMomentumRescueQuality } from "./screenplay_page_quality.js";
 import { resolveScreenplayTargetFromRequest } from "./screenplay_turn_target.js";
+import { SCREENPLAY_MEMORY_SETUP_PATTERN } from "./screenplay_memory_setup_pattern.js";
 import { structuralScreenplayModelReasonForTask } from "./structural_screenplay_quality.js";
 import {
   buildDeliveredStoryRescueInteraction,
@@ -463,10 +464,14 @@ function studioMomentumMeta({ body = {}, creativeMemory = null } = {}) {
   const inferredExecutionBrief = {
     assignment: graphState.nextScenePlan || graphState.causalHandoff || project.nextScenePlan || projectNextTurns[0] || dueGraphConsequence.fact || graphObligationChange.result || "",
     consequence: dueGraphConsequence.fact || "",
-    obstacle: dueGraphThread.setup || projectThreads[0] || projectSetups[0] || "",
+    // A setup stored by an older, looser heuristic ("Nobody does. Keep it that
+    // way.") would bind every later page; only one that still reads as a
+    // planted setup can be the obstacle.
+    obstacle: [dueGraphThread.setup].find((setup) => setup && SCREENPLAY_MEMORY_SETUP_PATTERN.test(setup)) ||
+      projectThreads[0] || projectSetups.find((setup) => SCREENPLAY_MEMORY_SETUP_PATTERN.test(setup)) || "",
     arc: graphState.characterArcState || project.characterArcState || "",
     payoff: dueGraphThread.promisedPayoff || dueGraphThread.promised_payoff || projectPayoffs[0] || "",
-    image: graphState.endingImage || project.endingImage || projectImages[0] || "",
+    image: graphState.endingImage || project.endingImage || "",
     exit: projectNextTurns[1] || "",
   };
   const executionBrief = directExecutionBrief && typeof directExecutionBrief === "object"

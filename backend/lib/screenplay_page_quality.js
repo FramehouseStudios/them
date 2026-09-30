@@ -1,3 +1,5 @@
+import { isDistilledMemoryTemplate } from "./distilled_memory_templates.js";
+
 function normalizeLineText(value = "") {
   return String(value || "")
     .replace(/[ \t]{2,}/g, " ")
@@ -519,6 +521,10 @@ function isDialogueCounterOrCommand(line = "", otherSpeakerLine = "") {
   const text = normalizeLineText(line);
   if (!text || /\?\s*$/.test(text)) return false;
   if (DIALOGUE_COMMAND_OPENER.test(text.replace(/^[A-Z][a-z]+,\s+/, ""))) return true;
+  // Cutting the other off ("Mrs. Halversen--") and pressing ("So you're going
+  // to let them off.") are tactics too.
+  if (/(?:--|\u2014)\s*$/.test(text)) return true;
+  if (/^so (?:you|we|he|she|they)\b/i.test(text)) return true;
   const previous = qualityTokenSet(otherSpeakerLine);
   if (previous.size === 0) return false;
   // "Yes. Very nice." after "Nice weather today." agrees; a counter turns it.
@@ -1324,20 +1330,12 @@ function evaluateFeatureActObligationCoverage({
   );
   // Arc pressure is story ("choosing public truth over private control"):
   // only craft words drop out here, not the whole template vocabulary.
-  // Memory's own summary ("Nora is under pressure from: <the last action
-  // line>") only asks that the character carry the page; requiring the
-  // previous page's last line again rejected every next page.
-  const distilledArc = characterArcPressure.match(/^([A-Za-z][\w'-]*) (?:is under pressure from|must change tactics after):/);
-  const knownCharacters = sanitizeQualityList(featureContext?.characterFocus ?? featureContext?.character_focus, 12, 60)
-    .map((cue) => cue.split(/\s+/)[0].toLowerCase());
-  // Older memory named a non-character ("Fluorescent" from "Fluorescent
-  // tubes hum."); such a line binds nothing.
-  const distilledArcNamesNobody = Boolean(distilledArc) && knownCharacters.length > 0
-    && !knownCharacters.includes(distilledArc[1].toLowerCase());
-  const characterArcTokens = distilledArcNamesNobody
+  // Memory's own template ("Nora is under pressure from: <the last action
+  // line>") binds nothing: requiring that line rejected every next page, and
+  // requiring the character rejected a cutaway where the protagonist is only
+  // "she" (seen live 2026-09-30).
+  const characterArcTokens = isDistilledMemoryTemplate(characterArcPressure)
     ? new Set()
-    : distilledArc
-    ? qualityTokenSet(distilledArc[1])
     : new Set([...qualityTokenSet(characterArcPressure)].filter((token) => !FEATURE_OBLIGATION_CRAFT_STOPWORDS.has(token)));
   let matchedCharacterArcTokens = [];
   let visibleSharedControlSignals = 0;
@@ -1551,13 +1549,14 @@ function nextSceneExecutionBriefValues(featureContext = null) {
       actThreePayoffPath[0],
       unresolvedSetups[0],
     ], 220),
+    // A motif memory noticed ("window", "rain") is not an image the writer
+    // asked this page to stage.
     image: firstBriefValue([
       brief.image,
       brief.imageToStage,
       brief.image_to_stage,
       featureContext?.imageToStage,
       featureContext?.image_to_stage,
-      imageMotifs[0],
       featureContext?.endingImage,
       featureContext?.ending_image,
       featureContext?.finalImage,
@@ -1600,9 +1599,11 @@ function hasExplicitNextSceneExecutionBrief(featureContext = null) {
 
 // A lane quoting the page itself ("Nora is under pressure from: FADE IN:
 // EXT. STATE CAPITOL - NIGHT A granite dome…") is not a story obligation.
+// So is memory's own template around a line or a motif ("Nora is under
+// pressure from: Teddy mumbles in his sleep.", "Who controls the photograph?").
 function isPageTextLane(phrase = "") {
   const text = normalizeLineText(phrase);
-  return /\b(?:FADE IN|FADE OUT|CUT TO)\b|\b(?:INT|EXT)\.\s/.test(text);
+  return /\b(?:FADE IN|FADE OUT|CUT TO)\b|\b(?:INT|EXT)\.\s/.test(text) || isDistilledMemoryTemplate(text);
 }
 
 // "Rain returns as proof or cost in Act III." is the Act III payoff path;
@@ -1683,7 +1684,11 @@ function evaluateNextSceneExecutionBriefCoverage({ text = "", featureContext = n
     ? supportFields.filter((field) => normalizeLineText(brief[field.name]))
     : supportFields;
   const matchedSupportFields = enforcedSupportFields.filter((field) => field.ok);
-  const minimumSupportFields = Math.min(3, enforcedSupportFields.length);
+  // One lane may rest: with three lanes ("window" as the image of a
+  // stairwell scene) every lane had to land on one page (seen live 2026-09-30).
+  const minimumSupportFields = enforcedSupportFields.length === 0
+    ? 0
+    : Math.min(3, Math.max(1, enforcedSupportFields.length - 1));
   if (matchedSupportFields.length < minimumSupportFields) {
     return {
       ok: false,
