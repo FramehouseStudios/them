@@ -4063,20 +4063,18 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             ],
             fallback: "your screenplay"
         )
-        let position = [
-            Self.restoredContinuityText(snapshot.act, limit: 80),
-            Self.restoredContinuityText(snapshot.featureSequence, limit: 160)
-        ]
-            .filter { !$0.isEmpty }
-            .joined(separator: " / ")
-        let nextMove = Self.restoredContinuityNextMove(snapshot)
+        let position = RestoredContinuityCopy.position(
+            act: Self.restoredContinuityText(snapshot.act, limit: 80),
+            featureSequence: Self.restoredContinuityText(snapshot.featureSequence, limit: 160)
+        )
+        let nextMove = RestoredContinuityCopy.writerMove(Self.restoredContinuityNextMove(snapshot))
         let rememberedThread = Self.firstRestoredContinuityValue(
-            [
+            RestoredContinuityCopy.threads([
                 snapshot.lastSceneOutcome,
                 snapshot.currentBeat,
                 snapshot.emotionalContinuity,
                 snapshot.memoryExcerpt
-            ]
+            ])
         )
         let bindingCausalFact = Self.restoredContinuityCausalFact(snapshot)
         let summary: String
