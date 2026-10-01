@@ -3688,7 +3688,7 @@ struct RootExperienceView: View {
                 VStack(spacing: 10) {
                     TextField("Your name", text: $onboardingName)
                         .font(.system(size: 17, weight: .regular, design: .default))
-                        .textFieldStyle(.roundedBorder)
+                        .onboardingNameInput()
                         .focused($onboardingNameFocused)
                         .submitLabel(.next)
                         .onSubmit {
