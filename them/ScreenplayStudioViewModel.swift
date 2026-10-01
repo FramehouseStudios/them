@@ -1916,6 +1916,19 @@ final class ScreenplayStudioViewModel: ObservableObject {
         return true
     }
 
+    func preserveUnsavedLiveDraftForRecovery(_ draft: String, projectID: String) {
+        guard ScreenplayProjectScopedState.matches(projectID, selectedProjectId: selectedProjectID) else {
+            return
+        }
+        let normalized = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard fingerprint(for: normalized) != lastSavedDraftFingerprint else { return }
+        _ = persistRecoveryForUnconfirmedSave(
+            projectId: projectID,
+            draft: draft,
+            baseVersionId: latestVersionID
+        )
+    }
+
     /// The typing device normally announces its saved version within a couple
     /// of seconds. If that never comes (it went offline, its save failed), this
     /// device must not sit on unsaved words forever: resume the normal
@@ -1957,7 +1970,11 @@ final class ScreenplayStudioViewModel: ObservableObject {
         conflictState = nil
         autosaveStatusText = "Saved"
         if !selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            clearLocalDraftRecovery(projectId: selectedProjectID)
+            // A prior live-sync conflict may have preserved a local draft
+            // before adopting this device's text. Clear only a snapshot that
+            // now matches the accepted server draft; keep a distinct recovery
+            // candidate available to the writer.
+            evaluateLocalDraftRecovery(projectId: selectedProjectID, serverDraft: fountainDraft)
         }
         syncLiveDraftBridgeProjectContext()
     }

@@ -461,6 +461,7 @@ protocol LiveDraftEditorBinding: AnyObject {
     var liveDraftTextPublisher: AnyPublisher<String, Never> { get }
     @discardableResult
     func applyRemoteLiveDraft(_ text: String, projectID: String, sourceDeviceID: String) -> Bool
+    func preserveLiveDraftForRecovery(_ draft: String, projectID: String)
     func adoptRemoteLiveVersion(_ versionID: String, projectID: String, draftChecksum: String)
     /// Bring the line another device is typing on into view.
     func revealRemoteEditLine(_ line: Int)
@@ -479,6 +480,10 @@ extension ScreenplayStudioViewModel: LiveDraftEditorBinding {
 
     func revealRemoteEditLine(_ line: Int) {
         ScreenplayLiveDraftBridge.shared.jumpToLine(line)
+    }
+
+    func preserveLiveDraftForRecovery(_ draft: String, projectID: String) {
+        preserveUnsavedLiveDraftForRecovery(draft, projectID: projectID)
     }
 }
 
@@ -848,6 +853,12 @@ final class ScreenplayLiveDraftSyncService: ObservableObject {
             if merged == nil {
                 logger.notice("live draft: overlapping edits, channel text kept")
             }
+        }
+        if merged == nil, localText != previousMirror, localText != remoteText {
+            // The editor's ordinary recovery write is debounced. Preserve a
+            // genuinely unsaved local draft synchronously before adopting the
+            // channel, otherwise a fast hello/overlap can beat that debounce.
+            editor?.preserveLiveDraftForRecovery(localText, projectID: projectID)
         }
         applyToEditor(merged ?? remoteText, projectID: projectID, sourceDeviceID: sourceDeviceID)
         if let revealLine, merged == nil {
