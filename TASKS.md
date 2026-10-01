@@ -13,6 +13,17 @@
 
 ## Active work — quick view
 
+### T-all-branches-review — Preserve and verify the complete GitHub branch inventory
+- Owner: codex
+- Branch: codex/T-all-branches-review
+- Status: in-progress
+- Pillar: longitudinal learning
+- Done when: every remote branch has an evidence-backed disposition; #766 then
+  #770 are independently proven and merged through required reviews, followed by
+  the product PR base chain with checks after each merge. No Claude work is
+  skipped, squashed away, or reimplemented. Human product decisions stay open.
+- Authority: human request, 2026-09-30; merge commits, no direct main pushes.
+
 | ID   | Title                                              | Owner  | Status            |
 |------|----------------------------------------------------|--------|-------------------|
 | T01  | Triage 409-file uncommitted snapshot               | human  | ready             |
