@@ -2271,17 +2271,6 @@ private func stableScreenplayNodeFingerprint(_ raw: String) -> String {
     return String(hash, radix: 16, uppercase: false)
 }
 
-func screenplayLineIndex(for location: Int, in text: String) -> Int {
-    let safeText = text as NSString
-    let maxLength = safeText.length
-    let safeLocation = max(0, min(location, maxLength))
-    let prefix = safeText.substring(to: safeLocation)
-    let breaks = prefix.reduce(into: 0) { count, character in
-        if character == "\n" { count += 1 }
-    }
-    return max(0, breaks)
-}
-
 nonisolated struct ScreenplayLiveDraftTextPersistencePolicy {
     static func draftForStorage(_ draft: String) -> String? {
         draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : draft
