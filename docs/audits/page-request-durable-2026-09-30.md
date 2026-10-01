@@ -88,3 +88,18 @@ This pass also changed `TASKS.md`, the ledger validation implementation,
 integrated locally as `53ac4051`, `ce3b10ab`, `2f2c8bf6`, `349bd713`.
 No branch was pushed and no new PR opened. Full Studio UI, macOS scaffold,
 real PostgreSQL and physical-device validation remain unrun for this branch.
+
+Exact files changed in this session (including the preserved #625 port):
+
+- `TASKS.md`
+- `backend/lib/clementine/page_request_ledger.js`
+- `backend/lib/clementine/short_film_lane.js`
+- `backend/lib/clementine/page_lane_adapter.js`
+- `backend/lib/talk_generate.js`
+- `backend/tests/empty_generation_billing.test.mjs`
+- `backend/tests/helpers/billing_provider_stub.mjs`
+- `backend/tests/talk_empty_billing.integration.test.mjs`
+- `backend/tests/page_request_durable.test.mjs`
+- `backend/tests/talk_handler_closure.test.mjs`
+- `docs/empty-generation-billing-proof.md`
+- `docs/audits/page-request-durable-2026-09-30.md`
