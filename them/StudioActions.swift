@@ -96,6 +96,17 @@ struct StudioCapabilitiesSnapshot: Codable, Equatable {
         guard let data = try? encoder.encode(self), let text = String(data: data, encoding: .utf8) else { return "" }
         return text
     }
+
+    /// Preserve the turn's existing anchors and continuity; ordinary turns
+    /// without Studio metadata must not acquire a synthetic Studio context.
+    static func attaching(
+        to metadata: BackendStudioThreadCommitMetadata?,
+        snapshot: @autoclosure () -> StudioCapabilitiesSnapshot
+    ) -> BackendStudioThreadCommitMetadata? {
+        guard var metadata else { return nil }
+        metadata.studioCapabilitiesJSON = snapshot().json()
+        return metadata
+    }
 }
 
 extension Notification.Name {
@@ -105,6 +116,20 @@ extension Notification.Name {
 
 enum StudioActionDispatcher {
     static let userInfoKey = "action"
+
+    /// Resolve visibility when the response arrives, dispatch its validated
+    /// actions, then pass the unchanged response to the existing voice path.
+    static func handlingResponse(
+        studioOpen: @escaping () -> Bool,
+        openStudio: @escaping () -> Void,
+        center: NotificationCenter = .default,
+        onResponse: @escaping (BackendTalkResponseMetadata) -> Void
+    ) -> (BackendTalkResponseMetadata) -> Void {
+        { metadata in
+            dispatch(metadata.studioActions, studioOpen: studioOpen(), openStudio: openStudio, center: center)
+            onResponse(metadata)
+        }
+    }
 
     /// Hands each action to the Studio screen. When the Studio is not open yet,
     /// opens it first and lets the screen mount before the actions arrive.

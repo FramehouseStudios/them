@@ -2,6 +2,68 @@ import XCTest
 @testable import them
 
 final class StudioActionsTests: XCTestCase {
+    func test_missing_studio_metadata_does_not_build_or_attach_capabilities() {
+        var snapshotCalls = 0
+        func makeSnapshot() -> StudioCapabilitiesSnapshot {
+            snapshotCalls += 1
+            return StudioCapabilitiesSnapshot()
+        }
+        XCTAssertNil(StudioCapabilitiesSnapshot.attaching(to: nil, snapshot: makeSnapshot()))
+        XCTAssertEqual(snapshotCalls, 0)
+    }
+
+    func test_attaching_capabilities_preserves_existing_turn_metadata() {
+        let metadata = BackendStudioThreadCommitMetadata(
+            screenplayProjectId: "project-one", screenplayDocumentRevisionId: "revision-one",
+            screenplayTarget: "page", screenplayPromptSource: "voice", screenplayWriteId: "write-one",
+            screenplayAnchorLine: 12, screenplayAnchorEndLine: 14, screenplayInsertionMode: "replace_selection",
+            screenplayAnchorSceneLabel: "INT. ROOM - NIGHT", screenplayAnchorDraftSceneId: "scene-one",
+            screenplayAnchorOutlineSceneId: "outline-one", screenplayAnchorOutlineBeatIds: ["beat-one"],
+            screenplayAnchorScriptNodeId: "node-one", screenplayNoteTitle: "Note", screenplayNoteBody: "Keep the silence.",
+            screenplayInsertedText: "She waits.", screenplayReplacementApplied: true,
+            screenplayReplacedWriteId: "old-write", screenplayRevisedBlockText: "She listens.",
+            screenplayResolvedAnchorExcerpt: "A door closes.", screenplayDraftExcerpt: "FADE IN:",
+            screenplayAct: "Act II", screenplayPageCount: 25, screenplayTargetPages: 90
+        )
+        var snapshot = StudioCapabilitiesSnapshot()
+        snapshot.hasProject = true
+        snapshot.sceneLabels = ["INT. ROOM - NIGHT"]
+        var expected = metadata
+        expected.studioCapabilitiesJSON = snapshot.json()
+        XCTAssertEqual(StudioCapabilitiesSnapshot.attaching(to: metadata, snapshot: snapshot), expected)
+        XCTAssertEqual(metadata.studioCapabilitiesJSON, "", "The original value must remain unchanged.")
+    }
+
+    func test_response_handler_reads_current_visibility_and_dispatches_before_forwarding() {
+        let center = NotificationCenter()
+        var events: [String] = []
+        var studioOpen = false
+        let token = center.addObserver(forName: .themStudioActionRequested, object: nil, queue: nil) { note in
+            events.append(StudioActionDispatcher.action(from: note)?.type ?? "missing")
+        }
+        defer { center.removeObserver(token) }
+        let handler = StudioActionDispatcher.handlingResponse(
+            studioOpen: { studioOpen }, openStudio: { events.append("opened") }, center: center
+        ) { metadata in
+            XCTAssertEqual(metadata.reply, "I'll save that revision.")
+            XCTAssertEqual(metadata.studioActions.map(\.type), ["save_revision", "unsupported"])
+            events.append("response")
+        }
+        // The writer opened Studio while the response was in flight.
+        studioOpen = true
+        let metadata = BackendTalkResponseMetadata(
+            audioDurationMs: nil, renderContract: .default, timingSource: nil,
+            screenplayOutput: nil, screenplayQuality: nil, screenplayCues: [], dialogueTimeline: nil,
+            creativeMemoryTrace: .empty, screenplayTrace: .empty, reply: "I'll save that revision.",
+            suggestion: nil, uncertainty: nil, collabCursor: nil, samanthaPresence: nil,
+            presenceHistory: [], presenceBargeAt: nil, presenceBargeReason: nil, voiceLearn: nil,
+            vulnAsk: nil, vulnOptions: [],
+            studioActions: [BackendStudioAction(type: "save_revision", color: "pink"), BackendStudioAction(type: "unsupported")]
+        )
+        handler(metadata)
+        XCTAssertEqual(events, ["save_revision", "response"])
+    }
+
     func test_header_parses_percent_encoded_actions_and_drops_unknown_types() {
         let json = #"[{"type":"save_revision","color":"pink","source":"tag"},{"type":"open_tab","tab":"beats","source":"spoken"},{"type":"teleport"}]"#
         let encoded = json.addingPercentEncoding(withAllowedCharacters: .alphanumerics)!
