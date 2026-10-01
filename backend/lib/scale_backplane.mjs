@@ -518,16 +518,19 @@ export async function createScaleBackplane({
 
   async function setIdempotency(cacheKey, value, ttlMs = 300_000) {
     const key = safeString(cacheKey, 320);
-    if (!key) return;
+    if (!key || !state.redisEnabled || !state.redis) return false;
     if (state.redisEnabled && state.redis) {
       try {
         const redisKey = `them:talk:idemp:${key}`;
         const payload = JSON.stringify(value && typeof value === "object" ? value : {});
         await state.redis.set(redisKey, payload, { PX: Math.max(1_000, Number(ttlMs || 300_000)) });
+        return true;
       } catch (err) {
         logger?.log?.(`[scale_backplane] idempotency_set_error key=${key} err=${String(err?.message || err)}`);
+        return false;
       }
     }
+    return false;
   }
 
   async function deleteIdempotency(cacheKey) {

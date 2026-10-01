@@ -3265,7 +3265,7 @@ function createTalkHandler(deps) {
         const _clemOwnerKey = String(req.authUser?.id || req.userId || req.body?.ownerKey || "") || (typeof ownerKey !== "undefined" ? String(ownerKey) : "");
         applyClementineTalkHeaders(res, { project: _clemProject, draft: _clemDraft, parsed: _clemParsed, quality: _clemQuality, collabCursor: _clemCursor, ownerKey: _clemOwnerKey });
       } catch (_) {}
-      commitTalkIdempotencySuccess(req, {
+      await commitTalkIdempotencySuccess(req, {
         statusCode: 200,
         headers: captureTalkResponseHeaders(res),
         body: audioBuffer,
@@ -5277,7 +5277,7 @@ ${directorOutputRule}
         "Server-Timing",
         `stt;dur=${Math.max(0, sttMs)}, llm;dur=${Math.max(0, chatMs)}, repair;dur=${Math.max(0, Math.round(Number(talkScreenplayRepairTrace.elapsedMs || 0) + Number(structuralQualityTrace.elapsedMs || 0)))}, tts;dur=${Math.max(0, ttsMs)}, total;dur=${Math.max(0, total_ms)}`
       );
-      commitTalkIdempotencySuccess(req, {
+      await commitTalkIdempotencySuccess(req, {
         statusCode: 200,
         headers: captureTalkResponseHeaders(res),
         body: streamedAudioBuffer,
@@ -5414,7 +5414,7 @@ ${directorOutputRule}
       "Server-Timing",
       `stt;dur=${Math.max(0, sttMs)}, llm;dur=${Math.max(0, chatMs)}, repair;dur=${Math.max(0, Math.round(Number(talkScreenplayRepairTrace.elapsedMs || 0) + Number(structuralQualityTrace.elapsedMs || 0)))}, tts;dur=${Math.max(0, ttsMs)}, total;dur=${Math.max(0, total_ms)}`
     );
-    commitTalkIdempotencySuccess(req, {
+    await commitTalkIdempotencySuccess(req, {
       statusCode: 200,
       headers: captureTalkResponseHeaders(res),
       body: audioBuffer,
@@ -5617,7 +5617,7 @@ ${directorOutputRule}
           res.setHeader("x-backend-build", BACKEND_BUILD);
           res.setHeader("x-backend-boot-id", BACKEND_BOOT_ID);
           res.setHeader("Content-Length", String(recoveryAudio.length));
-          commitTalkIdempotencySuccess(req, {
+          await commitTalkIdempotencySuccess(req, {
             statusCode: 200,
             headers: captureTalkResponseHeaders(res),
             body: recoveryAudio,

@@ -28,13 +28,20 @@
 - Current: atomic stop/completion CAS is covered by the production handler and
   independent PostgreSQL-worker race tests. Full backend, erased signed iOS,
   macOS scaffold, focused auth/settlement tests and parent-relative gate pass.
+- Latest bounded improvement: successful `/talk` paths now await the existing
+  optional Redis idempotency replay write before returning. This closes the
+  response-before-shared-cache-write race only when Redis accepts the write;
+  absent/failed Redis still reports `persisted: false`, and replay remains
+  limited to the existing five-minute cache window. It is not a durable Page
+  completion receipt.
 - Remaining before production readiness: durable completion receipts/replay,
   request-metadata retention and bounded admission. Draft review can proceed;
   merge/release remains held. Original #625/#635 branches are preserved.
-- Verified checkpoint: backend 2,863 pass/0 fail/2 skip; erased signed iOS
+- Verified checkpoint: backend 2,864 pass/0 fail/2 skip; focused talk-state
+  idempotency 34/34; authenticated settlement handlers 2/2; erased signed iOS
   684/684; PostgreSQL two-process race 2/2; macOS build succeeds.
-- Hosted: migration, backend image and god-file checks passed; required backend
-  and iOS writer-loop checks were running at last poll.
+- Hosted: migration, backend image, backend tests and god-file checks passed;
+  required iOS writer-loop quality gate was running at last poll.
 - Proof and exact remaining work: docs/audits/page-request-durable-2026-09-30.md.
 
 ### T-page-request-lifecycle — Preserve each writing turn's cancellation identity

@@ -265,6 +265,7 @@ function stubScaleBackplane() {
     },
     async setIdempotency(key, value /* , ttlMs */) {
       this._idempotency.set(key, value);
+      return true;
     },
     async deleteIdempotency(key) {
       this._idempotency.delete(key);
@@ -337,7 +338,7 @@ test("idempotency guard cache hit returns cached response with replay header", a
   });
   const req1 = stubRequest({ headers: { "Idempotency-Key": "k1" } });
   await guard(req1, stubResponse(), () => {});
-  helpers.commitSuccess(req1, {
+  await helpers.commitSuccess(req1, {
     statusCode: 200,
     headers: { "Content-Type": "application/json" },
     body: Buffer.from('{"ok":true}'),
@@ -813,7 +814,7 @@ test("idempotency helpers commitSuccess marks pending as completed", async () =>
   });
   const req = stubRequest({ headers: { "Idempotency-Key": "ch" } });
   await guard(req, stubResponse(), () => {});
-  helpers.commitSuccess(req, {
+  const commitResult = await helpers.commitSuccess(req, {
     statusCode: 200,
     headers: { "Content-Type": "application/json" },
     body: Buffer.from('{"x":1}'),
@@ -823,6 +824,54 @@ test("idempotency helpers commitSuccess marks pending as completed", async () =>
   assert.equal(entry.status, "completed");
   assert.equal(entry.statusCode, 200);
   assert.ok(Buffer.isBuffer(entry.body));
+  assert.equal(commitResult.persisted, true);
+  assert.equal((await sb.getIdempotency("sess:h|ch"))?.status, "completed");
+});
+
+test("idempotency commitSuccess waits for the replay record to persist", async () => {
+  resetState();
+  let releaseWrite;
+  let persisted = false;
+  const sb = stubScaleBackplane();
+  sb.setIdempotency = async (key, value) => {
+    await new Promise(resolve => { releaseWrite = resolve; });
+    sb._idempotency.set(key, value);
+    persisted = true;
+    return true;
+  };
+  const helpers = createTalkIdempotencyHelpers({
+    scaleBackplane: sb,
+    talkIdempotencyEnabled: true,
+    talkIdempotencyTtlMs: 60_000,
+    talkIdempotencyMaxEntries: 256,
+  });
+  const guard = createTalkIdempotencyGuard({
+    isSpeculativePrepareRequest: () => false,
+    talkIdempotencyEnabled: true,
+    normalizeIdempotencyKey: value => String(value || "").trim(),
+    resolveTalkSessionKey: () => "sess:durable",
+    scaleBackplane: sb,
+    recordTalkMetric: () => {},
+    talkIdempotencyTtlMs: 60_000,
+    talkIdempotencyMaxEntries: 256,
+    logger: { log: () => {} },
+  });
+  const req = stubRequest({ headers: { "Idempotency-Key": "pending-write" } });
+  await guard(req, stubResponse(), () => {});
+  let committed = false;
+  const commit = helpers.commitSuccess(req, {
+    statusCode: 200,
+    headers: { "Content-Type": "application/json" },
+    body: Buffer.from('{"ok":true}'),
+  }).then(() => { committed = true; });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(committed, false, "the response path must wait for the shared replay record");
+  assert.equal(persisted, false);
+  releaseWrite();
+  await commit;
+  assert.equal(committed, true);
+  assert.equal(persisted, true);
+  assert.equal((await sb.getIdempotency("sess:durable|pending-write"))?.status, "completed");
 });
 
 test("idempotency helpers clearPending removes pending but keeps completed", async () => {
@@ -864,7 +913,7 @@ test("idempotency helpers disabled: commitSuccess no-ops", async () => {
   });
   const fakeReq = { talkIdempotency: { cacheKey: "no-real-key" } };
   // Should not throw, should not touch the cache.
-  helpers.commitSuccess(fakeReq, { statusCode: 200, body: Buffer.from("x") });
+  await helpers.commitSuccess(fakeReq, { statusCode: 200, body: Buffer.from("x") });
   assert.equal(talkIdempotencyCacheSize(), 0);
 });
 

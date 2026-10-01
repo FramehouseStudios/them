@@ -36,6 +36,13 @@ does not reuse #635's remote branch name.
   token or cancellation reason is persisted in this ledger.
 - #625 retains non-empty beta output and releases holds for failed output,
   disconnects, exceptions and listening-recovery statuses.
+- Successful `/talk` responses now await the existing optional Redis
+  idempotency-cache write before the handler returns. Focused tests prove the
+  await boundary. This only closes the race where the HTTP response could
+  precede that shared-cache write; missing or failed Redis remains non-durable,
+  and the existing replay TTL remains five minutes. It does not recover a
+  completed Page from the owner-scoped request ledger or replace a completion
+  receipt.
 
 ## Evidence
 
@@ -62,8 +69,12 @@ Logs live under `/Users/halfmutantfilms/io.them-worktrees/_proof/branch-audit-20
   reconstructed worker cannot re-admit a stopped request
   (`page-request-durable-postgres.log`, 2/2). This used only the
   localhost-bound synthetic `them_page_settlement` database and test role.
-- Complete backend: 2,863 pass / 0 fail / 2 skip (2,865 tests),
-  `page-request-durable-backend-final.log`.
+- Latest complete backend: `cd backend && npm test` — 2,864 pass / 0 fail /
+  2 skipped (2,866 tests).
+- Current-head focused idempotency unit tests: 34/34; authenticated real `/talk`
+  settlement winner handlers: 2/2. The full suite was run with local test-server
+  binding enabled; an initial restricted-shell attempt produced environment
+  `EPERM` failures and was not counted as product evidence.
 - Complete signed iOS on the erased dedicated simulator: 684/684,
   `page-request-durable-units-complete.log` and matching `.xcresult`.
   The new finalizing-conflict client test is included.
@@ -102,10 +113,10 @@ approval.
 This pass also integrated the atomic finalization work and its tests. The four
 original #625 source commits were integrated locally as `53ac4051`,
 `ce3b10ab`, `2f2c8bf6`, `349bd713`. The complete stack is verified locally,
-and published as draft PR #886 stacked on #885. Hosted migration, image-build
-and god-file checks passed; the required backend and iOS writer-loop checks
-were still running at the last poll. Studio V1 UI and physical-device validation
-remain unrun for this branch.
+and published as draft PR #886 stacked on #885. Hosted migration, image-build,
+backend and god-file checks passed; the required iOS writer-loop quality gate
+was still running at the latest poll. Studio V1 UI and physical-device
+validation remain unrun for this branch.
 
 Exact branch files relative to #885 (including preserved #625/#635 work):
 
