@@ -461,7 +461,7 @@ protocol LiveDraftEditorBinding: AnyObject {
     var liveDraftTextPublisher: AnyPublisher<String, Never> { get }
     @discardableResult
     func applyRemoteLiveDraft(_ text: String, projectID: String, sourceDeviceID: String) -> Bool
-    func preserveLiveDraftForRecovery(_ draft: String, projectID: String)
+    func preserveLiveDraftForRecovery(_ draft: String, projectID: String) -> Bool
     func adoptRemoteLiveVersion(_ versionID: String, projectID: String, draftChecksum: String)
     /// Bring the line another device is typing on into view.
     func revealRemoteEditLine(_ line: Int)
@@ -482,7 +482,7 @@ extension ScreenplayStudioViewModel: LiveDraftEditorBinding {
         ScreenplayLiveDraftBridge.shared.jumpToLine(line)
     }
 
-    func preserveLiveDraftForRecovery(_ draft: String, projectID: String) {
+    func preserveLiveDraftForRecovery(_ draft: String, projectID: String) -> Bool {
         preserveUnsavedLiveDraftForRecovery(draft, projectID: projectID)
     }
 }
@@ -845,7 +845,6 @@ final class ScreenplayLiveDraftSyncService: ObservableObject {
         // 2026-09-28). Without a base, or when local already matches, there
         // is nothing to merge; the channel wins, as for overlapping edits.
         let hasAgreedBase = mirrorSeq != nil
-        setMirror(text: remoteText, seq: seq, checksum: checksum)
         var merged: String?
         if hasAgreedBase, localText != previousMirror, localText != remoteText,
            let localOp = LiveDraftText.diff(from: previousMirror, to: localText) {
@@ -854,13 +853,16 @@ final class ScreenplayLiveDraftSyncService: ObservableObject {
                 logger.notice("live draft: overlapping edits, channel text kept")
             }
         }
-        if merged == nil, localText != previousMirror, localText != remoteText {
-            // The editor's ordinary recovery write is debounced. Preserve a
-            // genuinely unsaved local draft synchronously before adopting the
-            // channel, otherwise a fast hello/overlap can beat that debounce.
-            editor?.preserveLiveDraftForRecovery(localText, projectID: projectID)
+        let adoptedText = merged ?? remoteText
+        if localText != adoptedText,
+           editor?.preserveLiveDraftForRecovery(merged ?? localText, projectID: projectID) != true {
+            // Never advance the mirror or replace the editor if its displaced
+            // words could not be durably preserved.
+            logger.error("live draft: recovery persistence failed; remote update withheld")
+            return
         }
-        applyToEditor(merged ?? remoteText, projectID: projectID, sourceDeviceID: sourceDeviceID)
+        setMirror(text: remoteText, seq: seq, checksum: checksum)
+        applyToEditor(adoptedText, projectID: projectID, sourceDeviceID: sourceDeviceID)
         if let revealLine, merged == nil {
             revealRemoteLineIfDue(revealLine)
         }

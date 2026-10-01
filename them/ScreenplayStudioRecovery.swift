@@ -152,16 +152,18 @@ struct ScreenplayLocalDraftRecoveryStore {
         return out
     }
 
+    @discardableResult
     func save(
         ownerUserId: String,
         projectId: String,
         draft: String,
         baseVersionId: String,
         dirty: Bool,
-        savedAt: TimeInterval = Date().timeIntervalSince1970
-    ) {
+        savedAt: TimeInterval = Date().timeIntervalSince1970,
+        synchronizeToDisk: Bool = false
+    ) -> Bool {
         let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalizedProjectId.isEmpty else { return }
+        guard !normalizedProjectId.isEmpty else { return false }
         var nextPayloads = payloads(ownerUserId: ownerUserId)
         nextPayloads[normalizedProjectId] = [
             "draft": draft,
@@ -170,6 +172,9 @@ struct ScreenplayLocalDraftRecoveryStore {
             "savedAt": savedAt,
         ]
         defaults.set(nextPayloads, forKey: ownerScopedKey(ownerUserId))
+        // Only the live-sync overwrite boundary requires a blocking flush;
+        // normal keystroke recovery remains on UserDefaults' async write path.
+        return synchronizeToDisk ? defaults.synchronize() : true
     }
 
     func clear(ownerUserId: String, projectId: String) {

@@ -1916,17 +1916,23 @@ final class ScreenplayStudioViewModel: ObservableObject {
         return true
     }
 
-    func preserveUnsavedLiveDraftForRecovery(_ draft: String, projectID: String) {
+    @discardableResult
+    func preserveUnsavedLiveDraftForRecovery(_ draft: String, projectID: String) -> Bool {
         guard ScreenplayProjectScopedState.matches(projectID, selectedProjectId: selectedProjectID) else {
-            return
+            return false
         }
         let normalized = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard fingerprint(for: normalized) != lastSavedDraftFingerprint else { return }
-        _ = persistRecoveryForUnconfirmedSave(
+        guard fingerprint(for: normalized) != lastSavedDraftFingerprint else { return true }
+        guard persistRecoveryForUnconfirmedSave(
             projectId: projectID,
             draft: draft,
-            baseVersionId: latestVersionID
-        )
+            baseVersionId: latestVersionID,
+            synchronizeToDisk: true
+        ) != nil else {
+            autosaveStatusText = "Local recovery failed — remote update held"
+            return false
+        }
+        return true
     }
 
     /// The typing device normally announces its saved version within a couple
@@ -6497,26 +6503,30 @@ final class ScreenplayStudioViewModel: ObservableObject {
         )
     }
 
+    @discardableResult
     private func persistLocalDraftRecovery(
         projectId: String,
         draft: String,
         baseVersionId: String,
         dirty: Bool,
-        savedAt: TimeInterval = Date().timeIntervalSince1970
-    ) {
+        savedAt: TimeInterval = Date().timeIntervalSince1970,
+        synchronizeToDisk: Bool = false
+    ) -> Bool {
         let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalizedProjectId.isEmpty else { return }
-        localDraftRecoveryStore.save(
+        guard !normalizedProjectId.isEmpty else { return false }
+        let persisted = localDraftRecoveryStore.save(
             ownerUserId: currentStudioAuthContext().userID,
             projectId: normalizedProjectId,
             draft: draft,
             baseVersionId: baseVersionId,
             dirty: dirty,
-            savedAt: savedAt
+            savedAt: savedAt,
+            synchronizeToDisk: synchronizeToDisk
         )
         if !dirty {
             recoveryCandidate = nil
         }
+        return persisted
     }
 
     @discardableResult
@@ -6524,7 +6534,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
         projectId: String,
         draft: String,
         baseVersionId: String,
-        surfaceCandidate: Bool = true
+        surfaceCandidate: Bool = true,
+        synchronizeToDisk: Bool = false
     ) -> LocalDraftRecoveryCandidate? {
         guard ScreenplayUnconfirmedSaveRecoveryPolicy.shouldPersist(
             projectId: projectId,
@@ -6534,13 +6545,14 @@ final class ScreenplayStudioViewModel: ObservableObject {
         }
         let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
         let savedAt = Date().timeIntervalSince1970
-        persistLocalDraftRecovery(
+        guard persistLocalDraftRecovery(
             projectId: normalizedProjectId,
             draft: draft,
             baseVersionId: baseVersionId,
             dirty: true,
-            savedAt: savedAt
-        )
+            savedAt: savedAt,
+            synchronizeToDisk: synchronizeToDisk
+        ) else { return nil }
         let candidate = LocalDraftRecoveryCandidate(
             projectId: normalizedProjectId,
             draft: draft,
