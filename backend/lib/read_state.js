@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { writerWordsForHistory } from "./writer_words.js";
+import { pageRecapLine, pageThreadHighlight } from "./recap_pages.js";
 
 const RECAP_WINDOWS = new Set(["today", "yesterday", "last_7_days"]);
 
@@ -473,6 +474,7 @@ function createReadStateHelpers(deps = {}) {
     );
     const openTasks = taskSnapshot.tasks.filter((task) => task.status === "open");
     const recapFromActivity =
+      pageRecapLine(windowThreads) ||
       normalizeSnippet(windowThreads[0]?.assistant || windowThreads[0]?.preview || "", 220) ||
       normalizeSnippet(memory?.lastConversationRecap, 220);
     // hasRecap lets clients tell a real recap from the empty-state sentence below.
@@ -484,7 +486,7 @@ function createReadStateHelpers(deps = {}) {
         : `No major recap found for ${windowRange.label}.`);
     const highlights = windowThreads
       .slice(0, 3)
-      .map((thread) => normalizeSnippet(thread?.preview || thread?.assistant || thread?.title || "", 170))
+      .map((thread) => normalizeSnippet(pageThreadHighlight(thread) || thread?.preview || thread?.assistant || thread?.title || "", 170))
       .filter(Boolean);
     const outcomes = completedInWindow
       .slice(0, 4)
