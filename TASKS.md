@@ -16,7 +16,7 @@
 ### T-coverage-gate — Preserve coverage UI and speech without god-file growth
 - Owner: codex
 - Branch: codex/T-coverage-gate
-- Status: in-progress
+- Status: review
 - Pillar: living companion
 - Goal criteria: 3 (grounded coverage), 4 (working controls), 7 (provable stack).
 - Done when: #644's Craft bindings and coverage speech behavior are preserved,
@@ -24,6 +24,20 @@
   backend and narrow-iPhone destination proof pass.
 - Scope: additive extraction on the original #644 head, not a replacement;
   #766 then #770 remain first to land. No paid model calls or review bypass.
+- Proof: 71/71 focused and 657/657 full signed iOS tests; 2/2 signed iPhone
+  UI tests; backend 2,787 passed / 0 failed / 2 skipped after bringing forward
+  Claude's canonical HTTP fixture for a reproduced fetch failure. Parent gate
+  passes. See docs/audits/coverage-gate-2026-09-30.md for initial failures/limits.
+
+### T-coverage-context — Bind coverage to the current writer and script
+- Owner: codex
+- Status: ready
+- Pillar: longitudinal learning
+- Goal criteria: 3 and 6.
+- Done when: account/project changes and superseded reads cannot publish,
+  speak or send another script's coverage; delayed/out-of-order tests prove it.
+- Preserve: #644 feature, #646 refresh policy and #774 quiet announcements.
+- Evidence: source review at #644 and #877; runtime reproduction still needed.
 
 | ID   | Title                                              | Owner  | Status            |
 |------|----------------------------------------------------|--------|-------------------|
