@@ -31,7 +31,8 @@
 
 ### T-coverage-context — Bind coverage to the current writer and script
 - Owner: codex
-- Status: ready
+- Branch: codex/T-coverage-context
+- Status: in-progress
 - Pillar: longitudinal learning
 - Goal criteria: 3 and 6.
 - Done when: account/project changes and superseded reads cannot publish,
