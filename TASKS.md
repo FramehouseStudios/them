@@ -16,7 +16,7 @@
 ### T-page-cancel-stack — Verify cancellation ownership on the reviewed stack
 - Owner: codex
 - Branch: codex/T-page-cancel-stack
-- Status: in-progress
+- Status: review
 - Pillar: voice→scene
 - Goal criteria: 6 (authenticated isolation) and 7 (proof).
 - Scope: reuse #634's exact fix; do not rewrite or close its original branch.
@@ -25,6 +25,9 @@
 - Proof plan: reproduce against current parent, port exact commit, focused/full
   backend, signed erased iOS units, parent-relative god-file and diff checks.
 - Limits: no production deployment, paid calls or merge/review bypass.
+- Proof: unpatched route failed three ownership checks; final focused 36/36,
+  backend 2,793 pass/0 fail/2 skip; erased signed iOS units 666/666; gate passes.
+- Details: docs/audits/page-cancel-stack-2026-09-30.md.
 
 ### T-coverage-gate — Preserve coverage UI and speech without god-file growth
 - Owner: codex

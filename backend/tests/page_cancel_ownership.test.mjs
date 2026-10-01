@@ -4,6 +4,7 @@ import express from 'express';
 import { createPageReservationStore } from '../lib/clementine/page_cancel.js';
 import { mountPageCancelRoute } from '../lib/talk_pipeline.js';
 import { startBackend, apiRequest } from './helpers/backend_test_server.mjs';
+import { listenEphemeral } from './helpers/ephemeral_server.mjs';
 
 // Exercise the production route/store. Identity is supplied by trusted test
 // middleware, not a caller-controlled HTTP header or a duplicate fake handler.
@@ -16,7 +17,7 @@ async function withOwner(principal, run) {
   const app = express();
   app.use((req, _res, next) => { if (principal) req.authUser = { id: principal }; next(); });
   mountPageCancelRoute(app, { pageReservationStore: store });
-  const server = app.listen(0, '127.0.0.1');
+  const server = listenEphemeral(app);
   await new Promise(resolve => server.once('listening', resolve));
   const post = async body => {
     const response = await fetch(`http://127.0.0.1:${server.address().port}/talk/page-cancel`, {
@@ -33,8 +34,22 @@ test('foreign reservation ID cannot abort or release another writer wallet', asy
   await withOwner('writer', async ({ store, victim, released, post }) => {
     const result = await post({ reservation_id: victim.id, user_id: 'victim' });
     assert.equal(result.status, 404);
+    const missing = await post({ reservation_id: 'missing-reservation' });
+    assert.equal(missing.status, result.status);
+    assert.equal(missing.body.error, result.body.error);
+    assert.equal(missing.body.ok, result.body.ok);
     assert.equal(store.get(victim.id).aborted, false);
     assert.equal(store.get(victim.id).status, 'reserved');
+    assert.deepEqual(released, []);
+  });
+});
+
+test('ownerless reservation ID cannot be adopted by a supplied identity', async () => {
+  await withOwner('writer', async ({ store, legacy, released, post }) => {
+    const result = await post({ reservation_id: legacy.id, user_id: 'writer' });
+    assert.equal(result.status, 404);
+    assert.equal(store.get(legacy.id).aborted, false);
+    assert.equal(store.get(legacy.id).status, 'reserved');
     assert.deepEqual(released, []);
   });
 });
@@ -46,6 +61,9 @@ test('session cancellation uses authenticated owner, not forged body identity', 
     assert.deepEqual(result.body.dropped, [own.id]);
     assert.equal(store.get(victim.id).aborted, false);
     assert.equal(store.get(legacy.id).aborted, false);
+    assert.deepEqual(released, ['writer-wallet']);
+    const repeated = await post({ session_id: 'shared', user_id: 'victim' });
+    assert.deepEqual(repeated.body.dropped, []);
     assert.deepEqual(released, ['writer-wallet']);
   });
 });
