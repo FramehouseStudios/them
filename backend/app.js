@@ -11,10 +11,11 @@ applyAppMiddleware(app);
 const TALK_UPLOAD_LIMITS = Object.freeze({
   fileSize: MAX_FILE_BYTES,
   files: 1,
-  fields: 64,
+  fields: 80,
   // Multer triggers the parts limit when it reaches the configured value.
-  // 66 therefore permits the endpoint contract's 64 fields + one file.
-  parts: 66,
+  // The native voice builder can emit 71 metadata fields. Bound the full
+  // envelope at 80 fields + one file; 82 avoids rejecting the final part.
+  parts: 82,
   fieldNameSize: 128,
   fieldSize: 1024 * 1024,
   fieldNestingDepth: 0,
