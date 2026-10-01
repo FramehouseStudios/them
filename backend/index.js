@@ -265,7 +265,7 @@ import {
   writeJsonFileAtomic,
 } from "./lib/utils.js";
 import { SCREENPLAY_MEMORY_SETUP_PATTERN } from "./lib/screenplay_memory_setup_pattern.js";
-import { writerWordsFromTurn } from "./lib/writer_words.js";
+import { writerWordsFromTurn, writerWordsForHistory } from "./lib/writer_words.js";
 
 const lifecycleLogger = createLogger();
 
@@ -17198,7 +17198,7 @@ function formatScreenplayProjectMemoryForPrompt(memory, maxItems = SCREENPLAY_PR
 
 function updateSessionAfterReply(memory, transcript, reply, didUseCheckInOpener, studioMeta = null) {
   const base = memory && typeof memory === "object" ? memory : createEmptyEmotionMemory();
-  const userSnippet = normalizeSnippet(transcript, 130);
+  const userSnippet = normalizeSnippet(writerWordsForHistory(transcript), 130); // the writer's words, not the app's brief
   const assistantSnippet = normalizeSnippet(reply, 170);
   const qaPair = normalizeSnippet(`U: ${userSnippet} | A: ${assistantSnippet}`, 260);
   const turnNumber = Math.max(1, Number(base.turns || 1));
@@ -17215,7 +17215,7 @@ function updateSessionAfterReply(memory, transcript, reply, didUseCheckInOpener,
   base.recentQAPairs = pushBoundedUnique(base.recentQAPairs, qaPair, 8);
   base.turnHistory = pushTurnHistory(
     base.turnHistory,
-    { role: "user", content: transcript, turn: turnNumber, ts: nowTs - 1, studio: sanitizedStudioMeta },
+    { role: "user", content: writerWordsForHistory(transcript), turn: turnNumber, ts: nowTs - 1, studio: sanitizedStudioMeta },
     TURN_HISTORY_MAX_ENTRIES
   );
   base.turnHistory = pushTurnHistory(
