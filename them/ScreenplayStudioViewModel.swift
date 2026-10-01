@@ -1471,7 +1471,9 @@ final class ScreenplayStudioViewModel: ObservableObject {
     @Published var infoText: String = ""
 
     @Published var projects: [BackendScreenplayProjectSummary] = []
-    @Published var selectedProjectID: String = ""
+    @Published var selectedProjectID: String = "" {
+        didSet { if oldValue != selectedProjectID { invalidateCoverageIfContextChanged() } }
+    }
     @Published var selectedProject: BackendScreenplayProjectSummary?
     @Published var outline: BackendScreenplayOutline = .empty
     @Published var outlineRevision: Int = 0
@@ -1611,7 +1613,17 @@ final class ScreenplayStudioViewModel: ObservableObject {
     @Published var newBeatActID: String = ""
     @Published var editingBeatID: String = ""
 
-    @Published var fountainDraft: String = ""
+    @Published var fountainDraft: String = "" {
+        didSet {
+            if !fountainDraft.contains(where: { !$0.isWhitespace }) {
+                invalidateCoverage()
+            } else if let active = activeCoverageContext, active.draft != fountainDraft {
+                activeCoverageRequestID = nil
+                activeCoverageContext = nil
+                if isCoverageRefreshing { isCoverageRefreshing = false }
+            }
+        }
+    }
     @Published var latestVersionID: String = ""
     @Published var studioWriteAnchors: [BackendScreenplayWriteAnchor] = []
     @Published var screenplayBindings: [BackendScreenplayBindingRecord] = []
@@ -1622,7 +1634,19 @@ final class ScreenplayStudioViewModel: ObservableObject {
     @Published var isManualDraftEditing: Bool = false
     @Published var paginationPages: [BackendScreenplayPaginationPage] = []
     @Published var isPagesOverviewPresented: Bool = false
-    @Published var coverageReport: BackendScreenplayCoverageReport? = nil
+    @Published private var publishedCoverageReport: BackendScreenplayCoverageReport?
+    var coverageReport: BackendScreenplayCoverageReport? {
+        guard publishedCoverageContext?.hasSameOwner(as: currentCoverageContext()) == true,
+              fountainDraft.contains(where: { !$0.isWhitespace }) else { return nil }
+        return publishedCoverageReport
+    }
+    private var publishedCoverageContext: ScreenplayCoverageContext?
+    private var publishedCoverageRequestID: UUID?
+    private var activeCoverageRequestID: UUID?
+    private var activeCoverageContext: ScreenplayCoverageContext?
+    private var coverageErrorContext: ScreenplayCoverageContext?
+    private var coverageIdentityCancellable: AnyCancellable?
+    private let coverageAuthContextProvider: (() -> ScreenplayStudioAuthContext)?
     @Published var isCoverageRefreshing: Bool = false
     @Published var coverageErrorText: String = ""
     @Published var isPaginationRefreshing: Bool = false
@@ -1695,8 +1719,12 @@ final class ScreenplayStudioViewModel: ObservableObject {
     private var clientTokenOwnedProjectIDs: Set<String> = []
     private var activeLoadRequestID: UUID?
 
-    init() {
+    init(coverageAuthContextProvider: (() -> ScreenplayStudioAuthContext)? = nil) {
+        self.coverageAuthContextProvider = coverageAuthContextProvider
         fountainDraft = ScreenplayLiveDraftBridge.shared.draftText
+        coverageIdentityCancellable = NotificationCenter.default.publisher(for: .themBackendIdentityPartitionChanged)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.invalidateCoverageIfContextChanged() }
         draftDebounceCancellable = $fountainDraft
             .removeDuplicates()
             .debounce(for: .milliseconds(900), scheduler: RunLoop.main)
@@ -1722,6 +1750,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
     }
 
     deinit {
+        coverageIdentityCancellable?.cancel()
         draftDebounceCancellable?.cancel()
         bridgePreferredVersionCancellable?.cancel()
         outlineMutationRetryTask?.cancel()
@@ -4347,33 +4376,91 @@ final class ScreenplayStudioViewModel: ObservableObject {
     /// Clementine's read of the current draft (grade, verdict, pillars). Runs
     /// after an import and on demand from the Craft tab; `speak` hands the
     /// spoken read to the home voice.
-    func refreshCoverage(source: String = "Draft", speak: Bool = false) async {
-        let draft = fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+    func refreshCoverage(
+        source: String = "Draft", speak: Bool = false,
+        request: ((String, String) async throws -> BackendScreenplayCoverageReport)? = nil
+    ) async {
+        guard !Task.isCancelled else { return }
+        let context = currentCoverageContext()
+        let draft = context.draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !draft.isEmpty else {
-            coverageReport = nil
-            coverageErrorText = ""
-            StudioOutlineRegistry.shared.coverageSummary = nil
+            invalidateCoverage()
             return
         }
-        isCoverageRefreshing = true
-        defer { isCoverageRefreshing = false }
+        let requestID = UUID()
+        activeCoverageRequestID = requestID
+        activeCoverageContext = context
+        coverageErrorContext = nil
+        if !coverageErrorText.isEmpty { coverageErrorText = "" }
+        let title = selectedProject?.title ?? ""
+        if !isCoverageRefreshing { isCoverageRefreshing = true }
+        defer {
+            if activeCoverageRequestID == requestID {
+                activeCoverageRequestID = nil
+                activeCoverageContext = nil
+                isCoverageRefreshing = false
+            }
+        }
         do {
-            let result = try await BackendMemoryAPI.shared.fetchScreenplayCoverage(
-                draft: draft,
-                title: selectedProject?.title ?? ""
-            )
-            coverageReport = result.payload
+            let report: BackendScreenplayCoverageReport
+            if let request {
+                report = try await request(draft, title)
+            } else {
+                report = try await BackendMemoryAPI.shared.fetchScreenplayCoverage(
+                    draft: draft, title: title
+                ).payload
+            }
+            guard !Task.isCancelled, activeCoverageRequestID == requestID, context == currentCoverageContext() else { return }
+            publishedCoverageContext = context
+            publishedCoverageRequestID = requestID
+            publishedCoverageReport = report
             coverageErrorText = ""
-            StudioOutlineRegistry.shared.coverageSummary = StudioCoverageSummary(report: result.payload)
-            let readLine = "Clementine's read: \(result.payload.grade), \(result.payload.verdict.lowercased())."
+            StudioOutlineRegistry.shared.publishCoverage(report, context: context, requestID: requestID)
+            let readLine = "Clementine's read: \(report.grade), \(report.verdict.lowercased())."
             infoText = infoText.isEmpty ? readLine : "\(infoText) \(readLine)"
             if speak {
-                ScreenplayCoveragePresentation.requestSpeech(result.payload.spoken)
+                ScreenplayCoveragePresentation.requestSpeech(report.spoken)
             }
         } catch {
+            guard !Task.isCancelled, activeCoverageRequestID == requestID, context == currentCoverageContext() else { return }
+            coverageErrorContext = context
             let presented = StudioCraftResilience.presentedError(error, source: source, subject: "coverage")
             coverageErrorText = presented.isEmpty ? "Clementine could not read the pages right now." : presented
         }
+    }
+
+    private func currentCoverageContext() -> ScreenplayCoverageContext {
+        ScreenplayCoverageContext(auth: coverageAuthContextProvider?() ?? currentStudioAuthContext(),
+                                  projectID: selectedProjectID, draft: fountainDraft)
+    }
+
+    private func invalidateCoverageIfContextChanged() {
+        guard activeCoverageContext != nil || publishedCoverageContext != nil || coverageErrorContext != nil else { return }
+        let context = currentCoverageContext()
+        if let active = activeCoverageContext, active != context {
+            activeCoverageRequestID = nil
+            activeCoverageContext = nil
+            if isCoverageRefreshing { isCoverageRefreshing = false }
+        }
+        if publishedCoverageContext?.hasSameOwner(as: context) == false ||
+            coverageErrorContext?.hasSameOwner(as: context) == false ||
+            context.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            invalidateCoverage()
+        }
+    }
+
+    private func invalidateCoverage() {
+        activeCoverageRequestID = nil
+        activeCoverageContext = nil
+        if isCoverageRefreshing { isCoverageRefreshing = false }
+        if let publishedCoverageRequestID {
+            StudioOutlineRegistry.shared.clearCoverage(requestID: publishedCoverageRequestID)
+        }
+        publishedCoverageRequestID = nil
+        publishedCoverageContext = nil
+        if publishedCoverageReport != nil { publishedCoverageReport = nil }
+        coverageErrorContext = nil
+        if !coverageErrorText.isEmpty { coverageErrorText = "" }
     }
 
     func refreshPagination(source: String = "Draft") async {
@@ -4385,6 +4472,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
     }
 
     func resetCraftReportForProjectChange(clearFrameworks: Bool = false) {
+        invalidateCoverage()
         craftReport = nil
         craftErrorText = ""
         craftInfoText = ""
@@ -6590,11 +6678,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
     }
 
     private func currentStudioAuthContext() -> ScreenplayStudioAuthContext {
-        ScreenplayStudioAuthContext(
-            userID: BackendAuthClient.currentAuthSessionState().user?.userId
-                .trimmingCharacters(in: .whitespacesAndNewlines) ?? "",
-            sessionIntentGeneration: BackendAuthClient.currentAuthSessionIntentGeneration()
-        )
+        .current()
     }
 
     private func authContextIsCurrent(_ expected: ScreenplayStudioAuthContext) -> Bool {

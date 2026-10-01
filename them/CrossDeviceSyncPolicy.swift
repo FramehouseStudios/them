@@ -3,6 +3,14 @@ import Foundation
 nonisolated struct ScreenplayStudioAuthContext: Equatable, Sendable {
     let userID: String
     let sessionIntentGeneration: Int
+
+    static func current() -> Self {
+        Self(
+            userID: BackendAuthClient.currentAuthSessionState().user?.userId
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? "",
+            sessionIntentGeneration: BackendAuthClient.currentAuthSessionIntentGeneration()
+        )
+    }
 }
 
 nonisolated enum ScreenplayStudioAuthContextPolicy {
