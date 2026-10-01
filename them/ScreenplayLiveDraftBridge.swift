@@ -11259,10 +11259,10 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
             let nextText = textView.text ?? ""
 
             synchronizeParagraphElementsWithCurrentText(in: textView)
-            // A cue typed on an Action line ("JOE") is laid out as a cue now,
-            // as a reload would; it stayed at the action margin until then.
-            if context.currentElement == .action,
-               ScreenplayEditorElement.inferredElement(for: context.lineText, previousElement: context.previousElement) == .character {
+            // A cue ("JOE") typed on an Action line, or a heading ("EXT. STEPS - DAY") typed on any
+            // other line, is laid out as one now, as a reload would, with Fountain's blank line above.
+            let typedAs = ScreenplayEditorElement.inferredElement(for: context.lineText, previousElement: context.previousElement)
+            if (typedAs == .character && context.currentElement == .action) || (typedAs == .sceneHeading && context.currentElement != .sceneHeading) {
                 var cueStart = context.lineRange.location
                 if let offset = FountainElementSpacing.blankLineOffsetAboveTypedCue(lineStart: cueStart, in: nextText) {
                     replaceEditorText(in: NSRange(location: offset, length: 0), with: "\n", cursor: textView.selectedRange.location + 1, in: textView)
@@ -11270,7 +11270,7 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
                     cueStart += 1
                 }
                 let cueText = textView.text ?? nextText
-                updateParagraphElementMetadata(.character, lineIndex: screenplayLineIndex(for: cueStart, in: cueText), in: cueText)
+                updateParagraphElementMetadata(typedAs, lineIndex: screenplayLineIndex(for: cueStart, in: cueText), in: cueText)
             }
             let nextElement = ScreenplayEditorElement.nextElementAfterReturn(
                 currentLine: context.lineText,
