@@ -1878,16 +1878,37 @@ final class ScreenplayStudioViewModel: ObservableObject {
     }
 
     func replaceDraftFromVoiceBridgeIfNeeded(_ draft: String, draftOriginProjectID: String) {
+        preserveStreamingDraftForLocalRecovery(draft)
         guard ScreenplayBridgeDraftAdoptionPolicy.shouldAdoptLiveBridgeDraft(
             selectedProjectId: selectedProjectID,
             currentDraft: fountainDraft,
             bridgeDraft: draft,
-            draftOriginProjectId: draftOriginProjectID
+            draftOriginProjectId: draftOriginProjectID,
+            isStreamingDraftPreviewActive: isStreamingDraftPreviewActive
         ) else {
             return
         }
         let clean = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         applyServerDraft(clean, versionId: latestVersionID, allowOverwriteDirtyLocalDraft: true)
+    }
+
+    func preserveStreamingDraftForLocalRecovery(_ draft: String) {
+        guard isStreamingDraftPreviewActive,
+              ScreenplayStreamingDraftRecoveryPolicy.shouldPersist(
+                  projectID: selectedProjectID,
+                  draft: draft
+              ) else {
+            return
+        }
+        let normalized = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        hasUnsavedDraftChanges = fingerprint(for: normalized) != lastSavedDraftFingerprint
+        persistLocalDraftRecovery(
+            projectId: selectedProjectID,
+            draft: draft,
+            baseVersionId: latestVersionID,
+            dirty: hasUnsavedDraftChanges
+        )
+        autosaveStatusText = "Receiving live draft..."
     }
 
     /// Live typing from another device of the same account. Replaces the
@@ -5569,6 +5590,17 @@ final class ScreenplayStudioViewModel: ObservableObject {
         Task { await self.refreshFormatLint(source: "Draft") }
 
         if isStreamingDraftPreviewActive {
+            if ScreenplayStreamingDraftRecoveryPolicy.shouldPersist(
+                projectID: selectedProjectID,
+                draft: draft
+            ) {
+                persistLocalDraftRecovery(
+                    projectId: selectedProjectID,
+                    draft: draft,
+                    baseVersionId: latestVersionID,
+                    dirty: hasUnsavedDraftChanges
+                )
+            }
             autosaveStatusText = "Receiving live draft..."
             return
         }

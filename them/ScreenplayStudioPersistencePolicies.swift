@@ -158,6 +158,13 @@ struct ScreenplayProgrammaticDraftAutosavePolicy {
     }
 }
 
+struct ScreenplayStreamingDraftRecoveryPolicy {
+    static func shouldPersist(projectID: String, draft: String) -> Bool {
+        !projectID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+            !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+}
+
 struct ScreenplayDraftSaveIntent: Equatable {
     let source: String
     let notes: String
