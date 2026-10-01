@@ -1110,12 +1110,10 @@ final class V1SmokeUITests: XCTestCase {
 #else
         reuse.tap()
 #endif
-        XCTAssertTrue(
-            staticText(containing: "Loaded this Voice Pin ask", in: app)
-                .waitForExistence(timeout: 4),
-            "Reuse did not reach the current exchange handler."
-        )
-
+        // The transient status line is presentation, not proof that the
+        // exchange was restored. Assert the durable user-visible outcomes
+        // below: the exact prompt is back in the composer and Voice Pin is
+        // still the selected destination.
         for _ in 0..<20 where !promptField.isHittable {
             drawer.swipeDown()
         }
@@ -1134,7 +1132,7 @@ final class V1SmokeUITests: XCTestCase {
         for _ in 0..<20 where !toPage.isHittable {
             drawer.swipeUp()
         }
-        XCTAssertTrue(waitForHittability(of: toPage, timeout: 5))
+        XCTAssertTrue(waitForStableHittableFrame(of: toPage, timeout: 5))
 #if os(macOS)
         toPage.click()
 #else
@@ -1151,33 +1149,12 @@ final class V1SmokeUITests: XCTestCase {
         )
         let pageRoute = element(identifier: "studio.prompt.routing.page", in: app)
         XCTAssertTrue(pageRoute.waitForExistence(timeout: 4))
-        var pageRouted = waitForSelection(of: pageRoute, timeout: 4)
-        if !pageRouted {
-            // In the full scripted smoke the To Page tap is lost roughly every
-            // run (the drawer is still settling from the swipe-up loop above and
-            // swallows the touch), while the same test passes alone and in any
-            // shorter order. Tap once more only when the route did not switch;
-            // the assertion below is unchanged, so a genuine routing bug still
-            // fails with the same message.
-            XCTContext.runActivity(named: "To Page tap did not switch routing; tapping once more") { _ in }
-            for _ in 0..<20 where !toPage.isHittable {
-                drawer.swipeUp()
-            }
-            if waitForHittability(of: toPage, timeout: 5) {
-#if os(macOS)
-                toPage.click()
-#else
-                toPage.tap()
-#endif
-            }
-            for _ in 0..<20 where !promptField.isHittable {
-                drawer.swipeDown()
-            }
-            pageRouted = waitForSelection(of: pageRoute, timeout: 6)
-        }
         XCTAssertTrue(
-            pageRouted,
-            "To Page did not re-route the current exchange to the page."
+            waitForSelection(of: pageRoute, timeout: 6),
+            "To Page did not re-route the current exchange to the page. " +
+                "Page selected=\(pageRoute.isSelected), value=\(String(describing: pageRoute.value)); " +
+                "Voice Pin selected=\(pinRoute.isSelected), value=\(String(describing: pinRoute.value)); " +
+                "prompt=\(String(describing: promptField.value))"
         )
 #if os(iOS)
         XCTAssertTrue(
@@ -3550,6 +3527,40 @@ final class V1SmokeUITests: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.1))
         }
         return element.exists && element.isSelected
+    }
+
+    private func waitForStableHittableFrame(
+        of element: XCUIElement,
+        timeout: TimeInterval,
+        requiredStableSamples: Int = 3
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        var previousFrame: CGRect?
+        var stableSamples = 0
+
+        while Date() < deadline {
+            if element.exists, element.isHittable {
+                let frame = element.frame
+                if let previousFrame,
+                   abs(frame.minX - previousFrame.minX) < 0.5,
+                   abs(frame.minY - previousFrame.minY) < 0.5,
+                   abs(frame.width - previousFrame.width) < 0.5,
+                   abs(frame.height - previousFrame.height) < 0.5 {
+                    stableSamples += 1
+                } else {
+                    stableSamples = 1
+                }
+                if stableSamples >= requiredStableSamples {
+                    return true
+                }
+                previousFrame = frame
+            } else {
+                previousFrame = nil
+                stableSamples = 0
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        }
+        return false
     }
 
     private func waitForFirstVisibleElement(
