@@ -70,7 +70,29 @@ struct StudioCoverageSummary: Codable, Equatable {
 final class StudioOutlineRegistry {
     static let shared = StudioOutlineRegistry()
     var beatLabels: [String] = []
-    var coverageSummary: StudioCoverageSummary?
+    private(set) var coverageSummary: StudioCoverageSummary?
+    private var coverageContext: ScreenplayCoverageContext?
+    private var coverageRequestID: UUID?
+
+    func publishCoverage(_ report: BackendScreenplayCoverageReport, context: ScreenplayCoverageContext, requestID: UUID) {
+        coverageContext = context
+        coverageRequestID = requestID
+        coverageSummary = StudioCoverageSummary(report: report)
+    }
+
+    func clearCoverage(requestID: UUID? = nil) {
+        guard requestID == nil || requestID == coverageRequestID else { return }
+        coverageSummary = nil
+        coverageContext = nil
+        coverageRequestID = nil
+    }
+
+    func coverage(for auth: ScreenplayStudioAuthContext, projectID: String) -> StudioCoverageSummary? {
+        guard !projectID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              let context = coverageContext,
+              context.hasSameOwner(as: ScreenplayCoverageContext(auth: auth, projectID: projectID, draft: "")) else { return nil }
+        return coverageSummary
+    }
 
     func update(beats: [BackendScreenplayBeat]) {
         beatLabels = beats
@@ -116,7 +138,7 @@ struct StudioCapabilitiesSnapshot: Codable, Equatable {
         var snapshot = StudioCapabilitiesSnapshot()
         snapshot.sceneLabels = Array(labels.prefix(40))
         snapshot.beatLabels = Array(StudioOutlineRegistry.shared.beatLabels.prefix(40))
-        snapshot.coverage = StudioOutlineRegistry.shared.coverageSummary
+        snapshot.coverage = draft.isEmpty ? nil : StudioOutlineRegistry.shared.coverage(for: .current(), projectID: bridge.preferredProjectID)
         snapshot.currentTab = currentTab
         snapshot.hasProject = !bridge.preferredProjectID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         snapshot.hasDraft = !draft.isEmpty

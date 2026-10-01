@@ -32,13 +32,16 @@
 ### T-coverage-context — Bind coverage to the current writer and script
 - Owner: codex
 - Branch: codex/T-coverage-context
-- Status: in-progress
+- Status: review
 - Pillar: longitudinal learning
 - Goal criteria: 3 and 6.
 - Done when: account/project changes and superseded reads cannot publish,
   speak or send another script's coverage; delayed/out-of-order tests prove it.
 - Preserve: #644 feature, #646 refresh policy and #774 quiet announcements.
-- Evidence: source review at #644 and #877; runtime reproduction still needed.
+- Evidence: real view-model reproduction failed four assertions before guards;
+  final signed units 666/666, signed UI 2/2, backend 2,787 pass/0 fail/2 skip.
+  macOS scaffold build passes after an inherited Pages availability fix.
+  See docs/audits/coverage-context-2026-09-30.md for scope and remaining limits.
 
 | ID   | Title                                              | Owner  | Status            |
 |------|----------------------------------------------------|--------|-------------------|
