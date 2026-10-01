@@ -105,16 +105,22 @@ original #625 source commits were integrated locally as `53ac4051`,
 but has not yet been pushed and has no new PR. Studio V1 UI and physical-device
 validation remain unrun for this branch.
 
-Exact files changed in this session (including the preserved #625 port):
+Exact branch files relative to #885 (including preserved #625/#635 work):
 
 - `TASKS.md`
+- `backend/index.js`
+- `backend/lib/account_routes.js`
+- `backend/lib/clementine/page_abort.js`
 - `backend/lib/clementine/page_request_ledger.js`
 - `backend/lib/clementine/short_film_lane.js`
 - `backend/lib/clementine/page_lane_adapter.js`
 - `backend/lib/clementine/page_cancel.js`
+- `backend/lib/clementine/page_multipass.js`
+- `backend/lib/persistence_adapter.js`
 - `backend/lib/talk_generate.js`
 - `backend/lib/talk_handler.js`
 - `backend/lib/talk_pipeline.js`
+- `backend/migrations/013_page_request_admission.sql`
 - `backend/tests/empty_generation_billing.test.mjs`
 - `backend/tests/helpers/billing_provider_stub.mjs`
 - `backend/tests/helpers/page_request_postgres_worker.mjs`
@@ -125,7 +131,15 @@ Exact files changed in this session (including the preserved #625 port):
 - `backend/tests/page_request_settlement.test.mjs`
 - `backend/tests/postgres/page_request_settlement.test.mjs`
 - `backend/tests/account_routes_wiring.test.mjs`
+- `backend/tests/page_cancel_ownership.test.mjs`
+- `backend/tests/persistence_adapter.test.mjs`
 - `backend/tests/talk_handler_closure.test.mjs`
+- `them/BackendClient.swift`
+- `them/ClementinePageInterruptService.swift`
+- `them/PageTalkLifecycle.swift`
 - `themTests/BackendPageCancelClientTests.swift`
+- `themTests/ClementinePageInterruptServiceTests.swift`
+- `themTests/PageTalkLifecycleTests.swift`
+- `docs/page-request-cancel-progress.md`
 - `docs/empty-generation-billing-proof.md`
 - `docs/audits/page-request-durable-2026-09-30.md`
