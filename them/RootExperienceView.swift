@@ -1359,7 +1359,7 @@ struct RootExperienceView: View {
 
     private var bodyWithLifecycleObservers: AnyView {
         AnyView(
-            bodyWithObservedChanges
+            ScreenplayCoveragePresentation.observingSpeech(in: bodyWithObservedChanges, stop: { promptSpeaker.stop() }, speak: { promptSpeaker.speak($0) })
                 .onAppear {
                     DispatchQueue.main.async {
                         handleContentViewAppear()
@@ -1381,11 +1381,6 @@ struct RootExperienceView: View {
                     if let status = snapshot.userVisibleStatus, snapshot.hasWork {
                         showOfflineTalkOutboxBanner(status)
                     }
-                }
-                .onReceive(NotificationCenter.default.publisher(for: .themClementineSpeakRequested)) { notification in
-                    guard let text = ScreenplayCoveragePresentation.speechText(from: notification) else { return }
-                    promptSpeaker.stop()
-                    promptSpeaker.speak(text)
                 }
                 .onReceive(NotificationCenter.default.publisher(for: .themOpenStudioRequested)) { _ in
                     handleWorkspaceNavigationCommand(.openStudio)
