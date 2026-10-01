@@ -59,6 +59,11 @@ function gatePageGeneration(clementine) {
   return { ok: true, signal, reservationId };
 }
 
+async function gatePageGenerationDurably(clementine) {
+  await clementine?.refreshCancellation?.();
+  return gatePageGeneration(clementine);
+}
+
 /**
  * Map a fetch AbortError to page-cancelled when the page signal fired.
  * Timeout aborts (no page signal / not aborted) stay as caller timeouts.
@@ -84,5 +89,6 @@ export {
   createPageCancelledError,
   isPageCancelledError,
   gatePageGeneration,
+  gatePageGenerationDurably,
   mapAbortToPageCancel,
 };

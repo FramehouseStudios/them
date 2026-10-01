@@ -9,7 +9,7 @@ import {
   createTalkFailureError,
 } from "./talk_failure_diagnostics.js";
 import {
-  gatePageGeneration,
+  gatePageGenerationDurably,
   isPageCancelledError,
   mapAbortToPageCancel,
 } from "./clementine/page_abort.js";
@@ -75,7 +75,7 @@ async function runTalkGenerate({
   let pageAbortSignal = null;
   let pageReservationId = null;
   if (req?.clementine?.reservationId) {
-    const pageGate = gatePageGeneration(req.clementine);
+    const pageGate = await gatePageGenerationDurably(req.clementine);
     pageAbortSignal = pageGate.signal;
     pageReservationId = pageGate.reservationId;
   }
@@ -128,6 +128,7 @@ async function runTalkGenerate({
       } catch (_) {
         // Non-blocking: return draft even if quality gate throws
       }
+      await gatePageGenerationDurably(req.clementine);
       // Commit wallet like normal path (~127, ~201) — beta pages are not free
       if (typeof req.clementine?.commitWallet === "function") {
         try {
@@ -259,6 +260,7 @@ async function runTalkGenerate({
       chatModelFallbackUsed = Boolean(streamResult.fallbackUsed);
       effectiveChatUsage = streamResult.usage || effectiveChatUsage;
       chatMs = Date.now() - streamStart;
+      await gatePageGenerationDurably(req.clementine);
       if (typeof req.clementine?.commitWallet === "function" && rawReply) {
         try {
           req.clementine.commitWallet(
@@ -293,7 +295,7 @@ async function runTalkGenerate({
   if (!rawReply) {
     // Re-gate before non-stream billed call (cancel may have landed during stream attempt).
     if (pageReservationId) {
-      gatePageGeneration(req.clementine);
+      await gatePageGenerationDurably(req.clementine);
     }
     let chatResult;
     try {
@@ -333,6 +335,7 @@ async function runTalkGenerate({
     chatModelFallbackUsed = Boolean(chatResult.fallbackUsed);
     effectiveChatUsage = chatResult.usage || effectiveChatUsage;
     chatMs = Date.now() - chatStart;
+    await gatePageGenerationDurably(req.clementine);
     if (typeof req.clementine?.commitWallet === "function") {
       try {
         req.clementine.commitWallet(

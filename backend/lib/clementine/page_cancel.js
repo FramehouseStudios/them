@@ -12,6 +12,7 @@
 // cleanly (talk_handler / muse_client pass getAbortSignal(id)).
 
 import { randomUUID } from "node:crypto";
+import { createPageRequestLedger } from './page_request_ledger.js';
 
 function createAbortController() {
   if (typeof AbortController !== "function") return null;
@@ -52,7 +53,9 @@ function createPageReservationStore({
   /** Optional D008 wallet store — cancel releases linked wallet reservation. */
   walletStore = null,
   maxCancelledRequestsPerOwner = 1000,
+  persistence = null,
 } = {}) {
+  const requestLedger = persistence ? createPageRequestLedger({ persistence, now }) : null;
   /** @type {Map<string, object>} */
   const reservations = new Map();
   // Retain early cancellation for the lifetime of this process, just like page
@@ -203,13 +206,13 @@ function createPageReservationStore({
 
   function cancelRequest({ sessionId, userId, requestId }, { reason = "barge_in" } = {}) {
     const key = requestKey(sessionId, userId, requestId);
-    if (!cancelledRequests.has(key)) {
+    if (!requestLedger && !cancelledRequests.has(key)) {
       const ownerCount = cancelledRequestCounts.get(userId) || 0;
       if (ownerCount >= ownerLimit) return { ok: false, error: "page_cancel_owner_capacity" };
       if (cancelledRequests.size >= 10000) return { ok: false, error: "page_cancel_capacity" };
       cancelledRequestCounts.set(userId, ownerCount + 1);
     }
-    cancelledRequests.set(key, reason);
+    if (!requestLedger) cancelledRequests.set(key, reason);
     const dropped = [];
     for (const entry of reservations.values()) {
       if (entry.sessionId !== sessionId || entry.userId !== userId ||
@@ -217,6 +220,11 @@ function createPageReservationStore({
       if (cancel(entry.id, { reason })?.cancelled) dropped.push(entry.id);
     }
     return { ok: true, dropped };
+  }
+
+  async function stopRequest(target, options) {
+    if (requestLedger) await requestLedger.stop(target);
+    return cancelRequest(target, options);
   }
 
   /**
@@ -260,6 +268,8 @@ function createPageReservationStore({
     cancel,
     cancelByOwner,
     cancelRequest,
+    stopRequest,
+    requestLedger,
     cancelOnBargeIn,
     proceed,
     drop,

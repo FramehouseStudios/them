@@ -3,6 +3,24 @@ import XCTest
 
 @MainActor
 final class PageTalkLifecycleTests: XCTestCase {
+    func testRetriesKeepOriginalRequestAndSessionIdentityWithoutDuplicateBegin() async {
+        var events: [PageTalkLifecycle.Event] = []
+        let lifecycle = PageTalkLifecycle { events.append($0) }
+        var first = URLRequest(url: URL(string: "https://synthetic.test/talk")!)
+        first.setValue("original-session", forHTTPHeaderField: "X-Client-Token")
+        lifecycle.attach(to: &first)
+        var retry = URLRequest(url: first.url!)
+        retry.setValue("refreshed-session", forHTTPHeaderField: "X-Client-Token")
+        lifecycle.attach(to: &retry)
+        XCTAssertEqual(first.value(forHTTPHeaderField: "x-clementine-page-request"),
+            retry.value(forHTTPHeaderField: "x-clementine-page-request"))
+        XCTAssertEqual(retry.value(forHTTPHeaderField: "x-session-id"), "original-session")
+        XCTAssertEqual(retry.value(forHTTPHeaderField: "X-Client-Token"), "refreshed-session")
+        XCTAssertEqual(events, [.began(lifecycle.id), .session(lifecycle.id, "original-session")])
+        lifecycle.finish()
+        XCTAssertEqual(events.last, .finished(lifecycle.id))
+    }
+
     func testCompanionRequestDoesNotFinishPageLane() async {
         var events: [PageTalkLifecycle.Event] = []
         let lifecycle = PageTalkLifecycle { events.append($0) }

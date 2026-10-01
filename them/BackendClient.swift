@@ -4293,10 +4293,11 @@ final class BackendClient {
         onDebugEvent: ((BackendTalkDebugEvent) -> Void)?,
         allowClientTokenRefresh: Bool,
         allowAudioValidationRetry: Bool,
-        forceNoStreamAudio: Bool
+        forceNoStreamAudio: Bool,
+        inheritedPageLifecycle: PageTalkLifecycle? = nil
     ) async throws -> BackendTalkResult {
-        let pageLifecycle = PageTalkLifecycle(onChange: onPageTalkLifecycleChanged)
-        defer { pageLifecycle.finish() }
+        let pageLifecycle = inheritedPageLifecycle ?? PageTalkLifecycle(onChange: onPageTalkLifecycleChanged)
+        defer { if inheritedPageLifecycle == nil { pageLifecycle.finish() } }
 
         let boundary = "Boundary-\(UUID().uuidString)"
         let url = baseURL.appendingPathComponent("talk")
@@ -4550,8 +4551,7 @@ final class BackendClient {
                 body.appendString("\r\n")
             }
             if target == "page" {
-                request.setValue(pageLifecycle.id.uuidString, forHTTPHeaderField: "x-clementine-page-request")
-                pageLifecycle.begin(sessionID: request.value(forHTTPHeaderField: "X-Client-Token"))
+                pageLifecycle.attach(to: &request)
             }
             let promptSource = studioMetadata.screenplayPromptSource.trimmingCharacters(in: .whitespacesAndNewlines)
             if !promptSource.isEmpty {
@@ -4891,7 +4891,8 @@ final class BackendClient {
                 onDebugEvent: onDebugEvent,
                 allowClientTokenRefresh: allowClientTokenRefresh,
                 allowAudioValidationRetry: false,
-                forceNoStreamAudio: true
+                forceNoStreamAudio: true,
+                inheritedPageLifecycle: pageLifecycle
             )
         }
 
@@ -4935,7 +4936,8 @@ final class BackendClient {
                     onDebugEvent: onDebugEvent,
                     allowClientTokenRefresh: false,
                     allowAudioValidationRetry: allowAudioValidationRetry,
-                    forceNoStreamAudio: forceNoStreamAudio
+                    forceNoStreamAudio: forceNoStreamAudio,
+                    inheritedPageLifecycle: pageLifecycle
                 )
             }
             if statusCode == 401,
@@ -4976,7 +4978,8 @@ final class BackendClient {
                     onDebugEvent: onDebugEvent,
                     allowClientTokenRefresh: false,
                     allowAudioValidationRetry: allowAudioValidationRetry,
-                    forceNoStreamAudio: forceNoStreamAudio
+                    forceNoStreamAudio: forceNoStreamAudio,
+                    inheritedPageLifecycle: pageLifecycle
                 )
             }
             if statusCode == 204 {
@@ -5038,7 +5041,8 @@ final class BackendClient {
                         onDebugEvent: onDebugEvent,
                         allowClientTokenRefresh: false,
                         allowAudioValidationRetry: allowAudioValidationRetry,
-                        forceNoStreamAudio: forceNoStreamAudio
+                        forceNoStreamAudio: forceNoStreamAudio,
+                        inheritedPageLifecycle: pageLifecycle
                     )
                 }
                 throw BackendError.stage(stageError.stage, stageError.message)

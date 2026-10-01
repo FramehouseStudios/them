@@ -15,14 +15,24 @@ final class PageTalkLifecycle {
     private let onChange: (@MainActor (Event) -> Void)?
     private var started = false
     private var finished = false
+    private(set) var originalSessionID: String?
 
     init(onChange: (@MainActor (Event) -> Void)?) { self.onChange = onChange }
 
     func begin(sessionID: String? = nil) {
         guard !started, !finished else { return }
         started = true
+        originalSessionID = sessionID?.trimmingCharacters(in: .whitespacesAndNewlines)
         onChange?(.began(id))
-        if let sessionID, !sessionID.isEmpty { onChange?(.session(id, sessionID)) }
+        if let sessionID = originalSessionID, !sessionID.isEmpty { onChange?(.session(id, sessionID)) }
+    }
+
+    func attach(to request: inout URLRequest) {
+        begin(sessionID: request.value(forHTTPHeaderField: "X-Client-Token"))
+        request.setValue(id.uuidString, forHTTPHeaderField: "x-clementine-page-request")
+        if let originalSessionID, !originalSessionID.isEmpty {
+            request.setValue(originalSessionID, forHTTPHeaderField: "x-session-id")
+        }
     }
 
     func observeReservation(_ value: String) {

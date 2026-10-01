@@ -33276,7 +33276,7 @@ try {
   );
 }
 const clementinePageReservationStore = createPageReservationStore({
-  walletStore: clementineWalletStore,
+  walletStore: clementineWalletStore, persistence: sharedPersistence,
 });
 mountTalkPipelineRoutes(app, {
   talkRateLimitGuard,

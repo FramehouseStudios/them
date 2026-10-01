@@ -49,7 +49,7 @@ function mountPageCancelRoute(app, { pageReservationStore } = {}) {
   app.post(
     ["/talk/page-cancel", "/talk/page-cancel/request"],
     express.json({ limit: PAGE_CANCEL_BODY_LIMIT }),
-    (req, res) => {
+    async (req, res) => {
       res.setHeader("Cache-Control", "no-store");
       const body = req.body && typeof req.body === "object" ? req.body : {};
       const reservationId = pickString(
@@ -74,7 +74,10 @@ function mountPageCancelRoute(app, { pageReservationStore } = {}) {
         if (!sessionId || !requestId || requestId.length > 128) {
           return res.status(400).json({ ok: false, error: "invalid_page_request_id" });
         }
-        const result = pageReservationStore.cancelRequest({ sessionId, userId, requestId }, { reason });
+        let result;
+        try { result = await pageReservationStore.stopRequest({ sessionId, userId, requestId }, { reason }); }
+        catch { return res.status(503).json({ ok: false, stage: 'page', code: 'page_cancel_storage_unavailable',
+          error: 'Cancellation could not be confirmed. Try stopping again.' }); }
         if (!result.ok) return res.status(result.error === "page_cancel_owner_capacity" ? 429 : 503).json(result);
         return res.status(200).json({ ok: true, cancelled: result.dropped.length > 0,
           session_id: sessionId, request_id: requestId, dropped: result.dropped, cancel_reason: reason });
@@ -82,6 +85,12 @@ function mountPageCancelRoute(app, { pageReservationStore } = {}) {
 
       if (reservationId) {
         const reservation = pageReservationStore.get(reservationId);
+        if (reservation?.userId === userId && reservation?.meta?.requestId && pageReservationStore.requestLedger) {
+          try { await pageReservationStore.requestLedger.stop({ sessionId: reservation.sessionId,
+            userId, requestId: reservation.meta.requestId }); }
+          catch { return res.status(503).json({ ok: false, stage: 'page', code: 'page_cancel_storage_unavailable',
+            error: 'Cancellation could not be confirmed. Try stopping again.' }); }
+        }
         const result = reservation?.userId === userId
           ? pageReservationStore.cancel(reservationId, { reason })
           : null;

@@ -27,7 +27,7 @@ import {
 } from "../../evals/page_craft/score_page.js";
 import {
   createPageCancelledError,
-  gatePageGeneration,
+  gatePageGenerationDurably,
 } from "./page_abort.js";
 import { LANE } from "./lanes.js";
 import { isClementineMuseEnabled } from "./muse_provider.js";
@@ -611,7 +611,7 @@ async function runTalkGeneratePageMultipass({
   let pageAbortSignal = null;
   let pageReservationId = null;
   if (req?.clementine?.reservationId) {
-    const pageGate = gatePageGeneration(req.clementine);
+    const pageGate = await gatePageGenerationDurably(req.clementine);
     pageAbortSignal = pageGate.signal;
     pageReservationId = pageGate.reservationId;
   }
@@ -641,7 +641,7 @@ async function runTalkGeneratePageMultipass({
     });
     // Re-gate before each metered/unmetered LLM call.
     if (pageReservationId && req?.clementine) {
-      gatePageGeneration(req.clementine);
+      await gatePageGenerationDurably(req.clementine);
     }
     const route =
       stageRoutes[stage] ||
@@ -761,6 +761,7 @@ async function runTalkGeneratePageMultipass({
     logger,
   });
 
+  await gatePageGenerationDurably(req.clementine);
   if (typeof req?.clementine?.commitWallet === "function" && pendingMetered > 0) {
     try {
       req.clementine.commitWallet(pendingMetered);

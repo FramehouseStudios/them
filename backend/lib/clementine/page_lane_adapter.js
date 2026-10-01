@@ -300,13 +300,30 @@ function createPageLaneTalkAdapter({
     let lane;
     let reservation = null;
     let walletReservation = null;
+    const requestId = String(req.get?.('x-clementine-page-request') || '').trim();
+    const target = { sessionId, userId: String(req?.authUser?.id || '').trim(), requestId };
+    const ledger = pageReservationStore.requestLedger;
+    const isDurablePage = Boolean(ledger && requestId &&
+      (earlyLane.lane === LANE.PAGE || hints.pageMode));
+    if (isDurablePage) {
+      try {
+        const admission = await ledger.admit(target);
+        if (!admission.ok) return res.status(409).json({ ok: false, stage: 'page', code: admission.code,
+          error: admission.code === 'page_generation_cancelled' ? 'This writing turn was stopped.'
+            : 'This writing turn already started. Check your page before requesting another.' });
+      } catch (error) {
+        return res.status(error?.status === 400 ? 400 : 503).json({ ok: false, stage: 'page',
+          code: error?.status === 400 ? 'invalid_page_request_id' : 'page_request_storage_unavailable',
+          error: 'Could not safely start this writing turn. Your existing page is unchanged.' });
+      }
+    }
     try {
       const started = beginPageWork(pageReservationStore, {
         utterance,
         hints,
         sessionId,
         userId,
-        meta: { source: "talk_edge", requestId: String(req.get?.("x-clementine-page-request") || "").trim() },
+        meta: { source: "talk_edge", requestId },
         walletStore,
       });
       lane = started.lane;
@@ -328,6 +345,8 @@ function createPageLaneTalkAdapter({
       logger?.warn?.(
         `[clementine/page] reserve skipped: ${err?.message || err}`
       );
+      if (isDurablePage) return res.status(503).json({ ok: false, stage: 'page',
+        error: 'Could not reserve this writing turn. Your existing page is unchanged.' });
       lane = resolveTalkLane(utterance, hints);
     }
 
@@ -365,6 +384,14 @@ function createPageLaneTalkAdapter({
         : () => ({ ok: true, code: "no_page_reservation", reservation: null }),
     };
 
+    const stopLocal = () => { if (reservation?.id) pageReservationStore.cancel(reservation.id, { reason: 'cancel' }); };
+    if (isDurablePage) req.clementine.refreshCancellation = async () => {
+      try {
+        const record = await ledger.read(target);
+        if (!record || record.state !== 'admitted') stopLocal();
+      } catch { stopLocal(); }
+    };
+
     if (reservation?.id) {
       try {
         res.setHeader("x-clementine-page-reservation", reservation.id);
@@ -374,7 +401,15 @@ function createPageLaneTalkAdapter({
       }
     }
 
-    return handleTalkRequest(req, res);
+    const stopWatching = isDurablePage ? ledger.watch(target, stopLocal) : () => {};
+    try {
+      if (isDurablePage) {
+        await req.clementine.refreshCancellation();
+        if (!pageReservationStore.proceed(reservation?.id).ok) return res.status(409).json({ ok: false,
+          stage: 'page', code: 'page_generation_cancelled', error: 'This writing turn was stopped.' });
+      }
+      return await handleTalkRequest(req, res);
+    } finally { stopWatching(); }
   };
 }
 
