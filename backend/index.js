@@ -133,7 +133,7 @@ import {
   MEMORY_BLOCK_OPEN,
 } from "./lib/prompt_assembly.js";
 import { DEFAULT_FEATURE_TARGET_PAGES, findSequenceForPage } from "./lib/feature_screenplay_map.js";
-import { fitSystemPromptForTurnLatency as fitSystemPromptForTurnLatencyBase, capSystemPromptKeepingSafety } from "./lib/system_prompt_trim.js"; import { activeProjectMemoryItem, continuityNextMove, continuitySnapshotOptions, isDistilledMemoryTemplate, isLikelyCharacterName, recapCharacterNames, continuityPosition, continuityStoryState, draftReachedTheEnd, withoutInterfaceCopy } from "./lib/continuity_interface_copy.js";
+import { fitSystemPromptForTurnLatency as fitSystemPromptForTurnLatencyBase, capSystemPromptKeepingSafety } from "./lib/system_prompt_trim.js"; import { openProjectRecap, activeProjectMemoryItem, continuityNextMove, continuitySnapshotOptions, isDistilledMemoryTemplate, isLikelyCharacterName, recapCharacterNames, continuityPosition, continuityStoryState, draftReachedTheEnd, withoutInterfaceCopy } from "./lib/continuity_interface_copy.js";
 import { createScaleBackplane } from "./lib/scale_backplane.mjs";
 import { createPersistence } from "./lib/persistence_adapter.js";
 import { checkKnownDomainsAtStartup } from "./lib/known_domains_startup_check.js";
@@ -4272,7 +4272,7 @@ function buildSessionContinuityOpeningLine(snapshot = {}) {
   return normalizeSnippet(parts.join(" "), 640);
 }
 
-function buildSessionContinuitySnapshot(memory = null, creativeMemory = null, { activeProjectId = "", finishedProjectIds = new Set() } = {}) { // finished: latest draft reached FADE OUT
+function buildSessionContinuitySnapshot(memory = null, creativeMemory = null, { activeProjectId = "", finishedProjectIds = new Set(), activeProject = null } = {}) { // finished: latest draft reached FADE OUT
   const projects = sanitizeScreenplayProjectMemoryItems(
     memory?.screenplayProjectMemory,
     SCREENPLAY_PROJECT_MEMORY_MAX
@@ -4346,9 +4346,9 @@ function buildSessionContinuitySnapshot(memory = null, creativeMemory = null, { 
       featureStoryGraph?.story_obligation_corrections
   );
   const project = legacyProject || durableProject;
-  const episodes = Array.isArray(creativeMemory?.episodicMemories)
-    ? creativeMemory.episodicMemories
-    : [];
+  const openOnly = openProjectRecap(project?.projectId, { activeProjectId, activeProject }); // the open script, never another's memory
+  if (openOnly) return { ...buildSessionContinuitySnapshot(null, null), ...openOnly };
+  const episodes = Array.isArray(creativeMemory?.episodicMemories) ? creativeMemory.episodicMemories : [];
   const projectId = normalizeSnippet(project?.projectId || "", 96).toLowerCase();
   const projectTitle = normalizeSnippet(project?.projectTitle || "", 160).toLowerCase();
   const episode = project
