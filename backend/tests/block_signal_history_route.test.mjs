@@ -15,7 +15,7 @@ import {
   BLOCK_SIGNAL_HISTORY_SCHEMA_VERSION,
 } from "../lib/block_signal_history_route.js";
 
-import { listenEphemeral } from "./helpers/ephemeral_server.mjs";
+import { listenEphemeral, getEphemeralJSON } from "./helpers/ephemeral_server.mjs";
 function freshStore() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "io-them-bshist-route-"));
   return createCreativeMemoryStore({ persistence: createJsonPersistence({ jsonRoot: root }) });
@@ -78,8 +78,7 @@ async function withTestServer(fn, { userId = "u-test", seed = null } = {}) {
 }
 
 async function get(baseURL, p) {
-  const r = await fetch(`${baseURL}${p}`);
-  return { status: r.status, body: await r.json().catch(() => null) };
+  return getEphemeralJSON(`${baseURL}${p}`);
 }
 
 test("[bs-history-route] GET cold user → zero envelope", async () => {

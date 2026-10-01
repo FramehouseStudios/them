@@ -13,6 +13,25 @@
 
 ## Active work — quick view
 
+### T-page-request-lifecycle — Preserve each writing turn's cancellation identity
+- Owner: codex
+- Branch: codex/T-page-request-lifecycle
+- Status: review
+- Pillar: voice→scene, living companion
+- Goal criteria: 1, 4 and 7.
+- Scope: reuse #632's original interruption-policy/lifecycle commits with
+  provenance; protect newer Page tracking from older replies, headers and finish
+  events; keep Companion completions out of the Page lane.
+- Done when: full erased signed units, backend, Studio UI regression and macOS
+  compile pass; actual-parent god-file delta is non-positive; no durable-cancel
+  or paid-provider claim is made by this client prerequisite.
+- Next: integrate #635 exact-request wire/ack contract, preserve request identity
+  through retries, then durable owner-scoped admission/cancellation. The
+  restart/worker failures from #878 remain open, not waived.
+- Proof: docs/audits/page-request-lifecycle-2026-09-30.md.
+- Verified: 677 signed iOS units; 2,818 backend pass/0 fail/2 skip; two signed
+  Studio UI checks; macOS scaffold build; actual-parent god-file/diff checks.
+
 ### T-fast-uri-stack — Verify the remaining dependency-security update
 - Owner: codex
 - Branch: codex/T-fast-uri-stack
