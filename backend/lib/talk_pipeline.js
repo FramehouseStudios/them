@@ -78,7 +78,8 @@ function mountPageCancelRoute(app, { pageReservationStore } = {}) {
         try { result = await pageReservationStore.stopRequest({ sessionId, userId, requestId }, { reason }); }
         catch { return res.status(503).json({ ok: false, stage: 'page', code: 'page_cancel_storage_unavailable',
           error: 'Cancellation could not be confirmed. Try stopping again.' }); }
-        if (!result.ok) return res.status(result.error === "page_cancel_owner_capacity" ? 429 : 503).json(result);
+        if (!result.ok) return res.status(result.code === 'page_request_finalizing' ? 409
+          : result.error === "page_cancel_owner_capacity" ? 429 : 503).json(result);
         return res.status(200).json({ ok: true, cancelled: result.dropped.length > 0,
           session_id: sessionId, request_id: requestId, dropped: result.dropped, cancel_reason: reason });
       }
@@ -86,8 +87,11 @@ function mountPageCancelRoute(app, { pageReservationStore } = {}) {
       if (reservationId) {
         const reservation = pageReservationStore.get(reservationId);
         if (reservation?.userId === userId && reservation?.meta?.requestId && pageReservationStore.requestLedger) {
-          try { await pageReservationStore.requestLedger.stop({ sessionId: reservation.sessionId,
-            userId, requestId: reservation.meta.requestId }); }
+          try {
+            const stopped = await pageReservationStore.requestLedger.stop({ sessionId: reservation.sessionId,
+              userId, requestId: reservation.meta.requestId });
+            if (!stopped.ok) return res.status(409).json(stopped);
+          }
           catch { return res.status(503).json({ ok: false, stage: 'page', code: 'page_cancel_storage_unavailable',
             error: 'Cancellation could not be confirmed. Try stopping again.' }); }
         }
@@ -119,10 +123,12 @@ function mountPageCancelRoute(app, { pageReservationStore } = {}) {
         });
       }
 
-      const dropped = pageReservationStore.cancelByOwner(
-        { sessionId, userId, strictOwner: true },
-        { reason }
-      );
+      let dropped;
+      try {
+        dropped = await pageReservationStore.cancelByOwnerDurably(
+          { sessionId, userId, strictOwner: true }, { reason });
+      } catch { return res.status(503).json({ ok: false, stage: 'page',
+        code: 'page_cancel_storage_unavailable', error: 'Cancellation could not be confirmed. Try stopping again.' }); }
       return res.status(200).json({
         ok: true,
         cancelled: dropped.length > 0,

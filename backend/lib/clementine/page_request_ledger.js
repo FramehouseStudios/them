@@ -25,19 +25,26 @@ function createPageRequestLedger({ persistence, now = () => Date.now(), pollMs =
     const record = await persistence.get({ domain: PAGE_REQUEST_DOMAIN, key });
     if (record && (record.schemaVersion !== 1 || record.ownerId !== scope.ownerId ||
         record.sessionHash !== scope.sessionHash || record.requestHash !== scope.requestHash ||
-        !['admitted', 'cancelled'].includes(record.state))) {
+        !['admitted', 'cancelled', 'finishing'].includes(record.state))) {
       throw new Error('Invalid durable writing turn record.');
     }
     return record;
   };
 
-  async function transition(target, state) {
+  async function transition(target, state, admissionId = null) {
     const { key, ...scope } = identity(target);
     for (let attempt = 0; attempt < 8; attempt++) {
       const previous = await read(target);
+      if (state === 'finishing' && (!previous || previous.admissionId !== admissionId)) {
+        throw new Error('Writing turn completion requires its original admission.');
+      }
       if (previous) {
         if (state === 'admitted') return { ok: false, code: previous.state === 'cancelled'
           ? 'page_generation_cancelled' : 'page_request_already_started' };
+        if (previous.state === 'finishing') return { ok: false, code: 'page_request_finalizing' };
+        if (state === 'finishing' && previous.state === 'cancelled') {
+          return { ok: false, code: 'page_generation_cancelled' };
+        }
         if (previous.state === 'cancelled') return { ok: true };
       }
       const value = { schemaVersion: 1, ...scope, state,
@@ -57,7 +64,7 @@ function createPageRequestLedger({ persistence, now = () => Date.now(), pollMs =
       try {
         const record = await read(target);
         if (stopped) return;
-        if (!record || record.state !== 'admitted') { close(); onStop(); return; }
+        if (!record || record.state === 'cancelled') { close(); onStop(); return; }
       } catch {
         if (stopped) return;
         close(); onStop(); return; // storage disappearance is not permission to finish
@@ -70,7 +77,8 @@ function createPageRequestLedger({ persistence, now = () => Date.now(), pollMs =
   }
 
   return { admit: target => transition(target, 'admitted'),
-    stop: target => transition(target, 'cancelled'), read, watch };
+    stop: target => transition(target, 'cancelled'),
+    claimCompletion: (target, admissionId) => transition(target, 'finishing', admissionId), read, watch };
 }
 
 export { createPageRequestLedger, PAGE_REQUEST_DOMAIN };

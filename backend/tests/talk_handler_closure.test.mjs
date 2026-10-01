@@ -275,6 +275,14 @@ test("[D009-B3] talk_handler orchestrates real prompt + generate stages", () => 
   // No dual path: abort/wallet live only in talk_generate after extract.
   assert.doesNotMatch(src, /gatePageGeneration\(/);
   assert.doesNotMatch(src, /req\.clementine\?\.commitWallet/);
+  const completionClaimIndex = src.indexOf('await req.clementine?.claimCompletion?.()');
+  assert.ok(completionClaimIndex > src.indexOf('screenplay_page_quality_exhausted'),
+    'Normal page completion must be claimed only after its quality gate');
+  assert.ok(completionClaimIndex < src.indexOf('activeSession.memory = updateSessionAfterReply('),
+    'Completion ownership must be claimed before reply/history publication');
+  assert.ok(generateSrc.indexOf('await req.clementine?.claimCompletion?.()') <
+    generateSrc.indexOf('ensureShortFilmProjectWithContexts'),
+    'Beta completion ownership must be claimed before its optional project mutation');
 });
 
 test("[phase7b] freevars analyzer is sound on known fixtures", () => {

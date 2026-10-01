@@ -12,6 +12,7 @@
 
 import { classifyIntent, INTENT } from "./intents.js";
 import { laneForIntent, LANE } from "./lanes.js";
+import { createPageCancelledError } from "./page_abort.js";
 import {
   peekKnownFacts,
   peekVoiceSpecHints,
@@ -305,12 +306,14 @@ function createPageLaneTalkAdapter({
     const ledger = pageReservationStore.requestLedger;
     const isDurablePage = Boolean(ledger && requestId &&
       (earlyLane.lane === LANE.PAGE || hints.pageMode));
+    let admissionId = null;
     if (isDurablePage) {
       try {
         const admission = await ledger.admit(target);
         if (!admission.ok) return res.status(409).json({ ok: false, stage: 'page', code: admission.code,
           error: admission.code === 'page_generation_cancelled' ? 'This writing turn was stopped.'
             : 'This writing turn already started. Check your page before requesting another.' });
+        admissionId = admission.admissionId;
       } catch (error) {
         return res.status(error?.status === 400 ? 400 : 503).json({ ok: false, stage: 'page',
           code: error?.status === 400 ? 'invalid_page_request_id' : 'page_request_storage_unavailable',
@@ -354,11 +357,12 @@ function createPageLaneTalkAdapter({
     // response stages; an HTTP 200 recovery reply is still a failed write.
     let pendingOutputTokens = null;
     let walletSettled = false;
+    let completionClaimed = false, completionPromise = null;
     const settleWallet = (delivered) => {
       if (walletSettled || !walletReservation?.reservationId || !walletStore) return;
       walletSettled = true;
       const turnStatus = String(res.getHeader?.('x-turn-status') || '');
-      const failed = !delivered || res.statusCode >= 400 ||
+      const failed = !delivered || res.statusCode >= 400 || (isDurablePage && !completionClaimed) ||
         turnStatus.startsWith('error') || turnStatus === 'asked_repeat' ||
         turnStatus === 'continue_listening';
       if (failed || pendingOutputTokens === null) {
@@ -407,8 +411,24 @@ function createPageLaneTalkAdapter({
     if (isDurablePage) req.clementine.refreshCancellation = async () => {
       try {
         const record = await ledger.read(target);
-        if (!record || record.state !== 'admitted') stopLocal();
+        if (!record || record.state === 'cancelled') stopLocal();
       } catch { stopLocal(); }
+    };
+    if (isDurablePage) req.clementine.claimCompletion = () => {
+      completionPromise ||= (async () => {
+        if (!pageReservationStore.proceed(reservation?.id).ok) throw createPageCancelledError();
+        let claim;
+        try { claim = await ledger.claimCompletion(target, admissionId); }
+        catch {
+          stopLocal();
+          throw Object.assign(new Error('Could not confirm this writing turn. Your existing page is unchanged.'),
+            { code: 'page_request_storage_unavailable', status: 503 });
+        }
+        if (!claim.ok) { stopLocal(); throw createPageCancelledError(); }
+        completionClaimed = true;
+        return claim;
+      })();
+      return completionPromise;
     };
 
     if (reservation?.id) {

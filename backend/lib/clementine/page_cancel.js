@@ -223,8 +223,27 @@ function createPageReservationStore({
   }
 
   async function stopRequest(target, options) {
-    if (requestLedger) await requestLedger.stop(target);
+    if (requestLedger) {
+      const result = await requestLedger.stop(target);
+      if (!result.ok) return result;
+    }
     return cancelRequest(target, options);
+  }
+
+  async function cancelByOwnerDurably({ sessionId, userId, strictOwner = false }, options) {
+    if (!requestLedger) return cancelByOwner({ sessionId, userId, strictOwner }, options);
+    const dropped = [];
+    for (const entry of reservations.values()) {
+      if (entry.sessionId !== sessionId || entry.status === 'cancelled' ||
+          (strictOwner && entry.userId !== userId) ||
+          (userId && entry.userId && entry.userId !== userId)) continue;
+      if (entry.meta?.requestId) {
+        const result = await stopRequest({ sessionId: entry.sessionId,
+          userId: entry.userId, requestId: entry.meta.requestId }, options);
+        if (result.ok) dropped.push(...result.dropped);
+      } else if (cancel(entry.id, options)?.cancelled) dropped.push(entry.id);
+    }
+    return dropped;
   }
 
   /**
@@ -269,6 +288,7 @@ function createPageReservationStore({
     cancelByOwner,
     cancelRequest,
     stopRequest,
+    cancelByOwnerDurably,
     requestLedger,
     cancelOnBargeIn,
     proceed,

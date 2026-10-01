@@ -15,7 +15,7 @@ checks and non-empty-output / response-lifecycle wallet settlement.
 The new integration branch is `codex/T-page-request-durable`; it deliberately
 does not reuse #635's remote branch name.
 
-## Implemented, not shipping
+## Implemented, awaiting stacked draft review
 
 - Canonical persistence CAS owns authenticated user/session/request admission
   and early stops. Restart and second-store checks read persisted metadata.
@@ -24,6 +24,12 @@ does not reuse #635's remote branch name.
 - Stored owner, session hash, request hash, schema and state are validated on
   both reads and transitions. Invalid records cannot authorize completion.
 - Active handlers poll shared cancellation and abort when the stop is seen.
+- Completion and stop compete through one owner-scoped CAS transition. Exactly
+  one can win; a late stop gets `409 page_request_finalizing`, and both
+  request-ID and reservation cancellation honor that fence. Missing completion
+  hooks release the wallet hold rather than charging a durable Page request.
+- Normal pages claim only after the page-quality checks; short-film pages claim
+  after non-empty output survives their quality gate and before project mutation.
 - Client auth/audio retries retain the original turn UUID and session namespace.
 - Migration 013 creates metadata-only `page_requests`; account lifecycle uses
   the existing export/delete domain list. No script, transcript, raw session
@@ -46,48 +52,58 @@ Logs live under `/Users/halfmutantfilms/io.them-worktrees/_proof/branch-audit-20
   JSON adapter, two stores in one process; not a PostgreSQL multi-worker proof.
 - Architecture and real generation stage (stop before/after injected provider):
   31/31 (`page-request-durable-closure-focused.log`). No live model calls.
-- Initial full backend: 2,853 pass / 1 fail / 2 skip. The architecture assertion
-  still required the old synchronous function name. Its replacement proves the
-  awaited wrapper calls the existing abort gate; behavior tests also cover it.
-- Signed erased iOS focused: 14/14. A nonexistent `PageCancelClientTests`
-  selector selected no tests; do not claim that class was covered by this run.
-- Full backend after the gate fix: 2,857 pass / 0 fail / 2 skip, 2,859 tests
-  (`page-request-durable-backend-after-gate-fix.log`). No failure retried away;
-  the original failing architecture assertion is preserved in its first log.
-- Full signed erased iOS: 683/683, zero failures
-  (`page-request-durable-units-full.log` and matching `.xcresult`). Includes all
-  six `BackendPageCancelClientTests`; the focused selector omission is closed.
+- Controlled real HTTP winner tests cover both stop-before-completion and
+  completion-before-stop, wallet release/commit, a finalizing bulk stop, and
+  completion-storage outage (`page-request-durable-atomic-focused-postgres.log`).
+- Authenticated `/talk` integration tests exercise the real route and app
+  handler with a deterministic subprocess provider at generation and TTS stages.
+- Isolated PostgreSQL 16 tests use two independent Node processes. Forty
+  alternating concurrent CAS races prove exactly one transition wins; a
+  reconstructed worker cannot re-admit a stopped request
+  (`page-request-durable-postgres.log`, 2/2). This used only the
+  localhost-bound synthetic `them_page_settlement` database and test role.
+- Complete backend: 2,863 pass / 0 fail / 2 skip (2,865 tests),
+  `page-request-durable-backend-final.log`.
+- Complete signed iOS on the erased dedicated simulator: 684/684,
+  `page-request-durable-units-complete.log` and matching `.xcresult`.
+  The new finalizing-conflict client test is included.
+- macOS scaffold build succeeds, `page-request-durable-macos.log`; existing
+  Swift concurrency warnings remain unrelated.
 - Parent-relative god-file gate passes: all five deltas zero; index.js 33,626
-  under the human-approved priority-fix exception. `git diff --check` passes.
+  under the human-approved priority-fix exception. All changed JavaScript files
+  pass `node --check`; `git diff --check` passes.
 
 ## Remaining release-critical risks
 
-1. A read-before-settlement gate is not an atomic stop-versus-settlement fence.
-   Close that race before publication as ready; an acknowledged stop must not
-   later bill or publish the same turn through another worker.
-2. Real isolated PostgreSQL concurrency, production migration and account
-   export/delete integration remain unproved. No production DB was accessed.
-3. Wallet reservations remain process-local; crash reconciliation and durable
-   generation/save receipts are separate unfinished work, not fixed here.
-4. No TTL or eviction is safe while absence permits admission. Retention and
-   bounded authenticated admission need a documented policy, not silent expiry.
-5. Headerless legacy clients retain the legacy path; no restart-safe guarantee
-   is made for them. Paid-provider abort, physical phone and shipping backend
-   verification are unperformed. No credits, deployment, merge or approval bypass.
+1. The completed response is not durably replayable from the ledger. If a
+   worker finishes a page but the client loses the response, retrying the same
+   identity is rejected as already started. A stored, owner-scoped completion
+   receipt is still needed for exact-once delivery across crashes and workers.
+2. Wallet reservations and their settlement reconciliation remain process
+   local; this work prevents a cancelled turn from reaching the wallet commit,
+   but does not make the wallet itself crash durable.
+3. `page_requests` records are permanent metadata tombstones. No TTL is safe
+   while record absence permits old request identities to be admitted again.
+   The durable path also needs a bounded-write/retention policy before exposure
+   to production traffic. Privacy retention is a human-owned release decision.
+4. Headerless legacy clients retain the legacy process-local path. Production
+   deployment has not run migration 013; account export/delete was verified
+   against the real authenticated local JSON backend, not production Postgres.
+5. No paid provider, physical phone, TestFlight or shipping-backend run was
+   performed. #766/#770 still precede this stack and need an independent review.
 
-Next: atomic stop/settlement ordering with a controlled production-path race
-test, then complete backend/iOS/UI/macOS and persistence/recovery proof before
-opening a held draft on #885. #766 and #770 still land first after independent
-approval; this integration does not authorize bypassing that requirement.
+Next: add durable owner-scoped completion receipts and define safe request
+metadata retention before production readiness. Keep the PR stacked on #885;
+the priority data-loss fixes #766/#770 still land first after independent
+approval.
 
 ## Session checkpoint
 
-This pass also changed `TASKS.md`, the ledger validation implementation,
-`empty_generation_billing.test.mjs`, `page_request_durable.test.mjs` and
-`talk_handler_closure.test.mjs`. The four original #625 source commits were
-integrated locally as `53ac4051`, `ce3b10ab`, `2f2c8bf6`, `349bd713`.
-No branch was pushed and no new PR opened. Full Studio UI, macOS scaffold,
-real PostgreSQL and physical-device validation remain unrun for this branch.
+This pass also integrated the atomic finalization work and its tests. The four
+original #625 source commits were integrated locally as `53ac4051`,
+`ce3b10ab`, `2f2c8bf6`, `349bd713`. The complete stack is verified locally,
+but has not yet been pushed and has no new PR. Studio V1 UI and physical-device
+validation remain unrun for this branch.
 
 Exact files changed in this session (including the preserved #625 port):
 
@@ -95,11 +111,21 @@ Exact files changed in this session (including the preserved #625 port):
 - `backend/lib/clementine/page_request_ledger.js`
 - `backend/lib/clementine/short_film_lane.js`
 - `backend/lib/clementine/page_lane_adapter.js`
+- `backend/lib/clementine/page_cancel.js`
 - `backend/lib/talk_generate.js`
+- `backend/lib/talk_handler.js`
+- `backend/lib/talk_pipeline.js`
 - `backend/tests/empty_generation_billing.test.mjs`
 - `backend/tests/helpers/billing_provider_stub.mjs`
+- `backend/tests/helpers/page_request_postgres_worker.mjs`
+- `backend/tests/helpers/page_settlement_provider_stub.mjs`
+- `backend/tests/page_request_handler_settlement.test.mjs`
 - `backend/tests/talk_empty_billing.integration.test.mjs`
 - `backend/tests/page_request_durable.test.mjs`
+- `backend/tests/page_request_settlement.test.mjs`
+- `backend/tests/postgres/page_request_settlement.test.mjs`
+- `backend/tests/account_routes_wiring.test.mjs`
 - `backend/tests/talk_handler_closure.test.mjs`
+- `themTests/BackendPageCancelClientTests.swift`
 - `docs/empty-generation-billing-proof.md`
 - `docs/audits/page-request-durable-2026-09-30.md`

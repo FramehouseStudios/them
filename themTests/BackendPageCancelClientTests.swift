@@ -48,6 +48,28 @@ final class BackendPageCancelClientTests: XCTestCase {
         XCTAssertEqual(requests.first?.json["request_id"] as? String, "turn-123")
     }
 
+    func testFinalizingConflictIsNotAcceptedAsCancellationOrRetriedAsSessionStop() async throws {
+        let recorder = PageCancelRequestRecorder()
+        PageCancelURLProtocolStub.handler = { request in
+            recorder.record(request)
+            if request.url?.path == "/talk/page-cancel/request" {
+                return PageCancelHTTPStub(status: 409, headers: ["Content-Type": "application/json"],
+                    body: Data(#"{"ok":false,"code":"page_request_finalizing"}"#.utf8))
+            }
+            return Self.stub(for: request, pageCancelBody: Data())
+        }
+        do {
+            _ = try await makeClient().cancelPageLane(sessionId: "session", requestId: "turn-123")
+            XCTFail("A finalizing turn must not be reported as successfully stopped")
+        } catch let error as BackendError {
+            guard case .http(let status, _) = error else { return XCTFail("Expected an HTTP conflict") }
+            XCTAssertEqual(status, 409)
+        } catch { XCTFail("Unexpected cancellation error: \(error)") }
+        let requests = recorder.requests.filter { $0.path.contains("page-cancel") }
+        XCTAssertEqual(requests.count, 1)
+        XCTAssertEqual(requests.first?.path, "/talk/page-cancel/request")
+    }
+
     override func setUp() {
         super.setUp()
         UserDefaults.standard.set("client-test-token", forKey: "client_token")

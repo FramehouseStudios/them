@@ -24,10 +24,14 @@
 - Done when: acknowledged stops cannot later publish or bill across workers;
   duplicates cannot regenerate; full backend, erased signed iOS, UI, macOS,
   persistence and parent-relative god-file checks pass with explicit limits.
-- Current: deterministic focused checks pass; atomic stop/settlement ordering
-  remains unresolved. Not ready to publish or merge. Originals are preserved.
-- Verified checkpoint: full backend 2,857 pass/0 fail/2 skip; erased signed iOS
-  683/683; parent-relative god-file gate and whitespace check pass.
+- Current: atomic stop/completion CAS is covered by the production handler and
+  independent PostgreSQL-worker race tests. Full backend, erased signed iOS,
+  macOS scaffold, focused auth/settlement tests and parent-relative gate pass.
+- Remaining before production readiness: durable completion receipts/replay,
+  request-metadata retention and bounded admission. Draft review can proceed;
+  merge/release remains held. Original #625/#635 branches are preserved.
+- Verified checkpoint: backend 2,863 pass/0 fail/2 skip; erased signed iOS
+  684/684; PostgreSQL two-process race 2/2; macOS build succeeds.
 - Proof and exact remaining work: docs/audits/page-request-durable-2026-09-30.md.
 
 ### T-page-request-lifecycle — Preserve each writing turn's cancellation identity
@@ -44,7 +48,7 @@
   or paid-provider claim is made by this client prerequisite.
 - Next: integrate #635 exact-request wire/ack contract, preserve request identity
   through retries, then durable owner-scoped admission/cancellation. The
-  restart/worker failures from #878 remain open, not waived.
+  next: durable completion receipt/replay and metadata-retention policy.
 - Proof: docs/audits/page-request-lifecycle-2026-09-30.md.
 - Verified: 677 signed iOS units; 2,818 backend pass/0 fail/2 skip; two signed
   Studio UI checks; macOS scaffold build; actual-parent god-file/diff checks.

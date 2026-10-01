@@ -4487,6 +4487,7 @@ ${directorOutputRule}
         }
       }
     }
+    await req.clementine?.claimCompletion?.();
     const usedBoundaryEdgeLine = hasBoundaryEdgeStatement(reply);
     logger.log(`\n[${reqId}] assistant reply:\n${reply}\n`);
     const didUseCheckInOpener = startsWithDayFeelingCheckIn(reply);

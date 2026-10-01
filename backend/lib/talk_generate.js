@@ -142,6 +142,7 @@ async function runTalkGenerate({
         }
       }
       // Short-film project id + per-character contexts — singular project holds isolated memory per character
+      await req.clementine?.claimCompletion?.();
       try {
         const ownerRecord = req.clementine?.screenplayOwnerRecord || req.screenplayOwnerRecord || null;
         if (ownerRecord) {

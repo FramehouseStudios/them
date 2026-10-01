@@ -42,6 +42,14 @@ test("[account-wiring] export reads real persistence and delete revokes sessions
     const otherProjectId = String(otherCreated.json?.project_id || otherCreated.json?.project?.id || "");
     assert.ok(otherProjectId, "other user's screenplay project should be created");
 
+    for (const bearer of [token, otherToken]) {
+      const stopped = await apiRequest(server, '/talk/page-cancel/request', {
+        method: 'POST', headers: { Authorization: 'Bearer ' + bearer },
+        json: { session_id: 'synthetic-export-session', request_id: 'synthetic-export-request' },
+      });
+      assert.equal(stopped.status, 200);
+    }
+
     const paginatedExportKey = "zzzz-account-export-pagination-target";
     const craftReportsDomainPath = path.join(
       server.dataDir,
@@ -72,6 +80,14 @@ test("[account-wiring] export reads real persistence and delete revokes sessions
       new RegExp(`io-them-export-${userId}\\.json`)
     );
     const screenplayRows = exported.json?.domains?.screenplay || [];
+    const pageRequests = exported.json?.domains?.page_requests || [];
+    assert.equal(pageRequests.length, 1, 'Export includes only this account\'s stop metadata');
+    assert.equal(pageRequests[0].value.ownerId, userId);
+    assert.equal(pageRequests[0].value.state, 'cancelled');
+    assert.ok(!JSON.stringify(pageRequests).includes('synthetic-export-session'),
+      'Raw session identity must not be retained in the ledger');
+    assert.ok(!JSON.stringify(pageRequests).includes('synthetic-export-request'),
+      'Raw request identity must not be retained in the ledger');
     assert.ok(
       screenplayRows.some((row) => JSON.stringify(row).includes(projectId)),
       "account export should include the user's persisted screenplay project"
@@ -114,6 +130,11 @@ test("[account-wiring] export reads real persistence and delete revokes sessions
       headers: { Authorization: "Bearer " + token },
     });
     assert.equal(sessions.status, 401, "delete request should revoke the active session");
+    const stoppedAfterRevocation = await apiRequest(server, '/talk/page-cancel/request', {
+      method: 'POST', headers: { Authorization: 'Bearer ' + token },
+      json: { session_id: 'synthetic-export-session', request_id: 'after-revocation' },
+    });
+    assert.equal(stoppedAfterRevocation.status, 401, 'Revoked accounts cannot create new stop records');
   } finally {
     await server.stop();
   }
