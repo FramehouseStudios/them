@@ -13,6 +13,18 @@
 
 ## Active work — quick view
 
+### T-coverage-gate — Preserve coverage UI and speech without god-file growth
+- Owner: codex
+- Branch: codex/T-coverage-gate
+- Status: in-progress
+- Pillar: living companion
+- Goal criteria: 3 (grounded coverage), 4 (working controls), 7 (provable stack).
+- Done when: #644's Craft bindings and coverage speech behavior are preserved,
+  its canonical-parent god-file gate passes, and focused/full signed iOS,
+  backend and narrow-iPhone destination proof pass.
+- Scope: additive extraction on the original #644 head, not a replacement;
+  #766 then #770 remain first to land. No paid model calls or review bypass.
+
 | ID   | Title                                              | Owner  | Status            |
 |------|----------------------------------------------------|--------|-------------------|
 | T01  | Triage 409-file uncommitted snapshot               | human  | ready             |
