@@ -50,6 +50,7 @@ const KNOWN_DOMAINS = Object.freeze([
   // Postgres prod uses dedicated wallet_balances / iap_transactions tables (012).
   "wallet_balances",
   "iap_transactions",
+  "page_requests",
 ]);
 
 function isKnownDomain(domain) {

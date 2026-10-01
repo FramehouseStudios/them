@@ -516,12 +516,12 @@ export function createTalkIdempotencyHelpers({
         now
       );
     },
-    commitSuccess(req, { statusCode = 200, headers = {}, body = Buffer.alloc(0) } = {}) {
-      if (!talkIdempotencyEnabled) return;
+    async commitSuccess(req, { statusCode = 200, headers = {}, body = Buffer.alloc(0) } = {}) {
+      if (!talkIdempotencyEnabled) return { persisted: false };
       const ctx = req?.talkIdempotency;
-      if (!ctx?.cacheKey) return;
+      if (!ctx?.cacheKey) return { persisted: false };
       const existing = talkIdempotencyCache.get(ctx.cacheKey);
-      if (!existing) return;
+      if (!existing) return { persisted: false };
       const now = Date.now();
       const payloadBuffer = Buffer.isBuffer(body) ? Buffer.from(body) : Buffer.alloc(0);
       const normalizedHeaders = sanitizeTalkHeadersForIdempotency(headers);
@@ -538,12 +538,17 @@ export function createTalkIdempotencyHelpers({
         expiresAt: now + talkIdempotencyTtlMs,
       };
       talkIdempotencyCache.set(ctx.cacheKey, updated);
-      void scaleBackplane.setIdempotency(ctx.cacheKey, updated, talkIdempotencyTtlMs);
+      const persisted = await scaleBackplane.setIdempotency(
+        ctx.cacheKey,
+        updated,
+        talkIdempotencyTtlMs
+      );
       pruneTalkIdempotencyCacheInternal(
         talkIdempotencyTtlMs,
         talkIdempotencyMaxEntries,
         now
       );
+      return { persisted: persisted === true };
     },
     clearPending(req, { keepCompleted = true } = {}) {
       const ctx = req?.talkIdempotency;

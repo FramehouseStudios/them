@@ -3148,6 +3148,7 @@ final class BackendClient {
     func cancelPageLane(
         reservationId: String? = nil,
         sessionId: String? = nil,
+        requestId: String? = nil,
         reason: String = "barge_in"
     ) async throws -> BackendPageCancelResult {
         let cleanReservation = (reservationId ?? "")
@@ -3172,6 +3173,8 @@ final class BackendClient {
         var body: [String: Any] = [
             "reason": normalizedReason,
         ]
+        let cleanRequest = (requestId ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if !cleanRequest.isEmpty { body["request_id"] = cleanRequest }
         if !cleanReservation.isEmpty {
             body["reservation_id"] = cleanReservation
         }
@@ -3185,7 +3188,7 @@ final class BackendClient {
         var request = URLRequest(
             url: resolvedBaseURL
                 .appendingPathComponent("talk")
-                .appendingPathComponent("page-cancel")
+                .appendingPathComponent(cleanRequest.isEmpty ? "page-cancel" : "page-cancel/request")
         )
         request.httpMethod = "POST"
         request.timeoutInterval = 8
@@ -3210,7 +3213,7 @@ final class BackendClient {
             throw BackendError.stage("page_cancel", "Invalid page-cancel response.")
         }
         // Missing reservation is a soft no-op for barge-in races.
-        if http.statusCode == 404, !cleanReservation.isEmpty {
+        if http.statusCode == 404, cleanRequest.isEmpty, !cleanReservation.isEmpty {
             return BackendPageCancelResult(
                 ok: false,
                 cancelled: false,
@@ -3230,6 +3233,12 @@ final class BackendClient {
         }
 
         let payload = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
+        if !cleanRequest.isEmpty {
+            guard payload["request_id"] as? String == cleanRequest,
+                  payload["ok"] as? Bool == true else {
+                throw BackendError.stage("page_cancel", "The server did not confirm this writing turn's cancellation.")
+            }
+        }
         let droppedRaw = payload["dropped"] as? [Any] ?? []
         let dropped = droppedRaw.compactMap { value -> String? in
             let text = String(describing: value).trimmingCharacters(in: .whitespacesAndNewlines)
@@ -4284,10 +4293,11 @@ final class BackendClient {
         onDebugEvent: ((BackendTalkDebugEvent) -> Void)?,
         allowClientTokenRefresh: Bool,
         allowAudioValidationRetry: Bool,
-        forceNoStreamAudio: Bool
+        forceNoStreamAudio: Bool,
+        inheritedPageLifecycle: PageTalkLifecycle? = nil
     ) async throws -> BackendTalkResult {
-        let pageLifecycle = PageTalkLifecycle(onChange: onPageTalkLifecycleChanged)
-        defer { pageLifecycle.finish() }
+        let pageLifecycle = inheritedPageLifecycle ?? PageTalkLifecycle(onChange: onPageTalkLifecycleChanged)
+        defer { if inheritedPageLifecycle == nil { pageLifecycle.finish() } }
 
         let boundary = "Boundary-\(UUID().uuidString)"
         let url = baseURL.appendingPathComponent("talk")
@@ -4541,7 +4551,7 @@ final class BackendClient {
                 body.appendString("\r\n")
             }
             if target == "page" {
-                pageLifecycle.begin()
+                pageLifecycle.attach(to: &request)
             }
             let promptSource = studioMetadata.screenplayPromptSource.trimmingCharacters(in: .whitespacesAndNewlines)
             if !promptSource.isEmpty {
@@ -4881,7 +4891,8 @@ final class BackendClient {
                 onDebugEvent: onDebugEvent,
                 allowClientTokenRefresh: allowClientTokenRefresh,
                 allowAudioValidationRetry: false,
-                forceNoStreamAudio: true
+                forceNoStreamAudio: true,
+                inheritedPageLifecycle: pageLifecycle
             )
         }
 
@@ -4925,7 +4936,8 @@ final class BackendClient {
                     onDebugEvent: onDebugEvent,
                     allowClientTokenRefresh: false,
                     allowAudioValidationRetry: allowAudioValidationRetry,
-                    forceNoStreamAudio: forceNoStreamAudio
+                    forceNoStreamAudio: forceNoStreamAudio,
+                    inheritedPageLifecycle: pageLifecycle
                 )
             }
             if statusCode == 401,
@@ -4966,7 +4978,8 @@ final class BackendClient {
                     onDebugEvent: onDebugEvent,
                     allowClientTokenRefresh: false,
                     allowAudioValidationRetry: allowAudioValidationRetry,
-                    forceNoStreamAudio: forceNoStreamAudio
+                    forceNoStreamAudio: forceNoStreamAudio,
+                    inheritedPageLifecycle: pageLifecycle
                 )
             }
             if statusCode == 204 {
@@ -5028,7 +5041,8 @@ final class BackendClient {
                         onDebugEvent: onDebugEvent,
                         allowClientTokenRefresh: false,
                         allowAudioValidationRetry: allowAudioValidationRetry,
-                        forceNoStreamAudio: forceNoStreamAudio
+                        forceNoStreamAudio: forceNoStreamAudio,
+                        inheritedPageLifecycle: pageLifecycle
                     )
                 }
                 throw BackendError.stage(stageError.stage, stageError.message)

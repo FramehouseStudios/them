@@ -13,6 +13,46 @@
 
 ## Active work — quick view
 
+### T-page-request-durable — Preserve stopped writing turns across retries and restart
+- Owner: codex
+- Branch: codex/T-page-request-durable
+- Draft PR: #886, stacked on #885
+- Status: in-progress
+- Pillar: voice→scene, living companion
+- Goal criteria: 1, 4, 6 and 7.
+- Scope: reuse #635's exact-request contract and #625's billing fixes on #885;
+  extend canonical persistence for owner-scoped admission and cancellation.
+- Done when: acknowledged stops cannot later publish or bill across workers;
+  duplicates cannot regenerate; full backend, erased signed iOS, UI, macOS,
+  persistence and parent-relative god-file checks pass with explicit limits.
+- Current: atomic stop/completion CAS is covered by the production handler and
+  independent PostgreSQL-worker race tests. Full backend, erased signed iOS,
+  macOS scaffold, focused auth/settlement tests and parent-relative gate pass.
+- Latest bounded improvement: successful `/talk` paths now await the existing
+  optional Redis idempotency replay write before returning. This closes the
+  response-before-shared-cache-write race only when Redis accepts the write;
+  absent/failed Redis still reports `persisted: false`, and replay remains
+  limited to the existing five-minute cache window. It is not a durable Page
+  completion receipt.
+- Remaining before production readiness: durable completion receipts/replay,
+  request-metadata retention and bounded admission. Draft review can proceed;
+  merge/release remains held. Original #625/#635 branches are preserved.
+- Recovery seam audit: `GET /talk/turn/:turnId` reads a process-local map with
+  a 30-minute default TTL; it cannot survive a worker restart. The Page request
+  UUID is also created in memory and is not retained across app relaunch. A
+  recovery protocol therefore needs a persisted request identity, an
+  owner/project-scoped receipt lookup, and save-confirmed receipt clearing.
+- HUMAN_INPUT_REQUIRED: permission to persist exact, not-yet-saved generated
+  page text in that recovery receipt. Asked whether it may remain until save
+  confirmation or account/project deletion; implementation of content
+  retention awaits that answer.
+- Verified checkpoint: backend 2,864 pass/0 fail/2 skip; focused talk-state
+  idempotency 34/34; authenticated settlement handlers 2/2; erased signed iOS
+  684/684; PostgreSQL two-process race 2/2; macOS build succeeds.
+- Hosted current head `191b812f`: migration, backend image and god-file checks
+  passed; backend suite and required iOS unit quality gate are in progress.
+- Proof and exact remaining work: docs/audits/page-request-durable-2026-09-30.md.
+
 ### T-page-request-lifecycle — Preserve each writing turn's cancellation identity
 - Owner: codex
 - Branch: codex/T-page-request-lifecycle
@@ -27,7 +67,7 @@
   or paid-provider claim is made by this client prerequisite.
 - Next: integrate #635 exact-request wire/ack contract, preserve request identity
   through retries, then durable owner-scoped admission/cancellation. The
-  restart/worker failures from #878 remain open, not waived.
+  next: durable completion receipt/replay and metadata-retention policy.
 - Proof: docs/audits/page-request-lifecycle-2026-09-30.md.
 - Verified: 677 signed iOS units; 2,818 backend pass/0 fail/2 skip; two signed
   Studio UI checks; macOS scaffold build; actual-parent god-file/diff checks.

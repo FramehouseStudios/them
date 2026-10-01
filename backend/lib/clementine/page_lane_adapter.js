@@ -12,6 +12,7 @@
 
 import { classifyIntent, INTENT } from "./intents.js";
 import { laneForIntent, LANE } from "./lanes.js";
+import { createPageCancelledError } from "./page_abort.js";
 import {
   peekKnownFacts,
   peekVoiceSpecHints,
@@ -300,13 +301,32 @@ function createPageLaneTalkAdapter({
     let lane;
     let reservation = null;
     let walletReservation = null;
+    const requestId = String(req.get?.('x-clementine-page-request') || '').trim();
+    const target = { sessionId, userId: String(req?.authUser?.id || '').trim(), requestId };
+    const ledger = pageReservationStore.requestLedger;
+    const isDurablePage = Boolean(ledger && requestId &&
+      (earlyLane.lane === LANE.PAGE || hints.pageMode));
+    let admissionId = null;
+    if (isDurablePage) {
+      try {
+        const admission = await ledger.admit(target);
+        if (!admission.ok) return res.status(409).json({ ok: false, stage: 'page', code: admission.code,
+          error: admission.code === 'page_generation_cancelled' ? 'This writing turn was stopped.'
+            : 'This writing turn already started. Check your page before requesting another.' });
+        admissionId = admission.admissionId;
+      } catch (error) {
+        return res.status(error?.status === 400 ? 400 : 503).json({ ok: false, stage: 'page',
+          code: error?.status === 400 ? 'invalid_page_request_id' : 'page_request_storage_unavailable',
+          error: 'Could not safely start this writing turn. Your existing page is unchanged.' });
+      }
+    }
     try {
       const started = beginPageWork(pageReservationStore, {
         utterance,
         hints,
         sessionId,
         userId,
-        meta: { source: "talk_edge" },
+        meta: { source: "talk_edge", requestId },
         walletStore,
       });
       lane = started.lane;
@@ -328,9 +348,33 @@ function createPageLaneTalkAdapter({
       logger?.warn?.(
         `[clementine/page] reserve skipped: ${err?.message || err}`
       );
+      if (isDurablePage) return res.status(503).json({ ok: false, stage: 'page',
+        error: 'Could not reserve this writing turn. Your existing page is unchanged.' });
       lane = resolveTalkLane(utterance, hints);
     }
 
+    // Generation only proposes usage. Settle after the handler's quality and
+    // response stages; an HTTP 200 recovery reply is still a failed write.
+    let pendingOutputTokens = null;
+    let walletSettled = false;
+    let completionClaimed = false, completionPromise = null;
+    const settleWallet = (delivered) => {
+      if (walletSettled || !walletReservation?.reservationId || !walletStore) return;
+      walletSettled = true;
+      const turnStatus = String(res.getHeader?.('x-turn-status') || '');
+      const failed = !delivered || res.statusCode >= 400 || (isDurablePage && !completionClaimed) ||
+        turnStatus.startsWith('error') || turnStatus === 'asked_repeat' ||
+        turnStatus === 'continue_listening';
+      if (failed || pendingOutputTokens === null) {
+        walletStore.release(walletReservation.reservationId);
+      } else {
+        walletStore.commit(walletReservation.reservationId, pendingOutputTokens);
+      }
+    };
+    if (walletReservation?.reservationId && walletStore) {
+      res.once('finish', () => settleWallet(true));
+      res.once('close', () => settleWallet(false));
+    }
     const pageMultipass = isPageMultipassEnabled();
     req.clementine = {
       intent: lane.intent,
@@ -343,15 +387,13 @@ function createPageLaneTalkAdapter({
       walletReservationId: walletReservation?.reservationId || null,
       walletReservation,
       /**
-       * STUB — call after successful Muse generation with actual output tokens:
-       *   req.clementine.commitWallet?.(actualOutputTokens)
-       * No clear success hook in this adapter without rewriting talk_handler;
-       * wire commit in talk_handler (or muse_client completion) when usage lands.
+       * Record generation usage; the response lifecycle settles the reservation.
        */
       commitWallet:
         walletReservation?.reservationId && walletStore
-          ? (actualOutputTokens) =>
-              walletStore.commit(walletReservation.reservationId, actualOutputTokens)
+          ? (actualOutputTokens) => {
+              pendingOutputTokens = Math.max(0, Number(actualOutputTokens) || 0);
+            }
           : null,
       abortSignal: reservation?.id
         ? pageReservationStore.getAbortSignal(reservation.id)
@@ -365,6 +407,30 @@ function createPageLaneTalkAdapter({
         : () => ({ ok: true, code: "no_page_reservation", reservation: null }),
     };
 
+    const stopLocal = () => { if (reservation?.id) pageReservationStore.cancel(reservation.id, { reason: 'cancel' }); };
+    if (isDurablePage) req.clementine.refreshCancellation = async () => {
+      try {
+        const record = await ledger.read(target);
+        if (!record || record.state === 'cancelled') stopLocal();
+      } catch { stopLocal(); }
+    };
+    if (isDurablePage) req.clementine.claimCompletion = () => {
+      completionPromise ||= (async () => {
+        if (!pageReservationStore.proceed(reservation?.id).ok) throw createPageCancelledError();
+        let claim;
+        try { claim = await ledger.claimCompletion(target, admissionId); }
+        catch {
+          stopLocal();
+          throw Object.assign(new Error('Could not confirm this writing turn. Your existing page is unchanged.'),
+            { code: 'page_request_storage_unavailable', status: 503 });
+        }
+        if (!claim.ok) { stopLocal(); throw createPageCancelledError(); }
+        completionClaimed = true;
+        return claim;
+      })();
+      return completionPromise;
+    };
+
     if (reservation?.id) {
       try {
         res.setHeader("x-clementine-page-reservation", reservation.id);
@@ -374,7 +440,18 @@ function createPageLaneTalkAdapter({
       }
     }
 
-    return handleTalkRequest(req, res);
+    const stopWatching = isDurablePage ? ledger.watch(target, stopLocal) : () => {};
+    try {
+      if (isDurablePage) {
+        await req.clementine.refreshCancellation();
+        if (!pageReservationStore.proceed(reservation?.id).ok) return res.status(409).json({ ok: false,
+          stage: 'page', code: 'page_generation_cancelled', error: 'This writing turn was stopped.' });
+      }
+      return await handleTalkRequest(req, res);
+    } catch (error) {
+      settleWallet(false);
+      throw error;
+    } finally { stopWatching(); }
   };
 }
 

@@ -393,6 +393,7 @@ test("KNOWN_DOMAINS includes the canonical domains", () => {
       "iap_transactions",
       "knowledge_embeddings",
       "outbox",
+      "page_requests",
       "screenplay",
       "telemetry_first_page_written",
       "user_memory",

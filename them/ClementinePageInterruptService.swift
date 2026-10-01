@@ -8,7 +8,7 @@ import os
 @MainActor
 final class ClementinePageInterruptService: ObservableObject {
     struct Dependencies {
-        var cancelPageLane: (String?, String?, String) async throws -> BackendPageCancelResult
+        var cancelPageLane: (String?, String?, String?, String) async throws -> BackendPageCancelResult
         var resolveSessionId: () -> String
     }
 
@@ -17,6 +17,7 @@ final class ClementinePageInterruptService: ObservableObject {
     private var pageTalkInFlight = false
     private var pageTrackingID = UUID()
     private var activePageRequestID: UUID?
+    private var activePageSessionID: String?
     private var lastCancelDedupKey: String?
     private var lastCancelAt: Date = .distantPast
     private let cancelDedupWindow: TimeInterval = 1.5
@@ -29,10 +30,11 @@ final class ClementinePageInterruptService: ObservableObject {
     convenience init(backend: BackendClient) {
         self.init(
             dependencies: Dependencies(
-                cancelPageLane: { reservationId, sessionId, reason in
+                cancelPageLane: { reservationId, sessionId, requestId, reason in
                     try await backend.cancelPageLane(
                         reservationId: reservationId,
                         sessionId: sessionId,
+                        requestId: requestId,
                         reason: reason
                     )
                 },
@@ -53,6 +55,9 @@ final class ClementinePageInterruptService: ObservableObject {
         case .reservation(let id, let reservation):
             guard activePageRequestID == id else { return }
             notePageReservationId(reservation)
+        case .session(let id, let session):
+            guard activePageRequestID == id else { return }
+            activePageSessionID = session
         case .finished(let id):
             guard activePageRequestID == id else { return }
             markPageTalkInFlight(false)
@@ -73,6 +78,7 @@ final class ClementinePageInterruptService: ObservableObject {
         if inFlight {
             pageTrackingID = UUID()
             activePageReservationId = nil
+            activePageSessionID = nil
         }
         pageTalkInFlight = inFlight
     }
@@ -80,6 +86,7 @@ final class ClementinePageInterruptService: ObservableObject {
     func clearActivePageReservation() {
         pageTrackingID = UUID()
         activePageRequestID = nil
+        activePageSessionID = nil
         activePageReservationId = nil
         pageTalkInFlight = false
     }
@@ -100,6 +107,8 @@ final class ClementinePageInterruptService: ObservableObject {
         guard pageTalkInFlight || hasReservation else { return nil }
 
         let trackingID = pageTrackingID
+        let requestID = activePageRequestID?.uuidString
+        let originalSessionID = activePageSessionID
         let dedupKey = "\(trackingID)|\(reservationId ?? "")|\(normalizedReason)"
         let now = Date()
         if lastCancelDedupKey == dedupKey,
@@ -109,14 +118,19 @@ final class ClementinePageInterruptService: ObservableObject {
         lastCancelDedupKey = dedupKey
         lastCancelAt = now
 
-        inFlightCancelTask?.cancel()
+        // Exact targets remain safe after a newer turn starts. Do not cancel a
+        // previously requested stop just because another stop is now queued.
+        let isTargeted = hasReservation || requestID != nil
+        if !isTargeted { inFlightCancelTask?.cancel() }
         inFlightCancelTask = Task { [weak self] in
-            guard let self, !Task.isCancelled, self.pageTrackingID == trackingID else { return }
+            guard let self, !Task.isCancelled else { return }
+            guard isTargeted || self.pageTrackingID == trackingID else { return }
             do {
-                let sessionHint = self.dependencies.resolveSessionId()
+                let sessionHint = originalSessionID ?? self.dependencies.resolveSessionId()
                 let result = try await self.dependencies.cancelPageLane(
                     hasReservation ? reservationId : nil,
                     hasReservation ? nil : (sessionHint.isEmpty ? nil : sessionHint),
+                    hasReservation ? nil : requestID,
                     normalizedReason
                 )
                 // A transport may ignore cancellation and return after a new Page
