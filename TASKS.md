@@ -13,6 +13,17 @@
 
 ## Active work — quick view
 
+### T-fast-uri-stack — Verify the remaining dependency-security update
+- Owner: codex
+- Branch: codex/T-fast-uri-stack
+- Status: in-progress
+- Pillar: living companion
+- Goal criteria: 6, 7 and 8.
+- Scope: preserve and reuse #782's exact lockfile update on #883.
+- Done when: locked production audit is clear; malformed-host and normal URI
+  regressions, real craft schema validation, full backend and signed iOS pass.
+- No main mutation, original branch rewrite, provider call or deployment.
+
 ### T-voice-upload-stack — Harden uploads without rejecting Studio voice metadata
 - Owner: codex
 - Branch: codex/T-voice-upload-stack
