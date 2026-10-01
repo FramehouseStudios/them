@@ -19,6 +19,9 @@ struct ScreenplayStudioPagesOverviewView: View {
         let pages = self.pages
         let lineCount = pages.reduce(0) { $0 + $1.lineCount }
         return NavigationStack {
+            GeometryReader { geometry in
+            let textWidth = geometry.size.width - 2 * IOThemSpacing.Scale.lg - 2 * IOThemSpacing.Scale.xxl
+            let metrics = ScreenplayPageThumbnailMetrics(textWidth: textWidth)
             ScrollView {
                 LazyVStack(spacing: IOThemSpacing.Scale.xl) {
                     header(pageCount: pages.count, lineCount: lineCount)
@@ -26,12 +29,13 @@ struct ScreenplayStudioPagesOverviewView: View {
                         emptyState
                     } else {
                         ForEach(pages) { page in
-                            pageCard(page, total: pages.count)
+                            pageCard(page, total: pages.count, metrics: metrics)
                         }
                     }
                 }
                 .padding(.horizontal, IOThemSpacing.Scale.lg)
                 .padding(.vertical, IOThemSpacing.Scale.xl)
+            }
             }
             .background(Color.herShellPanelSoft.ignoresSafeArea())
             .navigationTitle("Pages")
@@ -82,7 +86,7 @@ struct ScreenplayStudioPagesOverviewView: View {
         .padding(.vertical, IOThemSpacing.Scale.xxxl)
     }
 
-    private func pageCard(_ page: ScreenplayPageLayout.Page, total: Int) -> some View {
+    private func pageCard(_ page: ScreenplayPageLayout.Page, total: Int, metrics: ScreenplayPageThumbnailMetrics) -> some View {
         let kinds = ScreenplayPageLayout.classify(page.lines)
         return Button {
             onJumpToPage(page.backendPage)
@@ -90,14 +94,15 @@ struct ScreenplayStudioPagesOverviewView: View {
             VStack(alignment: .leading, spacing: 0) {
                 HStack {
                     Spacer(minLength: 0)
-                    Text("\(page.number).")
-                        .font(IOThemTypography.Screenplay.referenceText)
+                    // A screenplay's first page is not numbered (as printed).
+                    Text(page.number > 1 ? "\(page.number)." : " ")
+                        .font(IOThemTypography.Screenplay.referenceText(size: metrics.fontSize))
                         .foregroundStyle(Color.black.opacity(0.70))
                 }
                 .padding(.bottom, IOThemSpacing.Scale.md)
 
                 ForEach(Array(page.lines.enumerated()), id: \.offset) { index, line in
-                    pageLine(line, kind: kinds[index])
+                    pageLine(line, kind: kinds[index], metrics: metrics)
                 }
 
                 Spacer(minLength: IOThemSpacing.Scale.lg)
@@ -125,32 +130,47 @@ struct ScreenplayStudioPagesOverviewView: View {
         .accessibilityLabel("Page \(page.number) of \(total)")
     }
 
-    private func pageLine(_ line: String, kind: ScreenplayPageLayout.LineKind) -> some View {
-        let leading: CGFloat
-        let alignment: Alignment
-        switch kind {
-        case .character:
-            leading = IOThemSpacing.ScreenplayIndent.character
-            alignment = .leading
-        case .dialogue:
-            leading = IOThemSpacing.ScreenplayIndent.dialogue
-            alignment = .leading
-        case .parenthetical:
-            leading = IOThemSpacing.ScreenplayIndent.dialogue + IOThemSpacing.Scale.lg
-            alignment = .leading
-        case .transition:
-            leading = 0
-            alignment = .trailing
-        case .sceneHeading, .action, .blank:
-            leading = 0
-            alignment = .leading
-        }
+    private func pageLine(_ line: String, kind: ScreenplayPageLayout.LineKind, metrics: ScreenplayPageThumbnailMetrics) -> some View {
+        let placement = metrics.placement(for: kind, line: line)
         return Text(line.isEmpty ? " " : line)
-            .font(IOThemTypography.Screenplay.referenceText)
+            .font(IOThemTypography.Screenplay.referenceText(size: metrics.fontSize))
             .fontWeight(kind == .sceneHeading ? .bold : .regular)
             .foregroundStyle(Color.black.opacity(line.isEmpty ? 0.0 : 0.82))
-            .frame(maxWidth: .infinity, alignment: alignment)
-            .padding(.leading, leading)
-            .fixedSize(horizontal: false, vertical: true)
+            .lineLimit(1)
+            .minimumScaleFactor(0.85)
+            .frame(maxWidth: .infinity, alignment: placement.trailing ? .trailing : .leading)
+            .padding(.leading, placement.leading)
+    }
+}
+
+/// A page card shows the page as printed: each line the paginator made is one
+/// line on the card. At 12 pt the card was narrower than a 62-character action
+/// line, so every line wrapped again ("lit. A banner over / the Nora checks…",
+/// 2026-09-30). The size fits 62 Courier characters (0.6 em each) and indents
+/// are measured in characters, as on paper: dialogue 10, parenthetical 16,
+/// character cue 22 from the action margin.
+struct ScreenplayPageThumbnailMetrics: Equatable {
+    static let actionCharacters: CGFloat = 62
+    static let courierAdvance: CGFloat = 0.6
+    let fontSize: CGFloat
+
+    init(textWidth: CGFloat) {
+        // A few characters of slack: the card's border and rounding take
+        // part of the measured width.
+        let fitted = max(textWidth, 1) / ((Self.actionCharacters + 4) * Self.courierAdvance)
+        fontSize = min(12, (fitted * 10).rounded(.down) / 10)
+    }
+
+    var characterWidth: CGFloat { fontSize * Self.courierAdvance }
+
+    func placement(for kind: ScreenplayPageLayout.LineKind, line: String) -> (leading: CGFloat, trailing: Bool) {
+        switch kind {
+        case .character: return (characterWidth * 22, false)
+        case .dialogue: return (characterWidth * 10, false)
+        case .parenthetical: return (characterWidth * 16, false)
+        // FADE IN: opens at the left margin; closing transitions sit right.
+        case .transition: return ScreenplayEditorElement.layoutElement(.transition, line: line) == .action ? (0, false) : (0, true)
+        case .sceneHeading, .action, .blank: return (0, false)
+        }
     }
 }
