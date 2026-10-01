@@ -4177,7 +4177,12 @@ ${directorOutputRule}
         turnIntent: String(turnPlanner.intent || "unknown"),
       });
     } else {
+      // Set when Clementine's own reply kept the spoken contract; the repair
+      // steps below exist for replies that did not, and would turn hers back
+      // into templates (USER_ROLEPLAY_CRITIQUE.md, 2026-10-01).
+      const validateOutcome = { keptOwnReply: false };
       const validatedReply = validateAndDirectHerReply(rawReply, {
+        outcome: validateOutcome,
         forceDayFeelingOpener,
         openerKey: `${rid}|${sessionCount}|${transcript}`,
         transcript,
@@ -4198,7 +4203,8 @@ ${directorOutputRule}
         allowReassurance: reassuranceThisTurn,
         memory: sessionMemory,
       });
-      reply = enforceReplyCompletenessGuard(validatedReply, {
+      const ownReplyKept = validateOutcome.keptOwnReply;
+      reply = ownReplyKept ? validatedReply : enforceReplyCompletenessGuard(validatedReply, {
         transcript,
         flags,
         forceDayFeelingOpener,
@@ -4215,7 +4221,7 @@ ${directorOutputRule}
         turnIntent: String(turnPlanner.intent || "unknown"),
       });
       const heuristicBeforeHardFix = heuristicTurnQuality;
-      const hardIntentRepairedReply = enforceHardIntentRepair(reply, {
+      const hardIntentRepairedReply = ownReplyKept ? reply : enforceHardIntentRepair(reply, {
         transcript,
         flags,
         turnIntent: String(turnPlanner.intent || ""),
@@ -4248,7 +4254,7 @@ ${directorOutputRule}
           );
         }
       }
-      const specificityScaledReply = enforceSpecificityScaling(reply, {
+      const specificityScaledReply = ownReplyKept ? reply : enforceSpecificityScaling(reply, {
         transcript,
         flags,
         memory: sessionMemory,
