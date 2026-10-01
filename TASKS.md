@@ -16,6 +16,7 @@
 ### T-page-request-durable — Preserve stopped writing turns across retries and restart
 - Owner: codex
 - Branch: codex/T-page-request-durable
+- Draft PR: #886, stacked on #885
 - Status: in-progress
 - Pillar: voice→scene, living companion
 - Goal criteria: 1, 4, 6 and 7.
@@ -32,6 +33,8 @@
   merge/release remains held. Original #625/#635 branches are preserved.
 - Verified checkpoint: backend 2,863 pass/0 fail/2 skip; erased signed iOS
   684/684; PostgreSQL two-process race 2/2; macOS build succeeds.
+- Hosted: migration, backend image and god-file checks passed; required backend
+  and iOS writer-loop checks were running at last poll.
 - Proof and exact remaining work: docs/audits/page-request-durable-2026-09-30.md.
 
 ### T-page-request-lifecycle — Preserve each writing turn's cancellation identity

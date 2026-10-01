@@ -102,8 +102,10 @@ approval.
 This pass also integrated the atomic finalization work and its tests. The four
 original #625 source commits were integrated locally as `53ac4051`,
 `ce3b10ab`, `2f2c8bf6`, `349bd713`. The complete stack is verified locally,
-but has not yet been pushed and has no new PR. Studio V1 UI and physical-device
-validation remain unrun for this branch.
+and published as draft PR #886 stacked on #885. Hosted migration, image-build
+and god-file checks passed; the required backend and iOS writer-loop checks
+were still running at the last poll. Studio V1 UI and physical-device validation
+remain unrun for this branch.
 
 Exact branch files relative to #885 (including preserved #625/#635 work):
 
