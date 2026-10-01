@@ -35,4 +35,27 @@ function listenEphemeral(app, port = 0) {
   return server.listen(port);
 }
 
-export { listenEphemeral };
+// A one-shot JSON read must not share global fetch's origin socket pool with
+// another fixture that may just have closed a server on the same OS-chosen port.
+// agent:false creates a fresh connection for this request; no retry masks errors.
+function getEphemeralJSON(url, { timeoutMs = 5000 } = {}) {
+  return new Promise((resolve, reject) => {
+    const request = http.get(url, {
+      agent: false,
+      signal: AbortSignal.timeout(timeoutMs),
+    }, response => {
+      const chunks = [];
+      response.on('data', chunk => chunks.push(chunk));
+      response.on('error', reject);
+      response.on('end', () => {
+        let body = null;
+        try { body = JSON.parse(Buffer.concat(chunks).toString('utf8')); }
+        catch { /* Match the route fixtures' previous invalid-JSON contract. */ }
+        resolve({ status: response.statusCode, body });
+      });
+    });
+    request.on('error', reject);
+  });
+}
+
+export { listenEphemeral, getEphemeralJSON };
