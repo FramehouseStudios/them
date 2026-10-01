@@ -102,7 +102,7 @@ test("parseStudioAction handles string and object", () => {
   assert.equal(parseStudioAction(123), null);
 });
 
-test("backend/index.js gate stays at 33603", async () => {
+test("backend/index.js never grows past 33603", async () => {
   const fs = await import("node:fs");
   const text = fs.readFileSync(new URL("../../backend/index.js", import.meta.url),"utf8");
   const lines = text.split("\n").length;
@@ -111,7 +111,7 @@ test("backend/index.js gate stays at 33603", async () => {
   // simpler: use file line count via reading and counting \n
   let c=0; for(let i=0;i<text.length;i++) if(text[i]==="\n") c++;
   if(text.length>0 && !text.endsWith("\n")) c+=1;
-  assert.equal(c, 33603);
+  assert.ok(c <= 33603, `backend/index.js has ${c} lines`); // D009: god files only shrink
 });
 
 // Every Studio tab opens by voice however it is named (2026-09-30: the
