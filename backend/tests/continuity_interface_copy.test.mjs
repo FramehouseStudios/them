@@ -94,3 +94,17 @@ test("memory's own templates are not the recap's next move or story line", async
   assert.equal(continuityNextMove(["Rain returns as proof or cost in Act III.", "Decker asks for the Journal."]), "Decker asks for the Journal.");
   assert.equal(continuityStoryState(["NORA's next public choice must pay off the private pressure planted here.", "Nora sets the badge down."]), "Nora sets the badge down.");
 });
+
+test("the recap names the open script when memory is about another one", async () => {
+  // 2026-09-30: "Where we left off · Clerk Stops T" while "Clerk Stops The Clock" was open.
+  const { continuitySnapshotOptions, openProjectRecap } = await import("../lib/continuity_interface_copy.js");
+  const owner = { activeProjectId: "p2", projects: [{ id: "p1", title: "Clerk Stops T" }, { id: "p2", title: "Clerk Stops The Clock" }] };
+  const options = continuitySnapshotOptions(owner, (project) => ({ draft: project.id === "p2" ? "INT. HALL - NIGHT\n\nRain.\n\nEXT. STEPS - DAY\n\nWind." : "" }));
+  assert.deepEqual(options.activeProject, { id: "p2", title: "Clerk Stops The Clock", lastHeading: "EXT. STEPS - DAY" });
+  const recap = openProjectRecap("p1", options);
+  assert.equal(recap.project_id, "p2");
+  assert.equal(recap.project_title, "Clerk Stops The Clock");
+  assert.equal(recap.opening_line, "Welcome back. We were in Clerk Stops The Clock, at EXT. STEPS - DAY.");
+  assert.equal(openProjectRecap("P2", options), null, "memory about the open script keeps the full recap");
+  assert.equal(openProjectRecap("p1", { activeProjectId: "", activeProject: null }), null, "nothing open: memory's own recap");
+});

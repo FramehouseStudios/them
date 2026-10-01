@@ -76,7 +76,8 @@ function draftReachedTheEnd(draft) {
 
 // "Where we left off" is the project the writer has open, not whichever one
 // memory touched last: Home offered "Night Nurse" while Sine Die was open
-// (2026-09-30). Memory's most recent item is the fallback.
+// (2026-09-30). Memory's most recent item is the fallback; when that is another
+// script and the open one is known, openProjectRecap names the open one.
 function activeProjectMemoryItem(projects = [], activeProjectId = "") {
   const list = Array.isArray(projects) ? projects : [];
   const active = String(activeProjectId || "").trim().toLowerCase();
@@ -100,12 +101,41 @@ function recapCharacterNames(names = [], limit = 2, storyText = "") {
 // /state after /session) still said "Act II" for a finished script.
 function continuitySnapshotOptions(owner = null, getLatestVersion = null) {
   const projects = Array.isArray(owner?.projects) ? owner.projects : [];
+  const activeId = String(owner?.activeProjectId || "").trim();
+  const open = projects.find((project) => project?.id === activeId) || null;
+  const openDraft = open && typeof getLatestVersion === "function" ? String(getLatestVersion(open)?.draft || "") : "";
   return {
-    activeProjectId: String(owner?.activeProjectId || "").trim(),
+    activeProject: open ? { id: open.id, title: String(open.title || "").trim(), lastHeading: lastSceneHeading(openDraft) } : null,
+    activeProjectId: activeId,
     finishedProjectIds: new Set(projects
       .filter((project) => draftReachedTheEnd(typeof getLatestVersion === "function" ? getLatestVersion(project)?.draft : ""))
       .map((project) => project.id)),
   };
 }
 
-export { continuitySnapshotOptions, isDistilledMemoryTemplate, isLikelyCharacterName, recapCharacterNames, activeProjectMemoryItem, continuityNextMove, continuityPosition, continuityStoryState, draftReachedTheEnd, withoutInterfaceCopy };
+function lastSceneHeading(draft = "") {
+  const headings = String(draft || "").split("\n").map((line) => line.trim())
+    .filter((line) => /^(?:INT\.|EXT\.|INT\/EXT\.|EXT\/INT\.|I\/E\.?)\s/i.test(line));
+  return headings.length ? headings[headings.length - 1].slice(0, 120) : "";
+}
+
+// The writer opened a script memory has nothing on yet (typed by hand, or
+// new): "Where we left off" named the last script Clementine wrote in instead
+// ("Clerk Stops T" while "Clerk Stops The Clock" was open, 2026-09-30). The
+// recap then names the open script and where its page ends, nothing else.
+// null when memory is about the open script, or nothing is open.
+function openProjectRecap(memoryProjectId = "", { activeProjectId = "", activeProject = null } = {}) {
+  const active = String(activeProjectId || "").trim().toLowerCase();
+  const remembered = String(memoryProjectId || "").trim().toLowerCase();
+  if (!active || !activeProject?.title || remembered === active) return null;
+  const where = activeProject.lastHeading ? `, at ${activeProject.lastHeading}` : "";
+  return {
+    has_continuity: true,
+    source: "active_project",
+    project_id: activeProject.id,
+    project_title: activeProject.title,
+    opening_line: `Welcome back. We were in ${activeProject.title}${where}.`,
+  };
+}
+
+export { openProjectRecap, continuitySnapshotOptions, isDistilledMemoryTemplate, isLikelyCharacterName, recapCharacterNames, activeProjectMemoryItem, continuityNextMove, continuityPosition, continuityStoryState, draftReachedTheEnd, withoutInterfaceCopy };

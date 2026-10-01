@@ -2477,6 +2477,26 @@ test("[persistent-screenplay-memory] the recap says finished for whichever proje
   assert.match(snapshot.opening_line, /the finished draft, through FADE OUT/);
 });
 
+test("[persistent-screenplay-memory] an open script memory has nothing on is the recap, not another script", () => {
+  // 2026-09-30: Home said "Where we left off · Clerk Stops T" while "Clerk Stops The Clock" was open.
+  const memory = {
+    ...createEmptyEmotionMemory(),
+    screenplayProjectMemory: sanitizeScreenplayProjectMemoryItems([
+      { projectId: "clerk-stops-t", projectTitle: "Clerk Stops T", act: "Act I", currentBeat: "The clerk reaches for the clock.", updatedAt: 2_000 },
+    ]),
+    screenplayProjectMemoryUpdatedAt: 2_000,
+  };
+  const snapshot = buildSessionContinuitySnapshot(memory, null, {
+    activeProjectId: "clerk-stops-the-clock",
+    activeProject: { id: "clerk-stops-the-clock", title: "Clerk Stops The Clock", lastHeading: "INT. HALL - NIGHT" },
+  });
+  assert.equal(snapshot.has_continuity, true);
+  assert.equal(snapshot.project_id, "clerk-stops-the-clock");
+  assert.equal(snapshot.project_title, "Clerk Stops The Clock");
+  assert.equal(snapshot.opening_line, "Welcome back. We were in Clerk Stops The Clock, at INT. HALL - NIGHT.");
+  assert.equal(snapshot.current_beat, "", "nothing from the other script");
+});
+
 test("[persistent-screenplay-memory] memory's own templates are not shown back as the writer's story", () => {
   // 2026-09-30: the Studio memory card read "Payoff: Rain returns as proof or cost in
   // Act III.", "Thread: Who else knows about phone?", "Arc: NORA must change tactics
