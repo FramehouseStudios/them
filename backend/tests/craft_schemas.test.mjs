@@ -6,6 +6,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
+import uri from "fast-uri";
 
 import {
   FRAMEWORK_SCHEMA,
@@ -29,6 +30,26 @@ async function loadFixture(name) {
 }
 
 // ---------- fixtures all validate ----------
+
+test("craft URI dependency rejects unbalanced authority brackets", () => {
+  assert.ok(uri.parse("http://[127.0.0.1/path").error,
+    "Malformed hosts must not appear successfully parsed.");
+});
+
+test("craft URI dependency normalizes percent-encoded host letters", () => {
+  assert.equal(uri.parse("http://exa%4Dple.test/path").host, "example.test");
+});
+
+test("craft URI dependency preserves ordinary hosts and IPv6 literals", () => {
+  const normal = uri.parse("https://example.test/schemas/craft/report.json");
+  assert.equal(normal.error, undefined);
+  assert.equal(normal.host, "example.test");
+  assert.equal(normal.path, "/schemas/craft/report.json");
+  const ipv6 = uri.parse("http://[::1]:8080/path");
+  assert.equal(ipv6.error, undefined);
+  assert.equal(ipv6.host, "::1");
+  assert.equal(ipv6.port, 8080);
+});
 
 test("framework_save_the_cat.json validates against FRAMEWORK_SCHEMA", async () => {
   const fx = await loadFixture("framework_save_the_cat.json");
