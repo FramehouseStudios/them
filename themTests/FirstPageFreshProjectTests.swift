@@ -37,6 +37,34 @@ final class FirstPageFreshProjectTests: XCTestCase {
         XCTAssertEqual(FirstPageFreshProject.uniqueTitle("Clerk Stops The Clock", among: ["clerk stops the clock "]), "Clerk Stops The Clock 2")
         XCTAssertEqual(FirstPageFreshProject.uniqueTitle("Clerk Stops The Clock", among: ["Clerk Stops The Clock", "Clerk Stops The Clock 2"]), "Clerk Stops The Clock 3")
     }
+
+    @MainActor
+    func testUITestsWriteTheFirstPageWithoutAServerProject() async {
+        // The stub page transport has no server; asking for a project failed
+        // every first-run smoke from #794 on.
+        let error = await FirstPageFreshProject.open(sceneSeed: "A clerk stops the clock", boundProjectID: { "" }, draft: { "" }, isRunningUITests: true)
+        XCTAssertNil(error)
+    }
+
+    @MainActor
+    func testTheFirstPageWaitsForItsProjectAndSaysSoWhenNoneOpens() async {
+        let responder = NotificationCenter.default.addObserver(forName: FirstPageFreshProject.requested, object: nil, queue: .main) { _ in
+            NotificationCenter.default.post(name: FirstPageFreshProject.ready, object: nil, userInfo: [FirstPageFreshProject.projectIDKey: ""])
+        }
+        defer { NotificationCenter.default.removeObserver(responder) }
+        let error = await FirstPageFreshProject.open(sceneSeed: "A clerk stops the clock", boundProjectID: { "" }, draft: { "" }, isRunningUITests: false)
+        XCTAssertEqual(error, FirstPageFreshProject.openFailure)
+    }
+
+    @MainActor
+    func testTheFirstPageIsReadyOnceWritesTargetTheNewProject() async {
+        let responder = NotificationCenter.default.addObserver(forName: FirstPageFreshProject.requested, object: nil, queue: .main) { _ in
+            NotificationCenter.default.post(name: FirstPageFreshProject.ready, object: nil, userInfo: [FirstPageFreshProject.projectIDKey: "project_clerk"])
+        }
+        defer { NotificationCenter.default.removeObserver(responder) }
+        let error = await FirstPageFreshProject.open(sceneSeed: "A clerk stops the clock", boundProjectID: { "project_clerk" }, draft: { "" }, isRunningUITests: false)
+        XCTAssertNil(error)
+    }
 }
 
 final class SessionContinuityPromptScopeTests: XCTestCase {
