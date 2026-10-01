@@ -2271,17 +2271,6 @@ private func stableScreenplayNodeFingerprint(_ raw: String) -> String {
     return String(hash, radix: 16, uppercase: false)
 }
 
-func screenplayLineIndex(for location: Int, in text: String) -> Int {
-    let safeText = text as NSString
-    let maxLength = safeText.length
-    let safeLocation = max(0, min(location, maxLength))
-    let prefix = safeText.substring(to: safeLocation)
-    let breaks = prefix.reduce(into: 0) { count, character in
-        if character == "\n" { count += 1 }
-    }
-    return max(0, breaks)
-}
-
 nonisolated struct ScreenplayLiveDraftTextPersistencePolicy {
     static func draftForStorage(_ draft: String) -> String? {
         draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : draft
@@ -11274,7 +11263,14 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
             // as a reload would; it stayed at the action margin until then.
             if context.currentElement == .action,
                ScreenplayEditorElement.inferredElement(for: context.lineText, previousElement: context.previousElement) == .character {
-                updateParagraphElementMetadata(.character, lineIndex: screenplayLineIndex(for: context.lineRange.location, in: nextText), in: nextText)
+                var cueStart = context.lineRange.location
+                if let offset = FountainElementSpacing.blankLineOffsetAboveTypedCue(lineStart: cueStart, in: nextText) {
+                    replaceEditorText(in: NSRange(location: offset, length: 0), with: "\n", cursor: textView.selectedRange.location + 1, in: textView)
+                    synchronizeParagraphElementsWithCurrentText(in: textView)
+                    cueStart += 1
+                }
+                let cueText = textView.text ?? nextText
+                updateParagraphElementMetadata(.character, lineIndex: screenplayLineIndex(for: cueStart, in: cueText), in: cueText)
             }
             let nextElement = ScreenplayEditorElement.nextElementAfterReturn(
                 currentLine: context.lineText,

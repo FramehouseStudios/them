@@ -4,6 +4,17 @@ import ScreenplayStudio
 // Free line helpers for the screenplay editor coordinators, moved verbatim
 // out of ScreenplayLiveDraftBridge.swift to keep that file from growing.
 
+func screenplayLineIndex(for location: Int, in text: String) -> Int {
+    let safeText = text as NSString
+    let maxLength = safeText.length
+    let safeLocation = max(0, min(location, maxLength))
+    let prefix = safeText.substring(to: safeLocation)
+    let breaks = prefix.reduce(into: 0) { count, character in
+        if character == "\n" { count += 1 }
+    }
+    return max(0, breaks)
+}
+
 func screenplayCurrentLineDetails(
     for location: Int,
     in content: String
