@@ -13,6 +13,17 @@
 
 ## Active work — quick view
 
+### T-studio-actions-gate — Preserve Studio voice actions without root-view growth
+- Owner: codex
+- Branch: codex/T-studio-actions-gate
+- Status: in-progress
+- Pillar: voice→scene
+- Done when: #643's capability metadata and response actions retain their
+  behavior, existing action types own the integration, the god-file gate passes
+  against #642, and focused/full signed iOS and backend proof pass.
+- Scope: additive extraction on Claude's original #643 commits, no replacement
+  implementation or merge ahead of #766 and #770.
+
 | ID   | Title                                              | Owner  | Status            |
 |------|----------------------------------------------------|--------|-------------------|
 | T01  | Triage 409-file uncommitted snapshot               | human  | ready             |
