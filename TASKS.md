@@ -13,6 +13,20 @@
 
 ## Active work — quick view
 
+### T-page-cancel-admission-review — Prove cancellation durability boundaries
+- Owner: codex
+- Branch: codex/T-all-branches-review
+- Status: in-progress
+- Goal criteria: 1, 4, 6 and 7.
+- Scope: preserve #632/#635 lifecycle and exact-request work; independently
+  characterize delayed-stop, restart and worker boundaries before integration.
+- Evidence: five real-store characterization tests, two pass and three expected
+  safety failures. Current broad stop cancels newer work; #635 exact stop fixes
+  that race but reconstruction/second-worker admission forgets the stop.
+- Next: durable atomic owner-scoped admission/cancel via canonical persistence;
+  no stop-marker TTL without enforceable admission expiry.
+- Proof: docs/audits/page-cancel-admission-2026-09-30.md.
+
 ### T-all-branches-review — Preserve and verify the complete GitHub branch inventory
 - Owner: codex
 - Branch: codex/T-all-branches-review
