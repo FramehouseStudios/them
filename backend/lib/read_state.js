@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { writerWordsForHistory } from "./writer_words.js";
 
 const RECAP_WINDOWS = new Set(["today", "yesterday", "last_7_days"]);
 
@@ -345,7 +346,7 @@ function createReadStateHelpers(deps = {}) {
           studio?.screenplayTarget === "voice_pin" ? 6000 : 280
         );
       } else {
-        current.user = normalizeSnippet(item.content, 280);
+        current.user = normalizeSnippet(writerWordsForHistory(item.content), 280);
       }
       current.requestId = item.requestId || current.requestId;
       if (studio) {

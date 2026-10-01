@@ -1,3 +1,4 @@
+import { recapWithWriterWords } from "./writer_words.js";
 import {
   sanitizePendingScreenplayLearningQuestion,
   sanitizePendingScreenplayLearningQuestions,
@@ -83,7 +84,7 @@ function sanitizePersistedSessionMemory(rawMemory) {
     merged.rememberedPeople,
     USER_MEMORY_REMEMBERED_PEOPLE_MAX
   );
-  merged.lastConversationRecap = normalizeSnippet(merged.lastConversationRecap, 220);
+  merged.lastConversationRecap = normalizeSnippet(recapWithWriterWords(merged.lastConversationRecap), 220);
   merged.lastConversationAt = Math.max(0, Number(merged.lastConversationAt || 0));
   merged.lastConversationSnapshot = normalizeSnippet(merged.lastConversationSnapshot, 420);
   merged.lastConversationSnapshotAt = Math.max(0, Number(merged.lastConversationSnapshotAt || 0));

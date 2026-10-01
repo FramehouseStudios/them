@@ -22,3 +22,29 @@ export function writerWordsFromTurn(transcript = "") {
 export function isElevatedBrief(transcript = "") {
   return /Writer's immediate direction:|Writer request:/i.test(String(transcript || ""));
 }
+
+// What History shows as the writer's side of a turn. The app's own briefs
+// were listed as "You shared “Write the first page of a screenplay scene for
+// Aaron. Scene impulse: …”" and "Continue the feature as feature-film
+// screenplay pages…" - words the writer never typed (2026-09-30). The first
+// page shows the scene the writer gave; a continuation brief shows the
+// writer's direction, or "Continue the script" when the stored turn was cut
+// before it.
+export function writerWordsForHistory(transcript = "") {
+  const source = String(transcript || "").trim();
+  const impulse = source.match(/^Write the first page of a screenplay scene for [^.]*\.\s*Scene impulse:\s*(.+?)(?=\s+Write only the page content|\n|$)/i)?.[1];
+  if (impulse) return `First page: ${impulse.trim()}`;
+  if (isElevatedBrief(source)) return writerWordsFromTurn(source);
+  if (/^Continue the feature as feature-film screenplay pages\b/i.test(source)) return "Continue the script";
+  return source;
+}
+
+// A recap saved before History used the writer's words still quoted the brief
+// ("You shared “Write the first page of a screenplay scene for…”"). Its quote
+// is rewritten the same way when memory is read.
+export function recapWithWriterWords(recap = "") {
+  return String(recap || "").replace(/You shared “([^”]*)”/, (whole, quoted) => {
+    const words = writerWordsForHistory(quoted.replace(/…$/, ""));
+    return words === quoted.replace(/…$/, "") ? whole : `You shared “${words.replace(/[.!?]+$/, "")}”`;
+  });
+}
