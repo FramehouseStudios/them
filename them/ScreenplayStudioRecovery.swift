@@ -33,8 +33,10 @@ struct ScreenplayBridgeDraftAdoptionPolicy {
         selectedProjectId: String,
         currentDraft: String,
         bridgeDraft: String,
-        draftOriginProjectId: String
+        draftOriginProjectId: String,
+        isStreamingDraftPreviewActive: Bool = false
     ) -> Bool {
+        guard !isStreamingDraftPreviewActive else { return false }
         let selectedProject = selectedProjectId.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedCurrentDraft = currentDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedBridgeDraft = bridgeDraft.trimmingCharacters(in: .whitespacesAndNewlines)
