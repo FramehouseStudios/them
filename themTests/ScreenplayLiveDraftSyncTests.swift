@@ -196,6 +196,7 @@ private final class FakeLiveDraftEditor: LiveDraftEditorBinding {
     var appliedSourceDevices: [String] = []
     var preservedDrafts: [(projectID: String, draft: String)] = []
     var recoveryEvents: [String] = []
+    var recoverySucceeds = true
     var adoptedVersions: [(versionID: String, checksum: String)] = []
     var revealedLines: [Int] = []
 
@@ -219,9 +220,10 @@ private final class FakeLiveDraftEditor: LiveDraftEditorBinding {
         return true
     }
 
-    func preserveLiveDraftForRecovery(_ draft: String, projectID: String) {
+    func preserveLiveDraftForRecovery(_ draft: String, projectID: String) -> Bool {
         preservedDrafts.append((projectID, draft))
         recoveryEvents.append("preserve")
+        return recoverySucceeds
     }
 
     func revealRemoteEditLine(_ line: Int) {
@@ -433,6 +435,8 @@ final class ScreenplayLiveDraftSyncServiceTests: XCTestCase {
         let merged = "INT. ROOM - NIGHT\n\nMara waits.\n\nShe leaves."
         await waitUntil { editor.text == merged }
         XCTAssertEqual(editor.text, merged, "neither device's words are lost")
+        XCTAssertEqual(editor.preservedDrafts.map(\.draft), [merged], "the combined draft is recovered before editor replacement")
+        XCTAssertEqual(editor.recoveryEvents.prefix(2), ["preserve", "apply"])
         // The rebased local edit is then published against the new mirror.
         await waitUntil { transport.postedOps.count == 2 }
         XCTAssertEqual(transport.postedOps.last?.baseSeq, 3)
@@ -620,6 +624,29 @@ final class ScreenplayLiveDraftSyncServiceTests: XCTestCase {
             transport.postedOps.allSatisfy { !$0.op.insert.contains("One more thought") },
             "an unmerged local draft is recoverable but is not appended to the channel"
         )
+        service.detach()
+    }
+
+    func testRemoteOverwriteIsWithheldWhenRecoveryCannotBePersisted() async {
+        let base = "INT. ROOM - DAY\n\nMara waits."
+        let transport = FakeLiveDraftTransport()
+        let editor = FakeLiveDraftEditor(projectID: "proj-1", text: base)
+        editor.recoverySucceeds = false
+        let service = makeService(transport: transport)
+        service.attach(to: editor)
+        await waitUntil { !transport.openedStreams.isEmpty }
+        transport.emit("hello", #"{"seq":0,"checksum":"\#(LiveDraftText.checksum(base))","seeded":false}"#)
+        await waitUntil { service.status.isLive }
+
+        let remote = base + " She leaves."
+        let op = LiveDraftText.diff(from: base, to: remote)!
+        transport.emit("op", #"{"seq":1,"device_id":"ios-phone","op":{"start":\#(op.start),"delete_count":\#(op.deleteCount),"insert":"\#(op.insert)"},"checksum":"\#(LiveDraftText.checksum(remote))"}"#)
+        await waitUntil { !editor.recoveryEvents.isEmpty }
+        try? await Task.sleep(nanoseconds: 100_000_000)
+
+        XCTAssertEqual(editor.text, base, "the editor must retain its text when the recovery flush fails")
+        XCTAssertTrue(editor.appliedRemoteTexts.isEmpty)
+        XCTAssertEqual(editor.recoveryEvents, ["preserve"])
         service.detach()
     }
 

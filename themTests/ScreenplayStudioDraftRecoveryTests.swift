@@ -62,20 +62,31 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         CLEMENTINE watches the rain make tiny rivers down the glass.
         """
 
-        store.save(
+        XCTAssertTrue(store.save(
             ownerUserId: ownerUserID,
             projectId: " project-recovery ",
             draft: draft,
             baseVersionId: "version-before-edit",
             dirty: true,
-            savedAt: 1_700_000_000
-        )
+            savedAt: 1_700_000_000,
+            synchronizeToDisk: true
+        ), "a recovery snapshot is acknowledged only after the defaults flush succeeds")
 
         let payload = store.payloads(ownerUserId: ownerUserID)["project-recovery"]
         XCTAssertEqual(payload?["draft"] as? String, draft)
         XCTAssertEqual(payload?["baseVersionId"] as? String, "version-before-edit")
         XCTAssertEqual(payload?["dirty"] as? Bool, true)
         XCTAssertEqual(payload?["savedAt"] as? TimeInterval, 1_700_000_000)
+
+        let reopenedStore = ScreenplayLocalDraftRecoveryStore(
+            defaults: UserDefaults(suiteName: defaultsSuiteName)!,
+            key: recoveryKey
+        )
+        XCTAssertEqual(
+            reopenedStore.payloads(ownerUserId: ownerUserID)["project-recovery"]?["draft"] as? String,
+            draft,
+            "the flushed recovery text is visible to a newly opened defaults reader"
+        )
     }
 
     func testClearRemovesOnlyRequestedProjectRecoverySnapshot() {

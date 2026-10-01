@@ -1924,21 +1924,26 @@ final class ScreenplayStudioViewModel: ObservableObject {
 
     /// Preserve a displaced draft before live sync replaces it. The dedicated
     /// conflict slot survives ordinary remote-draft recovery writes.
-    func preserveUnsavedLiveDraftForRecovery(_ draft: String, projectID: String) {
+    @discardableResult
+    func preserveUnsavedLiveDraftForRecovery(_ draft: String, projectID: String) -> Bool {
         guard ScreenplayProjectScopedState.matches(projectID, selectedProjectId: selectedProjectID) else {
-            return
+            return false
         }
         let normalized = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalized.isEmpty,
-              fingerprint(for: normalized) != lastSavedDraftFingerprint else { return }
+              fingerprint(for: normalized) != lastSavedDraftFingerprint else { return true }
         let project = projectID.trimmingCharacters(in: .whitespacesAndNewlines)
         let owner = currentStudioAuthContext().userID
-        localDraftRecoveryStore.savePreservedConflict(
+        guard localDraftRecoveryStore.savePreservedConflict(
             ownerUserId: owner,
             projectId: project,
             draft: draft,
-            baseVersionId: latestVersionID
-        )
+            baseVersionId: latestVersionID,
+            synchronizeToDisk: true
+        ) else {
+            autosaveStatusText = "Local recovery failed — remote update held"
+            return false
+        }
         recoveryCandidate = LocalDraftRecoveryCandidate(
             projectId: project,
             draft: draft,
@@ -1948,6 +1953,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         )
         autosaveStatusText = "Local draft protected"
         infoText = "Your unsaved local draft is preserved while live sync loads the other device's text. Recover it or keep the server draft."
+        return true
     }
 
     /// The typing device normally announces its saved version within a couple
@@ -6525,22 +6531,25 @@ final class ScreenplayStudioViewModel: ObservableObject {
         )
     }
 
+    @discardableResult
     private func persistLocalDraftRecovery(
         projectId: String,
         draft: String,
         baseVersionId: String,
         dirty: Bool,
-        savedAt: TimeInterval = Date().timeIntervalSince1970
-    ) {
+        savedAt: TimeInterval = Date().timeIntervalSince1970,
+        synchronizeToDisk: Bool = false
+    ) -> Bool {
         let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalizedProjectId.isEmpty else { return }
-        localDraftRecoveryStore.save(
+        guard !normalizedProjectId.isEmpty else { return false }
+        let persisted = localDraftRecoveryStore.save(
             ownerUserId: currentStudioAuthContext().userID,
             projectId: normalizedProjectId,
             draft: draft,
             baseVersionId: baseVersionId,
             dirty: dirty,
-            savedAt: savedAt
+            savedAt: savedAt,
+            synchronizeToDisk: synchronizeToDisk
         )
         let hasDifferentPreservedConflict = recoveryCandidate.map {
             $0.projectId == normalizedProjectId &&
@@ -6550,6 +6559,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         if !dirty && !hasDifferentPreservedConflict {
             recoveryCandidate = nil
         }
+        return persisted
     }
 
     @discardableResult
@@ -6557,7 +6567,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
         projectId: String,
         draft: String,
         baseVersionId: String,
-        surfaceCandidate: Bool = true
+        surfaceCandidate: Bool = true,
+        synchronizeToDisk: Bool = false
     ) -> LocalDraftRecoveryCandidate? {
         guard ScreenplayUnconfirmedSaveRecoveryPolicy.shouldPersist(
             projectId: projectId,
@@ -6567,13 +6578,14 @@ final class ScreenplayStudioViewModel: ObservableObject {
         }
         let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
         let savedAt = Date().timeIntervalSince1970
-        persistLocalDraftRecovery(
+        guard persistLocalDraftRecovery(
             projectId: normalizedProjectId,
             draft: draft,
             baseVersionId: baseVersionId,
             dirty: true,
-            savedAt: savedAt
-        )
+            savedAt: savedAt,
+            synchronizeToDisk: synchronizeToDisk
+        ) else { return nil }
         let candidate = LocalDraftRecoveryCandidate(
             projectId: normalizedProjectId,
             draft: draft,
