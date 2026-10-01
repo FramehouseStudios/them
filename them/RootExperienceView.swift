@@ -3847,29 +3847,9 @@ struct RootExperienceView: View {
         }
     }
 
-    /// Opens a project of its own for the first page (FirstPageFreshProject)
-    /// and waits until writes target it; nil when ready, else what went wrong.
     @MainActor
     private func startFirstPageProject(sceneSeed: String) async -> String? {
-        let failure = "Couldn't open a project for this scene. Your scene is saved; try again."
-        try? await Task.sleep(for: .milliseconds(600)) // let the Studio mount
-        let ready = Task { @MainActor () -> String in
-            for await note in NotificationCenter.default.notifications(named: FirstPageFreshProject.ready) {
-                return (note.userInfo?[FirstPageFreshProject.projectIDKey] as? String) ?? ""
-            }
-            return ""
-        }
-        let timeout = Task { try? await Task.sleep(for: .seconds(20)); ready.cancel() }
-        await Task.yield()
-        NotificationCenter.default.post(name: FirstPageFreshProject.requested, object: nil, userInfo: [FirstPageFreshProject.titleKey: FirstPageFreshProject.title(fromSceneSeed: sceneSeed)])
-        let projectID = await ready.value
-        timeout.cancel()
-        guard !projectID.isEmpty else { return failure }
-        for _ in 0..<50 {
-            if FirstPageFreshProject.isBound(to: projectID, boundProjectID: screenplayDraftBridge.committedWriteProjectIDSnapshot(), draft: screenplayDraftBridge.draftText) { return nil }
-            try? await Task.sleep(for: .milliseconds(200))
-        }
-        return failure
+        await FirstPageFreshProject.open(sceneSeed: sceneSeed, boundProjectID: { screenplayDraftBridge.committedWriteProjectIDSnapshot() }, draft: { screenplayDraftBridge.draftText })
     }
 
     /// The home first-page card: sign in first if needed, otherwise write it.
