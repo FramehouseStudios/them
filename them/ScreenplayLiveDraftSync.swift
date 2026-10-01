@@ -461,14 +461,10 @@ protocol LiveDraftEditorBinding: AnyObject {
     var liveDraftTextPublisher: AnyPublisher<String, Never> { get }
     @discardableResult
     func applyRemoteLiveDraft(_ text: String, projectID: String, sourceDeviceID: String) -> Bool
-    func preserveLocalDraftForLiveSyncRecovery(_ text: String, projectID: String)
+    func preserveLiveDraftForRecovery(_ draft: String, projectID: String)
     func adoptRemoteLiveVersion(_ versionID: String, projectID: String, draftChecksum: String)
     /// Bring the line another device is typing on into view.
     func revealRemoteEditLine(_ line: Int)
-}
-
-extension LiveDraftEditorBinding {
-    func preserveLocalDraftForLiveSyncRecovery(_ text: String, projectID: String) {}
 }
 
 extension ScreenplayStudioViewModel: LiveDraftEditorBinding {
@@ -484,6 +480,10 @@ extension ScreenplayStudioViewModel: LiveDraftEditorBinding {
 
     func revealRemoteEditLine(_ line: Int) {
         ScreenplayLiveDraftBridge.shared.jumpToLine(line)
+    }
+
+    func preserveLiveDraftForRecovery(_ draft: String, projectID: String) {
+        preserveUnsavedLiveDraftForRecovery(draft, projectID: projectID)
     }
 }
 
@@ -860,7 +860,7 @@ final class ScreenplayLiveDraftSyncService: ObservableObject {
             // A clean remote adoption or overlapping edit must not erase the
             // only copy of local text. Preserve it before the editor follows
             // the channel; the recovery UI lets the writer choose afterward.
-            editor?.preserveLocalDraftForLiveSyncRecovery(localText, projectID: projectID)
+            editor?.preserveLiveDraftForRecovery(localText, projectID: projectID)
         }
         applyToEditor(merged ?? remoteText, projectID: projectID, sourceDeviceID: sourceDeviceID)
         if let revealLine, merged == nil {

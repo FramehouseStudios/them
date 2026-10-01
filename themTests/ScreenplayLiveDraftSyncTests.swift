@@ -194,7 +194,8 @@ private final class FakeLiveDraftEditor: LiveDraftEditorBinding {
     var latestVersionID = "v1"
     var appliedRemoteTexts: [String] = []
     var appliedSourceDevices: [String] = []
-    var preservedLocalDrafts: [(draft: String, projectID: String)] = []
+    var preservedDrafts: [(projectID: String, draft: String)] = []
+    var recoveryEvents: [String] = []
     var adoptedVersions: [(versionID: String, checksum: String)] = []
     var revealedLines: [Int] = []
 
@@ -211,18 +212,20 @@ private final class FakeLiveDraftEditor: LiveDraftEditorBinding {
 
     func applyRemoteLiveDraft(_ text: String, projectID: String, sourceDeviceID: String) -> Bool {
         guard projectID == self.projectID else { return false }
+        recoveryEvents.append("apply")
         appliedRemoteTexts.append(text)
         appliedSourceDevices.append(sourceDeviceID)
         self.text = text
         return true
     }
 
-    func revealRemoteEditLine(_ line: Int) {
-        revealedLines.append(line)
+    func preserveLiveDraftForRecovery(_ draft: String, projectID: String) {
+        preservedDrafts.append((projectID, draft))
+        recoveryEvents.append("preserve")
     }
 
-    func preserveLocalDraftForLiveSyncRecovery(_ text: String, projectID: String) {
-        preservedLocalDrafts.append((text, projectID))
+    func revealRemoteEditLine(_ line: Int) {
+        revealedLines.append(line)
     }
 
     func adoptRemoteLiveVersion(_ versionID: String, projectID: String, draftChecksum: String) {
@@ -399,6 +402,8 @@ final class ScreenplayLiveDraftSyncServiceTests: XCTestCase {
         editor.text = "bAse"
         await waitUntil { editor.text == "phone wins" }
         XCTAssertEqual(editor.appliedRemoteTexts.last, "phone wins")
+        XCTAssertEqual(editor.preservedDrafts.map(\.draft), ["bAse"])
+        XCTAssertEqual(editor.recoveryEvents.prefix(2), ["preserve", "apply"])
 
         transport.emit("version", #"{"seq":5,"device_id":"ios-phone","version_id":"v9","checksum":"\#(LiveDraftText.checksum("phone wins"))"}"#)
         await waitUntil { !editor.adoptedVersions.isEmpty }
@@ -587,9 +592,34 @@ final class ScreenplayLiveDraftSyncServiceTests: XCTestCase {
         try? await Task.sleep(nanoseconds: 300_000_000)
         XCTAssertEqual(editor.text, channel)
         XCTAssertTrue(transport.postedOps.allSatisfy { !$0.op.insert.contains("INT. DINER") }, "no doubled page is published")
-        XCTAssertEqual(editor.preservedLocalDrafts.count, 1)
-        XCTAssertEqual(editor.preservedLocalDrafts.first?.draft, cached)
-        XCTAssertEqual(editor.preservedLocalDrafts.first?.projectID, "proj-1")
+        XCTAssertEqual(editor.preservedDrafts.count, 1)
+        XCTAssertEqual(editor.preservedDrafts.first?.draft, cached)
+        XCTAssertEqual(editor.preservedDrafts.first?.projectID, "proj-1")
+        service.detach()
+    }
+
+    func testHelloWithoutAgreedBasePreservesUnsavedLocalDraftBeforeChannelWins() async {
+        let channel = "INT. DINER - NIGHT\n\nShe waits."
+        let unsaved = channel + "\n\nOne more thought."
+        let transport = FakeLiveDraftTransport()
+        let editor = FakeLiveDraftEditor(projectID: "proj-1", text: unsaved)
+        let service = makeService(transport: transport)
+        service.attach(to: editor)
+        await waitUntil { !transport.openedStreams.isEmpty }
+
+        transport.emit(
+            "hello",
+            #"{"seq":5,"checksum":"\#(LiveDraftText.checksum(channel))","seeded":false,"text":"INT. DINER - NIGHT\n\nShe waits."}"#
+        )
+
+        await waitUntil { editor.text == channel && !editor.preservedDrafts.isEmpty }
+        XCTAssertEqual(editor.preservedDrafts.map(\.projectID), ["proj-1"])
+        XCTAssertEqual(editor.preservedDrafts.map(\.draft), [unsaved])
+        XCTAssertEqual(editor.recoveryEvents.prefix(2), ["preserve", "apply"])
+        XCTAssertTrue(
+            transport.postedOps.allSatisfy { !$0.op.insert.contains("One more thought") },
+            "an unmerged local draft is recoverable but is not appended to the channel"
+        )
         service.detach()
     }
 

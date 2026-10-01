@@ -1922,32 +1922,28 @@ final class ScreenplayStudioViewModel: ObservableObject {
         return true
     }
 
-    /// Preserve a dirty local draft independently before live sync replaces
-    /// it with a remote snapshot that has no shared rebase base.
-    func preserveLocalDraftForLiveSyncRecovery(_ text: String, projectID: String) {
+    /// Preserve a displaced draft before live sync replaces it. The dedicated
+    /// conflict slot survives ordinary remote-draft recovery writes.
+    func preserveUnsavedLiveDraftForRecovery(_ draft: String, projectID: String) {
         guard ScreenplayProjectScopedState.matches(projectID, selectedProjectId: selectedProjectID) else {
             return
         }
-        let cleanProjectID = projectID.trimmingCharacters(in: .whitespacesAndNewlines)
-        let normalizedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !cleanProjectID.isEmpty,
-              !normalizedText.isEmpty,
-              fingerprint(for: normalizedText) != lastSavedDraftFingerprint else { return }
-
-        let savedAt = Date().timeIntervalSince1970
-        let ownerUserID = currentStudioAuthContext().userID
+        let normalized = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty,
+              fingerprint(for: normalized) != lastSavedDraftFingerprint else { return }
+        let project = projectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let owner = currentStudioAuthContext().userID
         localDraftRecoveryStore.savePreservedConflict(
-            ownerUserId: ownerUserID,
-            projectId: cleanProjectID,
-            draft: text,
-            baseVersionId: latestVersionID,
-            savedAt: savedAt
+            ownerUserId: owner,
+            projectId: project,
+            draft: draft,
+            baseVersionId: latestVersionID
         )
         recoveryCandidate = LocalDraftRecoveryCandidate(
-            projectId: cleanProjectID,
-            draft: text,
+            projectId: project,
+            draft: draft,
             baseVersionId: latestVersionID,
-            savedAt: savedAt,
+            savedAt: Date().timeIntervalSince1970,
             isPreservedConflict: true
         )
         autosaveStatusText = "Local draft protected"
@@ -1995,15 +1991,11 @@ final class ScreenplayStudioViewModel: ObservableObject {
         conflictState = nil
         autosaveStatusText = "Saved"
         if !selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            let ownerUserID = currentStudioAuthContext().userID
-            localDraftRecoveryStore.clearOrdinaryDraft(
-                ownerUserId: ownerUserID,
-                projectId: selectedProjectID
-            )
-            evaluateLocalDraftRecovery(
-                projectId: selectedProjectID,
-                serverDraft: fountainDraft
-            )
+            // A prior live-sync conflict may have preserved a local draft
+            // before adopting this device's text. Clear only a snapshot that
+            // now matches the accepted server draft; keep a distinct recovery
+            // candidate available to the writer.
+            evaluateLocalDraftRecovery(projectId: selectedProjectID, serverDraft: fountainDraft)
         }
         syncLiveDraftBridgeProjectContext()
     }
