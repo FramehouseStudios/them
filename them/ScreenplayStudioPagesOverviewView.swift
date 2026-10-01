@@ -96,7 +96,7 @@ struct ScreenplayStudioPagesOverviewView: View {
                     Spacer(minLength: 0)
                     // A screenplay's first page is not numbered (as printed).
                     Text(page.number > 1 ? "\(page.number)." : " ")
-                        .font(.custom("Courier", size: metrics.fontSize))
+                        .font(IOThemTypography.Screenplay.referenceText(size: metrics.fontSize))
                         .foregroundStyle(Color.black.opacity(0.70))
                 }
                 .padding(.bottom, IOThemSpacing.Scale.md)
@@ -133,7 +133,7 @@ struct ScreenplayStudioPagesOverviewView: View {
     private func pageLine(_ line: String, kind: ScreenplayPageLayout.LineKind, metrics: ScreenplayPageThumbnailMetrics) -> some View {
         let placement = metrics.placement(for: kind, line: line)
         return Text(line.isEmpty ? " " : line)
-            .font(.custom("Courier", size: metrics.fontSize))
+            .font(IOThemTypography.Screenplay.referenceText(size: metrics.fontSize))
             .fontWeight(kind == .sceneHeading ? .bold : .regular)
             .foregroundStyle(Color.black.opacity(line.isEmpty ? 0.0 : 0.82))
             .lineLimit(1)

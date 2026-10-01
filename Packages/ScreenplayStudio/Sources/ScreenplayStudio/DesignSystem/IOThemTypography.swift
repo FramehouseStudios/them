@@ -47,6 +47,9 @@ public enum IOThemTypography {
     public enum Screenplay {
         public static let baseFontSize: CGFloat = 14
         public static let referenceText = Font.custom("Courier", size: 12)
+        /// Courier at a fitted size, for scaled printed-page previews (the
+        /// Pages overview fits a 62-character line to the card width).
+        public static func referenceText(size: CGFloat) -> Font { Font.custom("Courier", size: min(12, max(4, size))) }
         /// Title page miniature: the printed page at about a third of size.
         public static let titlePagePreview = Font.custom("Courier", size: 10)
         public static let titlePagePreviewFootnote = Font.custom("Courier", size: 7)
