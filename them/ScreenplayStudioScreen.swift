@@ -5387,7 +5387,7 @@ private var projectsSidebarContent: some View {
             quickLinkTargets: beatQuickLinkTargets,
             selectedScene: selectedBeatScene,
             currentScene: currentSceneInspectorSelection,
-            availableScenes: availableBeatSceneOptions,
+            availableScenes: availableBeatSceneOptions, pageSceneHeadings: ScreenplayStudioViewModel.pageScenesMissingFromOutline(draftSceneNavigatorItems.map(\.label), outline: vm.outline.scenes), onSelectPageScene: { heading in Task { await vm.selectPageSceneForNewBeat(heading) } },
             selectedAct: selectedBeatAct,
             acts: sortedOutlineActs,
             onCaptureSelection: handleSelectionQuickBeatCapture,

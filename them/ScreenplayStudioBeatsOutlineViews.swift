@@ -1312,6 +1312,11 @@ struct ScreenplayStudioBeatScenePicker: View {
     let selectedScene: BackendScreenplayScene?
     let currentScene: BackendScreenplayScene?
     let availableScenes: [BackendScreenplayScene]
+    /// A script written on the page has scenes the outline doesn't: the menu
+    /// offered only "No scene link" (2026-09-30). Picking one adds it to the
+    /// outline and links it.
+    var pageSceneHeadings: [String] = []
+    var onSelectPageScene: (String) -> Void = { _ in }
     let onSelect: (BackendScreenplayScene?) -> Void
 
     var body: some View {
@@ -1323,6 +1328,14 @@ struct ScreenplayStudioBeatScenePicker: View {
                 Divider()
                 Button("Current scene: \(title(for: currentScene))") {
                     onSelect(currentScene)
+                }
+            }
+            if !pageSceneHeadings.isEmpty {
+                Divider()
+                Section("From the page") {
+                    ForEach(pageSceneHeadings, id: \.self) { heading in
+                        Button(heading) { onSelectPageScene(heading) }
+                    }
                 }
             }
             if !availableScenes.isEmpty {
@@ -1439,6 +1452,9 @@ struct ScreenplayStudioBeatComposer: View {
     let selectedScene: BackendScreenplayScene?
     let currentScene: BackendScreenplayScene?
     let availableScenes: [BackendScreenplayScene]
+    /// Scenes written on the page that the outline doesn't have yet.
+    var pageSceneHeadings: [String] = []
+    var onSelectPageScene: (String) -> Void = { _ in }
     let selectedAct: BackendScreenplayAct?
     let acts: [BackendScreenplayAct]
     let onCaptureSelection: () -> Void
@@ -1501,6 +1517,8 @@ struct ScreenplayStudioBeatComposer: View {
                         selectedScene: selectedScene,
                         currentScene: currentScene,
                         availableScenes: availableScenes,
+                        pageSceneHeadings: pageSceneHeadings,
+                        onSelectPageScene: onSelectPageScene,
                         onSelect: onSelectScene
                     )
                 }
