@@ -264,7 +264,10 @@ test("[D009-B3] talk_handler orchestrates real prompt + generate stages", () => 
   assert.match(src, /storeTalkTurnMeta\(\{/);
   assert.doesNotMatch(src, /from "\.\/talk_persist\.js"/);
   const generateSrc = fs.readFileSync(path.join(HERE, "..", "lib", "talk_generate.js"), "utf8");
-  assert.match(generateSrc, /gatePageGeneration\(/);
+  assert.match(generateSrc, /await gatePageGenerationDurably\(/);
+  const abortSrc = fs.readFileSync(path.join(HERE, "..", "lib", "clementine", "page_abort.js"), "utf8");
+  assert.match(abortSrc, /await clementine\?\.refreshCancellation\?\.\(\);\s*return gatePageGeneration\(clementine\)/,
+    "the durable wrapper must await shared cancellation before the existing abort gate");
   assert.match(generateSrc, /commitWallet/);
   assert.match(generateSrc, /chatSupplier\.stream\(/);
   assert.match(generateSrc, /chatSupplier\.chat\(/);

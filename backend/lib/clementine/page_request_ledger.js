@@ -20,18 +20,22 @@ function createPageRequestLedger({ persistence, now = () => Date.now(), pollMs =
     throw new Error('Page request ledger requires canonical get/compareAndSwap persistence.');
   }
   const interval = Math.max(25, Math.min(1000, Number(pollMs) || 250));
-  const read = async target => persistence.get({ domain: PAGE_REQUEST_DOMAIN, key: identity(target).key });
+  const read = async target => {
+    const { key, ...scope } = identity(target);
+    const record = await persistence.get({ domain: PAGE_REQUEST_DOMAIN, key });
+    if (record && (record.schemaVersion !== 1 || record.ownerId !== scope.ownerId ||
+        record.sessionHash !== scope.sessionHash || record.requestHash !== scope.requestHash ||
+        !['admitted', 'cancelled'].includes(record.state))) {
+      throw new Error('Invalid durable writing turn record.');
+    }
+    return record;
+  };
 
   async function transition(target, state) {
     const { key, ...scope } = identity(target);
     for (let attempt = 0; attempt < 8; attempt++) {
-      const previous = await persistence.get({ domain: PAGE_REQUEST_DOMAIN, key });
+      const previous = await read(target);
       if (previous) {
-        if (previous.schemaVersion !== 1 || previous.ownerId !== scope.ownerId ||
-            previous.sessionHash !== scope.sessionHash || previous.requestHash !== scope.requestHash ||
-            !['admitted', 'cancelled'].includes(previous.state)) {
-          throw new Error('Invalid durable writing turn record.');
-        }
         if (state === 'admitted') return { ok: false, code: previous.state === 'cancelled'
           ? 'page_generation_cancelled' : 'page_request_already_started' };
         if (previous.state === 'cancelled') return { ok: true };

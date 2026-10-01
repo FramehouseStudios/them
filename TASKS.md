@@ -13,6 +13,23 @@
 
 ## Active work — quick view
 
+### T-page-request-durable — Preserve stopped writing turns across retries and restart
+- Owner: codex
+- Branch: codex/T-page-request-durable
+- Status: in-progress
+- Pillar: voice→scene, living companion
+- Goal criteria: 1, 4, 6 and 7.
+- Scope: reuse #635's exact-request contract and #625's billing fixes on #885;
+  extend canonical persistence for owner-scoped admission and cancellation.
+- Done when: acknowledged stops cannot later publish or bill across workers;
+  duplicates cannot regenerate; full backend, erased signed iOS, UI, macOS,
+  persistence and parent-relative god-file checks pass with explicit limits.
+- Current: deterministic focused checks pass; atomic stop/settlement ordering
+  remains unresolved. Not ready to publish or merge. Originals are preserved.
+- Verified checkpoint: full backend 2,857 pass/0 fail/2 skip; erased signed iOS
+  683/683; parent-relative god-file gate and whitespace check pass.
+- Proof and exact remaining work: docs/audits/page-request-durable-2026-09-30.md.
+
 ### T-page-request-lifecycle — Preserve each writing turn's cancellation identity
 - Owner: codex
 - Branch: codex/T-page-request-lifecycle

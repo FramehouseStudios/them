@@ -4,6 +4,32 @@ import { runTalkGenerate } from '../lib/talk_generate.js';
 import { createChatSupplier } from '../lib/talk_supplier_glue.js';
 import { generateOfflineShortFilmDraft } from '../lib/clementine/short_film_prompt.js';
 
+for (const stopBeforeProvider of [true, false]) {
+  test(`durable stop ${stopBeforeProvider ? 'before' : 'after'} provider prevents billed output`, async () => {
+    let calls = 0, stopped = false;
+    const commits = [];
+    await assert.rejects(runTalkGenerate({
+      req: { clementine: {
+        reservationId: 'synthetic-reservation',
+        async refreshCancellation() { stopped = stopBeforeProvider || calls > 0; },
+        proceed: () => ({ ok: !stopped }),
+        commitWallet: n => commits.push(n),
+      } },
+      rid: 'durable-stop-generation', logger: { log() {}, warn() {} },
+      chatModelPlan: { model: 'test', apiMode: 'chat_completions' },
+      talkGenerationTranscript: 'Write a scene.',
+      chatSupplier: { chat: async () => {
+        calls++;
+        return { response: { ok: true, status: 200 },
+          rawText: JSON.stringify({ choices: [{ message: { content: 'INT. ROOM - DAY\nA door opens.' } }] }),
+          usage: { outputTokens: 123 } };
+      } },
+    }), error => error.code === 'page_generation_cancelled');
+    assert.equal(calls, stopBeforeProvider ? 0 : 1);
+    assert.deepEqual(commits, []);
+  });
+}
+
 test('short-film quality rejection must not return an empty billed draft', async () => {
   const previous = process.env.CLEMENTINE_SHORT_FILM_BETA;
   process.env.CLEMENTINE_SHORT_FILM_BETA = '1';
