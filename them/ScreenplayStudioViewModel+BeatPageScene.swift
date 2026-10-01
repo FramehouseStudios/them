@@ -33,4 +33,33 @@ extension ScreenplayStudioViewModel {
                 || $0.title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == key
         }
     }
+
+    /// The page's scenes that have no outline scene yet, in page order, once each.
+    nonisolated static func pageScenesMissingFromOutline(_ headings: [String], outline: [BackendScreenplayScene]) -> [String] {
+        var seen = Set<String>()
+        return headings.compactMap { raw in
+            let heading = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !heading.isEmpty, seen.insert(heading.lowercased()).inserted,
+                  outlineScene(matching: heading, in: outline) == nil else { return nil }
+            return heading
+        }
+    }
+
+    /// Choose scene → From the page: the scene joins the outline and becomes
+    /// the beat's scene in the form.
+    func selectPageSceneForNewBeat(_ rawSlugline: String) async {
+        let slugline = rawSlugline.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !slugline.isEmpty else { return }
+        if Self.outlineScene(matching: slugline, in: outline.scenes) == nil {
+            if let error = await addSceneFromNavigator(slugline: slugline) {
+                infoText = "Couldn't add \(slugline) to the outline: \(error)"
+                return
+            }
+            cancelEditingScene()
+        }
+        guard let scene = Self.outlineScene(matching: slugline, in: outline.scenes) else { return }
+        newBeatSceneID = scene.id
+        newBeatActID = (scene.actId ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        infoText = "Beat scene: \(slugline)."
+    }
 }

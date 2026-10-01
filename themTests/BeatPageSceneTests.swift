@@ -18,4 +18,12 @@ final class BeatPageSceneTests: XCTestCase {
         XCTAssertEqual(ScreenplayStudioViewModel.outlineScene(matching: "INT. SENATE FLOOR - NIGHT", in: scenes)?.id, "s1")
         XCTAssertNil(ScreenplayStudioViewModel.outlineScene(matching: "EXT. STEPS - DAY", in: scenes))
     }
+
+    func testThePickerOffersOnlyPageScenesTheOutlineLacks() throws {
+        let outline = [try scene("s1", slugline: "INT. HALL - NIGHT")]
+        XCTAssertEqual(
+            ScreenplayStudioViewModel.pageScenesMissingFromOutline(["INT. HALL - NIGHT", "EXT. STEPS - DAY", "ext. steps - day", " "], outline: outline),
+            ["EXT. STEPS - DAY"]
+        )
+    }
 }
