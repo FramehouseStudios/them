@@ -90,6 +90,15 @@ Logs live under `/Users/halfmutantfilms/io.them-worktrees/_proof/branch-audit-20
    worker finishes a page but the client loses the response, retrying the same
    identity is rejected as already started. A stored, owner-scoped completion
    receipt is still needed for exact-once delivery across crashes and workers.
+   The existing `GET /talk/turn/:turnId` recovery seam reads a process-local
+   map with a 30-minute default TTL; it does not survive worker restart. The
+   Page request UUID is created in memory and is not retained across app
+   relaunch. A complete protocol needs a persisted client request identity,
+   owner/project-scoped receipt retrieval, and an acknowledgement tied to a
+   successfully saved project version.
+   **HUMAN_INPUT_REQUIRED:** approval to persist exact generated page text in
+   this recovery receipt until save confirmation or account/project deletion
+   has been requested; this branch does not add that content retention yet.
 2. Wallet reservations and their settlement reconciliation remain process
    local; this work prevents a cancelled turn from reaching the wallet commit,
    but does not make the wallet itself crash durable.
@@ -113,10 +122,10 @@ approval.
 This pass also integrated the atomic finalization work and its tests. The four
 original #625 source commits were integrated locally as `53ac4051`,
 `ce3b10ab`, `2f2c8bf6`, `349bd713`. The complete stack is verified locally,
-and published as draft PR #886 stacked on #885. Hosted migration, image-build,
-backend and god-file checks passed; the required iOS writer-loop quality gate
-was still running at the latest poll. Studio V1 UI and physical-device
-validation remain unrun for this branch.
+and published as draft PR #886 stacked on #885. On current head `191b812f`,
+hosted migration, image-build and god-file checks passed; hosted backend tests
+and the required iOS unit quality gate are in progress. Studio V1 UI and
+physical-device validation remain unrun for this branch.
 
 Exact branch files relative to #885 (including preserved #625/#635 work):
 

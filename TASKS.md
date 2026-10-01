@@ -37,11 +37,20 @@
 - Remaining before production readiness: durable completion receipts/replay,
   request-metadata retention and bounded admission. Draft review can proceed;
   merge/release remains held. Original #625/#635 branches are preserved.
+- Recovery seam audit: `GET /talk/turn/:turnId` reads a process-local map with
+  a 30-minute default TTL; it cannot survive a worker restart. The Page request
+  UUID is also created in memory and is not retained across app relaunch. A
+  recovery protocol therefore needs a persisted request identity, an
+  owner/project-scoped receipt lookup, and save-confirmed receipt clearing.
+- HUMAN_INPUT_REQUIRED: permission to persist exact, not-yet-saved generated
+  page text in that recovery receipt. Asked whether it may remain until save
+  confirmation or account/project deletion; implementation of content
+  retention awaits that answer.
 - Verified checkpoint: backend 2,864 pass/0 fail/2 skip; focused talk-state
   idempotency 34/34; authenticated settlement handlers 2/2; erased signed iOS
   684/684; PostgreSQL two-process race 2/2; macOS build succeeds.
-- Hosted: migration, backend image, backend tests and god-file checks passed;
-  required iOS writer-loop quality gate was running at last poll.
+- Hosted current head `191b812f`: migration, backend image and god-file checks
+  passed; backend suite and required iOS unit quality gate are in progress.
 - Proof and exact remaining work: docs/audits/page-request-durable-2026-09-30.md.
 
 ### T-page-request-lifecycle — Preserve each writing turn's cancellation identity
