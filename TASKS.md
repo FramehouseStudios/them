@@ -13,6 +13,22 @@
 
 ## Active work — quick view
 
+### T-voice-upload-stack — Harden uploads without rejecting Studio voice metadata
+- Owner: codex
+- Branch: codex/T-voice-upload-stack
+- Status: review
+- Pillar: voice→scene
+- Goal criteria: 4, 6, 7 and 8.
+- Scope: reuse #612; compare #616's identical dependency upgrade; preserve both.
+- Done when: malformed/oversized uploads fail safely and the current native
+  client's complete metadata envelope still parses; full backend and iOS pass.
+- Source finding: #612's 64-field ceiling is below the current Swift builder's
+  71 possible field names. Prove and repair this compatibility gap.
+- No paid model calls, deployment, merge or protection bypass.
+- Proof: focused 26/26; final backend 2,810 pass/0 fail/2 skip; final erased
+  signed iOS 666/666. Current audit: one high fast-uri, no Multer finding.
+- Details: docs/audits/voice-upload-stack-2026-09-30.md.
+
 ### T-page-cancel-stack — Verify cancellation ownership on the reviewed stack
 - Owner: codex
 - Branch: codex/T-page-cancel-stack
