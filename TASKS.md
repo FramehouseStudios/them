@@ -13,6 +13,31 @@
 
 ## Active work — quick view
 
+### T-page-cancel-admission-review — Prove cancellation durability boundaries
+- Owner: codex
+- Branch: codex/T-all-branches-review
+- Status: in-progress
+- Goal criteria: 1, 4, 6 and 7.
+- Scope: preserve #632/#635 lifecycle and exact-request work; independently
+  characterize delayed-stop, restart and worker boundaries before integration.
+- Evidence: five real-store characterization tests, two pass and three expected
+  safety failures. Current broad stop cancels newer work; #635 exact stop fixes
+  that race but reconstruction/second-worker admission forgets the stop.
+- Next: durable atomic owner-scoped admission/cancel via canonical persistence;
+  no stop-marker TTL without enforceable admission expiry.
+- Proof: docs/audits/page-cancel-admission-2026-09-30.md.
+
+### T-all-branches-review — Preserve and verify the complete GitHub branch inventory
+- Owner: codex
+- Branch: codex/T-all-branches-review
+- Status: in-progress
+- Pillar: longitudinal learning
+- Done when: every remote branch has an evidence-backed disposition; #766 then
+  #770 are independently proven and merged through required reviews, followed by
+  the product PR base chain with checks after each merge. No Claude work is
+  skipped, squashed away, or reimplemented. Human product decisions stay open.
+- Authority: human request, 2026-09-30; merge commits, no direct main pushes.
+
 | ID   | Title                                              | Owner  | Status            |
 |------|----------------------------------------------------|--------|-------------------|
 | T01  | Triage 409-file uncommitted snapshot               | human  | ready             |
