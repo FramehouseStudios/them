@@ -1,5 +1,4 @@
 import SwiftUI
-import ScreenplayStudio
 import Combine
 import AuthenticationServices
 #if os(iOS)
@@ -987,7 +986,6 @@ struct ProfileAccountScreen: View {
     private static let rememberedLoginUnavailableMessage =
         "Remembered login is waiting for Apple Keychain to become available."
 
-    @AppStorage(IOThemAppearance.storageKey) private var appearanceRaw = IOThemAppearance.peach.rawValue
     @AppStorage("auth_signed_in") private var authSignedIn: Bool = false
     @AppStorage("auth_user_email") private var authUserEmail: String = ""
     @AppStorage("auth_user_verified") private var authUserVerified: Bool = false
@@ -1087,19 +1085,6 @@ struct ProfileAccountScreen: View {
                             metricRow(label: "Session", value: sessionState.isAuthenticated ? "Active" : "Starts after sign-in")
                             metricRow(label: "Workspace", value: "Personal")
                         }
-                    }
-
-                    accountCard(
-                        title: "Appearance",
-                        subtitle: "Peach is the original look. Dark is easier on the eyes at night."
-                    ) {
-                        Picker("Appearance", selection: $appearanceRaw) {
-                            ForEach(IOThemAppearance.allCases, id: \.rawValue) { appearance in
-                                Text(appearance.title).tag(appearance.rawValue)
-                            }
-                        }
-                        .pickerStyle(.segmented)
-                        .accessibilityIdentifier("profile-appearance")
                     }
 
                     if sessionState.isAuthenticated {

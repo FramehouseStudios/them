@@ -548,6 +548,7 @@ struct RootExperienceView: View {
     @State private var uiTestForceStudioSurface = false
     @AppStorage(ThemWorkspaceSurfaceRestorePolicy.storageKey) private var persistedPrimarySurfaceRaw: String = ""
     @State private var showingRecap = false
+    @State private var homeTab: ThemTab = .lastSelected
     @State private var showingVoiceSettings = false
     @State private var showingCompanionControls = false
     @State private var showingDataControls = false
@@ -3107,6 +3108,39 @@ struct RootExperienceView: View {
         #endif
     }
 
+    /// The Home tab bar (ThemHomeTabs.swift): Studio opens Studio; Memories and
+    /// Settings show their hubs; each hub row does what its old chip did.
+    private func selectHomeTab(_ tab: ThemTab) {
+        guard tab != .studio else { return openHomeDestination(nil) }
+        if tab != .home { inFlightTalkTask?.cancel(); inFlightTalkTask = nil; voice.teardown(); orbAudio.stop() }
+        homeTab = tab; ThemTab.lastSelected = tab
+    }
+
+    /// nil opens Studio.
+    private func openHomeDestination(_ destination: ThemHomeDestination?) {
+        switch destination {
+        case .memories?: return openMemories()
+        case .account?: return openAccount()
+        case .privacy?: return openURL(privacyPolicyURL)
+        case .report?: showingReportOptions = true; return
+        default: break
+        }
+        if destination != nil { inFlightTalkTask?.cancel(); inFlightTalkTask = nil; voice.teardown(); orbAudio.stop() }
+        showingMemories = false
+        showingConversationHistory = destination == .history
+        showingNotes = destination == .notes
+        showingTasks = destination == .tasks
+        showingRecap = destination == .recap
+        switch destination {
+        case nil: openStudio()
+        case .voice?: showingVoiceSettings = true
+        case .companion?: showingCompanionControls = true
+        case .trust?: showingTrustCenter = true
+        case .data?: showingDataControls = true
+        default: break
+        }
+    }
+
     private var homeSurface: some View {
         ZStack {
             VStack(spacing: 40) {
@@ -3345,278 +3379,19 @@ struct RootExperienceView: View {
             }
 
             VStack {
-                HStack {
-                    Spacer()
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 8) {
-                    Button {
-                        showingMemories = false
-                        showingConversationHistory = false
-                        showingNotes = false
-                        showingTasks = false
-                        showingRecap = false
-                        openStudio()
-                    } label: {
-                        Text("Studio")
-                            .font(.system(size: 12, weight: .regular, design: .default))
-                            .foregroundColor(.herText.opacity(0.95))
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                            .background(Color.white.opacity(0.28))
-                            .clipShape(Capsule())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier("home.open-studio")
-
-                    Button {
-                        openMemories()
-                    } label: {
-                        Text("Memories")
-                            .font(.system(size: 12, weight: .regular, design: .default))
-                            .foregroundColor(.herText.opacity(0.95))
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                            .background(Color.white.opacity(0.28))
-                            .clipShape(Capsule())
-                    }
-                    .buttonStyle(.plain)
-
-                    Button {
-                        inFlightTalkTask?.cancel()
-                        inFlightTalkTask = nil
-                        voice.teardown()
-                        orbAudio.stop()
-                        showingMemories = false
-                        showingConversationHistory = false
-                        showingNotes = false
-                        showingTasks = false
-                        showingRecap = false
-                        showingVoiceSettings = true
-                    } label: {
-                        Text("Voice")
-                            .font(.system(size: 12, weight: .regular, design: .default))
-                            .foregroundColor(.herText.opacity(0.95))
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                            .background(Color.white.opacity(0.28))
-                            .clipShape(Capsule())
-                    }
-                    .buttonStyle(.plain)
-
-                    Button {
-                        inFlightTalkTask?.cancel()
-                        inFlightTalkTask = nil
-                        voice.teardown()
-                        orbAudio.stop()
-                        showingMemories = false
-                        showingConversationHistory = false
-                        showingNotes = false
-                        showingTasks = false
-                        showingRecap = false
-                        showingCompanionControls = true
-                    } label: {
-                        Text("Companion")
-                            .font(.system(size: 12, weight: .regular, design: .default))
-                            .foregroundColor(.herText.opacity(0.95))
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                            .background(Color.white.opacity(0.28))
-                            .clipShape(Capsule())
-                    }
-                    .buttonStyle(.plain)
-
-                    Button {
-                        inFlightTalkTask?.cancel()
-                        inFlightTalkTask = nil
-                        voice.teardown()
-                        orbAudio.stop()
-                        showingMemories = false
-                        showingConversationHistory = true
-                        showingNotes = false
-                        showingTasks = false
-                        showingRecap = false
-                    } label: {
-                        Text("History")
-                            .font(.system(size: 12, weight: .regular, design: .default))
-                            .foregroundColor(.herText.opacity(0.95))
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                            .background(Color.white.opacity(0.28))
-                            .clipShape(Capsule())
-                    }
-                    .buttonStyle(.plain)
-
-                    Button {
-                        inFlightTalkTask?.cancel()
-                        inFlightTalkTask = nil
-                        voice.teardown()
-                        orbAudio.stop()
-                        showingMemories = false
-                        showingConversationHistory = false
-                        showingNotes = true
-                        showingTasks = false
-                        showingRecap = false
-                    } label: {
-                        Text("Notes")
-                            .font(.system(size: 12, weight: .regular, design: .default))
-                            .foregroundColor(.herText.opacity(0.95))
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                            .background(Color.white.opacity(0.28))
-                            .clipShape(Capsule())
-                    }
-                    .buttonStyle(.plain)
-
-                    Button {
-                        inFlightTalkTask?.cancel()
-                        inFlightTalkTask = nil
-                        voice.teardown()
-                        orbAudio.stop()
-                        showingMemories = false
-                        showingConversationHistory = false
-                        showingNotes = false
-                        showingTasks = true
-                        showingRecap = false
-                    } label: {
-                        Text("Tasks")
-                            .font(.system(size: 12, weight: .regular, design: .default))
-                            .foregroundColor(.herText.opacity(0.95))
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                            .background(Color.white.opacity(0.28))
-                            .clipShape(Capsule())
-                    }
-                    .buttonStyle(.plain)
-
-                    Button {
-                        openAccount()
-                    } label: {
-                        Label(
-                            authSignedIn && !authSessionTokenDeletionPending ? "Account" : "Sign In",
-                            systemImage: "person.crop.circle"
-                        )
-                            .font(.system(size: 12, weight: .regular, design: .default))
-                            .foregroundColor(.herText.opacity(0.95))
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                            .background(Color.white.opacity(0.28))
-                            .clipShape(Capsule())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier("home.open-account")
-
-                    Button {
-                        inFlightTalkTask?.cancel()
-                        inFlightTalkTask = nil
-                        voice.teardown()
-                        orbAudio.stop()
-                        showingMemories = false
-                        showingConversationHistory = false
-                        showingNotes = false
-                        showingTasks = false
-                        showingRecap = true
-                    } label: {
-                        Text("Recap")
-                            .font(.system(size: 12, weight: .regular, design: .default))
-                            .foregroundColor(.herText.opacity(0.95))
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                            .background(Color.white.opacity(0.28))
-                            .clipShape(Capsule())
-                    }
-                    .buttonStyle(.plain)
-
-                    Button {
-                        inFlightTalkTask?.cancel()
-                        inFlightTalkTask = nil
-                        voice.teardown()
-                        orbAudio.stop()
-                        showingMemories = false
-                        showingConversationHistory = false
-                        showingNotes = false
-                        showingTasks = false
-                        showingRecap = false
-                        showingTrustCenter = true
-                    } label: {
-                        Text("Trust")
-                            .font(.system(size: 12, weight: .regular, design: .default))
-                            .foregroundColor(.herText.opacity(0.95))
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                            .background(Color.white.opacity(0.28))
-                            .clipShape(Capsule())
-                    }
-                    .buttonStyle(.plain)
-
-                    Button {
-                        inFlightTalkTask?.cancel()
-                        inFlightTalkTask = nil
-                        voice.teardown()
-                        orbAudio.stop()
-                        showingMemories = false
-                        showingConversationHistory = false
-                        showingNotes = false
-                        showingTasks = false
-                        showingRecap = false
-                        showingDataControls = true
-                    } label: {
-                        Text("Data")
-                            .font(.system(size: 12, weight: .regular, design: .default))
-                            .foregroundColor(.herText.opacity(0.95))
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                            .background(Color.white.opacity(0.28))
-                            .clipShape(Capsule())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier("home.open-data-controls")
-
-                    Button {
-                        openURL(privacyPolicyURL)
-                    } label: {
-                        Text("Privacy")
-                            .font(.system(size: 12, weight: .regular, design: .default))
-                            .foregroundColor(.herText.opacity(0.95))
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                            .background(Color.white.opacity(0.28))
-                            .clipShape(Capsule())
-                    }
-                    .buttonStyle(.plain)
-
-                    Button {
-                        showingReportOptions = true
-                    } label: {
-                        Text("Report")
-                            .font(.system(size: 12, weight: .regular, design: .default))
-                            .foregroundColor(.herText.opacity(0.95))
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                            .background(Color.white.opacity(0.28))
-                            .clipShape(Capsule())
-                    }
-                    .buttonStyle(.plain)
-                        }
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 12)
-                    }
-                    .frame(maxWidth: 1060)
-                    .background(
-                        RoundedRectangle(cornerRadius: 24, style: .continuous)
-                            .fill(Color.white.opacity(0.16))
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 24, style: .continuous)
-                            .stroke(Color.white.opacity(0.22), lineWidth: 1)
-                    )
-                    .shadow(color: Color.black.opacity(0.10), radius: 22, x: 0, y: 14)
-                    .padding(.top, 18)
-                    .padding(.trailing, 18)
-                }
                 homeSessionContinuityCard
                     .padding(.horizontal, 18)
-                    .padding(.top, 10)
+                    .padding(.top, 18)
                 Spacer()
+            }
+            .opacity(homeTab == .home ? 1 : 0)
+            if homeTab == .memories || homeTab == .settings {
+                Color.herPeachMid.ignoresSafeArea()
+                ThemHomeHubView(tab: homeTab, signedIn: authSignedIn && !authSessionTokenDeletionPending, onOpen: openHomeDestination)
+            }
+            VStack {
+                Spacer()
+                ThemTabBar(selected: homeTab, onSelect: selectHomeTab)
             }
             .opacity(evolution.needsOnboardingName ? 0 : 1)
             .allowsHitTesting(!evolution.needsOnboardingName)

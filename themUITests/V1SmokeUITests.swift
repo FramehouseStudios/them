@@ -107,6 +107,9 @@ final class V1SmokeUITests: XCTestCase {
         let app = launchApp()
         defer { app.terminate() }
 
+        let settingsTab = app.buttons["home.tab.settings"]
+        XCTAssertTrue(settingsTab.waitForExistence(timeout: 8))
+        settingsTab.tap()
         let openAccount = app.buttons["home.open-account"]
         XCTAssertTrue(openAccount.waitForExistence(timeout: 8))
         openAccount.tap()
@@ -130,6 +133,10 @@ final class V1SmokeUITests: XCTestCase {
 
     func test_profile_remembered_login_restores_through_keychain_relaunch_and_disables() {
         func openProfile(in app: XCUIApplication) {
+            // The account row lives in the Settings tab since the four-tab Home.
+            let settingsTab = app.buttons["home.tab.settings"]
+            XCTAssertTrue(settingsTab.waitForExistence(timeout: 8))
+            settingsTab.tap()
             let openAccount = app.buttons["home.open-account"]
             XCTAssertTrue(openAccount.waitForExistence(timeout: 8))
             openAccount.tap()
