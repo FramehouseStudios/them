@@ -5806,6 +5806,9 @@ function createCreativeMemoryStore({
       const now = nowMs();
       if (existingIdx >= 0) {
         resolvedAction = "updated";
+        // A name stored in cue caps ("MARA") takes the writer's spelling ("Mara").
+        const storedName = String(characters[existingIdx].name || "");
+        if (storedName === storedName.toUpperCase() && name !== name.toUpperCase()) characters[existingIdx].name = name;
         characters[existingIdx].last_referenced = now;
         if (voice) characters[existingIdx].voice = voice;
         if (Array.isArray(tags) && tags.length) {
