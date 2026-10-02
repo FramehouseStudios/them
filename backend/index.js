@@ -178,6 +178,7 @@ import {
 } from "./lib/clementine/wallet_persistence.js";
 import { mountIapCreditRoute } from "./lib/clementine/iap_credit_route.js";
 import { createIapVerifier } from "./lib/clementine/iap_verify.js";
+import { ownTalkReply } from "./lib/clementine/talk_reply_contract.js";
 import { createTalkHandler } from "./lib/talk_handler.js";
 import {
   createTtsSpeechRuntime,
@@ -29062,6 +29063,7 @@ function validateAndDirectHerReply(
     flags = null,
     allowReassurance = false,
     memory = null,
+    outcome = null, // { keptOwnReply } for the caller's later repair steps
   } = {}
 ) {
   let reply = String(rawReply ?? "");
@@ -29087,11 +29089,10 @@ function validateAndDirectHerReply(
   reply = scrubArchivalBackReferencePhrasing(reply);
   reply = enforceAssistantSelfNameReferences(reply, assistantSelfName);
 
-  // Remove bullets/list markers
-  reply = reply.replace(/^\s*[-*•]\s+/gm, "");
-
-  // Keep breath spacing (double newlines). Don't fully flatten yet.
-  reply = reply.replace(/\r\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+  // Remove bullets/list markers; keep breath spacing (double newlines), don't fully flatten yet.
+  reply = reply.replace(/^\s*[-*•]\s+/gm, "").replace(/\r\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+  // Clementine's own reply is heard when it keeps the spoken contract; the lane templates below are the fallback.
+  const ownReply = ownTalkReply(reply, { raw: rawReply, transcript, routingLane, gratitudeOnlyTurn, explicitNoAdvice, minWords: turnIntent === "knowledge_answer" ? (requireExtendedAnswer ? minExtendedWords : 16) : 3, hasAdvice: (r) => stripUnsolicitedAdviceLines(r).trim() !== r.trim() }); if (ownReply) { if (outcome) outcome.keptOwnReply = true; return enforceExclamationRange(ownReply, 1); }
 
   // 2) Cinematic shape: default compact, expand only when conversation is active/deep.
   const lengthMode = ["compact", "standard", "expanded"].includes(String(responseLengthMode))
@@ -29267,8 +29268,7 @@ function validateAndDirectHerReply(
   reply = gratitudeOnlyTurn
     ? stripQuestionsForGratitudeTurn(reply)
     : enforceQuestionRange(reply, finalQuestionCap);
-  reply = enforceExclamationRange(reply, 1);
-  reply = enforceCompleteThought(reply);
+  reply = enforceCompleteThought(enforceExclamationRange(reply, 1));
 
   // 5) Final formatting: preserve blank lines as pauses
   reply = reply
