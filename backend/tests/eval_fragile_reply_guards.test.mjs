@@ -81,8 +81,9 @@ test("[eval] playful risky-text roast stays specific enough to pass V1 floor", (
   });
 
   assert.match(reply, /risky text/i);
-  assert.match(reply, /overthinking everything lol/i);
+  assert.match(reply, /overthinking everything/i);
   assert.equal((reply.match(/\?/g) || []).length, 0);
-  assert.equal((reply.toLowerCase().match(/\b(?:haha|heh|lol|lmao)\b/g) || []).length, 1);
+  // Specific to her text, without reading "heh" or her "lol" back aloud (USER_ROLEPLAY_CRITIQUE.md).
+  assert.equal((reply.toLowerCase().match(/\b(?:haha|heh|lol|lmao)\b/g) || []).length, 0);
   assert.ok(quality.score >= 0.72, `score=${quality.score} reply=${reply}`);
 });

@@ -2149,7 +2149,7 @@ const HUMAN_PROMPT_BANK = dedupeSeedBanks({
     "Okay, let’s make this simple and kind.",
     "Yeah, I’m with you.",
     "Okay, that makes total sense.",
-    "Mm, I hear you.",
+    "Mm, okay.",
     "We can do this one small step at a time.",
     "I’ve got you, and we’re moving gently forward.",
     "Let’s turn this into one clear next move.",
@@ -2332,7 +2332,7 @@ const HUMAN_PROMPT_BANK = dedupeSeedBanks({
     "You don’t have to rush.",
     "Take your time. I’m with you.",
     "We can move slow and stay honest.",
-    "I hear you. I’m staying close.",
+    "I’m staying close.",
     "You can say this in your own pace.",
     "You don’t have to carry this alone tonight.",
     "That landed. I’m listening.",
@@ -2904,7 +2904,7 @@ const EMOTIONAL_TRAJECTORY = Object.freeze({
       "deep listening, mirroring, gentle curiosity, soft warmth, feels close and understandable",
     userFeel: "It really understands me.",
     seeds: [
-      "I hear you clearly.",
+      "I get it.",
       "Tell me what this felt like for you.",
     ],
   },
@@ -18690,14 +18690,14 @@ function buildCompletenessRepairReply(text, {
   let firstLine = normalizeSnippet(strongestSourceSentence, 220);
   if (!firstLine || endsWithSingleQuestionWord(firstLine)) {
     firstLine = transcriptAnchor
-      ? `I hear you about ${normalizeSnippet(transcriptAnchor.toLowerCase(), 140)}.`
-      : "I hear you.";
+      ? "Okay, I'm with you."
+      : "Okay.";
   }
   if (!/[.!?]["')\]]?\s*$/.test(firstLine)) {
     firstLine = `${firstLine}.`;
   }
   if (endsWithSingleQuestionWord(firstLine)) {
-    firstLine = "I hear you.";
+    firstLine = "Okay.";
   }
 
   let secondLine = gratitudeOnlyTurn
@@ -27105,10 +27105,6 @@ function buildHardIntentAnchorLine(transcript = "", { flags = null } = {}) {
     return `You asked about ${continuityAnchor}, so I'll stay anchored there.`;
   }
 
-  const firstSentence = normalizeWhitespace(user.split(/[.?!]/)[0] || "");
-  if (countWords(firstSentence) >= 4) {
-    return `You said: "${trimSentenceToWordCap(firstSentence, 14)}."`;
-  }
   return "";
 }
 
@@ -27390,9 +27386,7 @@ function enforceSpecificityScaling(text, {
     lane === "knowledge" ||
     Boolean(flags?.isDirect);
 
-  const leadLine = shouldStayDirect
-    ? `On ${anchor}, I'll keep this concrete.`
-    : `Staying with ${anchor}.`;
+  const leadLine = ""; // "Staying with <picked word>." read stray words back.
   const followupQuestion = pickSpecificFollowupQuestion({
     transcript: user,
     flags,
@@ -27626,12 +27620,11 @@ function ensureHeartbreakScaffold(text, { transcript = "", flags = null } = {}) 
   })();
 
   const scaffoldLines = [
-    "I hear you. That makes sense.",
     heartbreakAnchorLine || "That hurts, and broken trust can scramble your sense of safety.",
-    "Pattern lens: chemistry can feel loud even when consistency and honesty are missing.",
+    "Chemistry can feel loud even when consistency and honesty are missing.",
     profileLoop || wantsTonightPlan
-      ? "Choice for tonight: protect your boundary and self-respect — mute their profile and do one grounding step (walk, journal, or call someone safe)."
-      : "Choice for the next 24 hours: protect your boundary and self-respect with one clear limit, then do one grounding step (eat, walk, or journal).",
+      ? "For tonight, protect your boundary and your self-respect: mute their profile and do one grounding thing, like a walk, a journal page, or a call to someone safe."
+      : "For the next day, protect your boundary and your self-respect with one clear limit, then do one grounding thing: eat, walk, or journal.",
     "What part feels sharpest right now?",
   ];
 
@@ -27917,96 +27910,41 @@ function detectIdeaDevelopmentDomain(transcript = "") {
   return "general";
 }
 
-function buildIdeaDevelopmentAnchorLine(transcript = "") {
-  const user = normalizeWhitespace(String(transcript || ""));
-  if (!user) return "Core idea: we can build this together and keep it concrete.";
-  const firstLine = normalizeWhitespace(user.split(/[.?!]/)[0] || "");
-  if (countWords(firstLine) >= 4) {
-    return `Core idea I hear: ${trimSentenceToWordCap(firstLine, 16)}.`;
-  }
-  const anchor = pickContinuityAnchor(user);
-  if (anchor) {
-    return `Core idea I hear: this is about ${anchor}.`;
-  }
-  return "Core idea: we can build this together and keep it concrete.";
-}
-
-function buildIdeaDevelopmentSharpenLine(domain = "general") {
-  switch (String(domain || "general")) {
-    case "screenplay":
-      return "Sharpen pass: lock protagonist, core want, and the pressure source.";
-    case "product":
-      return "Sharpen pass: lock target user, pain point, and one measurable outcome.";
-    case "content":
-      return "Sharpen pass: lock audience, one promise, and one proof point.";
-    case "music":
-      return "Sharpen pass: lock theme, emotional turn, and one signature motif.";
-    case "relationship":
-      return "Sharpen pass: lock your need, your boundary, and your ask.";
-    default:
-      return "Sharpen pass: lock audience, one promise, and one constraint.";
-  }
-}
-
-function buildIdeaDevelopmentStepLine(domain = "general") {
-  switch (String(domain || "general")) {
-    case "screenplay":
-      return "Build step: draft 3 opening-beat options, then keep the one with highest tension.";
-    case "product":
-      return "Build step: write a one-line value prop and rank 3 feature options by user impact.";
-    case "content":
-      return "Build step: draft 3 hooks and pick the one that creates the strongest curiosity gap.";
-    case "music":
-      return "Build step: sketch 2 chorus variants and keep the one with cleaner emotional lift.";
-    case "relationship":
-      return "Build step: draft one clean message that names your boundary and one clear request.";
-    default:
-      return "Build step: generate 3 variants, score them on clarity and pull, then keep one to iterate.";
-  }
-}
-
+// One sharpening question per domain; never a menu, never the writer's filler
+// words read back (USER_ROLEPLAY_CRITIQUE.md, 2026-10-01).
 function buildIdeaDevelopmentQuestion(transcript = "", { domain = "general" } = {}) {
-  const anchor = pickContinuityAnchor(transcript);
   switch (String(domain || "general")) {
     case "screenplay":
-      return "Which part should we iterate first: premise, character arc, or opening beat?";
+      return "Who does this happen to, and what do they want badly enough to get hurt?";
     case "product":
-      return "Which should we tighten first: target user, pain statement, or value prop?";
+      return "Who needs this most, and what are they doing instead right now?";
     case "content":
-      return "Which should we refine first: hook, structure, or call to action?";
+      return "Who's it for, and what should they feel at the end?";
     case "music":
-      return "Which should we refine first: theme, progression, or lyrical angle?";
+      return "What do you want it to leave someone feeling?";
     case "relationship":
-      return "Which should we tune first: your boundary, your ask, or your timing?";
+      return "What do you most need them to hear?";
     default:
-      if (anchor) {
-        return `Which part of ${anchor} should we iterate first: angle, structure, or execution?`;
-      }
-      return "Which part should we iterate first: angle, structure, or execution?";
+      return "What's the part you can't stop thinking about?";
   }
 }
 
 function ensureIdeaDevelopmentStructure(text, { transcript = "" } = {}) {
   const source = normalizeWhitespace(String(text || ""));
   const domain = detectIdeaDevelopmentDomain(transcript);
-  const anchorLine = buildIdeaDevelopmentAnchorLine(transcript);
-  const sharpenLine = buildIdeaDevelopmentSharpenLine(domain);
-  const stepLine = buildIdeaDevelopmentStepLine(domain);
   const questionLine = buildIdeaDevelopmentQuestion(transcript, { domain });
-  const sourceLead = sentenceChunks(source).find((line) => countWords(line) >= 7) || "";
+  // Her own first full statement (not a question, not a line this fallback wrote).
+  const sourceLead = sentenceChunks(source).find((line) => countWords(line) >= 7 && !/\?\s*$/.test(line) && !/^there's something in this/i.test(line)) || "";
 
-  const blocks = [];
-  if (anchorLine) blocks.push(anchorLine);
+  const blocks = ["There's something in this."];
   if (sourceLead) blocks.push(`${trimSentenceToWordCap(sourceLead, 20)}.`);
-  blocks.push(sharpenLine);
-  blocks.push(stepLine);
   blocks.push(questionLine);
 
   let out = normalizeWhitespace(blocks.join("\n\n"));
   out = enforceQuestionRange(out, 1);
   out = enforceExclamationRange(out, 0);
   out = enforceCompleteThought(out);
-  out = clampToLineCount(out, 3, 6);
+  out = clampToLineCount(out, 2, 3);
   return normalizeWhitespace(out);
 }
 
@@ -28082,18 +28020,18 @@ function ensureKnowledgeStructure(text, { transcript = "" } = {}) {
 function inferTherapeuticPatternLine(transcript = "", flags = null) {
   const t = String(transcript || "").toLowerCase();
   if (Boolean(flags?.therapeuticFamilyTrauma) || textContainsAny(t, ["family", "childhood", "parents", "as a kid"])) {
-    return "Pattern lens: this sounds like an old protection response that gets triggered in present conflict.";
+    return "This sounds like an old protection response that gets triggered in present conflict.";
   }
   if (Boolean(flags?.therapeuticAvoidance) || textContainsAny(t, ["avoidant", "pull away", "hot and cold", "inconsistent"])) {
-    return "Pattern lens: this reads like an avoidance cycle where closeness rises and then distance spikes.";
+    return "This reads like an avoidance cycle where closeness rises and then distance spikes.";
   }
   if (Boolean(flags?.therapeuticBetrayal) || textContainsAny(t, ["lied", "liar", "cheated", "betrayal", "betrayed"])) {
-    return "Pattern lens: dishonesty breaks predictability, so your nervous system is trying to restore safety.";
+    return "Dishonesty breaks predictability, so your nervous system is trying to restore safety.";
   }
   if (textContainsAny(t, ["again", "repeating", "keeps happening", "loop", "cycle"])) {
-    return "Pattern lens: you are naming a repeating loop, not a one-off moment.";
+    return "You are naming a repeating loop, not a one-off moment.";
   }
-  return "Pattern lens: your reaction fits the pattern you are describing.";
+  return "";
 }
 
 function buildTherapeuticAnchorLine(transcript = "") {
@@ -28107,10 +28045,6 @@ function buildTherapeuticAnchorLine(transcript = "") {
   }
   if (textContainsAny(t, ["dumped", "ex's profile", "ex profile", "every night"])) {
     return "You said you got dumped two weeks ago and keep checking your ex profile every night.";
-  }
-  const firstSentence = normalizeWhitespace(String(transcript || "").split(/[.?!]/)[0] || "");
-  if (countWords(firstSentence) >= 6) {
-    return `You said: "${trimSentenceToWordCap(firstSentence, 16)}."`;
   }
   return "";
 }
@@ -28133,15 +28067,15 @@ function ensureTherapeuticDepthStructure(text, {
   const additions = [];
   const anchorLine = buildTherapeuticAnchorLine(transcript);
   if (anchorLine && !source.toLowerCase().includes(anchorLine.toLowerCase())) additions.push(anchorLine);
-  if (!hasAcknowledge) additions.push("I hear you. That sounds heavy.");
-  if (!hasValidation) additions.push("That makes sense given what happened.");
+  if (!hasAcknowledge) additions.push("That sounds heavy.");
+  if (!hasValidation) additions.push("That would get to anyone.");
   if (!hasPattern) additions.push(inferTherapeuticPatternLine(transcript, flags));
   if (adviceRequested && !hasBoundary) {
-    additions.push("Boundary lens: choose one concrete limit that protects your emotional safety in the next 24 hours.");
+    additions.push("Choose one concrete limit that protects your emotional safety in the next 24 hours.");
   }
 
-  if (!additions.length) return source;
-  const out = [...additions, source].join("\n\n");
+  if (!additions.some(Boolean)) return source;
+  const out = [...additions.filter(Boolean), source].join("\n\n");
   return normalizeWhitespace(enforceCompleteThought(out));
 }
 
@@ -28194,8 +28128,8 @@ function ensureLoveContinuationStructure(text, { transcript = "" } = {}) {
     : (fearCue
       ? "You are naming both desire and fear, which is a real inflection point."
       : "You are naming both pull and uncertainty, which deserves precision.");
-  const line2 = "Depth lens: desire wants closeness, and fear wants safety.";
-  const line3 = "Boundary lens: move at a pace that protects your standards.";
+  const line2 = "Desire wants closeness, and fear wants safety.";
+  const line3 = "Move at a pace that protects your standards.";
   const line35 = textContainsAny(t, ["not cliche", "not cliché"])
     ? "You asked for depth, not cliches, so keep it honest and concrete."
     : "";
@@ -28232,14 +28166,14 @@ function shouldApplyPlayfulBanterStructure({ transcript = "", flags = null, turn
 function ensurePlayfulBanterStructure(text, { transcript = "" } = {}) {
   const anchor = buildPlayfulBanterAnchor(transcript);
   const t = String(transcript || "").toLowerCase();
-  let opener = "Heh. That is very human.";
-  let tease = `You are making ${anchor} do a lot of emotional labor.`;
+  let opener = "Okay, I'm listening.";
+  let tease = anchor && anchor !== "that moment" ? `Tell me more about ${anchor}.` : "Tell me everything.";
 
   if (textContainsAny(t, ["roast me gently", "roast me"])) {
-    opener = "That risky text has you overthinking everything lol, which is painfully human.";
-    tease = "Rereading one text five times before sending is not proofreading; it is emotional tax law for punctuation.";
+    opener = "You sent one risky text and now you're overthinking everything.";
+    tease = "Rereading it five times isn't proofreading. It's emotional tax law for punctuation.";
   } else if (textContainsAny(t, ["risky text", "texted", "overthinking"])) {
-    opener = "That risky text has you overthinking everything lol, which is painfully human.";
+    opener = "You sent one risky text and now you're overthinking everything.";
     tease = "One risky text and suddenly your brain opens seventeen tabs.";
   }
 
@@ -28268,36 +28202,24 @@ function ensureHighDistressSafetyStructure(transcript = "", { adviceRequested = 
   const anchor = buildHighDistressAnchorLine(transcript);
   if (!adviceRequested) {
     return normalizeWhitespace([
-      "I hear you. That makes sense.",
+      "I'm really glad you told me.",
       anchor,
       "Stay with me for one beat.",
       "Can you feel your feet on the floor right now?",
     ].join("\n\n"));
   }
   return normalizeWhitespace([
-    "I hear you. That makes sense.",
+    "I'm really glad you told me.",
     anchor,
-    "Right now: unclench your jaw, feel your feet, and do two slow breaths (in 4, out 6).",
-    "Next step for this hour: set one boundary and pause any new demands.",
+    "Right now, unclench your jaw, feel your feet, and take two slow breaths, in for four and out for six.",
+    "For the next hour, set one boundary and pause any new demands.",
   ].join("\n\n"));
 }
 
 function ensureNoAdviceVentingStructure(transcript = "") {
   const t = String(transcript || "").toLowerCase();
-  let anchor = "";
-  if (textContainsAny(t, ["fight", "argument"])) {
-    anchor = "You said that fight left you feeling wrecked right now.";
-  } else if (textContainsAny(t, ["wrecked", "drained", "exhausted"])) {
-    anchor = "You said you feel wrecked, and that lands in the body.";
-  } else {
-    anchor = buildTherapeuticAnchorLine(transcript) || "That hit hard, and your body is carrying it.";
-  }
-  return normalizeWhitespace([
-    "I hear you. That makes sense.",
-    anchor,
-    "You do not need to fix this right now. We can just hold it for a minute.",
-    "If you want, tell me the part that still feels loud.",
-  ].join("\n\n"));
+  const opener = textContainsAny(t, ["fight", "argument"]) ? "That fight sounds rough." : "That's a rough one.";
+  return [opener, "You don't have to do anything with it right now.", "I'm here."].join("\n\n");
 }
 
 function isExhaustedCheckinTurn(transcript = "", flags = null) {
@@ -28497,28 +28419,25 @@ function ensureMotivationCoachingStructure(text, { transcript = "", memory = nul
   let scaffold = "";
   if (progress.completed) {
     scaffold = normalizeWhitespace([
-      "I hear you. That makes sense.",
+      "That's real progress.",
       buildMotivationProgressAnchorLine(transcript, action),
       `Keep the momentum with one next move: ${momentumStep}.`,
       "What is the next micro-win you want to lock in?",
     ].join("\n\n"));
   } else if (progress.setback) {
     scaffold = normalizeWhitespace([
-      "I hear you. That makes sense.",
       buildMotivationSetbackAnchorLine(transcript),
-      "No shame. Missing one step does not erase your progress.",
+      "No shame. Missing one step doesn't erase your progress.",
       `Make it smaller right now: ${smallerAction}.`,
     ].join("\n\n"));
   } else if (progress.partial) {
     scaffold = normalizeWhitespace([
-      "I hear you. That makes sense.",
       "Partial counts. You already broke inertia.",
       `Next move: ${smallerAction}.`,
     ].join("\n\n"));
   } else {
     scaffold = normalizeWhitespace([
-      "I hear you. That makes sense.",
-      "You are not broken; your system is overloaded and still capable.",
+      "You're not broken. You're overloaded, and you can still move.",
       `One concrete move now: ${action}.`,
     ].join("\n\n"));
   }
@@ -28796,30 +28715,23 @@ function buildPersonalThinkingLine(transcript, flags = null) {
   return "";
 }
 
+// Never built around a word picked from the writer's message: the picker
+// quoted stray words back ("What part of \"sleep\" hit you hardest?",
+// "around \"punch\"") (USER_ROLEPLAY_CRITIQUE.md, 2026-10-01).
 const SPECIFIC_GROUNDING_QUESTION_TEMPLATES = [
-  `When you say "{{anchor}}", what exact moment are you pointing to?`,
-  `What happened in the 30 seconds right before "{{anchor}}"?`,
-  `What part of "{{anchor}}" hit you hardest?`,
-  `If we zoom into "{{anchor}}", what detail feels most true?`,
-  `Where were you, and who was there, when "{{anchor}}" happened?`,
-  `What did your body feel first around "{{anchor}}"?`,
-  `What story did your mind start telling after "{{anchor}}"?`,
-  `What part of "{{anchor}}" still feels unresolved right now?`,
-  `What did you need in that "{{anchor}}" moment that you did not get?`,
-  `If we stay only on "{{anchor}}", what should I answer first?`,
+  "What moment are you thinking of?",
+  "What happened right before that?",
+  "What part of it is still with you?",
+  "What's the detail that feels most true?",
+  "What did you need right then that you didn't get?",
+  "What should I answer first?",
 ];
 
 const SPECIFIC_ACTION_QUESTION_TEMPLATES = [
-  `For "{{anchor}}", what exact outcome do you want first?`,
-  `What is the one decision inside "{{anchor}}" you need to make now?`,
-  `What would a clear boundary look like around "{{anchor}}"?`,
-  `What is the smallest concrete step for "{{anchor}}" in the next hour?`,
-  `If "{{anchor}}" happened again tonight, what response would protect you best?`,
-  `What part of "{{anchor}}" is fact, and what part is fear story?`,
-  `What specific behavior change do you need from them around "{{anchor}}"?`,
-  `What consequence would you hold if "{{anchor}}" repeats?`,
-  `What would make "{{anchor}}" feel 10% safer by tonight?`,
-  `Which part of "{{anchor}}" do you want me to solve first?`,
+  "What outcome do you want first?",
+  "What's the one decision you need to make now?",
+  "What's the smallest step you could take in the next hour?",
+  "Which part do you want me to solve first?",
 ];
 
 function deriveSpecificQuestionAnchor(transcript = "", flags = null) {
@@ -28858,18 +28770,12 @@ function pickSpecificFollowupQuestion({
     : SPECIFIC_GROUNDING_QUESTION_TEMPLATES;
   if (!pool.length) return "What exact part should I focus on first?";
 
-  const anchor = normalizeSnippet(
-    deriveSpecificQuestionAnchor(transcript, flags).replace(/["“”]/g, "").trim(),
-    52
-  ) || "this moment";
   const turnOffset = Math.max(0, Number(memory?.turns || 0)) % pool.length;
   const seed = `${String(transcript || "").toLowerCase()}|${seedKey}|a:${adviceRequested ? "1" : "0"}|d:${Boolean(flags?.isDirect) ? "1" : "0"}|v:${Boolean(flags?.isVulnerable) ? "1" : "0"}|e:${Boolean(flags?.isVenting) ? "1" : "0"}`;
   let idx = Math.floor(hash01(`specific_followup_q|${seed}`) * pool.length) % pool.length;
   idx = (idx + turnOffset) % pool.length;
   const template = String(pool[idx] || pool[0] || "").trim();
-  const rendered = template.replace(/\{\{anchor\}\}/g, anchor).trim();
-  if (!rendered) return "What exact part should I focus on first?";
-  return /\?$/.test(rendered) ? rendered : `${rendered}?`;
+  return template || "What exact part should I focus on first?";
 }
 
 function buildDepthContinuationLine(transcript = "", flags = null, { adviceRequested = false, memory = null } = {}) {
@@ -29241,9 +29147,10 @@ function validateAndDirectHerReply(
       preferQuestionEnding ||
       loveContinuationActive
     );
+  const noQuestionTurn = ["gratitude_acknowledgment", "knowledge_answer", "practical_action"].includes(String(turnIntent || "")) || String(routingLane || "") === "knowledge";
   reply = enforceCinematicEnding(reply, {
-    questionRate: (explicitNoAdvice || casualNoQuestionGuard) ? 0 : (structuredQuestionNeeded ? VENTING_QUESTION_RATE : ENDING_QUESTION_RATE),
-    forceQuestion: explicitNoAdvice ? false : structuredQuestionNeeded,
+    questionRate: (explicitNoAdvice || casualNoQuestionGuard || noQuestionTurn) ? 0 : (structuredQuestionNeeded ? VENTING_QUESTION_RATE : ENDING_QUESTION_RATE),
+    forceQuestion: (explicitNoAdvice || noQuestionTurn) ? false : structuredQuestionNeeded,
     fallbackQuestions: structuredQuestionNeeded
       ? [
         "What happened right before it felt like too much?",
@@ -29257,13 +29164,7 @@ function validateAndDirectHerReply(
   // 4) Enforce cinematic punctuation windows (range-based, not rigid single-rule)
   // (After we decide the ending beat)
   const finalIntent = String(turnIntent || "");
-  const finalLane = String(routingLane || "normal_rotation");
-  const finalNoQuestionIntent =
-    finalIntent === "gratitude_acknowledgment" ||
-    finalIntent === "knowledge_answer" ||
-    finalIntent === "practical_action" ||
-    finalLane === "knowledge" ||
-    explicitNoAdvice;
+  const finalNoQuestionIntent = noQuestionTurn || explicitNoAdvice;
   const finalQuestionCap = finalNoQuestionIntent ? 0 : 1;
   reply = gratitudeOnlyTurn
     ? stripQuestionsForGratitudeTurn(reply)
@@ -29338,7 +29239,7 @@ function pickDeterministicEndingLine(lines, key) {
 function shouldEndWithQuestion(text, questionRate = ENDING_QUESTION_RATE) {
   const source = String(text || "").toLowerCase().trim();
   if (!source) return false;
-  const rate = Math.max(0, Math.min(1, Number(questionRate || ENDING_QUESTION_RATE)));
+  const rate = Math.max(0, Math.min(1, Number(questionRate ?? ENDING_QUESTION_RATE))); // 0 means no question; `||` turned it into the default
   return hash01(`q_rate|${source}`) < rate;
 }
 
@@ -29371,10 +29272,7 @@ function enforceCinematicEnding(
   const hasQuestion = t.includes("?");
   const useQuestionEnding = forceQuestion || shouldEndWithQuestion(t, questionRate);
   const defaultQuestions = [
-    "What feels most true right now?",
-    "Do you want comfort… or clarity?",
-    "Do you want to go slower, or get practical?",
-    "What part of this is the sharpest?",
+    "What's the sharpest part of this?",
   ];
   const softQuestions = Array.isArray(fallbackQuestions) && fallbackQuestions.length
     ? fallbackQuestions
