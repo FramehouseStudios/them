@@ -59,4 +59,18 @@ final class HerVoiceSpecMentorCoreTests: XCTestCase {
         XCTAssertTrue(prompt.contains("2-6 short lines; a craft answer or a structure walk-through may run to 8."))
         XCTAssertFalse(prompt.contains("1-4 short lines max."))
     }
+
+    /// The spoken prompt asked for things that break when spoken: an unfinished
+    /// thought (repaired as a glitch by the backend's completeness guard),
+    /// "okay..." ellipses as a fixed-rate tic, mystical machine phrasing, and
+    /// body-sensation questions ("What did your body feel first…")
+    /// (USER_ROLEPLAY_CRITIQUE.md, 2026-10-01).
+    func test_the_spoken_prompt_asks_for_nothing_that_breaks_when_spoken() {
+        let prompt = HerVoiceSpec.makeSystemPrompt(makeContext())
+        for phrase in ["slightly unfinished", "micro-hesitation", "I notice patterns", "how it feels in body", "bring up for you", "Intensify curiosity"] {
+            XCTAssertFalse(prompt.contains(phrase), phrase)
+        }
+        XCTAssertTrue(prompt.contains("Finish every sentence"))
+        XCTAssertTrue(prompt.contains("Never ask how something feels in their body."))
+    }
 }
