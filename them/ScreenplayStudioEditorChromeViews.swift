@@ -194,7 +194,7 @@ struct ScreenplayStudioElementModeBar: View {
             ? textColor.opacity(0.94)
             : secondaryTextColor.opacity(isHovered ? 0.88 : 0.76)
         let fill = isActive
-            ? Color.white.opacity(0.84)
+            ? IOThemColors.StudioChrome.activeChip
             : (isHovered ? Color.black.opacity(0.028) : Color.clear)
 
         return Button {

@@ -1,4 +1,5 @@
 import SwiftUI
+import ScreenplayStudio
 
 struct OrbView: View {
     @ObservedObject var driver: OrbAudioDriver
@@ -34,7 +35,7 @@ struct OrbView: View {
                     )
                 )
                 // Keep orb bright/translucent so it feels integrated with the background.
-                .opacity(isActiveVoice ? orbActiveOpacity : orbIdleOpacity)
+                .opacity(fillOpacity)
                 .overlay(
                     Circle()
                         .stroke(Color.white.opacity(isActiveVoice ? 0.92 : 0.82), lineWidth: outlineWidth + 0.55)
@@ -58,6 +59,13 @@ struct OrbView: View {
                 .animation(.easeOut(duration: 0.12), value: activeLevel)
         }
         .frame(width: baseSize, height: baseSize)
+    }
+
+    /// On peach the glass lets the background through; on dark that read as a
+    /// muddy mauve, so the orb carries its own pink there.
+    private var fillOpacity: Double {
+        if IOThemAppearance.current == .dark { return isActiveVoice ? 0.97 : 0.9 }
+        return isActiveVoice ? orbActiveOpacity : orbIdleOpacity
     }
 
     private var glowOpacity: Double {

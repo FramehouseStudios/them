@@ -32,12 +32,14 @@ struct themApp: App {
 
     var body: some Scene {
         WindowGroup {
-            #if os(macOS)
-            ContentView()
-                .frame(minWidth: 1_200, minHeight: 800)
-            #else
-            ContentView()
-            #endif
+            IOThemAppearanceRoot {
+                #if os(macOS)
+                ContentView()
+                    .frame(minWidth: 1_200, minHeight: 800)
+                #else
+                ContentView()
+                #endif
+            }
         }
         #if os(macOS)
         .defaultSize(width: 1_360, height: 860)
