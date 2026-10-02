@@ -1708,6 +1708,10 @@ final class ScreenplayStudioViewModel: ObservableObject {
     private let projectSelectionAPI = BackendMemoryAPI()
     private var clientTokenOwnedProjectIDs: Set<String> = []
     private var activeLoadRequestID: UUID?
+    /// Only the newest revision request may set the counts: after a save, a
+    /// request against the old base could land last and show "31 changes" on
+    /// a page that was just saved (2026-10-01).
+    private var activeRevisionRequestID: UUID?
 
     init() {
         fountainDraft = ScreenplayLiveDraftBridge.shared.draftText
@@ -6471,8 +6475,10 @@ final class ScreenplayStudioViewModel: ObservableObject {
             return
         }
 
+        let requestID = UUID()
+        activeRevisionRequestID = requestID
         isRevisionRefreshing = true
-        defer { isRevisionRefreshing = false }
+        defer { if activeRevisionRequestID == requestID { isRevisionRefreshing = false } }
         do {
             let result = try await StudioCraftResilience.run(source: source) {
                 try await BackendMemoryAPI.shared.fetchScreenplayRevisionColors(
@@ -6481,11 +6487,13 @@ final class ScreenplayStudioViewModel: ObservableObject {
                     revisionColor: revisionColor
                 )
             }
-            guard normalized == fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines) else { return }
+            guard activeRevisionRequestID == requestID,
+                  normalized == fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines) else { return }
             revisionSummary = result.payload.summary
             revisionRanges = result.payload.ranges
             revisionErrorText = ""
         } catch {
+            guard activeRevisionRequestID == requestID else { return }
             revisionErrorText = StudioCraftResilience.presentedError(
                 error,
                 source: source,
