@@ -39,6 +39,15 @@ function cueName(line) {
   return line.replace(/^@/, "").replace(/\s*\^$/, "").replace(CUE_EXTENSION, "").trim();
 }
 
+/**
+ * A cue is the name in screenplay caps ("MARA", "DR. CHEN"); memory keeps the
+ * name ("Mara", "Dr. Chen"). Stored as "MARA", a page-learned character hid
+ * the writer's own "Mara" from lookups and showed in caps on memory cards.
+ */
+function characterNameFromCue(cue) {
+  return String(cue || "").toLowerCase().replace(/(^|[\s.'-])([a-z])/g, (_, lead, letter) => lead + letter.toUpperCase());
+}
+
 function extractDraftCharacterDialogue(draft, {
   maxCharacters = MAX_CHARACTERS,
   maxLinesPerCharacter = MAX_LINES_PER_CHARACTER,
@@ -116,7 +125,7 @@ function createDraftCharacterLearner({
       if (!traitsHaveSignal(traits)) continue;
       await recordCharacterMention({
         userId: cleanUserId,
-        characterName: name,
+        characterName: characterNameFromCue(name),
         source: "draft_save",
         tags: ["screenplay"],
         metadata: { projectId: cleanProjectId, ...(cleanTitle ? { projectTitle: cleanTitle } : {}) },
@@ -146,6 +155,7 @@ function createDraftCharacterLearner({
 }
 
 export {
+  characterNameFromCue,
   createDraftCharacterLearner,
   extractDraftCharacterDialogue,
   isCharacterCue,

@@ -1,10 +1,17 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
 import {
+  characterNameFromCue,
   createDraftCharacterLearner,
   extractDraftCharacterDialogue,
 } from "../lib/draft_character_learning.js";
+import { createCreativeMemoryStore } from "../lib/creative_memory_store.js";
+import { createJsonPersistence } from "../lib/persistence_json.js";
 import { extractTraits } from "../lib/trait_library.js";
 
 const SCENE = [
@@ -63,7 +70,7 @@ test("[draft-character-learning] records project-scoped traits and skips an unch
   const first = await learner.learnFromDraft({ userId: "u1", projectId: "p1", projectTitle: "Dock", draft: SCENE });
   assert.ok(first.learned >= 1);
   assert.ok(recorded.every((item) => item.userId === "u1" && item.metadata.projectId === "p1" && item.source === "draft_save"));
-  assert.ok(recorded.some((item) => item.characterName === "NORA"));
+  assert.ok(recorded.some((item) => item.characterName === "Nora"));
 
   const again = await learner.learnFromDraft({ userId: "u1", projectId: "p1", draft: SCENE });
   assert.deepEqual(again, { learned: 0, skipped: "unchanged" });
@@ -90,4 +97,24 @@ test("[draft-character-learning] onVersionSaved resolves the memory user from th
   await new Promise((resolve) => setTimeout(resolve, 20));
   assert.ok(recorded.length >= 1);
   assert.ok(recorded.every((item) => item.userId === "u9"));
+});
+
+test("[draft-character-learning] a cue is stored as the character's name", () => {
+  assert.deepEqual(
+    ["MARA", "DR. CHEN", "O'BRIEN", "MARY-KATE"].map(characterNameFromCue),
+    ["Mara", "Dr. Chen", "O'Brien", "Mary-Kate"],
+  );
+});
+
+test("[draft-character-learning] a page-learned character answers to the writer's spelling", async () => {
+  // 2026-10-01: a saved page stored "MARA"; the writer's confirmed want for
+  // "Mara" then landed on that record, still named in caps, and a lookup for
+  // "Mara" found nothing (cross-platform learned-memory eval).
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "io-them-cue-name-"));
+  const store = createCreativeMemoryStore({ persistence: createJsonPersistence({ jsonRoot: root }) });
+  const metadata = { projectId: "project_mara", projectTitle: "Mara" };
+  await store.recordCharacterMention({ userId: "u1", characterName: "MARA", source: "draft_save", metadata });
+  await store.recordCharacterMention({ userId: "u1", characterName: "Mara", source: "screenplay_learning_confirmation", metadata });
+  const memory = await store.getCreativeMemoryForPrompt({ userId: "u1", projectId: "project_mara", projectTitle: "Mara", query: "Mara" });
+  assert.deepEqual((memory?.characters || []).map((character) => character.name), ["Mara"]);
 });
