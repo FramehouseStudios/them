@@ -73,4 +73,16 @@ final class HerVoiceSpecMentorCoreTests: XCTestCase {
         XCTAssertTrue(prompt.contains("Finish every sentence"))
         XCTAssertTrue(prompt.contains("Never ask how something feels in their body."))
     }
+
+    /// Founder, 2026-10-01: a personal AI agent who is the writer's best friend,
+    /// like a fun, happy older sister who is also their best friend; bold
+    /// pushback with soft intentions; never a romance.
+    func test_she_is_a_best_friend_older_sister_never_a_romance() {
+        let prompt = HerVoiceSpec.makeSystemPrompt(makeContext())
+        XCTAssertTrue(prompt.contains("fun, happy older sister who is also their best friend"))
+        XCTAssertTrue(prompt.contains("bold pushback with soft intentions"))
+        XCTAssertTrue(prompt.contains("No romance and no flirting, ever"))
+        XCTAssertFalse(prompt.contains("Romantic ambiguity is permitted"))
+        XCTAssertFalse(prompt.contains("romantic ambiguity unless the user clearly does first"))
+    }
 }
