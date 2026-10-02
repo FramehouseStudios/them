@@ -4616,31 +4616,31 @@ private func refreshStudioCreativeInstincts(
     }
 
     private var directionOneChromeTopBar: Color {
-        Color(.sRGB, red: 0.93, green: 0.925, blue: 0.918, opacity: 0.88)
+        IOThemColors.StudioChrome.topBar
     }
 
     private var directionOneChromePanel: Color {
-        Color(.sRGB, red: 0.935, green: 0.934, blue: 0.936, opacity: 0.86)
+        IOThemColors.StudioChrome.panel
     }
 
     private var directionOneChromePanelSoft: Color {
-        Color(.sRGB, red: 0.955, green: 0.953, blue: 0.950, opacity: 0.90)
+        IOThemColors.StudioChrome.panelSoft
     }
 
     private var directionOneChromeStroke: Color {
-        Color.black.opacity(0.09)
+        IOThemColors.StudioChrome.stroke
     }
 
     private var directionOneChromeText: Color {
-        Color.black.opacity(0.74)
+        IOThemColors.StudioChrome.text
     }
 
     private var directionOneChromeSecondaryText: Color {
-        Color.black.opacity(0.52)
+        IOThemColors.StudioChrome.secondaryText
     }
 
     private var directionOneChromeTertiaryText: Color {
-        Color.black.opacity(0.34)
+        IOThemColors.StudioChrome.tertiaryText
     }
 
     private var directionOneChromeSelectionFill: Color {
@@ -8996,11 +8996,11 @@ Current draft version:
 
             ZStack {
                 RoundedRectangle(cornerRadius: IOThemSpacing.ScreenplayPageChrome.cornerRadius, style: .continuous)
-                    .fill(Color.herPaper)
+                    .fill(Color.herPaper) // the card follows the theme; the editor's sheet stays white
 
                 LinearGradient(
                     colors: [
-                        Color.white.opacity(0.36),
+                        Color.white.opacity(IOThemAppearance.current == .dark ? 0 : 0.36),
                         Color.herPaper.opacity(0.92),
                     ],
                     startPoint: .top,

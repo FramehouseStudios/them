@@ -12,6 +12,8 @@ extension Color {
     static var herShellStroke: Color { IOThemColors.Shell.stroke }
 
     static var herPaper: Color { IOThemColors.Paper.surface }
+    /// The screenplay page: white with black ink in every appearance.
+    static var herScriptPaper: Color { IOThemColors.Paper.script }
     static var herPaperLine: Color { IOThemColors.Paper.line }
     static var herPaperShadow: Color { IOThemColors.Paper.shadow }
 

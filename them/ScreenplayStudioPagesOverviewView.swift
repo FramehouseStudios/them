@@ -117,7 +117,7 @@ struct ScreenplayStudioPagesOverviewView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: IOThemSpacing.Radius.sm, style: .continuous)
-                    .fill(Color.herPaper)
+                    .fill(Color.herScriptPaper)
                     .shadow(color: Color.black.opacity(0.10), radius: 10, y: 4)
             )
             .overlay(
