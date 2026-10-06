@@ -4473,13 +4473,21 @@ final class V1SmokeUITests: XCTestCase {
 
         // The phone types. Its keystrokes must reach the Mac (asserted by the
         // orchestrating smoke through the Mac's debug state).
-        let draft = app.otherElements["studio.draft.surface"]
-        XCTAssertTrue(draft.waitForExistence(timeout: 5), "Draft surface missing.")
-        draft.tap()
-        app.typeText("\n\n" + phoneMarker)
+        let draft = app.textViews["studio.draft.editor"]
+        XCTAssertTrue(draft.waitForExistence(timeout: 5), "Draft editor missing.")
+        // Tap well below the two-line seed so UIKit places the insertion point
+        // at the end instead of replacing a character in the existing line.
+        draft.coordinate(withNormalizedOffset: CGVector(dx: 0.12, dy: 0.9)).tap()
+        draft.typeText("\n\n" + phoneMarker)
         XCTAssertTrue(
             waitForDraft(in: app, containing: phoneMarker, timeout: 10),
             "The phone's own keystrokes did not land on its page."
+        )
+        let phoneDraftAfterTyping = accessibleDraftText(in: app)
+        XCTAssertEqual(
+            phoneDraftAfterTyping.components(separatedBy: "He waits, still.").count - 1,
+            1,
+            "Typing on the phone must preserve the seeded screenplay line exactly once. Draft: \(phoneDraftAfterTyping)"
         )
 
         // The Mac types next; the words must arrive here live, on the same
