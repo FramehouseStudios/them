@@ -156,13 +156,14 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
             savedAt: 1_700_000_123
         )
 
-        store.savePreservedConflict(
+        XCTAssertTrue(store.savePreservedConflict(
             ownerUserId: ownerUserID,
             projectId: "project-recovery",
             draft: local,
             baseVersionId: "version-before-edit",
-            savedAt: 1_700_000_123
-        )
+            savedAt: 1_700_000_123,
+            synchronizeToDisk: true
+        ), "the displaced draft is acknowledged only after its dedicated conflict copy is flushed")
         // The normal live-sync debounce is allowed to persist and later mark
         // the remote text clean, but it must not replace the separate copy.
         store.save(
