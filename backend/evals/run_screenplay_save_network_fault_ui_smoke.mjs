@@ -1,5 +1,4 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, unlinkSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 import { startBackend } from "../tests/helpers/backend_test_server.mjs";
@@ -11,7 +10,6 @@ function assert(condition, message) {
 }
 
 let server = null;
-const xcconfigPath = `/tmp/them_screenplay_save_network_fault_${process.pid}.xcconfig`;
 try {
   server = await startBackend({
     env: {
@@ -19,11 +17,6 @@ try {
       REQUIRE_USER_AUTH: "1",
     },
   });
-  writeFileSync(
-    xcconfigPath,
-    `THEM_UITEST_SCREENPLAY_SAVE_BACKEND_PORT = ${server.port}\n`,
-    { encoding: "utf8", mode: 0o600 }
-  );
 
   const child = spawnSync("bash", ["scripts/run_screenplay_save_network_fault_smokes.sh"], {
     cwd: ROOT_DIR,
@@ -31,7 +24,9 @@ try {
     maxBuffer: 128 * 1024 * 1024,
     env: {
       ...process.env,
-      THEM_UITEST_SCREENPLAY_SAVE_XCCONFIG_PATH: xcconfigPath,
+      // The XCUITest reads ProcessInfo.environment. A custom .xcconfig build
+      // setting does not become an XCTest process environment variable.
+      THEM_UITEST_SCREENPLAY_SAVE_BACKEND_PORT: String(server.port),
     },
   });
   const output = `${child.stdout || ""}\n${child.stderr || ""}`;
@@ -59,6 +54,5 @@ try {
   }
   throw error;
 } finally {
-  if (existsSync(xcconfigPath)) unlinkSync(xcconfigPath);
   if (server) await server.stop();
 }
