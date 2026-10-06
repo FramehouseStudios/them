@@ -91,9 +91,20 @@ build_args+=(
   -test-timeouts-enabled YES
   -default-test-execution-time-allowance "${UI_TEST_TIME_ALLOWANCE_SECONDS:-900}"
   -maximum-test-execution-time-allowance "${UI_TEST_MAX_TIME_ALLOWANCE_SECONDS:-1500}"
-  -resultBundlePath "$result_bundle_path"
-  "$@"
 )
+
+# Callers that orchestrate a named UI scenario may supply their own result
+# bundle path. Preserve that path and add the per-run default only when absent.
+caller_has_result_bundle=0
+for arg in "$@"; do
+  case "$arg" in
+    -resultBundlePath|-resultBundlePath=*) caller_has_result_bundle=1 ;;
+  esac
+done
+if [[ "$caller_has_result_bundle" == 0 ]]; then
+  build_args+=(-resultBundlePath "$result_bundle_path")
+fi
+build_args+=("$@")
 
 # Keep Xcode's normal simulator "Sign to Run Locally" behavior. The V1 UI
 # suite exercises remembered credentials in Apple Keychain, and an unsigned

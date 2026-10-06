@@ -10,7 +10,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
 const script = path.join(repoRoot, "scripts", "run_v1_ui_smoke.sh");
 
-function runSmoke({ xcconfigPath = "", destination = "platform=iOS Simulator,id=deterministic-v1-ui-smoke", simulatorName = "" } = {}) {
+function runSmoke({ xcconfigPath = "", destination = "platform=iOS Simulator,id=deterministic-v1-ui-smoke", simulatorName = "", extraArgs = [] } = {}) {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "io-them-v1-ui-smoke-"));
   const log = path.join(tmp, "xcodebuild.args");
   const callOrderLog = path.join(tmp, "calls.log");
@@ -35,6 +35,7 @@ function runSmoke({ xcconfigPath = "", destination = "platform=iOS Simulator,id=
 
   const result = spawnSync("/bin/bash", [
     script,
+    ...extraArgs,
   ], {
     cwd: repoRoot,
     env: {
@@ -97,6 +98,18 @@ test("[v1-ui-smoke] forwards an optional restore xcconfig as one argument", () =
 
   assert.equal(result.status, 0, result.stderr);
   assert.deepEqual(args.slice(0, 3), ["-xcconfig", xcconfig, "test"]);
+});
+
+test("[v1-ui-smoke] preserves a caller-provided result bundle without adding a duplicate", () => {
+  const requestedPath = "/tmp/integrated writer loop.xcresult";
+  const { args, result } = runSmoke({ extraArgs: ["-resultBundlePath", requestedPath] });
+
+  assert.equal(result.status, 0, result.stderr);
+  const resultBundleIndexes = args.reduce((indexes, arg, index) => (
+    arg === "-resultBundlePath" ? [...indexes, index] : indexes
+  ), []);
+  assert.equal(resultBundleIndexes.length, 1);
+  assert.equal(args[resultBundleIndexes[0] + 1], requestedPath);
 });
 
 test("[v1-ui-smoke] resolves, erases, and boots the simulator selected by name", () => {
