@@ -5,6 +5,7 @@ struct ScreenplayLocalDraftRecoverySnapshot: Equatable {
     let draft: String
     let baseVersionId: String
     let savedAt: TimeInterval
+    let isPreservedConflict: Bool
 }
 struct ScreenplayBridgeVersionAdoptionPolicy {
     static func shouldAdoptCommittedPageWriteBase(
@@ -163,12 +164,51 @@ struct ScreenplayLocalDraftRecoveryStore {
         let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedProjectId.isEmpty else { return }
         var nextPayloads = payloads(ownerUserId: ownerUserId)
-        nextPayloads[normalizedProjectId] = [
+        var projectPayload = nextPayloads[normalizedProjectId] ?? [:]
+        projectPayload["draft"] = draft
+        projectPayload["baseVersionId"] = baseVersionId
+        projectPayload["dirty"] = dirty
+        projectPayload["savedAt"] = savedAt
+        nextPayloads[normalizedProjectId] = projectPayload
+        defaults.set(nextPayloads, forKey: ownerScopedKey(ownerUserId))
+    }
+
+    /// Keeps a dirty local draft separate from the ordinary recovery slot so
+    /// a remote live-sync draft can be followed without overwriting the only
+    /// copy of the writer's local text.
+    func savePreservedConflict(
+        ownerUserId: String,
+        projectId: String,
+        draft: String,
+        baseVersionId: String,
+        savedAt: TimeInterval = Date().timeIntervalSince1970
+    ) {
+        let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedProjectId.isEmpty,
+              !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        var nextPayloads = payloads(ownerUserId: ownerUserId)
+        var projectPayload = nextPayloads[normalizedProjectId] ?? [:]
+        projectPayload["preservedConflict"] = [
             "draft": draft,
             "baseVersionId": baseVersionId,
-            "dirty": dirty,
+            "dirty": true,
             "savedAt": savedAt,
         ]
+        nextPayloads[normalizedProjectId] = projectPayload
+        defaults.set(nextPayloads, forKey: ownerScopedKey(ownerUserId))
+    }
+
+    func clearPreservedConflict(ownerUserId: String, projectId: String) {
+        let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedProjectId.isEmpty else { return }
+        var nextPayloads = payloads(ownerUserId: ownerUserId)
+        guard var projectPayload = nextPayloads[normalizedProjectId] else { return }
+        projectPayload.removeValue(forKey: "preservedConflict")
+        if projectPayload.isEmpty {
+            nextPayloads.removeValue(forKey: normalizedProjectId)
+        } else {
+            nextPayloads[normalizedProjectId] = projectPayload
+        }
         defaults.set(nextPayloads, forKey: ownerScopedKey(ownerUserId))
     }
 
@@ -187,16 +227,33 @@ struct ScreenplayLocalDraftRecoveryStore {
         fingerprint: (String) -> String
     ) -> ScreenplayLocalDraftRecoverySnapshot? {
         let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalizedProjectId.isEmpty else { return nil }
-        guard let stored = payloads(ownerUserId: ownerUserId)[normalizedProjectId] else { return nil }
+        guard !normalizedProjectId.isEmpty,
+              let stored = payloads(ownerUserId: ownerUserId)[normalizedProjectId] else { return nil }
 
-        let storedDraft = String(describing: stored["draft"] ?? "")
-        let storedDirty = stored["dirty"] as? Bool ?? false
+        let serverFingerprint = fingerprint(serverDraft.trimmingCharacters(in: .whitespacesAndNewlines))
+        if let preserved = stored["preservedConflict"] as? [String: Any],
+           preserved["dirty"] as? Bool == true {
+            let draft = String(describing: preserved["draft"] ?? "")
+            if !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+               fingerprint(draft.trimmingCharacters(in: .whitespacesAndNewlines)) != serverFingerprint {
+                return ScreenplayLocalDraftRecoverySnapshot(
+                    projectId: normalizedProjectId,
+                    draft: draft,
+                    baseVersionId: String(describing: preserved["baseVersionId"] ?? ""),
+                    savedAt: preserved["savedAt"] as? TimeInterval ?? 0,
+                    isPreservedConflict: true
+                )
+            }
+            clearPreservedConflict(ownerUserId: ownerUserId, projectId: normalizedProjectId)
+        }
+
+        guard let latestStored = payloads(ownerUserId: ownerUserId)[normalizedProjectId] else { return nil }
+        let storedDraft = String(describing: latestStored["draft"] ?? "")
+        let storedDirty = latestStored["dirty"] as? Bool ?? false
         guard storedDirty, !storedDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return nil
         }
 
-        let serverFingerprint = fingerprint(serverDraft.trimmingCharacters(in: .whitespacesAndNewlines))
         let localFingerprint = fingerprint(storedDraft.trimmingCharacters(in: .whitespacesAndNewlines))
         guard serverFingerprint != localFingerprint else {
             clear(ownerUserId: ownerUserId, projectId: normalizedProjectId)
@@ -206,8 +263,9 @@ struct ScreenplayLocalDraftRecoveryStore {
         return ScreenplayLocalDraftRecoverySnapshot(
             projectId: normalizedProjectId,
             draft: storedDraft,
-            baseVersionId: String(describing: stored["baseVersionId"] ?? ""),
-            savedAt: stored["savedAt"] as? TimeInterval ?? 0
+            baseVersionId: String(describing: latestStored["baseVersionId"] ?? ""),
+            savedAt: latestStored["savedAt"] as? TimeInterval ?? 0,
+            isPreservedConflict: false
         )
     }
 
