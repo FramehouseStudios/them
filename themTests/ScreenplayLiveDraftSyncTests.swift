@@ -194,6 +194,7 @@ private final class FakeLiveDraftEditor: LiveDraftEditorBinding {
     var latestVersionID = "v1"
     var appliedRemoteTexts: [String] = []
     var appliedSourceDevices: [String] = []
+    var preservedLocalDrafts: [(draft: String, projectID: String)] = []
     var adoptedVersions: [(versionID: String, checksum: String)] = []
     var revealedLines: [Int] = []
 
@@ -218,6 +219,10 @@ private final class FakeLiveDraftEditor: LiveDraftEditorBinding {
 
     func revealRemoteEditLine(_ line: Int) {
         revealedLines.append(line)
+    }
+
+    func preserveLocalDraftForLiveSyncRecovery(_ text: String, projectID: String) {
+        preservedLocalDrafts.append((text, projectID))
     }
 
     func adoptRemoteLiveVersion(_ versionID: String, projectID: String, draftChecksum: String) {
@@ -487,6 +492,9 @@ final class ScreenplayLiveDraftSyncServiceTests: XCTestCase {
         try? await Task.sleep(nanoseconds: 300_000_000)
         XCTAssertEqual(editor.text, channel)
         XCTAssertTrue(transport.postedOps.allSatisfy { !$0.op.insert.contains("INT. DINER") }, "no doubled page is published")
+        XCTAssertEqual(editor.preservedLocalDrafts.count, 1)
+        XCTAssertEqual(editor.preservedLocalDrafts.first?.draft, cached)
+        XCTAssertEqual(editor.preservedLocalDrafts.first?.projectID, "proj-1")
         service.detach()
     }
 

@@ -133,6 +133,77 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         XCTAssertNil(store.payloads(ownerUserId: ownerUserID)["project-recovery"])
     }
 
+    func testPreservedLiveSyncConflictSurvivesRemoteRecoveryWritesAndStoreReinitialization() {
+        let local = "INT. DINER - NIGHT\n\nShe waits.\n\nA phone BUZZES."
+        let remote = "INT. DINER - NIGHT\n\nShe waits."
+        store.save(
+            ownerUserId: ownerUserID,
+            projectId: "project-recovery",
+            draft: local,
+            baseVersionId: "version-before-edit",
+            dirty: true,
+            savedAt: 1_700_000_123
+        )
+
+        store.savePreservedConflict(
+            ownerUserId: ownerUserID,
+            projectId: "project-recovery",
+            draft: local,
+            baseVersionId: "version-before-edit",
+            savedAt: 1_700_000_123
+        )
+        // The normal live-sync debounce is allowed to persist and later mark
+        // the remote text clean, but it must not replace the separate copy.
+        store.save(
+            ownerUserId: ownerUserID,
+            projectId: "project-recovery",
+            draft: remote,
+            baseVersionId: "version-remote",
+            dirty: false,
+            savedAt: 1_700_000_456
+        )
+
+        let relaunchedStore = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: recoveryKey)
+        let snapshot = relaunchedStore.recoverySnapshot(
+            ownerUserId: ownerUserID,
+            projectId: "project-recovery",
+            serverDraft: remote,
+            fingerprint: stableFingerprint
+        )
+
+        XCTAssertEqual(snapshot?.draft, local)
+        XCTAssertEqual(snapshot?.baseVersionId, "version-before-edit")
+        XCTAssertEqual(snapshot?.savedAt, 1_700_000_123)
+        XCTAssertEqual(snapshot?.isPreservedConflict, true)
+    }
+
+    func testPreservedLiveSyncConflictCanBeResolvedWithoutLeavingFalseRecovery() {
+        let local = "Local unsaved scene"
+        store.savePreservedConflict(
+            ownerUserId: ownerUserID,
+            projectId: "project-recovery",
+            draft: local,
+            baseVersionId: "version-before-edit"
+        )
+        store.save(
+            ownerUserId: ownerUserID,
+            projectId: "project-recovery",
+            draft: local,
+            baseVersionId: "version-before-edit",
+            dirty: true
+        )
+        store.clearPreservedConflict(ownerUserId: ownerUserID, projectId: "project-recovery")
+
+        let snapshot = store.recoverySnapshot(
+            ownerUserId: ownerUserID,
+            projectId: "project-recovery",
+            serverDraft: local,
+            fingerprint: stableFingerprint
+        )
+
+        XCTAssertNil(snapshot)
+    }
+
     func testRecoverySnapshotsAreIsolatedByAuthenticatedOwner() {
         store.save(
             ownerUserId: "user-a",
