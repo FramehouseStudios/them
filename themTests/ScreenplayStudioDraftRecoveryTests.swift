@@ -62,20 +62,31 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         CLEMENTINE watches the rain make tiny rivers down the glass.
         """
 
-        store.save(
+        XCTAssertTrue(store.save(
             ownerUserId: ownerUserID,
             projectId: " project-recovery ",
             draft: draft,
             baseVersionId: "version-before-edit",
             dirty: true,
-            savedAt: 1_700_000_000
-        )
+            savedAt: 1_700_000_000,
+            synchronizeToDisk: true
+        ), "a recovery snapshot is acknowledged only after the defaults flush succeeds")
 
         let payload = store.payloads(ownerUserId: ownerUserID)["project-recovery"]
         XCTAssertEqual(payload?["draft"] as? String, draft)
         XCTAssertEqual(payload?["baseVersionId"] as? String, "version-before-edit")
         XCTAssertEqual(payload?["dirty"] as? Bool, true)
         XCTAssertEqual(payload?["savedAt"] as? TimeInterval, 1_700_000_000)
+
+        let reopenedStore = ScreenplayLocalDraftRecoveryStore(
+            defaults: UserDefaults(suiteName: defaultsSuiteName)!,
+            key: recoveryKey
+        )
+        XCTAssertEqual(
+            reopenedStore.payloads(ownerUserId: ownerUserID)["project-recovery"]?["draft"] as? String,
+            draft,
+            "the flushed recovery text is visible to a newly opened defaults reader"
+        )
     }
 
     func testClearRemovesOnlyRequestedProjectRecoverySnapshot() {
@@ -145,15 +156,25 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
             savedAt: 1_700_000_123
         )
 
-        store.savePreservedConflict(
+        XCTAssertTrue(store.savePreservedConflict(
             ownerUserId: ownerUserID,
             projectId: "project-recovery",
             draft: local,
             baseVersionId: "version-before-edit",
-            savedAt: 1_700_000_123
+            savedAt: 1_700_000_123,
+            synchronizeToDisk: true
+        ), "the displaced draft is acknowledged only after its dedicated conflict copy is flushed")
+        // Recovery promotes the text into the ordinary dirty slot first. That
+        // write must not remove the flushed conflict copy; a later remote
+        // clean write must not remove it either.
+        store.save(
+            ownerUserId: ownerUserID,
+            projectId: "project-recovery",
+            draft: local,
+            baseVersionId: "version-before-edit",
+            dirty: true,
+            savedAt: 1_700_000_234
         )
-        // The normal live-sync debounce is allowed to persist and later mark
-        // the remote text clean, but it must not replace the separate copy.
         store.save(
             ownerUserId: ownerUserID,
             projectId: "project-recovery",
@@ -175,6 +196,93 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         XCTAssertEqual(snapshot?.baseVersionId, "version-before-edit")
         XCTAssertEqual(snapshot?.savedAt, 1_700_000_123)
         XCTAssertEqual(snapshot?.isPreservedConflict, true)
+    }
+
+    func testRemoteVersionConfirmationClearsOrdinaryDraftButKeepsPreservedConflict() {
+        let local = "INT. DINER - NIGHT\n\nShe waits.\n\nA phone BUZZES."
+        let remote = "INT. DINER - NIGHT\n\nShe waits."
+        store.save(
+            ownerUserId: ownerUserID,
+            projectId: "project-recovery",
+            draft: local,
+            baseVersionId: "version-before-edit",
+            dirty: true,
+            savedAt: 1_700_000_123
+        )
+        store.savePreservedConflict(
+            ownerUserId: ownerUserID,
+            projectId: "project-recovery",
+            draft: local,
+            baseVersionId: "version-before-edit",
+            savedAt: 1_700_000_123
+        )
+
+        // The remote live draft is written to the ordinary cache, then its
+        // server version is acknowledged. That acknowledgement must not erase
+        // the different local recovery copy.
+        store.save(
+            ownerUserId: ownerUserID,
+            projectId: "project-recovery",
+            draft: remote,
+            baseVersionId: "version-remote",
+            dirty: true,
+            savedAt: 1_700_000_456
+        )
+        store.clearOrdinaryDraft(ownerUserId: ownerUserID, projectId: "project-recovery")
+
+        let relaunchedStore = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: recoveryKey)
+        let snapshot = relaunchedStore.recoverySnapshot(
+            ownerUserId: ownerUserID,
+            projectId: "project-recovery",
+            serverDraft: remote,
+            fingerprint: stableFingerprint
+        )
+
+        XCTAssertEqual(snapshot?.draft, local)
+        XCTAssertEqual(snapshot?.baseVersionId, "version-before-edit")
+        XCTAssertEqual(snapshot?.isPreservedConflict, true)
+        let payload = relaunchedStore.payloads(ownerUserId: ownerUserID)["project-recovery"]
+        XCTAssertNil(payload?["draft"])
+        XCTAssertNotNil(payload?["preservedConflict"])
+    }
+
+    @MainActor
+    func testLiveSyncVersionAdoptionKeepsExactLocalDraftAvailableToRecover() async {
+        let local = "INT. DINER - NIGHT\n\nShe waits.\n\nA phone BUZZES."
+        let remote = "INT. DINER - NIGHT\n\nShe waits."
+        let projectID = "project-live-sync-recovery-\(UUID().uuidString)"
+        let authOwnerID = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store)
+        model.selectedProjectID = projectID
+        model.fountainDraft = local
+        XCTAssertTrue(model.preserveLiveDraftForRecovery(local, projectID: projectID))
+
+        XCTAssertTrue(model.applyRemoteLiveDraft(remote, projectID: projectID, sourceDeviceID: "other-device"))
+        try? await Task.sleep(nanoseconds: 1_100_000_000)
+        model.adoptRemoteLiveVersion(
+            "version-remote",
+            projectID: projectID,
+            draftChecksum: LiveDraftText.checksum(remote)
+        )
+
+        XCTAssertEqual(model.fountainDraft, remote)
+        XCTAssertEqual(model.recoveryCandidate?.draft, local)
+        XCTAssertEqual(model.recoveryCandidate?.baseVersionId, "")
+        XCTAssertEqual(model.recoveryCandidate?.isPreservedConflict, true)
+
+        let relaunchedStore = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: recoveryKey)
+        let relaunchedSnapshot = relaunchedStore.recoverySnapshot(
+            ownerUserId: authOwnerID,
+            projectId: projectID,
+            serverDraft: remote,
+            fingerprint: stableFingerprint
+        )
+        XCTAssertEqual(relaunchedSnapshot?.draft, local)
+        XCTAssertEqual(relaunchedSnapshot?.isPreservedConflict, true)
+
+        model.restoreDraftFromRecovery()
+        XCTAssertEqual(model.fountainDraft, local)
+        XCTAssertNil(model.recoveryCandidate)
     }
 
     func testPreservedLiveSyncConflictCanBeResolvedWithoutLeavingFalseRecovery() {
