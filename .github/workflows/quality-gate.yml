@@ -224,12 +224,10 @@ jobs:
         working-directory: backend
         run: npm run eval:studio-ios-writer-loop-contract
 
-      - name: Run iOS V1 UI smoke tests (soft gate)
-        continue-on-error: true
+      - name: Run iOS V1 UI smoke tests (required)
         run: scripts/run_v1_ui_smoke.sh
 
-      - name: Run iPhone and macOS voice network-fault smokes (soft gate)
-        continue-on-error: true
+      - name: Run iPhone voice-fault smoke and macOS scaffold build (required)
         run: scripts/run_voice_network_fault_smokes.sh
 
       - name: Workflow inputs summary
@@ -255,8 +253,8 @@ jobs:
             echo "- Load profile: $(gate_status "${RUN_LOAD}")"
             echo "- iOS unit bundle: required (themTests)"
             echo "- Integrated iPhone writer loop: required"
-            echo "- iOS V1 UI smoke: soft gate (themUITests)"
-            echo "- Voice network faults: soft gate (iPhone + macOS themUITests)"
+            echo "- iOS V1 UI smoke: required (themUITests)"
+            echo "- Voice network-fault smoke: required (iPhone); macOS scaffold build: required"
             echo "- Default secrets for this workflow shape: \`OPENAI_API_KEY\`, \`APP_TOKEN\`"
           } | tee -a "${GITHUB_STEP_SUMMARY}"
 
@@ -269,3 +267,5 @@ jobs:
           path: |
             /tmp/them-quality-gate-backend.log
             /tmp/them-smoke/them-home.png
+            ${{ runner.temp }}/them-v1-ui-smoke/*.xcresult
+            ${{ runner.temp }}/them-voice-network-fault-smokes/*.xcresult

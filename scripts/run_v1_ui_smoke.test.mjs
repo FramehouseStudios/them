@@ -25,8 +25,6 @@ function runSmoke({ xcconfigPath = "" } = {}) {
   const destination = "platform=iOS Simulator,id=deterministic-v1-ui-smoke";
   const result = spawnSync("/bin/bash", [
     script,
-    "-resultBundlePath",
-    path.join(tmp, "result.xcresult"),
   ], {
     cwd: repoRoot,
     env: {
@@ -34,6 +32,7 @@ function runSmoke({ xcconfigPath = "" } = {}) {
       XCODEBUILD: fakeXcodebuild,
       XCODEBUILD_CALLS_LOG: log,
       IOS_SIMULATOR_DESTINATION: destination,
+      ARTIFACT_DIR: tmp,
       THEM_UITEST_RESTORE_XCCONFIG_PATH: xcconfigPath,
     },
     encoding: "utf8",
@@ -46,7 +45,7 @@ function runSmoke({ xcconfigPath = "" } = {}) {
   return { args, destination, result };
 }
 
-test("[v1-ui-smoke] preserves simulator signing for Keychain coverage", () => {
+test("[v1-ui-smoke] preserves simulator signing and records an xcresult", () => {
   const { args, destination, result } = runSmoke();
 
   assert.equal(result.status, 0, result.stderr);
@@ -68,6 +67,7 @@ test("[v1-ui-smoke] preserves simulator signing for Keychain coverage", () => {
     ["-maximum-concurrent-test-simulator-destinations", "1"],
   );
   assert.ok(args.includes("-resultBundlePath"));
+  assert.match(args[args.indexOf("-resultBundlePath") + 1], /v1-ui-smoke-.*\.xcresult$/);
   assert.equal(args.includes("-xcconfig"), false);
 });
 

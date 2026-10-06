@@ -1102,13 +1102,13 @@ final class V1SmokeUITests: XCTestCase {
 
         let reuse = app.buttons["studio.them.voice-pin.latest.reuse"]
         XCTAssertTrue(
-            revealInStudioDrawer(reuse, drawer: drawer, scrollingUp: true, maxSwipes: 12),
-            "Reuse Ask was not reachable."
+            revealFullyInStudioDrawer(reuse, drawer: drawer, maxSwipes: 12),
+            "Reuse Ask was not fully visible in the inspector."
         )
 #if os(macOS)
         reuse.click()
 #else
-        reuse.tap()
+        reuse.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
 #endif
         XCTAssertTrue(
             staticText(containing: "Loaded this Voice Pin ask", in: app)
@@ -1131,14 +1131,14 @@ final class V1SmokeUITests: XCTestCase {
         )
 
         let toPage = app.buttons["studio.them.voice-pin.latest.to-page"]
-        for _ in 0..<20 where !toPage.isHittable {
-            drawer.swipeUp()
-        }
-        XCTAssertTrue(waitForHittability(of: toPage, timeout: 5))
+        XCTAssertTrue(
+            revealFullyInStudioDrawer(toPage, drawer: drawer, maxSwipes: 12),
+            "To Page was not fully visible in the inspector."
+        )
 #if os(macOS)
         toPage.click()
 #else
-        toPage.tap()
+        toPage.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
 #endif
 
         for _ in 0..<20 where !promptField.isHittable {
@@ -1151,32 +1151,8 @@ final class V1SmokeUITests: XCTestCase {
         )
         let pageRoute = element(identifier: "studio.prompt.routing.page", in: app)
         XCTAssertTrue(pageRoute.waitForExistence(timeout: 4))
-        var pageRouted = waitForSelection(of: pageRoute, timeout: 4)
-        if !pageRouted {
-            // In the full scripted smoke the To Page tap is lost roughly every
-            // run (the drawer is still settling from the swipe-up loop above and
-            // swallows the touch), while the same test passes alone and in any
-            // shorter order. Tap once more only when the route did not switch;
-            // the assertion below is unchanged, so a genuine routing bug still
-            // fails with the same message.
-            XCTContext.runActivity(named: "To Page tap did not switch routing; tapping once more") { _ in }
-            for _ in 0..<20 where !toPage.isHittable {
-                drawer.swipeUp()
-            }
-            if waitForHittability(of: toPage, timeout: 5) {
-#if os(macOS)
-                toPage.click()
-#else
-                toPage.tap()
-#endif
-            }
-            for _ in 0..<20 where !promptField.isHittable {
-                drawer.swipeDown()
-            }
-            pageRouted = waitForSelection(of: pageRoute, timeout: 6)
-        }
         XCTAssertTrue(
-            pageRouted,
+            waitForSelection(of: pageRoute, timeout: 6),
             "To Page did not re-route the current exchange to the page."
         )
 #if os(iOS)

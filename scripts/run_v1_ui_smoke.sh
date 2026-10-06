@@ -7,6 +7,9 @@ SCHEME="${SCHEME:-them}"
 CONFIGURATION="${CONFIGURATION:-Debug}"
 ONLY_TESTING="${ONLY_TESTING:-themUITests}"
 XCODEBUILD_BIN="${XCODEBUILD:-xcodebuild}"
+ARTIFACT_DIR="${ARTIFACT_DIR:-${RUNNER_TEMP:-${TMPDIR:-/tmp}}/them-v1-ui-smoke}"
+mkdir -p "${ARTIFACT_DIR}"
+result_bundle_path="${V1_UI_RESULT_BUNDLE_PATH:-${ARTIFACT_DIR}/v1-ui-smoke-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}-$$.xcresult}"
 
 if [[ -n "${IOS_SIMULATOR_DESTINATION:-}" ]]; then
   destination="$IOS_SIMULATOR_DESTINATION"
@@ -70,6 +73,7 @@ build_args+=(
   -test-timeouts-enabled YES
   -default-test-execution-time-allowance "${UI_TEST_TIME_ALLOWANCE_SECONDS:-900}"
   -maximum-test-execution-time-allowance "${UI_TEST_MAX_TIME_ALLOWANCE_SECONDS:-1500}"
+  -resultBundlePath "$result_bundle_path"
   "$@"
 )
 
