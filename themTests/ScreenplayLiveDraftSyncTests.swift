@@ -498,9 +498,9 @@ final class ScreenplayLiveDraftSyncServiceTests: XCTestCase {
         )
         await waitUntil { editor.text == remote }
 
-        XCTAssertEqual(editor.preservedLocalDrafts.count, 1)
-        XCTAssertEqual(editor.preservedLocalDrafts.first?.draft, local)
-        XCTAssertEqual(editor.preservedLocalDrafts.first?.projectID, "proj-1")
+        XCTAssertEqual(editor.preservedDrafts.count, 1)
+        XCTAssertEqual(editor.preservedDrafts.first?.draft, local)
+        XCTAssertEqual(editor.preservedDrafts.first?.projectID, "proj-1")
         service.detach()
     }
 

@@ -255,7 +255,7 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store)
         model.selectedProjectID = projectID
         model.fountainDraft = local
-        model.preserveLocalDraftForLiveSyncRecovery(local, projectID: projectID)
+        XCTAssertTrue(model.preserveLiveDraftForRecovery(local, projectID: projectID))
 
         XCTAssertTrue(model.applyRemoteLiveDraft(remote, projectID: projectID, sourceDeviceID: "other-device"))
         try? await Task.sleep(nanoseconds: 1_100_000_000)
