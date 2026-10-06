@@ -164,8 +164,17 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
             savedAt: 1_700_000_123,
             synchronizeToDisk: true
         ), "the displaced draft is acknowledged only after its dedicated conflict copy is flushed")
-        // The normal live-sync debounce is allowed to persist and later mark
-        // the remote text clean, but it must not replace the separate copy.
+        // Recovery promotes the text into the ordinary dirty slot first. That
+        // write must not remove the flushed conflict copy; a later remote
+        // clean write must not remove it either.
+        store.save(
+            ownerUserId: ownerUserID,
+            projectId: "project-recovery",
+            draft: local,
+            baseVersionId: "version-before-edit",
+            dirty: true,
+            savedAt: 1_700_000_234
+        )
         store.save(
             ownerUserId: ownerUserID,
             projectId: "project-recovery",

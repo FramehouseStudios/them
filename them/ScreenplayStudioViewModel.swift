@@ -4211,12 +4211,10 @@ final class ScreenplayStudioViewModel: ObservableObject {
         if !candidate.baseVersionId.isEmpty {
             latestVersionID = candidate.baseVersionId
         }
-        if candidate.isPreservedConflict {
-            localDraftRecoveryStore.clearPreservedConflict(
-                ownerUserId: currentStudioAuthContext().userID,
-                projectId: candidate.projectId
-            )
-        }
+        // Keep a dedicated conflict copy until a server save is confirmed (or
+        // the writer explicitly keeps the server draft/discards recovery).
+        // Clearing it here before the normal recovery write completes would
+        // reopen a crash window in which neither copy is durable.
         syncLiveDraftBridgeProjectContext()
         hasUnsavedDraftChanges = fingerprint(for: candidate.draft) != lastSavedDraftFingerprint
         autosaveStatusText = "Recovered local draft"
