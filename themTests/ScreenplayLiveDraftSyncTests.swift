@@ -461,6 +461,101 @@ final class ScreenplayLiveDraftSyncServiceTests: XCTestCase {
         service.detach()
     }
 
+    func testOverlappingRemoteOpPreservesExactUnpublishedLocalDraftBeforeAdoptingChannel() async {
+        let transport = FakeLiveDraftTransport()
+        let base = "Mara waits."
+        let local = "Mara stays."
+        let remote = "Mara leaves."
+        let editor = FakeLiveDraftEditor(projectID: "proj-1", text: base)
+        let service = makeService(transport: transport)
+        service.attach(to: editor)
+        await waitUntil { !transport.openedStreams.isEmpty }
+        transport.emit("hello", #"{"seq":0,"checksum":"\#(LiveDraftText.checksum(base))","seeded":false}"#)
+        await waitUntil { service.status.isLive }
+
+        editor.text = local
+        let remoteOp = LiveDraftText.diff(from: base, to: remote)!
+        XCTAssertNil(
+            LiveDraftText.rebase(
+                localOp: LiveDraftText.diff(from: base, to: local)!,
+                base: base,
+                remoteText: remote
+            ),
+            "The fixture must represent edits to the same span."
+        )
+        transport.emit(
+            "op",
+            #"{"seq":1,"device_id":"ios-phone","op":{"start":\#(remoteOp.start),"delete_count":\#(remoteOp.deleteCount),"insert":"\#(remoteOp.insert)"},"checksum":"\#(LiveDraftText.checksum(remote))"}"#
+        )
+        await waitUntil { editor.text == remote }
+
+        XCTAssertEqual(editor.preservedLocalDrafts.count, 1)
+        XCTAssertEqual(editor.preservedLocalDrafts.first?.draft, local)
+        XCTAssertEqual(editor.preservedLocalDrafts.first?.projectID, "proj-1")
+        service.detach()
+    }
+
+    func testOverlappingRemoteOpPersistsExactDraftThroughRealStudioViewModel() async {
+        let suiteName = "io.them.ScreenplayLiveDraftSyncRecoveryIntegrationTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let store = ScreenplayLocalDraftRecoveryStore(
+            defaults: defaults,
+            key: "screenplay.liveDraftSync.integrationRecovery"
+        )
+        let projectID = "project-live-sync-overlap-\(UUID().uuidString)"
+        let base = "Mara waits."
+        let local = "Mara stays."
+        let remote = "Mara leaves."
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store)
+        model.selectedProjectID = projectID
+        model.fountainDraft = base
+
+        let transport = FakeLiveDraftTransport()
+        let service = makeService(transport: transport)
+        service.attach(to: model)
+        await waitUntil { !transport.openedStreams.isEmpty }
+        transport.emit("hello", #"{"seq":0,"checksum":"\#(LiveDraftText.checksum(base))","seeded":false}"#)
+        await waitUntil { service.status.isLive }
+
+        model.fountainDraft = local
+        let remoteOp = LiveDraftText.diff(from: base, to: remote)!
+        XCTAssertNil(
+            LiveDraftText.rebase(
+                localOp: LiveDraftText.diff(from: base, to: local)!,
+                base: base,
+                remoteText: remote
+            ),
+            "The fixture must represent edits to the same span."
+        )
+        transport.emit(
+            "op",
+            #"{"seq":1,"device_id":"ios-phone","op":{"start":\#(remoteOp.start),"delete_count":\#(remoteOp.deleteCount),"insert":"\#(remoteOp.insert)"},"checksum":"\#(LiveDraftText.checksum(remote))"}"#
+        )
+        await waitUntil { model.fountainDraft == remote }
+
+        XCTAssertEqual(model.recoveryCandidate?.draft, local)
+        XCTAssertEqual(model.recoveryCandidate?.projectId, projectID)
+        XCTAssertTrue(model.recoveryCandidate?.isPreservedConflict == true)
+
+        let ownerUserID = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""
+        let relaunchedStore = ScreenplayLocalDraftRecoveryStore(
+            defaults: defaults,
+            key: "screenplay.liveDraftSync.integrationRecovery"
+        )
+        let snapshot = relaunchedStore.recoverySnapshot(
+            ownerUserId: ownerUserID,
+            projectId: projectID,
+            serverDraft: remote,
+            fingerprint: { LiveDraftText.checksum($0) }
+        )
+        XCTAssertEqual(snapshot?.draft, local)
+        XCTAssertTrue(snapshot?.isPreservedConflict == true)
+
+        service.detach()
+    }
+
     func testFreshChannelPushesNonEmptyLocalDraft() async {
         let transport = FakeLiveDraftTransport()
         let editor = FakeLiveDraftEditor(projectID: "proj-1", text: "local unsaved work")
