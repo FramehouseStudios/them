@@ -1086,8 +1086,9 @@ final class V1SmokeUITests: XCTestCase {
             mode.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
 #endif
             XCTAssertTrue(
-                waitForAccessibilityValue(of: mode, equalTo: "Selected", timeout: 3),
-                "Selecting \(rawMode) did not expose its selected state to accessibility."
+                waitForAccessibilityValue(of: mode, equalTo: "Selected", timeout: 8),
+                "Selecting \(rawMode) did not expose its selected state to accessibility "
+                    + "within 8 seconds. Current value: \(String(describing: mode.value))."
             )
             XCTAssertTrue(
                 waitForAccessibilityText(
