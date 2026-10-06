@@ -1423,9 +1423,12 @@ final class V1SmokeUITests: XCTestCase {
             waitForDisappearance(of: banner, timeout: 5),
             "Conflict banner remained after Keep Mine. Accessibility hierarchy:\n\(app.debugDescription)"
         )
+        let confirmation = app.staticTexts["studio.transient.status.info"]
         XCTAssertTrue(
-            staticText(containing: "Local draft saved", in: app).waitForExistence(timeout: 5),
-            "Keep Mine confirmation was not presented."
+            confirmation.waitForExistence(timeout: 5)
+                && confirmation.isHittable
+                && confirmation.label.localizedCaseInsensitiveContains("Local draft saved"),
+            "Keep Mine confirmation was not visible in the Studio status bar. Accessibility hierarchy:\n\(app.debugDescription)"
         )
     }
 
@@ -3539,14 +3542,19 @@ final class V1SmokeUITests: XCTestCase {
         of element: XCUIElement,
         timeout: TimeInterval
     ) -> Bool {
+        func reportsSelected() -> Bool {
+            guard element.exists else { return false }
+            // SwiftUI exposes selection through both an accessibility trait and
+            // the explicit value set by the tab. Accept either representation.
+            return element.isSelected || (element.value as? String) == "Selected"
+        }
+
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
-            if element.exists, element.isSelected {
-                return true
-            }
+            if reportsSelected() { return true }
             RunLoop.current.run(until: Date().addingTimeInterval(0.1))
         }
-        return element.exists && element.isSelected
+        return reportsSelected()
     }
 
     private func waitForFirstVisibleElement(

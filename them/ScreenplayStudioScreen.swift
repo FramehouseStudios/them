@@ -4480,6 +4480,7 @@ private func refreshStudioCreativeInstincts(
                     .font(.system(size: 11, weight: .regular, design: .default))
                     .foregroundStyle(directionOneChromeSecondaryText)
                     .lineLimit(1)
+                    .accessibilityIdentifier("studio.transient.status.info")
             }
 
             Spacer(minLength: 0)
