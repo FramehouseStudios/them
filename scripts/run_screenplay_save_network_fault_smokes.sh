@@ -99,8 +99,8 @@ ios_build_args+=(
   "${only_testing_args[@]}"
   -parallel-testing-enabled NO
   -test-timeouts-enabled YES
-  -default-test-execution-allowance 900
-  -maximum-test-execution-allowance 1500
+  -default-test-execution-time-allowance 900
+  -maximum-test-execution-time-allowance 1500
   -resultBundlePath "${result_bundle_path}"
 )
 

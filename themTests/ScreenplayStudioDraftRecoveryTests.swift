@@ -2,6 +2,81 @@ import XCTest
 @testable import them
 
 final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
+    func test_queuedDraftHydratesBeforeServerAndOnlyForItsOwnCleanProject() {
+        XCTAssertTrue(ScreenplayQueuedDraftHydrationPolicy.shouldRestoreBeforeServerHydration(
+            selectedProjectID: " project-1 ",
+            queuedProjectID: "project-1",
+            queuedDraft: "INT. ROOM - NIGHT\n\nRecovered writer text.",
+            hasUnsavedChanges: false,
+            isManualEditing: false
+        ))
+
+        XCTAssertFalse(ScreenplayQueuedDraftHydrationPolicy.shouldRestoreBeforeServerHydration(
+            selectedProjectID: "project-2",
+            queuedProjectID: "project-1",
+            queuedDraft: "Recovered writer text.",
+            hasUnsavedChanges: false,
+            isManualEditing: false
+        ))
+        XCTAssertFalse(ScreenplayQueuedDraftHydrationPolicy.shouldRestoreBeforeServerHydration(
+            selectedProjectID: "project-1",
+            queuedProjectID: "project-1",
+            queuedDraft: "Recovered writer text.",
+            hasUnsavedChanges: true,
+            isManualEditing: true
+        ))
+    }
+
+    func test_queuedDraftAdoptionRestoresOnlyWhenEditorStillMatchesItsBase() {
+        XCTAssertTrue(ScreenplayQueuedDraftAdoptionPolicy.shouldAdopt(
+            selectedProjectID: " project-1 ",
+            loadedProjectID: "project-1",
+            latestVersionID: "version-4",
+            queuedProjectID: "project-1",
+            queuedBaseVersionID: "version-4",
+            hasUnsavedChanges: false,
+            isManualEditing: false,
+            currentDraftFingerprint: "same-draft",
+            lastSavedDraftFingerprint: "same-draft"
+        ))
+
+        XCTAssertFalse(ScreenplayQueuedDraftAdoptionPolicy.shouldAdopt(
+            selectedProjectID: "project-1",
+            loadedProjectID: "project-1",
+            latestVersionID: "version-5",
+            queuedProjectID: "project-1",
+            queuedBaseVersionID: "version-4",
+            hasUnsavedChanges: false,
+            isManualEditing: false,
+            currentDraftFingerprint: "same-draft",
+            lastSavedDraftFingerprint: "same-draft"
+        ), "A queued save based on an older server version must not replace the current editor silently.")
+
+        XCTAssertFalse(ScreenplayQueuedDraftAdoptionPolicy.shouldAdopt(
+            selectedProjectID: "project-1",
+            loadedProjectID: "project-1",
+            latestVersionID: "version-4",
+            queuedProjectID: "project-1",
+            queuedBaseVersionID: "version-4",
+            hasUnsavedChanges: true,
+            isManualEditing: true,
+            currentDraftFingerprint: "writer-edit",
+            lastSavedDraftFingerprint: "same-draft"
+        ), "A newer in-editor writer edit must outrank an older queued draft.")
+
+        XCTAssertFalse(ScreenplayQueuedDraftAdoptionPolicy.shouldAdopt(
+            selectedProjectID: "project-2",
+            loadedProjectID: "project-2",
+            latestVersionID: "version-4",
+            queuedProjectID: "project-1",
+            queuedBaseVersionID: "version-4",
+            hasUnsavedChanges: false,
+            isManualEditing: false,
+            currentDraftFingerprint: "same-draft",
+            lastSavedDraftFingerprint: "same-draft"
+        ), "A queue entry from another project must never be applied to the selected editor.")
+    }
+
     private let defaultsSuiteName = "io.them.ScreenplayStudioDraftRecoveryTests"
     private let recoveryKey = "screenplay.studio.localDraftRecovery.tests"
     private let ownerUserID = "user-recovery"

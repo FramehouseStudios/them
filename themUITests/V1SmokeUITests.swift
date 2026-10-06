@@ -1685,20 +1685,17 @@ final class V1SmokeUITests: XCTestCase {
 
         XCTAssertTrue(app.otherElements["studio.surface"].waitForExistence(timeout: 12))
         var recoveredSnapshot: [String: Any] = [:]
-        XCTAssertTrue(
-            waitForRestoreSnapshot(in: app, timeout: 75) { snapshot in
-                recoveredSnapshot = snapshot
-                return stringValue(snapshot["selected_project_id"]).lowercased() == fixture.projectID.lowercased()
-                    && stringValue(snapshot["draft_tail_preview"]).contains(marker)
-                    && intValue(snapshot["queued_draft_save_count"]) == 0
-                    && intValue(snapshot["parked_draft_save_count"]) == 0
-                    && !boolValue(snapshot["has_unsaved_draft_changes"])
-                    && !boolValue(snapshot["is_saving"])
-                    && stringValue(snapshot["latest_version_id"]).lowercased() != fixture.versionID.lowercased()
-                    && stringValue(snapshot["error_text"]).isEmpty
-            },
-            "Queued screenplay save did not reconnect automatically after relaunch. Snapshot: \(recoveredSnapshot)"
-        )
+        let didRecoverInEditor = waitForRestoreSnapshot(in: app, timeout: 75) { snapshot in
+            recoveredSnapshot = snapshot
+            return stringValue(snapshot["selected_project_id"]).lowercased() == fixture.projectID.lowercased()
+                && stringValue(snapshot["draft_tail_preview"]).contains(marker)
+                && intValue(snapshot["queued_draft_save_count"]) == 0
+                && intValue(snapshot["parked_draft_save_count"]) == 0
+                && !boolValue(snapshot["has_unsaved_draft_changes"])
+                && !boolValue(snapshot["is_saving"])
+                && stringValue(snapshot["latest_version_id"]).lowercased() != fixture.versionID.lowercased()
+                && stringValue(snapshot["error_text"]).isEmpty
+        }
 
         let projectResponse = try await requestJSON(
             baseURL: baseURL,
@@ -1722,12 +1719,31 @@ final class V1SmokeUITests: XCTestCase {
         let recoveredVersions = versions.filter { version in
             stringValue(version["draft"]).contains(marker)
         }
+        let versionDiagnostics = versions.map { version in
+            [
+                "id": stringValue(version["id"] ?? version["version_id"]),
+                "source": stringValue(version["source"]),
+                "contains_marker": stringValue(version["draft"]).contains(marker),
+            ] as [String: Any]
+        }
+        XCTAssertTrue(
+            didRecoverInEditor,
+            "Queued screenplay save did not reconnect automatically after relaunch. " +
+                "Snapshot: \(recoveredSnapshot). Server active version: \(stringValue(project["active_version_id"] ?? project["activeVersionId"])); " +
+                "server versions: \(versionDiagnostics)"
+        )
         XCTAssertEqual(
             recoveredVersions.count,
             1,
             "The recovered local save must create exactly one server version: \(versions)"
         )
         let recoveredVersion = try XCTUnwrap(recoveredVersions.first)
+        let expectedRecoveredDraft = "\(fixture.expectedDraft)\n\n\(marker)"
+        XCTAssertEqual(
+            stringValue(recoveredVersion["draft"]),
+            expectedRecoveredDraft,
+            "The offline save must restore the writer's complete draft exactly, not just retain its marker."
+        )
         let recoveredVersionID = try firstNonEmptyString(
             recoveredVersion["id"],
             recoveredVersion["version_id"],
@@ -1895,6 +1911,12 @@ final class V1SmokeUITests: XCTestCase {
         let localVersions = resolvedVersions.filter { stringValue($0["draft"]).contains(marker) }
         XCTAssertEqual(localVersions.count, 1, "Keep Mine must commit exactly one recovered local version.")
         let localVersion = try XCTUnwrap(localVersions.first)
+        let expectedRecoveredDraft = "\(fixture.expectedDraft)\n\n\(marker)"
+        XCTAssertEqual(
+            stringValue(localVersion["draft"]),
+            expectedRecoveredDraft,
+            "Keep Mine must restore the writer's complete local draft exactly."
+        )
         XCTAssertEqual(stringValue(localVersion["source"]), "studio_conflict_resolve")
         XCTAssertFalse(
             stringValue(localVersion["client_request_id"] ?? localVersion["clientRequestId"]).isEmpty,
@@ -2866,8 +2888,6 @@ final class V1SmokeUITests: XCTestCase {
                 "--ui-screenplay-save-network-fault",
                 "--ui-screenplay-save-network-fault-marker",
                 screenplaySaveNetworkFaultMarker,
-                "--ui-screenplay-save-network-fault-url",
-                "http://127.0.0.1:3999",
             ])
         }
         if screenplaySaveExpireAuthOnce {
@@ -5147,7 +5167,9 @@ final class V1SmokeUITests: XCTestCase {
         timeout: TimeInterval,
         predicate: ([String: Any]) -> Bool
     ) -> Bool {
-        let snapshot = app.staticTexts["studio.restore.snapshot"]
+        let snapshot = app.descendants(matching: .any)
+            .matching(identifier: "studio.restore.snapshot")
+            .firstMatch
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
             if snapshot.waitForExistence(timeout: 0.5),

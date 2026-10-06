@@ -160,6 +160,11 @@ final class ScreenplayLiveDraftPolicyTests: XCTestCase {
         XCTAssertFalse(P.isEnabledForProcess(arguments: ["them", "--ui-testing"], environment: [:], isRunningTests: false))
         XCTAssertFalse(P.isEnabledForProcess(arguments: ["them", "--studio-eval"], environment: [:], isRunningTests: false))
         XCTAssertTrue(P.isEnabledForProcess(arguments: ["them", "--ui-testing"], environment: ["THEM_LIVE_DRAFT_SYNC": "1"], isRunningTests: false))
+        XCTAssertFalse(P.isEnabledForProcess(
+            arguments: ["them", "--ui-testing", "--ui-screenplay-save-network-fault"],
+            environment: ["THEM_LIVE_DRAFT_SYNC": "1"],
+            isRunningTests: false
+        ))
         XCTAssertFalse(P.isEnabledForProcess(arguments: ["them", "--ui-testing"], environment: ["THEM_LIVE_DRAFT_SYNC": "1"], isRunningTests: true))
     }
 
