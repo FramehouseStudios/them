@@ -177,6 +177,93 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         XCTAssertEqual(snapshot?.isPreservedConflict, true)
     }
 
+    func testRemoteVersionConfirmationClearsOrdinaryDraftButKeepsPreservedConflict() {
+        let local = "INT. DINER - NIGHT\n\nShe waits.\n\nA phone BUZZES."
+        let remote = "INT. DINER - NIGHT\n\nShe waits."
+        store.save(
+            ownerUserId: ownerUserID,
+            projectId: "project-recovery",
+            draft: local,
+            baseVersionId: "version-before-edit",
+            dirty: true,
+            savedAt: 1_700_000_123
+        )
+        store.savePreservedConflict(
+            ownerUserId: ownerUserID,
+            projectId: "project-recovery",
+            draft: local,
+            baseVersionId: "version-before-edit",
+            savedAt: 1_700_000_123
+        )
+
+        // The remote live draft is written to the ordinary cache, then its
+        // server version is acknowledged. That acknowledgement must not erase
+        // the different local recovery copy.
+        store.save(
+            ownerUserId: ownerUserID,
+            projectId: "project-recovery",
+            draft: remote,
+            baseVersionId: "version-remote",
+            dirty: true,
+            savedAt: 1_700_000_456
+        )
+        store.clearOrdinaryDraft(ownerUserId: ownerUserID, projectId: "project-recovery")
+
+        let relaunchedStore = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: recoveryKey)
+        let snapshot = relaunchedStore.recoverySnapshot(
+            ownerUserId: ownerUserID,
+            projectId: "project-recovery",
+            serverDraft: remote,
+            fingerprint: stableFingerprint
+        )
+
+        XCTAssertEqual(snapshot?.draft, local)
+        XCTAssertEqual(snapshot?.baseVersionId, "version-before-edit")
+        XCTAssertEqual(snapshot?.isPreservedConflict, true)
+        let payload = relaunchedStore.payloads(ownerUserId: ownerUserID)["project-recovery"]
+        XCTAssertNil(payload?["draft"])
+        XCTAssertNotNil(payload?["preservedConflict"])
+    }
+
+    @MainActor
+    func testLiveSyncVersionAdoptionKeepsExactLocalDraftAvailableToRecover() async {
+        let local = "INT. DINER - NIGHT\n\nShe waits.\n\nA phone BUZZES."
+        let remote = "INT. DINER - NIGHT\n\nShe waits."
+        let projectID = "project-live-sync-recovery-\(UUID().uuidString)"
+        let authOwnerID = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store)
+        model.selectedProjectID = projectID
+        model.fountainDraft = local
+        model.preserveLocalDraftForLiveSyncRecovery(local, projectID: projectID)
+
+        XCTAssertTrue(model.applyRemoteLiveDraft(remote, projectID: projectID, sourceDeviceID: "other-device"))
+        try? await Task.sleep(nanoseconds: 1_100_000_000)
+        model.adoptRemoteLiveVersion(
+            "version-remote",
+            projectID: projectID,
+            draftChecksum: LiveDraftText.checksum(remote)
+        )
+
+        XCTAssertEqual(model.fountainDraft, remote)
+        XCTAssertEqual(model.recoveryCandidate?.draft, local)
+        XCTAssertEqual(model.recoveryCandidate?.baseVersionId, "")
+        XCTAssertEqual(model.recoveryCandidate?.isPreservedConflict, true)
+
+        let relaunchedStore = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: recoveryKey)
+        let relaunchedSnapshot = relaunchedStore.recoverySnapshot(
+            ownerUserId: authOwnerID,
+            projectId: projectID,
+            serverDraft: remote,
+            fingerprint: stableFingerprint
+        )
+        XCTAssertEqual(relaunchedSnapshot?.draft, local)
+        XCTAssertEqual(relaunchedSnapshot?.isPreservedConflict, true)
+
+        model.restoreDraftFromRecovery()
+        XCTAssertEqual(model.fountainDraft, local)
+        XCTAssertNil(model.recoveryCandidate)
+    }
+
     func testPreservedLiveSyncConflictCanBeResolvedWithoutLeavingFalseRecovery() {
         let local = "Local unsaved scene"
         store.savePreservedConflict(
