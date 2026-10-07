@@ -36,14 +36,23 @@ final class V1SmokeUITests: XCTestCase {
         editor.tap()
         // XCTest can deliver a long typeText string as one synthetic keyboard
         // burst. On a loaded hosted simulator that burst once dropped a single
-        // character even though the same complete sentence passes locally.
-        // Checkpoint each word-sized input without retrying it: every typed
-        // prefix must still arrive exactly, while SwiftUI/UIKit process the
-        // previous edit before the next burst.
+        // character even though the same sentence passes locally. Send one word
+        // per event and checkpoint every exact prefix; this keeps the assertion
+        // strict without asking XCTest to synthesize an unrealistically long
+        // uninterrupted burst or retrying any input.
         let chunks = [
-            "She counts seven red lights",
-            " before the motel sign",
-            " finally goes dark.",
+            "She",
+            " counts",
+            " seven",
+            " red",
+            " lights",
+            " before",
+            " the",
+            " motel",
+            " sign",
+            " finally",
+            " goes",
+            " dark.",
         ]
         var expectedPrefix = ""
         var editorText = editor.value as? String ?? ""
@@ -3830,11 +3839,14 @@ final class V1SmokeUITests: XCTestCase {
         identifier: String,
         in app: XCUIApplication
     ) -> [String] {
-        app.staticTexts
-            .matching(identifier: identifier)
-            .allElementsBoundByIndex
-            .map { accessibilityText(of: $0) }
-            .filter { !$0.isEmpty }
+        // These identifiers are unique, stable summary/output labels. Enumerating
+        // every matching accessibility element makes XCTest resolve the entire
+        // query result and has timed out on the hosted iOS runner even though the
+        // label is present. Resolve only the first matching label instead.
+        let match = app.staticTexts.matching(identifier: identifier).firstMatch
+        guard match.exists else { return [] }
+        let value = accessibilityText(of: match)
+        return value.isEmpty ? [] : [value]
     }
 
     private func waitForAccessibilityText(
