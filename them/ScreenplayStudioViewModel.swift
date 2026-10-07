@@ -1958,12 +1958,14 @@ final class ScreenplayStudioViewModel: ObservableObject {
         guard fingerprint(for: normalizedText) != lastSavedDraftFingerprint else { return true }
 
         let savedAt = Date().timeIntervalSince1970
-        let ownerUserID = currentStudioAuthContext().userID
+        let authContext = currentStudioAuthContext()
+        let ownerUserID = authContext.userID
+        let baseVersionID = latestVersionID
         guard let clientRequestID = localDraftRecoveryStore.savePreservedConflict(
             ownerUserId: ownerUserID,
             projectId: cleanProjectID,
             draft: text,
-            baseVersionId: latestVersionID,
+            baseVersionId: baseVersionID,
             savedAt: savedAt
         ) else {
             // A receipt for an earlier conflict must not make Recover point
@@ -1972,7 +1974,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
             persistRecoveryForUnconfirmedSave(
                 projectId: cleanProjectID,
                 draft: text,
-                baseVersionId: latestVersionID
+                baseVersionId: baseVersionID
             )
             autosaveStatusText = "Recovery needed"
             infoText = "Resolve the existing protected draft before live sync can replace this page."
@@ -1981,7 +1983,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         recoveryCandidate = LocalDraftRecoveryCandidate(
             projectId: cleanProjectID,
             draft: text,
-            baseVersionId: latestVersionID,
+            baseVersionId: baseVersionID,
             savedAt: savedAt,
             isPreservedConflict: true
         )
@@ -1997,10 +1999,14 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 projectId: cleanProjectID,
                 clientRequestId: clientRequestID
             )
+            guard authContextIsCurrent(authContext),
+                  ScreenplayProjectScopedState.matches(cleanProjectID, selectedProjectId: selectedProjectID) else {
+                return false
+            }
             recoveryCandidate = LocalDraftRecoveryCandidate(
                 projectId: cleanProjectID,
                 draft: text,
-                baseVersionId: latestVersionID,
+                baseVersionId: baseVersionID,
                 savedAt: savedAt,
                 isPreservedConflict: true,
                 serverRecoveryId: recoveryID
@@ -2009,6 +2015,10 @@ final class ScreenplayStudioViewModel: ObservableObject {
             infoText = "The local conflict copy is saved in your account before live sync continues."
             return true
         } catch {
+            guard authContextIsCurrent(authContext),
+                  ScreenplayProjectScopedState.matches(cleanProjectID, selectedProjectId: selectedProjectID) else {
+                return false
+            }
             autosaveStatusText = "Recovery pending - on this device"
             infoText = "Your words remain on this device. Live sync is paused until the account recovery copy is confirmed."
             errorText = "Could not protect the draft in your account: \(error.localizedDescription)"

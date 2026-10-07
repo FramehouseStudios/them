@@ -495,6 +495,92 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         XCTAssertEqual(model.recoveryCandidate?.serverRecoveryId, "server-recovery-test")
     }
 
+    @MainActor
+    func testRecoverySuccessAndFailureDoNotChangeAnotherProject() async {
+        await checkDelayedRecoveryScopeChange(changeAuthSession: false)
+    }
+
+    @MainActor
+    func testRecoverySuccessAndFailureDoNotChangeRenewedAuthSession() async {
+        await checkDelayedRecoveryScopeChange(changeAuthSession: true)
+    }
+
+    @MainActor
+    private func checkDelayedRecoveryScopeChange(changeAuthSession: Bool) async {
+        for succeeds in [true, false] {
+            let projectID = "delayed-recovery-\(UUID().uuidString)"
+            let original = "Original writer's words.\r\n"
+            let ownerID = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""
+            let began = expectation(description: "recovery upload suspended")
+            var response: CheckedContinuation<String, Error>?
+            let model = ScreenplayStudioViewModel(
+                localDraftRecoveryStore: store,
+                liveSyncRecoveryUploader: { _, _, _ in
+                    try await withCheckedThrowingContinuation {
+                        response = $0
+                        began.fulfill()
+                    }
+                }
+            )
+            model.selectedProjectID = projectID
+            model.latestVersionID = "original-base"
+            model.fountainDraft = original
+            let pending = Task { await model.preserveLocalDraftForLiveSyncRecovery(original, projectID: projectID) }
+            await fulfillment(of: [began], timeout: 2)
+            if changeAuthSession {
+                _ = BackendAuthClient.reserveAuthSessionIntent()
+            } else {
+                model.selectedProjectID = "another-project"
+            }
+            model.latestVersionID = "new-scope-base"
+            model.fountainDraft = "Current scope's words."
+            model.recoveryCandidate = nil
+            model.autosaveStatusText = "Current scope status"
+            model.infoText = "Current scope info"
+            model.errorText = ""
+            if succeeds {
+                response?.resume(returning: "original-receipt")
+            } else {
+                response?.resume(throwing: URLError(.notConnectedToInternet))
+            }
+            let accepted = await pending.value
+
+            XCTAssertFalse(accepted, "a response for an inactive scope cannot authorize remote adoption")
+            XCTAssertEqual(model.fountainDraft, "Current scope's words.")
+            XCTAssertEqual(model.latestVersionID, "new-scope-base")
+            XCTAssertNil(model.recoveryCandidate)
+            XCTAssertEqual(model.autosaveStatusText, "Current scope status")
+            XCTAssertEqual(model.infoText, "Current scope info")
+            XCTAssertEqual(model.errorText, "")
+            let protected = store.payloads(ownerUserId: ownerID)[projectID]?["preservedConflict"] as? [String: Any]
+            XCTAssertEqual(protected?["draft"] as? String, original)
+            XCTAssertEqual(protected?["baseVersionId"] as? String, "original-base")
+            XCTAssertEqual(protected?["serverRecoveryId"] as? String, succeeds ? "original-receipt" : nil)
+        }
+    }
+
+    @MainActor
+    func testRecoveryReceiptKeepsItsOriginalBaseVersionWhenLiveVersionAdvances() async {
+        var model: ScreenplayStudioViewModel!
+        defer { model = nil }
+        model = ScreenplayStudioViewModel(
+            localDraftRecoveryStore: store,
+            liveSyncRecoveryUploader: { _, _, _ in
+                model.latestVersionID = "new-version"
+                return "original-receipt"
+            }
+        )
+        model.selectedProjectID = "receipt-original-base"
+        model.latestVersionID = "original-base"
+        model.fountainDraft = "Original writer's words."
+        let accepted = await model.preserveLocalDraftForLiveSyncRecovery(
+            model.fountainDraft, projectID: model.selectedProjectID
+        )
+        XCTAssertTrue(accepted)
+        XCTAssertEqual(model.latestVersionID, "new-version")
+        XCTAssertEqual(model.recoveryCandidate?.baseVersionId, "original-base")
+    }
+
     func testPreservedLiveSyncConflictCanBeResolvedWithoutLeavingFalseRecovery() {
         let local = "Local unsaved scene"
         store.savePreservedConflict(
