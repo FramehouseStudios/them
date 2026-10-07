@@ -65,7 +65,18 @@ async function loadCanonicalProjectDraft(req, projectId) {
     error.status = 503;
     throw error;
   }
-  const project = getScreenplayProjectRecord(refreshed.owner, projectId);
+  const canonicalOwner = refreshed.owner || owner;
+  const activeProjectId = String(canonicalOwner?.activeProjectId || "").trim();
+  const targetProjectId = String(projectId || activeProjectId).trim();
+  if (!targetProjectId) return null;
+
+  const project = getScreenplayProjectRecord(canonicalOwner, targetProjectId);
+  if (!project && activeProjectId) {
+    const error = new Error("screenplay_project_not_found");
+    error.code = "screenplay_project_not_found";
+    error.status = 404;
+    throw error;
+  }
   if (!project) return null;
   const latest = getLatestScreenplayVersion(project);
   return String(latest?.draft || "");
@@ -77,9 +88,8 @@ function createFinishedScriptGuard({ loadProjectDraft = loadCanonicalProjectDraf
   }
   return async function guardFinishedScriptWrite(req) {
     const projectId = readProjectId(req);
-    // First-scene/new-project flows have no persisted project to inspect.
-    if (!projectId) return { allowed: true, checked: false };
-
+    // The canonical loader falls back to the server-owned active project when
+    // older clients omit an id. A writer with no active project can start page 1.
     const draft = await loadProjectDraft(req, projectId);
     // A project may be selected in the client before its first version is
     // saved. With no server-owned draft there is no terminal marker to guard.

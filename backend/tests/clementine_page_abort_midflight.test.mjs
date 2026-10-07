@@ -190,6 +190,7 @@ test("[page-abort-midflight] adapter exposes abortSignal; HTTP cancel aborts mid
   const wrapped = createPageLaneTalkAdapter({
     handleTalkRequest,
     pageReservationStore: store,
+    finishedScriptGuard: async () => ({ allowed: true }),
   });
 
   const app = express();

@@ -3,8 +3,14 @@ import assert from "node:assert/strict";
 
 import { createPageReservationStore } from "../lib/clementine/page_cancel.js";
 import {
+  configureScreenplayStore,
+  getOrCreateScreenplayOwnerRecord,
+  screenplayStoreByOwner,
+} from "../lib/screenplay_store.js";
+import {
   createFinishedScriptGuard,
   findTerminalEndLine,
+  guardFinishedScriptWrite,
   isAppendAfterTerminalEnd,
 } from "../lib/clementine/finished_script_guard.js";
 import { createPageLaneTalkAdapter } from "../lib/clementine/page_lane_adapter.js";
@@ -55,6 +61,47 @@ test("project state failures fail closed while first-write projects remain usabl
     allowed: true,
     checked: false,
   });
+});
+
+test("default guard checks the authenticated owner's active project when request omits its id", async () => {
+  screenplayStoreByOwner.clear();
+  configureScreenplayStore({
+    createEmptyScreenplayOwner: (ownerKey) => ({
+      ownerKey,
+      activeProjectId: "",
+      projects: [],
+    }),
+    resolveScreenplayOwnerKey: (req) => String(req?.authUser?.id || req?.ownerKey || "anonymous"),
+    persistence: null,
+  });
+  const owner = getOrCreateScreenplayOwnerRecord({ ownerKey: "writer-a" }, { create: true });
+  owner.activeProjectId = "writer-a-project";
+  owner.projects.push({
+    id: "writer-a-project",
+    versions: [{ id: "v1", updatedAt: 1, draft: "INT. ROOM - NIGHT\n\nTHE END" }],
+  });
+
+  assert.deepEqual(await guardFinishedScriptWrite({
+    ownerKey: "writer-a",
+    body: { screenplay_target: "page" },
+  }), {
+    allowed: false,
+    status: 409,
+    error: "screenplay_already_ended",
+    message: "This screenplay is marked THE END. Select a passage to rewrite, or start a new project to keep writing.",
+    terminalEndLine: 3,
+  });
+
+  await assert.rejects(
+    guardFinishedScriptWrite({
+      ownerKey: "writer-a",
+      body: { screenplay_project_id: "not-owned-project" },
+    }),
+    (error) => error.status === 404 && error.code === "screenplay_project_not_found"
+  );
+
+  screenplayStoreByOwner.clear();
+  configureScreenplayStore({});
 });
 
 test("page adapter rejects finished-script append before reservation, wallet, or handler", async () => {
