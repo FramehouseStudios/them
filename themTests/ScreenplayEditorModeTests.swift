@@ -63,6 +63,36 @@ final class ScreenplayEditorModeTests: XCTestCase {
         XCTAssertEqual(ScreenplayEditorElement.sceneHeading.previous, .transition)
     }
 
+    func testParagraphRestyleSkipsContentOnlyEdits() {
+        XCTAssertFalse(
+            ScreenplayParagraphRestylePolicy.shouldRestyle(
+                previousElements: [.action],
+                currentElements: [.action],
+                paragraphStructureChanged: false
+            )
+        )
+    }
+
+    func testParagraphRestyleRunsWhenParagraphStructureChanges() {
+        XCTAssertTrue(
+            ScreenplayParagraphRestylePolicy.shouldRestyle(
+                previousElements: [.action],
+                currentElements: [.action, .action],
+                paragraphStructureChanged: true
+            )
+        )
+    }
+
+    func testParagraphRestyleRunsWhenElementMetadataChanges() {
+        XCTAssertTrue(
+            ScreenplayParagraphRestylePolicy.shouldRestyle(
+                previousElements: [.action],
+                currentElements: [.character],
+                paragraphStructureChanged: false
+            )
+        )
+    }
+
     func testLineStartingWithIntPromotesToSceneHeading() {
         XCTAssertEqual(
             ScreenplayEditorElement.inferredElement(for: "int. diner - night", previousElement: nil),

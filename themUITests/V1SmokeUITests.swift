@@ -53,6 +53,11 @@ final class V1SmokeUITests: XCTestCase {
             "Editor accepted direct typing, but the published draft lost or redirected characters. " +
                 "Editor: \(editorText). Draft model: \(accessibleDraftText(in: app))"
         )
+        XCTAssertEqual(
+            accessibleDraftText(in: app),
+            sentence,
+            "Direct typing must preserve the complete draft exactly once, not merely contain the requested sentence."
+        )
 #else
         throw XCTSkip("The direct page typing regression specifically covers the iPhone editor.")
 #endif
