@@ -17,8 +17,12 @@ extension BackendMemoryAPI {
         phase: String = "scene_draft",
         includeUserIdentity: Bool = true,
         includeAuthToken: Bool = true,
-        clientTokenOverride: String? = nil
+        clientTokenOverride: String? = nil,
+        refreshAuthentication: @Sendable () async throws -> Bool = {
+            try await BackendAuthClient.refreshAuthSession(force: true).isAuthenticated
+        }
     ) async throws -> BackendScreenplayRecoveryMutationResponse {
+        let authContext = recoveryAuthContext()
         _ = try? await bootstrapSession(force: false)
         let project = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
         let requestID = clientRequestId.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -41,7 +45,8 @@ extension BackendMemoryAPI {
         var http: HTTPURLResponse?
         var didAttemptAuthRefresh = false
         while true {
-            var request = try makeWriteRequest(path: "/screenplay/projects/\(project)/recovery")
+            let identity = try recoveryRequestIdentity(matching: authContext)
+            var request = try makeWriteRequest(path: "/screenplay/projects/\(project)/recovery", identity: identity)
             applyProjectOwnerHeaders(
                 to: &request,
                 includeUserIdentity: includeUserIdentity,
@@ -59,11 +64,13 @@ extension BackendMemoryAPI {
                   includeAuthToken,
                   !didAttemptAuthRefresh else { break }
             didAttemptAuthRefresh = true
+            _ = try recoveryRequestIdentity(matching: authContext)
             do {
-                if try await BackendAuthClient.refreshAuthSession(force: true).isAuthenticated { continue }
+                if try await refreshAuthentication() { continue }
             } catch {
                 // Keep the original unauthorized response when refresh cannot repair it.
             }
+            _ = try recoveryRequestIdentity(matching: authContext)
             break
         }
         guard let http else { throw BackendMemoryAPIError.invalidResponse }
@@ -90,8 +97,12 @@ extension BackendMemoryAPI {
         recoveryId: String,
         includeUserIdentity: Bool = true,
         includeAuthToken: Bool = true,
-        clientTokenOverride: String? = nil
+        clientTokenOverride: String? = nil,
+        refreshAuthentication: @Sendable () async throws -> Bool = {
+            try await BackendAuthClient.refreshAuthSession(force: true).isAuthenticated
+        }
     ) async throws {
+        let authContext = recoveryAuthContext()
         _ = try? await bootstrapSession(force: false)
         let project = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
         let recovery = recoveryId.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -100,7 +111,8 @@ extension BackendMemoryAPI {
         }
         var didAttemptAuthRefresh = false
         while true {
-            var request = try makeWriteRequest(path: "/screenplay/projects/\(project)/recovery/\(recovery)")
+            let identity = try recoveryRequestIdentity(matching: authContext)
+            var request = try makeWriteRequest(path: "/screenplay/projects/\(project)/recovery/\(recovery)", identity: identity)
             request.httpMethod = "DELETE"
             applyProjectOwnerHeaders(
                 to: &request,
@@ -124,15 +136,36 @@ extension BackendMemoryAPI {
                 return
             }
             didAttemptAuthRefresh = true
+            _ = try recoveryRequestIdentity(matching: authContext)
             do {
-                if try await BackendAuthClient.refreshAuthSession(force: true).isAuthenticated { continue }
+                if try await refreshAuthentication() { continue }
             } catch {
                 // Preserve the original unauthorized response.
             }
+            _ = try recoveryRequestIdentity(matching: authContext)
             throw BackendMemoryAPIError.server(
                 status: http.statusCode,
                 message: decodeErrorMessage(from: data)
             )
         }
+    }
+
+    private func recoveryAuthContext() -> ScreenplayStudioAuthContext {
+        ScreenplayStudioAuthContext(
+            userID: requestIdentityProvider(true).userID,
+            sessionIntentGeneration: BackendAuthClient.currentAuthSessionIntentGeneration()
+        )
+    }
+
+    private func recoveryRequestIdentity(matching expected: ScreenplayStudioAuthContext) throws -> BackendAuthRequestIdentity {
+        let identity = requestIdentityProvider(true)
+        let current = ScreenplayStudioAuthContext(
+            userID: identity.userID,
+            sessionIntentGeneration: BackendAuthClient.currentAuthSessionIntentGeneration()
+        )
+        guard ScreenplayStudioAuthContextPolicy.matches(expected: expected, current: current) else {
+            throw BackendMemoryAPIError.server(status: 409, message: "auth_session_changed")
+        }
+        return identity
     }
 }

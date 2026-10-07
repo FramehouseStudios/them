@@ -108,6 +108,148 @@ final class BackendScreenplayRecoveryAPITests: XCTestCase {
         }
         return result
     }
+
+    func testPreserveDoesNotSendDraftAfterAccountChangesDuringBootstrap() async throws {
+        try await assertBootstrapAccountChangeIsRejected(deleting: false)
+    }
+
+    func testDeleteDoesNotSendAfterAccountChangesDuringBootstrap() async throws {
+        try await assertBootstrapAccountChangeIsRejected(deleting: true)
+    }
+
+    private func assertBootstrapAccountChangeIsRejected(deleting: Bool) async throws {
+        let identity = RecoveryIdentityBox()
+        var bootstrapCount = 0
+        var mutationCount = 0
+        RecoveryAPIURLProtocol.handler = { request in
+            if request.url?.path == "/session" {
+                bootstrapCount += 1
+                identity.changeUser(to: "user-2")
+                return .json(#"{"client_token":"session-client","expires_in":3600,"remembered_names":[]}"#)
+            }
+            mutationCount += 1
+            return .json(#"{"status":"preserved","recovery_id":"recovery-1","recovery":{"id":"recovery-1","project_id":"project-1","source":"studio_live_sync_recovery","draft":"Original words"}}"#)
+        }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [RecoveryAPIURLProtocol.self]
+        let api = BackendMemoryAPI(
+            session: URLSession(configuration: configuration),
+            baseURL: URL(string: "https://screenplay-recovery.test")!,
+            requestIdentityProvider: { _ in identity.snapshot() }
+        )
+        do {
+            if deleting {
+                try await api.deleteScreenplayProjectRecovery(projectId: "project-1", recoveryId: "recovery-1")
+            } else {
+                _ = try await api.preserveScreenplayProjectRecovery(
+                    projectId: "project-1", draft: "Original words", clientRequestId: "request-1"
+                )
+            }
+            XCTFail("An account change must cancel the original recovery mutation")
+        } catch BackendMemoryAPIError.server(let status, let message) {
+            XCTAssertEqual(status, 409)
+            XCTAssertEqual(message, "auth_session_changed")
+        }
+        XCTAssertEqual(bootstrapCount, 1, "The test must exercise a real bootstrap wait")
+        XCTAssertEqual(mutationCount, 0, "Never send the original account's mutation as another account")
+    }
+
+    func testRecoveryMutationsDoNotRetryAsAnotherAccountAfterRefresh() async throws {
+        for deleting in [false, true] {
+            try await assertRefreshScope(deleting: deleting, change: .account)
+        }
+    }
+
+    func testRecoveryMutationsDoNotRetryAfterNewSignInIntentForSameAccount() async throws {
+        for deleting in [false, true] {
+            try await assertRefreshScope(deleting: deleting, change: .signInIntent)
+        }
+    }
+
+    func testRecoveryMutationsRetryWithRotatedTokenForSameSession() async throws {
+        for deleting in [false, true] {
+            try await assertRefreshScope(deleting: deleting, change: .tokenOnly)
+        }
+    }
+
+    private enum RefreshChange: Sendable { case account, signInIntent, tokenOnly }
+
+    private func assertRefreshScope(deleting: Bool, change: RefreshChange) async throws {
+        let identity = RecoveryIdentityBox()
+        var mutationCount = 0
+        var authorizations: [String] = []
+        RecoveryAPIURLProtocol.handler = { request in
+            if request.url?.path == "/session" {
+                return .json(#"{"client_token":"session-client","expires_in":3600,"remembered_names":[]}"#)
+            }
+            mutationCount += 1
+            authorizations.append(request.value(forHTTPHeaderField: "Authorization") ?? "")
+            if mutationCount == 1 { return .json(#"{"error":"expired"}"#, status: 401) }
+            return .json(#"{"status":"preserved","recovery_id":"recovery-1","recovery":{"id":"recovery-1","project_id":"project-1","source":"studio_live_sync_recovery","draft":"Original words"}}"#)
+        }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [RecoveryAPIURLProtocol.self]
+        let api = BackendMemoryAPI(
+            session: URLSession(configuration: configuration),
+            baseURL: URL(string: "https://screenplay-recovery.test")!,
+            requestIdentityProvider: { _ in identity.snapshot() }
+        )
+        let refresh: @Sendable () async throws -> Bool = {
+            switch change {
+            case .account: identity.changeUser(to: "user-2")
+            case .signInIntent: _ = BackendAuthClient.reserveAuthSessionIntent()
+            case .tokenOnly: identity.rotateToken()
+            }
+            return true
+        }
+        do {
+            if deleting {
+                try await api.deleteScreenplayProjectRecovery(
+                    projectId: "project-1", recoveryId: "recovery-1", refreshAuthentication: refresh
+                )
+            } else {
+                _ = try await api.preserveScreenplayProjectRecovery(
+                    projectId: "project-1", draft: "Original words", clientRequestId: "request-1",
+                    refreshAuthentication: refresh
+                )
+            }
+            XCTAssertEqual(change, .tokenOnly, "Changed accounts or sign-in sessions must not retry")
+        } catch BackendMemoryAPIError.server(let status, let message) {
+            XCTAssertNotEqual(change, .tokenOnly, "Ordinary refresh must remain usable")
+            XCTAssertEqual(status, 409)
+            XCTAssertEqual(message, "auth_session_changed")
+        }
+        XCTAssertEqual(mutationCount, change == .tokenOnly ? 2 : 1)
+        XCTAssertEqual(authorizations, change == .tokenOnly ? ["Bearer access-1", "Bearer access-2"] : ["Bearer access-1"])
+    }
+}
+
+private nonisolated final class RecoveryIdentityBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var userID = "user-1"
+    private var accessToken = "access-1"
+    private var epoch = 1
+
+    func changeUser(to value: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        userID = value
+    }
+
+    func snapshot() -> BackendAuthRequestIdentity {
+        lock.lock()
+        defer { lock.unlock() }
+        return BackendAuthRequestIdentity(
+            sessionEpoch: epoch, userID: userID, clientToken: "project-client", accessToken: accessToken
+        )
+    }
+
+    func rotateToken() {
+        lock.lock()
+        defer { lock.unlock() }
+        accessToken = "access-2"
+        epoch += 1
+    }
 }
 
 private struct RecoveryAPIHTTPStub {

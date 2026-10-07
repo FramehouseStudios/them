@@ -6820,7 +6820,7 @@ actor BackendMemoryAPI {
     let session: URLSession
     private let baseURLOverride: URL?
     private let accountDeletionSessionHooks: BackendAccountDeletionSessionHooks
-    private let requestIdentityProvider: @Sendable (Bool) -> BackendAuthRequestIdentity
+    let requestIdentityProvider: @Sendable (Bool) -> BackendAuthRequestIdentity
     private var healthyBaseURL: URL?
     private var cachedSession: BackendSessionResponse?
     private var cachedSessionAt: Date?
@@ -9934,7 +9934,7 @@ actor BackendMemoryAPI {
         return request
     }
 
-    func makeWriteRequest(path: String) throws -> URLRequest {
+    func makeWriteRequest(path: String, identity: BackendAuthRequestIdentity? = nil) throws -> URLRequest {
         guard var components = URLComponents(url: baseURL(), resolvingAgainstBaseURL: false) else {
             throw BackendMemoryAPIError.invalidBaseURL
         }
@@ -9947,7 +9947,7 @@ actor BackendMemoryAPI {
         request.httpMethod = "POST"
         request.timeoutInterval = 15
         request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
-        applyStandardHeaders(to: &request, includeContentType: true)
+        applyStandardHeaders(to: &request, includeContentType: true, identity: identity)
         return request
     }
 
@@ -9956,9 +9956,9 @@ actor BackendMemoryAPI {
         includeContentType: Bool = false,
         includeUserIdentity: Bool = true,
         includeClientToken: Bool = true,
-        includeAuthToken: Bool = true
+        includeAuthToken: Bool = true, identity: BackendAuthRequestIdentity? = nil
     ) {
-        let identity = requestIdentityProvider(includeUserIdentity)
+        let identity = identity ?? requestIdentityProvider(includeUserIdentity)
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         if includeContentType {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
