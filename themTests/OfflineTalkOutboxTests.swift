@@ -253,4 +253,61 @@ final class OfflineTalkOutboxTests: XCTestCase {
         entries = await outbox.allEntries()
         XCTAssertEqual(entries, [])
     }
+
+    func testMalformedManifestFailsClosedAndIsNotOverwritten() async throws {
+        let initial = OfflineTalkOutbox(storageDirectory: directory)
+        var request = URLRequest(url: URL(string: "https://them.test/talk")!)
+        request.httpMethod = "POST"
+        request.setValue("idem-preserve-corrupt-manifest", forHTTPHeaderField: "X-Idempotency-Key")
+        _ = try await initial.enqueue(request: request, body: Data("writer's queued words".utf8), reason: "offline")
+
+        let manifestURL = directory.appendingPathComponent("queue.jsonl")
+        var damagedBytes = try Data(contentsOf: manifestURL)
+        damagedBytes.append(Data("not-a-queue-record\n".utf8))
+        try damagedBytes.write(to: manifestURL, options: [.atomic])
+
+        let relaunched = OfflineTalkOutbox(storageDirectory: directory)
+        let snapshot = await relaunched.snapshot()
+        XCTAssertFalse(snapshot.lastError.isEmpty)
+        XCTAssertTrue(snapshot.lastError.localizedCaseInsensitiveContains("preserved"))
+        XCTAssertTrue(snapshot.hasWork)
+        XCTAssertEqual(snapshot.userVisibleStatus, snapshot.lastError)
+
+        var transportCalls = 0
+        let drained = await relaunched.drainDue(now: Date().addingTimeInterval(10)) { _ in
+            transportCalls += 1
+            return OfflineTalkOutboxSendResult(statusCode: 200)
+        }
+        XCTAssertEqual(transportCalls, 0)
+        XCTAssertFalse(drained.lastError.isEmpty)
+
+        do {
+            _ = try await relaunched.enqueue(
+                request: request,
+                body: Data("new words".utf8),
+                reason: "offline"
+            )
+            XCTFail("Enqueue must not replace a manifest containing an unreadable record.")
+        } catch {
+            XCTAssertTrue(error.localizedDescription.localizedCaseInsensitiveContains("preserved"))
+        }
+
+        XCTAssertEqual(try Data(contentsOf: manifestURL), damagedBytes)
+    }
+
+    func testNonUTF8ManifestFailsClosedAndIsNotOverwritten() async throws {
+        let manifestURL = directory.appendingPathComponent("queue.jsonl")
+        let damagedBytes = Data([0x7B, 0xFF, 0x0A])
+        try damagedBytes.write(to: manifestURL, options: [.atomic])
+
+        let relaunched = OfflineTalkOutbox(storageDirectory: directory)
+        let snapshot = await relaunched.snapshot()
+        XCTAssertFalse(snapshot.lastError.isEmpty)
+        XCTAssertTrue(snapshot.lastError.localizedCaseInsensitiveContains("preserved"))
+        XCTAssertTrue(snapshot.hasWork)
+        XCTAssertEqual(snapshot.userVisibleStatus, snapshot.lastError)
+
+        let afterRead = try Data(contentsOf: manifestURL)
+        XCTAssertEqual(afterRead, damagedBytes)
+    }
 }

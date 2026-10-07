@@ -29,7 +29,7 @@ nonisolated struct OfflineTalkOutboxSnapshot: Codable, Equatable {
     }
 
     var hasWork: Bool {
-        activeCount > 0 || parkedCount > 0
+        activeCount > 0 || parkedCount > 0 || !lastError.isEmpty
     }
 
     var userVisibleStatus: String? {
@@ -47,6 +47,10 @@ nonisolated struct OfflineTalkOutboxSnapshot: Codable, Equatable {
             return parkedCount == 1
                 ? "1 queued turn needs attention in Data Controls."
                 : "\(parkedCount) queued turns need attention in Data Controls."
+        }
+        let error = lastError.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !error.isEmpty {
+            return error
         }
         return nil
     }
@@ -97,6 +101,20 @@ nonisolated struct OfflineTalkOutboxEntry: Identifiable, Codable, Equatable {
     var retries: Int
     var nextAttemptAt: TimeInterval
     var lastError: String?
+}
+
+private enum OfflineTalkOutboxManifestError: LocalizedError {
+    case invalidUTF8
+    case invalidEntry(line: Int)
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidUTF8:
+            return "A saved queued turn could not be read. Its local data is preserved; the queue was not changed."
+        case .invalidEntry(let line):
+            return "A saved queued turn could not be read (queue record \(line)). Its local data is preserved; the queue was not changed."
+        }
+    }
 }
 
 nonisolated struct OfflineTalkOutboxSendResult {
@@ -376,28 +394,41 @@ actor OfflineTalkOutbox {
 
     private func loadIfNeeded() throws {
         guard !didLoad else { return }
-        didLoad = true
-        entries = []
-        guard fileManager.fileExists(atPath: manifestURL.path) else { return }
+        guard fileManager.fileExists(atPath: manifestURL.path) else {
+            entries = []
+            didLoad = true
+            return
+        }
 
         let data = try Data(contentsOf: manifestURL)
-        let raw = String(data: data, encoding: .utf8) ?? ""
+        guard let raw = String(data: data, encoding: .utf8) else {
+            throw OfflineTalkOutboxManifestError.invalidUTF8
+        }
         let decoder = JSONDecoder()
         let now = Date().timeIntervalSince1970
-        entries = raw
-            .split(separator: "\n")
-            .compactMap { line -> OfflineTalkOutboxEntry? in
-                guard let lineData = String(line).data(using: .utf8) else { return nil }
-                guard var entry = try? decoder.decode(OfflineTalkOutboxEntry.self, from: lineData) else {
-                    return nil
-                }
-                if entry.status == .inflight {
-                    entry.status = .pending
-                    entry.nextAttemptAt = min(entry.nextAttemptAt, now)
-                    entry.lastError = "Interrupted while sending."
-                }
-                return entry
+        var lines = raw.components(separatedBy: "\n")
+        if lines.last == "" {
+            lines.removeLast()
+        }
+        var restoredEntries: [OfflineTalkOutboxEntry] = []
+        for (offset, line) in lines.enumerated() {
+            guard !line.isEmpty,
+                  let lineData = line.data(using: .utf8),
+                  var entry = try? decoder.decode(OfflineTalkOutboxEntry.self, from: lineData) else {
+                // Never turn an unreadable record into an apparently empty queue.
+                // Keep the original manifest untouched and prevent later writes
+                // from replacing it with only the records that happened to decode.
+                throw OfflineTalkOutboxManifestError.invalidEntry(line: offset + 1)
             }
+            if entry.status == .inflight {
+                entry.status = .pending
+                entry.nextAttemptAt = min(entry.nextAttemptAt, now)
+                entry.lastError = "Interrupted while sending."
+            }
+            restoredEntries.append(entry)
+        }
+        entries = restoredEntries
+        didLoad = true
     }
 
     private func persist() throws {

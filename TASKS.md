@@ -775,6 +775,7 @@
 | T-ios-xcuitest-v1-smoke                 | Thin XCUITest scaffold for the V1 manual smoke checklist                                 | codex   | review            |
 | T-local-backend-no-provider-boot        | Keep local backend bootable without provider credentials                                 | codex   | review            |
 | T-macos-posture-cleanup                 | Gate macOS scaffolding off the V1 iOS scheme                                             | codex   | ready             |
+| T-outbox-manifest-recovery              | Preserve queued turns when the outbox manifest is unreadable                             | codex   | review            |
 | T-pii-safe-request-logs                 | Redact PII from structured request logs                                                  | codex   | review            |
 | T-protocol-infra-batch                  | Tighten backend extraction protocol helpers                                              | support | review            |
 | T-schema-docs-batch-2                   | Schema docs batch — talk + screenplay + realtime + ops + memory + block-signal           | support | review            |
@@ -2804,6 +2805,36 @@ scratch.
 - V1 TestFlight scheme excludes macOS as a destination.
 - macOS scheme still compiles (dormant), no warning regressions.
 - iOS scheme `themTests` green.
+
+### T-outbox-manifest-recovery — Preserve queued turns when the outbox manifest is unreadable
+- **Owner:** codex
+- **Branch:** codex/T-outbox-manifest-recovery
+- **Pillar:** mobile-first
+- **Status:** review
+
+## Scope
+
+Treat the offline talk outbox manifest as an all-or-nothing durable record. If
+any line cannot be decoded, do not drain the partial queue or overwrite the
+manifest on a later enqueue. Surface a clear writer-facing recovery error
+instead of reporting that the device has no queued turns.
+
+## Done when
+
+- Malformed JSONL and invalid UTF-8 both fail closed, and the original manifest
+  bytes remain unchanged after snapshot, retry, and enqueue attempts.
+- The writer-visible status says local queued data is preserved and does not
+  offer a retry action when no entry could be safely decoded.
+- Focused and full signed `themTests` pass on an erased simulator; the god-file
+  gate and `git diff --check` pass.
+- The PR states this advances goal 1 and names the separate, still-required
+  physical-device offline/relaunch proof.
+
+## Not covered
+
+This does not implement export/import of a corrupt recovery bundle, nor does it
+prove offline delivery on a physical iPhone. Those remain follow-up work before
+goal 1 can be called complete.
 
 ### T-pii-safe-request-logs — Redact PII from structured request logs
 - **Owner:** codex
