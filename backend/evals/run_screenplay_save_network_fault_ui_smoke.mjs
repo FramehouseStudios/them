@@ -12,6 +12,10 @@ function assert(condition, message) {
 let server = null;
 try {
   server = await startBackend({
+    // The XCUITest defaults to localhost:31337. The dynamic-port handoff from
+    // this Node process was not visible to the XCTest runner, so bind the
+    // fixture to the test's existing default instead.
+    port: 31337,
     env: {
       APP_TOKEN: "them-dev",
       REQUIRE_USER_AUTH: "1",
@@ -22,12 +26,7 @@ try {
     cwd: ROOT_DIR,
     encoding: "utf8",
     maxBuffer: 128 * 1024 * 1024,
-    env: {
-      ...process.env,
-      // The XCUITest reads ProcessInfo.environment. A custom .xcconfig build
-      // setting does not become an XCTest process environment variable.
-      THEM_UITEST_SCREENPLAY_SAVE_BACKEND_PORT: String(server.port),
-    },
+    env: process.env,
   });
   const output = `${child.stdout || ""}\n${child.stderr || ""}`;
   assert(
