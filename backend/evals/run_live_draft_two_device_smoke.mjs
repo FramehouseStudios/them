@@ -186,11 +186,6 @@ async function openProjectOnMac(seeded) {
   const appPath = findDebugAppPath();
   cleanupStudioEvalSessionsWithHelper({ runOptional: runOptionalCommand });
   writeMacDefaults(seeded);
-  const stagedRequest = stageStudioProjectLoadDebugRequest({
-    debugDefaults: studioDebug.defaults,
-    projectId: seeded.projectID,
-    versionId: seeded.versionID,
-  });
   await ensureStudioVisibleWithOpenHandshake({
     appPath,
     helperPath: STUDIO_APP_SESSION_HELPER,
@@ -204,6 +199,22 @@ async function openProjectOnMac(seeded) {
     activateApp: (path, session) => studioApp.activate(path, session),
     appHasWindow: () => studioApp.hasWindow(),
     readDebugDiffState,
+  });
+  // Do not dispatch the project-load command until the Mac app has installed
+  // the fixture's authenticated automation context. Otherwise its first
+  // backend reads race auth bootstrap and return 401 before the channel joins.
+  await waitFor(() => {
+    const current = readDebugDiffState();
+    return current?.debugAutomationSession === true
+      && current?.debugAuthSessionAuthenticated === true
+      && current?.debugAuthHeaderPresent === true
+      ? current
+      : null;
+  }, "macOS Studio's fixture authentication to become ready", 20_000);
+  const stagedRequest = stageStudioProjectLoadDebugRequest({
+    debugDefaults: studioDebug.defaults,
+    projectId: seeded.projectID,
+    versionId: seeded.versionID,
   });
   await ensureStudioProjectLoadedWithDebugHook({
     debugDefaults: studioDebug.defaults,
@@ -350,8 +361,6 @@ try {
     const snapshot = await liveSnapshot(seeded);
     return String(snapshot.text || "").includes(PHONE_MARKER) ? snapshot : null;
   }, "the iPhone's keystrokes to reach the live channel", PHONE_TO_MAC_TIMEOUT_MS, 500);
-  assertOriginalLinesExactlyOnce(phoneOnChannel.text, seeded.expectedDraft, "after iPhone edit reaches the channel");
-
   // 3. ...and the Mac's editor shows them without a relaunch.
   const macAfterPhone = await waitFor(() => {
     const { state, text } = macDraftText();
@@ -362,6 +371,12 @@ try {
     macAfterPhone?.draftPreview || macAfterPhone?.draftTailPreview || "",
     seeded.expectedDraft,
     "after the Mac receives the iPhone edit"
+  );
+  const settledPhoneChannel = await liveSnapshot(seeded);
+  assertOriginalLinesExactlyOnce(
+    settledPhoneChannel.text,
+    seeded.expectedDraft,
+    "after the iPhone edit settles and reaches the Mac"
   );
   const macFollowStatus = String(macAfterPhone?.autosaveStatusText || "");
 
