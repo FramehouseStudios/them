@@ -484,6 +484,15 @@ async function postJson(baseURL, path, body) {
   return { status: r.status, headers: r.headers, body: json };
 }
 
+async function deleteRequest(baseURL, path) {
+  const r = await fetch(`${baseURL}${path}`, {
+    method: "DELETE",
+    headers: { connection: "close" },
+  });
+  const json = await r.json().catch(() => null);
+  return { status: r.status, headers: r.headers, body: json };
+}
+
 test("[screenplay-projects-routes] legacy project writes refresh a project created on another instance", async () => {
   const cachedOwner = defaultOwner();
   const freshOwner = structuredClone(cachedOwner);
@@ -1506,6 +1515,139 @@ test("[screenplay-projects-routes] POST /version saves a draft and returns 201",
     assert.equal(r.body.status, "saved");
     assert.ok(r.body.version_id);
     assert.equal(r.body.conflict, false);
+  });
+});
+
+test("[screenplay-projects-routes] live-sync recovery is durable, idempotent, and never active", async () => {
+  const deps = defaultDeps();
+  const project = deps._owner.projects.find((item) => item.id === "p1");
+  project.activeVersionId = "version-current";
+  project.lastVersionId = "version-current";
+  project.versions = [{ id: "version-current", projectId: "p1", source: "studio_autosave", draft: "Server draft" }];
+  const recoveryDraft = "FADE IN:\r\n\r\nINT. HALL - NIGHT\r\n\r\nA writer's exact words.";
+
+  await withTestServer(deps, async (baseURL) => {
+    const first = await postJson(baseURL, "/screenplay/projects/p1/recovery", {
+      draft: recoveryDraft,
+      client_request_id: "live-recovery-device-1-001",
+      base_version_id: "stale-version",
+    });
+    assert.equal(first.status, 201);
+    assert.equal(first.body.status, "preserved");
+    assert.equal(first.body.recovery.draft, recoveryDraft);
+    assert.equal(first.body.recovery.source, "studio_live_sync_recovery");
+    assert.equal(first.body.active_version_id, "version-current");
+    assert.equal(project.activeVersionId, "version-current");
+    assert.equal(project.versions[0].id, first.body.recovery_id);
+
+    const replay = await postJson(baseURL, "/screenplay/projects/p1/recovery", {
+      draft: recoveryDraft,
+      client_request_id: "live-recovery-device-1-001",
+    });
+    assert.equal(replay.status, 200);
+    assert.equal(replay.body.replayed, true);
+    assert.equal(replay.body.recovery_id, first.body.recovery_id);
+    assert.equal(project.versions.length, 2);
+
+    const reused = await postJson(baseURL, "/screenplay/projects/p1/recovery", {
+      draft: `${recoveryDraft}\nCHANGED`,
+      client_request_id: "live-recovery-device-1-001",
+    });
+    assert.equal(reused.status, 409);
+    assert.equal(reused.body.status, "client_request_id_reused");
+    assert.equal(project.versions[0].draft, recoveryDraft);
+  });
+});
+
+test("[screenplay-projects-routes] recovery-only project does not activate the recovery copy", async () => {
+  const deps = defaultDeps();
+  const project = deps._owner.projects.find((item) => item.id === "p1");
+  project.activeVersionId = "";
+  project.lastVersionId = "";
+  project.versions = [];
+
+  await withTestServer(deps, async (baseURL) => {
+    const result = await postJson(baseURL, "/screenplay/projects/p1/recovery", {
+      draft: "Unsaved first scene",
+      client_request_id: "recovery-only-project-001",
+    });
+
+    assert.equal(result.status, 201);
+    assert.notEqual(project.activeVersionId, result.body.recovery_id);
+    assert.notEqual(project.lastVersionId, result.body.recovery_id);
+    assert.equal(result.body.active_version_id, "");
+    assert.equal(project.versions[0].source, "studio_live_sync_recovery");
+  });
+});
+
+test("[screenplay-projects-routes] recovery deletion is owner scoped and only deletes recovery copies", async () => {
+  const deps = defaultDeps();
+  const project = deps._owner.projects.find((item) => item.id === "p1");
+  project.activeVersionId = "version-current";
+  project.versions = [
+    { id: "recovery-1", projectId: "p1", source: "studio_live_sync_recovery", draft: "Local" },
+    { id: "version-current", projectId: "p1", source: "studio_autosave", draft: "Server" },
+  ];
+  await withTestServer(deps, async (baseURL) => {
+    const versionDelete = await deleteRequest(baseURL, "/screenplay/projects/p1/recovery/version-current");
+    assert.equal(versionDelete.status, 404);
+    assert.equal(project.versions.length, 2);
+
+    const missingProject = await deleteRequest(baseURL, "/screenplay/projects/p2/recovery/recovery-1");
+    assert.equal(missingProject.status, 404);
+    assert.equal(project.versions.length, 2);
+
+    const deleted = await deleteRequest(baseURL, "/screenplay/projects/p1/recovery/recovery-1");
+    assert.equal(deleted.status, 200);
+    assert.equal(deleted.body.status, "deleted");
+    assert.equal(project.versions.length, 1);
+    assert.equal(project.versions[0].id, "version-current");
+    assert.equal(project.activeVersionId, "version-current");
+  });
+});
+
+test("[screenplay-projects-routes] unauthenticated live-sync recovery cannot persist data", async () => {
+  const deps = defaultDeps();
+  await withTestServer(deps, async (baseURL) => {
+    const r = await fetch(`${baseURL}/screenplay/projects/p1/recovery`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "X-User-Id": "spoofed-user" },
+      body: JSON.stringify({ draft: "private words", client_request_id: "unauthenticated" }),
+    });
+    assert.equal(r.status, 401);
+    assert.equal((await r.json()).error, "user_auth_required");
+    assert.equal(deps._owner.projects[0].versions?.length || 0, 0);
+  }, { authenticated: false });
+});
+
+test("[screenplay-projects-routes] failed recovery persistence rolls back the staged copy", async () => {
+  const deps = defaultDeps({
+    markScreenplayOwnerDirty: () => ({
+      ok: true,
+      persistenceKind: "postgres",
+      persistencePromise: Promise.resolve({
+        ok: false,
+        persistenceKind: "postgres",
+        persistenceFailureCount: 1,
+      }),
+    }),
+  });
+  const project = deps._owner.projects.find((item) => item.id === "p1");
+  project.activeVersionId = "version-current";
+  project.updatedAt = 25;
+  project.versions = [{ id: "version-current", source: "studio_autosave", draft: "Server" }];
+  const before = structuredClone(project.versions);
+
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, "/screenplay/projects/p1/recovery", {
+      draft: "Local copy",
+      client_request_id: "persist-failure-001",
+    });
+    assert.equal(r.status, 503);
+    assert.equal(r.body.error, "screenplay_persistence_failed");
+    assert.deepEqual(project.versions, before);
+    assert.equal(project.activeVersionId, "version-current");
+    assert.equal(project.updatedAt, 25);
   });
 });
 

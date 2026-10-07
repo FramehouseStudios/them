@@ -461,14 +461,10 @@ protocol LiveDraftEditorBinding: AnyObject {
     var liveDraftTextPublisher: AnyPublisher<String, Never> { get }
     @discardableResult
     func applyRemoteLiveDraft(_ text: String, projectID: String, sourceDeviceID: String) -> Bool
-    func preserveLocalDraftForLiveSyncRecovery(_ text: String, projectID: String)
+    func preserveLocalDraftForLiveSyncRecovery(_ text: String, projectID: String) async -> Bool
     func adoptRemoteLiveVersion(_ versionID: String, projectID: String, draftChecksum: String)
     /// Bring the line another device is typing on into view.
     func revealRemoteEditLine(_ line: Int)
-}
-
-extension LiveDraftEditorBinding {
-    func preserveLocalDraftForLiveSyncRecovery(_ text: String, projectID: String) {}
 }
 
 extension ScreenplayStudioViewModel: LiveDraftEditorBinding {
@@ -664,7 +660,7 @@ final class ScreenplayLiveDraftSyncService: ObservableObject {
             do {
                 for try await event in stream {
                     guard !Task.isCancelled, projectID == activeProjectID else { return }
-                    handle(event, projectID: projectID)
+                    await handle(event, projectID: projectID)
                 }
                 logger.info("live draft stream ended; reconnecting")
             } catch let error as LiveDraftTransportError {
@@ -706,19 +702,19 @@ final class ScreenplayLiveDraftSyncService: ObservableObject {
         }
     }
 
-    private func handle(_ event: LiveDraftServerEvent, projectID: String) {
+    private func handle(_ event: LiveDraftServerEvent, projectID: String) async {
         let decoder = JSONDecoder()
         let data = Data(event.data.utf8)
         switch event.name {
         case "hello":
             guard let payload = try? decoder.decode(LiveDraftHelloPayload.self, from: data) else { return }
-            handleHello(payload, projectID: projectID)
+            await handleHello(payload, projectID: projectID)
         case "op":
             guard let payload = try? decoder.decode(LiveDraftOpPayload.self, from: data) else { return }
-            handleOp(payload, projectID: projectID)
+            await handleOp(payload, projectID: projectID)
         case "snapshot":
             guard let payload = try? decoder.decode(LiveDraftSnapshotPayload.self, from: data) else { return }
-            handleSnapshot(payload, projectID: projectID)
+            await handleSnapshot(payload, projectID: projectID)
         case "version":
             guard let payload = try? decoder.decode(LiveDraftVersionPayload.self, from: data) else { return }
             guard payload.deviceId != deviceID else { return }
@@ -736,7 +732,7 @@ final class ScreenplayLiveDraftSyncService: ObservableObject {
         }
     }
 
-    private func handleHello(_ payload: LiveDraftHelloPayload, projectID: String) {
+    private func handleHello(_ payload: LiveDraftHelloPayload, projectID: String) async {
         let localText = editor?.liveDraftText ?? ""
         let resolution = LiveDraftSyncPolicy.resolveHello(
             localText: localText,
@@ -760,7 +756,7 @@ final class ScreenplayLiveDraftSyncService: ObservableObject {
                 schedulePublish(after: LiveDraftSyncPolicy.publishCoalesceInterval)
             }
         case .adoptRemote:
-            reconcileRemote(
+            await reconcileRemote(
                 text: payload.text ?? "",
                 seq: payload.seq,
                 checksum: payload.checksum,
@@ -777,7 +773,7 @@ final class ScreenplayLiveDraftSyncService: ObservableObject {
         flushVersionAnnouncementIfPossible()
     }
 
-    private func handleOp(_ payload: LiveDraftOpPayload, projectID: String) {
+    private func handleOp(_ payload: LiveDraftOpPayload, projectID: String) async {
         if payload.deviceId == deviceID {
             // Our own op echoed back; the POST response already advanced the
             // mirror, but a reconnect race can deliver the echo first.
@@ -793,7 +789,7 @@ final class ScreenplayLiveDraftSyncService: ObservableObject {
             return
         }
         let caret = payload.cursor ?? payload.op.caret
-        reconcileRemote(
+        await reconcileRemote(
             text: next,
             seq: payload.seq,
             checksum: payload.checksum,
@@ -803,12 +799,12 @@ final class ScreenplayLiveDraftSyncService: ObservableObject {
         )
     }
 
-    private func handleSnapshot(_ payload: LiveDraftSnapshotPayload, projectID: String) {
+    private func handleSnapshot(_ payload: LiveDraftSnapshotPayload, projectID: String) async {
         guard payload.deviceId != deviceID else {
             if let seq = mirrorSeq, payload.seq > seq { mirrorSeq = payload.seq }
             return
         }
-        reconcileRemote(
+        await reconcileRemote(
             text: payload.text,
             seq: payload.seq,
             checksum: payload.checksum,
@@ -835,7 +831,7 @@ final class ScreenplayLiveDraftSyncService: ObservableObject {
         projectID: String,
         sourceDeviceID: String,
         revealLine: Int?
-    ) {
+    ) async {
         let previousMirror = mirrorText
         let localText = editor?.liveDraftText ?? previousMirror
         // A rebase needs a base both sides agreed on. A fresh mirror (no seq
@@ -845,7 +841,6 @@ final class ScreenplayLiveDraftSyncService: ObservableObject {
         // 2026-09-28). Without a base, or when local already matches, there
         // is nothing to merge; the channel wins, as for overlapping edits.
         let hasAgreedBase = mirrorSeq != nil
-        setMirror(text: remoteText, seq: seq, checksum: checksum)
         var merged: String?
         if hasAgreedBase, localText != previousMirror, localText != remoteText,
            let localOp = LiveDraftText.diff(from: previousMirror, to: localText) {
@@ -860,8 +855,16 @@ final class ScreenplayLiveDraftSyncService: ObservableObject {
             // A clean remote adoption or overlapping edit must not erase the
             // only copy of local text. Preserve it before the editor follows
             // the channel; the recovery UI lets the writer choose afterward.
-            editor?.preserveLocalDraftForLiveSyncRecovery(localText, projectID: projectID)
+            guard await editor?.preserveLocalDraftForLiveSyncRecovery(localText, projectID: projectID) == true else {
+                // Keep both the current editor and the previous agreed mirror.
+                // A later stream event/resync retries preservation before any
+                // remote text can replace the writer's local copy.
+                isConnected = false
+                status = .offline(reason: "recovery_pending")
+                return
+            }
         }
+        setMirror(text: remoteText, seq: seq, checksum: checksum)
         applyToEditor(merged ?? remoteText, projectID: projectID, sourceDeviceID: sourceDeviceID)
         if let revealLine, merged == nil {
             revealRemoteLineIfDue(revealLine)
@@ -928,7 +931,7 @@ final class ScreenplayLiveDraftSyncService: ObservableObject {
             case let .conflict(seq, remoteChecksum, remoteText):
                 // Another device moved the channel first. Rebase what was
                 // typed here onto it when the edits do not overlap.
-                reconcileRemote(
+                await reconcileRemote(
                     text: remoteText,
                     seq: seq,
                     checksum: remoteChecksum,
@@ -984,7 +987,7 @@ final class ScreenplayLiveDraftSyncService: ObservableObject {
                 setMirror(text: localText, seq: seq, checksum: checksum)
                 flushVersionAnnouncementIfPossible()
             case let .conflict(seq, remoteChecksum, remoteText):
-                reconcileRemote(
+                await reconcileRemote(
                     text: remoteText,
                     seq: seq,
                     checksum: remoteChecksum,
@@ -1036,7 +1039,7 @@ final class ScreenplayLiveDraftSyncService: ObservableObject {
             do {
                 let snapshot = try await self.transport.fetchSnapshot(projectID: projectID)
                 guard projectID == self.activeProjectID else { return }
-                self.reconcileRemote(
+                await self.reconcileRemote(
                     text: snapshot.text,
                     seq: snapshot.seq,
                     checksum: snapshot.checksum,

@@ -6,7 +6,62 @@ struct ScreenplayLocalDraftRecoverySnapshot: Equatable {
     let baseVersionId: String
     let savedAt: TimeInterval
     let isPreservedConflict: Bool
+    let clientRequestId: String?
+    let serverRecoveryId: String?
 }
+
+struct ScreenplayServerBackedDraftRecoveryPolicy {
+    static func newestRecovery(
+        from versions: [BackendScreenplayVersion]?,
+        excluding serverDraft: String,
+        fingerprint: (String) -> String
+    ) -> BackendScreenplayVersion? {
+        let serverFingerprint = fingerprint(serverDraft.trimmingCharacters(in: .whitespacesAndNewlines))
+        return versions?
+            .filter { $0.source == "studio_live_sync_recovery" }
+            .sorted { ($0.updatedAt ?? $0.createdAt ?? 0) > ($1.updatedAt ?? $1.createdAt ?? 0) }
+            .first { version in
+                let draft = (version.draft ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                return !draft.isEmpty && fingerprint(draft) != serverFingerprint
+            }
+    }
+}
+
+struct ScreenplayDraftRecoveryBannerCopy: Equatable {
+    let title: String
+    let message: String
+    let hint: String
+
+    static func make(accountProtected: Bool, alreadyOnPage: Bool, savedText: String) -> Self {
+        switch (accountProtected, alreadyOnPage) {
+        case (true, true):
+            return Self(
+                title: "Account copy protected",
+                message: "Protected in your account \(savedText). Save the page to resolve it, or discard the copy.",
+                hint: "Press 1 to keep the local draft on the page or 2 to discard the recovery copy."
+            )
+        case (true, false):
+            return Self(
+                title: "Account recovery copy found",
+                message: "Protected in your account \(savedText). Recover it or keep the server draft.",
+                hint: "Press 1 to recover local or 2 to keep the server draft."
+            )
+        case (false, true):
+            return Self(
+                title: "Local draft protected",
+                message: "Saved locally \(savedText). Retry Save when the connection is back, or discard the recovery copy.",
+                hint: "Press 1 to keep the local draft on the page or 2 to discard the recovery copy."
+            )
+        case (false, false):
+            return Self(
+                title: "Unsaved local draft found",
+                message: "Saved \(savedText). Recover it or keep the server draft.",
+                hint: "Press 1 to recover local or 2 to keep the server draft."
+            )
+        }
+    }
+}
+
 struct ScreenplayBridgeVersionAdoptionPolicy {
     static func shouldAdoptCommittedPageWriteBase(
         selectedProjectId: String,
@@ -176,26 +231,60 @@ struct ScreenplayLocalDraftRecoveryStore {
     /// Keeps a dirty local draft separate from the ordinary recovery slot so
     /// a remote live-sync draft can be followed without overwriting the only
     /// copy of the writer's local text.
+    @discardableResult
     func savePreservedConflict(
         ownerUserId: String,
         projectId: String,
         draft: String,
         baseVersionId: String,
         savedAt: TimeInterval = Date().timeIntervalSince1970
-    ) {
+    ) -> String? {
         let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedProjectId.isEmpty,
-              !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+              !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
         var nextPayloads = payloads(ownerUserId: ownerUserId)
         var projectPayload = nextPayloads[normalizedProjectId] ?? [:]
-        projectPayload["preservedConflict"] = [
+        let existing = projectPayload["preservedConflict"] as? [String: Any]
+        let existingDraft = existing?["draft"] as? String ?? ""
+        guard existingDraft.isEmpty || existingDraft == draft else { return nil }
+        let clientRequestId = (existing?["clientRequestId"] as? String)
+            .flatMap { $0.isEmpty ? nil : $0 }
+            ?? UUID().uuidString.lowercased()
+        var preservedConflict: [String: Any] = [
             "draft": draft,
             "baseVersionId": baseVersionId,
             "dirty": true,
             "savedAt": savedAt,
+            "clientRequestId": clientRequestId,
         ]
+        if let recoveryId = existing?["serverRecoveryId"] as? String {
+            preservedConflict["serverRecoveryId"] = recoveryId
+        }
+        projectPayload["preservedConflict"] = preservedConflict
         nextPayloads[normalizedProjectId] = projectPayload
         defaults.set(nextPayloads, forKey: ownerScopedKey(ownerUserId))
+        guard defaults.synchronize() else { return nil }
+        return clientRequestId
+    }
+
+    func setServerRecoveryId(
+        _ recoveryId: String,
+        ownerUserId: String,
+        projectId: String,
+        clientRequestId: String
+    ) {
+        let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedProjectId.isEmpty,
+              !recoveryId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        var nextPayloads = payloads(ownerUserId: ownerUserId)
+        guard var projectPayload = nextPayloads[normalizedProjectId],
+              var preservedConflict = projectPayload["preservedConflict"] as? [String: Any],
+              preservedConflict["clientRequestId"] as? String == clientRequestId else { return }
+        preservedConflict["serverRecoveryId"] = recoveryId
+        projectPayload["preservedConflict"] = preservedConflict
+        nextPayloads[normalizedProjectId] = projectPayload
+        defaults.set(nextPayloads, forKey: ownerScopedKey(ownerUserId))
+        _ = defaults.synchronize()
     }
 
     func clearPreservedConflict(ownerUserId: String, projectId: String) {
@@ -260,7 +349,9 @@ struct ScreenplayLocalDraftRecoveryStore {
                     draft: draft,
                     baseVersionId: String(describing: preserved["baseVersionId"] ?? ""),
                     savedAt: preserved["savedAt"] as? TimeInterval ?? 0,
-                    isPreservedConflict: true
+                    isPreservedConflict: true,
+                    clientRequestId: preserved["clientRequestId"] as? String,
+                    serverRecoveryId: preserved["serverRecoveryId"] as? String
                 )
             }
             clearPreservedConflict(ownerUserId: ownerUserId, projectId: normalizedProjectId)
@@ -284,7 +375,9 @@ struct ScreenplayLocalDraftRecoveryStore {
             draft: storedDraft,
             baseVersionId: String(describing: latestStored["baseVersionId"] ?? ""),
             savedAt: latestStored["savedAt"] as? TimeInterval ?? 0,
-            isPreservedConflict: false
+            isPreservedConflict: false,
+            clientRequestId: nil,
+            serverRecoveryId: nil
         )
     }
 

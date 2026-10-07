@@ -1530,6 +1530,141 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
     }));
   });
 
+  // A live-sync conflict copy is durable recovery data, not the active
+  // screenplay version. Keep it in the existing version store so the normal
+  // owner-scoped persistence adapter and project fetch path protect it too.
+  app.post("/screenplay/projects/:projectId/recovery", express.json({ limit: "2mb" }), async (req, res) => {
+    const owner = await getFreshAuthorizedScreenplayOwner(req, res, "screenplay_recovery");
+    if (!owner) return;
+    const projectId = normalizeSnippet(req.params?.projectId, 64);
+    const project = getScreenplayProjectRecord(owner, projectId);
+    if (!project) {
+      return res.status(404).json({ stage: "screenplay_recovery", error: "project_not_found" });
+    }
+
+    const draft = String(req.body?.draft || "");
+    const clientRequestId = normalizeSnippet(req.body?.client_request_id, 96);
+    if (!draft.trim()) {
+      return res.status(400).json({ stage: "screenplay_recovery", error: "draft_required" });
+    }
+    if (Buffer.byteLength(draft, "utf8") > 1_000_000) {
+      return res.status(413).json({ stage: "screenplay_recovery", error: "draft_too_large" });
+    }
+    if (!clientRequestId) {
+      return res.status(400).json({ stage: "screenplay_recovery", error: "client_request_id_required" });
+    }
+
+    const versions = Array.isArray(project.versions) ? project.versions : [];
+    const replay = versions.find((item) =>
+      item?.source === "studio_live_sync_recovery" && item.clientRequestId === clientRequestId
+    );
+    if (replay) {
+      const matches = String(replay.draft || "") === draft;
+      applyReadStateHeaders(res, buildScreenplayReadMeta(req, owner));
+      return res.status(matches ? 200 : 409).json(buildScreenplayEnvelope(req, owner, {
+        stage: "screenplay_recovery",
+        status: matches ? "replayed" : "client_request_id_reused",
+        project_id: project.id,
+        recovery_id: replay.id,
+        recovery: toScreenplayVersionPayload(replay, { includeDraft: true }),
+        replayed: matches,
+      }));
+    }
+
+    const pendingRecoveries = versions.filter((item) => item?.source === "studio_live_sync_recovery");
+    if (pendingRecoveries.length >= 16) {
+      return res.status(409).json({ stage: "screenplay_recovery", error: "recovery_limit_reached" });
+    }
+
+    const now = Date.now();
+    const score = scoreScreenplayDraft(draft);
+    const recovery = {
+      id: createScreenplayId("recovery"),
+      projectId: project.id,
+      phase: normalizeScreenplayPhaseValue(req.body?.phase || project.lastPhase),
+      source: "studio_live_sync_recovery",
+      clientRequestId,
+      createdAt: now,
+      updatedAt: now,
+      prompt: "",
+      notes: "Protected live-sync conflict copy; not active.",
+      formatScore: score.formatScore,
+      storyScore: score.storyScore,
+      confidenceClass: score.confidenceClass,
+      warnings: score.warnings,
+      draft,
+      draftExcerpt: buildDraftExcerpt(draft, 220),
+      studioWriteAnchors: [],
+      screenplayBindings: [],
+    };
+    const previousVersions = project.versions;
+    const previousUpdatedAt = project.updatedAt;
+    const previousOwnerUpdatedAt = owner.updatedAt;
+    project.versions = [recovery, ...versions];
+    project.updatedAt = now;
+    const committedOwner = await persistScreenplayOwnerOrFail(res, owner, now, "screenplay_recovery");
+    if (!committedOwner) {
+      project.versions = previousVersions;
+      project.updatedAt = previousUpdatedAt;
+      owner.updatedAt = previousOwnerUpdatedAt;
+      return;
+    }
+    const committedProject = getScreenplayProjectRecord(committedOwner, projectId);
+    const committedRecovery = (committedProject?.versions || []).find((item) => item.id === recovery.id);
+    if (!committedRecovery) {
+      res.setHeader("Cache-Control", "no-store");
+      return res.status(503).json({ stage: "screenplay_recovery", error: "screenplay_persistence_failed" });
+    }
+    applyReadStateHeaders(res, buildScreenplayReadMeta(req, committedOwner));
+    return res.status(201).json(buildScreenplayEnvelope(req, committedOwner, {
+      stage: "screenplay_recovery",
+      status: "preserved",
+      project_id: project.id,
+      recovery_id: committedRecovery.id,
+      recovery: toScreenplayVersionPayload(committedRecovery, { includeDraft: true }),
+      active_version_id: committedProject.activeVersionId || "",
+      replayed: false,
+    }));
+  });
+
+  app.delete("/screenplay/projects/:projectId/recovery/:recoveryId", async (req, res) => {
+    const owner = await getFreshAuthorizedScreenplayOwner(req, res, "screenplay_recovery_delete");
+    if (!owner) return;
+    const projectId = normalizeSnippet(req.params?.projectId, 64);
+    const recoveryId = normalizeSnippet(req.params?.recoveryId, 64);
+    const project = getScreenplayProjectRecord(owner, projectId);
+    if (!project) {
+      return res.status(404).json({ stage: "screenplay_recovery_delete", error: "project_not_found" });
+    }
+    const versions = Array.isArray(project.versions) ? project.versions : [];
+    const recovery = versions.find((item) => item.id === recoveryId && item.source === "studio_live_sync_recovery");
+    if (!recovery) {
+      return res.status(404).json({ stage: "screenplay_recovery_delete", error: "recovery_not_found" });
+    }
+    const previousVersions = project.versions;
+    const previousUpdatedAt = project.updatedAt;
+    const previousOwnerUpdatedAt = owner.updatedAt;
+    const now = Date.now();
+    project.versions = versions.filter((item) => item.id !== recoveryId);
+    project.updatedAt = now;
+    const committedOwner = await persistScreenplayOwnerOrFail(res, owner, now, "screenplay_recovery_delete");
+    if (!committedOwner) {
+      project.versions = previousVersions;
+      project.updatedAt = previousUpdatedAt;
+      owner.updatedAt = previousOwnerUpdatedAt;
+      return;
+    }
+    const committedProject = getScreenplayProjectRecord(committedOwner, projectId);
+    applyReadStateHeaders(res, buildScreenplayReadMeta(req, committedOwner));
+    return res.status(200).json(buildScreenplayEnvelope(req, committedOwner, {
+      stage: "screenplay_recovery_delete",
+      status: "deleted",
+      project_id: projectId,
+      recovery_id: recoveryId,
+      active_version_id: committedProject?.activeVersionId || "",
+    }));
+  });
+
   app.post("/screenplay/projects/:projectId/version", express.json({ limit: "2mb" }), async (req, res) => {
     const owner = await getFreshAuthorizedScreenplayOwner(req, res, "screenplay_version");
     if (!owner) return;

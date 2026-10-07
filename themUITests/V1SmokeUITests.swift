@@ -529,11 +529,19 @@ final class V1SmokeUITests: XCTestCase {
         )
         exportMenu.tap()
         let markdownExport = app.buttons["studio.export.md"]
-        XCTAssertTrue(markdownExport.waitForExistence(timeout: writerLoopWait(5)), "Export Copy did not offer Markdown.")
+        XCTAssertTrue(
+            waitForHittability(of: markdownExport, timeout: writerLoopWait(5)),
+            "Export Copy did not expose a hittable Markdown action.\n\(app.debugDescription)"
+        )
         markdownExport.tap()
+        var exportSnapshot: [String: Any] = [:]
+        _ = waitForRestoreSnapshot(in: app, timeout: writerLoopWait(2)) { snapshot in
+            exportSnapshot = snapshot
+            return stringValue(snapshot["info_text"]).contains(expectedMarkdownFilename)
+        }
         XCTAssertTrue(
             staticText(containing: expectedMarkdownFilename, in: app).waitForExistence(timeout: writerLoopWait(10)),
-            "Markdown export did not report its .md artifact."
+            "Markdown export did not report its .md artifact. Snapshot: \(exportSnapshot)\n\(app.debugDescription)"
         )
         app.terminate()
 

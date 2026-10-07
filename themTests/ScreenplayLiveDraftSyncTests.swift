@@ -195,6 +195,7 @@ private final class FakeLiveDraftEditor: LiveDraftEditorBinding {
     var appliedRemoteTexts: [String] = []
     var appliedSourceDevices: [String] = []
     var preservedLocalDrafts: [(draft: String, projectID: String)] = []
+    var recoveryPreserver: ((String, String) async -> Bool)?
     var adoptedVersions: [(versionID: String, checksum: String)] = []
     var revealedLines: [Int] = []
 
@@ -221,8 +222,9 @@ private final class FakeLiveDraftEditor: LiveDraftEditorBinding {
         revealedLines.append(line)
     }
 
-    func preserveLocalDraftForLiveSyncRecovery(_ text: String, projectID: String) {
+    func preserveLocalDraftForLiveSyncRecovery(_ text: String, projectID: String) async -> Bool {
         preservedLocalDrafts.append((text, projectID))
+        return await recoveryPreserver?(text, projectID) ?? true
     }
 
     func adoptRemoteLiveVersion(_ versionID: String, projectID: String, draftChecksum: String) {
@@ -508,7 +510,10 @@ final class ScreenplayLiveDraftSyncServiceTests: XCTestCase {
         let base = "Mara waits."
         let local = "Mara stays."
         let remote = "Mara leaves."
-        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store)
+        let model = ScreenplayStudioViewModel(
+            localDraftRecoveryStore: store,
+            liveSyncRecoveryUploader: { _, _, _ in "server-recovery-1" }
+        )
         model.selectedProjectID = projectID
         model.fountainDraft = base
 
@@ -538,6 +543,7 @@ final class ScreenplayLiveDraftSyncServiceTests: XCTestCase {
         XCTAssertEqual(model.recoveryCandidate?.draft, local)
         XCTAssertEqual(model.recoveryCandidate?.projectId, projectID)
         XCTAssertTrue(model.recoveryCandidate?.isPreservedConflict == true)
+        XCTAssertEqual(model.recoveryCandidate?.serverRecoveryId, "server-recovery-1")
 
         let ownerUserID = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""
         let relaunchedStore = ScreenplayLocalDraftRecoveryStore(
@@ -553,6 +559,63 @@ final class ScreenplayLiveDraftSyncServiceTests: XCTestCase {
         XCTAssertEqual(snapshot?.draft, local)
         XCTAssertTrue(snapshot?.isPreservedConflict == true)
 
+        service.detach()
+    }
+
+    func testRemoteTextWaitsForDurableRecoveryReceiptBeforeReplacingLocalText() async {
+        let base = "Mara waits."
+        let local = "Mara stays."
+        let remote = "Mara leaves."
+        let transport = FakeLiveDraftTransport()
+        let editor = FakeLiveDraftEditor(projectID: "proj-receipt", text: base)
+        var releaseReceipt: CheckedContinuation<Bool, Never>?
+        editor.recoveryPreserver = { _, _ in
+            await withCheckedContinuation { continuation in
+                releaseReceipt = continuation
+            }
+        }
+        let service = makeService(transport: transport)
+        service.attach(to: editor)
+        await waitUntil { !transport.openedStreams.isEmpty }
+        transport.emit("hello", #"{"seq":0,"checksum":"\#(LiveDraftText.checksum(base))","seeded":false}"#)
+        await waitUntil { service.status.isLive }
+        editor.text = local
+        let remoteOp = LiveDraftText.diff(from: base, to: remote)!
+        transport.emit(
+            "op",
+            #"{"seq":1,"device_id":"ios-phone","op":{"start":\#(remoteOp.start),"delete_count":\#(remoteOp.deleteCount),"insert":"\#(remoteOp.insert)"},"checksum":"\#(LiveDraftText.checksum(remote))"}"#
+        )
+        await waitUntil { releaseReceipt != nil }
+        XCTAssertEqual(editor.text, local, "remote text must wait while the durable receipt is pending")
+        XCTAssertTrue(editor.appliedRemoteTexts.isEmpty)
+
+        releaseReceipt?.resume(returning: true)
+        await waitUntil { editor.text == remote }
+        XCTAssertEqual(editor.appliedRemoteTexts, [remote])
+        service.detach()
+    }
+
+    func testRecoveryReceiptFailureKeepsLocalTextAndDoesNotAdvanceMirror() async {
+        let base = "Mara waits."
+        let local = "Mara stays."
+        let remote = "Mara leaves."
+        let transport = FakeLiveDraftTransport()
+        let editor = FakeLiveDraftEditor(projectID: "proj-receipt-fail", text: base)
+        editor.recoveryPreserver = { _, _ in false }
+        let service = makeService(transport: transport)
+        service.attach(to: editor)
+        await waitUntil { !transport.openedStreams.isEmpty }
+        transport.emit("hello", #"{"seq":0,"checksum":"\#(LiveDraftText.checksum(base))","seeded":false}"#)
+        await waitUntil { service.status.isLive }
+        editor.text = local
+        let remoteOp = LiveDraftText.diff(from: base, to: remote)!
+        transport.emit(
+            "op",
+            #"{"seq":1,"device_id":"ios-phone","op":{"start":\#(remoteOp.start),"delete_count":\#(remoteOp.deleteCount),"insert":"\#(remoteOp.insert)"},"checksum":"\#(LiveDraftText.checksum(remote))"}"#
+        )
+        await waitUntil { if case .offline(reason: "recovery_pending") = service.status { return true }; return false }
+        XCTAssertEqual(editor.text, local)
+        XCTAssertTrue(editor.appliedRemoteTexts.isEmpty)
         service.detach()
     }
 

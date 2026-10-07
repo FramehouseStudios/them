@@ -22,6 +22,7 @@ if (requestedPort !== null && (!Number.isInteger(requestedPort) || requestedPort
 }
 
 let server = null;
+let preserveFailedResultBundle = false;
 try {
   server = await startBackend({
     port: requestedPort,
@@ -71,8 +72,10 @@ try {
       + failureOutputTail(resultTests.stderr || resultTests.stdout);
   }
   if (child.status !== 0) {
+    preserveFailedResultBundle = process.env.THEM_UITEST_KEEP_FAILED_RESULT === "1";
     throw new Error(
       "Integrated iPhone writer-loop UI test failed.\n"
+      + (preserveFailedResultBundle ? `xcresult retained at: ${RESULT_BUNDLE_PATH}\n` : "")
       + `status=${child.status}\n`
       + `xcresult failures:\n${failureOutputTail(resultFailureDetails)}\n`
       + `stdout tail:\n${failureOutputTail(child.stdout)}\n`
@@ -102,6 +105,8 @@ try {
   console.log("studio-ios-writer-loop-contract-smoke: ok");
 } finally {
   if (existsSync(XCCONFIG_PATH)) unlinkSync(XCCONFIG_PATH);
-  if (existsSync(RESULT_BUNDLE_PATH)) rmSync(RESULT_BUNDLE_PATH, { recursive: true, force: true });
+  if (!preserveFailedResultBundle && existsSync(RESULT_BUNDLE_PATH)) {
+    rmSync(RESULT_BUNDLE_PATH, { recursive: true, force: true });
+  }
   if (server) await server.stop();
 }

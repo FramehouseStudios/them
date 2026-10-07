@@ -9165,15 +9165,12 @@ Current draft version:
             !currentDraft.isEmpty &&
             currentDraft == recoveryDraft
         let savedText = relativeTimestamp(dateFromTimestamp(recovery.savedAt) ?? .now)
+        let copy = ScreenplayDraftRecoveryBannerCopy.make(accountProtected: recovery.serverRecoveryId != nil, alreadyOnPage: recoveryAlreadyOnPage, savedText: savedText)
 
         return draftAlertBanner(
-            title: recoveryAlreadyOnPage ? "Local draft protected" : "Unsaved local draft found",
-            message: recoveryAlreadyOnPage
-                ? "Saved locally \(savedText). Retry Save when the connection is back, or discard the recovery copy."
-                : "Saved \(savedText). Recover it or keep the server draft.",
-            hint: recoveryAlreadyOnPage
-                ? "Press 1 to keep the local draft on the page or 2 to discard the recovery copy."
-                : "Press 1 to recover local or 2 to keep the server draft.",
+            title: copy.title,
+            message: copy.message,
+            hint: copy.hint,
             tint: Color.orange.opacity(0.88),
             excerpt: nil
         ) {

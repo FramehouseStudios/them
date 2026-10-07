@@ -6817,7 +6817,7 @@ actor BackendMemoryAPI {
         nil
 #endif
     }()
-    private let session: URLSession
+    let session: URLSession
     private let baseURLOverride: URL?
     private let accountDeletionSessionHooks: BackendAccountDeletionSessionHooks
     private let requestIdentityProvider: @Sendable (Bool) -> BackendAuthRequestIdentity
@@ -9934,7 +9934,7 @@ actor BackendMemoryAPI {
         return request
     }
 
-    private func makeWriteRequest(path: String) throws -> URLRequest {
+    func makeWriteRequest(path: String) throws -> URLRequest {
         guard var components = URLComponents(url: baseURL(), resolvingAgainstBaseURL: false) else {
             throw BackendMemoryAPIError.invalidBaseURL
         }
@@ -9993,7 +9993,7 @@ actor BackendMemoryAPI {
         return request.value(forHTTPHeaderField: "Authorization") != "Bearer \(currentToken)"
     }
 
-    private func applyProjectOwnerHeaders(
+    func applyProjectOwnerHeaders(
         to request: inout URLRequest,
         includeUserIdentity: Bool,
         includeAuthToken: Bool,
@@ -10638,7 +10638,7 @@ actor BackendMemoryAPI {
         }
     }
 
-    private func decodeErrorMessage(from data: Data) -> String {
+    func decodeErrorMessage(from data: Data) -> String {
         struct ErrorPayload: Decodable {
             let error: String?
             let stage: String?

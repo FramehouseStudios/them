@@ -133,6 +133,42 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         XCTAssertNil(store.payloads(ownerUserId: ownerUserID)["project-recovery"])
     }
 
+    func testServerBackedRecoverySelectionRestoresNewestExactCopyAfterRelaunch() {
+        let exactLocalDraft = "INT. ROOM - NIGHT\r\n\r\nMARA\r\nMy line stays exact.  \r\n"
+        let versions = [
+            version(id: "older", source: "studio_live_sync_recovery", updatedAt: 10, draft: "Older copy"),
+            version(id: "normal", source: "studio_autosave", updatedAt: 30, draft: "Server draft"),
+            version(id: "newest", source: "studio_live_sync_recovery", updatedAt: 20, draft: exactLocalDraft),
+        ]
+
+        let recovered = ScreenplayServerBackedDraftRecoveryPolicy.newestRecovery(
+            from: versions,
+            excluding: "Server draft",
+            fingerprint: stableFingerprint
+        )
+
+        XCTAssertEqual(recovered?.id, "newest")
+        XCTAssertEqual(recovered?.draft, exactLocalDraft)
+    }
+
+    func testRecoveryBannerCopyDistinguishesAccountProtectionFromLocalOnly() {
+        let accountCopy = ScreenplayDraftRecoveryBannerCopy.make(
+            accountProtected: true,
+            alreadyOnPage: true,
+            savedText: "just now"
+        )
+        let localCopy = ScreenplayDraftRecoveryBannerCopy.make(
+            accountProtected: false,
+            alreadyOnPage: true,
+            savedText: "just now"
+        )
+
+        XCTAssertEqual(accountCopy.title, "Account copy protected")
+        XCTAssertTrue(accountCopy.message.contains("in your account"))
+        XCTAssertEqual(localCopy.title, "Local draft protected")
+        XCTAssertTrue(localCopy.message.contains("Saved locally"))
+    }
+
     func testPreservedLiveSyncConflictSurvivesRemoteRecoveryWritesAndStoreReinitialization() {
         let local = "INT. DINER - NIGHT\n\nShe waits.\n\nA phone BUZZES."
         let remote = "INT. DINER - NIGHT\n\nShe waits."
@@ -225,16 +261,62 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         XCTAssertNotNil(payload?["preservedConflict"])
     }
 
+    func testPreservedConflictRetryReusesRequestIDAndNeverReplacesAnUnresolvedCopy() {
+        let firstDraft = "Mara's exact offline line."
+        let requestID = store.savePreservedConflict(
+            ownerUserId: ownerUserID,
+            projectId: "project-request-id",
+            draft: firstDraft,
+            baseVersionId: "v1"
+        )
+        XCTAssertNotNil(requestID)
+        XCTAssertEqual(
+            store.savePreservedConflict(
+                ownerUserId: ownerUserID,
+                projectId: "project-request-id",
+                draft: firstDraft,
+                baseVersionId: "v1"
+            ),
+            requestID
+        )
+        XCTAssertNil(store.savePreservedConflict(
+            ownerUserId: ownerUserID,
+            projectId: "project-request-id",
+            draft: "A different conflict must not overwrite the first.",
+            baseVersionId: "v2"
+        ))
+
+        store.setServerRecoveryId(
+            "server-recovery-1",
+            ownerUserId: ownerUserID,
+            projectId: "project-request-id",
+            clientRequestId: requestID ?? ""
+        )
+        let snapshot = store.recoverySnapshot(
+            ownerUserId: ownerUserID,
+            projectId: "project-request-id",
+            serverDraft: "Server version",
+            fingerprint: stableFingerprint
+        )
+        XCTAssertEqual(snapshot?.draft, firstDraft)
+        XCTAssertEqual(snapshot?.clientRequestId, requestID)
+        XCTAssertEqual(snapshot?.serverRecoveryId, "server-recovery-1")
+    }
+
     @MainActor
     func testLiveSyncVersionAdoptionKeepsExactLocalDraftAvailableToRecover() async {
         let local = "INT. DINER - NIGHT\n\nShe waits.\n\nA phone BUZZES."
         let remote = "INT. DINER - NIGHT\n\nShe waits."
         let projectID = "project-live-sync-recovery-\(UUID().uuidString)"
         let authOwnerID = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""
-        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store)
+        let model = ScreenplayStudioViewModel(
+            localDraftRecoveryStore: store,
+            liveSyncRecoveryUploader: { _, _, _ in "server-recovery-test" }
+        )
         model.selectedProjectID = projectID
         model.fountainDraft = local
-        model.preserveLocalDraftForLiveSyncRecovery(local, projectID: projectID)
+        let protected = await model.preserveLocalDraftForLiveSyncRecovery(local, projectID: projectID)
+        XCTAssertTrue(protected)
 
         XCTAssertTrue(model.applyRemoteLiveDraft(remote, projectID: projectID, sourceDeviceID: "other-device"))
         try? await Task.sleep(nanoseconds: 1_100_000_000)
@@ -261,7 +343,7 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
 
         model.restoreDraftFromRecovery()
         XCTAssertEqual(model.fountainDraft, local)
-        XCTAssertNil(model.recoveryCandidate)
+        XCTAssertEqual(model.recoveryCandidate?.serverRecoveryId, "server-recovery-test")
     }
 
     func testPreservedLiveSyncConflictCanBeResolvedWithoutLeavingFalseRecovery() {
