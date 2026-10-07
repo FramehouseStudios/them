@@ -325,34 +325,63 @@ actor OfflineTalkOutbox {
         let sender = transport ?? Self.liveTransport
         let nowSeconds = now.timeIntervalSince1970
         var sentCount = 0
+        var lastDrainError = ""
 
         while sentCount < max(1, limit),
               let index = entries.firstIndex(where: { entry in
                   entry.status == .pending && entry.nextAttemptAt <= nowSeconds
               }) {
+            let entryID = entries[index].id
+            let previousEntry = entries[index]
             sentCount += 1
             entries[index].status = .inflight
             entries[index].updatedAt = nowSeconds
-            try? persist()
+            do {
+                try persist()
+            } catch {
+                restoreEntryAfterFailedCommit(previousEntry, error: error)
+                lastDrainError = error.localizedDescription
+                publish(snapshotFor(entries, lastError: lastDrainError))
+                break
+            }
             publishSnapshot()
 
-            let entry = entries[index]
+            guard let inflightEntry = entries.first(where: { $0.id == entryID }) else {
+                continue
+            }
+            var bodyRefToDelete: String?
             do {
-                let request = try replayRequest(for: entry)
+                let request = try replayRequest(for: inflightEntry)
                 let result = try await sender(request)
-                try handleSendResult(result, forEntryID: entry.id, now: now)
+                bodyRefToDelete = try handleSendResult(result, forEntryID: entryID, now: now)
             } catch {
                 handleRetryableFailure(
-                    entryID: entry.id,
+                    entryID: entryID,
                     message: error.localizedDescription,
                     now: now
                 )
             }
-            try? persist()
+
+            do {
+                // A successful response is not committed locally until the
+                // manifest no longer references its payload. Keep the blob
+                // until that atomic manifest replacement succeeds so a crash
+                // or disk error can retry with the same idempotency key while
+                // the server still retains its receipt.
+                try persist()
+            } catch {
+                restoreEntryAfterFailedCommit(previousEntry, error: error)
+                lastDrainError = error.localizedDescription
+                publish(snapshotFor(entries, lastError: lastDrainError))
+                break
+            }
+            if let bodyRefToDelete {
+                try? fileManager.removeItem(at: blobURL(for: bodyRefToDelete))
+            }
             publishSnapshot()
         }
 
-        let nextSnapshot = snapshotFor(entries)
+        let nextSnapshot = snapshotFor(entries, lastError: lastDrainError)
         publish(nextSnapshot)
         return nextSnapshot
     }
@@ -360,11 +389,17 @@ actor OfflineTalkOutbox {
     func deleteParkedEntries() throws -> OfflineTalkOutboxSnapshot {
         try loadIfNeeded()
         let parked = entries.filter { $0.status == .parked }
+        let previousEntries = entries
         entries.removeAll { $0.status == .parked }
+        do {
+            try persist()
+        } catch {
+            entries = previousEntries
+            throw error
+        }
         for entry in parked {
             try? fileManager.removeItem(at: blobURL(for: entry.bodyRef))
         }
-        try persist()
         let nextSnapshot = snapshotFor(entries)
         publish(nextSnapshot)
         return nextSnapshot
@@ -507,13 +542,12 @@ actor OfflineTalkOutbox {
         _ result: OfflineTalkOutboxSendResult,
         forEntryID entryID: String,
         now: Date
-    ) throws {
-        guard let index = entries.firstIndex(where: { $0.id == entryID }) else { return }
+    ) throws -> String? {
+        guard let index = entries.firstIndex(where: { $0.id == entryID }) else { return nil }
         let status = result.statusCode
         if (200...299).contains(status) {
             let entry = entries.remove(at: index)
-            try? fileManager.removeItem(at: blobURL(for: entry.bodyRef))
-            return
+            return entry.bodyRef
         }
         if BackendProviderFailurePolicy.isQuotaExhausted(
             statusCode: status,
@@ -523,7 +557,7 @@ actor OfflineTalkOutbox {
             entries[index].updatedAt = now.timeIntervalSince1970
             entries[index].nextAttemptAt = 0
             entries[index].lastError = BackendProviderFailurePolicy.userMessage
-            return
+            return nil
         }
         if isRetryable(statusCode: status, body: result.body) {
             handleRetryableFailure(
@@ -531,11 +565,29 @@ actor OfflineTalkOutbox {
                 message: "HTTP \(status)",
                 now: now
             )
-            return
+            return nil
         }
         entries[index].status = .parked
         entries[index].updatedAt = now.timeIntervalSince1970
         entries[index].lastError = "HTTP \(status)"
+        return nil
+    }
+
+    private func restoreEntryAfterFailedCommit(
+        _ previousEntry: OfflineTalkOutboxEntry,
+        error: Error
+    ) {
+        guard let index = entries.firstIndex(where: { $0.id == previousEntry.id }) else {
+            entries.append(previousEntry)
+            return
+        }
+        var restored = entries[index]
+        restored.status = previousEntry.status
+        restored.retries = previousEntry.retries
+        restored.nextAttemptAt = previousEntry.nextAttemptAt
+        restored.updatedAt = previousEntry.updatedAt
+        restored.lastError = normalizedReason(error.localizedDescription)
+        entries[index] = restored
     }
 
     private func handleRetryableFailure(

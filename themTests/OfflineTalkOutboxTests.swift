@@ -1,6 +1,24 @@
 import XCTest
 @testable import them
 
+private final class ManifestObservingFileManager: FileManager {
+    let manifestURL: URL
+    private(set) var removedBlobAfterManifestCommit = false
+
+    init(manifestURL: URL) {
+        self.manifestURL = manifestURL
+        super.init()
+    }
+
+    override func removeItem(at url: URL) throws {
+        if url.deletingLastPathComponent().lastPathComponent == "blobs",
+           let manifest = try? String(contentsOf: manifestURL, encoding: .utf8) {
+            removedBlobAfterManifestCommit = !manifest.contains(url.lastPathComponent)
+        }
+        try super.removeItem(at: url)
+    }
+}
+
 final class OfflineTalkOutboxTests: XCTestCase {
     private var directory: URL!
 
@@ -63,6 +81,33 @@ final class OfflineTalkOutboxTests: XCTestCase {
         XCTAssertEqual(drained.pendingCount, 0)
         let entries = await outbox.allEntries()
         XCTAssertEqual(entries, [])
+    }
+
+    func testDrainCommitsManifestBeforeDeletingSuccessfulPayload() async throws {
+        let manifestURL = directory.appendingPathComponent("queue.jsonl")
+        let observingFileManager = ManifestObservingFileManager(manifestURL: manifestURL)
+        let outbox = OfflineTalkOutbox(
+            storageDirectory: directory,
+            fileManager: observingFileManager
+        )
+        var request = URLRequest(url: URL(string: "https://them.test/talk")!)
+        request.httpMethod = "POST"
+        request.setValue("multipart/form-data; boundary=test", forHTTPHeaderField: "Content-Type")
+        request.setValue("idem-manifest-first", forHTTPHeaderField: "X-Idempotency-Key")
+
+        _ = try await outbox.enqueue(request: request, body: Data("queued-body".utf8), reason: "offline")
+        let queuedEntries = await outbox.allEntries()
+        let queuedEntry = try XCTUnwrap(queuedEntries.first)
+
+        let drained = await outbox.drainDue(now: Date().addingTimeInterval(10)) { _ in
+            OfflineTalkOutboxSendResult(statusCode: 200)
+        }
+
+        XCTAssertEqual(drained.pendingCount, 0)
+        XCTAssertTrue(observingFileManager.removedBlobAfterManifestCommit)
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: directory.appendingPathComponent("blobs").appendingPathComponent(queuedEntry.bodyRef).path
+        ))
     }
 
     func testQuestionResolutionSurvivesRelaunchAndSuppressesOnlyActiveQuestion() async throws {

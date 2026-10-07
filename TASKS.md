@@ -2806,7 +2806,7 @@ scratch.
 - macOS scheme still compiles (dormant), no warning regressions.
 - iOS scheme `themTests` green.
 
-### T-outbox-manifest-recovery — Preserve queued turns when the outbox manifest is unreadable
+### T-outbox-manifest-recovery — Preserve queued turns across manifest corruption and payload cleanup
 - **Owner:** codex
 - **Branch:** codex/T-outbox-manifest-recovery
 - **Pillar:** mobile-first
@@ -2817,12 +2817,15 @@ scratch.
 Treat the offline talk outbox manifest as an all-or-nothing durable record. If
 any line cannot be decoded, do not drain the partial queue or overwrite the
 manifest on a later enqueue. Surface a clear writer-facing recovery error
-instead of reporting that the device has no queued turns.
+instead of reporting that the device has no queued turns. After a successful
+send, commit the queue manifest before deleting its payload so a failed local
+commit does not discard the only replayable request body.
 
 ## Done when
 
 - Malformed JSONL and invalid UTF-8 both fail closed, and the original manifest
   bytes remain unchanged after snapshot, retry, and enqueue attempts.
+- Successful sends remove the manifest reference before deleting the body blob.
 - The writer-visible status says local queued data is preserved and does not
   offer a retry action when no entry could be safely decoded.
 - Focused and full signed `themTests` pass on an erased simulator; the god-file
