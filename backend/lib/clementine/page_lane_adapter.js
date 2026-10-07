@@ -22,6 +22,7 @@ import {
   isPageMultipassEnabled,
   multipassWalletReserveTokenMultiplier,
 } from "./page_multipass.js";
+import { guardFinishedScriptWrite } from "./finished_script_guard.js";
 
 function pickString(...candidates) {
   for (const c of candidates) {
@@ -229,6 +230,7 @@ function createPageLaneTalkAdapter({
   pageReservationStore,
   walletStore = null,
   logger = console,
+  finishedScriptGuard = guardFinishedScriptWrite,
 } = {}) {
   if (typeof handleTalkRequest !== "function") {
     throw new Error("createPageLaneTalkAdapter requires handleTalkRequest");
@@ -247,6 +249,30 @@ function createPageLaneTalkAdapter({
     // greetings / thanks / check-ins / acks / soft silence via templates.
     // See talk_edge_adapter.js + reflex_lane.js. No CoreML / Glimmer yet.
     const earlyLane = resolveTalkLane(utterance, hints);
+    if (earlyLane.lane === LANE.PAGE && typeof finishedScriptGuard === "function") {
+      let endCheck;
+      try {
+        endCheck = await finishedScriptGuard(req);
+      } catch (error) {
+        logger?.warn?.(`[clementine/page] screenplay end check unavailable: ${error?.code || error?.message || error}`);
+        return res.status(error?.status || 503).json({
+          ok: false,
+          stage: "screenplay_state",
+          error: "I couldn't verify the saved screenplay, so I didn't write or charge for anything. Reopen the project and retry.",
+          code: error?.code || "screenplay_state_unavailable",
+        });
+      }
+      if (endCheck?.allowed === false) {
+        return res.status(endCheck.status || 409).json({
+          ok: false,
+          stage: "screenplay_end",
+          error: endCheck.message || "This screenplay can't be continued from its current ending.",
+          code: endCheck.error || "screenplay_write_blocked",
+          message: endCheck.message || "This screenplay can't be continued from its current ending.",
+          ...(endCheck.terminalEndLine ? { terminal_end_line: endCheck.terminalEndLine } : {}),
+        });
+      }
+    }
     const reflexHit = tryTalkEdgeReflex({
       text: utterance,
       laneInfo: earlyLane,

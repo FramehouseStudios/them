@@ -767,6 +767,7 @@
 | T-deeper-lib-tests-batch                | Deeper direct tests for user_store (with planned followups for memory_store + user_auth) | support | review            |
 | T-deeper-memstore-and-user-auth-tests   | Deeper tests for memory_store + user_auth                                                | support | review            |
 | T-eval-determinism-doc-pass             | Document determinism stance across 10 canon evals                                        | support | review            |
+| T-finished-script-end-guard             | Stop page-lane writes after a screenplay terminal ending                                 | codex   | review            |
 | T-fix-214-audit-and-readme              | Fix #214 follow-up — audit script + lib README precedent + task file with V1 pillar      | support | review            |
 | T-fountain-export-deeper                | Deeper tests for fountain_export                                                         | support | review            |
 | T-idempotency-key-contract              | Cross-route idempotency-key contract + reusable envelope                                 | support | review            |
@@ -2472,6 +2473,26 @@ without functional change.
   determinism is structural, not asserted at runtime. The comment
   documents the stance.
 - Touch eval bodies. Pure comment additions.
+
+### T-finished-script-end-guard — Stop page-lane writes after a screenplay terminal ending
+- **Owner:** codex
+- **Branch:** codex/T-finished-script-end-guard
+- **Pillar:** voice-to-scene
+- **Status:** review
+
+## Scope
+
+Before Page-lane reservation or model generation, inspect the authenticated
+project's canonical saved draft. Reject default/after-ending append requests
+when it contains a standalone Fountain `THE END`; allow explicit anchored
+rewrites. Do not trust the request's draft excerpt as authoritative.
+
+## Done when
+
+Focused tests prove terminal-marker parsing, allowed earlier rewrites,
+fail-closed persistence/project lookup, and rejection before wallet/page
+reservation or model dispatch. Full backend tests, the god-file gate, and
+`git diff --check` pass without changing pinned god files.
 
 ### T-fix-214-audit-and-readme — Fix #214 follow-up — audit script + lib README precedent + task file with V1 pillar
 - **Owner:** support
