@@ -53,6 +53,11 @@ final class V1SmokeUITests: XCTestCase {
             "Editor accepted direct typing, but the published draft lost or redirected characters. " +
                 "Editor: \(editorText). Draft model: \(accessibleDraftText(in: app))"
         )
+        XCTAssertEqual(
+            accessibleDraftText(in: app),
+            sentence,
+            "Direct typing must preserve the complete draft exactly once, not merely contain the requested sentence."
+        )
 #else
         throw XCTSkip("The direct page typing regression specifically covers the iPhone editor.")
 #endif
@@ -1501,18 +1506,19 @@ final class V1SmokeUITests: XCTestCase {
         XCTAssertTrue(waitForDraft(in: app, containing: "INT. DINER - NIGHT", timeout: 5))
     }
 
-    func test_restored_screenplay_question_can_be_answered_or_skipped() {
-        let answerApp = launchApp(
+    func test_restored_screenplay_question_can_be_answered() {
+        let app = launchApp(
             openStudio: true,
             showPendingScreenplayQuestion: true
         )
-        revealStudioPendingQuestion(in: answerApp)
-        let answerCard = element(identifier: "studio.pending-question", in: answerApp)
+        defer { app.terminate() }
+        revealStudioPendingQuestion(in: app)
+        let answerCard = element(identifier: "studio.pending-question", in: app)
         XCTAssertTrue(
             answerCard.waitForExistence(timeout: 8),
-            "The restored Clementine question was not visible. Accessibility hierarchy:\n\(answerApp.debugDescription)"
+            "The restored Clementine question was not visible. Accessibility hierarchy:\n\(app.debugDescription)"
         )
-        let questionText = element(identifier: "studio.pending-question.text", in: answerApp)
+        let questionText = element(identifier: "studio.pending-question.text", in: app)
         XCTAssertTrue(questionText.waitForExistence(timeout: 3), "The restored question text was missing.")
         let questionTextContent = [
             questionText.label,
@@ -1522,38 +1528,42 @@ final class V1SmokeUITests: XCTestCase {
             questionTextContent.localizedCaseInsensitiveContains("What does Mara learn"),
             "The restored question text did not match the active project: \(questionTextContent)"
         )
-        answerApp.buttons["studio.pending-question.answer"].tap()
-        let answerField = element(identifier: "studio.prompt.field", in: answerApp)
+        app.buttons["studio.pending-question.answer"].tap()
+        let answerField = element(identifier: "studio.prompt.field", in: app)
         XCTAssertTrue(answerField.waitForExistence(timeout: 5))
         answerField.tap()
         answerField.typeText("She learns that love means trusting June to choose for herself.")
-        submitFocusedPrompt(in: answerApp, field: answerField)
+        submitFocusedPrompt(in: app, field: answerField)
         XCTAssertTrue(
             waitForDisappearance(of: answerCard, timeout: 5),
             "The answered question remained visible after submitting from the keyboard."
         )
-        answerApp.terminate()
+    }
 
-        let skipApp = launchApp(
+    func test_restored_screenplay_question_can_be_skipped() {
+        let app = launchApp(
             openStudio: true,
             showPendingScreenplayQuestion: true
         )
-        defer { skipApp.terminate() }
-        revealStudioPendingQuestion(in: skipApp)
-        let skipCard = element(identifier: "studio.pending-question", in: skipApp)
-        XCTAssertTrue(skipCard.waitForExistence(timeout: 8))
+        defer { app.terminate() }
+        revealStudioPendingQuestion(in: app)
+        let skipCard = element(identifier: "studio.pending-question", in: app)
+        XCTAssertTrue(
+            skipCard.waitForExistence(timeout: 8),
+            "The restored Clementine question was not visible for the skip action. Accessibility hierarchy:\n\(app.debugDescription)"
+        )
         XCTAssertEqual(
-            skipApp.descendants(matching: .any).matching(identifier: "studio.pending-question").count,
+            app.descendants(matching: .any).matching(identifier: "studio.pending-question").count,
             1,
             "Studio exposed duplicate pending-question cards."
         )
-        let skipButton = skipApp.buttons["studio.pending-question.skip"]
+        let skipButton = app.buttons["studio.pending-question.skip"]
         XCTAssertTrue(skipButton.isEnabled, "Skip was visible but disabled by unrelated companion work.")
         XCTAssertTrue(skipButton.isHittable, "Skip was visible but its touch target was covered.")
-        skipButton.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        skipButton.tap()
         XCTAssertTrue(
             waitForDisappearance(of: skipCard, timeout: 5),
-            "The skipped question remained visible after the decline was recorded. Accessibility hierarchy:\n\(skipApp.debugDescription)"
+            "The skipped question remained visible after the decline was recorded. Accessibility hierarchy:\n\(app.debugDescription)"
         )
     }
 

@@ -25,6 +25,7 @@ nonisolated enum UITestLaunchConfiguration {
             ScreenplayLiveDraftFileStore.removeAllForUITesting()
             ScreenplayDraftSaveOutbox.resetStoredQueueForUITesting()
             ScreenplayOutlineMutationOutbox.resetStoredQueueForUITesting()
+            OfflineTalkOutbox.resetStoredQueueForUITesting()
         }
 
         if arguments.contains("--ui-seed-remembered-login"),

@@ -50,3 +50,30 @@ step to run the suite on the iOS simulator.
   CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO` — passed.
 - Smoke-runner Node regressions — 4/4 passed.
 - Bash syntax and `git diff --check` — passed.
+
+## Repair milestone — 2026-10-07
+
+- Isolated `OfflineTalkOutbox` in UI-automation storage and clear it on
+  `--ui-reset-state`; this queue was the remaining persisted journal not
+  cleared between UI tests and could suppress a seeded pending screenplay
+  question after an earlier answer test.
+- Split answer and skip assertions into separate UI cases so failures identify
+  the action under test, while the launch reset keeps their fixtures isolated.
+
+## Verification — 2026-10-07
+
+- Signed iOS unit suite on erased iPhone 17 Pro: 636/636 passed.
+- The no-agreed-base regression now also drives the real sync service and view
+  model through a remote op burst, saved-version acknowledgement, relaunch
+  snapshot, and exact local-draft recovery.
+- Signed iOS unit suite on erased iPhone 17 Pro after that regression:
+  637/637 passed.
+- V1 UI suite on erased iPhone 17 Pro: 38 executed, 0 failures, 9
+  environment-gated skips; answer and skip cases ran in suite order.
+- Authenticated local-backend integrated iPhone writer loop: 1/1 passed
+  (write, save, export, restore contract; no live provider calls).
+- Backend `npm test`: 2,739 passed, 0 failed, 2 skipped.
+- macOS scaffold build with the CI ad-hoc signing settings: passed.
+- `node scripts/check_god_files.mjs`: passed; no tracked god file grew.
+- The hosted #911 quality-gate failure remains separate: its XCTest runner
+  timed out while loading Accessibility before test methods began.

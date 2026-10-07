@@ -352,9 +352,33 @@ actor OfflineTalkOutbox {
         return nextSnapshot
     }
 
-    private static func defaultStorageDirectory() -> URL {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+    #if DEBUG
+    nonisolated static func resetStoredQueueForUITesting(
+        fileManager: FileManager = .default
+    ) {
+        resetStoredQueueForUITesting(
+            at: defaultStorageDirectory(),
+            fileManager: fileManager
+        )
+    }
+
+    nonisolated static func resetStoredQueueForUITesting(
+        at storageDirectory: URL,
+        fileManager: FileManager = .default
+    ) {
+        guard fileManager.fileExists(atPath: storageDirectory.path) else { return }
+        try? fileManager.removeItem(at: storageDirectory)
+    }
+    #endif
+
+    nonisolated private static func defaultStorageDirectory() -> URL {
+        let automationRoot = IOThemRuntime.currentAutomationOutboxRootURL
+        let base = automationRoot
+            ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? FileManager.default.temporaryDirectory
+        if automationRoot != nil {
+            return base.appendingPathComponent("OfflineTalkOutbox", isDirectory: true)
+        }
         return base
             .appendingPathComponent("io.them", isDirectory: true)
             .appendingPathComponent("OfflineTalkOutbox", isDirectory: true)

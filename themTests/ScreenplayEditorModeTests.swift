@@ -63,6 +63,101 @@ final class ScreenplayEditorModeTests: XCTestCase {
         XCTAssertEqual(ScreenplayEditorElement.sceneHeading.previous, .transition)
     }
 
+    func testParagraphRestyleSkipsContentOnlyEdits() {
+        XCTAssertFalse(
+            ScreenplayParagraphRestylePolicy.shouldRestyle(
+                previousElements: [.action],
+                currentElements: [.action],
+                paragraphStructureChanged: false
+            )
+        )
+    }
+
+    func testParagraphRestyleRunsWhenParagraphStructureChanges() {
+        XCTAssertTrue(
+            ScreenplayParagraphRestylePolicy.shouldRestyle(
+                previousElements: [.action],
+                currentElements: [.action, .action],
+                paragraphStructureChanged: true
+            )
+        )
+    }
+
+    func testParagraphRestyleRunsWhenElementMetadataChanges() {
+        XCTAssertTrue(
+            ScreenplayParagraphRestylePolicy.shouldRestyle(
+                previousElements: [.action],
+                currentElements: [.character],
+                paragraphStructureChanged: false
+            )
+        )
+    }
+
+    func testScreenplayLineIndexUpdatesInlineOffsetsWithoutChangingLineIdentity() {
+        var index = ScreenplayLineIndex(text: "A\nB\nC")
+
+        XCTAssertEqual(index.lineIndex(atUTF16Location: 0), 0)
+        XCTAssertEqual(index.lineIndex(atUTF16Location: 2), 1)
+        XCTAssertEqual(index.lineIndex(atUTF16Location: 4), 2)
+
+        index.applyInlineEdit(onLineAt: 1, utf16LengthDelta: 2)
+
+        XCTAssertEqual(index.lineStart(at: 2), 6)
+        XCTAssertEqual(index.lineIndex(atUTF16Location: 6), 2)
+        XCTAssertEqual(index.lineIndex(atUTF16Location: 5), 1)
+    }
+
+    func testScreenplayLineIndexHandlesCRLFAndTrailingEmptyLine() {
+        let text = "A\r\nB\n"
+        let index = ScreenplayLineIndex(text: text)
+
+        XCTAssertEqual(index.lineIndex(atUTF16Location: 0), 0)
+        XCTAssertEqual(index.lineIndex(atUTF16Location: 3), 1)
+        XCTAssertEqual(index.lineIndex(atUTF16Location: 5), 2)
+        XCTAssertEqual(ScreenplayLineIndex.lineIndex(atUTF16Location: 2, in: text), 0)
+        XCTAssertEqual(ScreenplayLineIndex.lineIndex(atUTF16Location: 3, in: text), 1)
+        XCTAssertEqual(index.lineStart(at: 2), 5)
+        XCTAssertEqual(index.lineLengths.count, screenplayLineTexts(text).count)
+        XCTAssertEqual(screenplayLineTexts(text), ["A", "B", ""])
+    }
+
+    func testScreenplayLineIndexHandlesAllSupportedUnicodeLineBreaks() {
+        let text = "A\rB\u{000B}C\u{000C}D\u{0085}E\u{2028}F\u{2029}G"
+        let index = ScreenplayLineIndex(text: text)
+
+        XCTAssertEqual(index.lineLengths.count, 7)
+        XCTAssertEqual(index.lineLengths.count, screenplayLineTexts(text).count)
+        for line in 0..<7 {
+            let lineStart = index.lineStart(at: line)
+            XCTAssertEqual(index.lineIndex(atUTF16Location: lineStart), line)
+            XCTAssertEqual(ScreenplayLineIndex.lineIndex(atUTF16Location: lineStart, in: text), line)
+        }
+    }
+
+    func testScreenplayLineIndexKeeps120PageLineLookupsLogarithmic() {
+        let pageLineCount = 55
+        let lineCount = 120 * pageLineCount
+        let draft = (0..<lineCount).map { "ACTION \($0)" }.joined(separator: "\n")
+        let targetLine = lineCount - 3
+        let targetStart = (0..<targetLine).reduce(into: 0) { offset, index in
+            offset += ("ACTION \(index)" as NSString).length + 1
+        }
+        var lineIndex = ScreenplayLineIndex(text: draft)
+        var resolvedLine = -1
+
+        measure {
+            for _ in 0..<2_000 {
+                let location = lineIndex.lineStart(at: targetLine) + 3
+                resolvedLine = lineIndex.lineIndex(atUTF16Location: location)
+                lineIndex.applyInlineEdit(onLineAt: targetLine, utf16LengthDelta: 1)
+                lineIndex.applyInlineEdit(onLineAt: targetLine, utf16LengthDelta: -1)
+            }
+        }
+
+        XCTAssertEqual(resolvedLine, targetLine)
+        XCTAssertEqual(lineIndex.lineStart(at: targetLine), targetStart)
+    }
+
     func testLineStartingWithIntPromotesToSceneHeading() {
         XCTAssertEqual(
             ScreenplayEditorElement.inferredElement(for: "int. diner - night", previousElement: nil),

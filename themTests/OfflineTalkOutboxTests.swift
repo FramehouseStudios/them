@@ -112,6 +112,20 @@ final class OfflineTalkOutboxTests: XCTestCase {
         XCTAssertEqual(resolvedIDs, Set<String>())
     }
 
+    #if DEBUG
+    func testUITestResetRemovesOnlyOfflineTalkOutboxDirectory() throws {
+        let outboxDirectory = directory.appendingPathComponent("OfflineTalkOutbox", isDirectory: true)
+        try FileManager.default.createDirectory(at: outboxDirectory, withIntermediateDirectories: true)
+        let queuedResolution = outboxDirectory.appendingPathComponent("queue.jsonl")
+        try Data("pending-question-resolution".utf8).write(to: queuedResolution)
+
+        OfflineTalkOutbox.resetStoredQueueForUITesting(at: outboxDirectory)
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: outboxDirectory.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: directory.path))
+    }
+    #endif
+
     func testQueuedWriteNeverCrossesIntoAnotherSignedInAccount() async throws {
         let outbox = OfflineTalkOutbox(storageDirectory: directory)
         var request = URLRequest(
