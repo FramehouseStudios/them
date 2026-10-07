@@ -34,6 +34,17 @@ nonisolated enum FirstPageFreshProject {
             && draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
+    /// A working title a script already has gets the next number ("Clerk
+    /// Stops The Clock 2"): the drawer listed "Senate Staffer Counts Votes On"
+    /// four times (2026-09-30). Titles the writer types into Create are theirs.
+    static func uniqueTitle(_ title: String, among existing: [String]) -> String {
+        let taken = Set(existing.map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() })
+        guard taken.contains(title.lowercased()) else { return title }
+        var number = 2
+        while taken.contains("\(title) \(number)".lowercased()) { number += 1 }
+        return "\(title) \(number)"
+    }
+
     private static let phraseBreaks: Set<String> = [
         "on", "in", "at", "to", "for", "with", "from", "by", "of", "into", "onto", "over", "under",
         "after", "before", "during", "while", "as", "and", "but", "or", "when", "where", "because",
