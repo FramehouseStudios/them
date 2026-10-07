@@ -63,6 +63,11 @@ step to run the suite on the iOS simulator.
 ## Verification — 2026-10-07
 
 - Signed iOS unit suite on erased iPhone 17 Pro: 636/636 passed.
+- The no-agreed-base regression now also drives the real sync service and view
+  model through a remote op burst, saved-version acknowledgement, relaunch
+  snapshot, and exact local-draft recovery.
+- Signed iOS unit suite on erased iPhone 17 Pro after that regression:
+  637/637 passed.
 - V1 UI suite on erased iPhone 17 Pro: 38 executed, 0 failures, 9
   environment-gated skips; answer and skip cases ran in suite order.
 - Authenticated local-backend integrated iPhone writer loop: 1/1 passed

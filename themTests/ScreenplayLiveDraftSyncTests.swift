@@ -591,6 +591,68 @@ final class ScreenplayLiveDraftSyncServiceTests: XCTestCase {
         service.detach()
     }
 
+    func testNoBaseHelloPreservesExactDirtyDraftThroughRemoteBurstAndSavedVersion() async {
+        let suiteName = "live-draft-no-base-recovery-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let recoveryKey = "live-draft-no-base-recovery"
+        let store = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: recoveryKey)
+        let ownerUserID = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""
+        let projectID = "project-live-no-base-\(UUID().uuidString)"
+        let local = "INT. DINER - NIGHT\n\nShe waits.\n\nA phone BUZZES."
+        let remote = "INT. DINER - NIGHT\n\nShe waits."
+        let remoteFollowUp = "INT. DINER - NIGHT\n\nShe waits.\n\nThe phone stops."
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store)
+        model.selectedProjectID = projectID
+        model.fountainDraft = local
+        model.noteManualDraftEdit()
+
+        let transport = FakeLiveDraftTransport()
+        let service = makeService(transport: transport)
+        service.attach(to: model)
+        await waitUntil { !transport.openedStreams.isEmpty }
+
+        transport.emit(
+            "hello",
+            #"{"seq":5,"checksum":"\#(LiveDraftText.checksum(remote))","seeded":false,"text":"INT. DINER - NIGHT\n\nShe waits."}"#
+        )
+        await waitUntil {
+            model.fountainDraft == remote && model.recoveryCandidate?.draft == local
+        }
+
+        XCTAssertEqual(model.fountainDraft, remote, "Unknown-base local and channel inserts must not be concatenated.")
+        XCTAssertEqual(model.recoveryCandidate?.draft, local, "The exact dirty local page remains recoverable.")
+        XCTAssertTrue(transport.postedOps.isEmpty, "A no-base local draft must not be published as a duplicate page.")
+
+        let followUp = LiveDraftText.diff(from: remote, to: remoteFollowUp)!
+        transport.emit(
+            "op",
+            #"{"seq":6,"device_id":"ios-phone","op":{"start":\#(followUp.start),"delete_count":\#(followUp.deleteCount),"insert":"\#(followUp.insert)"},"checksum":"\#(LiveDraftText.checksum(remoteFollowUp))"}"#
+        )
+        await waitUntil { model.fountainDraft == remoteFollowUp }
+        XCTAssertEqual(model.recoveryCandidate?.draft, local, "A following remote op must not replace the original recovery copy.")
+
+        transport.emit(
+            "version",
+            #"{"seq":7,"device_id":"ios-phone","version_id":"version-remote","checksum":"\#(LiveDraftText.checksum(remoteFollowUp))"}"#
+        )
+        await waitUntil { model.latestVersionID == "version-remote" }
+        let relaunchedStore = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: recoveryKey)
+        let snapshot = relaunchedStore.recoverySnapshot(
+            ownerUserId: ownerUserID,
+            projectId: projectID,
+            serverDraft: remoteFollowUp,
+            fingerprint: { LiveDraftText.checksum($0) }
+        )
+        XCTAssertEqual(snapshot?.draft, local, "The protected draft must survive remote save acknowledgement and relaunch.")
+        XCTAssertEqual(snapshot?.isPreservedConflict, true)
+
+        model.restoreDraftFromRecovery()
+        XCTAssertEqual(model.fountainDraft, local, "Recovery restores the writer's exact original text.")
+        XCTAssertNil(model.recoveryCandidate)
+        service.detach()
+    }
+
     func testHelloWithoutTextAgreesOnTheTextWhoseChecksumWasSent() async {
         // Seen live 2026-09-28: the first op after every launch got a 409
         // checksum_mismatch. The stream opened with the checksum of the
