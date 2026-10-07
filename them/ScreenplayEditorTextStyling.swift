@@ -222,41 +222,57 @@ struct ScreenplayLineIndex {
     }
 
     mutating func rebuild(for text: String) {
-        let units = Array(text.utf16)
-        var lengths: [Int] = []
-        var currentLineLength = 0
-        var offset = 0
-        while offset < units.count {
-            switch units[offset] {
-            case 0x000A, 0x000B, 0x000C, 0x0085, 0x2028, 0x2029:
-                offset += 1
-                currentLineLength += 1
-                lengths.append(currentLineLength)
-                currentLineLength = 0
-            case 0x000D:
-                offset += 1
-                currentLineLength += 1
-                if offset < units.count, units[offset] == 0x000A {
-                    offset += 1
-                    currentLineLength += 1
-                }
-                lengths.append(currentLineLength)
-                currentLineLength = 0
-            default:
-                offset += 1
-                currentLineLength += 1
-            }
-        }
-        lengths.append(currentLineLength)
-        lineLengths = lengths
-        fenwickTree = Array(repeating: 0, count: lengths.count + 1)
-        for index in 1...lengths.count {
-            fenwickTree[index] += lengths[index - 1]
+        let scannedLines = Self.scanLines(in: text)
+        lineLengths = scannedLines.map { $0.utf16Length }
+        fenwickTree = Array(repeating: 0, count: lineLengths.count + 1)
+        for index in 1...lineLengths.count {
+            fenwickTree[index] += lineLengths[index - 1]
             let parent = index + (index & -index)
-            if parent <= lengths.count {
+            if parent <= lineLengths.count {
                 fenwickTree[parent] += fenwickTree[index]
             }
         }
+    }
+
+    static func lineTexts(in text: String) -> [String] {
+        scanLines(in: text).map { $0.text }
+    }
+
+    private static func scanLines(in text: String) -> [(text: String, utf16Length: Int)] {
+        let units = Array(text.utf16)
+        let nsText = text as NSString
+        var lines: [(text: String, utf16Length: Int)] = []
+        var lineStart = 0
+        var offset = 0
+
+        while offset < units.count {
+            let breakLength: Int
+            switch units[offset] {
+            case 0x000A, 0x000B, 0x000C, 0x0085, 0x2028, 0x2029:
+                breakLength = 1
+            case 0x000D:
+                breakLength = offset + 1 < units.count && units[offset + 1] == 0x000A ? 2 : 1
+            default:
+                breakLength = 0
+            }
+
+            if breakLength > 0 {
+                lines.append((
+                    text: nsText.substring(with: NSRange(location: lineStart, length: offset - lineStart)),
+                    utf16Length: offset + breakLength - lineStart
+                ))
+                offset += breakLength
+                lineStart = offset
+            } else {
+                offset += 1
+            }
+        }
+
+        lines.append((
+            text: nsText.substring(with: NSRange(location: lineStart, length: units.count - lineStart)),
+            utf16Length: units.count - lineStart
+        ))
+        return lines
     }
 
     func lineIndex(atUTF16Location location: Int) -> Int {

@@ -108,12 +108,26 @@ final class ScreenplayEditorModeTests: XCTestCase {
     }
 
     func testScreenplayLineIndexHandlesCRLFAndTrailingEmptyLine() {
-        let index = ScreenplayLineIndex(text: "A\r\nB\n")
+        let text = "A\r\nB\n"
+        let index = ScreenplayLineIndex(text: text)
 
         XCTAssertEqual(index.lineIndex(atUTF16Location: 0), 0)
         XCTAssertEqual(index.lineIndex(atUTF16Location: 3), 1)
         XCTAssertEqual(index.lineIndex(atUTF16Location: 5), 2)
         XCTAssertEqual(index.lineStart(at: 2), 5)
+        XCTAssertEqual(index.lineLengths.count, screenplayLineTexts(text).count)
+        XCTAssertEqual(screenplayLineTexts(text), ["A", "B", ""])
+    }
+
+    func testScreenplayLineIndexHandlesAllSupportedUnicodeLineBreaks() {
+        let text = "A\rB\u{000B}C\u{000C}D\u{0085}E\u{2028}F\u{2029}G"
+        let index = ScreenplayLineIndex(text: text)
+
+        XCTAssertEqual(index.lineLengths.count, 7)
+        XCTAssertEqual(index.lineLengths.count, screenplayLineTexts(text).count)
+        for line in 0..<7 {
+            XCTAssertEqual(index.lineIndex(atUTF16Location: index.lineStart(at: line)), line)
+        }
     }
 
     func testScreenplayLineIndexKeeps120PageLineLookupsLogarithmic() {

@@ -2252,7 +2252,7 @@ private enum ScreenplayLocalStudioCommand: Equatable {
 }
 
 func screenplayLineTexts(_ text: String) -> [String] {
-    text.components(separatedBy: .newlines)
+    ScreenplayLineIndex.lineTexts(in: text)
 }
 
 private func normalizedScreenplayNodeText(_ text: String) -> String {
@@ -11168,7 +11168,10 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
                 typingStructuredSyncWorkItem = nil
             }
             let nextText = textView.text ?? ""
-            let activeLineIndex = screenplayLineIndex(for: currentLineLocation(in: textView), in: nextText)
+            paragraphLineIndex.rebuild(for: nextText)
+            let activeLineIndex = paragraphLineIndex.lineIndex(
+                atUTF16Location: currentLineLocation(in: textView)
+            )
             let previousLines = screenplayLineTexts(lastKnownTextSnapshot)
             let nextLines = screenplayLineTexts(nextText)
             let activeLineElement: ScreenplayEditorElement? = {
@@ -11194,7 +11197,6 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
                 explicitCurrentLineElement: activeLineElement
             )
             lastKnownTextSnapshot = nextText
-            paragraphLineIndex.rebuild(for: nextText)
             if deferStructuredSync {
                 scheduleTypingStructuredDraftSync(text: nextText)
             } else {
