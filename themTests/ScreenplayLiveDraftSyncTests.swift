@@ -190,6 +190,7 @@ final class ScreenplayLiveDraftPolicyTests: XCTestCase {
 @MainActor
 private final class FakeLiveDraftEditor: LiveDraftEditorBinding {
     @Published var projectID: String
+    @Published var loadedProjectID: String
     @Published var text: String
     var latestVersionID = "v1"
     var appliedRemoteTexts: [String] = []
@@ -201,13 +202,16 @@ private final class FakeLiveDraftEditor: LiveDraftEditorBinding {
 
     init(projectID: String, text: String) {
         self.projectID = projectID
+        self.loadedProjectID = projectID
         self.text = text
     }
 
     var liveDraftProjectID: String { projectID }
+    var liveDraftLoadedProjectID: String { loadedProjectID }
     var liveDraftText: String { text }
     var liveDraftLatestVersionID: String { latestVersionID }
     var liveDraftProjectIDPublisher: AnyPublisher<String, Never> { $projectID.eraseToAnyPublisher() }
+    var liveDraftLoadedProjectIDPublisher: AnyPublisher<String, Never> { $loadedProjectID.eraseToAnyPublisher() }
     var liveDraftTextPublisher: AnyPublisher<String, Never> { $text.eraseToAnyPublisher() }
 
     func applyRemoteLiveDraft(_ text: String, projectID: String, sourceDeviceID: String) -> Bool {
@@ -515,7 +519,8 @@ final class ScreenplayLiveDraftSyncServiceTests: XCTestCase {
             liveSyncRecoveryUploader: { _, _, _ in "server-recovery-1" }
         )
         model.selectedProjectID = projectID
-        model.fountainDraft = base
+        model.replaceDraftFromVoiceBridgeIfNeeded(base, draftOriginProjectID: projectID)
+        XCTAssertEqual(model.debugLoadedDraftProjectID, projectID)
 
         let transport = FakeLiveDraftTransport()
         let service = makeService(transport: transport)
@@ -700,6 +705,8 @@ final class ScreenplayLiveDraftSyncServiceTests: XCTestCase {
         service.attach(to: editor)
         await waitUntil { transport.openedStreams.count == 1 }
         editor.projectID = "proj-2"
+        editor.text = ""
+        editor.loadedProjectID = "proj-2"
         await waitUntil { transport.openedStreams.count == 2 }
         XCTAssertEqual(transport.openedStreams.last?.projectID, "proj-2")
         editor.projectID = ""
@@ -711,5 +718,38 @@ final class ScreenplayLiveDraftSyncServiceTests: XCTestCase {
         try? await Task.sleep(nanoseconds: 50_000_000)
         XCTAssertEqual(transport.openedStreams.count, 2, "disabled service opens nothing")
         XCTAssertEqual(disabled.status, .idle)
+    }
+
+    func testProjectSwitchWaitsForTheNewDraftBeforeOpeningLiveSync() async {
+        let transport = FakeLiveDraftTransport()
+        let oldDraft = "INT. OLD PROJECT - NIGHT\n\nOnly this script's words."
+        let newDraft = "INT. NEW PROJECT - DAY\n\nA separate story."
+        let editor = FakeLiveDraftEditor(projectID: "proj-1", text: oldDraft)
+        let service = makeService(transport: transport)
+        service.attach(to: editor)
+        await waitUntil { transport.openedStreams.count == 1 }
+        transport.emit("hello", #"{"seq":0,"checksum":"\#(LiveDraftText.checksum(oldDraft))","seeded":true,"text":"\#(oldDraft)"}"#)
+        await waitUntil { service.status.isLive }
+
+        // Selection changes synchronously, while the server-backed draft is
+        // still loading. The old text must not open or seed the new channel.
+        editor.projectID = "proj-2"
+        try? await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertEqual(transport.openedStreams.count, 1)
+        XCTAssertTrue(transport.postedSnapshots.isEmpty)
+        XCTAssertTrue(transport.postedOps.isEmpty)
+
+        editor.text = newDraft
+        editor.loadedProjectID = "proj-2"
+        await waitUntil { transport.openedStreams.count == 2 }
+        XCTAssertEqual(transport.openedStreams.last?.projectID, "proj-2")
+        XCTAssertEqual(transport.openedStreams.last?.checksum, LiveDraftText.checksum(newDraft))
+
+        transport.emit("hello", #"{"seq":0,"checksum":"\#(LiveDraftText.checksum(newDraft))","seeded":true,"text":"\#(newDraft)"}"#)
+        await waitUntil { service.status.isLive }
+        try? await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertTrue(transport.postedSnapshots.isEmpty, "the old project's draft must never seed the new project's channel")
+        XCTAssertTrue(transport.postedOps.isEmpty)
+        service.detach()
     }
 }

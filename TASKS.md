@@ -773,6 +773,7 @@
 | T-ios-keychain-token-migration          | Migrate iOS auth tokens from UserDefaults to Keychain                                    | codex   | review            |
 | T-ios-offline-outbox                    | iOS client outbox for offline-tolerant talk turns                                        | codex   | ready             |
 | T-ios-xcuitest-v1-smoke                 | Thin XCUITest scaffold for the V1 manual smoke checklist                                 | codex   | review            |
+| T-live-sync-project-readiness           | Wait for the selected screenplay draft before opening live sync                          | codex   | ready             |
 | T-local-backend-no-provider-boot        | Keep local backend bootable without provider credentials                                 | codex   | review            |
 | T-macos-posture-cleanup                 | Gate macOS scaffolding off the V1 iOS scheme                                             | codex   | ready             |
 | T-pii-safe-request-logs                 | Redact PII from structured request logs                                                  | codex   | review            |
@@ -2735,6 +2736,33 @@ step to run the suite on the iOS simulator.
   CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO` — passed.
 - Smoke-runner Node regressions — 4/4 passed.
 - Bash syntax and `git diff --check` — passed.
+
+### T-live-sync-project-readiness — Wait for the selected screenplay draft before opening live sync
+- **Owner:** codex
+- **Branch:** codex/T-live-sync-project-readiness
+- **Pillar:** mobile-first
+- **Status:** ready
+
+## Scope
+
+Gate live-draft synchronization on the editor having loaded the selected
+project's draft. Project selection changes before the network-backed project
+load completes; the previous project's non-empty text must never be treated as
+the new project's local draft or used as the new channel's initial snapshot.
+
+## Done when
+
+- A regression test switches projects while the previous draft is still in the
+  editor and proves no live operation or snapshot can publish it to the new
+  project's channel.
+- Live sync starts once the selected project's draft has been hydrated and
+  preserves the existing no-loss, checksum-base, and conflict-recovery rules.
+- Focused live-sync tests and signed erased-simulator `themTests` pass; backend
+  suite, god-file gate, and `git diff --check` pass.
+- A draft PR stacked after the latest live-sync recovery dependency (#908 at
+  discovery) names Goal 1 and records the race, fix, proof, and remaining
+  coverage.
+---
 
 ### T-local-backend-no-provider-boot — Keep local backend bootable without provider credentials
 - **Owner:** codex
