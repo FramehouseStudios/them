@@ -2388,7 +2388,7 @@ nonisolated struct BackendScreenplayVersion: Decodable, Hashable {
     let projectId: String?
     let phase: String?
     let source: String?
-    let clientRequestId: String?
+    let clientRequestId, baseVersionId: String?
     let createdAt: TimeInterval?
     let updatedAt: TimeInterval?
     let prompt: String?

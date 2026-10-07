@@ -280,6 +280,7 @@ final class ScreenplayStudioDraftToolsPresentationTests: XCTestCase {
             phase: phase,
             source: nil,
             clientRequestId: nil,
+            baseVersionId: nil,
             createdAt: createdAt,
             updatedAt: updatedAt,
             prompt: nil,

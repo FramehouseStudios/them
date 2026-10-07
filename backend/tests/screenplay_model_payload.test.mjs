@@ -39,6 +39,19 @@ test("[screenplay-model-payload] includes active version even beyond version lim
   assert.equal(payload.versions.find((version) => version.id === "v_old_active")?.draft, "INT. OLD ACTIVE - DAY");
 });
 
+test("[screenplay-model-payload] preserves a recovery's original base version through storage and payloads", () => {
+  const { normalizeStoredScreenplayVersion, toScreenplayVersionPayload } = services();
+  const stored = normalizeStoredScreenplayVersion({
+    id: "recovery-1",
+    source: "studio_live_sync_recovery",
+    base_version_id: "version-before-edit",
+    draft: "Mara's exact offline line.",
+  });
+
+  assert.equal(stored.baseVersionId, "version-before-edit");
+  assert.equal(toScreenplayVersionPayload(stored).base_version_id, "version-before-edit");
+});
+
 test("[screenplay-model-payload] preserves active Clementine page write beyond version limit", () => {
   const { toScreenplayProjectPayload } = services();
   const generatedDraft = "FADE IN:\n\nINT. DINER - NIGHT\n\nClementine writes the room into focus.";

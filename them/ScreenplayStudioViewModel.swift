@@ -1686,7 +1686,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
     private var pendingDraftSaveRequest: DraftSaveRequest?
     private var shouldQueuePendingDraftSaveAfterFailure = false
     private let localDraftRecoveryStore: ScreenplayLocalDraftRecoveryStore
-    typealias LiveSyncRecoveryUploader = (String, String, String) async throws -> String
+    typealias LiveSyncRecoveryUploader = (String, String, String, String) async throws -> String
     typealias LiveSyncRecoveryDeleter = (String, String) async throws -> Void
     private let liveSyncRecoveryUploader: LiveSyncRecoveryUploader
     private let liveSyncRecoveryDeleter: LiveSyncRecoveryDeleter
@@ -1703,11 +1703,12 @@ final class ScreenplayStudioViewModel: ObservableObject {
 
     init(
         localDraftRecoveryStore: ScreenplayLocalDraftRecoveryStore,
-        liveSyncRecoveryUploader: @escaping LiveSyncRecoveryUploader = { projectID, draft, requestID in
+        liveSyncRecoveryUploader: @escaping LiveSyncRecoveryUploader = { projectID, draft, requestID, baseVersionID in
             let result = try await BackendMemoryAPI.shared.preserveScreenplayProjectRecovery(
                 projectId: projectID,
                 draft: draft,
-                clientRequestId: requestID
+                clientRequestId: requestID,
+                baseVersionId: baseVersionID
             )
             return result.recoveryId ?? ""
         },
@@ -1980,7 +1981,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         autosaveStatusText = "Protecting draft in account…"
         infoText = "Your local copy is safe on this device while its account recovery copy is saved."
         do {
-            let recoveryID = try await liveSyncRecoveryUploader(cleanProjectID, text, clientRequestID)
+            let recoveryID = try await liveSyncRecoveryUploader(cleanProjectID, text, clientRequestID, latestVersionID)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             guard !recoveryID.isEmpty else { throw BackendMemoryAPIError.invalidResponse }
             localDraftRecoveryStore.setServerRecoveryId(
@@ -6618,7 +6619,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
             recoveryCandidate = LocalDraftRecoveryCandidate(
                 projectId: normalizedProjectId,
                 draft: recoveryDraft,
-                baseVersionId: latestVersionID,
+                baseVersionId: serverRecovery.baseVersionId ?? latestVersionID,
                 savedAt: serverRecovery.updatedAt ?? serverRecovery.createdAt ?? 0,
                 isPreservedConflict: true,
                 serverRecoveryId: serverRecovery.id

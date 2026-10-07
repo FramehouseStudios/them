@@ -138,7 +138,7 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         let versions = [
             version(id: "older", source: "studio_live_sync_recovery", updatedAt: 10, draft: "Older copy"),
             version(id: "normal", source: "studio_autosave", updatedAt: 30, draft: "Server draft"),
-            version(id: "newest", source: "studio_live_sync_recovery", updatedAt: 20, draft: exactLocalDraft),
+            version(id: "newest", source: "studio_live_sync_recovery", updatedAt: 20, draft: exactLocalDraft, baseVersionId: "version-before-edit"),
         ]
 
         let recovered = ScreenplayServerBackedDraftRecoveryPolicy.newestRecovery(
@@ -149,6 +149,7 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
 
         XCTAssertEqual(recovered?.id, "newest")
         XCTAssertEqual(recovered?.draft, exactLocalDraft)
+        XCTAssertEqual(recovered?.baseVersionId, "version-before-edit")
     }
 
     func testRecoveryBannerCopyDistinguishesAccountProtectionFromLocalOnly() {
@@ -311,7 +312,7 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         let authOwnerID = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""
         let model = ScreenplayStudioViewModel(
             localDraftRecoveryStore: store,
-            liveSyncRecoveryUploader: { _, _, _ in "server-recovery-test" }
+            liveSyncRecoveryUploader: { _, _, _, _ in "server-recovery-test" }
         )
         model.selectedProjectID = projectID
         model.fountainDraft = local
@@ -1645,7 +1646,8 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         source: String? = nil,
         createdAt: TimeInterval? = nil,
         updatedAt: TimeInterval? = nil,
-        draft: String? = nil
+        draft: String? = nil,
+        baseVersionId: String? = nil
     ) -> BackendScreenplayVersion {
         BackendScreenplayVersion(
             id: id,
@@ -1653,6 +1655,7 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
             phase: "scene_draft",
             source: source,
             clientRequestId: nil,
+            baseVersionId: baseVersionId,
             createdAt: createdAt,
             updatedAt: updatedAt,
             prompt: nil,

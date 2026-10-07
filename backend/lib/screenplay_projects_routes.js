@@ -1544,6 +1544,7 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
 
     const draft = String(req.body?.draft || "");
     const clientRequestId = normalizeSnippet(req.body?.client_request_id, 96);
+    const baseVersionId = normalizeSnippet(req.body?.base_version_id, 64);
     if (!draft.trim()) {
       return res.status(400).json({ stage: "screenplay_recovery", error: "draft_required" });
     }
@@ -1559,7 +1560,8 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
       item?.source === "studio_live_sync_recovery" && item.clientRequestId === clientRequestId
     );
     if (replay) {
-      const matches = String(replay.draft || "") === draft;
+      const matches = String(replay.draft || "") === draft &&
+        (!baseVersionId || (replay.baseVersionId || "") === baseVersionId);
       applyReadStateHeaders(res, buildScreenplayReadMeta(req, owner));
       return res.status(matches ? 200 : 409).json(buildScreenplayEnvelope(req, owner, {
         stage: "screenplay_recovery",
@@ -1584,6 +1586,7 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
       phase: normalizeScreenplayPhaseValue(req.body?.phase || project.lastPhase),
       source: "studio_live_sync_recovery",
       clientRequestId,
+      baseVersionId,
       createdAt: now,
       updatedAt: now,
       prompt: "",

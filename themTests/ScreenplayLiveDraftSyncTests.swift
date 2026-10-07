@@ -512,7 +512,7 @@ final class ScreenplayLiveDraftSyncServiceTests: XCTestCase {
         let remote = "Mara leaves."
         let model = ScreenplayStudioViewModel(
             localDraftRecoveryStore: store,
-            liveSyncRecoveryUploader: { _, _, _ in "server-recovery-1" }
+            liveSyncRecoveryUploader: { _, _, _, _ in "server-recovery-1" }
         )
         model.selectedProjectID = projectID
         model.fountainDraft = base

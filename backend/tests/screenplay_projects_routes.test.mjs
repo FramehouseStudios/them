@@ -132,7 +132,7 @@ function defaultDeps(overrides = {}) {
     buildDraftExcerpt: (draft, _len) => String(draft).slice(0, 50),
     toScreenplayScenePayload: (s) => ({ id: s.id, heading: s.heading || "" }),
     toScreenplayBeatPayload: (b) => ({ id: b.id, label: b.label || "" }),
-    toScreenplayVersionPayload: (v, _opts) => ({ id: v.id, draft: v.draft || "", source: v.source || "" }),
+    toScreenplayVersionPayload: (v, _opts) => ({ id: v.id, draft: v.draft || "", source: v.source || "", base_version_id: v.baseVersionId || "" }),
     normalizeScreenplayStringList: (v, _max, _itemMax) => (Array.isArray(v) ? v.filter((x) => typeof x === "string") : []),
     normalizeScreenplayPhaseValue: (v) => (typeof v === "string" && v ? v : "scene_draft"),
     normalizeStoredScreenplayThreadViewState: (v) => v || null,
@@ -1536,9 +1536,20 @@ test("[screenplay-projects-routes] live-sync recovery is durable, idempotent, an
     assert.equal(first.body.status, "preserved");
     assert.equal(first.body.recovery.draft, recoveryDraft);
     assert.equal(first.body.recovery.source, "studio_live_sync_recovery");
+    assert.equal(first.body.recovery.base_version_id, "stale-version");
+    assert.equal(project.versions[0].baseVersionId, "stale-version");
     assert.equal(first.body.active_version_id, "version-current");
     assert.equal(project.activeVersionId, "version-current");
     assert.equal(project.versions[0].id, first.body.recovery_id);
+
+    const staleRestore = await postJson(baseURL, "/screenplay/projects/p1/version", {
+      draft: recoveryDraft,
+      base_version_id: first.body.recovery.base_version_id,
+      conflict_strategy: "reject_if_stale",
+    });
+    assert.equal(staleRestore.status, 409);
+    assert.equal(staleRestore.body.status, "conflict");
+    assert.equal(project.activeVersionId, "version-current");
 
     const replay = await postJson(baseURL, "/screenplay/projects/p1/recovery", {
       draft: recoveryDraft,
@@ -1547,7 +1558,16 @@ test("[screenplay-projects-routes] live-sync recovery is durable, idempotent, an
     assert.equal(replay.status, 200);
     assert.equal(replay.body.replayed, true);
     assert.equal(replay.body.recovery_id, first.body.recovery_id);
+    assert.equal(replay.body.recovery.base_version_id, "stale-version");
     assert.equal(project.versions.length, 2);
+
+    const changedBase = await postJson(baseURL, "/screenplay/projects/p1/recovery", {
+      draft: recoveryDraft,
+      client_request_id: "live-recovery-device-1-001",
+      base_version_id: "different-base",
+    });
+    assert.equal(changedBase.status, 409);
+    assert.equal(changedBase.body.status, "client_request_id_reused");
 
     const reused = await postJson(baseURL, "/screenplay/projects/p1/recovery", {
       draft: `${recoveryDraft}\nCHANGED`,
