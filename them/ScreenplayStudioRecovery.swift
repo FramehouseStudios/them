@@ -16,13 +16,14 @@ struct ScreenplayServerBackedDraftRecoveryPolicy {
         excluding serverDraft: String,
         fingerprint: (String) -> String
     ) -> BackendScreenplayVersion? {
-        let serverFingerprint = fingerprint(serverDraft.trimmingCharacters(in: .whitespacesAndNewlines))
+        let serverFingerprint = fingerprint(serverDraft)
         return versions?
             .filter { $0.source == "studio_live_sync_recovery" }
             .sorted { ($0.updatedAt ?? $0.createdAt ?? 0) > ($1.updatedAt ?? $1.createdAt ?? 0) }
             .first { version in
-                let draft = (version.draft ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-                return !draft.isEmpty && fingerprint(draft) != serverFingerprint
+                let draft = version.draft ?? ""
+                return !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    && fingerprint(draft) != serverFingerprint
             }
     }
 }
