@@ -138,4 +138,8 @@ import Foundation
     #expect(ScreenplayEditorElement.renderedText(for: "!THE LIGHTS FAIL.") == "THE LIGHTS FAIL.")
     #expect(ScreenplayEditorElement.renderedText(for: ">FADE OUT.") == "FADE OUT.")
     #expect(ScreenplayEditorElement.characterCueName("@McCLANE") == "McCLANE")
+    #expect(IOThemTypography.Screenplay.classifyLine("!THE LIGHTS FAIL.") == .action)
+    #expect(IOThemTypography.Screenplay.classifyLine("@McCLANE") == .character)
+    #expect(IOThemTypography.Screenplay.classifyLine(".INT. STAGE - NIGHT") == .sceneHeading)
+    #expect(IOThemTypography.Screenplay.classifyLine(">FADE OUT.") == .transition)
 }
