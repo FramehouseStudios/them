@@ -1672,7 +1672,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
     private var remoteLiveDraftFollowFallbackTask: Task<Void, Never>?
     private var lastSavedDraftFingerprint = ""
     private var lastRevisionBaseDraft = ""
-    private var loadedDraftProjectID: String = ""
+    @Published private(set) var loadedDraftProjectID: String = ""
     private var lastManualDraftEditAt: Date = .distantPast
     private var lastSeenScreenplayStateVersion = ""
     private var outlineRevisionProjectID = ""

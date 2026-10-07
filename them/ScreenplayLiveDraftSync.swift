@@ -455,9 +455,13 @@ enum LiveDraftSyncStatus: Equatable {
 @MainActor
 protocol LiveDraftEditorBinding: AnyObject {
     var liveDraftProjectID: String { get }
+    /// The project whose screenplay text is currently hydrated into the editor.
+    /// This may lag `liveDraftProjectID` while a project switch is loading.
+    var liveDraftLoadedProjectID: String { get }
     var liveDraftText: String { get }
     var liveDraftLatestVersionID: String { get }
     var liveDraftProjectIDPublisher: AnyPublisher<String, Never> { get }
+    var liveDraftLoadedProjectIDPublisher: AnyPublisher<String, Never> { get }
     var liveDraftTextPublisher: AnyPublisher<String, Never> { get }
     @discardableResult
     func applyRemoteLiveDraft(_ text: String, projectID: String, sourceDeviceID: String) -> Bool
@@ -467,12 +471,20 @@ protocol LiveDraftEditorBinding: AnyObject {
     func revealRemoteEditLine(_ line: Int)
 }
 
+extension LiveDraftEditorBinding {
+    var liveDraftLoadedProjectID: String { liveDraftProjectID }
+    var liveDraftLoadedProjectIDPublisher: AnyPublisher<String, Never> { liveDraftProjectIDPublisher }
+}
 extension ScreenplayStudioViewModel: LiveDraftEditorBinding {
     var liveDraftProjectID: String { selectedProjectID }
+    var liveDraftLoadedProjectID: String { loadedDraftProjectID }
     var liveDraftText: String { fountainDraft }
     var liveDraftLatestVersionID: String { latestVersionID }
     var liveDraftProjectIDPublisher: AnyPublisher<String, Never> {
         $selectedProjectID.eraseToAnyPublisher()
+    }
+    var liveDraftLoadedProjectIDPublisher: AnyPublisher<String, Never> {
+        $loadedDraftProjectID.eraseToAnyPublisher()
     }
     var liveDraftTextPublisher: AnyPublisher<String, Never> {
         $fountainDraft.eraseToAnyPublisher()
@@ -551,6 +563,14 @@ final class ScreenplayLiveDraftSyncService: ObservableObject {
                 }
             }
             .store(in: &cancellables)
+        editor.liveDraftLoadedProjectIDPublisher
+            .removeDuplicates()
+            .sink { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.projectReadinessDidChange()
+                }
+            }
+            .store(in: &cancellables)
         editor.liveDraftTextPublisher
             .removeDuplicates()
             .sink { [weak self] text in
@@ -575,7 +595,7 @@ final class ScreenplayLiveDraftSyncService: ObservableObject {
 
     /// Reconnect immediately (app returned to foreground, auth changed).
     func retryNow() {
-        guard isEnabled, !activeProjectID.isEmpty else { return }
+        guard isEnabled, activeProjectIsLoaded else { return }
         reconnectAttempt = 0
         startStream()
     }
@@ -584,7 +604,8 @@ final class ScreenplayLiveDraftSyncService: ObservableObject {
     /// the preconditions hold. Cheap enough to call on any auth-state change.
     func reevaluateIfIdle() {
         guard streamTask == nil, editor != nil else { return }
-        guard LiveDraftSyncPolicy.shouldRun(isEnabled: isEnabled, isAuthenticated: isAuthenticated(), projectID: activeProjectID) else { return }
+        guard activeProjectIsLoaded,
+              LiveDraftSyncPolicy.shouldRun(isEnabled: isEnabled, isAuthenticated: isAuthenticated(), projectID: activeProjectID) else { return }
         reconnectAttempt = 0
         startStream()
     }
@@ -594,7 +615,7 @@ final class ScreenplayLiveDraftSyncService: ObservableObject {
     func announceSavedVersion(projectID: String, versionID: String, draft: String) {
         let cleanProject = projectID.trimmingCharacters(in: .whitespacesAndNewlines)
         let cleanVersion = versionID.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard isEnabled, !cleanVersion.isEmpty, cleanProject == activeProjectID else { return }
+        guard isEnabled, !cleanVersion.isEmpty, cleanProject == activeProjectID, activeProjectIsLoaded else { return }
         pendingVersionAnnouncement = (cleanVersion, LiveDraftText.checksum(draft))
         flushVersionAnnouncementIfPossible()
     }
@@ -612,12 +633,30 @@ final class ScreenplayLiveDraftSyncService: ObservableObject {
             status = .idle
             return
         }
+        projectReadinessDidChange()
+    }
+
+    private var activeProjectIsLoaded: Bool {
+        guard let editor else { return false }
+        let selected = editor.liveDraftProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let loaded = editor.liveDraftLoadedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !activeProjectID.isEmpty && selected == activeProjectID && loaded == activeProjectID
+    }
+
+    private func projectReadinessDidChange() {
+        guard activeProjectIsLoaded else { return }
+        guard LiveDraftSyncPolicy.shouldRun(
+            isEnabled: isEnabled,
+            isAuthenticated: isAuthenticated(),
+            projectID: activeProjectID
+        ) else { return }
+        guard streamTask == nil else { return }
         reconnectAttempt = 0
         startStream()
     }
 
     private func localTextDidChange(_ text: String) {
-        guard !isApplyingRemote, isConnected, text != mirrorText else { return }
+        guard activeProjectIsLoaded, !isApplyingRemote, isConnected, text != mirrorText else { return }
         schedulePublish(after: LiveDraftSyncPolicy.publishCoalesceInterval)
     }
 
@@ -638,7 +677,7 @@ final class ScreenplayLiveDraftSyncService: ObservableObject {
     private func startStream() {
         stopStream()
         let projectID = activeProjectID
-        guard !projectID.isEmpty else { return }
+        guard activeProjectIsLoaded, !projectID.isEmpty else { return }
         streamTask = Task { [weak self] in
             await self?.runStreamLoop(projectID: projectID)
         }
@@ -651,10 +690,11 @@ final class ScreenplayLiveDraftSyncService: ObservableObject {
     }
 
     private func runStreamLoop(projectID: String) async {
-        while !Task.isCancelled, projectID == activeProjectID {
+        while !Task.isCancelled, projectID == activeProjectID, activeProjectIsLoaded {
             status = .connecting
             streamOpenedText = editor?.liveDraftText ?? ""
             let checksum = LiveDraftText.checksum(streamOpenedText)
+            guard activeProjectIsLoaded else { return }
             let stream = transport.openStream(projectID: projectID, deviceID: deviceID, checksum: checksum)
             var delay = LiveDraftSyncPolicy.reconnectDelay(attempt: reconnectAttempt)
             do {
@@ -703,6 +743,7 @@ final class ScreenplayLiveDraftSyncService: ObservableObject {
     }
 
     private func handle(_ event: LiveDraftServerEvent, projectID: String) async {
+        guard projectID == activeProjectID, activeProjectIsLoaded else { return }
         let decoder = JSONDecoder()
         let data = Data(event.data.utf8)
         switch event.name {
@@ -901,7 +942,7 @@ final class ScreenplayLiveDraftSyncService: ObservableObject {
     }
 
     private func publishPendingLocalChanges() async {
-        guard isConnected, let editor, let baseSeq = mirrorSeq else { return }
+        guard activeProjectIsLoaded, isConnected, let editor, let baseSeq = mirrorSeq else { return }
         guard !isPublishInFlight else {
             schedulePublish(after: LiveDraftSyncPolicy.publishCoalesceInterval)
             return
@@ -971,7 +1012,7 @@ final class ScreenplayLiveDraftSyncService: ObservableObject {
     }
 
     private func pushLocalSnapshot() async {
-        guard isConnected, let editor else { return }
+        guard activeProjectIsLoaded, isConnected, let editor else { return }
         let projectID = activeProjectID
         let localText = editor.liveDraftText
         do {
@@ -1010,7 +1051,8 @@ final class ScreenplayLiveDraftSyncService: ObservableObject {
     }
 
     private func flushVersionAnnouncementIfPossible() {
-        guard isConnected, let pending = pendingVersionAnnouncement, pending.checksum == mirrorChecksum else { return }
+        guard activeProjectIsLoaded, isConnected,
+              let pending = pendingVersionAnnouncement, pending.checksum == mirrorChecksum else { return }
         pendingVersionAnnouncement = nil
         let projectID = activeProjectID
         Task { [weak self] in
@@ -1031,7 +1073,7 @@ final class ScreenplayLiveDraftSyncService: ObservableObject {
     // MARK: Resync
 
     private func scheduleResync() {
-        guard resyncTask == nil else { return }
+        guard activeProjectIsLoaded, resyncTask == nil else { return }
         let projectID = activeProjectID
         resyncTask = Task { [weak self] in
             guard let self else { return }
