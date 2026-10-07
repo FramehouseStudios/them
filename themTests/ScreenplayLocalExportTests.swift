@@ -62,6 +62,25 @@ final class ScreenplayLocalExportTests: XCTestCase {
         XCTAssertTrue(xml.contains("<Paragraph Type=\"Action\"><Text>Rain against the glass.</Text>"), "the block ends at the next action line")
     }
 
+    func testLocalFDXExportHonorsFountainForceMarkersWithoutLeakingThem() throws {
+        let artifact = try ScreenplayLocalExport.makeArtifact(
+            draft: ".INT. STAGE - NIGHT\n!THE LIGHTS FAIL.\n@McCLANE\nYippee-ki-yay.\n>FADE OUT.",
+            title: "Markers",
+            format: "fdx"
+        )
+        let xml = try XCTUnwrap(String(data: artifact.data, encoding: .utf8))
+
+        XCTAssertTrue(xml.contains("<Paragraph Type=\"Scene Heading\"><Text>INT. STAGE - NIGHT</Text>"))
+        XCTAssertTrue(xml.contains("<Paragraph Type=\"Action\"><Text>THE LIGHTS FAIL.</Text>"))
+        XCTAssertTrue(xml.contains("<Paragraph Type=\"Character\"><Text>McCLANE</Text>"))
+        XCTAssertTrue(xml.contains("<Paragraph Type=\"Dialogue\"><Text>Yippee-ki-yay.</Text>"))
+        XCTAssertTrue(xml.contains("<Paragraph Type=\"Transition\"><Text>FADE OUT.</Text>"))
+        XCTAssertFalse(xml.contains("<Text>!"))
+        XCTAssertFalse(xml.contains("<Text>@"))
+        XCTAssertFalse(xml.contains("<Text>.INT."))
+        XCTAssertFalse(xml.contains("<Text>>"))
+    }
+
     func testLocalPDFExportCreatesReadableDocument() throws {
         let draft = """
         INT. APARTMENT - DAY

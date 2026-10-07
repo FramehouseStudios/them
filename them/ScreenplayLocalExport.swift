@@ -130,11 +130,11 @@ enum ScreenplayLocalExport {
             // trailing caret. Final Draft carries that as an attribute on the
             // cue and on every paragraph of its dialogue block, so strip the
             // caret from the text and flag the block instead.
-            var text = rawLine
+            var text = ScreenplayEditorElement.renderedText(for: rawLine)
             if type == "Character" {
                 inDualBlock = ScreenplayEditorElement.isDualDialogueCue(trimmed)
                 if inDualBlock {
-                    text = ScreenplayEditorElement.characterCueName(rawLine)
+                    text = ScreenplayEditorElement.characterCueName(text)
                 }
             } else if type != "Parenthetical" && type != "Dialogue" {
                 inDualBlock = false
@@ -169,15 +169,15 @@ enum ScreenplayLocalExport {
             let type = finalDraftParagraphType(for: trimmed, element: element, previousType: previousType)
             switch type {
             case "Scene Heading":
-                output.append("## \(trimmed)")
+                output.append("## \(ScreenplayEditorElement.renderedText(for: trimmed))")
             case "Character":
-                output.append("**\(trimmed)**")
+                output.append("**\(ScreenplayEditorElement.characterCueName(trimmed))**")
             case "Parenthetical":
                 output.append("*\(trimmed)*")
             case "Transition":
-                output.append("> \(trimmed)")
+                output.append("> \(ScreenplayEditorElement.renderedText(for: trimmed))")
             default:
-                output.append(trimmed)
+                output.append(ScreenplayEditorElement.renderedText(for: trimmed))
             }
             previousType = type
         }
@@ -286,7 +286,8 @@ enum ScreenplayLocalExport {
                 .foregroundColor: NSColor.black,
                 .paragraphStyle: paragraph,
             ]
-            let text = index < lines.count - 1 ? line + "\n" : line
+            let rendered = ScreenplayEditorElement.renderedText(for: line)
+            let text = index < lines.count - 1 ? rendered + "\n" : rendered
             result.append(NSAttributedString(string: text, attributes: attributes))
         }
 

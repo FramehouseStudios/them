@@ -122,3 +122,20 @@ import Foundation
     #expect(sequence[4] == .parenthetical)
     #expect(sequence[5] == .dialogue)
 }
+
+@Test func fountainForceMarkersOverrideUppercaseHeuristicsAndRenderWithoutMarkers() async throws {
+    let draft = """
+    .INT. STAGE - NIGHT
+    !THE LIGHTS FAIL.
+    @McCLANE
+    Yippee-ki-yay.
+    >FADE OUT.
+    """
+    let sequence = ScreenplayEditorElement.inferredSequence(for: draft)
+
+    #expect(sequence == [.sceneHeading, .action, .character, .dialogue, .transition])
+    #expect(ScreenplayEditorElement.renderedText(for: ".INT. STAGE - NIGHT") == "INT. STAGE - NIGHT")
+    #expect(ScreenplayEditorElement.renderedText(for: "!THE LIGHTS FAIL.") == "THE LIGHTS FAIL.")
+    #expect(ScreenplayEditorElement.renderedText(for: ">FADE OUT.") == "FADE OUT.")
+    #expect(ScreenplayEditorElement.characterCueName("@McCLANE") == "McCLANE")
+}

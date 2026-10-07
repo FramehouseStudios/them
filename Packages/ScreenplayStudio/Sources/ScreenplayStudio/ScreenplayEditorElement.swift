@@ -125,6 +125,16 @@ public enum ScreenplayEditorElement: String, CaseIterable, Identifiable, Codable
         let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return .action }
 
+        // Fountain's force markers take precedence over visual heuristics.
+        // Without this, an all-caps forced action (`!…`) becomes a character
+        // cue and changes the classification of every following line.
+        if trimmed.hasPrefix("!") { return .action }
+        if trimmed.hasPrefix("@") { return .character }
+        if trimmed.hasPrefix(".") && looksLikeSceneHeadingStart(String(trimmed.dropFirst())) {
+            return .sceneHeading
+        }
+        if trimmed.hasPrefix(">") { return .transition }
+
         if looksLikeSceneHeadingStart(trimmed) {
             return .sceneHeading
         }
@@ -243,10 +253,29 @@ public enum ScreenplayEditorElement: String, CaseIterable, Identifiable, Codable
     /// the marker as an attribute instead (Final Draft, PDF).
     public static func characterCueName(_ line: String) -> String {
         var trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.hasPrefix("@") {
+            trimmed.removeFirst()
+            trimmed = trimmed.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
         if trimmed.hasSuffix("^") {
             trimmed.removeLast()
             trimmed = trimmed.trimmingCharacters(in: .whitespacesAndNewlines)
         }
         return trimmed
+    }
+
+    /// Text shown by screenplay renderers after Fountain force syntax has
+    /// selected an element. The source draft remains untouched.
+    public static func renderedText(for line: String) -> String {
+        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let marker = trimmed.first else { return line }
+        switch marker {
+        case "!", "@", ">", "~":
+            return String(trimmed.dropFirst()).trimmingCharacters(in: .whitespacesAndNewlines)
+        case "." where looksLikeSceneHeadingStart(String(trimmed.dropFirst())):
+            return String(trimmed.dropFirst()).trimmingCharacters(in: .whitespacesAndNewlines)
+        default:
+            return line
+        }
     }
 }

@@ -102,15 +102,15 @@ final class BackendMemoryScreenplayExportTests: XCTestCase {
 
         let artifact = try await api.exportScreenplayDraft(
             draft: """
-            INT. KITCHEN - NIGHT
+            .INT. KITCHEN - NIGHT
 
-            Rain bruises the window.
+            !Rain bruises the window.
 
-            JUNE
+            @JUNE
             (quiet)
             We are still here.
 
-            CUT TO:
+            >CUT TO:
             """,
             title: "Kitchen Scene",
             format: "fdx",
