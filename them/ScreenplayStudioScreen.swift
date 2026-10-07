@@ -6847,13 +6847,7 @@ private var projectsSidebarContent: some View {
     }
 
     private func draftTextForLines(startLine: Int, endLine: Int, in draft: String) -> String {
-        let lines = draft.components(separatedBy: .newlines)
-        guard !lines.isEmpty else { return "" }
-        let safeStart = max(1, min(startLine, lines.count))
-        let safeEnd = max(safeStart, min(endLine, lines.count))
-        return Array(lines[(safeStart - 1)...(safeEnd - 1)])
-            .joined(separator: "\n")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        ScreenplayLineIndex.text(fromLine: startLine, toLine: endLine, in: draft)
     }
 
     private func fullThreadDraftComparison(for exchange: StudioAskNoteExchange) -> FullThreadDraftComparison? {
@@ -8954,7 +8948,7 @@ Current draft version:
     /// lagged behind a fresh write, so the header read "4 pages" over "PAGES 3".
     private var screenplayPagePageCountText: String {
         guard !screenplayPageShouldShowEmptyPlaceholder else { return "0" }
-        return "\(ScreenplayPageLayout.pageCount(for: vm.fountainDraft, linesPerPage: vm.linesPerPage))"
+        return "\(ScreenplayTypingSnapshotCoalescer.shared.pageCount(for: vm.fountainDraft, linesPerPage: vm.linesPerPage))"
     }
 
     private var screenplayPageRevisionStateText: String {
@@ -11992,13 +11986,7 @@ Return revised screenplay lines only.
     }
 
     private func lineNumber(at location: Int, in text: String) -> Int {
-        let safeText = text as NSString
-        let maxLength = safeText.length
-        let safeLocation = max(0, min(location, maxLength))
-        let prefix = safeText.substring(to: safeLocation)
-        return max(1, prefix.reduce(into: 1) { count, character in
-            if character == "\n" { count += 1 }
-        })
+        ScreenplayLineIndex.lineNumber(at: location, in: text)
     }
 
     private func persistResolvedAnchorIfNeeded(
@@ -17071,7 +17059,7 @@ Look at the city.
     }
 
     private var screenplayIntegrityIssues: [ScreenplayPageIntegrityIssue] {
-        FountainFormatter.screenplayIntegrityIssues(in: vm.fountainDraft)
+        ScreenplayTypingSnapshotCoalescer.shared.integrityIssues(for: vm.fountainDraft)
     }
 
     private var draftInspectorIsPresented: Bool {

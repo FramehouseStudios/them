@@ -42,6 +42,7 @@ final class ElevenLabsTtsClientTests: XCTestCase {
         XCTAssertTrue(redacted.contains("[redacted]"))
     }
 
+    @MainActor
     func testAbortCancelsInFlightSpeak() async throws {
         let started = expectation(description: "fetch started")
         let client = ElevenLabsTtsClient(

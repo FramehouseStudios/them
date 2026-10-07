@@ -36,9 +36,23 @@ final class V1SmokeUITests: XCTestCase {
         editor.tap()
         editor.typeText(sentence)
 
+        let editorDeadline = Date().addingTimeInterval(8)
+        var editorText = editor.value as? String ?? ""
+        while Date() < editorDeadline,
+              !editorText.localizedCaseInsensitiveContains(sentence) {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+            editorText = editor.value as? String ?? ""
+        }
+        XCTAssertTrue(
+            editorText.localizedCaseInsensitiveContains(sentence),
+            "UIKit editor lost or redirected characters. Editor: \(editorText). " +
+                "Draft model: \(accessibleDraftText(in: app))"
+        )
+
         XCTAssertTrue(
             waitForDraft(in: app, containing: sentence, timeout: 8),
-            "Direct page typing lost or redirected characters. Draft: \(accessibleDraftText(in: app))"
+            "Editor accepted direct typing, but the published draft lost or redirected characters. " +
+                "Editor: \(editorText). Draft model: \(accessibleDraftText(in: app))"
         )
 #else
         throw XCTSkip("The direct page typing regression specifically covers the iPhone editor.")
