@@ -4212,10 +4212,20 @@ final class ScreenplayStudioViewModel: ObservableObject {
     func runQueuedSaveNetworkFaultUITest(marker: String) async -> Bool {
         let cleanMarker = marker.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanMarker.isEmpty else { return false }
-        for _ in 0..<40 where selectedProject == nil || isLoading || isDraftSaveInFlight || isSaving {
+        for _ in 0..<120 where selectedProject == nil
+            || isLoading
+            || isDraftSaveInFlight
+            || isSaving
+            || currentStudioAuthContext().userID.isEmpty {
             try? await Task.sleep(for: .milliseconds(250))
         }
-        guard selectedProject != nil, !isLoading, !isDraftSaveInFlight, !isSaving else { return false }
+        guard selectedProject != nil,
+              !isLoading,
+              !isDraftSaveInFlight,
+              !isSaving,
+              !currentStudioAuthContext().userID.isEmpty else {
+            return false
+        }
         autosaveEnabled = false
         if !fountainDraft.contains(cleanMarker) {
             let separator = fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
