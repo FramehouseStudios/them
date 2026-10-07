@@ -1,0 +1,1 @@
+{"at":"2026-10-07T01:35:30.628Z","by":"codex","kind":"pr_opened","pr":908,"comment":"Opened stacked draft PR for authenticated durable live-sync recovery writes/deletes; backend 2743 pass, 0 fail, 2 skipped; client integration remains the next required slice."}
