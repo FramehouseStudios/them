@@ -837,6 +837,10 @@ final class V1SmokeUITests: XCTestCase {
         let themTab = app.buttons["studio.right-panel.them"]
         XCTAssertTrue(themTab.waitForExistence(timeout: 8))
         themTab.tap()
+        XCTAssertTrue(
+            waitForSelection(of: themTab, timeout: 3),
+            "Tapping the Them inspector tab did not select it; tab accessibility frames may be stale."
+        )
 
         XCTAssertTrue(app.descendants(matching: .any)["studio.them.panel"].waitForExistence(timeout: 4))
         let drawer = element(identifier: "studio.sidebar.right.drawer", in: app)
