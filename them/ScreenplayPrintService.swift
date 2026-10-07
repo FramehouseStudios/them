@@ -258,7 +258,8 @@ enum ScreenplayPrintService {
             let element = inferred.indices.contains(index) ? (inferred[index] ?? .action) : .action
             let para = iOSParagraphStyle(for: element, printableWidth: printableWidth)
             let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: UIColor.black, .paragraphStyle: para]
-            let text = index < lines.count - 1 ? line + "\n" : line
+            let rendered = ScreenplayEditorElement.renderedText(for: line)
+            let text = index < lines.count - 1 ? rendered + "\n" : rendered
             result.append(NSAttributedString(string: text, attributes: attrs))
         }
         return result
@@ -277,6 +278,9 @@ enum ScreenplayPrintService {
             s.firstLineHeadIndent = 0; s.headIndent = 0; s.tailIndent = 0
         case .character:
             // Centered printing: character cue (and lyrics/centered when mapped to .character) must be .center
+            s.alignment = .center
+            s.firstLineHeadIndent = 0; s.headIndent = 0; s.tailIndent = 0
+        case .centered:
             s.alignment = .center
             s.firstLineHeadIndent = 0; s.headIndent = 0; s.tailIndent = 0
         case .dialogue:

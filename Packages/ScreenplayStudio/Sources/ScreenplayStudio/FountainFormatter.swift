@@ -19,6 +19,7 @@ public struct FountainElement {
         case dialogue
         case parenthetical
         case transition
+        case centered
         case blank
     }
 
@@ -42,6 +43,8 @@ public struct FountainElement {
             return "(\(inner))"
         case .transition:
             return text.uppercased()
+        case .centered:
+            return ">\(text)<"
         case .blank:
             return ""
         }
@@ -321,6 +324,8 @@ public enum FountainFormatter {
             return normalizeParentheticalFallback(sanitized)
         case .transition:
             return normalizeTransitionFallback(sanitized)
+        case .centered:
+            return ScreenplayEditorElement.renderedText(for: sanitized)
         }
     }
 
@@ -764,6 +769,11 @@ public enum FountainFormatter {
                 lines.append(element.formatted)
 
             case .transition:
+                if previous != nil && lines.last != "" { lines.append("") }
+                lines.append(element.formatted)
+                lines.append("")
+
+            case .centered:
                 if previous != nil && lines.last != "" { lines.append("") }
                 lines.append(element.formatted)
                 lines.append("")

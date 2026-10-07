@@ -64,6 +64,7 @@ public enum IOThemTypography {
         public static func alignment(for kind: FountainElement.Kind) -> TextAlignment {
             switch kind {
             case .transition: return .trailing
+            case .centered: return .center
             default: return .leading
             }
         }
@@ -71,6 +72,7 @@ public enum IOThemTypography {
         public static func horizontalAlignment(for kind: FountainElement.Kind) -> HorizontalAlignment {
             switch kind {
             case .transition: return .trailing
+            case .centered: return .center
             default: return .leading
             }
         }
@@ -87,38 +89,29 @@ public enum IOThemTypography {
                 return 2
             case .transition:
                 return 16
+            case .centered:
+                return 12
             case .blank:
                 return 8
             }
         }
 
         public static func classifyLine(_ line: String) -> FountainElement.Kind {
-            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-            if trimmed.isEmpty { return .blank }
+            guard !line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return .blank }
+            if ScreenplayEditorElement.isCenteredText(line) { return .centered }
+            return kind(for: ScreenplayEditorElement.inferredElement(for: line, previousElement: nil))
+        }
 
-            let upper = trimmed.uppercased()
-            if upper.hasPrefix("INT.") || upper.hasPrefix("EXT.") ||
-                upper.hasPrefix("INT/EXT.") || upper.hasPrefix("I/E.") {
-                return .sceneHeading
+        public static func kind(for element: ScreenplayEditorElement) -> FountainElement.Kind {
+            switch element {
+            case .sceneHeading: return .sceneHeading
+            case .action: return .action
+            case .character: return .character
+            case .dialogue: return .dialogue
+            case .parenthetical: return .parenthetical
+            case .transition: return .transition
+            case .centered: return .centered
             }
-
-            if upper.hasSuffix("TO:") || upper == "FADE IN:" || upper == "FADE OUT:" ||
-                upper == "FADE TO BLACK:" || upper == "THE END" ||
-                upper == "SMASH TO BLACK:" {
-                return .transition
-            }
-
-            if trimmed.hasPrefix("(") && trimmed.hasSuffix(")") {
-                return .parenthetical
-            }
-
-            if trimmed == trimmed.uppercased() && trimmed.count <= 40 &&
-                !trimmed.contains(":") && trimmed.count > 0 &&
-                trimmed.range(of: #"^[A-Z0-9 \x{27}\-().]+$"#, options: .regularExpression) != nil {
-                return .character
-            }
-
-            return .action
         }
     }
 }
