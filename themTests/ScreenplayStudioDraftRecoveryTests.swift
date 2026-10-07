@@ -359,6 +359,12 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         model.restoreDraftFromRecovery()
         XCTAssertEqual(model.fountainDraft, local)
         XCTAssertEqual(model.latestVersionID, "")
+        XCTAssertEqual(
+            store.payloads(ownerUserId: authOwnerID)[projectID]?[
+                "baseVersionId"
+            ] as? String,
+            ""
+        )
         XCTAssertEqual(model.recoveryCandidate?.serverRecoveryId, "server-recovery-test")
     }
 
