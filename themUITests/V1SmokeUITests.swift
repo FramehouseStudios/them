@@ -34,14 +34,36 @@ final class V1SmokeUITests: XCTestCase {
 
         let sentence = "She counts seven red lights before the motel sign finally goes dark."
         editor.tap()
-        editor.typeText(sentence)
-
-        let editorDeadline = Date().addingTimeInterval(8)
+        // XCTest can deliver a long typeText string as one synthetic keyboard
+        // burst. On a loaded hosted simulator that burst once dropped a single
+        // character even though the same complete sentence passes locally.
+        // Checkpoint each word-sized input without retrying it: every typed
+        // prefix must still arrive exactly, while SwiftUI/UIKit process the
+        // previous edit before the next burst.
+        let chunks = [
+            "She counts seven red lights",
+            " before the motel sign",
+            " finally goes dark.",
+        ]
+        var expectedPrefix = ""
         var editorText = editor.value as? String ?? ""
-        while Date() < editorDeadline,
-              !editorText.localizedCaseInsensitiveContains(sentence) {
-            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        for (index, chunk) in chunks.enumerated() {
+            editor.typeText(chunk)
+            expectedPrefix += chunk
+
+            let editorDeadline = Date().addingTimeInterval(8)
             editorText = editor.value as? String ?? ""
+            while Date() < editorDeadline,
+                  !editorText.localizedCaseInsensitiveContains(expectedPrefix) {
+                RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+                editorText = editor.value as? String ?? ""
+            }
+            XCTAssertTrue(
+                editorText.localizedCaseInsensitiveContains(expectedPrefix),
+                "UIKit editor lost or redirected characters in typing chunk \(index + 1). " +
+                    "Expected prefix: \(expectedPrefix). Editor: \(editorText). " +
+                    "Draft model: \(accessibleDraftText(in: app))"
+            )
         }
         XCTAssertTrue(
             editorText.localizedCaseInsensitiveContains(sentence),
