@@ -2272,14 +2272,7 @@ private func stableScreenplayNodeFingerprint(_ raw: String) -> String {
 }
 
 private func screenplayLineIndex(for location: Int, in text: String) -> Int {
-    let safeText = text as NSString
-    let maxLength = safeText.length
-    let safeLocation = max(0, min(location, maxLength))
-    let prefix = safeText.substring(to: safeLocation)
-    let breaks = prefix.reduce(into: 0) { count, character in
-        if character == "\n" { count += 1 }
-    }
-    return max(0, breaks)
+    ScreenplayLineIndex.lineIndex(atUTF16Location: location, in: text)
 }
 
 private func screenplayCurrentLineDetails(
@@ -2291,7 +2284,7 @@ private func screenplayCurrentLineDetails(
     let safeLocation = max(0, min(location, ns.length))
     let fullLineRange = ns.lineRange(for: NSRange(location: safeLocation, length: 0))
     let fullLineText = ns.substring(with: fullLineRange)
-    let trimmedLineText = fullLineText.trimmingCharacters(in: CharacterSet(charactersIn: "\n"))
+    let trimmedLineText = fullLineText.trimmingCharacters(in: .newlines)
     let lineRange = NSRange(
         location: fullLineRange.location,
         length: (trimmedLineText as NSString).length

@@ -114,6 +114,8 @@ final class ScreenplayEditorModeTests: XCTestCase {
         XCTAssertEqual(index.lineIndex(atUTF16Location: 0), 0)
         XCTAssertEqual(index.lineIndex(atUTF16Location: 3), 1)
         XCTAssertEqual(index.lineIndex(atUTF16Location: 5), 2)
+        XCTAssertEqual(ScreenplayLineIndex.lineIndex(atUTF16Location: 2, in: text), 0)
+        XCTAssertEqual(ScreenplayLineIndex.lineIndex(atUTF16Location: 3, in: text), 1)
         XCTAssertEqual(index.lineStart(at: 2), 5)
         XCTAssertEqual(index.lineLengths.count, screenplayLineTexts(text).count)
         XCTAssertEqual(screenplayLineTexts(text), ["A", "B", ""])
@@ -126,7 +128,9 @@ final class ScreenplayEditorModeTests: XCTestCase {
         XCTAssertEqual(index.lineLengths.count, 7)
         XCTAssertEqual(index.lineLengths.count, screenplayLineTexts(text).count)
         for line in 0..<7 {
-            XCTAssertEqual(index.lineIndex(atUTF16Location: index.lineStart(at: line)), line)
+            let lineStart = index.lineStart(at: line)
+            XCTAssertEqual(index.lineIndex(atUTF16Location: lineStart), line)
+            XCTAssertEqual(ScreenplayLineIndex.lineIndex(atUTF16Location: lineStart, in: text), line)
         }
     }
 

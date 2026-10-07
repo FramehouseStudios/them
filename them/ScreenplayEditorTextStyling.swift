@@ -238,24 +238,34 @@ struct ScreenplayLineIndex {
         scanLines(in: text).map { $0.text }
     }
 
-    private static func scanLines(in text: String) -> [(text: String, utf16Length: Int)] {
-        let units = Array(text.utf16)
+    static func lineIndex(atUTF16Location location: Int, in text: String) -> Int {
         let nsText = text as NSString
+        let target = max(0, min(location, nsText.length))
+        var lineIndex = 0
+        var offset = 0
+        while offset < target {
+            let breakLength = lineBreakLength(in: nsText, at: offset)
+            if breakLength > 0 {
+                if offset + breakLength <= target {
+                    lineIndex += 1
+                }
+                offset += breakLength
+            } else {
+                offset += 1
+            }
+        }
+        return lineIndex
+    }
+
+    private static func scanLines(in text: String) -> [(text: String, utf16Length: Int)] {
+        let nsText = text as NSString
+        let textLength = nsText.length
         var lines: [(text: String, utf16Length: Int)] = []
         var lineStart = 0
         var offset = 0
 
-        while offset < units.count {
-            let breakLength: Int
-            switch units[offset] {
-            case 0x000A, 0x000B, 0x000C, 0x0085, 0x2028, 0x2029:
-                breakLength = 1
-            case 0x000D:
-                breakLength = offset + 1 < units.count && units[offset + 1] == 0x000A ? 2 : 1
-            default:
-                breakLength = 0
-            }
-
+        while offset < textLength {
+            let breakLength = lineBreakLength(in: nsText, at: offset)
             if breakLength > 0 {
                 lines.append((
                     text: nsText.substring(with: NSRange(location: lineStart, length: offset - lineStart)),
@@ -269,10 +279,22 @@ struct ScreenplayLineIndex {
         }
 
         lines.append((
-            text: nsText.substring(with: NSRange(location: lineStart, length: units.count - lineStart)),
-            utf16Length: units.count - lineStart
+            text: nsText.substring(with: NSRange(location: lineStart, length: textLength - lineStart)),
+            utf16Length: textLength - lineStart
         ))
         return lines
+    }
+
+    private static func lineBreakLength(in text: NSString, at offset: Int) -> Int {
+        guard offset >= 0, offset < text.length else { return 0 }
+        switch text.character(at: offset) {
+        case 0x000A, 0x000B, 0x000C, 0x0085, 0x2028, 0x2029:
+            return 1
+        case 0x000D:
+            return offset + 1 < text.length && text.character(at: offset + 1) == 0x000A ? 2 : 1
+        default:
+            return 0
+        }
     }
 
     func lineIndex(atUTF16Location location: Int) -> Int {
