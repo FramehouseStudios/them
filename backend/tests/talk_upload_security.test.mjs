@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import http from "node:http";
 import test, { after, before } from "node:test";
 
 import express from "express";
 
 import { TALK_UPLOAD_LIMITS, talkUpload } from "../app.js";
+import { apiRequest, startBackend } from "./helpers/backend_test_server.mjs";
 
 let baseURL = "";
 let server = null;
@@ -50,8 +52,8 @@ test("[talk-upload] limits match the bounded voice endpoint contract", () => {
   assert.deepEqual(TALK_UPLOAD_LIMITS, {
     fileSize: 25 * 1024 * 1024,
     files: 1,
-    fields: 64,
-    parts: 66,
+    fields: 80,
+    parts: 82,
     fieldNameSize: 128,
     fieldSize: 1024 * 1024,
     fieldNestingDepth: 0,
@@ -68,16 +70,40 @@ for (const fieldname of ["file", "audio"]) {
   });
 }
 
-test("[talk-upload] accepts 64 fields and one file", async () => {
-  const form = formWithFile();
-  for (let index = 1; index < 64; index += 1) form.append(`field_${index}`, "ok");
-  const { response } = await postForm(form);
+test("[talk-upload] accepts every field name the current Swift voice builder can emit", async () => {
+  // Derive the request shape from the native source rather than maintaining a
+  // copied field list that can drift from the client.
+  const source = readFileSync(new URL("../../them/BackendClient.swift", import.meta.url), "utf8");
+  const start = source.indexOf("let audioData = try fileDataOverride");
+  const end = source.indexOf("request.httpBody = body", start);
+  assert.ok(start >= 0 && end > start, "Locate the native voice multipart builder.");
+  const builder = source.slice(start, end);
+  const direct = [...builder.matchAll(/name=\\"([a-z_]+)\\"/g)].map(match => match[1]);
+  const helpers = [...builder.matchAll(/appendStudio\w*Field\(\s*"([a-z_]+)"/g)].map(match => match[1]);
+  const fields = [...new Set([...direct, ...helpers])].filter(name => name !== "file");
+  assert.ok(fields.includes("screenplay_target_pages"), "Include the complete Studio field region.");
+  assert.ok(fields.length > 64, "Exercise the current full envelope, not the old 64-field fixture.");
+  const form = new FormData();
+  for (const name of fields) form.append(name, "synthetic-value");
+  form.append("file", new Blob(["voice"], { type: "audio/wav" }), "voice.wav");
+  const { response, body } = await postForm(form);
   assert.equal(response.status, 200);
+  assert.deepEqual(Object.keys(body.fields).sort(), fields.sort());
+  assert.equal(body.files.length, 1);
 });
 
-test("[talk-upload] rejects a 65th metadata field with a bounded 413", async () => {
+test("[talk-upload] accepts the full metadata ceiling and one file", async () => {
+  const form = formWithFile();
+  for (let index = 1; index < TALK_UPLOAD_LIMITS.fields; index += 1) form.append(`field_${index}`, "ok");
+  const { response, body } = await postForm(form);
+  assert.equal(response.status, 200);
+  assert.equal(Object.keys(body.fields).length, TALK_UPLOAD_LIMITS.fields);
+  assert.equal(body.files.length, 1);
+});
+
+test("[talk-upload] rejects metadata above the ceiling with a bounded 413", async () => {
   const form = new FormData();
-  for (let index = 0; index < 65; index += 1) form.append(`field_${index}`, "x");
+  for (let index = 0; index <= TALK_UPLOAD_LIMITS.fields; index += 1) form.append(`field_${index}`, "x");
   const { response, body } = await postForm(form);
   assert.equal(response.status, 413);
   assert.equal(body.code, "upload_too_large");
@@ -157,4 +183,35 @@ test("[talk-upload] rejects malformed multipart and remains healthy", async () =
   const health = await fetch(`${baseURL}/health`);
   assert.equal(health.status, 200);
   assert.deepEqual(await health.json(), { ok: true });
+});
+
+test("[talk-upload] real backend requires auth and rejects unsafe uploads before generation", async () => {
+  const backend = await startBackend({ env: { REQUIRE_USER_AUTH: "true" } });
+  const unsafeForm = () => {
+    const form = new FormData();
+    form.append("unsafe[999999]", "synthetic");
+    return form;
+  };
+  try {
+    const anonymous = await apiRequest(backend, "/talk", { method: "POST", body: unsafeForm() });
+    assert.equal(anonymous.status, 401);
+    const signup = await apiRequest(backend, "/auth/signup", {
+      method: "POST",
+      json: { email: "upload-contract@example.com", password: "synthetic-upload-contract-password" },
+    });
+    assert.equal(signup.status, 201);
+    const headers = { Authorization: `Bearer ${signup.json.token || signup.json.access_token}` };
+    const rejected = await apiRequest(backend, "/talk", { method: "POST", headers, body: unsafeForm() });
+    assert.equal(rejected.status, 400);
+    assert.equal(rejected.json.stage, "upload");
+    assert.equal(rejected.json.code, "invalid_multipart_upload");
+    const form = new FormData();
+    for (let index = 0; index <= TALK_UPLOAD_LIMITS.fields; index += 1) form.append(`field_${index}`, "x");
+    const limited = await apiRequest(backend, "/talk", { method: "POST", headers, body: form });
+    assert.equal(limited.status, 413);
+    assert.equal(limited.json.code, "upload_too_large");
+    assert.equal((await apiRequest(backend, "/health")).status, 200);
+  } finally {
+    await backend.stop();
+  }
 });
