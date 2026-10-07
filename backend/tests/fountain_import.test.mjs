@@ -265,7 +265,7 @@ test("[import] POST rejects empty body with 400 craft_invalid_screenplay", async
 // the response is a structured JSON 413, not a default Express
 // HTML error page.
 
-test("[import] POST > 4MB body is rejected route-locally with structured 413", async () => {
+test("[import] POST with >4MB Content-Length is rejected with structured 413", async () => {
   await withTestServer(async ({ baseURL }) => {
     // Advertise a >4MB body and verify the Content-Length guard rejects
     // it before the client has to upload bytes the server will discard.
