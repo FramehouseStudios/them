@@ -1,4 +1,5 @@
 import XCTest
+import ScreenplayStudio
 @testable import them
 
 @MainActor

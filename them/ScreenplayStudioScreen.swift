@@ -2874,7 +2874,7 @@ private var directionOneScriptEditor: some View {
                 isCommitNoticeVisible: isPageCommitNoticeVisible
             ) {
                 CursorInsertTextEditor(
-                    text: $vm.fountainDraft,
+                    text: $vm.fountainDraft, documentID: vm.selectedProjectID,
                     activeScreenplayElement: $liveDraftBridge.activeScreenplayElement,
                     insertionRequest: $liveDraftBridge.pendingInsertion,
                     lineJumpRequest: $liveDraftBridge.pendingLineJump,
