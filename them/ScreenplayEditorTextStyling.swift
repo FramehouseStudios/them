@@ -212,3 +212,93 @@ enum ScreenplayParagraphRestylePolicy {
         paragraphStructureChanged || previousElements != currentElements
     }
 }
+
+struct ScreenplayLineIndex {
+    private(set) var lineLengths: [Int] = [0]
+    private var fenwickTree: [Int] = [0, 0]
+
+    init(text: String = "") {
+        rebuild(for: text)
+    }
+
+    mutating func rebuild(for text: String) {
+        let units = Array(text.utf16)
+        var lengths: [Int] = []
+        var currentLineLength = 0
+        var offset = 0
+        while offset < units.count {
+            switch units[offset] {
+            case 0x000A, 0x000B, 0x000C, 0x0085, 0x2028, 0x2029:
+                offset += 1
+                currentLineLength += 1
+                lengths.append(currentLineLength)
+                currentLineLength = 0
+            case 0x000D:
+                offset += 1
+                currentLineLength += 1
+                if offset < units.count, units[offset] == 0x000A {
+                    offset += 1
+                    currentLineLength += 1
+                }
+                lengths.append(currentLineLength)
+                currentLineLength = 0
+            default:
+                offset += 1
+                currentLineLength += 1
+            }
+        }
+        lengths.append(currentLineLength)
+        lineLengths = lengths
+        fenwickTree = Array(repeating: 0, count: lengths.count + 1)
+        for index in 1...lengths.count {
+            fenwickTree[index] += lengths[index - 1]
+            let parent = index + (index & -index)
+            if parent <= lengths.count {
+                fenwickTree[parent] += fenwickTree[index]
+            }
+        }
+    }
+
+    func lineIndex(atUTF16Location location: Int) -> Int {
+        let target = max(0, location)
+        var prefixCount = 0
+        var prefixLength = 0
+        var step = 1
+        while step * 2 <= lineLengths.count {
+            step *= 2
+        }
+        while step > 0 {
+            let candidate = prefixCount + step
+            if candidate <= lineLengths.count,
+               prefixLength + fenwickTree[candidate] <= target {
+                prefixCount = candidate
+                prefixLength += fenwickTree[candidate]
+            }
+            step /= 2
+        }
+        return min(prefixCount, max(0, lineLengths.count - 1))
+    }
+
+    func lineStart(at index: Int) -> Int {
+        let safeIndex = max(0, min(index, lineLengths.count))
+        var total = 0
+        var cursor = safeIndex
+        while cursor > 0 {
+            total += fenwickTree[cursor]
+            cursor -= cursor & -cursor
+        }
+        return total
+    }
+
+    mutating func applyInlineEdit(onLineAt index: Int, utf16LengthDelta: Int) {
+        guard utf16LengthDelta != 0,
+              index >= 0,
+              index < lineLengths.count else { return }
+        lineLengths[index] += utf16LengthDelta
+        var cursor = index + 1
+        while cursor < fenwickTree.count {
+            fenwickTree[cursor] += utf16LengthDelta
+            cursor += cursor & -cursor
+        }
+    }
+}

@@ -2284,7 +2284,8 @@ private func screenplayLineIndex(for location: Int, in text: String) -> Int {
 
 private func screenplayCurrentLineDetails(
     for location: Int,
-    in content: String
+    in content: String,
+    knownLineIndex: Int? = nil
 ) -> (lineRange: NSRange, lineText: String, lineIndex: Int) {
     let ns = content as NSString
     let safeLocation = max(0, min(location, ns.length))
@@ -2295,7 +2296,8 @@ private func screenplayCurrentLineDetails(
         location: fullLineRange.location,
         length: (trimmedLineText as NSString).length
     )
-    return (lineRange, trimmedLineText, screenplayLineIndex(for: lineRange.location, in: content))
+    let lineIndex = knownLineIndex ?? screenplayLineIndex(for: lineRange.location, in: content)
+    return (lineRange, trimmedLineText, lineIndex)
 }
 
 private func shouldNormalizeScreenplayLineDuringTyping(
@@ -3738,6 +3740,12 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         structuredDraft = nextStructuredDraft
         realignSyncedVoiceTimelineAnchorsIfNeeded(to: nextStructuredDraft, rawLines: lines)
         refreshProjectBindingSnapshot()
+    }
+
+    func persistTypingDraftText(_ text: String) {
+        // Persist exact text immediately; the editor coordinator debounces the
+        // larger scene/paragraph snapshot rebuild until typing pauses.
+        persistDraftText(text)
     }
 
     private func sceneCandidateKey(for slugline: String) -> String {
@@ -10735,6 +10743,12 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
             var generation: Int
         }
 
+        private struct PendingInlineEdit {
+            var lineIndex: Int
+            var previousLineText: String
+            var utf16LengthDelta: Int
+        }
+
         private struct DeferredReplacementTrace {
             var kind: String
             var target: ScreenplayPendingReplacementTarget?
@@ -10778,6 +10792,7 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
         var explicitCurrentLineLocation: Int?
         var paragraphElements: [ScreenplayEditorElement?] = []
         var lastKnownTextSnapshot: String
+        var paragraphLineIndex: ScreenplayLineIndex
         private var representableUpdateDepth = 0
         private var representableUpdateGeneration = 0
         private var activeRepresentableUpdateGeneration: Int?
@@ -10795,11 +10810,14 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
         private var deferredTextRequirements: [Int: ScreenplayDeferredTextPublicationRequirement] = [:]
         private var deferredReplacementTraces: [DeferredReplacementTrace] = []
         private var paragraphStructureChangedByPendingEdit = false
+        private var pendingInlineEdit: PendingInlineEdit?
+        private var typingStructuredSyncWorkItem: DispatchWorkItem?
 
         init(_ parent: IOSCursorInsertTextEditor) {
             self.parent = parent
             self.lastKnownActiveElement = parent.activeScreenplayElement
             self.lastKnownTextSnapshot = parent.text
+            self.paragraphLineIndex = ScreenplayLineIndex(text: parent.text)
         }
 
         @objc func saveDraftFromKeyboard() {
@@ -10956,6 +10974,21 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
                 generation: activeRepresentableUpdateGeneration ?? representableUpdateGeneration
             )
             scheduleDeferredPublicationFlush()
+        }
+
+        private func scheduleTypingStructuredDraftSync(text: String) {
+            ScreenplayLiveDraftBridge.shared.persistTypingDraftText(text)
+            typingStructuredSyncWorkItem?.cancel()
+            let workItem = DispatchWorkItem { [weak self] in
+                guard let self, let textView = self.textView else { return }
+                self.typingStructuredSyncWorkItem = nil
+                ScreenplayLiveDraftBridge.shared.syncStructuredDraftSnapshot(
+                    text: textView.text ?? "",
+                    elements: self.paragraphElements
+                )
+            }
+            typingStructuredSyncWorkItem = workItem
+            DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(180), execute: workItem)
         }
 
         func traceReplacementTarget(
@@ -11122,10 +11155,18 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
         func primeParagraphElements(for text: String, attributedText: NSAttributedString? = nil) {
             paragraphElements = bootstrapScreenplayParagraphElements(for: text, attributedText: attributedText)
             lastKnownTextSnapshot = text
+            paragraphLineIndex.rebuild(for: text)
             publishStructuredDraftSnapshot(text: text, elements: paragraphElements)
         }
 
-        private func synchronizeParagraphElementsWithCurrentText(in textView: UITextView) {
+        private func synchronizeParagraphElementsWithCurrentText(
+            in textView: UITextView,
+            deferStructuredSync: Bool = false
+        ) {
+            if !deferStructuredSync {
+                typingStructuredSyncWorkItem?.cancel()
+                typingStructuredSyncWorkItem = nil
+            }
             let nextText = textView.text ?? ""
             let activeLineIndex = screenplayLineIndex(for: currentLineLocation(in: textView), in: nextText)
             let previousLines = screenplayLineTexts(lastKnownTextSnapshot)
@@ -11153,13 +11194,55 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
                 explicitCurrentLineElement: activeLineElement
             )
             lastKnownTextSnapshot = nextText
-            publishStructuredDraftSnapshot(text: nextText, elements: paragraphElements)
+            paragraphLineIndex.rebuild(for: nextText)
+            if deferStructuredSync {
+                scheduleTypingStructuredDraftSync(text: nextText)
+            } else {
+                publishStructuredDraftSnapshot(text: nextText, elements: paragraphElements)
+            }
+        }
+
+        private func synchronizeInlineParagraphElement(
+            for edit: PendingInlineEdit,
+            currentText: String
+        ) -> Bool {
+            guard edit.lineIndex >= 0, edit.lineIndex < paragraphElements.count else { return false }
+            let previousElement = paragraphElements[edit.lineIndex]
+            let details = screenplayCurrentLineDetails(
+                for: textView?.selectedRange.location ?? edit.lineIndex,
+                in: currentText,
+                knownLineIndex: edit.lineIndex
+            )
+            let trimmedLine = details.lineText.trimmingCharacters(in: .whitespacesAndNewlines)
+            let resolvedElement: ScreenplayEditorElement? = {
+                guard !trimmedLine.isEmpty else { return nil }
+                if let explicitCurrentLineElement,
+                   let explicitCurrentLineLocation,
+                   paragraphLineIndex.lineIndex(atUTF16Location: explicitCurrentLineLocation) == edit.lineIndex {
+                    return explicitCurrentLineElement
+                }
+                if edit.previousLineText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    return parent.activeScreenplayElement
+                }
+                if let previousElement { return previousElement }
+                return ScreenplayEditorElement.inferredElement(
+                    for: trimmedLine,
+                    previousElement: screenplayPreviousFlowElement(before: edit.lineIndex, in: paragraphElements)
+                )
+            }()
+
+            paragraphElements[edit.lineIndex] = resolvedElement
+            paragraphLineIndex.applyInlineEdit(onLineAt: edit.lineIndex, utf16LengthDelta: edit.utf16LengthDelta)
+            lastKnownTextSnapshot = currentText
+            scheduleTypingStructuredDraftSync(text: currentText)
+            return previousElement != resolvedElement
         }
 
         private func updateParagraphElementMetadata(
             _ element: ScreenplayEditorElement?,
             lineIndex: Int,
-            in text: String
+            in text: String,
+            deferStructuredSync: Bool = false
         ) {
             let lines = screenplayLineTexts(text)
             if paragraphElements.count != lines.count {
@@ -11177,21 +11260,33 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
             }
             paragraphElements[lineIndex] = lines[lineIndex].trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : element
             lastKnownTextSnapshot = text
-            publishStructuredDraftSnapshot(text: text, elements: paragraphElements)
+            if deferStructuredSync {
+                scheduleTypingStructuredDraftSync(text: text)
+            } else {
+                publishStructuredDraftSnapshot(text: text, elements: paragraphElements)
+            }
         }
 
         func textViewDidChange(_ textView: UITextView) {
             guard !isApplyingProgrammaticChange else { return }
-            let previousParagraphElements = paragraphElements
+            let isStructuralEdit = paragraphStructureChangedByPendingEdit
+            let inlineEdit = pendingInlineEdit
+            let previousElements = isStructuralEdit ? paragraphElements : nil
             interruptStreamingInsertForUserEditIfNeeded()
-            synchronizeParagraphElementsWithCurrentText(in: textView)
+            let metadataChanged: Bool
+            if !isStructuralEdit, let inlineEdit {
+                metadataChanged = synchronizeInlineParagraphElement(
+                    for: inlineEdit,
+                    currentText: textView.text ?? ""
+                )
+            } else {
+                synchronizeParagraphElementsWithCurrentText(in: textView, deferStructuredSync: true)
+                metadataChanged = false
+            }
+            pendingInlineEdit = nil
             normalizeCurrentLineIfNeeded(in: textView)
             syncActiveElementFromSelection()
-            let shouldRestyleParagraphs = ScreenplayParagraphRestylePolicy.shouldRestyle(
-                previousElements: previousParagraphElements,
-                currentElements: paragraphElements,
-                paragraphStructureChanged: paragraphStructureChangedByPendingEdit
-            )
+            let shouldRestyleParagraphs = isStructuralEdit || previousElements != nil || metadataChanged
             paragraphStructureChangedByPendingEdit = false
             if shouldRestyleParagraphs {
                 refreshScreenplayPresentationAndTyping()
@@ -11247,17 +11342,42 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
             replacementText: String
         ) -> Bool {
             if replacementText == "\n" {
+                pendingInlineEdit = nil
                 handleInsertNewline(in: textView, replacementRange: range)
                 return false
             }
-            let currentText = textView.text as NSString? ?? ""
-            if range.location >= 0,
-               NSMaxRange(range) <= currentText.length,
-               currentText.substring(with: range).contains("\n") || replacementText.contains("\n") {
+            paragraphStructureChangedByPendingEdit = false
+            pendingInlineEdit = nil
+            let currentText = textView.text ?? ""
+            let currentNSString = currentText as NSString
+            let rangeIsValid = range.location >= 0 && NSMaxRange(range) <= currentNSString.length
+            let removedLineBreak = rangeIsValid && currentNSString.rangeOfCharacter(
+                from: .newlines,
+                options: [],
+                range: range
+            ).location != NSNotFound
+            let insertedLineBreak = replacementText.unicodeScalars.contains(where: CharacterSet.newlines.contains)
+            if !rangeIsValid || removedLineBreak || insertedLineBreak {
                 paragraphStructureChangedByPendingEdit = true
+            } else {
+                let lineIndex = paragraphLineIndex.lineIndex(atUTF16Location: range.location)
+                let details = screenplayCurrentLineDetails(
+                    for: range.location,
+                    in: currentText,
+                    knownLineIndex: lineIndex
+                )
+                pendingInlineEdit = PendingInlineEdit(
+                    lineIndex: lineIndex,
+                    previousLineText: details.lineText,
+                    utf16LengthDelta: replacementText.utf16.count - range.length
+                )
             }
             if !replacementText.isEmpty {
-                let details = screenplayCurrentLineDetails(for: range.location, in: textView.text ?? "")
+                let details = screenplayCurrentLineDetails(
+                    for: range.location,
+                    in: currentText,
+                    knownLineIndex: pendingInlineEdit?.lineIndex
+                )
                 if details.lineText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     // UIKit may publish its selection change before
                     // textViewDidChange. Pin the selected screenplay element
@@ -11406,7 +11526,7 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
 
         func updateCurrentCursorLine() {
             guard let textView else { return }
-            let line = lineNumber(for: textView.selectedRange.location, in: textView.text ?? "")
+            let line = paragraphLineIndex.lineIndex(atUTF16Location: textView.selectedRange.location) + 1
             if parent.currentCursorLine != line {
                 publishCurrentCursorLine(line)
             }
@@ -11468,14 +11588,14 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
             textView.selectedRange = NSRange(location: resolvedReplacementRange.location + 1, length: 0)
             isApplyingProgrammaticChange = false
 
-            synchronizeParagraphElementsWithCurrentText(in: textView)
+            synchronizeParagraphElementsWithCurrentText(in: textView, deferStructuredSync: true)
             let nextElement = ScreenplayEditorElement.nextElementAfterReturn(
                 currentLine: context.lineText,
                 currentElement: context.currentElement,
                 previousElementBeforeCurrentLine: context.previousElement
             )
             applyActiveElement(nextElement)
-            setExplicitCurrentLineOverride(nextElement, in: textView)
+            setExplicitCurrentLineOverride(nextElement, in: textView, deferStructuredSync: true)
             refreshScreenplayPresentationAndTyping()
 
             if parent.text != nextText {
@@ -11563,7 +11683,21 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
             textView.text = nextText
             textView.selectedRange = NSRange(location: adjustedLocation, length: 0)
             isApplyingProgrammaticChange = false
-            synchronizeParagraphElementsWithCurrentText(in: textView)
+            if normalized.unicodeScalars.contains(where: CharacterSet.newlines.contains) {
+                synchronizeParagraphElementsWithCurrentText(in: textView, deferStructuredSync: true)
+            } else {
+                if context.lineIndex < paragraphElements.count {
+                    paragraphElements[context.lineIndex] = normalized.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        ? nil
+                        : context.currentElement
+                }
+                paragraphLineIndex.applyInlineEdit(
+                    onLineAt: context.lineIndex,
+                    utf16LengthDelta: nextLength - originalLength
+                )
+                lastKnownTextSnapshot = nextText
+                scheduleTypingStructuredDraftSync(text: nextText)
+            }
             publishText(nextText)
         }
 
@@ -11614,9 +11748,14 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
             )
         }
 
-        private func currentLineContext(in textView: UITextView) -> (lineRange: NSRange, lineText: String, currentElement: ScreenplayEditorElement, previousElement: ScreenplayEditorElement?) {
+        private func currentLineContext(in textView: UITextView) -> (lineRange: NSRange, lineText: String, currentElement: ScreenplayEditorElement, previousElement: ScreenplayEditorElement?, lineIndex: Int) {
             let content = textView.text ?? ""
-            let details = screenplayCurrentLineDetails(for: textView.selectedRange.location, in: content)
+            let knownLineIndex = paragraphLineIndex.lineIndex(atUTF16Location: textView.selectedRange.location)
+            let details = screenplayCurrentLineDetails(
+                for: textView.selectedRange.location,
+                in: content,
+                knownLineIndex: knownLineIndex
+            )
             let previousElement = screenplayPreviousFlowElement(before: details.lineIndex, in: paragraphElements)
             let storedElement = details.lineIndex < paragraphElements.count ? paragraphElements[details.lineIndex] : nil
             let currentElement: ScreenplayEditorElement
@@ -11634,14 +11773,23 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
                     previousElement: previousElement
                 )
             }
-            return (details.lineRange, details.lineText, currentElement, previousElement)
+            return (details.lineRange, details.lineText, currentElement, previousElement, details.lineIndex)
         }
 
-        private func setExplicitCurrentLineOverride(_ element: ScreenplayEditorElement, in textView: UITextView) {
+        private func setExplicitCurrentLineOverride(
+            _ element: ScreenplayEditorElement,
+            in textView: UITextView,
+            deferStructuredSync: Bool = false
+        ) {
             explicitCurrentLineElement = element
             explicitCurrentLineLocation = currentLineLocation(in: textView)
-            let lineIndex = screenplayLineIndex(for: explicitCurrentLineLocation ?? 0, in: textView.text ?? "")
-            updateParagraphElementMetadata(element, lineIndex: lineIndex, in: textView.text ?? "")
+            let lineIndex = paragraphLineIndex.lineIndex(atUTF16Location: explicitCurrentLineLocation ?? 0)
+            updateParagraphElementMetadata(
+                element,
+                lineIndex: lineIndex,
+                in: textView.text ?? "",
+                deferStructuredSync: deferStructuredSync
+            )
         }
 
         private func clearExplicitCurrentLineOverrideIfNeeded(in textView: UITextView) {
