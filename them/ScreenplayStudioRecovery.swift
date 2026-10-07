@@ -348,13 +348,13 @@ struct ScreenplayLocalDraftRecoveryStore {
         guard !normalizedProjectId.isEmpty,
               let stored = payloads(ownerUserId: ownerUserId)[normalizedProjectId] else { return nil }
 
-        let serverFingerprint = fingerprint(serverDraft.trimmingCharacters(in: .whitespacesAndNewlines))
+        let serverFingerprint = fingerprint(serverDraft)
         var preservedSnapshot: ScreenplayLocalDraftRecoverySnapshot?
         if let preserved = stored["preservedConflict"] as? [String: Any],
            preserved["dirty"] as? Bool == true {
             let draft = String(describing: preserved["draft"] ?? "")
             if !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-               fingerprint(draft.trimmingCharacters(in: .whitespacesAndNewlines)) != serverFingerprint {
+               fingerprint(draft) != serverFingerprint {
                 preservedSnapshot = ScreenplayLocalDraftRecoverySnapshot(
                     projectId: normalizedProjectId,
                     draft: draft,
@@ -374,7 +374,7 @@ struct ScreenplayLocalDraftRecoveryStore {
         let storedDirty = latestStored["dirty"] as? Bool ?? false
         var ordinarySnapshot: ScreenplayLocalDraftRecoverySnapshot?
         if storedDirty, !storedDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            let localFingerprint = fingerprint(storedDraft.trimmingCharacters(in: .whitespacesAndNewlines))
+            let localFingerprint = fingerprint(storedDraft)
             if serverFingerprint != localFingerprint {
                 ordinarySnapshot = ScreenplayLocalDraftRecoverySnapshot(
                     projectId: normalizedProjectId,
@@ -392,6 +392,10 @@ struct ScreenplayLocalDraftRecoveryStore {
         }
 
         guard let ordinarySnapshot else { return preservedSnapshot }
+        if let preservedSnapshot,
+           fingerprint(ordinarySnapshot.draft) == fingerprint(preservedSnapshot.draft) {
+            return preservedSnapshot
+        }
         // The protected conflict remains stored separately; surface the
         // distinct dirty device-only words first rather than discarding them
         // based on wall-clock timestamps from unrelated persistence layers.

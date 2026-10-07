@@ -133,6 +133,36 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         XCTAssertNil(store.payloads(ownerUserId: ownerUserID)["project-recovery"])
     }
 
+    func testOrdinaryRecoveryRetainsExactBoundaryWhitespaceAfterRelaunch() {
+        for (index, draft) in ["Script\r\n", "Script\n", "  Script", "Script  "].enumerated() {
+            let projectId = "ordinary-exact-\(index)"
+            store.save(ownerUserId: ownerUserID, projectId: projectId, draft: draft,
+                       baseVersionId: "base", dirty: true)
+            let relaunchedStore = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: recoveryKey)
+            let snapshot = relaunchedStore.recoverySnapshot(
+                ownerUserId: ownerUserID, projectId: projectId, serverDraft: "Script",
+                fingerprint: stableFingerprint
+            )
+            XCTAssertEqual(snapshot?.draft, draft, "boundary whitespace belongs to the writer")
+            XCTAssertEqual(relaunchedStore.payloads(ownerUserId: ownerUserID)[projectId]?["draft"] as? String, draft)
+        }
+    }
+
+    func testPreservedRecoveryRetainsExactBoundaryWhitespaceAfterRelaunch() {
+        for (index, draft) in ["Script\r\n", "Script\n", "  Script", "Script  "].enumerated() {
+            let projectId = "preserved-exact-\(index)"
+            store.savePreservedConflict(ownerUserId: ownerUserID, projectId: projectId,
+                                        draft: draft, baseVersionId: "base")
+            let relaunchedStore = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: recoveryKey)
+            let snapshot = relaunchedStore.recoverySnapshot(
+                ownerUserId: ownerUserID, projectId: projectId, serverDraft: "Script",
+                fingerprint: stableFingerprint
+            )
+            XCTAssertEqual(snapshot?.draft, draft, "a receipt must preserve the exact text")
+            XCTAssertTrue(snapshot?.isPreservedConflict ?? false)
+        }
+    }
+
     func testServerBackedRecoverySelectionRestoresNewestExactCopyAfterRelaunch() {
         let exactLocalDraft = "INT. ROOM - NIGHT\r\n\r\nMARA\r\nMy line stays exact.  \r\n"
         let versions = [
@@ -298,6 +328,38 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
             ),
             "an account-backed local marker can defer to the server's authoritative receipt"
         )
+    }
+
+    func testIdenticalOrdinaryAndProtectedTextKeepsAccountReceiptMetadata() {
+        let draft = "Script\r\n"
+        let projectId = "same-exact-recovery"
+        store.save(ownerUserId: ownerUserID, projectId: projectId, draft: draft,
+                   baseVersionId: "base", dirty: true)
+        let requestId = store.savePreservedConflict(ownerUserId: ownerUserID, projectId: projectId,
+                                                    draft: draft, baseVersionId: "base")!
+        store.setServerRecoveryId("account-copy", ownerUserId: ownerUserID,
+                                  projectId: projectId, clientRequestId: requestId)
+        let snapshot = store.recoverySnapshot(ownerUserId: ownerUserID, projectId: projectId,
+                                              serverDraft: "Server draft", fingerprint: stableFingerprint)
+        XCTAssertEqual(snapshot?.draft, draft)
+        XCTAssertEqual(snapshot?.serverRecoveryId, "account-copy")
+        XCTAssertTrue(snapshot?.isPreservedConflict ?? false)
+    }
+
+    func testConfirmedOrdinaryTextDoesNotClearADifferentProtectedCopy() {
+        let projectId = "confirmed-ordinary-recovery"
+        store.save(ownerUserId: ownerUserID, projectId: projectId, draft: "Server draft",
+                   baseVersionId: "base", dirty: true)
+        store.savePreservedConflict(ownerUserId: ownerUserID, projectId: projectId,
+                                    draft: "Protected original", baseVersionId: "base")
+        let snapshot = store.recoverySnapshot(ownerUserId: ownerUserID, projectId: projectId,
+                                              serverDraft: "Server draft", fingerprint: stableFingerprint)
+        XCTAssertEqual(snapshot?.draft, "Protected original")
+        let relaunchedStore = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: recoveryKey)
+        let reopened = relaunchedStore.recoverySnapshot(ownerUserId: ownerUserID, projectId: projectId,
+                                                        serverDraft: "Server draft", fingerprint: stableFingerprint)
+        XCTAssertEqual(reopened?.draft, "Protected original", "clearing the confirmed slot must retain the independent conflict")
+        XCTAssertNil(relaunchedStore.payloads(ownerUserId: ownerUserID)[projectId]?["draft"])
     }
 
     func testRemoteVersionConfirmationClearsOrdinaryDraftButKeepsPreservedConflict() {

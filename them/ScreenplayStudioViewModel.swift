@@ -1966,6 +1966,14 @@ final class ScreenplayStudioViewModel: ObservableObject {
             baseVersionId: latestVersionID,
             savedAt: savedAt
         ) else {
+            // A receipt for an earlier conflict must not make Recover point
+            // back at that text after the writer has continued typing. Keep
+            // the current exact text in the independent device recovery slot.
+            persistRecoveryForUnconfirmedSave(
+                projectId: cleanProjectID,
+                draft: text,
+                baseVersionId: latestVersionID
+            )
             autosaveStatusText = "Recovery needed"
             infoText = "Resolve the existing protected draft before live sync can replace this page."
             return false
