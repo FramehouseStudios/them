@@ -8,6 +8,7 @@ import { createAccountMemoryCAS } from "../lib/account_memory_cas.js";
 import { createAccountMemoryMutationCommitter } from "../lib/account_memory_turn_commit.js";
 import { createJsonPersistence } from "../lib/persistence_json.js";
 import { mountTasksRoutes } from "../lib/tasks_routes.js";
+import { listenEphemeral } from "./helpers/ephemeral_server.mjs";
 
 function parseQueryLimit(value, fallback = 24, max = 200) {
   const parsed = Number.parseInt(String(value ?? ""), 10);
@@ -157,7 +158,7 @@ async function withServer(deps, fn) {
   const app = express();
   mountTasksRoutes(app, deps);
   const server = await new Promise((resolve) => {
-    const s = app.listen(0, () => resolve(s));
+    const s = listenEphemeral(app).once("listening", () => resolve(s));
   });
   try {
     const { port } = server.address();

@@ -1,6 +1,7 @@
 // T-screenplay-import-fountain — unit + integration tests.
 
 import assert from "node:assert/strict";
+import http from "node:http";
 import { test } from "node:test";
 import express from "express";
 
@@ -264,25 +265,41 @@ test("[import] POST rejects empty body with 400 craft_invalid_screenplay", async
 // the response is a structured JSON 413, not a default Express
 // HTML error page.
 
-test("[import] POST > 4MB body is rejected route-locally with structured 413", async () => {
+test("[import] POST with >4MB Content-Length is rejected with structured 413", async () => {
   await withTestServer(async ({ baseURL }) => {
-    // Build a real > 4MB body. The middleware's Content-Length check
-    // should short-circuit before the body is fully read.
-    const bigChunk = "x".repeat(1_000_000); // 1MB of placeholder
-    const body = bigChunk.repeat(5); // 5MB total
-    const r = await fetch(`${baseURL}/screenplay/import/fountain`, {
-      method: "POST",
-      headers: { "content-type": "text/plain" },
-      body,
+    // Advertise a >4MB body and verify the Content-Length guard rejects
+    // it before the client has to upload bytes the server will discard.
+    const url = new URL("/screenplay/import/fountain", baseURL);
+    const r = await new Promise((resolve, reject) => {
+      const request = http.request({
+        hostname: url.hostname,
+        port: url.port,
+        path: url.pathname,
+        method: "POST",
+        headers: {
+          "content-type": "text/plain",
+          "content-length": "5000000",
+        },
+      }, (response) => {
+        const chunks = [];
+        response.on("data", (chunk) => chunks.push(chunk));
+        response.on("end", () => resolve({
+          status: response.statusCode,
+          headers: response.headers,
+          body: Buffer.concat(chunks).toString("utf8"),
+        }));
+      });
+      request.on("error", reject);
+      request.end();
     });
     assert.equal(r.status, 413);
-    const json = await r.json();
+    const json = JSON.parse(r.body);
     assert.equal(json.error, "payload_too_large");
     assert.equal(json.max_bytes, 4_000_000);
     // Response must be application/json, not the default HTML Express
     // serves when an error escapes route handling.
-    assert.match(r.headers.get("content-type") || "", /application\/json/);
-    assert.equal(r.headers.get("cache-control"), "no-store");
+    assert.match(r.headers["content-type"] || "", /application\/json/);
+    assert.equal(r.headers["cache-control"], "no-store");
   });
 });
 

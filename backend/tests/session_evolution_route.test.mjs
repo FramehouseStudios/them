@@ -8,6 +8,7 @@ import { createAccountMemoryCAS } from "../lib/account_memory_cas.js";
 import { createAccountMemoryMutationCommitter } from "../lib/account_memory_turn_commit.js";
 import { createJsonPersistence } from "../lib/persistence_json.js";
 import { mountSessionEvolutionRoute } from "../lib/session_evolution_route.js";
+import { listenEphemeral } from "./helpers/ephemeral_server.mjs";
 
 function sanitize(value) {
   return structuredClone(value || {});
@@ -100,7 +101,7 @@ async function withServer(deps, fn) {
   });
   mountSessionEvolutionRoute(app, deps);
   const server = await new Promise((resolve) => {
-    const listener = app.listen(0, () => resolve(listener));
+    const listener = listenEphemeral(app).once("listening", () => resolve(listener));
   });
   try {
     const { port } = server.address();

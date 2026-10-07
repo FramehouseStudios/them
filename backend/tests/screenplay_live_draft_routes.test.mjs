@@ -20,6 +20,7 @@ import {
   LIVE_DRAFT_OPS_BODY_LIMIT,
   mountScreenplayLiveDraftRoutes,
 } from "../lib/screenplay_live_draft_routes.js";
+import { listenEphemeral } from "./helpers/ephemeral_server.mjs";
 
 // ---------- hub: pure helpers ----------
 
@@ -292,7 +293,7 @@ async function withServer(deps, fn) {
     next();
   });
   mountScreenplayLiveDraftRoutes(app, deps);
-  const server = app.listen(0);
+  const server = listenEphemeral(app);
   await new Promise((r) => server.once("listening", r));
   const baseURL = `http://127.0.0.1:${server.address().port}`;
   const controllers = [];

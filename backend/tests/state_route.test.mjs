@@ -7,6 +7,7 @@ import express from "express";
 import { createAccountMemoryCAS } from "../lib/account_memory_cas.js";
 import { createJsonPersistence } from "../lib/persistence_json.js";
 import { mountStateRoute } from "../lib/state_route.js";
+import { listenEphemeral } from "./helpers/ephemeral_server.mjs";
 
 function defaultMemory() {
   return {
@@ -131,7 +132,7 @@ async function withServer(deps, fn) {
   });
   mountStateRoute(app, deps);
   const server = await new Promise((resolve) => {
-    const listener = app.listen(0, () => resolve(listener));
+    const listener = listenEphemeral(app).once("listening", () => resolve(listener));
   });
   try {
     const { port } = server.address();
