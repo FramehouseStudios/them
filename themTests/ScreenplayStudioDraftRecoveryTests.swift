@@ -229,6 +229,77 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         XCTAssertEqual(snapshot?.isPreservedConflict, true)
     }
 
+    func testDistinctDirtyDeviceDraftRemainsVisibleBesidePreservedReceiptAfterRelaunch() {
+        let receiptDraft = "Mara stays."
+        let latestTypedDraft = "Mara stays.\nShe writes one more line."
+        store.savePreservedConflict(
+            ownerUserId: ownerUserID,
+            projectId: "project-recovery-race",
+            draft: receiptDraft,
+            baseVersionId: "version-before-edit",
+            savedAt: 1_700_000_100
+        )
+        store.save(
+            ownerUserId: ownerUserID,
+            projectId: "project-recovery-race",
+            draft: latestTypedDraft,
+            baseVersionId: "version-before-edit",
+            dirty: true,
+            // Deliberately earlier: wall-clock ordering is not proof across
+            // persistence layers or devices.
+            savedAt: 1_700_000_099
+        )
+
+        let relaunchedStore = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: recoveryKey)
+        let snapshot = relaunchedStore.recoverySnapshot(
+            ownerUserId: ownerUserID,
+            projectId: "project-recovery-race",
+            serverDraft: "Remote writer's draft.",
+            fingerprint: stableFingerprint
+        )
+
+        XCTAssertEqual(snapshot?.draft, latestTypedDraft)
+        XCTAssertEqual(snapshot?.savedAt, 1_700_000_099)
+        XCTAssertFalse(snapshot?.isPreservedConflict ?? true, "newer device-only edits must not be described as account-protected")
+        XCTAssertNotNil(
+            relaunchedStore.payloads(ownerUserId: ownerUserID)["project-recovery-race"]?["preservedConflict"],
+            "the earlier account receipt remains intact until the newer text is safely resolved"
+        )
+    }
+
+    func testDeviceOnlyLocalRecoveryIsPreferredToAccountReceipt() {
+        let deviceOnlyRecovery = ScreenplayLocalDraftRecoverySnapshot(
+            projectId: "project-recovery-race",
+            draft: "Mara stays.\nShe writes one more line.",
+            baseVersionId: "base",
+            savedAt: 1,
+            isPreservedConflict: false,
+            clientRequestId: nil,
+            serverRecoveryId: nil
+        )
+        let accountBackedRecovery = ScreenplayLocalDraftRecoverySnapshot(
+            projectId: "project-recovery-race",
+            draft: "Mara stays.",
+            baseVersionId: "base",
+            savedAt: 9_999_999,
+            isPreservedConflict: true,
+            clientRequestId: "request",
+            serverRecoveryId: "recovery"
+        )
+        XCTAssertTrue(
+            ScreenplayServerBackedDraftRecoveryPolicy.shouldPreferLocalRecovery(
+                deviceOnlyRecovery
+            ),
+            "device-only words remain visible regardless of clock skew"
+        )
+        XCTAssertFalse(
+            ScreenplayServerBackedDraftRecoveryPolicy.shouldPreferLocalRecovery(
+                accountBackedRecovery
+            ),
+            "an account-backed local marker can defer to the server's authoritative receipt"
+        )
+    }
+
     func testRemoteVersionConfirmationClearsOrdinaryDraftButKeepsPreservedConflict() {
         let local = "INT. DINER - NIGHT\n\nShe waits.\n\nA phone BUZZES."
         let remote = "INT. DINER - NIGHT\n\nShe waits."

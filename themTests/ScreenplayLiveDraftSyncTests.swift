@@ -570,7 +570,7 @@ final class ScreenplayLiveDraftSyncServiceTests: XCTestCase {
         let editor = FakeLiveDraftEditor(projectID: "proj-receipt", text: base)
         var releaseReceipt: CheckedContinuation<Bool, Never>?
         editor.recoveryPreserver = { _, _ in
-            await withCheckedContinuation { continuation in
+            return await withCheckedContinuation { continuation in
                 releaseReceipt = continuation
             }
         }
@@ -592,6 +592,53 @@ final class ScreenplayLiveDraftSyncServiceTests: XCTestCase {
         releaseReceipt?.resume(returning: true)
         await waitUntil { editor.text == remote }
         XCTAssertEqual(editor.appliedRemoteTexts, [remote])
+        service.detach()
+    }
+
+    func testRemoteTextDoesNotReplaceTypingAddedWhileRecoveryReceiptIsPending() async {
+        let base = "Mara waits."
+        let local = "Mara stays."
+        let typedDuringReceipt = "Mara stays.\nShe writes one more line."
+        let remote = "Mara leaves."
+        let transport = FakeLiveDraftTransport()
+        let editor = FakeLiveDraftEditor(projectID: "proj-receipt-typing", text: base)
+        var releaseReceipt: CheckedContinuation<Bool, Never>?
+        var preserveCount = 0
+        editor.recoveryPreserver = { _, _ in
+            preserveCount += 1
+            guard preserveCount == 1 else { return false }
+            return await withCheckedContinuation { continuation in
+                releaseReceipt = continuation
+            }
+        }
+        let service = makeService(transport: transport)
+        service.attach(to: editor)
+        await waitUntil { !transport.openedStreams.isEmpty }
+        transport.emit("hello", #"{"seq":0,"checksum":"\#(LiveDraftText.checksum(base))","seeded":false}"#)
+        await waitUntil { service.status.isLive }
+        editor.text = local
+        let remoteOp = LiveDraftText.diff(from: base, to: remote)!
+        transport.emit(
+            "op",
+            #"{"seq":1,"device_id":"ios-phone","op":{"start":\#(remoteOp.start),"delete_count":\#(remoteOp.deleteCount),"insert":"\#(remoteOp.insert)"},"checksum":"\#(LiveDraftText.checksum(remote))"}"#
+        )
+        await waitUntil { releaseReceipt != nil }
+
+        // The first local snapshot is durably protected, but the writer adds
+        // another line before that receipt returns. The receipt cannot
+        // authorize replacing this newer text with the remote event.
+        editor.text = typedDuringReceipt
+        releaseReceipt?.resume(returning: true)
+        await waitUntil {
+            if case .offline(reason: "recovery_pending") = service.status { return true }
+            return false
+        }
+        try? await Task.sleep(nanoseconds: 600_000_000)
+
+        XCTAssertEqual(editor.text, typedDuringReceipt)
+        XCTAssertTrue(editor.appliedRemoteTexts.isEmpty)
+        XCTAssertEqual(editor.preservedLocalDrafts.map(\.draft), [local, typedDuringReceipt])
+        XCTAssertTrue(transport.postedOps.isEmpty, "the stale remote event must not cause a publish after protection went stale")
         service.detach()
     }
 
