@@ -842,6 +842,7 @@
 | T97-post-support-merge-refresh          | Refresh coordination after support merge train                                           | codex   | review            |
 | T98-post-v1-realtime-refresh            | Post V1 status and realtime turn-commit coordination refresh                             | codex   | review            |
 | T99-fix-auth-expected-action            | Fix truncated auth-route coordination expected action                                    | codex   | review            |
+| T-live-sync-recovery-base-version       | Preserve live-sync recovery base across reinstall                                      | codex   | review            |
 
 ## Active work — full detail (auto-generated)
 
@@ -5041,5 +5042,22 @@ structured `expected_action` for PR #212 to just `support agent`.
 `docs/coordination.json` again gives support agent the full #212 expected action:
 rebase on current main after #273, rerun backend auth tests, and keep
 `do-not-merge`/tier-3 until human auth-route clearance.
+
+### T-live-sync-recovery-base-version — Preserve live-sync recovery base across reinstall
+- **Owner:** codex
+- **Branch:** codex/T-live-sync-recovery-base-version
+- **Pillar:** mobile-first
+- **Status:** review
+
+## Scope
+
+Preserve the original screenplay base version ID with account-backed live-sync recovery copies so a restore after reinstall still invokes stale-base conflict detection.
+
+## Done when
+
+- Recovery POST accepts and persists `base_version_id`, and responses return it after normalization.
+- iOS uploads and restores that original base; legacy records with unknown bases fail closed instead of assuming the current version.
+- A recovered stale base is rejected instead of overwriting the active screenplay.
+- Backend/iOS tests, god-file gate, and diff check pass without growing `backend/index.js`.
 
 <!-- END AUTOGEN active-tasks -->

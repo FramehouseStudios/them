@@ -117,6 +117,7 @@ final class ScreenplayStudioSavedPanelPresentationTests: XCTestCase {
                 phase: nil,
                 source: nil,
                 clientRequestId: nil,
+                baseVersionId: nil,
                 createdAt: nil,
                 updatedAt: nil,
                 prompt: nil,

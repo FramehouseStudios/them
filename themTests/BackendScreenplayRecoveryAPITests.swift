@@ -10,7 +10,7 @@ final class BackendScreenplayRecoveryAPITests: XCTestCase {
 
     func testPreserveRecoverySendsExactDraftWithProjectBearerAndClientRequestID() async throws {
         let draft = "INT. ROOM - NIGHT\r\n\r\nMARA\r\nMy exact line.  \r\n"
-        let response = #"{"stage":"screenplay_recovery","status":"preserved","project_id":"project-1","recovery_id":"recovery-1","recovery":{"id":"recovery-1","project_id":"project-1","source":"studio_live_sync_recovery","draft":"INT. ROOM - NIGHT\r\n\r\nMARA\r\nMy exact line.  \r\n"}}"#
+        let response = #"{"stage":"screenplay_recovery","status":"preserved","project_id":"project-1","recovery_id":"recovery-1","recovery":{"id":"recovery-1","project_id":"project-1","source":"studio_live_sync_recovery","base_version_id":"version-before-edit","draft":"INT. ROOM - NIGHT\r\n\r\nMARA\r\nMy exact line.  \r\n"}}"#
         var capturedBody: Data?
         var capturedAuthorization: String?
         var capturedUserID: String?
@@ -44,15 +44,18 @@ final class BackendScreenplayRecoveryAPITests: XCTestCase {
         let result = try await api.preserveScreenplayProjectRecovery(
             projectId: "project-1",
             draft: draft,
-            clientRequestId: "stable-request-1"
+            clientRequestId: "stable-request-1",
+            baseVersionId: "version-before-edit"
         )
 
         XCTAssertEqual(result.recoveryId, "recovery-1")
         XCTAssertEqual(result.recovery?.draft, draft)
+        XCTAssertEqual(result.recovery?.baseVersionId, "version-before-edit")
         let body = try XCTUnwrap(capturedBody)
         let payload = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: String])
         XCTAssertEqual(payload["draft"], draft)
         XCTAssertEqual(payload["client_request_id"], "stable-request-1")
+        XCTAssertEqual(payload["base_version_id"], "version-before-edit")
         XCTAssertEqual(capturedAuthorization, "Bearer access-1")
         XCTAssertEqual(capturedUserID, "user-1")
     }

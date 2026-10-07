@@ -14,6 +14,7 @@ extension BackendMemoryAPI {
         projectId: String,
         draft: String,
         clientRequestId: String,
+        baseVersionId: String = "",
         phase: String = "scene_draft",
         includeUserIdentity: Bool = true,
         includeAuthToken: Bool = true,
@@ -35,6 +36,7 @@ extension BackendMemoryAPI {
             "draft": draft,
             "phase": phase,
             "client_request_id": String(requestID.prefix(96)),
+            "base_version_id": String(baseVersionId.trimmingCharacters(in: .whitespacesAndNewlines).prefix(64)),
         ])
 
         var data = Data()
