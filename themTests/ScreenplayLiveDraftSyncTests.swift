@@ -505,6 +505,7 @@ final class ScreenplayLiveDraftSyncServiceTests: XCTestCase {
         let base = "INT. ROOM - DAY\n\nMara waits."
         let local = "INT. ROOM - DAY\n\nMara runs."
         let remote = "INT. ROOM - DAY\n\nMara hides."
+        let remoteFollowUp = "INT. ROOM - DAY\n\nMara leaves."
         let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store)
         model.selectedProjectID = projectID
         model.fountainDraft = base
@@ -524,16 +525,24 @@ final class ScreenplayLiveDraftSyncServiceTests: XCTestCase {
         await waitUntil { model.fountainDraft == remote && model.recoveryCandidate?.draft == local }
         XCTAssertEqual(model.recoveryCandidate?.isPreservedConflict, true)
 
+        // More channel text can arrive before the typing device announces its
+        // saved version. Those intermediate remote snapshots are not new local
+        // conflicts and must not replace the exact protected writer draft.
+        let followUpOp = LiveDraftText.diff(from: remote, to: remoteFollowUp)!
+        transport.emit("op", #"{"seq":2,"device_id":"ios-phone","op":{"start":\#(followUpOp.start),"delete_count":\#(followUpOp.deleteCount),"insert":"\#(followUpOp.insert)"},"checksum":"\#(LiveDraftText.checksum(remoteFollowUp))"}"#)
+        await waitUntil { model.fountainDraft == remoteFollowUp }
+        XCTAssertEqual(model.recoveryCandidate?.draft, local)
+
         // Confirming the channel's saved version clears its ordinary recovery
         // slot; the distinct local conflict must still survive relaunch.
-        transport.emit("version", #"{"seq":2,"device_id":"ios-phone","version_id":"version-remote","checksum":"\#(LiveDraftText.checksum(remote))"}"#)
+        transport.emit("version", #"{"seq":3,"device_id":"ios-phone","version_id":"version-remote","checksum":"\#(LiveDraftText.checksum(remoteFollowUp))"}"#)
         await waitUntil { model.latestVersionID == "version-remote" }
 
         let relaunchedStore = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: recoveryKey)
         let snapshot = relaunchedStore.recoverySnapshot(
             ownerUserId: ownerUserID,
             projectId: projectID,
-            serverDraft: remote,
+            serverDraft: remoteFollowUp,
             fingerprint: { LiveDraftText.checksum($0) }
         )
         XCTAssertEqual(snapshot?.draft, local)

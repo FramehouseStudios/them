@@ -1969,8 +1969,13 @@ final class ScreenplayStudioViewModel: ObservableObject {
     }
 
     /// Preserve a dirty local draft independently before live sync replaces
-    /// it with a remote snapshot that has no shared rebase base.
+    /// it with channel text that cannot be safely merged.
     func preserveLocalDraftForLiveSyncRecovery(_ text: String, projectID: String) {
+        // Once this editor is following the channel, its text is remote work,
+        // not a fresh local draft. A burst of remote ops before the typing
+        // device announces its saved version must not replace the protected
+        // local conflict with an intermediate channel snapshot.
+        guard !isFollowingRemoteLiveDraft else { return }
         guard ScreenplayProjectScopedState.matches(projectID, selectedProjectId: selectedProjectID) else {
             return
         }
