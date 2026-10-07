@@ -557,6 +557,7 @@ final class V1SmokeUITests: XCTestCase {
 
         app = launchApp(
             openStudio: true,
+            clearDebugProjectLoadRequest: true,
             resetState: false,
             launchEnvironment: fixture.appLaunchEnvironment
         )
@@ -1801,6 +1802,7 @@ final class V1SmokeUITests: XCTestCase {
         var app = launchApp(
             openStudio: true,
             screenplaySaveNetworkFaultMarker: marker,
+            screenplaySaveAuthContextChangeBeforeSave: true,
             restoreProjectID: fixture.projectID,
             restoreVersionID: fixture.versionID,
             restoreLoadToken: fixture.loadToken,
@@ -1816,6 +1818,8 @@ final class V1SmokeUITests: XCTestCase {
                     && intValue(snapshot["queued_draft_save_count"]) == 1
                     && intValue(snapshot["parked_draft_save_count"]) == 0
                     && boolValue(snapshot["has_unsaved_draft_changes"])
+                    && stringValue(snapshot["autosave_status_text"])
+                        .localizedCaseInsensitiveContains("queued locally")
                     && stringValue(snapshot["error_text"]).isEmpty
             },
             "Offline screenplay save was not queued before stale-version setup. Snapshot: \(queuedSnapshot)"
@@ -1853,6 +1857,7 @@ final class V1SmokeUITests: XCTestCase {
         app = launchApp(
             openStudio: true,
             screenplaySaveExpireAuthOnce: true,
+            clearDebugProjectLoadRequest: true,
             resetState: false,
             launchEnvironment: fixture.appLaunchEnvironment
         )
@@ -2822,7 +2827,9 @@ final class V1SmokeUITests: XCTestCase {
         showProvisionalScreenplayOptions: Bool = false,
         realtimeNetworkFaultStage: String? = nil,
         screenplaySaveNetworkFaultMarker: String? = nil,
+        screenplaySaveAuthContextChangeBeforeSave: Bool = false,
         screenplaySaveExpireAuthOnce: Bool = false,
+        clearDebugProjectLoadRequest: Bool = false,
         seedRememberedLogin: Bool = false,
         seedCompanionSignal: Bool = false,
         autoSubmitPagePrompt: String? = nil,
@@ -2847,6 +2854,17 @@ final class V1SmokeUITests: XCTestCase {
             arguments.append("--ui-reset-state")
         } else {
             arguments.append("--ui-preserve-state")
+        }
+        if clearDebugProjectLoadRequest {
+            // The first launch copied its command-line fixture into persistent
+            // UserDefaults. A relaunch after the server advances must not replay
+            // that stale, version-pinned debug selection over pending recovery.
+            arguments.append(contentsOf: [
+                "-studio_debug_load_project_id", "",
+                "-studio_debug_load_project_version_id", "",
+                "-studio_debug_load_project_token", "0",
+                "-studio_debug_load_project_ack_token", "0",
+            ])
         }
         if skipOnboarding {
             arguments.append("--ui-skip-onboarding")
@@ -2915,6 +2933,9 @@ final class V1SmokeUITests: XCTestCase {
                 "--ui-screenplay-save-network-fault-marker",
                 screenplaySaveNetworkFaultMarker,
             ])
+        }
+        if screenplaySaveAuthContextChangeBeforeSave {
+            arguments.append("--ui-screenplay-save-auth-context-change-before-save")
         }
         if screenplaySaveExpireAuthOnce {
             arguments.append("--ui-screenplay-save-expire-auth-once")
