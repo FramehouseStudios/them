@@ -280,6 +280,9 @@ enum ScreenplayPrintService {
             // Centered printing: character cue (and lyrics/centered when mapped to .character) must be .center
             s.alignment = .center
             s.firstLineHeadIndent = 0; s.headIndent = 0; s.tailIndent = 0
+        case .centered:
+            s.alignment = .center
+            s.firstLineHeadIndent = 0; s.headIndent = 0; s.tailIndent = 0
         case .dialogue:
             s.alignment = .left; s.firstLineHeadIndent = d; s.headIndent = d; s.tailIndent = -td
         case .parenthetical:

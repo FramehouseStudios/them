@@ -127,19 +127,22 @@ import Foundation
     let draft = """
     .INT. STAGE - NIGHT
     !THE LIGHTS FAIL.
+    >ON SCREEN<
     @McCLANE
     Yippee-ki-yay.
     >FADE OUT.
     """
     let sequence = ScreenplayEditorElement.inferredSequence(for: draft)
 
-    #expect(sequence == [.sceneHeading, .action, .character, .dialogue, .transition])
+    #expect(sequence == [.sceneHeading, .action, .centered, .character, .dialogue, .transition])
     #expect(ScreenplayEditorElement.renderedText(for: ".INT. STAGE - NIGHT") == "INT. STAGE - NIGHT")
     #expect(ScreenplayEditorElement.renderedText(for: "!THE LIGHTS FAIL.") == "THE LIGHTS FAIL.")
     #expect(ScreenplayEditorElement.renderedText(for: ">FADE OUT.") == "FADE OUT.")
+    #expect(ScreenplayEditorElement.renderedText(for: ">ON SCREEN<") == "ON SCREEN")
     #expect(ScreenplayEditorElement.characterCueName("@McCLANE") == "McCLANE")
     #expect(IOThemTypography.Screenplay.classifyLine("!THE LIGHTS FAIL.") == .action)
     #expect(IOThemTypography.Screenplay.classifyLine("@McCLANE") == .character)
     #expect(IOThemTypography.Screenplay.classifyLine(".INT. STAGE - NIGHT") == .sceneHeading)
     #expect(IOThemTypography.Screenplay.classifyLine(">FADE OUT.") == .transition)
+    #expect(IOThemTypography.Screenplay.classifyLine(">ON SCREEN<") == .centered)
 }

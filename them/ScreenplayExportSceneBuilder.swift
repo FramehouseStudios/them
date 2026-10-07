@@ -34,6 +34,11 @@ nonisolated enum ScreenplayExportSceneBuilder {
                 index += 1
                 continue
             }
+            if ScreenplayEditorElement.isCenteredText(trimmed) {
+                exportLines.append(["kind": "centered", "text": ScreenplayEditorElement.renderedText(for: trimmed)])
+                index += 1
+                continue
+            }
             if isTransition(trimmed) {
                 exportLines.append(["kind": "transition", "text": ScreenplayEditorElement.renderedText(for: trimmed)])
                 index += 1
@@ -46,7 +51,8 @@ nonisolated enum ScreenplayExportSceneBuilder {
                 var cursor = index + 1
                 while cursor < rawLines.endIndex {
                     let next = rawLines[cursor].trimmingCharacters(in: .whitespacesAndNewlines)
-                    if next.isEmpty || isSceneHeading(next) || isTransition(next) || isCharacterCue(next) { break }
+                    if next.isEmpty || isSceneHeading(next) || ScreenplayEditorElement.isCenteredText(next)
+                        || isTransition(next) || isCharacterCue(next) { break }
                     if parenthetical.isEmpty, isParenthetical(next) {
                         parenthetical = ScreenplayEditorElement.renderedText(for: next)
                     } else {
@@ -84,6 +90,7 @@ nonisolated enum ScreenplayExportSceneBuilder {
     }
 
     private static func isTransition(_ text: String) -> Bool {
+        if ScreenplayEditorElement.isCenteredText(text) { return false }
         if text.hasPrefix(">") { return true }
         return ScreenplayEditorElement.renderedText(for: text).range(
             of: #"^(CUT TO:|DISSOLVE TO:|SMASH CUT TO:|MATCH CUT TO:|WIPE TO:|INTERCUT WITH:|FADE IN:|FADE IN ON:|FADE OUT:|FADE OUT\.|FADE TO BLACK:|FADE TO BLACK\.|SMASH TO BLACK:|THE END)$"#,

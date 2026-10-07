@@ -64,6 +64,7 @@ public enum IOThemTypography {
         public static func alignment(for kind: FountainElement.Kind) -> TextAlignment {
             switch kind {
             case .transition: return .trailing
+            case .centered: return .center
             default: return .leading
             }
         }
@@ -71,6 +72,7 @@ public enum IOThemTypography {
         public static func horizontalAlignment(for kind: FountainElement.Kind) -> HorizontalAlignment {
             switch kind {
             case .transition: return .trailing
+            case .centered: return .center
             default: return .leading
             }
         }
@@ -87,6 +89,8 @@ public enum IOThemTypography {
                 return 2
             case .transition:
                 return 16
+            case .centered:
+                return 12
             case .blank:
                 return 8
             }
@@ -94,6 +98,7 @@ public enum IOThemTypography {
 
         public static func classifyLine(_ line: String) -> FountainElement.Kind {
             guard !line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return .blank }
+            if ScreenplayEditorElement.isCenteredText(line) { return .centered }
             return kind(for: ScreenplayEditorElement.inferredElement(for: line, previousElement: nil))
         }
 
@@ -105,6 +110,7 @@ public enum IOThemTypography {
             case .dialogue: return .dialogue
             case .parenthetical: return .parenthetical
             case .transition: return .transition
+            case .centered: return .centered
             }
         }
     }

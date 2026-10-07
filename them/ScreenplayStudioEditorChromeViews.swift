@@ -229,6 +229,8 @@ struct ScreenplayStudioElementModeBar: View {
             return "( )"
         case .transition:
             return "→"
+        case .centered:
+            return "Center"
         }
     }
 }

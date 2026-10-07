@@ -2335,66 +2335,6 @@ private extension NSAttributedString.Key {
     static let screenplayElementRaw = NSAttributedString.Key("io.them.them.screenplayElementRaw")
 }
 
-private func screenplayParagraphStyle(
-    for element: ScreenplayEditorElement,
-    previousElement: ScreenplayEditorElement?,
-    nextElement: ScreenplayEditorElement?,
-    containerWidth: CGFloat
-) -> NSParagraphStyle {
-    let style = NSMutableParagraphStyle()
-    style.lineBreakMode = .byWordWrapping
-    style.paragraphSpacing = 0
-    style.paragraphSpacingBefore = 0
-    style.lineHeightMultiple = 1.0
-    style.tabStops = []
-
-    let metrics = ScreenplayStackMetrics.editor(containerWidth: containerWidth)
-
-    switch element {
-    case .sceneHeading:
-        style.alignment = .left
-        style.firstLineHeadIndent = 0
-        style.headIndent = 0
-        style.tailIndent = 0
-        if nextElement == .action || nextElement == .character {
-            style.paragraphSpacing = metrics.sceneHeadingSpacingAfter
-        }
-    case .action:
-        style.alignment = .left
-        style.firstLineHeadIndent = 0
-        style.headIndent = 0
-        style.tailIndent = 0
-        if nextElement == .character || nextElement == .transition {
-            style.paragraphSpacing = metrics.actionCueSpacingAfter
-        }
-    case .character:
-        style.alignment = .center
-        style.firstLineHeadIndent = metrics.characterLeading
-        style.headIndent = metrics.characterLeading
-        style.tailIndent = -metrics.characterTrailing
-    case .dialogue:
-        style.alignment = .left
-        style.firstLineHeadIndent = metrics.dialogueLeading
-        style.headIndent = metrics.dialogueLeading
-        style.tailIndent = -metrics.dialogueTrailing
-    case .parenthetical:
-        style.alignment = .left
-        style.firstLineHeadIndent = metrics.parentheticalLeading
-        style.headIndent = metrics.parentheticalLeading
-        style.tailIndent = -metrics.parentheticalTrailing
-    case .transition:
-        style.alignment = .right
-        style.firstLineHeadIndent = 0
-        style.headIndent = 0
-        style.tailIndent = -metrics.transitionTrailing
-        if previousElement == .dialogue || previousElement == .parenthetical {
-            style.paragraphSpacingBefore = metrics.transitionSpacingBefore
-        }
-    }
-
-    return style
-}
-
 private func applyScreenplayParagraphAttributes(
     to textStorage: NSTextStorage,
     fullText: String,
@@ -2428,7 +2368,7 @@ private func applyScreenplayParagraphAttributes(
             guard index + 1 < lines.count else { return nil }
             return index + 1 < elements.count ? elements[index + 1] : nil
         }()
-        let paragraphStyle = screenplayParagraphStyle(
+        let paragraphStyle = ScreenplayParagraphStyleFactory.make(
             for: resolvedElement,
             previousElement: previousElement,
             nextElement: nextElement,
@@ -2505,7 +2445,7 @@ private func shouldNormalizeScreenplayLineDuringTyping(
     switch element {
     case .sceneHeading, .character, .transition:
         return true
-    case .action, .dialogue, .parenthetical:
+    case .action, .dialogue, .parenthetical, .centered:
         return false
     }
 }
@@ -3806,16 +3746,16 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             guard !trimmed.isEmpty, let element else { continue }
             switch element {
             case .sceneHeading:
-                scenes.append(MutableScene(line: lineNumber, slugline: trimmed.uppercased()))
+                scenes.append(MutableScene(line: lineNumber, slugline: ScreenplayEditorElement.renderedText(for: trimmed).uppercased()))
             case .character:
-                let cue = trimmed.uppercased()
+                let cue = ScreenplayEditorElement.characterCueName(trimmed).uppercased()
                 discoveredCharacters.insert(cue)
                 guard !scenes.isEmpty else { continue }
                 scenes[scenes.count - 1].characterCues.insert(cue)
             case .dialogue:
                 guard !scenes.isEmpty else { continue }
                 scenes[scenes.count - 1].dialogueLineCount += 1
-            case .action, .parenthetical, .transition:
+            case .action, .parenthetical, .transition, .centered:
                 break
             }
         }
@@ -9318,7 +9258,7 @@ struct MacCursorInsertTextEditor: NSViewRepresentable {
             guard let textView else { return }
             let containerWidth = textView.textContainer?.size.width ?? 560
             let context = currentLineContext(in: textView)
-            let paragraphStyle = screenplayParagraphStyle(
+            let paragraphStyle = ScreenplayParagraphStyleFactory.make(
                 for: parent.activeScreenplayElement,
                 previousElement: context.previousElement,
                 nextElement: nil,
@@ -11685,7 +11625,7 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
         private func refreshTypingAttributesOnly() {
             guard let textView else { return }
             let context = currentLineContext(in: textView)
-            let paragraphStyle = screenplayParagraphStyle(
+            let paragraphStyle = ScreenplayParagraphStyleFactory.make(
                 for: parent.activeScreenplayElement,
                 previousElement: context.previousElement,
                 nextElement: nil,

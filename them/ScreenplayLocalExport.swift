@@ -140,7 +140,9 @@ enum ScreenplayLocalExport {
                 inDualBlock = false
             }
             let attributes = inDualBlock ? " DualDialogue=\"Yes\"" : ""
-            paragraphs.append("    <Paragraph Type=\"\(type)\"\(attributes)><Text>\(escapeXML(text))</Text></Paragraph>")
+            let paragraphType = type == "Centered" ? "General" : type
+            let alignment = type == "Centered" ? " Alignment=\"Center\"" : ""
+            paragraphs.append("    <Paragraph Type=\"\(paragraphType)\"\(alignment)\(attributes)><Text>\(escapeXML(text))</Text></Paragraph>")
             previousType = type
         }
 
@@ -202,6 +204,7 @@ enum ScreenplayLocalExport {
             case .dialogue: return "Dialogue"
             case .parenthetical: return "Parenthetical"
             case .transition: return "Transition"
+            case .centered: return "Centered"
             }
         }
         if previousType == "Character" || previousType == "Parenthetical" || previousType == "Dialogue" {
@@ -315,6 +318,11 @@ enum ScreenplayLocalExport {
             style.headIndent = 0
             style.tailIndent = 0
         case .character:
+            style.alignment = .center
+            style.firstLineHeadIndent = 0
+            style.headIndent = 0
+            style.tailIndent = 0
+        case .centered:
             style.alignment = .center
             style.firstLineHeadIndent = 0
             style.headIndent = 0

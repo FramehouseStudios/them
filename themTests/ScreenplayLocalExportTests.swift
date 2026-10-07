@@ -64,7 +64,7 @@ final class ScreenplayLocalExportTests: XCTestCase {
 
     func testLocalFDXExportHonorsFountainForceMarkersWithoutLeakingThem() throws {
         let artifact = try ScreenplayLocalExport.makeArtifact(
-            draft: ".INT. STAGE - NIGHT\n!THE LIGHTS FAIL.\n@McCLANE\nYippee-ki-yay.\n>FADE OUT.",
+            draft: ".INT. STAGE - NIGHT\n!THE LIGHTS FAIL.\n>A TITLE CARD<\n@McCLANE\nYippee-ki-yay.\n>FADE OUT.",
             title: "Markers",
             format: "fdx"
         )
@@ -72,6 +72,7 @@ final class ScreenplayLocalExportTests: XCTestCase {
 
         XCTAssertTrue(xml.contains("<Paragraph Type=\"Scene Heading\"><Text>INT. STAGE - NIGHT</Text>"))
         XCTAssertTrue(xml.contains("<Paragraph Type=\"Action\"><Text>THE LIGHTS FAIL.</Text>"))
+        XCTAssertTrue(xml.contains("<Paragraph Type=\"General\" Alignment=\"Center\"><Text>A TITLE CARD</Text>"))
         XCTAssertTrue(xml.contains("<Paragraph Type=\"Character\"><Text>McCLANE</Text>"))
         XCTAssertTrue(xml.contains("<Paragraph Type=\"Dialogue\"><Text>Yippee-ki-yay.</Text>"))
         XCTAssertTrue(xml.contains("<Paragraph Type=\"Transition\"><Text>FADE OUT.</Text>"))

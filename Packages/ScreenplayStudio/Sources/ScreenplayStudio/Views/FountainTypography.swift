@@ -28,6 +28,7 @@ public enum FountainTypography {
         case .dialogue: return dialogueIndent
         case .parenthetical: return parentheticalIndent
         case .transition: return transitionIndent
+        case .centered: return actionIndent
         case .blank: return 0
         }
     }
@@ -35,6 +36,7 @@ public enum FountainTypography {
     public static func alignment(for kind: FountainElement.Kind) -> TextAlignment {
         switch kind {
         case .transition: return .trailing
+        case .centered: return .center
         default: return .leading
         }
     }
@@ -42,6 +44,7 @@ public enum FountainTypography {
     public static func horizontalAlignment(for kind: FountainElement.Kind) -> HorizontalAlignment {
         switch kind {
         case .transition: return .trailing
+        case .centered: return .center
         default: return .leading
         }
     }
