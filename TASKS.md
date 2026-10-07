@@ -13,18 +13,21 @@
 
 ## Active work — quick view
 
-### T-fast-uri-stack — Verify the remaining dependency-security update
+### T-fast-uri-stack — Verify the remaining dependency-security updates
 - Owner: codex
 - Branch: codex/T-fast-uri-stack
 - Status: review
 - Pillar: living companion
 - Goal criteria: 6, 7 and 8.
-- Scope: preserve and reuse #782's exact lockfile update on #883.
-- Done when: locked production audit is clear; malformed-host and normal URI
-  regressions, real craft schema validation, full backend and signed iOS pass.
+- Scope: preserve #782's exact fast-uri fix on #883 and extend the same draft
+  with the newly confirmed proxy-addr fix, without changing app behavior.
+- Done when: locked production audit is clear; malformed-host, URI, proxy trust
+  subnet and real craft-schema regressions plus full backend and signed iOS pass.
 - No main mutation, original branch rewrite, provider call or deployment.
-- Proof: focused 29/29; full backend 2,813 pass/0 fail/2 skip; erased signed
-  iOS units 666/666. Current locked production audit: zero findings.
+- Proof before proxy-addr follow-up: focused 29/29; full backend 2,813 pass/0
+  fail/2 skip; erased signed iOS units 666/666. Follow-up: old 2.0.7 fails the
+  new trust-subnet regression; locked 2.0.8 passes it; current production audit
+  reports zero findings; full backend 2,814 pass/0 fail/2 skip on Node 26.7.0.
 - Details: docs/audits/fast-uri-stack-2026-09-30.md.
 
 ### T-voice-upload-stack — Harden uploads without rejecting Studio voice metadata
@@ -40,7 +43,9 @@
   71 possible field names. Prove and repair this compatibility gap.
 - No paid model calls, deployment, merge or protection bypass.
 - Proof: focused 26/26; final backend 2,810 pass/0 fail/2 skip; final erased
-  signed iOS 666/666. Current audit: one high fast-uri, no Multer finding.
+  signed iOS 666/666. At that branch snapshot, audit reported one high fast-uri,
+  no Multer finding. The later security-stack PR #884 addresses this finding and
+  proxy-addr; those fixes are not merged.
 - Details: docs/audits/voice-upload-stack-2026-09-30.md.
 
 ### T-page-cancel-stack — Verify cancellation ownership on the reviewed stack
