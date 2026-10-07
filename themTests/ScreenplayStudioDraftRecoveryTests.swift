@@ -151,6 +151,22 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         XCTAssertEqual(recovered?.draft, exactLocalDraft)
     }
 
+    func testServerBackedRecoverySelectionPreservesLineEndingOnlyDifference() {
+        let exactLocalDraft = "Script\r\n"
+        let versions = [
+            version(id: "recovery", source: "studio_live_sync_recovery", updatedAt: 20, draft: exactLocalDraft),
+        ]
+
+        let recovered = ScreenplayServerBackedDraftRecoveryPolicy.newestRecovery(
+            from: versions,
+            excluding: "Script",
+            fingerprint: stableFingerprint
+        )
+
+        XCTAssertEqual(recovered?.id, "recovery")
+        XCTAssertEqual(recovered?.draft, exactLocalDraft)
+    }
+
     func testRecoveryBannerCopyDistinguishesAccountProtectionFromLocalOnly() {
         let accountCopy = ScreenplayDraftRecoveryBannerCopy.make(
             accountProtected: true,
