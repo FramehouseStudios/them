@@ -10,6 +10,19 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
 const script = path.join(repoRoot, "scripts/desktop_preflight.sh");
 
+test('[release-backend] public default precedes private configuration and stays outside Debug', () => {
+  const release = fs.readFileSync(path.join(repoRoot, 'them/Release.xcconfig'), 'utf8');
+  const shared = fs.readFileSync(path.join(repoRoot, 'them/Config.xcconfig'), 'utf8');
+  const project = fs.readFileSync(path.join(repoRoot, 'them.xcodeproj/project.pbxproj'), 'utf8');
+  assert.match(release, /BACKEND_URL = https:\/\$\(\)\/them-backend\.onrender\.com/);
+  assert.ok(release.indexOf('BACKEND_URL =') < release.indexOf('#include "Config.xcconfig"'));
+  assert.match(shared, /#include\? "Release\.local\.xcconfig"/);
+  assert.equal((project.match(/baseConfigurationReference = .*\/\* Release\.xcconfig \*\//g) || []).length, 2);
+  assert.match(project, /BACKEND_URL = "http:\/\/localhost:3000"/);
+  assert.doesNotMatch(project, /BACKEND_URL = "https:\/\/api\.them\.io"/);
+  assert.match(project, /membershipExceptions = \([\s\S]*?"Release\.xcconfig"/);
+});
+
 test("[desktop-preflight] keeps the shared scheme archiveable with a production Mac configuration", () => {
   const scheme = fs.readFileSync(
     path.join(repoRoot, "them.xcodeproj/xcshareddata/xcschemes/them-macOS-scaffold.xcscheme"),
@@ -30,7 +43,8 @@ test("[desktop-preflight] keeps the shared scheme archiveable with a production 
   assert.equal(releaseBlocks?.length, 2, "expected project and app release configurations");
   assert.ok(releaseBlocks.some((block) => block.includes('SWIFT_ACTIVE_COMPILATION_CONDITIONS = "THEM_MAC_SHELL $(inherited)"')));
   assert.ok(releaseBlocks.some((block) => block.includes("SUPPORTED_PLATFORMS = macosx")));
-  assert.ok(releaseBlocks.some((block) => block.includes('BACKEND_URL = "https://api.them.io"')));
+  assert.ok(releaseBlocks.some((block) => block.includes('/* Release.xcconfig */')));
+  assert.ok(releaseBlocks.every((block) => !block.includes('BACKEND_URL =')));
   assert.ok(releaseBlocks.some((block) => block.includes('INFOPLIST_FILE = "them/Info-Release.plist"')));
   assert.ok(releaseBlocks.some((block) => block.includes('INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity"')));
   assert.ok(releaseBlocks.every((block) => block.includes("THEM_MAC_SHELL = YES")));

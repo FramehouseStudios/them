@@ -11,7 +11,7 @@ chmod 600 them/Release.local.env
 ```
 
 - Fill `DEVELOPMENT_TEAM_ID`, `APP_TOKEN_RELEASE`, and `OPENAI_API_KEY` in `them/Release.local.env`.
-- Keep `BACKEND_URL=https://api.them.io` unless the hosted release backend changes.
+- Keep `BACKEND_URL=https://them-backend.onrender.com` until a custom domain passes the live backend gate. `api.them.io` currently redirects to a parked domain.
 - Keep `PRIVACY_POLICY_URL` identical to the URL shipped in `them/Info-Release.plist`.
 - Check secret-safe release config status:
 
