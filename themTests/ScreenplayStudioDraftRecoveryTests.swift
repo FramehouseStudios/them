@@ -297,7 +297,171 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         XCTAssertEqual(snapshot?.isPreservedConflict, true)
         let payload = relaunchedStore.payloads(ownerUserId: ownerUserID)["project-recovery"]
         XCTAssertNil(payload?["draft"])
-        XCTAssertNotNil(payload?["preservedConflict"])
+        XCTAssertNotNil(payload?["preservedConflicts"])
+    }
+
+    func testSuccessivePreservedConflictsSurviveAcknowledgementAndAreRecoverableInOrder() {
+        let remote = "INT. DINER - NIGHT\n\nShe waits."
+        let first = remote + "\n\nA phone BUZZES."
+        let second = first + "\n\nShe lets it ring."
+
+        store.savePreservedConflict(
+            ownerUserId: ownerUserID,
+            projectId: "project-recovery",
+            draft: first,
+            baseVersionId: "version-before-first-conflict",
+            savedAt: 1_700_000_123
+        )
+        store.savePreservedConflict(
+            ownerUserId: ownerUserID,
+            projectId: "project-recovery",
+            draft: second,
+            baseVersionId: "version-before-second-conflict",
+            savedAt: 1_700_000_456
+        )
+
+        // A remote save acknowledgement may clear the ordinary recovery slot,
+        // but must not erase either local conflict snapshot.
+        store.save(
+            ownerUserId: ownerUserID,
+            projectId: "project-recovery",
+            draft: remote,
+            baseVersionId: "version-remote",
+            dirty: true,
+            savedAt: 1_700_000_789
+        )
+        store.clearOrdinaryDraft(ownerUserId: ownerUserID, projectId: "project-recovery")
+
+        let relaunchedStore = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: recoveryKey)
+        let firstSnapshot = relaunchedStore.recoverySnapshot(
+            ownerUserId: ownerUserID,
+            projectId: "project-recovery",
+            serverDraft: remote,
+            fingerprint: stableFingerprint
+        )
+        XCTAssertEqual(firstSnapshot?.draft, first)
+        XCTAssertEqual(firstSnapshot?.baseVersionId, "version-before-first-conflict")
+
+        let secondSnapshot = relaunchedStore.nextPreservedConflict(
+            ownerUserId: ownerUserID,
+            projectId: "project-recovery",
+            after: first,
+            savedAt: 1_700_000_123
+        )
+        XCTAssertEqual(secondSnapshot?.draft, second)
+        XCTAssertEqual(secondSnapshot?.baseVersionId, "version-before-second-conflict")
+
+        // Choosing the second snapshot replaces the ordinary editing slot,
+        // not the protected history. Both remain recoverable until the writer
+        // explicitly saves a chosen draft or discards the recovery copies.
+        relaunchedStore.save(
+            ownerUserId: ownerUserID,
+            projectId: "project-recovery",
+            draft: second,
+            baseVersionId: "version-before-second-conflict",
+            dirty: true,
+            savedAt: 1_700_000_999
+        )
+        relaunchedStore.clearOrdinaryDraft(ownerUserId: ownerUserID, projectId: "project-recovery")
+        let afterSecondAcknowledgement = relaunchedStore.recoverySnapshot(
+            ownerUserId: ownerUserID,
+            projectId: "project-recovery",
+            serverDraft: remote,
+            fingerprint: stableFingerprint
+        )
+        XCTAssertEqual(afterSecondAcknowledgement?.draft, first)
+        XCTAssertEqual(
+            relaunchedStore.nextPreservedConflict(
+                ownerUserId: ownerUserID,
+                projectId: "project-recovery",
+                after: first,
+                savedAt: 1_700_000_123
+            )?.draft,
+            second
+        )
+    }
+
+    func testLegacySingleConflictMigratesWithoutDroppingWhenAnotherConflictArrives() {
+        let ownerKey = ScreenplayOwnerScopedStoragePolicy.storageKey(
+            baseKey: recoveryKey,
+            ownerUserID: ownerUserID
+        )
+        let legacyDraft = "INT. DINER - NIGHT\n\nShe waits."
+        let nextDraft = legacyDraft + "\n\nA phone BUZZES."
+        defaults.set([
+            "project-recovery": [
+                "preservedConflict": [
+                    "draft": legacyDraft,
+                    "baseVersionId": "legacy-base",
+                    "dirty": true,
+                    "savedAt": 1_700_000_123,
+                ],
+            ],
+        ], forKey: ownerKey)
+
+        store.savePreservedConflict(
+            ownerUserId: ownerUserID,
+            projectId: "project-recovery",
+            draft: nextDraft,
+            baseVersionId: "new-base",
+            savedAt: 1_700_000_456
+        )
+
+        let payload = store.payloads(ownerUserId: ownerUserID)["project-recovery"]
+        let conflicts = payload?["preservedConflicts"] as? [[String: Any]]
+        XCTAssertEqual(conflicts?.count, 2)
+        XCTAssertNil(payload?["preservedConflict"])
+        XCTAssertEqual(
+            store.firstPreservedConflict(ownerUserId: ownerUserID, projectId: "project-recovery")?.draft,
+            legacyDraft
+        )
+        XCTAssertEqual(
+            store.nextPreservedConflict(
+                ownerUserId: ownerUserID,
+                projectId: "project-recovery",
+                after: legacyDraft,
+                savedAt: 1_700_000_123
+            )?.draft,
+            nextDraft
+        )
+    }
+
+    @MainActor
+    func testViewModelAdvancesRecoveryWithoutDeletingEarlierUnresolvedDrafts() async {
+        let projectID = "project-successive-live-conflicts-\(UUID().uuidString)"
+        let authOwnerID = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""
+        let first = "INT. DINER - NIGHT\n\nShe waits."
+        let second = first + "\n\nA phone BUZZES."
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store)
+        model.selectedProjectID = projectID
+        model.fountainDraft = first
+
+        model.preserveLocalDraftForLiveSyncRecovery(first, projectID: projectID)
+        model.preserveLocalDraftForLiveSyncRecovery(second, projectID: projectID)
+        XCTAssertEqual(model.recoveryCandidate?.draft, first)
+
+        model.restoreDraftFromRecovery()
+        XCTAssertEqual(model.fountainDraft, first)
+        XCTAssertEqual(model.recoveryCandidate?.draft, second)
+
+        model.restoreDraftFromRecovery()
+        XCTAssertEqual(model.fountainDraft, second)
+        XCTAssertNil(model.recoveryCandidate)
+
+        let archived = store.firstPreservedConflict(ownerUserId: authOwnerID, projectId: projectID)
+        XCTAssertEqual(archived?.draft, first)
+        XCTAssertEqual(
+            store.nextPreservedConflict(
+                ownerUserId: authOwnerID,
+                projectId: projectID,
+                after: first,
+                savedAt: archived?.savedAt ?? 0
+            )?.draft,
+            second
+        )
+        // Let the editor's debounced draft observer drain before this test's
+        // temporary ViewModel is released.
+        try? await Task.sleep(nanoseconds: 1_100_000_000)
     }
 
     @MainActor

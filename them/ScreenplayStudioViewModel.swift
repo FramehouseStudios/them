@@ -1994,13 +1994,18 @@ final class ScreenplayStudioViewModel: ObservableObject {
             baseVersionId: latestVersionID,
             savedAt: savedAt
         )
-        recoveryCandidate = LocalDraftRecoveryCandidate(
-            projectId: cleanProjectID,
-            draft: text,
-            baseVersionId: latestVersionID,
-            savedAt: savedAt,
-            isPreservedConflict: true
-        )
+        if let firstConflict = localDraftRecoveryStore.firstPreservedConflict(
+            ownerUserId: ownerUserID,
+            projectId: cleanProjectID
+        ) {
+            recoveryCandidate = LocalDraftRecoveryCandidate(
+                projectId: firstConflict.projectId,
+                draft: firstConflict.draft,
+                baseVersionId: firstConflict.baseVersionId,
+                savedAt: firstConflict.savedAt,
+                isPreservedConflict: true
+            )
+        }
         autosaveStatusText = "Local draft protected"
         infoText = "Your unsaved local draft is preserved while live sync loads the other device's text. Recover it or keep the server draft."
     }
@@ -4268,12 +4273,6 @@ final class ScreenplayStudioViewModel: ObservableObject {
         if !candidate.baseVersionId.isEmpty {
             latestVersionID = candidate.baseVersionId
         }
-        if candidate.isPreservedConflict {
-            localDraftRecoveryStore.clearPreservedConflict(
-                ownerUserId: currentStudioAuthContext().userID,
-                projectId: candidate.projectId
-            )
-        }
         syncLiveDraftBridgeProjectContext()
         hasUnsavedDraftChanges = fingerprint(for: candidate.draft) != lastSavedDraftFingerprint
         autosaveStatusText = "Recovered local draft"
@@ -4285,6 +4284,21 @@ final class ScreenplayStudioViewModel: ObservableObject {
             baseVersionId: latestVersionID,
             dirty: hasUnsavedDraftChanges
         )
+        if candidate.isPreservedConflict,
+           let nextConflict = localDraftRecoveryStore.nextPreservedConflict(
+            ownerUserId: currentStudioAuthContext().userID,
+            projectId: candidate.projectId,
+            after: candidate.draft,
+            savedAt: candidate.savedAt
+           ) {
+            recoveryCandidate = LocalDraftRecoveryCandidate(
+                projectId: nextConflict.projectId,
+                draft: nextConflict.draft,
+                baseVersionId: nextConflict.baseVersionId,
+                savedAt: nextConflict.savedAt,
+                isPreservedConflict: true
+            )
+        }
     }
 
     func keepServerDraft() {
