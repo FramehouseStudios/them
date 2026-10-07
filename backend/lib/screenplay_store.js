@@ -939,7 +939,13 @@ function getScreenplayProjectRecord(ownerRecord, projectId) {
 
 function getLatestScreenplayVersion(project) {
   if (!project || !Array.isArray(project.versions) || project.versions.length === 0) return null;
-  return [...project.versions].sort((a, b) => {
+  // Recovery snapshots are intentionally durable but are never a screenplay
+  // version to open, activate, or use as Clementine's current-project context.
+  const screenplayVersions = project.versions.filter((version) =>
+    version?.source !== "studio_live_sync_recovery"
+  );
+  if (screenplayVersions.length === 0) return null;
+  return [...screenplayVersions].sort((a, b) => {
     const aTs = Math.max(0, Number(a.updatedAt || a.createdAt || 0));
     const bTs = Math.max(0, Number(b.updatedAt || b.createdAt || 0));
     return bTs - aTs;

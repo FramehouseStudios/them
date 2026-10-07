@@ -1559,6 +1559,27 @@ test("[screenplay-projects-routes] live-sync recovery is durable, idempotent, an
   });
 });
 
+test("[screenplay-projects-routes] recovery-only project does not activate the recovery copy", async () => {
+  const deps = defaultDeps();
+  const project = deps._owner.projects.find((item) => item.id === "p1");
+  project.activeVersionId = "";
+  project.lastVersionId = "";
+  project.versions = [];
+
+  await withTestServer(deps, async (baseURL) => {
+    const result = await postJson(baseURL, "/screenplay/projects/p1/recovery", {
+      draft: "Unsaved first scene",
+      client_request_id: "recovery-only-project-001",
+    });
+
+    assert.equal(result.status, 201);
+    assert.notEqual(project.activeVersionId, result.body.recovery_id);
+    assert.notEqual(project.lastVersionId, result.body.recovery_id);
+    assert.equal(result.body.active_version_id, "");
+    assert.equal(project.versions[0].source, "studio_live_sync_recovery");
+  });
+});
+
 test("[screenplay-projects-routes] recovery deletion is owner scoped and only deletes recovery copies", async () => {
   const deps = defaultDeps();
   const project = deps._owner.projects.find((item) => item.id === "p1");
