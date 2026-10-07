@@ -4265,9 +4265,10 @@ final class ScreenplayStudioViewModel: ObservableObject {
         isHydratingDraft = true
         fountainDraft = candidate.draft
         isHydratingDraft = false
-        if !candidate.baseVersionId.isEmpty {
-            latestVersionID = candidate.baseVersionId
-        }
+        // An empty base is meaningful: the saved recovery predates base-version
+        // tracking. Keep it empty so the save preflight compares against the
+        // current server draft instead of silently treating that draft as its base.
+        latestVersionID = candidate.baseVersionId
         syncLiveDraftBridgeProjectContext()
         hasUnsavedDraftChanges = fingerprint(for: candidate.draft) != lastSavedDraftFingerprint
         autosaveStatusText = "Recovered local draft"
@@ -6619,7 +6620,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
             recoveryCandidate = LocalDraftRecoveryCandidate(
                 projectId: normalizedProjectId,
                 draft: recoveryDraft,
-                baseVersionId: serverRecovery.baseVersionId ?? latestVersionID,
+                baseVersionId: ScreenplayServerBackedDraftRecoveryPolicy.originalBaseVersionId(for: serverRecovery),
                 savedAt: serverRecovery.updatedAt ?? serverRecovery.createdAt ?? 0,
                 isPreservedConflict: true,
                 serverRecoveryId: serverRecovery.id

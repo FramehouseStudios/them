@@ -17,6 +17,6 @@ Preserve the original active screenplay version ID with each account-backed live
 
 - Recovery upload accepts and durably stores `base_version_id` without activating the recovery copy.
 - The serialized recovery version returns that base ID after persistence/reload.
-- iOS sends the captured base version and uses the server-backed recovery's base when offering Recover Local; legacy records fall back to the current active version.
+- iOS sends the captured base version and uses the server-backed recovery's base when offering Recover Local; legacy records with unknown bases fail closed instead of assuming the latest version.
 - Tests prove the exact base survives the request, store, and response, and a recovered stale base cannot overwrite the newer active version.
 - Focused and full backend/iOS checks, god-file gate, and `git diff --check` pass. Do not grow `backend/index.js`.

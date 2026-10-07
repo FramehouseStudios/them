@@ -152,6 +152,19 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         XCTAssertEqual(recovered?.baseVersionId, "version-before-edit")
     }
 
+    func testLegacyServerRecoveryWithUnknownBaseDoesNotAssumeCurrentVersion() {
+        let legacyRecovery = version(
+            id: "legacy-recovery",
+            source: "studio_live_sync_recovery",
+            draft: "Exact preserved words."
+        )
+
+        XCTAssertEqual(
+            ScreenplayServerBackedDraftRecoveryPolicy.originalBaseVersionId(for: legacyRecovery),
+            ""
+        )
+    }
+
     func testRecoveryBannerCopyDistinguishesAccountProtectionFromLocalOnly() {
         let accountCopy = ScreenplayDraftRecoveryBannerCopy.make(
             accountProtected: true,
@@ -342,8 +355,10 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         XCTAssertEqual(relaunchedSnapshot?.draft, local)
         XCTAssertEqual(relaunchedSnapshot?.isPreservedConflict, true)
 
+        model.latestVersionID = "version-current-after-recovery"
         model.restoreDraftFromRecovery()
         XCTAssertEqual(model.fountainDraft, local)
+        XCTAssertEqual(model.latestVersionID, "")
         XCTAssertEqual(model.recoveryCandidate?.serverRecoveryId, "server-recovery-test")
     }
 

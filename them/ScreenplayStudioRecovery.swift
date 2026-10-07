@@ -11,6 +11,10 @@ struct ScreenplayLocalDraftRecoverySnapshot: Equatable {
 }
 
 struct ScreenplayServerBackedDraftRecoveryPolicy {
+    static func originalBaseVersionId(for recovery: BackendScreenplayVersion) -> String {
+        (recovery.baseVersionId ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     static func newestRecovery(
         from versions: [BackendScreenplayVersion]?,
         excluding serverDraft: String,

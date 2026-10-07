@@ -5056,7 +5056,7 @@ Preserve the original screenplay base version ID with account-backed live-sync r
 ## Done when
 
 - Recovery POST accepts and persists `base_version_id`, and responses return it after normalization.
-- iOS uploads and restores that original base; legacy records fall back to the current active version.
+- iOS uploads and restores that original base; legacy records with unknown bases fail closed instead of assuming the current version.
 - A recovered stale base is rejected instead of overwriting the active screenplay.
 - Backend/iOS tests, god-file gate, and diff check pass without growing `backend/index.js`.
 
