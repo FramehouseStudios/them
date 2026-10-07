@@ -466,6 +466,34 @@ final class ScreenplayLiveDraftSyncServiceTests: XCTestCase {
         service.detach()
     }
 
+    func testOverlappingRemoteOpPreservesLocalDraftBeforeChannelWins() async {
+        let transport = FakeLiveDraftTransport()
+        let base = "INT. ROOM - DAY\n\nMara waits."
+        let local = "INT. ROOM - DAY\n\nMara runs."
+        let remote = "INT. ROOM - DAY\n\nMara hides."
+        let editor = FakeLiveDraftEditor(projectID: "proj-1", text: base)
+        let service = makeService(transport: transport)
+        service.attach(to: editor)
+        await waitUntil { !transport.openedStreams.isEmpty }
+        transport.emit("hello", #"{"seq":0,"checksum":"\#(LiveDraftText.checksum(base))","seeded":false}"#)
+        await waitUntil { service.status.isLive }
+
+        // Both writers replace the same dialogue. Since neither edit can be
+        // merged without choosing words, the channel wins—but local text must
+        // remain recoverable before it is replaced in the editor.
+        editor.text = local
+        let remoteOp = LiveDraftText.diff(from: base, to: remote)!
+        transport.emit("op", #"{"seq":1,"device_id":"ios-phone","op":{"start":\#(remoteOp.start),"delete_count":\#(remoteOp.deleteCount),"insert":"\#(remoteOp.insert)"},"checksum":"\#(LiveDraftText.checksum(remote))"}"#)
+        await waitUntil { editor.text == remote }
+
+        XCTAssertEqual(editor.preservedLocalDrafts.count, 1)
+        XCTAssertEqual(editor.preservedLocalDrafts.first?.draft, local)
+        XCTAssertEqual(editor.preservedLocalDrafts.first?.projectID, "proj-1")
+        XCTAssertEqual(editor.appliedRemoteTexts.last, remote)
+        XCTAssertTrue(transport.postedOps.isEmpty, "the losing local overlap must not be published over the channel")
+        service.detach()
+    }
+
     func testFreshChannelPushesNonEmptyLocalDraft() async {
         let transport = FakeLiveDraftTransport()
         let editor = FakeLiveDraftEditor(projectID: "proj-1", text: "local unsaved work")
