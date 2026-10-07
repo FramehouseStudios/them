@@ -863,6 +863,32 @@ final class ScreenplayLiveDraftSyncService: ObservableObject {
                 status = .offline(reason: "recovery_pending")
                 return
             }
+
+            // Securing the captured draft can suspend while the writer keeps
+            // typing. A successful receipt only protects `localText`, not
+            // edits made after that snapshot. Do not advance the mirror or
+            // apply the remote payload unless the same project still contains
+            // the exact text we just protected; a later event/resync can
+            // protect the newer snapshot before adoption.
+            guard projectID == activeProjectID,
+                  let editor,
+                  editor.liveDraftProjectID == projectID else {
+                return
+            }
+            guard editor.liveDraftText == localText else {
+                // Re-run the editor's preservation path with the current
+                // text. If an older protected conflict prevents a second
+                // account receipt, the view model reports that honestly
+                // while its ordinary dirty-draft store retains these words.
+                _ = await editor.preserveLocalDraftForLiveSyncRecovery(
+                    editor.liveDraftText,
+                    projectID: projectID
+                )
+                isConnected = false
+                status = .offline(reason: "recovery_pending")
+                logger.notice("live draft: local text changed while recovery receipt was pending; remote adoption paused")
+                return
+            }
         }
         setMirror(text: remoteText, seq: seq, checksum: checksum)
         applyToEditor(merged ?? remoteText, projectID: projectID, sourceDeviceID: sourceDeviceID)

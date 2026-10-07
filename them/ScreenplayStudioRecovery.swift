@@ -26,6 +26,15 @@ struct ScreenplayServerBackedDraftRecoveryPolicy {
                     && fingerprint(draft) != serverFingerprint
             }
     }
+
+    /// A dirty device-only draft is not represented by the account receipt.
+    /// Keep it visible rather than comparing device wall clocks with server
+    /// timestamps, which can skew and do not prove causal ordering.
+    static func shouldPreferLocalRecovery(
+        _ localRecovery: ScreenplayLocalDraftRecoverySnapshot
+    ) -> Bool {
+        !localRecovery.isPreservedConflict
+    }
 }
 
 struct ScreenplayDraftRecoveryBannerCopy: Equatable {
@@ -339,13 +348,14 @@ struct ScreenplayLocalDraftRecoveryStore {
         guard !normalizedProjectId.isEmpty,
               let stored = payloads(ownerUserId: ownerUserId)[normalizedProjectId] else { return nil }
 
-        let serverFingerprint = fingerprint(serverDraft.trimmingCharacters(in: .whitespacesAndNewlines))
+        let serverFingerprint = fingerprint(serverDraft)
+        var preservedSnapshot: ScreenplayLocalDraftRecoverySnapshot?
         if let preserved = stored["preservedConflict"] as? [String: Any],
            preserved["dirty"] as? Bool == true {
             let draft = String(describing: preserved["draft"] ?? "")
             if !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-               fingerprint(draft.trimmingCharacters(in: .whitespacesAndNewlines)) != serverFingerprint {
-                return ScreenplayLocalDraftRecoverySnapshot(
+               fingerprint(draft) != serverFingerprint {
+                preservedSnapshot = ScreenplayLocalDraftRecoverySnapshot(
                     projectId: normalizedProjectId,
                     draft: draft,
                     baseVersionId: String(describing: preserved["baseVersionId"] ?? ""),
@@ -354,32 +364,42 @@ struct ScreenplayLocalDraftRecoveryStore {
                     clientRequestId: preserved["clientRequestId"] as? String,
                     serverRecoveryId: preserved["serverRecoveryId"] as? String
                 )
+            } else {
+                clearPreservedConflict(ownerUserId: ownerUserId, projectId: normalizedProjectId)
             }
-            clearPreservedConflict(ownerUserId: ownerUserId, projectId: normalizedProjectId)
         }
 
         guard let latestStored = payloads(ownerUserId: ownerUserId)[normalizedProjectId] else { return nil }
         let storedDraft = String(describing: latestStored["draft"] ?? "")
         let storedDirty = latestStored["dirty"] as? Bool ?? false
-        guard storedDirty, !storedDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return nil
+        var ordinarySnapshot: ScreenplayLocalDraftRecoverySnapshot?
+        if storedDirty, !storedDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let localFingerprint = fingerprint(storedDraft)
+            if serverFingerprint != localFingerprint {
+                ordinarySnapshot = ScreenplayLocalDraftRecoverySnapshot(
+                    projectId: normalizedProjectId,
+                    draft: storedDraft,
+                    baseVersionId: String(describing: latestStored["baseVersionId"] ?? ""),
+                    savedAt: latestStored["savedAt"] as? TimeInterval ?? 0,
+                    isPreservedConflict: false,
+                    clientRequestId: nil,
+                    serverRecoveryId: nil
+                )
+            } else {
+                clearOrdinaryDraft(ownerUserId: ownerUserId, projectId: normalizedProjectId)
+                return preservedSnapshot
+            }
         }
 
-        let localFingerprint = fingerprint(storedDraft.trimmingCharacters(in: .whitespacesAndNewlines))
-        guard serverFingerprint != localFingerprint else {
-            clear(ownerUserId: ownerUserId, projectId: normalizedProjectId)
-            return nil
+        guard let ordinarySnapshot else { return preservedSnapshot }
+        if let preservedSnapshot,
+           fingerprint(ordinarySnapshot.draft) == fingerprint(preservedSnapshot.draft) {
+            return preservedSnapshot
         }
-
-        return ScreenplayLocalDraftRecoverySnapshot(
-            projectId: normalizedProjectId,
-            draft: storedDraft,
-            baseVersionId: String(describing: latestStored["baseVersionId"] ?? ""),
-            savedAt: latestStored["savedAt"] as? TimeInterval ?? 0,
-            isPreservedConflict: false,
-            clientRequestId: nil,
-            serverRecoveryId: nil
-        )
+        // The protected conflict remains stored separately; surface the
+        // distinct dirty device-only words first rather than discarding them
+        // based on wall-clock timestamps from unrelated persistence layers.
+        return ordinarySnapshot
     }
 
     private func ownerScopedKey(_ ownerUserId: String) -> String {

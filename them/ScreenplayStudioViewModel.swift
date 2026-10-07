@@ -1966,6 +1966,14 @@ final class ScreenplayStudioViewModel: ObservableObject {
             baseVersionId: latestVersionID,
             savedAt: savedAt
         ) else {
+            // A receipt for an earlier conflict must not make Recover point
+            // back at that text after the writer has continued typing. Keep
+            // the current exact text in the independent device recovery slot.
+            persistRecoveryForUnconfirmedSave(
+                projectId: cleanProjectID,
+                draft: text,
+                baseVersionId: latestVersionID
+            )
             autosaveStatusText = "Recovery needed"
             infoText = "Resolve the existing protected draft before live sync can replace this page."
             return false
@@ -6609,12 +6617,32 @@ final class ScreenplayStudioViewModel: ObservableObject {
             recoveryCandidate = nil
             return
         }
+        let localSnapshot = localDraftRecoveryStore.recoverySnapshot(
+            ownerUserId: currentStudioAuthContext().userID,
+            projectId: normalizedProjectId,
+            serverDraft: serverDraft,
+            fingerprint: { [weak self] value in self?.fingerprint(for: value) ?? value }
+        )
         if let serverRecovery = ScreenplayServerBackedDraftRecoveryPolicy.newestRecovery(
             from: selectedProject?.versions,
             excluding: serverDraft,
             fingerprint: { [weak self] in self?.fingerprint(for: $0) ?? $0 }
         ),
            let recoveryDraft = serverRecovery.draft {
+            if let localSnapshot,
+               ScreenplayServerBackedDraftRecoveryPolicy.shouldPreferLocalRecovery(
+                   localSnapshot
+               ) {
+                recoveryCandidate = LocalDraftRecoveryCandidate(
+                    projectId: localSnapshot.projectId,
+                    draft: localSnapshot.draft,
+                    baseVersionId: localSnapshot.baseVersionId,
+                    savedAt: localSnapshot.savedAt,
+                    isPreservedConflict: localSnapshot.isPreservedConflict,
+                    serverRecoveryId: localSnapshot.serverRecoveryId
+                )
+                return
+            }
             recoveryCandidate = LocalDraftRecoveryCandidate(
                 projectId: normalizedProjectId,
                 draft: recoveryDraft,
@@ -6625,12 +6653,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
             )
             return
         }
-        guard let snapshot = localDraftRecoveryStore.recoverySnapshot(
-            ownerUserId: currentStudioAuthContext().userID,
-            projectId: normalizedProjectId,
-            serverDraft: serverDraft,
-            fingerprint: { [weak self] value in self?.fingerprint(for: value) ?? value }
-        ) else {
+        guard let snapshot = localSnapshot else {
             recoveryCandidate = nil
             return
         }

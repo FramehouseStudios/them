@@ -570,7 +570,7 @@ final class ScreenplayLiveDraftSyncServiceTests: XCTestCase {
         let editor = FakeLiveDraftEditor(projectID: "proj-receipt", text: base)
         var releaseReceipt: CheckedContinuation<Bool, Never>?
         editor.recoveryPreserver = { _, _ in
-            await withCheckedContinuation { continuation in
+            return await withCheckedContinuation { continuation in
                 releaseReceipt = continuation
             }
         }
@@ -593,6 +593,117 @@ final class ScreenplayLiveDraftSyncServiceTests: XCTestCase {
         await waitUntil { editor.text == remote }
         XCTAssertEqual(editor.appliedRemoteTexts, [remote])
         service.detach()
+    }
+
+    func testRemoteTextDoesNotReplaceTypingAddedWhileRecoveryReceiptIsPending() async {
+        let base = "Mara waits."
+        let local = "Mara stays."
+        let typedDuringReceipt = "Mara stays.\nShe writes one more line."
+        let remote = "Mara leaves."
+        let transport = FakeLiveDraftTransport()
+        let editor = FakeLiveDraftEditor(projectID: "proj-receipt-typing", text: base)
+        var releaseReceipt: CheckedContinuation<Bool, Never>?
+        var preserveCount = 0
+        editor.recoveryPreserver = { _, _ in
+            preserveCount += 1
+            guard preserveCount == 1 else { return false }
+            return await withCheckedContinuation { continuation in
+                releaseReceipt = continuation
+            }
+        }
+        let service = makeService(transport: transport)
+        service.attach(to: editor)
+        await waitUntil { !transport.openedStreams.isEmpty }
+        transport.emit("hello", #"{"seq":0,"checksum":"\#(LiveDraftText.checksum(base))","seeded":false}"#)
+        await waitUntil { service.status.isLive }
+        editor.text = local
+        let remoteOp = LiveDraftText.diff(from: base, to: remote)!
+        transport.emit(
+            "op",
+            #"{"seq":1,"device_id":"ios-phone","op":{"start":\#(remoteOp.start),"delete_count":\#(remoteOp.deleteCount),"insert":"\#(remoteOp.insert)"},"checksum":"\#(LiveDraftText.checksum(remote))"}"#
+        )
+        await waitUntil { releaseReceipt != nil }
+
+        // The first local snapshot is durably protected, but the writer adds
+        // another line before that receipt returns. The receipt cannot
+        // authorize replacing this newer text with the remote event.
+        editor.text = typedDuringReceipt
+        releaseReceipt?.resume(returning: true)
+        await waitUntil {
+            if case .offline(reason: "recovery_pending") = service.status { return true }
+            return false
+        }
+        try? await Task.sleep(nanoseconds: 600_000_000)
+
+        XCTAssertEqual(editor.text, typedDuringReceipt)
+        XCTAssertTrue(editor.appliedRemoteTexts.isEmpty)
+        XCTAssertEqual(editor.preservedLocalDrafts.map(\.draft), [local, typedDuringReceipt])
+        XCTAssertTrue(transport.postedOps.isEmpty, "the stale remote event must not cause a publish after protection went stale")
+        service.detach()
+    }
+
+    func testRealStudioRecoveryRetainsTypingDuringReceiptAndRecoverKeepsNewestText() async {
+        let suiteName = "io.them.ReceiptTypingIntegration.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let store = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "receipt-typing")
+        let projectID = "receipt-typing-\(UUID().uuidString)"
+        let base = "Mara waits."
+        let local = "Mara stays."
+        let newer = "Mara stays.\r\nShe adds the next line.  \r\n"
+        let remote = "Mara leaves."
+        var releaseReceipt: CheckedContinuation<String, Never>?
+        var uploadCount = 0
+        let model = ScreenplayStudioViewModel(
+            localDraftRecoveryStore: store,
+            liveSyncRecoveryUploader: { _, _, _ in
+                uploadCount += 1
+                return await withCheckedContinuation { releaseReceipt = $0 }
+            }
+        )
+        model.selectedProjectID = projectID
+        model.fountainDraft = base
+        let transport = FakeLiveDraftTransport()
+        let service = makeService(transport: transport)
+        service.attach(to: model)
+        defer { service.detach() }
+        await waitUntil { !transport.openedStreams.isEmpty }
+        transport.emit("hello", #"{"seq":0,"checksum":"\#(LiveDraftText.checksum(base))","seeded":false}"#)
+        await waitUntil { service.status.isLive }
+        model.fountainDraft = local
+        model.noteManualDraftEdit()
+        let remoteOp = LiveDraftText.diff(from: base, to: remote)!
+        transport.emit(
+            "op",
+            #"{"seq":1,"device_id":"ios-phone","op":{"start":\#(remoteOp.start),"delete_count":\#(remoteOp.deleteCount),"insert":"\#(remoteOp.insert)"},"checksum":"\#(LiveDraftText.checksum(remote))"}"#
+        )
+        await waitUntil { releaseReceipt != nil }
+        model.fountainDraft = newer
+        model.noteManualDraftEdit()
+        releaseReceipt?.resume(returning: "protected-original")
+        await waitUntil {
+            if case .offline(reason: "recovery_pending") = service.status { return true }
+            return false
+        }
+
+        XCTAssertEqual(uploadCount, 1, "the existing conflict must not trigger a second upload or reuse its request ID")
+        XCTAssertEqual(model.fountainDraft, newer)
+        XCTAssertEqual(model.recoveryCandidate?.draft, newer)
+        XCTAssertNil(model.recoveryCandidate?.serverRecoveryId, "the new words have only a device copy")
+        XCTAssertEqual(model.autosaveStatusText, "Recovery needed")
+        model.restoreDraftFromRecovery()
+        XCTAssertEqual(model.fountainDraft, newer, "Recover must not replace the new words with the earlier receipt")
+
+        let ownerID = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""
+        let relaunchedStore = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "receipt-typing")
+        let snapshot = relaunchedStore.recoverySnapshot(
+            ownerUserId: ownerID, projectId: projectID, serverDraft: remote,
+            fingerprint: { ScreenplayDraftIntegrityFingerprint.value(for: $0) }
+        )
+        XCTAssertEqual(snapshot?.draft, newer)
+        let protected = relaunchedStore.payloads(ownerUserId: ownerID)[projectID]?["preservedConflict"] as? [String: Any]
+        XCTAssertEqual(protected?["draft"] as? String, local)
+        XCTAssertEqual(protected?["serverRecoveryId"] as? String, "protected-original")
     }
 
     func testRecoveryReceiptFailureKeepsLocalTextAndDoesNotAdvanceMirror() async {
