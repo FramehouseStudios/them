@@ -557,6 +557,7 @@ final class V1SmokeUITests: XCTestCase {
 
         app = launchApp(
             openStudio: true,
+            clearDebugProjectLoadRequest: true,
             resetState: false,
             launchEnvironment: fixture.appLaunchEnvironment
         )
@@ -1853,6 +1854,7 @@ final class V1SmokeUITests: XCTestCase {
         app = launchApp(
             openStudio: true,
             screenplaySaveExpireAuthOnce: true,
+            clearDebugProjectLoadRequest: true,
             resetState: false,
             launchEnvironment: fixture.appLaunchEnvironment
         )
@@ -2823,6 +2825,7 @@ final class V1SmokeUITests: XCTestCase {
         realtimeNetworkFaultStage: String? = nil,
         screenplaySaveNetworkFaultMarker: String? = nil,
         screenplaySaveExpireAuthOnce: Bool = false,
+        clearDebugProjectLoadRequest: Bool = false,
         seedRememberedLogin: Bool = false,
         seedCompanionSignal: Bool = false,
         autoSubmitPagePrompt: String? = nil,
@@ -2847,6 +2850,17 @@ final class V1SmokeUITests: XCTestCase {
             arguments.append("--ui-reset-state")
         } else {
             arguments.append("--ui-preserve-state")
+        }
+        if clearDebugProjectLoadRequest {
+            // The first launch copied its command-line fixture into persistent
+            // UserDefaults. A relaunch after the server advances must not replay
+            // that stale, version-pinned debug selection over pending recovery.
+            arguments.append(contentsOf: [
+                "-studio_debug_load_project_id", "",
+                "-studio_debug_load_project_version_id", "",
+                "-studio_debug_load_project_token", "0",
+                "-studio_debug_load_project_ack_token", "0",
+            ])
         }
         if skipOnboarding {
             arguments.append("--ui-skip-onboarding")
