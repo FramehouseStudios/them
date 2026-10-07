@@ -34,6 +34,23 @@ final class ScreenplayPrintServiceTests: XCTestCase {
         XCTAssertEqual(ScreenplayPrintService.pageCount(of: pdf), 1)
     }
 
+    func testFountainForceMarkersAreRemovedFromPrintedText() throws {
+        let draft = ".INT. STAGE - NIGHT\n\n!THE LIGHTS FAIL.\n\n@McCLANE\nWait for my signal.\n\n>FADE OUT."
+        let pdf = try ScreenplayPrintService.makePDF(draft: draft, title: "Markers")
+        let document = try XCTUnwrap(PDFDocument(data: pdf))
+        let rendered = try XCTUnwrap(document.string)
+
+        XCTAssertTrue(rendered.contains("INT. STAGE - NIGHT"))
+        XCTAssertTrue(rendered.contains("THE LIGHTS FAIL."))
+        XCTAssertTrue(rendered.contains("McCLANE"))
+        XCTAssertTrue(rendered.contains("Wait for my signal."))
+        XCTAssertTrue(rendered.contains("FADE OUT."))
+        XCTAssertFalse(rendered.contains(".INT."))
+        XCTAssertFalse(rendered.contains("!THE"))
+        XCTAssertFalse(rendered.contains("@McCLANE"))
+        XCTAssertFalse(rendered.contains(">FADE"))
+    }
+
     func testLongDraftPaginatesAndPageCountMatchesPDF() throws {
         let draft = Self.longDraft(dialogueLines: 400)
         let pdf = try ScreenplayPrintService.makePDF(draft: draft, title: "Test")
