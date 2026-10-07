@@ -7,6 +7,10 @@ SCHEME="${SCHEME:-them}"
 CONFIGURATION="${CONFIGURATION:-Debug}"
 ONLY_TESTING="${ONLY_TESTING:-themUITests}"
 XCODEBUILD_BIN="${XCODEBUILD:-xcodebuild}"
+XCRUN_BIN="${XCRUN:-xcrun}"
+ARTIFACT_DIR="${ARTIFACT_DIR:-${RUNNER_TEMP:-${TMPDIR:-/tmp}}/them-v1-ui-smoke}"
+mkdir -p "${ARTIFACT_DIR}"
+result_bundle_path="${V1_UI_RESULT_BUNDLE_PATH:-${ARTIFACT_DIR}/v1-ui-smoke-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}-$$.xcresult}"
 
 if [[ -n "${IOS_SIMULATOR_DESTINATION:-}" ]]; then
   destination="$IOS_SIMULATOR_DESTINATION"
@@ -30,28 +34,45 @@ fi
 echo "run-v1-ui-smoke: destination=${destination}"
 echo "run-v1-ui-smoke: only-testing=${ONLY_TESTING}"
 
-# Boot the simulator before xcodebuild so a cold boot on a fresh CI runner is
-# not paid inside the first test's launch wait. Idempotent: an already-booted
-# device is left alone. Only possible when the destination names a device.
-case "$destination" in
-  *"name="*)
-    boot_name="${destination##*name=}"
-    boot_name="${boot_name%%,*}"
-    boot_udid="$(
-      xcrun simctl list devices available \
-        | sed -n "s/^[[:space:]]*${boot_name} (\([0-9A-F-]*\)) (.*/\1/p" \
-        | head -n 1
-    )"
-    if [[ -n "$boot_udid" ]]; then
-      xcrun simctl boot "$boot_udid" >/dev/null 2>&1 || true
-      if xcrun simctl bootstatus "$boot_udid" -b >/dev/null 2>&1; then
-        echo "run-v1-ui-smoke: simulator ${boot_udid} booted"
-      else
-        echo "run-v1-ui-smoke: simulator ${boot_udid} boot status unknown; continuing" >&2
-      fi
-    fi
-    ;;
-esac
+# Always start each proof on a known simulator state. Previous installs can
+# leave Keychain/UserDefaults state behind and turn a launch-time sync test into
+# a state-dependent pass or a SwiftUI publishing loop. Resolve the exact device
+# selected for xcodebuild, erase it, then boot it before tests begin.
+if [[ "$destination" != *"platform=iOS Simulator"* ]]; then
+  echo "run-v1-ui-smoke: destination must be an iOS Simulator so it can be erased safely: ${destination}" >&2
+  exit 2
+fi
+
+simulator_udid=""
+if [[ "$destination" == *"id="* ]]; then
+  simulator_udid="${destination##*id=}"
+  simulator_udid="${simulator_udid%%,*}"
+elif [[ "$destination" == *"name="* ]]; then
+  simulator_name="${destination##*name=}"
+  simulator_name="${simulator_name%%,*}"
+  simulator_udid="$(
+    "$XCRUN_BIN" simctl list devices available \
+      | sed -n "s/^[[:space:]]*${simulator_name} (\([0-9A-F-]*\)) (.*/\1/p" \
+      | head -n 1
+  )"
+else
+  echo "run-v1-ui-smoke: cannot resolve the simulator UDID; use a destination with name= or id= so the proof can erase its device." >&2
+  exit 2
+fi
+
+if [[ -z "$simulator_udid" ]]; then
+  echo "run-v1-ui-smoke: could not resolve simulator for ${destination}; refusing to run a non-clean proof." >&2
+  exit 2
+fi
+
+"$XCRUN_BIN" simctl shutdown "$simulator_udid" >/dev/null 2>&1 || true
+"$XCRUN_BIN" simctl erase "$simulator_udid"
+"$XCRUN_BIN" simctl boot "$simulator_udid" >/dev/null 2>&1 || true
+if "$XCRUN_BIN" simctl bootstatus "$simulator_udid" -b >/dev/null 2>&1; then
+  echo "run-v1-ui-smoke: erased and booted simulator ${simulator_udid}"
+else
+  echo "run-v1-ui-smoke: simulator ${simulator_udid} boot status unknown; continuing" >&2
+fi
 
 build_args=()
 if [[ -n "${THEM_UITEST_RESTORE_XCCONFIG_PATH:-}" ]]; then
@@ -70,8 +91,20 @@ build_args+=(
   -test-timeouts-enabled YES
   -default-test-execution-time-allowance "${UI_TEST_TIME_ALLOWANCE_SECONDS:-900}"
   -maximum-test-execution-time-allowance "${UI_TEST_MAX_TIME_ALLOWANCE_SECONDS:-1500}"
-  "$@"
 )
+
+# Callers that orchestrate a named UI scenario may supply their own result
+# bundle path. Preserve that path and add the per-run default only when absent.
+caller_has_result_bundle=0
+for arg in "$@"; do
+  case "$arg" in
+    -resultBundlePath|-resultBundlePath=*) caller_has_result_bundle=1 ;;
+  esac
+done
+if [[ "$caller_has_result_bundle" == 0 ]]; then
+  build_args+=(-resultBundlePath "$result_bundle_path")
+fi
+build_args+=("$@")
 
 # Keep Xcode's normal simulator "Sign to Run Locally" behavior. The V1 UI
 # suite exercises remembered credentials in Apple Keychain, and an unsigned

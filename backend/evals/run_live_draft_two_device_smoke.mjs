@@ -79,6 +79,27 @@ function occurrenceCount(text, needle) {
   return needle ? source.split(needle).length - 1 : 0;
 }
 
+function assertOriginalLinesExactlyOnce(actualDraft, expectedDraft, stage) {
+  const actual = String(actualDraft || "");
+  const expectedLines = String(expectedDraft || "")
+    .replace(/\r\n/g, "\n")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  let previousLineEnd = -1;
+  for (const line of expectedLines) {
+    const first = actual.indexOf(line);
+    const last = actual.lastIndexOf(line);
+    assert(
+      first >= 0,
+      `${stage}: original screenplay line was lost: ${line}; seed=${JSON.stringify(expectedDraft)}; actual=${JSON.stringify(actual)}`
+    );
+    assert(first === last, `${stage}: original screenplay line was duplicated: ${line}; actual=${JSON.stringify(actual)}`);
+    assert(first > previousLineEnd, `${stage}: original screenplay line order changed: ${line}; actual=${JSON.stringify(actual)}`);
+    previousLineEnd = first + line.length - 1;
+  }
+}
+
 // ---------- macOS app (studio-eval debug defaults) ----------
 
 const studioDebug = createStudioEvalDebugContext({ run: runCommand, runOptional: runOptionalCommand });
@@ -165,11 +186,6 @@ async function openProjectOnMac(seeded) {
   const appPath = findDebugAppPath();
   cleanupStudioEvalSessionsWithHelper({ runOptional: runOptionalCommand });
   writeMacDefaults(seeded);
-  const stagedRequest = stageStudioProjectLoadDebugRequest({
-    debugDefaults: studioDebug.defaults,
-    projectId: seeded.projectID,
-    versionId: seeded.versionID,
-  });
   await ensureStudioVisibleWithOpenHandshake({
     appPath,
     helperPath: STUDIO_APP_SESSION_HELPER,
@@ -183,6 +199,22 @@ async function openProjectOnMac(seeded) {
     activateApp: (path, session) => studioApp.activate(path, session),
     appHasWindow: () => studioApp.hasWindow(),
     readDebugDiffState,
+  });
+  // Do not dispatch the project-load command until the Mac app has installed
+  // the fixture's authenticated automation context. Otherwise its first
+  // backend reads race auth bootstrap and return 401 before the channel joins.
+  await waitFor(() => {
+    const current = readDebugDiffState();
+    return current?.debugAutomationSession === true
+      && current?.debugAuthSessionAuthenticated === true
+      && current?.debugAuthHeaderPresent === true
+      ? current
+      : null;
+  }, "macOS Studio's fixture authentication to become ready", 20_000);
+  const stagedRequest = stageStudioProjectLoadDebugRequest({
+    debugDefaults: studioDebug.defaults,
+    projectId: seeded.projectID,
+    versionId: seeded.versionID,
   });
   await ensureStudioProjectLoadedWithDebugHook({
     debugDefaults: studioDebug.defaults,
@@ -329,13 +361,23 @@ try {
     const snapshot = await liveSnapshot(seeded);
     return String(snapshot.text || "").includes(PHONE_MARKER) ? snapshot : null;
   }, "the iPhone's keystrokes to reach the live channel", PHONE_TO_MAC_TIMEOUT_MS, 500);
-
   // 3. ...and the Mac's editor shows them without a relaunch.
   const macAfterPhone = await waitFor(() => {
     const { state, text } = macDraftText();
     assert(studioApp.pid === mac.pid, `macOS app relaunched during live sync: ${mac.pid} -> ${studioApp.pid || "stopped"}`);
     return text.includes(PHONE_MARKER) && !normalizeStudioRestoreKey(state?.errorText) ? state : null;
   }, "the iPhone's keystrokes to appear in the macOS editor", 30_000);
+  assertOriginalLinesExactlyOnce(
+    macAfterPhone?.draftPreview || macAfterPhone?.draftTailPreview || "",
+    seeded.expectedDraft,
+    "after the Mac receives the iPhone edit"
+  );
+  const settledPhoneChannel = await liveSnapshot(seeded);
+  assertOriginalLinesExactlyOnce(
+    settledPhoneChannel.text,
+    seeded.expectedDraft,
+    "after the iPhone edit settles and reaches the Mac"
+  );
   const macFollowStatus = String(macAfterPhone?.autosaveStatusText || "");
 
   // 4. Mac types its marker; the channel carries it.
@@ -366,6 +408,7 @@ try {
   const versions = probe.metadata?.versions || [];
   const versionsWithMac = versions.filter((version) => String(version.draft || "").includes(MAC_MARKER));
   const activeDraft = String(probe.metadata.activeVersion.draft || "");
+  assertOriginalLinesExactlyOnce(activeDraft, seeded.expectedDraft, "in the active saved screenplay");
   assert(occurrenceCount(activeDraft, PHONE_MARKER) === 1, "phone marker duplicated in the saved draft");
   assert(occurrenceCount(activeDraft, MAC_MARKER) === 1, "mac marker duplicated in the saved draft");
   assert(

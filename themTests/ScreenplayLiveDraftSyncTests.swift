@@ -160,6 +160,11 @@ final class ScreenplayLiveDraftPolicyTests: XCTestCase {
         XCTAssertFalse(P.isEnabledForProcess(arguments: ["them", "--ui-testing"], environment: [:], isRunningTests: false))
         XCTAssertFalse(P.isEnabledForProcess(arguments: ["them", "--studio-eval"], environment: [:], isRunningTests: false))
         XCTAssertTrue(P.isEnabledForProcess(arguments: ["them", "--ui-testing"], environment: ["THEM_LIVE_DRAFT_SYNC": "1"], isRunningTests: false))
+        XCTAssertFalse(P.isEnabledForProcess(
+            arguments: ["them", "--ui-testing", "--ui-screenplay-save-network-fault"],
+            environment: ["THEM_LIVE_DRAFT_SYNC": "1"],
+            isRunningTests: false
+        ))
         XCTAssertFalse(P.isEnabledForProcess(arguments: ["them", "--ui-testing"], environment: ["THEM_LIVE_DRAFT_SYNC": "1"], isRunningTests: true))
     }
 
@@ -458,6 +463,94 @@ final class ScreenplayLiveDraftSyncServiceTests: XCTestCase {
         await waitUntil { !transport.postedOps.isEmpty }
         XCTAssertEqual(transport.postedOps.first?.baseSeq, 1, "local words are published on top of the phone's op")
         XCTAssertEqual(transport.postedOps.first?.op, LiveDraftOp(start: merged.utf16.count - " She leaves.".utf16.count, deleteCount: 0, insert: " She leaves."))
+        service.detach()
+    }
+
+    func testOverlappingRemoteOpPreservesLocalDraftBeforeChannelWins() async {
+        let transport = FakeLiveDraftTransport()
+        let base = "INT. ROOM - DAY\n\nMara waits."
+        let local = "INT. ROOM - DAY\n\nMara runs."
+        let remote = "INT. ROOM - DAY\n\nMara hides."
+        let editor = FakeLiveDraftEditor(projectID: "proj-1", text: base)
+        let service = makeService(transport: transport)
+        service.attach(to: editor)
+        await waitUntil { !transport.openedStreams.isEmpty }
+        transport.emit("hello", #"{"seq":0,"checksum":"\#(LiveDraftText.checksum(base))","seeded":false}"#)
+        await waitUntil { service.status.isLive }
+
+        // Both writers replace the same dialogue. Since neither edit can be
+        // merged without choosing words, the channel wins—but local text must
+        // remain recoverable before it is replaced in the editor.
+        editor.text = local
+        let remoteOp = LiveDraftText.diff(from: base, to: remote)!
+        transport.emit("op", #"{"seq":1,"device_id":"ios-phone","op":{"start":\#(remoteOp.start),"delete_count":\#(remoteOp.deleteCount),"insert":"\#(remoteOp.insert)"},"checksum":"\#(LiveDraftText.checksum(remote))"}"#)
+        await waitUntil { editor.text == remote }
+
+        XCTAssertEqual(editor.preservedLocalDrafts.count, 1)
+        XCTAssertEqual(editor.preservedLocalDrafts.first?.draft, local)
+        XCTAssertEqual(editor.preservedLocalDrafts.first?.projectID, "proj-1")
+        XCTAssertEqual(editor.appliedRemoteTexts.last, remote)
+        XCTAssertTrue(transport.postedOps.isEmpty, "the losing local overlap must not be published over the channel")
+        service.detach()
+    }
+
+    func testOverlappingRemoteOpSurvivesViewModelVersionAdoptionAndRecovery() async {
+        let suiteName = "live-draft-overlap-recovery-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let recoveryKey = "live-draft-overlap-recovery"
+        let store = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: recoveryKey)
+        let ownerUserID = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""
+        let projectID = "project-live-overlap-\(UUID().uuidString)"
+        let base = "INT. ROOM - DAY\n\nMara waits."
+        let local = "INT. ROOM - DAY\n\nMara runs."
+        let remote = "INT. ROOM - DAY\n\nMara hides."
+        let remoteFollowUp = "INT. ROOM - DAY\n\nMara leaves."
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store)
+        model.selectedProjectID = projectID
+        model.fountainDraft = base
+        model.noteManualDraftEdit()
+
+        let transport = FakeLiveDraftTransport()
+        let service = makeService(transport: transport)
+        service.attach(to: model)
+        await waitUntil { !transport.openedStreams.isEmpty }
+        transport.emit("hello", #"{"seq":0,"checksum":"\#(LiveDraftText.checksum(base))","seeded":false}"#)
+        await waitUntil { service.status.isLive }
+
+        model.fountainDraft = local
+        model.noteManualDraftEdit()
+        let remoteOp = LiveDraftText.diff(from: base, to: remote)!
+        transport.emit("op", #"{"seq":1,"device_id":"ios-phone","op":{"start":\#(remoteOp.start),"delete_count":\#(remoteOp.deleteCount),"insert":"\#(remoteOp.insert)"},"checksum":"\#(LiveDraftText.checksum(remote))"}"#)
+        await waitUntil { model.fountainDraft == remote && model.recoveryCandidate?.draft == local }
+        XCTAssertEqual(model.recoveryCandidate?.isPreservedConflict, true)
+
+        // More channel text can arrive before the typing device announces its
+        // saved version. Those intermediate remote snapshots are not new local
+        // conflicts and must not replace the exact protected writer draft.
+        let followUpOp = LiveDraftText.diff(from: remote, to: remoteFollowUp)!
+        transport.emit("op", #"{"seq":2,"device_id":"ios-phone","op":{"start":\#(followUpOp.start),"delete_count":\#(followUpOp.deleteCount),"insert":"\#(followUpOp.insert)"},"checksum":"\#(LiveDraftText.checksum(remoteFollowUp))"}"#)
+        await waitUntil { model.fountainDraft == remoteFollowUp }
+        XCTAssertEqual(model.recoveryCandidate?.draft, local)
+
+        // Confirming the channel's saved version clears its ordinary recovery
+        // slot; the distinct local conflict must still survive relaunch.
+        transport.emit("version", #"{"seq":3,"device_id":"ios-phone","version_id":"version-remote","checksum":"\#(LiveDraftText.checksum(remoteFollowUp))"}"#)
+        await waitUntil { model.latestVersionID == "version-remote" }
+
+        let relaunchedStore = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: recoveryKey)
+        let snapshot = relaunchedStore.recoverySnapshot(
+            ownerUserId: ownerUserID,
+            projectId: projectID,
+            serverDraft: remoteFollowUp,
+            fingerprint: { LiveDraftText.checksum($0) }
+        )
+        XCTAssertEqual(snapshot?.draft, local)
+        XCTAssertEqual(snapshot?.isPreservedConflict, true)
+
+        model.restoreDraftFromRecovery()
+        XCTAssertEqual(model.fountainDraft, local)
+        XCTAssertNil(model.recoveryCandidate)
         service.detach()
     }
 

@@ -131,12 +131,12 @@ jobs:
   quality-gate:
     name: Quality Gate
     runs-on: macos-latest
-    # Measured 2026-09-02/03: repo gate ~10 s, required writer loop 490–590 s,
-    # required unit bundle (themTests, added 2026-09-06) build + ~600 tests,
-    # soft UI smoke 750–1000 s, voice smokes 170–260 s, plus setup — about
-    # 35 min end to end. Without this cap a wedged simulator holds the
-    # required check for the 6-hour default.
-    timeout-minutes: 75
+    # The earlier 75-minute cap assumed ~35 min end to end. Exact hosted run
+    # 37438457583 (2026-10-06) took 21m20s for themTests, 13m29s for the
+    # integrated writer loop, and 37m08s for V1; the cap cancelled the final
+    # voice/macOS gate at 75m. Keep a bounded margin without inheriting GitHub's
+    # 6-hour default, while XCTest's per-test timeouts catch a wedged simulator.
+    timeout-minutes: 105
     env:
       RUN_SERVER: 1
       RUN_EVAL: ${{ github.event_name == 'pull_request' && '0' || (inputs.run_eval && '1' || '0') }}
@@ -224,12 +224,16 @@ jobs:
         working-directory: backend
         run: npm run eval:studio-ios-writer-loop-contract
 
-      - name: Run iOS V1 UI smoke tests (soft gate)
-        continue-on-error: true
+      - name: Run iOS V1 UI smoke tests (required)
         run: scripts/run_v1_ui_smoke.sh
 
-      - name: Run iPhone and macOS voice network-fault smokes (soft gate)
-        continue-on-error: true
+      - name: Run signed iPhone offline-save recovery (required)
+        working-directory: backend
+        env:
+          SCREENPLAY_SAVE_INCLUDE_MACOS: "0"
+        run: npm run eval:screenplay-save-network-fault
+
+      - name: Run iPhone voice-fault smoke and macOS scaffold build (required)
         run: scripts/run_voice_network_fault_smokes.sh
 
       - name: Workflow inputs summary
@@ -255,8 +259,9 @@ jobs:
             echo "- Load profile: $(gate_status "${RUN_LOAD}")"
             echo "- iOS unit bundle: required (themTests)"
             echo "- Integrated iPhone writer loop: required"
-            echo "- iOS V1 UI smoke: soft gate (themUITests)"
-            echo "- Voice network faults: soft gate (iPhone + macOS themUITests)"
+            echo "- iOS V1 UI smoke: required (themUITests)"
+            echo "- Signed iPhone offline-save recovery: required (server-backed reconnect and stale conflict)"
+            echo "- Voice network-fault smoke: required (iPhone); macOS scaffold build: required"
             echo "- Default secrets for this workflow shape: \`OPENAI_API_KEY\`, \`APP_TOKEN\`"
           } | tee -a "${GITHUB_STEP_SUMMARY}"
 
@@ -269,3 +274,6 @@ jobs:
           path: |
             /tmp/them-quality-gate-backend.log
             /tmp/them-smoke/them-home.png
+            ${{ runner.temp }}/them-v1-ui-smoke/*.xcresult
+            ${{ runner.temp }}/them-screenplay-save-network-fault-smokes/*.xcresult
+            ${{ runner.temp }}/them-voice-network-fault-smokes/*.xcresult

@@ -34,11 +34,55 @@ final class V1SmokeUITests: XCTestCase {
 
         let sentence = "She counts seven red lights before the motel sign finally goes dark."
         editor.tap()
-        editor.typeText(sentence)
+        // XCTest can deliver a long typeText string as one synthetic keyboard
+        // burst. On a loaded hosted simulator that burst once dropped a single
+        // character even though the same sentence passes locally. Send one word
+        // per event and checkpoint every exact prefix; this keeps the assertion
+        // strict without asking XCTest to synthesize an unrealistically long
+        // uninterrupted burst or retrying any input.
+        let chunks = [
+            "She",
+            " counts",
+            " seven",
+            " red",
+            " lights",
+            " before",
+            " the",
+            " motel",
+            " sign",
+            " finally",
+            " goes",
+            " dark.",
+        ]
+        var expectedPrefix = ""
+        var editorText = editor.value as? String ?? ""
+        for (index, chunk) in chunks.enumerated() {
+            editor.typeText(chunk)
+            expectedPrefix += chunk
+
+            let editorDeadline = Date().addingTimeInterval(8)
+            editorText = editor.value as? String ?? ""
+            while Date() < editorDeadline,
+                  !editorText.localizedCaseInsensitiveContains(expectedPrefix) {
+                RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+                editorText = editor.value as? String ?? ""
+            }
+            XCTAssertTrue(
+                editorText.localizedCaseInsensitiveContains(expectedPrefix),
+                "UIKit editor lost or redirected characters in typing chunk \(index + 1). " +
+                    "Expected prefix: \(expectedPrefix). Editor: \(editorText). " +
+                    "Draft model: \(accessibleDraftText(in: app))"
+            )
+        }
+        XCTAssertTrue(
+            editorText.localizedCaseInsensitiveContains(sentence),
+            "UIKit editor lost or redirected characters. Editor: \(editorText). Draft model: \(accessibleDraftText(in: app))"
+        )
 
         XCTAssertTrue(
             waitForDraft(in: app, containing: sentence, timeout: 8),
-            "Direct page typing lost or redirected characters. Draft: \(accessibleDraftText(in: app))"
+            "Editor accepted direct typing, but the published draft lost or redirected characters. " +
+                "Editor: \(editorText). Draft model: \(accessibleDraftText(in: app))"
         )
 #else
         throw XCTSkip("The direct page typing regression specifically covers the iPhone editor.")
@@ -793,6 +837,10 @@ final class V1SmokeUITests: XCTestCase {
         let themTab = app.buttons["studio.right-panel.them"]
         XCTAssertTrue(themTab.waitForExistence(timeout: 8))
         themTab.tap()
+        XCTAssertTrue(
+            waitForSelection(of: themTab, timeout: 3),
+            "Tapping the Them inspector tab did not select it; tab accessibility frames may be stale."
+        )
 
         XCTAssertTrue(app.descendants(matching: .any)["studio.them.panel"].waitForExistence(timeout: 4))
         let drawer = element(identifier: "studio.sidebar.right.drawer", in: app)
@@ -1086,8 +1134,9 @@ final class V1SmokeUITests: XCTestCase {
             mode.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
 #endif
             XCTAssertTrue(
-                waitForAccessibilityValue(of: mode, equalTo: "Selected", timeout: 3),
-                "Selecting \(rawMode) did not expose its selected state to accessibility."
+                waitForAccessibilityValue(of: mode, equalTo: "Selected", timeout: 8),
+                "Selecting \(rawMode) did not expose its selected state to accessibility "
+                    + "within 8 seconds. Current value: \(String(describing: mode.value))."
             )
             XCTAssertTrue(
                 waitForAccessibilityText(
@@ -1102,13 +1151,13 @@ final class V1SmokeUITests: XCTestCase {
 
         let reuse = app.buttons["studio.them.voice-pin.latest.reuse"]
         XCTAssertTrue(
-            revealInStudioDrawer(reuse, drawer: drawer, scrollingUp: true, maxSwipes: 12),
-            "Reuse Ask was not reachable."
+            revealFullyInStudioDrawer(reuse, drawer: drawer, maxSwipes: 12),
+            "Reuse Ask was not fully visible in the inspector."
         )
 #if os(macOS)
         reuse.click()
 #else
-        reuse.tap()
+        reuse.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
 #endif
         XCTAssertTrue(
             staticText(containing: "Loaded this Voice Pin ask", in: app)
@@ -1131,14 +1180,14 @@ final class V1SmokeUITests: XCTestCase {
         )
 
         let toPage = app.buttons["studio.them.voice-pin.latest.to-page"]
-        for _ in 0..<20 where !toPage.isHittable {
-            drawer.swipeUp()
-        }
-        XCTAssertTrue(waitForHittability(of: toPage, timeout: 5))
+        XCTAssertTrue(
+            revealFullyInStudioDrawer(toPage, drawer: drawer, maxSwipes: 12),
+            "To Page was not fully visible in the inspector."
+        )
 #if os(macOS)
         toPage.click()
 #else
-        toPage.tap()
+        toPage.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
 #endif
 
         for _ in 0..<20 where !promptField.isHittable {
@@ -1151,32 +1200,8 @@ final class V1SmokeUITests: XCTestCase {
         )
         let pageRoute = element(identifier: "studio.prompt.routing.page", in: app)
         XCTAssertTrue(pageRoute.waitForExistence(timeout: 4))
-        var pageRouted = waitForSelection(of: pageRoute, timeout: 4)
-        if !pageRouted {
-            // In the full scripted smoke the To Page tap is lost roughly every
-            // run (the drawer is still settling from the swipe-up loop above and
-            // swallows the touch), while the same test passes alone and in any
-            // shorter order. Tap once more only when the route did not switch;
-            // the assertion below is unchanged, so a genuine routing bug still
-            // fails with the same message.
-            XCTContext.runActivity(named: "To Page tap did not switch routing; tapping once more") { _ in }
-            for _ in 0..<20 where !toPage.isHittable {
-                drawer.swipeUp()
-            }
-            if waitForHittability(of: toPage, timeout: 5) {
-#if os(macOS)
-                toPage.click()
-#else
-                toPage.tap()
-#endif
-            }
-            for _ in 0..<20 where !promptField.isHittable {
-                drawer.swipeDown()
-            }
-            pageRouted = waitForSelection(of: pageRoute, timeout: 6)
-        }
         XCTAssertTrue(
-            pageRouted,
+            waitForSelection(of: pageRoute, timeout: 6),
             "To Page did not re-route the current exchange to the page."
         )
 #if os(iOS)
@@ -1446,9 +1471,12 @@ final class V1SmokeUITests: XCTestCase {
             waitForDisappearance(of: banner, timeout: 5),
             "Conflict banner remained after Keep Mine. Accessibility hierarchy:\n\(app.debugDescription)"
         )
+        let confirmation = app.staticTexts["studio.transient.status.info"]
         XCTAssertTrue(
-            staticText(containing: "Local draft saved", in: app).waitForExistence(timeout: 5),
-            "Keep Mine confirmation was not presented."
+            confirmation.waitForExistence(timeout: 5)
+                && confirmation.isHittable
+                && confirmation.label.localizedCaseInsensitiveContains("Local draft saved"),
+            "Keep Mine confirmation was not visible in the Studio status bar. Accessibility hierarchy:\n\(app.debugDescription)"
         )
     }
 
@@ -1708,20 +1736,17 @@ final class V1SmokeUITests: XCTestCase {
 
         XCTAssertTrue(app.otherElements["studio.surface"].waitForExistence(timeout: 12))
         var recoveredSnapshot: [String: Any] = [:]
-        XCTAssertTrue(
-            waitForRestoreSnapshot(in: app, timeout: 75) { snapshot in
-                recoveredSnapshot = snapshot
-                return stringValue(snapshot["selected_project_id"]).lowercased() == fixture.projectID.lowercased()
-                    && stringValue(snapshot["draft_tail_preview"]).contains(marker)
-                    && intValue(snapshot["queued_draft_save_count"]) == 0
-                    && intValue(snapshot["parked_draft_save_count"]) == 0
-                    && !boolValue(snapshot["has_unsaved_draft_changes"])
-                    && !boolValue(snapshot["is_saving"])
-                    && stringValue(snapshot["latest_version_id"]).lowercased() != fixture.versionID.lowercased()
-                    && stringValue(snapshot["error_text"]).isEmpty
-            },
-            "Queued screenplay save did not reconnect automatically after relaunch. Snapshot: \(recoveredSnapshot)"
-        )
+        let didRecoverInEditor = waitForRestoreSnapshot(in: app, timeout: 75) { snapshot in
+            recoveredSnapshot = snapshot
+            return stringValue(snapshot["selected_project_id"]).lowercased() == fixture.projectID.lowercased()
+                && stringValue(snapshot["draft_tail_preview"]).contains(marker)
+                && intValue(snapshot["queued_draft_save_count"]) == 0
+                && intValue(snapshot["parked_draft_save_count"]) == 0
+                && !boolValue(snapshot["has_unsaved_draft_changes"])
+                && !boolValue(snapshot["is_saving"])
+                && stringValue(snapshot["latest_version_id"]).lowercased() != fixture.versionID.lowercased()
+                && stringValue(snapshot["error_text"]).isEmpty
+        }
 
         let projectResponse = try await requestJSON(
             baseURL: baseURL,
@@ -1745,12 +1770,31 @@ final class V1SmokeUITests: XCTestCase {
         let recoveredVersions = versions.filter { version in
             stringValue(version["draft"]).contains(marker)
         }
+        let versionDiagnostics = versions.map { version in
+            [
+                "id": stringValue(version["id"] ?? version["version_id"]),
+                "source": stringValue(version["source"]),
+                "contains_marker": stringValue(version["draft"]).contains(marker),
+            ] as [String: Any]
+        }
+        XCTAssertTrue(
+            didRecoverInEditor,
+            "Queued screenplay save did not reconnect automatically after relaunch. " +
+                "Snapshot: \(recoveredSnapshot). Server active version: \(stringValue(project["active_version_id"] ?? project["activeVersionId"])); " +
+                "server versions: \(versionDiagnostics)"
+        )
         XCTAssertEqual(
             recoveredVersions.count,
             1,
             "The recovered local save must create exactly one server version: \(versions)"
         )
         let recoveredVersion = try XCTUnwrap(recoveredVersions.first)
+        let expectedRecoveredDraft = "\(fixture.expectedDraft)\n\n\(marker)"
+        XCTAssertEqual(
+            stringValue(recoveredVersion["draft"]),
+            expectedRecoveredDraft,
+            "The offline save must restore the writer's complete draft exactly, not just retain its marker."
+        )
         let recoveredVersionID = try firstNonEmptyString(
             recoveredVersion["id"],
             recoveredVersion["version_id"],
@@ -1918,6 +1962,12 @@ final class V1SmokeUITests: XCTestCase {
         let localVersions = resolvedVersions.filter { stringValue($0["draft"]).contains(marker) }
         XCTAssertEqual(localVersions.count, 1, "Keep Mine must commit exactly one recovered local version.")
         let localVersion = try XCTUnwrap(localVersions.first)
+        let expectedRecoveredDraft = "\(fixture.expectedDraft)\n\n\(marker)"
+        XCTAssertEqual(
+            stringValue(localVersion["draft"]),
+            expectedRecoveredDraft,
+            "Keep Mine must restore the writer's complete local draft exactly."
+        )
         XCTAssertEqual(stringValue(localVersion["source"]), "studio_conflict_resolve")
         XCTAssertFalse(
             stringValue(localVersion["client_request_id"] ?? localVersion["clientRequestId"]).isEmpty,
@@ -2889,8 +2939,6 @@ final class V1SmokeUITests: XCTestCase {
                 "--ui-screenplay-save-network-fault",
                 "--ui-screenplay-save-network-fault-marker",
                 screenplaySaveNetworkFaultMarker,
-                "--ui-screenplay-save-network-fault-url",
-                "http://127.0.0.1:3999",
             ])
         }
         if screenplaySaveExpireAuthOnce {
@@ -3542,14 +3590,19 @@ final class V1SmokeUITests: XCTestCase {
         of element: XCUIElement,
         timeout: TimeInterval
     ) -> Bool {
+        func reportsSelected() -> Bool {
+            guard element.exists else { return false }
+            // SwiftUI exposes selection through both an accessibility trait and
+            // the explicit value set by the tab. Accept either representation.
+            return element.isSelected || (element.value as? String) == "Selected"
+        }
+
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
-            if element.exists, element.isSelected {
-                return true
-            }
+            if reportsSelected() { return true }
             RunLoop.current.run(until: Date().addingTimeInterval(0.1))
         }
-        return element.exists && element.isSelected
+        return reportsSelected()
     }
 
     private func waitForFirstVisibleElement(
@@ -3790,11 +3843,14 @@ final class V1SmokeUITests: XCTestCase {
         identifier: String,
         in app: XCUIApplication
     ) -> [String] {
-        app.staticTexts
-            .matching(identifier: identifier)
-            .allElementsBoundByIndex
-            .map { accessibilityText(of: $0) }
-            .filter { !$0.isEmpty }
+        // These identifiers are unique, stable summary/output labels. Enumerating
+        // every matching accessibility element makes XCTest resolve the entire
+        // query result and has timed out on the hosted iOS runner even though the
+        // label is present. Resolve only the first matching label instead.
+        let match = app.staticTexts.matching(identifier: identifier).firstMatch
+        guard match.exists else { return [] }
+        let value = accessibilityText(of: match)
+        return value.isEmpty ? [] : [value]
     }
 
     private func waitForAccessibilityText(
@@ -4476,13 +4532,21 @@ final class V1SmokeUITests: XCTestCase {
 
         // The phone types. Its keystrokes must reach the Mac (asserted by the
         // orchestrating smoke through the Mac's debug state).
-        let draft = app.otherElements["studio.draft.surface"]
-        XCTAssertTrue(draft.waitForExistence(timeout: 5), "Draft surface missing.")
-        draft.tap()
-        app.typeText("\n\n" + phoneMarker)
+        let draft = app.textViews["studio.draft.editor"]
+        XCTAssertTrue(draft.waitForExistence(timeout: 5), "Draft editor missing.")
+        // Tap well below the two-line seed so UIKit places the insertion point
+        // at the end instead of replacing a character in the existing line.
+        draft.coordinate(withNormalizedOffset: CGVector(dx: 0.12, dy: 0.9)).tap()
+        draft.typeText("\n\n" + phoneMarker)
         XCTAssertTrue(
             waitForDraft(in: app, containing: phoneMarker, timeout: 10),
             "The phone's own keystrokes did not land on its page."
+        )
+        let phoneDraftAfterTyping = accessibleDraftText(in: app)
+        XCTAssertEqual(
+            phoneDraftAfterTyping.components(separatedBy: "He waits, still.").count - 1,
+            1,
+            "Typing on the phone must preserve the seeded screenplay line exactly once. Draft: \(phoneDraftAfterTyping)"
         )
 
         // The Mac types next; the words must arrive here live, on the same
@@ -5170,7 +5234,9 @@ final class V1SmokeUITests: XCTestCase {
         timeout: TimeInterval,
         predicate: ([String: Any]) -> Bool
     ) -> Bool {
-        let snapshot = app.staticTexts["studio.restore.snapshot"]
+        let snapshot = app.descendants(matching: .any)
+            .matching(identifier: "studio.restore.snapshot")
+            .firstMatch
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
             if snapshot.waitForExistence(timeout: 0.5),

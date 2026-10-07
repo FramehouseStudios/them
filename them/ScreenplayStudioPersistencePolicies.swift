@@ -142,6 +142,55 @@ struct ScreenplayUnconfirmedSaveRecoveryPolicy {
     }
 }
 
+struct ScreenplayQueuedDraftAdoptionPolicy {
+    static func shouldAdopt(
+        selectedProjectID: String,
+        loadedProjectID: String,
+        latestVersionID: String,
+        queuedProjectID: String,
+        queuedBaseVersionID: String,
+        hasUnsavedChanges: Bool,
+        isManualEditing: Bool,
+        currentDraftFingerprint: String,
+        lastSavedDraftFingerprint: String
+    ) -> Bool {
+        let projectID = selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let loadedID = loadedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let queuedID = queuedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let currentVersion = latestVersionID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let queuedBase = queuedBaseVersionID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let currentFingerprint = currentDraftFingerprint.trimmingCharacters(in: .whitespacesAndNewlines)
+        let savedFingerprint = lastSavedDraftFingerprint.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        return !projectID.isEmpty
+            && projectID == loadedID
+            && projectID == queuedID
+            && currentVersion == queuedBase
+            && !hasUnsavedChanges
+            && !isManualEditing
+            && !currentFingerprint.isEmpty
+            && currentFingerprint == savedFingerprint
+    }
+}
+
+struct ScreenplayQueuedDraftHydrationPolicy {
+    static func shouldRestoreBeforeServerHydration(
+        selectedProjectID: String,
+        queuedProjectID: String,
+        queuedDraft: String,
+        hasUnsavedChanges: Bool,
+        isManualEditing: Bool
+    ) -> Bool {
+        let selectedID = selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let queuedID = queuedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !selectedID.isEmpty
+            && selectedID == queuedID
+            && !queuedDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !hasUnsavedChanges
+            && !isManualEditing
+    }
+}
+
 struct ScreenplayProgrammaticDraftAutosavePolicy {
     static func shouldAutosave(
         hasSelectedProject: Bool,
