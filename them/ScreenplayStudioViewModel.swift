@@ -1455,6 +1455,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         let baseVersionId: String
         let savedAt: TimeInterval
         let isPreservedConflict: Bool
+        var serverRecoveryId: String? = nil
     }
 
     struct SaveConflictState: Equatable {
@@ -1685,6 +1686,10 @@ final class ScreenplayStudioViewModel: ObservableObject {
     private var pendingDraftSaveRequest: DraftSaveRequest?
     private var shouldQueuePendingDraftSaveAfterFailure = false
     private let localDraftRecoveryStore: ScreenplayLocalDraftRecoveryStore
+    typealias LiveSyncRecoveryUploader = (String, String, String) async throws -> String
+    typealias LiveSyncRecoveryDeleter = (String, String) async throws -> Void
+    private let liveSyncRecoveryUploader: LiveSyncRecoveryUploader
+    private let liveSyncRecoveryDeleter: LiveSyncRecoveryDeleter
     private let draftSaveOutbox = ScreenplayDraftSaveOutbox.shared
     private let outlineMutationOutbox = ScreenplayOutlineMutationOutbox.shared
     private let craftClient = BackendClient()
@@ -1696,8 +1701,26 @@ final class ScreenplayStudioViewModel: ObservableObject {
         self.init(localDraftRecoveryStore: ScreenplayLocalDraftRecoveryStore())
     }
 
-    init(localDraftRecoveryStore: ScreenplayLocalDraftRecoveryStore) {
+    init(
+        localDraftRecoveryStore: ScreenplayLocalDraftRecoveryStore,
+        liveSyncRecoveryUploader: @escaping LiveSyncRecoveryUploader = { projectID, draft, requestID in
+            let result = try await BackendMemoryAPI.shared.preserveScreenplayProjectRecovery(
+                projectId: projectID,
+                draft: draft,
+                clientRequestId: requestID
+            )
+            return result.recoveryId ?? ""
+        },
+        liveSyncRecoveryDeleter: @escaping LiveSyncRecoveryDeleter = { projectID, recoveryID in
+            try await BackendMemoryAPI.shared.deleteScreenplayProjectRecovery(
+                projectId: projectID,
+                recoveryId: recoveryID
+            )
+        }
+    ) {
         self.localDraftRecoveryStore = localDraftRecoveryStore
+        self.liveSyncRecoveryUploader = liveSyncRecoveryUploader
+        self.liveSyncRecoveryDeleter = liveSyncRecoveryDeleter
         fountainDraft = ScreenplayLiveDraftBridge.shared.draftText
         draftDebounceCancellable = $fountainDraft
             .removeDuplicates()
@@ -1924,25 +1947,29 @@ final class ScreenplayStudioViewModel: ObservableObject {
 
     /// Preserve a dirty local draft independently before live sync replaces
     /// it with a remote snapshot that has no shared rebase base.
-    func preserveLocalDraftForLiveSyncRecovery(_ text: String, projectID: String) {
+    func preserveLocalDraftForLiveSyncRecovery(_ text: String, projectID: String) async -> Bool {
         guard ScreenplayProjectScopedState.matches(projectID, selectedProjectId: selectedProjectID) else {
-            return
+            return false
         }
         let cleanProjectID = projectID.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanProjectID.isEmpty,
-              !normalizedText.isEmpty,
-              fingerprint(for: normalizedText) != lastSavedDraftFingerprint else { return }
+              !normalizedText.isEmpty else { return true }
+        guard fingerprint(for: normalizedText) != lastSavedDraftFingerprint else { return true }
 
         let savedAt = Date().timeIntervalSince1970
         let ownerUserID = currentStudioAuthContext().userID
-        localDraftRecoveryStore.savePreservedConflict(
+        guard let clientRequestID = localDraftRecoveryStore.savePreservedConflict(
             ownerUserId: ownerUserID,
             projectId: cleanProjectID,
             draft: text,
             baseVersionId: latestVersionID,
             savedAt: savedAt
-        )
+        ) else {
+            autosaveStatusText = "Recovery needed"
+            infoText = "Resolve the existing protected draft before live sync can replace this page."
+            return false
+        }
         recoveryCandidate = LocalDraftRecoveryCandidate(
             projectId: cleanProjectID,
             draft: text,
@@ -1950,8 +1977,35 @@ final class ScreenplayStudioViewModel: ObservableObject {
             savedAt: savedAt,
             isPreservedConflict: true
         )
-        autosaveStatusText = "Local draft protected"
-        infoText = "Your unsaved local draft is preserved while live sync loads the other device's text. Recover it or keep the server draft."
+        autosaveStatusText = "Protecting draft in account…"
+        infoText = "Your local copy is safe on this device while its account recovery copy is saved."
+        do {
+            let recoveryID = try await liveSyncRecoveryUploader(cleanProjectID, text, clientRequestID)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !recoveryID.isEmpty else { throw BackendMemoryAPIError.invalidResponse }
+            localDraftRecoveryStore.setServerRecoveryId(
+                recoveryID,
+                ownerUserId: ownerUserID,
+                projectId: cleanProjectID,
+                clientRequestId: clientRequestID
+            )
+            recoveryCandidate = LocalDraftRecoveryCandidate(
+                projectId: cleanProjectID,
+                draft: text,
+                baseVersionId: latestVersionID,
+                savedAt: savedAt,
+                isPreservedConflict: true,
+                serverRecoveryId: recoveryID
+            )
+            autosaveStatusText = "Draft protected in account"
+            infoText = "The local conflict copy is saved in your account before live sync continues."
+            return true
+        } catch {
+            autosaveStatusText = "Recovery pending - on this device"
+            infoText = "Your words remain on this device. Live sync is paused until the account recovery copy is confirmed."
+            errorText = "Could not protect the draft in your account: \(error.localizedDescription)"
+            return false
+        }
     }
 
     /// The typing device normally announces its saved version within a couple
@@ -4213,17 +4267,12 @@ final class ScreenplayStudioViewModel: ObservableObject {
         if !candidate.baseVersionId.isEmpty {
             latestVersionID = candidate.baseVersionId
         }
-        if candidate.isPreservedConflict {
-            localDraftRecoveryStore.clearPreservedConflict(
-                ownerUserId: currentStudioAuthContext().userID,
-                projectId: candidate.projectId
-            )
-        }
         syncLiveDraftBridgeProjectContext()
         hasUnsavedDraftChanges = fingerprint(for: candidate.draft) != lastSavedDraftFingerprint
         autosaveStatusText = "Recovered local draft"
-        infoText = "Recovered your local unsaved draft."
-        recoveryCandidate = nil
+        infoText = candidate.serverRecoveryId == nil
+            ? "Recovered your local unsaved draft."
+            : "Recovered the account-protected copy. Save it to resolve the conflict."
         persistLocalDraftRecovery(
             projectId: candidate.projectId,
             draft: candidate.draft,
@@ -4233,21 +4282,60 @@ final class ScreenplayStudioViewModel: ObservableObject {
     }
 
     func keepServerDraft() {
-        guard let projectId = recoveryCandidate?.projectId else { return }
-        guard ScreenplayProjectScopedState.matches(projectId, selectedProjectId: selectedProjectID) else {
+        guard let candidate = recoveryCandidate else { return }
+        guard ScreenplayProjectScopedState.matches(candidate.projectId, selectedProjectId: selectedProjectID) else {
             recoveryCandidate = nil
             return
         }
+        guard candidate.isPreservedConflict else {
+            recoveryCandidate = nil
+            clearLocalDraftRecovery(projectId: candidate.projectId)
+            autosaveStatusText = "Using server draft"
+            infoText = "Using latest server draft."
+            return
+        }
+        Task { await resolvePreservedRecovery(candidate, keepServer: true) }
+    }
+
+    private func resolvePreservedRecovery(
+        _ candidate: LocalDraftRecoveryCandidate,
+        keepServer: Bool
+    ) async {
+        if let recoveryID = candidate.serverRecoveryId {
+            do {
+                try await liveSyncRecoveryDeleter(candidate.projectId, recoveryID)
+            } catch {
+                errorText = "Could not remove the account recovery copy: \(error.localizedDescription)"
+                infoText = "The protected copy is still in your account. Retry this choice when connected."
+                return
+            }
+        }
+        localDraftRecoveryStore.clearPreservedConflict(
+            ownerUserId: currentStudioAuthContext().userID,
+            projectId: candidate.projectId
+        )
         recoveryCandidate = nil
-        clearLocalDraftRecovery(projectId: projectId)
-        autosaveStatusText = "Using server draft"
-        infoText = "Using latest server draft."
+        if keepServer {
+            clearLocalDraftRecovery(projectId: candidate.projectId)
+            autosaveStatusText = "Using server draft"
+            infoText = "Using latest server draft."
+        } else {
+            autosaveStatusText = hasUnsavedDraftChanges ? "Unsaved changes" : "Recovery dismissed"
+            infoText = hasUnsavedDraftChanges
+                ? "Account recovery copy deleted. The current page is still unsaved."
+                : "Account recovery copy deleted."
+        }
     }
 
     func discardLocalRecoveryCopy() {
         guard let projectId = recoveryCandidate?.projectId else { return }
         guard ScreenplayProjectScopedState.matches(projectId, selectedProjectId: selectedProjectID) else {
             recoveryCandidate = nil
+            return
+        }
+        guard let candidate = recoveryCandidate else { return }
+        if candidate.isPreservedConflict {
+            Task { await resolvePreservedRecovery(candidate, keepServer: false) }
             return
         }
         recoveryCandidate = nil
@@ -6127,6 +6215,12 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 baseVersionId: latestVersionID,
                 dirty: hasUnsavedDraftChanges
             )
+            if !hasUnsavedDraftChanges,
+               let candidate = recoveryCandidate,
+               candidate.isPreservedConflict,
+               fingerprint(for: candidate.draft) == fingerprint(for: request.draft) {
+                Task { await self.clearResolvedServerRecovery(candidate) }
+            }
             await recomputeRevision(for: fountainDraft, source: request.source)
             if !errorText.isEmpty {
                 errorText = ""
@@ -6515,6 +6609,22 @@ final class ScreenplayStudioViewModel: ObservableObject {
             recoveryCandidate = nil
             return
         }
+        if let serverRecovery = ScreenplayServerBackedDraftRecoveryPolicy.newestRecovery(
+            from: selectedProject?.versions,
+            excluding: serverDraft,
+            fingerprint: { [weak self] in self?.fingerprint(for: $0) ?? $0 }
+        ),
+           let recoveryDraft = serverRecovery.draft {
+            recoveryCandidate = LocalDraftRecoveryCandidate(
+                projectId: normalizedProjectId,
+                draft: recoveryDraft,
+                baseVersionId: latestVersionID,
+                savedAt: serverRecovery.updatedAt ?? serverRecovery.createdAt ?? 0,
+                isPreservedConflict: true,
+                serverRecoveryId: serverRecovery.id
+            )
+            return
+        }
         guard let snapshot = localDraftRecoveryStore.recoverySnapshot(
             ownerUserId: currentStudioAuthContext().userID,
             projectId: normalizedProjectId,
@@ -6529,7 +6639,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
             draft: snapshot.draft,
             baseVersionId: snapshot.baseVersionId,
             savedAt: snapshot.savedAt,
-            isPreservedConflict: snapshot.isPreservedConflict
+            isPreservedConflict: snapshot.isPreservedConflict,
+            serverRecoveryId: snapshot.serverRecoveryId
         )
     }
 
@@ -6603,6 +6714,27 @@ final class ScreenplayStudioViewModel: ObservableObject {
             projectId: normalizedProjectId
         )
         if recoveryCandidate?.projectId == normalizedProjectId {
+            recoveryCandidate = nil
+        }
+    }
+
+    private func clearResolvedServerRecovery(_ candidate: LocalDraftRecoveryCandidate) async {
+        if let recoveryID = candidate.serverRecoveryId {
+            do {
+                try await liveSyncRecoveryDeleter(candidate.projectId, recoveryID)
+            } catch {
+                // The screenplay save already succeeded. Keep the independent
+                // recovery record and surface that cleanup is still pending.
+                errorText = "Screenplay saved; account recovery copy cleanup is pending."
+                infoText = "Your screenplay is saved. The older protected copy remains available until cleanup succeeds."
+                return
+            }
+        }
+        localDraftRecoveryStore.clearPreservedConflict(
+            ownerUserId: currentStudioAuthContext().userID,
+            projectId: candidate.projectId
+        )
+        if recoveryCandidate?.serverRecoveryId == candidate.serverRecoveryId {
             recoveryCandidate = nil
         }
     }

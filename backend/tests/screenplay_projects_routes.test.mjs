@@ -1524,7 +1524,7 @@ test("[screenplay-projects-routes] live-sync recovery is durable, idempotent, an
   project.activeVersionId = "version-current";
   project.lastVersionId = "version-current";
   project.versions = [{ id: "version-current", projectId: "p1", source: "studio_autosave", draft: "Server draft" }];
-  const recoveryDraft = "FADE IN:\n\nINT. HALL - NIGHT\n\nA writer's exact words.";
+  const recoveryDraft = "FADE IN:\r\n\r\nINT. HALL - NIGHT\r\n\r\nA writer's exact words.";
 
   await withTestServer(deps, async (baseURL) => {
     const first = await postJson(baseURL, "/screenplay/projects/p1/recovery", {

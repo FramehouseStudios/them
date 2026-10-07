@@ -1542,7 +1542,7 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
       return res.status(404).json({ stage: "screenplay_recovery", error: "project_not_found" });
     }
 
-    const draft = String(req.body?.draft || "").replace(/\r\n/g, "\n");
+    const draft = String(req.body?.draft || "");
     const clientRequestId = normalizeSnippet(req.body?.client_request_id, 96);
     if (!draft.trim()) {
       return res.status(400).json({ stage: "screenplay_recovery", error: "draft_required" });
