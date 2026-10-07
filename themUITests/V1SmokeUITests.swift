@@ -1802,6 +1802,7 @@ final class V1SmokeUITests: XCTestCase {
         var app = launchApp(
             openStudio: true,
             screenplaySaveNetworkFaultMarker: marker,
+            screenplaySaveAuthContextChangeBeforeSave: true,
             restoreProjectID: fixture.projectID,
             restoreVersionID: fixture.versionID,
             restoreLoadToken: fixture.loadToken,
@@ -1817,6 +1818,8 @@ final class V1SmokeUITests: XCTestCase {
                     && intValue(snapshot["queued_draft_save_count"]) == 1
                     && intValue(snapshot["parked_draft_save_count"]) == 0
                     && boolValue(snapshot["has_unsaved_draft_changes"])
+                    && stringValue(snapshot["autosave_status_text"])
+                        .localizedCaseInsensitiveContains("queued locally")
                     && stringValue(snapshot["error_text"]).isEmpty
             },
             "Offline screenplay save was not queued before stale-version setup. Snapshot: \(queuedSnapshot)"
@@ -2824,6 +2827,7 @@ final class V1SmokeUITests: XCTestCase {
         showProvisionalScreenplayOptions: Bool = false,
         realtimeNetworkFaultStage: String? = nil,
         screenplaySaveNetworkFaultMarker: String? = nil,
+        screenplaySaveAuthContextChangeBeforeSave: Bool = false,
         screenplaySaveExpireAuthOnce: Bool = false,
         clearDebugProjectLoadRequest: Bool = false,
         seedRememberedLogin: Bool = false,
@@ -2929,6 +2933,9 @@ final class V1SmokeUITests: XCTestCase {
                 "--ui-screenplay-save-network-fault-marker",
                 screenplaySaveNetworkFaultMarker,
             ])
+        }
+        if screenplaySaveAuthContextChangeBeforeSave {
+            arguments.append("--ui-screenplay-save-auth-context-change-before-save")
         }
         if screenplaySaveExpireAuthOnce {
             arguments.append("--ui-screenplay-save-expire-auth-once")

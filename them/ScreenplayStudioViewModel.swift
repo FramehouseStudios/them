@@ -1673,6 +1673,9 @@ final class ScreenplayStudioViewModel: ObservableObject {
     private var lastRevisionBaseDraft = ""
     private var loadedDraftProjectID: String = ""
     private var lastManualDraftEditAt: Date = .distantPast
+#if DEBUG
+    private var didApplyUITestAuthContextChangeBeforeSave = false
+#endif
     private var lastSeenScreenplayStateVersion = ""
     private var outlineRevisionProjectID = ""
     private var isCrossDeviceRefreshInFlight = false
@@ -5747,9 +5750,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
         baseVersionOverride: String?
     ) -> DraftSaveRequest? {
         guard let project = selectedProject else { return nil }
-        let ownerUserId = BackendAuthClient.currentAuthSessionState().user?.userId
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let authContext = currentStudioAuthContext()
+        let ownerUserId = authContext.userID
         return DraftSaveRequest(
             id: UUID().uuidString.lowercased(),
             projectId: project.id,
@@ -5997,8 +5999,6 @@ final class ScreenplayStudioViewModel: ObservableObject {
             return false
         }
 
-        guard authContextIsCurrent(request.authContext) else { return false }
-
         #if DEBUG
         if IOThemRuntime.isRunningUITests,
            request.source == "studio_conflict_resolve",
@@ -6018,9 +6018,31 @@ final class ScreenplayStudioViewModel: ObservableObject {
         }
         #endif
 
+#if DEBUG
+        if IOThemRuntime.isRunningUITests,
+           !didApplyUITestAuthContextChangeBeforeSave,
+           ProcessInfo.processInfo.arguments.contains(
+                "--ui-screenplay-save-auth-context-change-before-save"
+           ) {
+            didApplyUITestAuthContextChangeBeforeSave = true
+            _ = BackendAuthClient.reserveAuthSessionIntent()
+        }
+#endif
+
         shouldQueuePendingDraftSaveAfterFailure = false
         do {
             try await draftSaveOutbox.enqueue(request.outboxEntry)
+            guard authContextIsCurrent(request.authContext) else {
+                hasUnsavedDraftChanges = true
+                if currentStudioAuthContext().userID == request.ownerUserId
+                    .trimmingCharacters(in: .whitespacesAndNewlines) {
+                    autosaveStatusText = "Queued locally - reconnecting"
+                    infoText = "Your screenplay is queued locally and will sync when your session is restored."
+                    errorText = ""
+                    await refreshDraftSaveOutboxStatus()
+                }
+                return false
+            }
             try await draftSaveOutbox.markInflight(id: request.id)
         } catch {
             guard authContextIsCurrent(request.authContext) else { return false }
