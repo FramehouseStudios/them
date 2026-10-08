@@ -16,7 +16,7 @@ if [[ "${INCLUDE_MACOS}" != "0" && "${INCLUDE_MACOS}" != "1" ]]; then
   exit 2
 fi
 mkdir -p "${ARTIFACT_DIR}"
-result_bundle_path="${ARTIFACT_DIR}/screenplay-save-network-fault-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}-$$.xcresult"
+result_bundle_path="${SCREENPLAY_SAVE_RESULT_BUNDLE_PATH:-${ARTIFACT_DIR}/screenplay-save-network-fault-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}-$$.xcresult}"
 if [[ -n "${SCREENPLAY_SAVE_TEST_IDENTIFIER:-}" ]]; then
   test_identifiers=("${SCREENPLAY_SAVE_TEST_IDENTIFIER}")
 else
