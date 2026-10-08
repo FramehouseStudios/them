@@ -5383,13 +5383,13 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 selectedProject = project
                 selectedProjectID = project.id
                 upsertProject(project)
-                hydrateDraft(from: project)
+                guard await hydrateDraftRestoringQueuedSaves(from: project) else { return }
                 hydrateCollaboration(from: project)
             } else if let project = outlineResult?.payload.project {
                 selectedProject = project
                 selectedProjectID = project.id
                 upsertProject(project)
-                hydrateDraft(from: project)
+                guard await hydrateDraftRestoringQueuedSaves(from: project) else { return }
                 hydrateCollaboration(from: project)
             } else {
                 selectedProject = projects.first(where: { $0.id == id })
@@ -5616,6 +5616,18 @@ final class ScreenplayStudioViewModel: ObservableObject {
         if ScreenplaySceneSessionRestorePolicy.shouldClearSelection(editingBeatID, validIDs: beatIDs) {
             cancelEditingBeat()
         }
+    }
+
+    @discardableResult
+    func hydrateDraftRestoringQueuedSaves(from project: BackendScreenplayProjectSummary) async -> Bool {
+        let context = currentStudioAuthContext()
+        guard project.id == selectedProjectID else { return false }
+        // Selection and detail refresh can run independently of load()'s
+        // bootstrap. Restore the durable writer copy before either hydrates.
+        await restorePendingDraftSaveBeforeProjectHydration()
+        guard authContextIsCurrent(context), project.id == selectedProjectID else { return false }
+        hydrateDraft(from: project)
+        return true
     }
 
     func hydrateDraft(from project: BackendScreenplayProjectSummary) {
