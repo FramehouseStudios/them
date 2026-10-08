@@ -2,6 +2,84 @@ import XCTest
 @testable import them
 
 final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
+    @MainActor
+    func testExplicitLoadServerChoiceAllowsNormalLiveFollowingAgain() async {
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store)
+        model.selectedProjectID = "resolved-choice"
+        model.fountainDraft = "Writer draft"
+        model.hasUnsavedDraftChanges = true
+        model.conflictState = ScreenplayStudioViewModel.SaveConflictState(
+            projectId: model.selectedProjectID, baseVersionId: "base", serverVersionId: "remote",
+            serverDraft: "Chosen server draft", serverDraftExcerpt: "Chosen server draft",
+            serverUpdatedAt: 1
+        )
+
+        model.applyServerVersionFromConflict()
+        XCTAssertNil(model.conflictState)
+        XCTAssertEqual(model.fountainDraft, "Chosen server draft")
+        XCTAssertEqual(model.latestVersionID, "remote")
+        XCTAssertFalse(model.hasUnsavedDraftChanges)
+        XCTAssertTrue(model.applyRemoteLiveDraft("Next live revision",
+            projectID: model.selectedProjectID, sourceDeviceID: "other-device"))
+        model.adoptRemoteLiveVersion("next", projectID: model.selectedProjectID,
+                                    draftChecksum: LiveDraftText.checksum("Next live revision"))
+        XCTAssertEqual(model.latestVersionID, "next")
+        XCTAssertFalse(model.hasUnsavedDraftChanges)
+        try? await Task.sleep(nanoseconds: 1_100_000_000)
+    }
+
+    @MainActor
+    func testRemoteLiveDraftCannotDismissAnUnresolvedWriterChoice() async {
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store)
+        let local = "INT. ROOM - NIGHT\n\nThe writer's offline words.\n"
+        let conflict = ScreenplayStudioViewModel.SaveConflictState(
+            projectId: "pending-choice", baseVersionId: "base", serverVersionId: "remote",
+            serverDraft: "Collaborator revision", serverDraftExcerpt: "Collaborator revision",
+            serverUpdatedAt: 1
+        )
+        model.selectedProjectID = conflict.projectId
+        model.fountainDraft = local
+        model.hasUnsavedDraftChanges = true
+        model.conflictState = conflict
+        model.autosaveStatusText = "Conflict detected"
+
+        XCTAssertFalse(model.applyRemoteLiveDraft(conflict.serverDraft,
+            projectID: conflict.projectId, sourceDeviceID: "other-device"))
+        XCTAssertEqual(model.fountainDraft, local)
+        XCTAssertEqual(model.conflictState, conflict)
+        XCTAssertTrue(model.hasUnsavedDraftChanges)
+        XCTAssertEqual(model.autosaveStatusText, "Conflict detected")
+        try? await Task.sleep(nanoseconds: 1_100_000_000)
+    }
+
+    @MainActor
+    func testRemoteVersionReceiptCannotResolveConflictEvenWhenTextMatches() async {
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store)
+        let local = "INT. ROOM - NIGHT\n\nThe writer's offline words."
+        let conflict = ScreenplayStudioViewModel.SaveConflictState(
+            projectId: "pending-receipt-choice", baseVersionId: "base", serverVersionId: "remote",
+            serverDraft: local, serverDraftExcerpt: local, serverUpdatedAt: 1
+        )
+        model.selectedProjectID = conflict.projectId
+        model.fountainDraft = local
+        model.latestVersionID = "base"
+        model.hasUnsavedDraftChanges = true
+        model.conflictState = conflict
+        model.autosaveStatusText = "Conflict detected"
+        let owner = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""
+        store.save(ownerUserId: owner, projectId: conflict.projectId, draft: local,
+                   baseVersionId: "base", dirty: true)
+
+        model.adoptRemoteLiveVersion("remote", projectID: conflict.projectId,
+                                    draftChecksum: LiveDraftText.checksum(local))
+        XCTAssertEqual(model.latestVersionID, "base")
+        XCTAssertEqual(model.conflictState, conflict)
+        XCTAssertTrue(model.hasUnsavedDraftChanges)
+        XCTAssertEqual(model.autosaveStatusText, "Conflict detected")
+        XCTAssertEqual(store.payloads(ownerUserId: owner)[conflict.projectId]?["draft"] as? String, local)
+        try? await Task.sleep(nanoseconds: 1_100_000_000)
+    }
+
     func test_queuedDraftHydratesBeforeServerAndOnlyForItsOwnCleanProject() {
         XCTAssertTrue(ScreenplayQueuedDraftHydrationPolicy.shouldRestoreBeforeServerHydration(
             selectedProjectID: " project-1 ",
