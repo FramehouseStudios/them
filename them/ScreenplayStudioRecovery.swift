@@ -312,6 +312,17 @@ struct ScreenplayLocalDraftRecoveryStore {
         defaults.set(nextPayloads, forKey: ownerScopedKey(ownerUserId))
     }
 
+    func dirtyOrdinarySnapshot(ownerUserId: String, projectId: String) -> ScreenplayLocalDraftRecoverySnapshot? {
+        let project = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let stored = payloads(ownerUserId: ownerUserId)[project],
+              stored["dirty"] as? Bool == true,
+              let draft = stored["draft"] as? String,
+              !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        return ScreenplayLocalDraftRecoverySnapshot(projectId: project, draft: draft,
+            baseVersionId: stored["baseVersionId"] as? String ?? "",
+            savedAt: stored["savedAt"] as? TimeInterval ?? 0, isPreservedConflict: false)
+    }
+
     func recoverySnapshot(
         ownerUserId: String,
         projectId: String,
