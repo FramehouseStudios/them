@@ -3,6 +3,7 @@ import multer from "multer";
 
 import { MAX_FILE_BYTES } from "./config.js";
 import { applyAppMiddleware } from "./middleware/auth.js";
+import { TALK_UPLOAD_CONTEXT_BYTES, boundedTalkUploadStream, uploadRequestSizeError } from "./lib/talk_upload_byte_limit.js";
 
 const app = express();
 app.disable("x-powered-by");
@@ -25,6 +26,7 @@ const TALK_UPLOAD_LIMITS = Object.freeze({
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: TALK_UPLOAD_LIMITS,
+  streamHandler: boundedTalkUploadStream(MAX_FILE_BYTES + TALK_UPLOAD_CONTEXT_BYTES),
 });
 
 const parseTalkUpload = upload.fields([
@@ -33,6 +35,7 @@ const parseTalkUpload = upload.fields([
 ]);
 
 const TALK_UPLOAD_PAYLOAD_LIMIT_CODES = new Set([
+  "LIMIT_REQUEST_SIZE",
   "LIMIT_FILE_SIZE",
   "LIMIT_FILE_COUNT",
   "LIMIT_FIELD_VALUE",
@@ -41,6 +44,7 @@ const TALK_UPLOAD_PAYLOAD_LIMIT_CODES = new Set([
 ]);
 
 function sendTalkUploadError(error, res) {
+  if (res.headersSent) return;
   const code = String(error?.code || "").trim();
   const status = TALK_UPLOAD_PAYLOAD_LIMIT_CODES.has(code) ? 413 : 400;
   const publicCode = code === "LIMIT_FILE_SIZE"
@@ -61,9 +65,23 @@ function sendTalkUploadError(error, res) {
   });
 }
 
+function discardRejectedTalkUpload(req) {
+  for (const file of Object.values(req.files || {}).flat()) delete file.buffer;
+  req.files = Object.create(null);
+  req.body = Object.create(null);
+}
+
 function talkUpload(req, res, next) {
+  const declaredBytes = Number(req.headers["content-length"]);
+  if (Number.isSafeInteger(declaredBytes) && declaredBytes > MAX_FILE_BYTES + TALK_UPLOAD_CONTEXT_BYTES) {
+    req.resume();
+    return sendTalkUploadError(uploadRequestSizeError(), res);
+  }
   parseTalkUpload(req, res, (error) => {
     if (!error) return next();
+    // Multer removes its storage copy, but completed memory files also have
+    // buffers copied onto req.files placeholders. Do not retain rejected data.
+    discardRejectedTalkUpload(req);
     return sendTalkUploadError(error, res);
   });
 }

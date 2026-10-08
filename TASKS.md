@@ -13,6 +13,22 @@
 
 ## Active work — quick view
 
+### T-927 — Bound voice upload parser buffering and release rejected payloads
+- Owner: codex
+- Branch: codex/T-927-voice-upload-byte-limit
+- Status: review
+- Pillar: voice→scene
+- Scope: follow #884 without replacing its dependency fixes; cap parsed wire
+  bytes at configured audio maximum + 8 MiB; keep existing multipart limits and
+  error envelope; release rejected metadata and completed audio references.
+- Done when: known-length/chunked rejection, exact boundaries, active/completed
+  file cleanup, full native field compatibility, auth-required HTTP, backend
+  runtimes, signed units and god-file/diff gates have recorded proof.
+- Residual: rejected bodies can still be drained. This is not an ingress or
+  concurrent-memory hard cap; bounded ingress/connection handling is a follow-up.
+- Details: docs/audits/voice-upload-byte-limit-2026-10-08.md.
+- No main mutation, production deployment, provider calls or approval bypass.
+
 ### T-fast-uri-stack — Verify the remaining dependency-security updates
 - Owner: codex
 - Branch: codex/T-fast-uri-stack
