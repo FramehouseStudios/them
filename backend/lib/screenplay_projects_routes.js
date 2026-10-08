@@ -1540,9 +1540,6 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
     }
     const now = Date.now();
     const draft = String(req.body?.draft || "");
-    if (!draft.trim()) {
-      return res.status(400).json({ stage: "screenplay_version", error: "draft_required" });
-    }
     const phase = normalizeScreenplayPhaseValue(req.body?.phase || project.lastPhase);
     const source = normalizeSnippet(req.body?.source, 48) || "studio_autosave";
     const notes = normalizeSnippet(req.body?.notes, 240);
@@ -1553,6 +1550,16 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
     const conflictStrategy = String(req.body?.conflict_strategy || "reject_if_stale").trim().toLowerCase();
     const latestVersion = getLatestScreenplayVersion(project);
     const currentVersionId = project.activeVersionId || latestVersion?.id || "";
+    // Blank writer edits are versions, not missing generation output. Require
+    // explicit intent plus the existing stale/retry guards before accepting one.
+    const intentionalEmptyDraft = req.body?.allow_empty_draft === true &&
+      typeof req.body?.draft === "string" &&
+      ["studio_manual", "studio_autosave", "studio_conflict_resolve"].includes(req.body?.source) &&
+      Boolean(baseVersionId && clientRequestId && currentVersionId) &&
+      conflictStrategy === "reject_if_stale";
+    if (!draft.trim() && !intentionalEmptyDraft) {
+      return res.status(400).json({ stage: "screenplay_version", error: "draft_required" });
+    }
     const replayedVersion = clientRequestId
       ? (project.versions || []).find((item) => item.clientRequestId === clientRequestId)
       : null;
