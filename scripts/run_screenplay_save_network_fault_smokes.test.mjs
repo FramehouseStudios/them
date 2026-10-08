@@ -14,6 +14,7 @@ function runSmoke({
   withXcconfig = true,
   includeMacOS = "1",
   destination = "platform=iOS Simulator,name=iPhone 17 Pro",
+  resultBundlePath = "",
 } = {}) {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "io-them-save-network-fault-"));
   const log = path.join(tmp, "xcodebuild.calls");
@@ -56,6 +57,7 @@ function runSmoke({
       THEM_UITEST_SCREENPLAY_SAVE_XCCONFIG_PATH: withXcconfig ? xcconfig : "",
       SCREENPLAY_SAVE_INCLUDE_MACOS: includeMacOS,
       ARTIFACT_DIR: tmp,
+      SCREENPLAY_SAVE_RESULT_BUNDLE_PATH: resultBundlePath,
     },
     encoding: "utf8",
   });
@@ -126,4 +128,13 @@ test("[screenplay-save-network-fault-smokes] runs without an optional xcconfig u
     assert.ok(call.includes("test"));
     assert.equal(call.includes("-xcconfig"), false);
   }
+});
+
+test("[screenplay-save-network-fault-smokes] forwards the evaluator's exact result bundle path", () => {
+  const resultBundlePath = "/tmp/THEM Proof/custom recovery.xcresult";
+  const { calls, result } = runSmoke({ includeMacOS: "0", resultBundlePath });
+  assert.equal(result.status, 0, result.stderr);
+  const index = calls[0].indexOf("-resultBundlePath");
+  assert.ok(index >= 0);
+  assert.equal(calls[0][index + 1], resultBundlePath);
 });
