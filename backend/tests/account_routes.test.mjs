@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import express from "express";
+import { listenEphemeral } from "./helpers/ephemeral_server.mjs";
 
 import {
   mountAccountRoutes,
@@ -61,20 +62,21 @@ function makeApp({
 }
 
 async function hit(app, method, path, body, headers) {
-  const server = app.listen(0);
+  const server = listenEphemeral(app);
   try {
     const port = server.address().port;
     const res = await fetch(`http://127.0.0.1:${port}${path}`, {
       method,
       headers: { "Content-Type": "application/json", ...(headers || {}) },
       body: body ? JSON.stringify(body) : undefined,
+      signal: AbortSignal.timeout(15000),
     });
     const text = await res.text();
     let json = null;
     try { json = JSON.parse(text); } catch { /* not JSON */ }
     return { status: res.status, headers: res.headers, body: json ?? text };
   } finally {
-    server.close();
+    await new Promise(resolve => server.close(resolve));
   }
 }
 

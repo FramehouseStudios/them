@@ -1539,8 +1539,8 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
       return res.status(404).json({ stage: "screenplay_version", error: "project_not_found" });
     }
     const now = Date.now();
-    const draft = String(req.body?.draft || "").replace(/\r\n/g, "\n").trim();
-    if (!draft) {
+    const draft = String(req.body?.draft || "");
+    if (!draft.trim()) {
       return res.status(400).json({ stage: "screenplay_version", error: "draft_required" });
     }
     const phase = normalizeScreenplayPhaseValue(req.body?.phase || project.lastPhase);
@@ -1568,7 +1568,7 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
           replayed: false,
         }));
       }
-      const requestMatches = String(replayedVersion.draft || "").replace(/\r\n/g, "\n").trim() === draft;
+      const requestMatches = String(replayedVersion.draft || "") === draft;
       const replayWasSuperseded = Boolean(currentVersionId && currentVersionId !== replayedVersion.id);
       applyReadStateHeaders(res, buildScreenplayReadMeta(req, owner));
       return res.status(requestMatches && !replayWasSuperseded ? 200 : 409).json(buildScreenplayEnvelope(req, owner, {

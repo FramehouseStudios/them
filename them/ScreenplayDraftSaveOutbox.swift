@@ -134,7 +134,7 @@ actor ScreenplayDraftSaveOutbox {
         if let index = entries.firstIndex(where: { $0.id == entry.id }) {
             guard entries[index].projectId == entry.projectId,
                   entries[index].ownerUserId == entry.ownerUserId,
-                  normalizedDraft(entries[index].draft) == normalizedDraft(entry.draft) else {
+                  ScreenplayDraftTextIdentity.matches(entries[index].draft, entry.draft) else {
                 throw BackendMemoryAPIError.server(status: 409, message: "screenplay_save_id_reused")
             }
             let nextSnapshot = snapshotFor(entries)
@@ -146,7 +146,7 @@ actor ScreenplayDraftSaveOutbox {
                 existing.ownerUserId == entry.ownerUserId &&
                 existing.status != .parked &&
                 existing.baseVersionId == entry.baseVersionId &&
-                normalizedDraft(existing.draft) == normalizedDraft(entry.draft)
+                ScreenplayDraftTextIdentity.matches(existing.draft, entry.draft)
         }) {
             let nextSnapshot = snapshotFor(entries)
             publish(nextSnapshot)
@@ -433,13 +433,6 @@ actor ScreenplayDraftSaveOutbox {
                 userInfo: snapshot.notificationUserInfo
             )
         }
-    }
-
-    private func normalizedDraft(_ draft: String) -> String {
-        draft
-            .replacingOccurrences(of: "\r\n", with: "\n")
-            .replacingOccurrences(of: "\r", with: "\n")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func normalizedError(_ error: String) -> String {

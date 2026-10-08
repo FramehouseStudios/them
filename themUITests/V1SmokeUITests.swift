@@ -1706,7 +1706,7 @@ final class V1SmokeUITests: XCTestCase {
             throw XCTSkip("Screenplay save recovery server is not running on \(baseURL.absoluteString).")
         }
 
-        let fixture = try await seedBackendRestoreContractFixture(baseURL: baseURL)
+        let fixture = try await seedBackendRestoreContractFixture(baseURL: baseURL, preserveDraftBoundaries: true)
         let marker = "SAVE-OUTBOX-\(UUID().uuidString.uppercased())"
         var app = launchApp(
             openStudio: true,
@@ -1799,8 +1799,8 @@ final class V1SmokeUITests: XCTestCase {
         let recoveredVersion = try XCTUnwrap(recoveredVersions.first)
         let expectedRecoveredDraft = "\(fixture.expectedDraft)\n\n\(marker)"
         XCTAssertEqual(
-            stringValue(recoveredVersion["draft"]),
-            expectedRecoveredDraft,
+            Array((recoveredVersion["draft"] as? String ?? "").utf8),
+            Array(expectedRecoveredDraft.utf8),
             "The offline save must restore the writer's complete draft exactly, not just retain its marker."
         )
         let recoveredVersionID = try firstNonEmptyString(
@@ -4903,7 +4903,7 @@ final class V1SmokeUITests: XCTestCase {
         )
     }
 
-    private func seedBackendRestoreContractFixture(baseURL: URL) async throws -> RestoreContractFixture {
+    private func seedBackendRestoreContractFixture(baseURL: URL, preserveDraftBoundaries: Bool = false) async throws -> RestoreContractFixture {
         let appToken = "them-dev"
         let stamp = "\(Int(Date().timeIntervalSince1970 * 1000))-\(UUID().uuidString.prefix(6).lowercased())"
         let projectID = "studio-ios-restore-\(stamp)"
@@ -4917,7 +4917,9 @@ final class V1SmokeUITests: XCTestCase {
         let focusedDiffKey = "write:\(firstWriteID)"
         let firstText = "INT. ROOM - NIGHT\n\nHe closes the blinds and waits."
         let secondText = "INT. ROOM - NIGHT\n\nHe waits."
-        let thirdText = "INT. ROOM - NIGHT\n\nHe waits, still."
+        let thirdText = preserveDraftBoundaries
+            ? "  \tINT. ROOM - NIGHT\r\n\nHe waits at the cafe\u{0301}.\t \r\n"
+            : "INT. ROOM - NIGHT\n\nHe waits, still."
         let now = Date()
 
         let firstEntry = studioRestoreExchange(

@@ -234,30 +234,29 @@ struct ScreenplayDraftSaveIntentPolicy {
         let selectedProject = selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !selectedProject.isEmpty,
               selectedProject == committedWrite.normalizedProjectID,
-              normalizedDraft(draft) == normalizedDraft(committedWrite.committedDraft) else {
+              ScreenplayDraftTextIdentity.matches(draft, committedWrite.committedDraft) else {
             return .autosave
         }
         return .clementinePageWrite
     }
+}
 
-    private static func normalizedDraft(_ draft: String) -> String {
-        draft
-            .replacingOccurrences(of: "\r\n", with: "\n")
-            .replacingOccurrences(of: "\r", with: "\n")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+// Persistence identity is byte-exact: Swift String equality considers NFC/NFD
+// equivalent, and formatting normalization must not acknowledge writer edits.
+nonisolated struct ScreenplayDraftTextIdentity {
+    static func matches(_ lhs: String, _ rhs: String) -> Bool {
+        lhs.utf8.elementsEqual(rhs.utf8)
     }
 }
 
 struct ScreenplayDraftSaveCompletionPolicy {
-    static func hasUnsavedChanges(currentDraft: String, savedDraft: String) -> Bool {
-        normalizedDraft(currentDraft) != normalizedDraft(savedDraft)
+    static func confirmsSavedDraft(requestedDraft: String, returnedDraft: String?) -> Bool {
+        guard let returnedDraft else { return false }
+        return ScreenplayDraftTextIdentity.matches(requestedDraft, returnedDraft)
     }
 
-    private static func normalizedDraft(_ draft: String) -> String {
-        draft
-            .replacingOccurrences(of: "\r\n", with: "\n")
-            .replacingOccurrences(of: "\r", with: "\n")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+    static func hasUnsavedChanges(currentDraft: String, savedDraft: String) -> Bool {
+        !ScreenplayDraftTextIdentity.matches(currentDraft, savedDraft)
     }
 }
 
@@ -283,17 +282,10 @@ struct ScreenplayDraftSaveCoalescingPolicy {
         pendingNotes: String,
         pendingBaseVersionOverride: String?
     ) -> Bool {
-        normalizedDraft(activeDraft) == normalizedDraft(pendingDraft) &&
+        ScreenplayDraftTextIdentity.matches(activeDraft, pendingDraft) &&
             activeSource == pendingSource &&
             activeNotes == pendingNotes &&
             normalizedKey(activeBaseVersionOverride) == normalizedKey(pendingBaseVersionOverride)
-    }
-
-    private static func normalizedDraft(_ draft: String) -> String {
-        draft
-            .replacingOccurrences(of: "\r\n", with: "\n")
-            .replacingOccurrences(of: "\r", with: "\n")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private static func normalizedKey(_ value: String?) -> String {
@@ -329,21 +321,12 @@ struct ScreenplayCommittedDraftAdoptionPolicy {
     ) -> Bool {
         let selectedProject = selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
         let committedProject = committedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
-        let current = normalizedDraft(currentDraft)
-        let previous = normalizedDraft(previousDraft)
-        let committed = normalizedDraft(committedDraft)
         guard !selectedProject.isEmpty,
               selectedProject == committedProject,
-              !committed.isEmpty else {
+              !committedDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return false
         }
-        return current == previous || current == committed
-    }
-
-    private static func normalizedDraft(_ draft: String) -> String {
-        draft
-            .replacingOccurrences(of: "\r\n", with: "\n")
-            .replacingOccurrences(of: "\r", with: "\n")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return ScreenplayDraftTextIdentity.matches(currentDraft, previousDraft) ||
+            ScreenplayDraftTextIdentity.matches(currentDraft, committedDraft)
     }
 }
