@@ -3,6 +3,58 @@ import XCTest
 
 final class ScreenplayDraftSaveOutboxTests: XCTestCase {
     @MainActor
+    func testBoundaryWhitespaceEditStaysDirtyThroughDebounce() async throws {
+        let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let suite = "them.boundary-save.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let recovery = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "recovery")
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: recovery, draftSaveOutbox: queue)
+        model.autosaveEnabled = false
+        model.selectedProjectID = "project-1"
+        let saved = "  INT. ROOM - NIGHT\r\nWriter words.\r\n"
+        model.applyStructuralUITestDraft(saved, versionID: "saved")
+        model.fountainDraft = saved + "\n"
+        model.noteManualDraftEdit()
+        try? await Task.sleep(nanoseconds: 1_100_000_000)
+        XCTAssertTrue(model.hasUnsavedDraftChanges)
+        XCTAssertEqual(Array(model.fountainDraft.utf8), Array((saved + "\n").utf8))
+        let owner = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""
+        XCTAssertEqual(recovery.payloads(ownerUserId: owner)["project-1"]?["draft"] as? String, saved + "\n")
+    }
+
+    func testQueueDoesNotCoalesceWhitespaceDistinctWriterDrafts() async throws {
+        let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let drafts = ["Writer words", "Writer words\n", "  Writer words\r\n", "Writer words\r\n"]
+        for (index, draft) in drafts.enumerated() {
+            try await store.enqueue(makeEntry(id: "exact-\(index)", draft: draft, createdAt: Double(index + 100)))
+        }
+        let restored = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let copies = try await restored.entriesForTesting()
+        XCTAssertEqual(copies.map(\.draft), drafts)
+    }
+
+    func testSaveIdentifierRejectsWhitespaceDistinctReuse() async throws {
+        let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        try await store.enqueue(makeEntry(id: "exact-id", draft: "Writer words"))
+        do {
+            try await store.enqueue(makeEntry(id: "exact-id", draft: "Writer words\n"))
+            XCTFail("A changed payload must not acknowledge the earlier request.")
+        } catch BackendMemoryAPIError.server(let status, _) { XCTAssertEqual(status, 409) }
+    }
+
+    func testQueueRetainsUnicodeByteDistinctWriterDrafts() async throws {
+        let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let drafts = ["Caf\u{00e9}", "Cafe\u{0301}"]
+        for (index, draft) in drafts.enumerated() {
+            try await store.enqueue(makeEntry(id: "unicode-\(index)", draft: draft, createdAt: Double(index + 100)))
+        }
+        let copies = try await store.entriesForTesting()
+        XCTAssertEqual(copies.count, 2)
+        XCTAssertEqual(copies.map { Array($0.draft.utf8) }, drafts.map { Array($0.utf8) })
+    }
+
+    @MainActor
     func testRevertingToSavedRawTextDoesNotBecomeDirtyAfterDebounce() async throws {
         let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
         let suite = "them.save-revert.\(UUID().uuidString)"

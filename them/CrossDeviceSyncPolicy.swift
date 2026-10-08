@@ -82,12 +82,11 @@ nonisolated enum ScreenplayRemoteDraftConflictPolicy {
         let selectedProject = selectedProjectId.trimmingCharacters(in: .whitespacesAndNewlines)
         let loadedProject = loadedProjectId.trimmingCharacters(in: .whitespacesAndNewlines)
         let local = localDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-        let server = serverDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         return !allowOverwrite
             && !selectedProject.isEmpty
             && selectedProject == loadedProject
             && !local.isEmpty
-            && local != server
+            && !ScreenplayDraftTextIdentity.matches(localDraft, serverDraft)
             && (hasUnsavedChanges || (isManualEditing && secondsSinceManualEdit < 120))
     }
 
@@ -100,12 +99,10 @@ nonisolated enum ScreenplayRemoteDraftConflictPolicy {
     ) -> Bool {
         let localVersion = localVersionId.trimmingCharacters(in: .whitespacesAndNewlines)
         let serverVersion = serverVersionId.trimmingCharacters(in: .whitespacesAndNewlines)
-        let local = localDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-        let server = serverDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         return localEditsProtected
             && !localVersion.isEmpty
             && !serverVersion.isEmpty
             && localVersion != serverVersion
-            && local != server
+            && !ScreenplayDraftTextIdentity.matches(localDraft, serverDraft)
     }
 }

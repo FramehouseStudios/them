@@ -190,7 +190,7 @@ struct ScreenplayLocalDraftRecoveryStore {
         var projectPayload = nextPayloads[normalizedProjectId] ?? [:]
         var preserved = preservedConflicts(in: projectPayload)
         let alreadyStored = preserved.contains {
-            ($0["draft"] as? String) == draft &&
+            ScreenplayDraftTextIdentity.matches($0["draft"] as? String ?? "", draft) &&
                 ($0["baseVersionId"] as? String) == baseVersionId
         }
         if !alreadyStored {
@@ -220,7 +220,7 @@ struct ScreenplayLocalDraftRecoveryStore {
         var preserved = preservedConflicts(in: projectPayload)
         if let draft {
             if let index = preserved.firstIndex(where: {
-                ($0["draft"] as? String) == draft &&
+                ScreenplayDraftTextIdentity.matches($0["draft"] as? String ?? "", draft) &&
                     (savedAt == nil || ($0["savedAt"] as? TimeInterval) == savedAt)
             }) {
                 preserved.remove(at: index)
@@ -290,7 +290,7 @@ struct ScreenplayLocalDraftRecoveryStore {
               let payload = payloads(ownerUserId: ownerUserId)[normalizedProjectId] else { return nil }
         let conflicts = preservedConflicts(in: payload).filter { $0["dirty"] as? Bool == true }
         guard let currentIndex = conflicts.firstIndex(where: {
-            ($0["draft"] as? String) == draft && ($0["savedAt"] as? TimeInterval) == savedAt
+            ScreenplayDraftTextIdentity.matches($0["draft"] as? String ?? "", draft) && ($0["savedAt"] as? TimeInterval) == savedAt
         }), conflicts.indices.contains(currentIndex + 1) else { return nil }
         let next = conflicts[currentIndex + 1]
         let nextDraft = String(describing: next["draft"] ?? "")
@@ -333,11 +333,11 @@ struct ScreenplayLocalDraftRecoveryStore {
         guard !normalizedProjectId.isEmpty,
               let stored = payloads(ownerUserId: ownerUserId)[normalizedProjectId] else { return nil }
 
-        let serverFingerprint = fingerprint(serverDraft.trimmingCharacters(in: .whitespacesAndNewlines))
+        let serverFingerprint = fingerprint(serverDraft)
         for preserved in preservedConflicts(in: stored) where preserved["dirty"] as? Bool == true {
             let draft = String(describing: preserved["draft"] ?? "")
             if !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-               fingerprint(draft.trimmingCharacters(in: .whitespacesAndNewlines)) != serverFingerprint {
+               (fingerprint(draft) != serverFingerprint || !ScreenplayDraftTextIdentity.matches(draft, serverDraft)) {
                 return ScreenplayLocalDraftRecoverySnapshot(
                     projectId: normalizedProjectId,
                     draft: draft,
@@ -367,8 +367,8 @@ struct ScreenplayLocalDraftRecoveryStore {
             return nil
         }
 
-        let localFingerprint = fingerprint(storedDraft.trimmingCharacters(in: .whitespacesAndNewlines))
-        guard serverFingerprint != localFingerprint else {
+        let localFingerprint = fingerprint(storedDraft)
+        guard serverFingerprint != localFingerprint || !ScreenplayDraftTextIdentity.matches(storedDraft, serverDraft) else {
             clear(ownerUserId: ownerUserId, projectId: normalizedProjectId)
             return nil
         }
