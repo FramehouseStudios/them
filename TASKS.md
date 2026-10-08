@@ -5,6 +5,31 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-931 — Persist and restore intentional writer deletions
+
+- **Owner:** codex. **Branch:** `codex/T-931-blank-writer-recovery`, above #929
+  head `5302f23b`. **Pillar:** mobile-first (writer data safety). **Status:** review.
+- **Root:** blank manual edits were rejected by recovery/save guards and could
+  be overwritten by server hydration. Retained signed regression: one failed
+  test, five failed assertions before the fix.
+- **Scope:** current-owner/project deletion intent through canonical recovery,
+  outbox, retry, real API and save controls; default-off legacy decoding;
+  preserve Clear Draft's prior words and unresolved conflict choice. Remote live
+  adoption clears local intent. No god file grows versus the immediate base.
+- **VERIFIED:** final signed erased-simulator units 666 pass, 0 fail, 0 skip;
+  Node 20.20.2 external-network-disabled backend 2,743 pass, 0 fail, 2 skip;
+  wrapper tests 4/4; macOS scaffold build exit 0; syntax/god/diff checks pass.
+  Final signed auth-required recovery UI: 3 pass, 0 fail, 0 skip after review fixes.
+- **Done when:** three signed auth-required recovery UI journeys pass, including
+  offline delete-all/relaunch/reconnect/exactly-one-version/online relaunch;
+  publish only a scoped draft above #929. Audit and precise artifacts:
+  `docs/audits/blank-writer-recovery-2026-10-08.md`.
+- **Follow-up:** blank revision snapshot create/load remains unsupported by its
+  deliberate source contract; handle explicitly in a separate scoped change.
+- **Not covered:** physical voice/paid providers, unsynced uninstall, production
+  Postgres soak, release proof, 120-page performance or export parity. #766 then
+  #770 remain first; required independent review and hosted gates are not bypassed.
+
 ### T-930 — Guarded server contract for intentional blank writer saves
 
 - **Owner:** codex

@@ -34,6 +34,8 @@ nonisolated struct ScreenplayDraftSaveOutboxEntry: Identifiable, Codable, Equata
     var retries: Int
     var nextAttemptAt: TimeInterval
     var lastError: String
+    // Optional keeps old manifests readable; missing intent never permits deletion.
+    var allowEmptyDraft: Bool? = nil
 }
 
 nonisolated struct ScreenplayDraftSaveOutboxSnapshot: Equatable {
@@ -128,12 +130,18 @@ actor ScreenplayDraftSaveOutbox {
     @discardableResult
     func enqueue(_ entry: ScreenplayDraftSaveOutboxEntry) throws -> ScreenplayDraftSaveOutboxSnapshot {
         try loadIfNeeded()
+        guard !entry.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+            (entry.allowEmptyDraft == true && !entry.baseVersionId.isEmpty &&
+             ["studio_manual", "studio_autosave", "studio_conflict_resolve"].contains(entry.source)) else {
+            throw BackendMemoryAPIError.server(status: 400, message: "draft_required")
+        }
         guard entry.draft.utf8.count <= Self.maxDraftBytes else {
             throw BackendMemoryAPIError.server(status: 413, message: "screenplay_draft_too_large")
         }
         if let index = entries.firstIndex(where: { $0.id == entry.id }) {
             guard entries[index].projectId == entry.projectId,
                   entries[index].ownerUserId == entry.ownerUserId,
+                  (entries[index].allowEmptyDraft ?? false) == (entry.allowEmptyDraft ?? false),
                   ScreenplayDraftTextIdentity.matches(entries[index].draft, entry.draft) else {
                 throw BackendMemoryAPIError.server(status: 409, message: "screenplay_save_id_reused")
             }
@@ -146,6 +154,7 @@ actor ScreenplayDraftSaveOutbox {
                 existing.ownerUserId == entry.ownerUserId &&
                 existing.status != .parked &&
                 existing.baseVersionId == entry.baseVersionId &&
+                (existing.allowEmptyDraft ?? false) == (entry.allowEmptyDraft ?? false) &&
                 ScreenplayDraftTextIdentity.matches(existing.draft, entry.draft)
         }) {
             let nextSnapshot = snapshotFor(entries)

@@ -2,6 +2,74 @@ import XCTest
 @testable import them
 
 final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
+    @MainActor
+    func testClearDraftRetainsUnresolvedConflictAndPriorWriterCopy() async {
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store)
+        model.autosaveEnabled = false
+        model.selectedProjectID = "clear-conflict"
+        model.applyStructuralUITestDraft("Saved words", versionID: "base")
+        model.fountainDraft = "Unsaved writer words"
+        model.noteManualDraftEdit()
+        let conflict = ScreenplayStudioViewModel.SaveConflictState(projectId: "clear-conflict",
+            baseVersionId: "base", serverVersionId: "remote", serverDraft: "Collaborator words",
+            serverDraftExcerpt: "Collaborator words", serverUpdatedAt: 1)
+        model.conflictState = conflict
+        model.clearDraft()
+        XCTAssertEqual(model.fountainDraft, "")
+        XCTAssertTrue(model.hasIntentionalBlankDraft)
+        XCTAssertEqual(model.conflictState, conflict)
+        let modelOwner = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""
+        XCTAssertEqual(store.firstPreservedConflict(ownerUserId: modelOwner,
+            projectId: "clear-conflict")?.draft, "Unsaved writer words")
+        try? await Task.sleep(nanoseconds: 1_100_000_000)
+        XCTAssertEqual(model.conflictState, conflict)
+        XCTAssertEqual(model.autosaveStatusText, "Conflict detected")
+    }
+
+    @MainActor
+    func testRemoteLiveAdoptionCannotReuseWriterDeletionIntent() async {
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store)
+        model.autosaveEnabled = false
+        model.selectedProjectID = "remote-intent"
+        model.applyStructuralUITestDraft("Saved words", versionID: "base")
+        model.fountainDraft = ""
+        model.noteManualDraftEdit()
+        XCTAssertTrue(model.hasIntentionalBlankDraft)
+        XCTAssertTrue(model.applyRemoteLiveDraft("Remote words", projectID: "remote-intent", sourceDeviceID: "other"))
+        XCTAssertTrue(model.applyRemoteLiveDraft("", projectID: "remote-intent", sourceDeviceID: "other"))
+        XCTAssertFalse(model.hasIntentionalBlankDraft)
+        try? await Task.sleep(nanoseconds: 1_100_000_000)
+    }
+
+    func testBlankRecoveryRequiresExplicitIntentAndExistingBase() {
+        store.save(ownerUserId: ownerUserID, projectId: "blank", draft: "", baseVersionId: "base", dirty: true)
+        XCTAssertNil(store.dirtyOrdinarySnapshot(ownerUserId: ownerUserID, projectId: "blank"))
+        store.save(ownerUserId: ownerUserID, projectId: "blank", draft: "", baseVersionId: "base",
+                   dirty: true, allowEmptyDraft: true)
+        let reopened = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: recoveryKey)
+        XCTAssertEqual(reopened.recoverySnapshot(ownerUserId: ownerUserID, projectId: "blank",
+            serverDraft: "Server words", fingerprint: { $0 })?.draft, "")
+        XCTAssertNil(reopened.dirtyOrdinarySnapshot(ownerUserId: "other", projectId: "blank"))
+        store.save(ownerUserId: ownerUserID, projectId: "versionless", draft: "", baseVersionId: "",
+                   dirty: true, allowEmptyDraft: true)
+        XCTAssertNil(store.dirtyOrdinarySnapshot(ownerUserId: ownerUserID, projectId: "versionless"))
+    }
+
+    @MainActor
+    func testIncidentalEmptyDraftDoesNotAcquireWriterDeletionIntent() async {
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store)
+        model.autosaveEnabled = false
+        model.selectedProjectID = "project"
+        model.applyStructuralUITestDraft("Writer words", versionID: "base")
+        model.fountainDraft = ""
+        XCTAssertFalse(model.hasIntentionalBlankDraft)
+        model.noteManualDraftEdit()
+        XCTAssertTrue(model.hasIntentionalBlankDraft)
+        model.selectedProjectID = "other-project"
+        XCTAssertFalse(model.hasIntentionalBlankDraft)
+        try? await Task.sleep(nanoseconds: 1_100_000_000)
+    }
+
     func testSaveConfirmationRequiresExactReturnedWriterText() {
         let draft = "  café\r\n"
         XCTAssertTrue(ScreenplayDraftSaveCompletionPolicy.confirmsSavedDraft(

@@ -2889,7 +2889,7 @@ private var directionOneScriptEditor: some View {
                     pendingReplacementTarget: $liveDraftBridge.pendingReplacementTarget,
                     submittedReplacementTarget: $liveDraftBridge.submittedReplacementTarget,
                     onUserEdit: vm.noteManualDraftEdit, canSaveDraft: vm.selectedProject != nil &&
-                        vm.hasUnsavedDraftChanges && !vm.isSaving && !vm.fountainDraft.isEmpty,
+                        vm.hasUnsavedDraftChanges && !vm.isSaving && vm.canPersistCurrentDraft,
                     onSaveDraft: { triggerStudioManualSave() }
                 )
                 .overlay(alignment: .topLeading) {
@@ -12475,7 +12475,7 @@ Return revised screenplay lines only.
             endCompactScreenplayEditing()
         }
         #endif
-        guard !vm.fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        guard vm.canPersistCurrentDraft else {
             vm.errorText = "Draft is empty."
             return
         }

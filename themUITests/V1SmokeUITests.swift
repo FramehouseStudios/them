@@ -1697,6 +1697,72 @@ final class V1SmokeUITests: XCTestCase {
     }
 
     @MainActor
+    func test_screenplay_delete_all_survives_offline_relaunch_and_saves_once() async throws {
+        let baseURL = URL(string: "http://127.0.0.1:31337")!
+        guard await backendRestoreContractIsAvailable(baseURL: baseURL) else {
+            throw XCTSkip("Authenticated local screenplay recovery backend is not running.")
+        }
+        let fixture = try await seedBackendRestoreContractFixture(baseURL: baseURL)
+        var app = launchApp(openStudio: true, screenplaySaveNetworkFaultMarker: "__DELETE_ALL_WRITER_TEXT__",
+            restoreProjectID: fixture.projectID, restoreVersionID: fixture.versionID,
+            restoreLoadToken: fixture.loadToken, launchEnvironment: fixture.appLaunchEnvironment)
+        var snapshot: [String: Any] = [:]
+        XCTAssertTrue(waitForRestoreSnapshot(in: app, timeout: 60) { state in
+            snapshot = state
+            return stringValue(state["selected_project_id"]).lowercased() == fixture.projectID.lowercased()
+                && state["draft_tail_preview"] as? String == ""
+                && intValue(state["queued_draft_save_count"]) == 1
+                && boolValue(state["has_unsaved_draft_changes"])
+        }, "Deliberate blank edit was not queued. Snapshot: \(snapshot)")
+        app.terminate()
+        // Keep the save transport offline, without invoking the deletion fixture again.
+        app = launchApp(openStudio: true, screenplaySaveOfflineOnly: true, resetState: false,
+            launchEnvironment: fixture.appLaunchEnvironment)
+        XCTAssertTrue(waitForRestoreSnapshot(in: app, timeout: 60) { state in
+            snapshot = state
+            return stringValue(state["selected_project_id"]).lowercased() == fixture.projectID.lowercased()
+                && state["draft_tail_preview"] as? String == ""
+                && intValue(state["queued_draft_save_count"]) == 1
+                && boolValue(state["has_unsaved_draft_changes"])
+                && stringValue(state["loaded_draft_project_id"]).lowercased() == fixture.projectID.lowercased()
+        }, "Offline relaunch reinserted old words or lost the deletion. Snapshot: \(snapshot)")
+        app.terminate()
+        app = launchApp(openStudio: true, resetState: false, launchEnvironment: fixture.appLaunchEnvironment)
+        defer { app.terminate() }
+        XCTAssertTrue(waitForRestoreSnapshot(in: app, timeout: 75) { state in
+            snapshot = state
+            return stringValue(state["selected_project_id"]).lowercased() == fixture.projectID.lowercased()
+                && state["draft_tail_preview"] as? String == ""
+                && intValue(state["queued_draft_save_count"]) == 0
+                && intValue(state["parked_draft_save_count"]) == 0
+                && !boolValue(state["has_unsaved_draft_changes"])
+                && !boolValue(state["is_saving"])
+                && !stringValue(state["latest_version_id"]).isEmpty
+                && stringValue(state["latest_version_id"]).lowercased() != fixture.versionID.lowercased()
+        }, "Blank edit was not saved exactly after reconnect. Snapshot: \(snapshot)")
+        let response = try await requestJSON(baseURL: baseURL, path: "/screenplay/projects/\(fixture.projectID)",
+            method: "GET", headers: [
+                "X-APP-TOKEN": fixture.appLaunchEnvironment["THEM_UITEST_APP_TOKEN"] ?? "them-dev",
+                "Authorization": "Bearer \(fixture.appLaunchEnvironment["THEM_UITEST_AUTH_DEBUG_ACCESS_TOKEN"] ?? "")",
+            ], body: nil, queryItems: [URLQueryItem(name: "include_drafts", value: "1")])
+        try assertHTTP(response, context: "saved blank screenplay")
+        let envelope = response.payload["payload"] as? [String: Any] ?? response.payload
+        let project = try XCTUnwrap(envelope["project"] as? [String: Any])
+        let versions = try XCTUnwrap(project["versions"] as? [[String: Any]])
+        XCTAssertEqual(versions.count, 2, "The initial version and one deletion must be retained.")
+        let saved = try XCTUnwrap(versions.first { $0["draft"] as? String == "" })
+        XCTAssertEqual(saved["id"] as? String, project["active_version_id"] as? String)
+        XCTAssertEqual(versions.filter { $0["id"] as? String == fixture.versionID }.count, 1)
+        app.terminate()
+        app = launchApp(openStudio: true, resetState: false, launchEnvironment: fixture.appLaunchEnvironment)
+        XCTAssertTrue(waitForRestoreSnapshot(in: app, timeout: 60) { state in
+            state["draft_tail_preview"] as? String == ""
+                && stringValue(state["latest_version_id"]) == saved["id"] as? String
+                && !boolValue(state["has_unsaved_draft_changes"])
+        }, "Online relaunch did not restore the confirmed blank version.")
+    }
+
+    @MainActor
     func test_screenplay_save_outbox_survives_relaunch_and_reconnects_once() async throws {
         let configuredPort = Int(
             ProcessInfo.processInfo.environment["THEM_UITEST_SCREENPLAY_SAVE_BACKEND_PORT"] ?? ""
@@ -2871,6 +2937,7 @@ final class V1SmokeUITests: XCTestCase {
         showProvisionalScreenplayOptions: Bool = false,
         realtimeNetworkFaultStage: String? = nil,
         screenplaySaveNetworkFaultMarker: String? = nil,
+        screenplaySaveOfflineOnly: Bool = false,
         screenplaySaveExpireAuthOnce: Bool = false,
         seedRememberedLogin: Bool = false,
         seedCompanionSignal: Bool = false,
@@ -2965,6 +3032,7 @@ final class V1SmokeUITests: XCTestCase {
                 screenplaySaveNetworkFaultMarker,
             ])
         }
+        if screenplaySaveOfflineOnly { arguments.append("--ui-screenplay-save-network-fault") }
         if screenplaySaveExpireAuthOnce {
             arguments.append("--ui-screenplay-save-expire-auth-once")
         }
