@@ -23,6 +23,7 @@ else
   test_identifiers=(
     "themUITests/V1SmokeUITests/test_screenplay_save_outbox_survives_relaunch_and_reconnects_once"
     "themUITests/V1SmokeUITests/test_screenplay_save_outbox_refreshes_auth_and_resolves_stale_conflict_once"
+    "themUITests/V1SmokeUITests/test_screenplay_delete_all_survives_offline_relaunch_and_saves_once"
   )
 fi
 

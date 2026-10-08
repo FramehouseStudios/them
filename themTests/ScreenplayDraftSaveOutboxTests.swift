@@ -2,6 +2,72 @@ import XCTest
 @testable import them
 
 final class ScreenplayDraftSaveOutboxTests: XCTestCase {
+    func testBlankIntentSurvivesQueueCodecAndOldManifestsDefaultOff() throws {
+        let old = try JSONEncoder().encode(makeEntry(id: "legacy"))
+        let decoded = try JSONDecoder().decode(ScreenplayDraftSaveOutboxEntry.self, from: old)
+        XCTAssertFalse(decoded.allowEmptyDraft ?? false)
+        var blank = makeEntry(id: "delete-all", draft: "")
+        blank.allowEmptyDraft = true
+        let reopened = try JSONDecoder().decode(ScreenplayDraftSaveOutboxEntry.self,
+            from: JSONEncoder().encode(blank))
+        XCTAssertEqual(reopened.allowEmptyDraft, true)
+        XCTAssertEqual(reopened.draft, "")
+    }
+
+    @MainActor
+    func testFlaggedBlankQueueRestoresBeforeRemoteHydration() async throws {
+        let owner = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""
+        let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        var blank = replacingOwner(of: makeEntry(id: "blank", draft: ""), with: owner)
+        blank.allowEmptyDraft = true
+        try await queue.enqueue(blank)
+        let reopened = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let suite = "them.blank-queued.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore:
+            ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "recovery"), draftSaveOutbox: reopened)
+        model.autosaveEnabled = false
+        model.selectedProjectID = "project-1"
+        let data = try JSONSerialization.data(withJSONObject: ["id": "project-1", "title": "Test",
+            "activeVersionId": "remote", "versions": [["id": "remote", "draft": "Collaborator words"]]])
+        await model.hydrateDraftRestoringQueuedSaves(from:
+            try JSONDecoder().decode(BackendScreenplayProjectSummary.self, from: data))
+        XCTAssertEqual(model.fountainDraft, "")
+        XCTAssertTrue(model.hasIntentionalBlankDraft)
+        XCTAssertTrue(model.hasUnsavedDraftChanges)
+        XCTAssertNotNil(model.conflictState)
+        let copies = try await reopened.entriesForTesting()
+        XCTAssertEqual(copies.first?.allowEmptyDraft, true)
+        try? await Task.sleep(nanoseconds: 1_100_000_000)
+    }
+
+    @MainActor
+    func testManualDeleteAllSurvivesDebounceAndServerHydration() async throws {
+        let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let suite = "them.delete-all.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let recovery = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "recovery")
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: recovery, draftSaveOutbox: queue)
+        model.autosaveEnabled = false
+        model.selectedProjectID = "project-1"
+        model.applyStructuralUITestDraft("Original writer words", versionID: "base")
+        model.fountainDraft = ""
+        model.noteManualDraftEdit()
+        let owner = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""
+        XCTAssertEqual(recovery.payloads(ownerUserId: owner)["project-1"]?["draft"] as? String, "")
+        try? await Task.sleep(nanoseconds: 1_100_000_000)
+        XCTAssertEqual(recovery.dirtyOrdinarySnapshot(ownerUserId: owner, projectId: "project-1")?.draft, "")
+        let data = try JSONSerialization.data(withJSONObject: ["id": "project-1", "title": "Test",
+            "activeVersionId": "remote", "versions": [["id": "remote", "draft": "Collaborator words"]]])
+        model.hydrateDraft(from: try JSONDecoder().decode(BackendScreenplayProjectSummary.self, from: data))
+        XCTAssertEqual(model.fountainDraft, "")
+        XCTAssertTrue(model.hasUnsavedDraftChanges)
+        XCTAssertNotNil(model.conflictState)
+        try? await Task.sleep(nanoseconds: 1_100_000_000)
+    }
+
     @MainActor
     func testProjectHydrationRestoresParkedWriterSaveBeforeRemoteDraft() async throws {
         let owner = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""

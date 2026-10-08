@@ -8519,6 +8519,7 @@ actor BackendMemoryAPI {
         baseVersionId: String = "",
         conflictStrategy: String = "reject_if_stale",
         clientRequestId: String = "",
+        allowEmptyDraft: Bool = false,
         includeUserIdentity: Bool = true,
         includeAuthToken: Bool = true,
         clientTokenOverride: String? = nil
@@ -8529,15 +8530,15 @@ actor BackendMemoryAPI {
             throw BackendMemoryAPIError.server(status: 400, message: "project_id_required")
         }
         let trimmedDraft = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedDraft.isEmpty else {
+        guard !trimmedDraft.isEmpty || allowEmptyDraft else {
             throw BackendMemoryAPIError.server(status: 400, message: "draft_required")
         }
-
         var payload: [String: Any] = [
             "draft": draft,
             "phase": phase,
             "source": source,
         ]
+        if allowEmptyDraft { payload["allow_empty_draft"] = true }
         if !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             payload["title"] = title
         }
@@ -8572,7 +8573,6 @@ actor BackendMemoryAPI {
             payload["client_request_id"] = String(normalizedClientRequestId.prefix(96))
         }
         let requestBody = try JSONSerialization.data(withJSONObject: payload, options: [])
-
 #if DEBUG
         if IOThemRuntime.isRunningUITests,
            ProcessInfo.processInfo.arguments.contains("--ui-screenplay-save-expire-auth-once"),
