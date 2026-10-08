@@ -3,6 +3,32 @@ import XCTest
 
 final class ScreenplayDraftSaveOutboxTests: XCTestCase {
     @MainActor
+    func testProjectHydrationRestoresParkedWriterSaveBeforeRemoteDraft() async throws {
+        let owner = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""
+        let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let local = "  Writer words cafe\u{0301}\r\n"
+        try await queue.enqueue(replacingOwner(of: makeEntry(id: "parked", draft: local), with: owner))
+        _ = try await queue.retainConflict(projectId: "project-1", ownerUserId: owner)
+        let suite = "them.project-hydration.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let recovery = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "recovery")
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: recovery, draftSaveOutbox: queue)
+        model.autosaveEnabled = false
+        model.selectedProjectID = "project-1"
+        let data = try JSONSerialization.data(withJSONObject: ["id": "project-1", "title": "Test",
+            "activeVersionId": "remote", "versions": [["id": "remote", "draft": "Collaborator words"]]])
+        await model.hydrateDraftRestoringQueuedSaves(from:
+            try JSONDecoder().decode(BackendScreenplayProjectSummary.self, from: data))
+        XCTAssertEqual(Array(model.fountainDraft.utf8), Array(local.utf8))
+        XCTAssertTrue(model.hasUnsavedDraftChanges)
+        XCTAssertNotNil(model.conflictState)
+        let copies = try await queue.entriesForTesting()
+        XCTAssertEqual(copies.map(\.draft), [local])
+        try? await Task.sleep(nanoseconds: 1_100_000_000)
+    }
+
+    @MainActor
     func testBoundaryWhitespaceEditStaysDirtyThroughDebounce() async throws {
         let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
         let suite = "them.boundary-save.\(UUID().uuidString)"
