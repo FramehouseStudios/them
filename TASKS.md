@@ -5,6 +5,28 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-937 — Save acknowledgements cannot overrule newer writer choices
+
+- **Owner:** codex. **Branch:** `codex/T-937-save-conflict-authority`, above
+  #934 `60e7ad1d`. **Pillar:** mobile-first; goal items 1 and 4. **Status:** review.
+- **VERIFIED roots:** real-model controlled transport baseline: two failed
+  tests, 12 failed assertions. Ordinary Save Now posts through a visible conflict;
+  a late acknowledgement clears a newer choice, dispatches/rebases a pending
+  edit, and retires parked copies. `/tmp/them-937-authority-red.xcresult` and `.log`.
+- **Target:** capture account/project/conflict-generation authority once per
+  immutable request; recheck before dispatch and after awaited work. Held saves
+  retain exact local bytes and explicit choice without posting. Valid Keep Mine
+  and Load Server must still work; late responses cannot rewind their results.
+- **Final local proof:** full signed units 686 pass, zero fail/skip;
+  authenticated recovery UI five pass, zero fail/skip; integrated authenticated
+  writer one pass, zero fail/skip. Node 20 backend 2,744 pass, zero fail, two skip;
+  macOS build, four runner tests and god/diff gates pass. Direct actor tests
+  verify durable parked-copy retention and generation fence scope independent
+  of wall clock. Exact files, retained reds, adversarial review and proof limits:
+  `docs/audits/save-conflict-authority-2026-10-08.md`.
+- **Limits:** not the exact hosted false-clean root, shipping provider/physical
+  voice, production database, export parity or performance. Main unchanged.
+
 ### T-936 — Fresh, byte-safe explicit Load Server choice
 
 - **Owner:** codex. **Branch:** `codex/T-936-fresh-server-choice`, above #933
