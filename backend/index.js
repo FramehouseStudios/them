@@ -5,6 +5,7 @@ import { execFile } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { app, talkUpload } from "./app.js";
+import { deriveKnowledgeTopicWeights } from "./lib/knowledge_topic_weights.js";
 import {
   API_SCHEMA_VERSION,
   APP_TOKEN,
@@ -20975,23 +20976,6 @@ const KNOWLEDGE_STOPWORDS = new Set([
   "into", "than", "also", "still", "been", "being", "get", "got", "use", "using",
 ]);
 
-const KNOWLEDGE_TOPIC_KEYWORDS = Object.freeze({
-  craft: ["dialogue", "screenwriting", "slugline", "parenthetical", "inciting incident", "plot point", "midpoint", "act break", "logline", "three-act", "subtext"],
-  movies: ["movie", "movies", "film", "cinema", "director", "screenplay", "editing", "scene"],
-  art_history: ["art", "artist", "painting", "museum", "renaissance", "baroque", "modernism", "sculpture"],
-  philosophy: ["philosophy", "ethics", "existential", "stoic", "meaning", "truth", "consciousness", "virtue"],
-  learning: ["learn", "learning", "study", "practice", "memory", "habit", "skill", "improve", "growth"],
-  compatibility: ["compatibility", "values", "attachment", "fit", "alignment", "red flags", "green flags"],
-  heartbreak: [
-    "heartbreak", "heartbroken", "breakup", "break up", "broke up", "my ex", "ex partner",
-    "ex-partner", "ex boyfriend", "ex girlfriend", "no contact", "closure",
-  ],
-  friendship: ["friend", "friendship", "best friend", "support", "trust", "loyal", "repair"],
-  betrayal: ["betrayal", "betrayed", "lie", "liar", "cheat", "disrespect", "trust broken", "deception"],
-  empathy: ["empathy", "compassion", "attunement", "validation", "listening", "emotional safety"],
-  human_connection: ["connection", "intimacy", "belonging", "lonely", "closeness", "bond", "relational"],
-});
-
 const KNOWLEDGE_RELATIONAL_TOPICS = new Set([
   "compatibility",
   "heartbreak",
@@ -21149,35 +21133,6 @@ function tokenizeKnowledgeQuery(text) {
     .split(/\s+/)
     .map((x) => x.trim())
     .filter((x) => x.length >= 3 && !KNOWLEDGE_STOPWORDS.has(x));
-}
-
-function countKeywordHits(text, keywords) {
-  const t = String(text || "");
-  return keywords.reduce((count, keyword) => (
-    keyword && t.includes(keyword) ? count + 1 : count
-  ), 0);
-}
-
-function deriveKnowledgeTopicWeights(queryText) {
-  const text = String(queryText || "").toLowerCase();
-  const weights = {};
-  for (const [topic, keywords] of Object.entries(KNOWLEDGE_TOPIC_KEYWORDS)) {
-    const hits = countKeywordHits(text, keywords);
-    if (hits <= 0) continue;
-    weights[topic] = Math.min(1, 0.28 + (hits * 0.18));
-  }
-  if (textContainsAny(text, ["relationship", "dating", "partner", "breakup"])) {
-    weights.compatibility = Math.max(weights.compatibility || 0, 0.42);
-    weights.human_connection = Math.max(weights.human_connection || 0, 0.38);
-  }
-  if (textContainsAny(text, ["hurt", "betrayed", "liar", "lied"])) {
-    weights.betrayal = Math.max(weights.betrayal || 0, 0.50);
-    weights.empathy = Math.max(weights.empathy || 0, 0.32);
-  }
-  if (textContainsAny(text, ["friend", "friendship", "best friend"])) {
-    weights.friendship = Math.max(weights.friendship || 0, 0.48);
-  }
-  return weights;
 }
 
 function deriveKnowledgeQueryProfile(query, { flags, turnPlanner } = {}) {

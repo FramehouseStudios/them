@@ -32,17 +32,29 @@
 ### T-945 — Resolve #640 three-act review findings before integration
 
 - **Owner:** codex. **Branch:** `codex/T-945-three-act-review-fixes`.
-- **Status:** review. **Pillar:** living companion / longitudinal learning.
+- **Status:** in-progress. **Pillar:** living companion / longitudinal learning.
 - **Done when:** planner intent regressions, trimmed craft survival, canonical
   defaults, feature-map precedence and lexical retrieval are proven; all 110
   cards retain their contents; Node 20 backend, offline golden, signed Swift
   selection tests and D009 pass against `claude/mentor-golden-port`.
 - **Boundary:** retain original #640 `c8eb36ba`; no replacement PR, original-head
   rewrite, squash or main merge. Post evidence on the original PR.
+- **Reopened:** production-order allocator content loss, talk-path mutation
+  coverage, context-scoped retrieval, exact main JSON formatting and late-map
+  precedence must be proven before renewed integration readiness.
 - **Proof:** Node 20.20.2 full backend 2,765 pass / 0 fail / 2 skip; offline
   golden gate passes; signed Swift selection/resilience 9/9 after owned erase;
   macOS scaffold build, D009 and diff checks pass. See
   `docs/three-act-review-corrections-2026-10-08.md` for all outcomes and boundaries.
+
+### T-948 — Persisted craft report rail reconciliation
+
+- **Owner:** codex. **Status:** ready. **Pillar:** mobile-first / living companion.
+- **Scope:** prefer a loaded report's framework if the writer has not explicitly
+  chosen one; preserve explicit choices. Separate from the T-945 allocator fix.
+- **Done when:** stored Save the Cat report, chip and successful Save Override
+  agree; explicit Three-Act selection stays selected. Signed behavioral tests
+  and narrow Studio runtime proof required. Known minor issue, not fixed yet.
 
 | ID   | Title                                              | Owner  | Status            |
 |------|----------------------------------------------------|--------|-------------------|

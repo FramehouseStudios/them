@@ -26,8 +26,52 @@ is rewritten; this is a correction branch, not a replacement PR.
    Without a feature map, mentor turns retain craft guidance.
 5. Register craft topic keywords in lexical retrieval. The exact dialogue
    query now returns craft cards with embeddings disabled.
-6. Restore one-card-per-line JSON, with all 110 cards and metadata verified
-   deeply equal to original #640. Deployment copy now says 110, not 90.
+6. The original formatting claim was incomplete and is superseded: restore
+   main's exact spaces and nine topic separators, plus twenty craft cards.
+   VERIFIED: diff against origin/main is +21/-1; all 110 cards and metadata
+   remain deeply equal to original #640. Deployment copy says 110, not 90.
+
+## Reopened independent review — second correction pass
+
+- Replace front-to-back protected shares with capped weighted redistribution.
+  Unused space returns to longer contracts. A production-order test compares
+  the complete normalized core and mentor contents, not just tag presence.
+  The full protected pool may use available space above the former fixed 82%.
+- Real HTTP `/talk` reaches a mocked provider and inspects its system prompt.
+  Removing mentor routing fails; reverting the append guard fails on the
+  competing craft block. Mutation fixtures were restored. One initial mutation
+  accidentally produced invalid syntax and is NOT behavioral evidence; the
+  corrected, syntax-checked mutation fails on the actual prompt assertion.
+- Extract lexical topic weights into their canonical capability module.
+  Both requested scene/setup queries retrieve craft cards without embeddings;
+  relationship subtext and Plato dialogue queries retain their own domains.
+- Final prompt assembly removes craft whenever a feature map arrives later.
+  This makes precedence independent of assembly order.
+- Track the minor persisted-report framework rail mismatch separately below;
+  do not present the earlier Swift default-selection tests as covering it.
+- D009 permits shrinking. Two inherited exact-count tests now assert the
+  current 33,626 ceiling, rather than require padding after extraction. The
+  later stack's exact 33,603 rule is not established at this boundary.
+
+### Remaining tracked rail issue
+
+T-948: when a report is loaded and no framework was explicitly selected,
+reconcile the chip and override request to that report's framework. Required
+proof: stored Save the Cat report loads as Save the Cat; Save Override succeeds;
+explicit new Three-Act selection remains unchanged. This is a known minor
+limitation, not a completed correction. The human explicitly allowed tracking.
+
+### Second-pass verification
+
+- Focused Node 20: 49 passed, zero failed, zero skipped.
+  `/tmp/them-948-focused-final2.log`.
+- Full Node 20.20.2, network disabled: 2,771 passed, zero failed, two skipped;
+  offline MENTOR GOLDEN SET OK. `/tmp/them-948-backend.log`.
+- Both real-talk mutations fail on behavior after syntax checking; no real
+  provider calls occur. Synthetic TTS bytes are not voice-quality proof.
+- D009 vs mentor-golden: index 33,626 -> 33,581; other monitored files unchanged.
+- Signed full units, writer UI and scaffold proof are pending below. Earlier
+  integration readiness is superseded until these current proofs finish.
 
 ## Verification
 

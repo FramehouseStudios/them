@@ -6,8 +6,18 @@ import { fileURLToPath } from "node:url";
 import { DEFAULT_FRAMEWORK_ID, getFrameworkById, listFrameworkReferences } from "../lib/craft_frameworks.js";
 import { buildCraftContextBlock, shouldAppendCraftContext } from "../lib/craft_prompts.js";
 import { fitSystemPromptForTurnLatency } from "../lib/system_prompt_trim.js";
+import { buildModelPrompt } from "../lib/prompt_assembly.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+test("[640-late-map] memory wrapping cannot leave a competing early craft plan", () => {
+  const prompt = buildModelPrompt({
+    persona: `Mentor\n${buildCraftContextBlock({ framework: DEFAULT_FRAMEWORK_ID })}`,
+    sessionContext: { projectId: "ferry", targetPages: 90, pageCount: 60 },
+  });
+  assert.match(prompt, /<feature_film_map>/);
+  assert.doesNotMatch(prompt, /<craft>/);
+});
 
 test("[three-act] feature map prevents a contradictory second craft plan", () => {
   assert.equal(shouldAppendCraftContext("Mentor question about dialogue"), true);
