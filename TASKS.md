@@ -5,6 +5,24 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-939 — Collaboration responses stay with their account and project
+
+- **Owner:** codex. **Branch:** `codex/T-939-collaboration-scope`, above #937
+  `2d5cc7b4`. **Pillar:** mobile-first; goal items 1, 3 and 6. **Status:** review.
+- **VERIFIED root:** unchanged production: three failed tests, one passed,
+  11 failed assertions. Old payloads reselect the previous project and a late
+  comment acknowledgement clears new-project words. Background timeout already
+  preserves feedback and is retained as a regression guard.
+  Corrected fixture evidence: `/tmp/them-939-collaboration-red-v2` bundle/log.
+- **Target:** captured auth/selection and per-collection response generations,
+  guarded retries, collection-only payload ownership and exact composer retention.
+- **Proof:** full signed units 711 pass, zero fail/skip, including 18 collaboration
+  cases; Node 20 backend 2,744 pass, zero fail, two skip. Final macOS build, four
+  runner tests and god/diff gates pass. Authenticated recovery UI five pass and
+  integrated writer one pass, zero fail/skip.
+  Evidence and boundaries: `docs/audits/collaboration-scope-2026-10-08.md`.
+  Main unchanged; no paid calls.
+
 ### T-933 — Synchronous BackendClient teardown compatibility
 
 - **Owner:** codex. **Branch:** `codex/T-933-client-teardown`, above #936

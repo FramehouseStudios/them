@@ -1488,7 +1488,19 @@ final class ScreenplayStudioViewModel: ObservableObject {
     @Published var infoText: String = ""
 
     @Published var projects: [BackendScreenplayProjectSummary] = []
-    @Published var selectedProjectID: String = ""
+    @Published var selectedProjectID: String = "" {
+        didSet {
+            if oldValue != selectedProjectID {
+                collaborationSelectionGeneration &+= 1
+                collaborationRefreshID = nil
+                isCollaborationRefreshing = false
+                if collaborationMutationID != nil {
+                    collaborationMutationID = nil
+                    isSaving = false
+                }
+            }
+        }
+    }
     @Published var selectedProject: BackendScreenplayProjectSummary?
     @Published var outline: BackendScreenplayOutline = .empty
     @Published var outlineRevision: Int = 0
@@ -1731,6 +1743,54 @@ final class ScreenplayStudioViewModel: ObservableObject {
     @Published private(set) var isLoadingServerConflict = false
     private var clientTokenOwnedProjectIDs: Set<String> = []
     private var activeLoadRequestID: UUID?
+    private var collaborationSelectionGeneration: UInt64 = 0
+    private var collaboratorResponseGeneration: UInt64 = 0
+    private var commentResponseGeneration: UInt64 = 0
+    private var collaborationRefreshID: UUID?
+    private var collaborationMutationID: UUID?
+
+    private struct CollaborationScope {
+        let id = UUID()
+        let projectID: String
+        let auth: ScreenplayStudioAuthContext
+        let selectionGeneration: UInt64
+        let responseGeneration: UInt64
+        let comments: Bool
+    }
+
+    private func beginCollaborationRequest(projectID: String, comments: Bool, mutation: Bool = false) -> CollaborationScope? {
+        guard collaborationMutationID == nil, selectedProjectID == projectID,
+              selectedProject?.id == projectID else { return nil }
+        if mutation {
+            collaborationRefreshID = nil
+            isCollaborationRefreshing = false
+        }
+        if comments { commentResponseGeneration &+= 1 } else { collaboratorResponseGeneration &+= 1 }
+        return CollaborationScope(projectID: projectID, auth: currentStudioAuthContext(),
+            selectionGeneration: collaborationSelectionGeneration,
+            responseGeneration: comments ? commentResponseGeneration : collaboratorResponseGeneration,
+            comments: comments)
+    }
+
+    private func collaborationScopeIsCurrent(_ scope: CollaborationScope) -> Bool {
+        authContextIsCurrent(scope.auth) && selectedProjectID == scope.projectID
+            && selectedProject?.id == scope.projectID
+            && collaborationSelectionGeneration == scope.selectionGeneration
+            && scope.responseGeneration == (scope.comments ? commentResponseGeneration : collaboratorResponseGeneration)
+    }
+
+    private func finishCollaborationMutation(_ scope: CollaborationScope) {
+        if collaborationMutationID == scope.id {
+            collaborationMutationID = nil
+            isSaving = false
+        }
+    }
+
+    private func commentComposerBytes() -> [[UInt8]] {
+        [commentText, commentAuthorEmail, commentAuthorName, commentActorEmail, commentAnchorLine,
+         commentType, commentVoiceURL, commentVoiceTranscript, commentVoiceDurationMs,
+         commentReplyToID, commentEditID].map { Array($0.utf8) }
+    }
 
     convenience init() {
         self.init(localDraftRecoveryStore: ScreenplayLocalDraftRecoveryStore())
@@ -3902,14 +3962,28 @@ final class ScreenplayStudioViewModel: ObservableObject {
         let id = selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !id.isEmpty else { return }
         guard !isCollaborationRefreshing else { return }
-
+        guard collaborationMutationID == nil else { return }
+        let requestID = UUID()
+        let auth = currentStudioAuthContext()
+        let selectionGeneration = collaborationSelectionGeneration
+        collaborationRefreshID = requestID
         isCollaborationRefreshing = true
-        defer { isCollaborationRefreshing = false }
+        defer {
+            if collaborationRefreshID == requestID {
+                collaborationRefreshID = nil
+                isCollaborationRefreshing = false
+            }
+        }
         collaborationErrorText = ""
         do {
-            try await loadCollaborators(projectId: id)
-            try await loadComments(projectId: id)
+            guard try await loadCollaborators(projectId: id), authContextIsCurrent(auth),
+                  collaborationSelectionGeneration == selectionGeneration,
+                  collaborationRefreshID == requestID else { return }
+            _ = try await loadComments(projectId: id)
         } catch {
+            guard authContextIsCurrent(auth), selectedProjectID == id,
+                  collaborationSelectionGeneration == selectionGeneration,
+                  collaborationRefreshID == requestID else { return }
             collaborationErrorText = StudioCraftResilience.presentedError(
                 error,
                 source: source,
@@ -3928,8 +4002,12 @@ final class ScreenplayStudioViewModel: ObservableObject {
             errorText = "Enter a collaborator email."
             return
         }
+        guard let scope = beginCollaborationRequest(projectID: project.id, comments: false, mutation: true) else { return }
+        let form = [collaboratorEmail, collaboratorNote, collaboratorInvitedBy]
+        let formBytes = form.map { Array($0.utf8) }
+        collaborationMutationID = scope.id
         isSaving = true
-        defer { isSaving = false }
+        defer { finishCollaborationMutation(scope) }
         errorText = ""
         do {
             let ownerHeaders = projectOwnerHeaderOptions(forProjectID: project.id)
@@ -3939,27 +4017,32 @@ final class ScreenplayStudioViewModel: ObservableObject {
                     projectId: project.id,
                     email: email,
                     action: "approve",
-                    note: collaboratorNote,
-                    invitedBy: collaboratorInvitedBy,
+                    note: form[1],
+                    invitedBy: form[2],
                     includeUserIdentity: ownerHeaders.includeUserIdentity,
                     includeAuthToken: ownerHeaders.includeAuthToken,
                     clientTokenOverride: ownerHeaders.clientTokenOverride
                 )
             } catch BackendMemoryAPIError.server(let status, _) where ownerHeaders.usesDebugClientTokenOwner && status == 404 {
+                guard collaborationScopeIsCurrent(scope) else { return }
                 result = try await projectSelectionAPI.upsertScreenplayCollaborator(
                     projectId: project.id,
                     email: email,
                     action: "approve",
-                    note: collaboratorNote,
-                    invitedBy: collaboratorInvitedBy
+                    note: form[1],
+                    invitedBy: form[2]
                 )
             }
-            applyCollaboratorsPayload(result.payload)
-            collaboratorEmail = ""
-            collaboratorNote = ""
-            collaboratorInvitedBy = ""
+            guard collaborationScopeIsCurrent(scope) else { return }
+            try applyCollaboratorsPayload(result.payload)
+            if formBytes == [collaboratorEmail, collaboratorNote, collaboratorInvitedBy].map({ Array($0.utf8) }) {
+                collaboratorEmail = ""
+                collaboratorNote = ""
+                collaboratorInvitedBy = ""
+            }
             infoText = "Collaborator approved."
         } catch {
+            guard collaborationScopeIsCurrent(scope) else { return }
             errorText = error.localizedDescription
         }
     }
@@ -3971,8 +4054,10 @@ final class ScreenplayStudioViewModel: ObservableObject {
         }
         let normalizedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedEmail.isEmpty else { return }
+        guard let scope = beginCollaborationRequest(projectID: project.id, comments: false, mutation: true) else { return }
+        collaborationMutationID = scope.id
         isSaving = true
-        defer { isSaving = false }
+        defer { finishCollaborationMutation(scope) }
         errorText = ""
         do {
             let ownerHeaders = projectOwnerHeaderOptions(forProjectID: project.id)
@@ -3987,15 +4072,18 @@ final class ScreenplayStudioViewModel: ObservableObject {
                     clientTokenOverride: ownerHeaders.clientTokenOverride
                 )
             } catch BackendMemoryAPIError.server(let status, _) where ownerHeaders.usesDebugClientTokenOwner && status == 404 {
+                guard collaborationScopeIsCurrent(scope) else { return }
                 result = try await projectSelectionAPI.upsertScreenplayCollaborator(
                     projectId: project.id,
                     email: normalizedEmail,
                     action: "revoke"
                 )
             }
-            applyCollaboratorsPayload(result.payload)
+            guard collaborationScopeIsCurrent(scope) else { return }
+            try applyCollaboratorsPayload(result.payload)
             infoText = "Collaborator removed."
         } catch {
+            guard collaborationScopeIsCurrent(scope) else { return }
             errorText = error.localizedDescription
         }
     }
@@ -4022,8 +4110,17 @@ final class ScreenplayStudioViewModel: ObservableObject {
             return
         }
 
+        guard let scope = beginCollaborationRequest(projectID: project.id, comments: true, mutation: true) else { return }
+        let composerBytes = commentComposerBytes()
+        let authorName = commentAuthorName
+        let versionID = latestVersionID
+        let type = normalizedCommentType()
+        let editID = commentEditID
+        let replyID = commentReplyToID
+        let action = editID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "create" : "update"
+        collaborationMutationID = scope.id
         isSaving = true
-        defer { isSaving = false }
+        defer { finishCollaborationMutation(scope) }
         errorText = ""
         do {
             let ownerHeaders = projectOwnerHeaderOptions(forProjectID: project.id)
@@ -4033,43 +4130,47 @@ final class ScreenplayStudioViewModel: ObservableObject {
                     projectId: project.id,
                     text: text,
                     authorEmail: authorEmail,
-                    authorName: commentAuthorName,
+                    authorName: authorName,
                     anchorLine: anchorLine,
-                    versionId: latestVersionID,
+                    versionId: versionID,
                     voiceURL: voiceURL,
                     voiceTranscript: voiceTranscript,
                     voiceDurationMs: durationMs,
-                    type: normalizedCommentType(),
-                    action: commentEditID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "create" : "update",
-                    commentId: commentEditID,
-                    parentCommentId: commentReplyToID,
+                    type: type,
+                    action: action,
+                    commentId: editID,
+                    parentCommentId: replyID,
                     actorEmail: actorEmail,
                     includeUserIdentity: ownerHeaders.includeUserIdentity,
                     includeAuthToken: ownerHeaders.includeAuthToken,
                     clientTokenOverride: ownerHeaders.clientTokenOverride
                 )
             } catch BackendMemoryAPIError.server(let status, _) where ownerHeaders.usesDebugClientTokenOwner && status == 404 {
+                guard collaborationScopeIsCurrent(scope) else { return }
                 result = try await projectSelectionAPI.upsertScreenplayComment(
                     projectId: project.id,
                     text: text,
                     authorEmail: authorEmail,
-                    authorName: commentAuthorName,
+                    authorName: authorName,
                     anchorLine: anchorLine,
-                    versionId: latestVersionID,
+                    versionId: versionID,
                     voiceURL: voiceURL,
                     voiceTranscript: voiceTranscript,
                     voiceDurationMs: durationMs,
-                    type: normalizedCommentType(),
-                    action: commentEditID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "create" : "update",
-                    commentId: commentEditID,
-                    parentCommentId: commentReplyToID,
+                    type: type,
+                    action: action,
+                    commentId: editID,
+                    parentCommentId: replyID,
                     actorEmail: actorEmail
                 )
             }
-            applyCommentsPayload(result.payload)
-            clearCommentComposer()
+            guard collaborationScopeIsCurrent(scope) else { return }
+            let canClearComposer = composerBytes == commentComposerBytes()
+            try applyCommentsPayload(result.payload)
+            if canClearComposer { clearCommentComposer() }
             infoText = "Comment saved."
         } catch {
+            guard collaborationScopeIsCurrent(scope) else { return }
             errorText = error.localizedDescription
         }
     }
@@ -4081,8 +4182,12 @@ final class ScreenplayStudioViewModel: ObservableObject {
         }
         let id = comment.id.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !id.isEmpty else { return }
+        guard let scope = beginCollaborationRequest(projectID: project.id, comments: true, mutation: true) else { return }
+        let composerBytes = commentComposerBytes()
+        let versionID = comment.versionId ?? latestVersionID
+        collaborationMutationID = scope.id
         isSaving = true
-        defer { isSaving = false }
+        defer { finishCollaborationMutation(scope) }
         errorText = ""
         do {
             let actorEmail = resolvedCommentActorEmail()
@@ -4095,7 +4200,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
                     authorEmail: comment.authorEmail ?? "",
                     authorName: comment.authorName ?? "",
                     anchorLine: comment.anchorLine,
-                    versionId: comment.versionId ?? latestVersionID,
+                    versionId: versionID,
                     voiceURL: "",
                     voiceTranscript: "",
                     voiceDurationMs: 0,
@@ -4109,13 +4214,14 @@ final class ScreenplayStudioViewModel: ObservableObject {
                     clientTokenOverride: ownerHeaders.clientTokenOverride
                 )
             } catch BackendMemoryAPIError.server(let status, _) where ownerHeaders.usesDebugClientTokenOwner && status == 404 {
+                guard collaborationScopeIsCurrent(scope) else { return }
                 result = try await projectSelectionAPI.upsertScreenplayComment(
                     projectId: project.id,
                     text: "",
                     authorEmail: comment.authorEmail ?? "",
                     authorName: comment.authorName ?? "",
                     anchorLine: comment.anchorLine,
-                    versionId: comment.versionId ?? latestVersionID,
+                    versionId: versionID,
                     voiceURL: "",
                     voiceTranscript: "",
                     voiceDurationMs: 0,
@@ -4126,12 +4232,15 @@ final class ScreenplayStudioViewModel: ObservableObject {
                     actorEmail: actorEmail
                 )
             }
-            applyCommentsPayload(result.payload)
-            if commentEditID == id {
+            guard collaborationScopeIsCurrent(scope) else { return }
+            let canClearComposer = composerBytes == commentComposerBytes()
+            try applyCommentsPayload(result.payload)
+            if commentEditID == id && canClearComposer {
                 clearCommentComposer()
             }
             infoText = "Comment removed."
         } catch {
+            guard collaborationScopeIsCurrent(scope) else { return }
             errorText = error.localizedDescription
         }
     }
@@ -4143,8 +4252,11 @@ final class ScreenplayStudioViewModel: ObservableObject {
         }
         let id = comment.id.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !id.isEmpty else { return }
+        guard let scope = beginCollaborationRequest(projectID: project.id, comments: true, mutation: true) else { return }
+        let versionID = comment.versionId ?? latestVersionID
+        collaborationMutationID = scope.id
         isSaving = true
-        defer { isSaving = false }
+        defer { finishCollaborationMutation(scope) }
         errorText = ""
         do {
             let actorEmail = resolvedCommentActorEmail()
@@ -4157,7 +4269,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
                     authorEmail: comment.authorEmail ?? "",
                     authorName: comment.authorName ?? "",
                     anchorLine: comment.anchorLine,
-                    versionId: comment.versionId ?? latestVersionID,
+                    versionId: versionID,
                     voiceURL: "",
                     voiceTranscript: "",
                     voiceDurationMs: 0,
@@ -4171,13 +4283,14 @@ final class ScreenplayStudioViewModel: ObservableObject {
                     clientTokenOverride: ownerHeaders.clientTokenOverride
                 )
             } catch BackendMemoryAPIError.server(let status, _) where ownerHeaders.usesDebugClientTokenOwner && status == 404 {
+                guard collaborationScopeIsCurrent(scope) else { return }
                 result = try await projectSelectionAPI.upsertScreenplayComment(
                     projectId: project.id,
                     text: "",
                     authorEmail: comment.authorEmail ?? "",
                     authorName: comment.authorName ?? "",
                     anchorLine: comment.anchorLine,
-                    versionId: comment.versionId ?? latestVersionID,
+                    versionId: versionID,
                     voiceURL: "",
                     voiceTranscript: "",
                     voiceDurationMs: 0,
@@ -4188,9 +4301,11 @@ final class ScreenplayStudioViewModel: ObservableObject {
                     actorEmail: actorEmail
                 )
             }
-            applyCommentsPayload(result.payload)
+            guard collaborationScopeIsCurrent(scope) else { return }
+            try applyCommentsPayload(result.payload)
             infoText = resolved ? "Comment resolved." : "Comment reopened."
         } catch {
+            guard collaborationScopeIsCurrent(scope) else { return }
             errorText = error.localizedDescription
         }
     }
@@ -6772,7 +6887,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
         }
     }
 
-    private func loadCollaborators(projectId: String) async throws {
+    private func loadCollaborators(projectId: String) async throws -> Bool {
+        guard let scope = beginCollaborationRequest(projectID: projectId, comments: false) else { return false }
         let ownerHeaders = projectOwnerHeaderOptions(forProjectID: projectId)
         let result: BackendReadResult<BackendScreenplayCollaboratorsResponse>
         do {
@@ -6783,31 +6899,45 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 clientTokenOverride: ownerHeaders.clientTokenOverride
             )
         } catch BackendMemoryAPIError.server(let status, _) where ownerHeaders.usesDebugClientTokenOwner && status == 404 {
+            guard collaborationScopeIsCurrent(scope) else { return false }
             result = try await projectSelectionAPI.fetchScreenplayCollaborators(projectId: projectId)
+        } catch {
+            guard collaborationScopeIsCurrent(scope) else { return false }
+            throw error
         }
-        applyCollaboratorsPayload(result.payload)
+        guard collaborationScopeIsCurrent(scope) else { return false }
+        try applyCollaboratorsPayload(result.payload)
+        return true
     }
 
-    private func loadComments(projectId: String) async throws {
+    private func loadComments(projectId: String) async throws -> Bool {
+        guard let scope = beginCollaborationRequest(projectID: projectId, comments: true) else { return false }
+        let actorEmail = resolvedCommentActorEmail()
         let ownerHeaders = projectOwnerHeaderOptions(forProjectID: projectId)
         let result: BackendReadResult<BackendScreenplayCommentsResponse>
         do {
             result = try await projectSelectionAPI.fetchScreenplayComments(
                 projectId: projectId,
                 limit: 160,
-                actorEmail: resolvedCommentActorEmail(),
+                actorEmail: actorEmail,
                 includeUserIdentity: ownerHeaders.includeUserIdentity,
                 includeAuthToken: ownerHeaders.includeAuthToken,
                 clientTokenOverride: ownerHeaders.clientTokenOverride
             )
         } catch BackendMemoryAPIError.server(let status, _) where ownerHeaders.usesDebugClientTokenOwner && status == 404 {
+            guard collaborationScopeIsCurrent(scope) else { return false }
             result = try await projectSelectionAPI.fetchScreenplayComments(
                 projectId: projectId,
                 limit: 160,
-                actorEmail: resolvedCommentActorEmail()
+                actorEmail: actorEmail
             )
+        } catch {
+            guard collaborationScopeIsCurrent(scope) else { return false }
+            throw error
         }
-        applyCommentsPayload(result.payload)
+        guard collaborationScopeIsCurrent(scope) else { return false }
+        try applyCommentsPayload(result.payload)
+        return true
     }
 
     private func projectOwnerHeaderOptions(
@@ -6860,22 +6990,16 @@ final class ScreenplayStudioViewModel: ObservableObject {
         }
     }
 
-    private func applyCollaboratorsPayload(_ payload: BackendScreenplayCollaboratorsResponse) {
-        if let project = payload.project {
-            let project = retainingLoadedHistory(in: project)
-            upsertProject(project)
-            selectedProject = project
-            selectedProjectID = project.id
-            hydrateCollaboration(from: project)
-            syncLiveDraftBridgeProjectContext()
-        }
-        if !payload.collaborators.isEmpty {
-            collaborators = payload.collaborators.sorted { lhs, rhs in
-                let lhsStatus = lhs.status ?? ""
-                let rhsStatus = rhs.status ?? ""
-                if lhsStatus != rhsStatus { return lhsStatus < rhsStatus }
-                return lhs.email.localizedCaseInsensitiveCompare(rhs.email) == .orderedAscending
-            }
+    private func applyCollaboratorsPayload(_ payload: BackendScreenplayCollaboratorsResponse) throws {
+        guard payload.projectId.map({ $0 == selectedProjectID }) ?? true,
+              payload.project.map({ $0.id == selectedProjectID }) ?? true else { throw BackendMemoryAPIError.invalidResponse }
+        // A collaboration response owns its collection, not project selection,
+        // draft/history metadata, or the independently requested comments.
+        collaborators = payload.collaborators.sorted { lhs, rhs in
+            let lhsStatus = lhs.status ?? ""
+            let rhsStatus = rhs.status ?? ""
+            if lhsStatus != rhsStatus { return lhsStatus < rhsStatus }
+            return lhs.email.localizedCaseInsensitiveCompare(rhs.email) == .orderedAscending
         }
         if let emails = payload.approvedEmails {
             approvedEmails = emails
@@ -6897,15 +7021,10 @@ final class ScreenplayStudioViewModel: ObservableObject {
         }
     }
 
-    private func applyCommentsPayload(_ payload: BackendScreenplayCommentsResponse) {
-        if let project = payload.project {
-            let project = retainingLoadedHistory(in: project)
-            upsertProject(project)
-            selectedProject = project
-            selectedProjectID = project.id
-            hydrateCollaboration(from: project)
-            syncLiveDraftBridgeProjectContext()
-        }
+    private func applyCommentsPayload(_ payload: BackendScreenplayCommentsResponse) throws {
+        guard payload.projectId.map({ $0 == selectedProjectID }) ?? true,
+              payload.project.map({ $0.id == selectedProjectID }) ?? true,
+              payload.comments.allSatisfy({ $0.projectId.map({ $0 == selectedProjectID }) ?? true }) else { throw BackendMemoryAPIError.invalidResponse }
         comments = payload.comments.sorted { lhs, rhs in
             let lhsTs = lhs.updatedAt ?? lhs.createdAt ?? 0
             let rhsTs = rhs.updatedAt ?? rhs.createdAt ?? 0
