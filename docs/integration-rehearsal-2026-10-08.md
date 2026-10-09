@@ -272,8 +272,22 @@ heads remain unchanged; no main merge, squash or replacement PR occurred.
   Four conflicts were resolved: keep both task ledgers and all canonical prompt
   imports; identical no-growth assertions differed only in wording.
 - Combined D009: index 33,557 (-69); Root 15,032 (-80); other three unchanged.
-  Full combined source proof is running; final results must be recorded before
-  claiming this boundary integration-ready.
+  VERIFIED combined proof on that exact source:
+  - Node20.20.2 full backend: **2,785 passed / zero failed / two skipped**;
+    `/tmp/them-950-combined-backend.log`, network disabled. Offline mentor
+    exemplar gate passes; no live model scores.
+  - Signed full units after owned simulator erase: **644 passed / zero failed /
+    zero skipped**; `/tmp/them-950-combined-units.xcresult` and matching log.
+  - Signed authenticated local writer UI after a separate owned erase:
+    **one passed / zero failed / zero skipped**;
+    `/tmp/them-950-combined-writer.xcresult` and matching log. Typed draft,
+    authenticated save, Markdown export and relaunch restore. Local backend
+    auth enabled, host Node26.7; not physical phone or provider voice proof.
+  - macOS scaffold build succeeds; `/tmp/them-950-combined-mac.log` (unsigned
+    build only). Existing actor/Sendable warnings are not hidden.
+  - D009 and `git diff --check` pass. Original heads and 44729296 ancestry
+    verified. Temporary fixture backend stopped and xcconfig removed.
+  Documentation-only follow-ups do not alter this tested source.
 
 VERIFIED next actual base-chain boundary: #642 `claude/pages-port`
 `7c40428b5ded625b703f9ca538d8a7539b5d2ea7`, based on

@@ -13,14 +13,14 @@
 
 - **Owner:** codex. **Branch:** `codex/T-943-integration-rehearsal`.
 - **Status:** review. **Pillar:** longitudinal learning / living companion.
-- **Done when:** original #766, #770, #638, #639 and corrected #640 commits integrate locally without
+- **Done when:** original #766, #770, #638, #639 and corrected #640/#641 commits integrate locally without
   lost work; full signed units, backend tests and D009 have recorded outcomes.
 - **Boundary:** local rehearsal only, not replacement PRs or shipping proof.
   Preserve original branches; require independent GitHub approval before main
   merges and never promote #766 without its coupled #770 preservation fix.
-- **Proof:** 635 signed iOS units and one authenticated writer UI test pass,
+- **Proof:** 644 signed iOS units and one authenticated writer UI test pass,
   zero failures/skips, after owned-device erases; backend Node 20.20.2 has
-  2,765 pass, zero fail, two skip. macOS scaffold build and D009 pass.
+  2,785 pass, zero fail, two skip. macOS scaffold, offline golden and D009 pass.
   `docs/integration-rehearsal-2026-10-08.md` records exact heads, retained
   results, initial environment failures and the remaining shipping gaps.
 
@@ -70,7 +70,7 @@
 - Branch: `codex/T-947-filmmaker-review-fixes`; original #641 `232098ba` preserved.
 - Scope: repair Home/Studio boundaries, rewrite and dialogue-notes routing, project-memory contracts, fresh Page-lane behavior and distress/freshness precedence.
 - Done: behavioral backend tests, signed Swift proof coordinated by integration owner, D009 and diff checks; no main merge or replacement PR.
-- Current proof: Node20 full backend 2,768/0/2; focused 61/61; signed units 637/0/0; authenticated writer UI 1/0/0; scaffold, offline mentor golden and D009 pass. Final integrated proof pending. Evidence: `docs/filmmaker-review-corrections-2026-10-08.md`.
+- Current proof: standalone Node20 2,768/0/2; focused 61/61; signed units 637/0/0; authenticated writer UI 1/0/0. Combined rehearsal: backend 2,785/0/2; signed units 644/0/0; writer UI 1/0/0; scaffold, offline golden, D009 and diff pass. Evidence: `docs/filmmaker-review-corrections-2026-10-08.md` and rehearsal ledger.
 
 | ID   | Title                                              | Owner  | Status            |
 |------|----------------------------------------------------|--------|-------------------|

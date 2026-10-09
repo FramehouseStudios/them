@@ -30,7 +30,10 @@
   Typed draft -> authenticated save -> Markdown export -> relaunch restore;
   local backend auth on, host Node 26.7. No voice model or physical phone proof.
   The temporary backend stopped and fixture xcconfig was removed afterward.
-  Final preserving-tree proof follows separately in the rehearsal ledger.
+  Final preserving source `aef7d390`: backend Node20 **2,785/0/2**; signed
+  full units **644/0/0**; authenticated writer UI **1/0/0**; macOS scaffold,
+  offline golden, D009 and diff pass. `/tmp/them-950-combined-*` retains
+  matching logs/bundles. Full context is in the rehearsal ledger.
 - No provider calls, secrets, production mutations, GitHub pushes, or main merges were performed by this correction lane. Offline exemplar scores are not live model scores.
 
 ## Not covered
