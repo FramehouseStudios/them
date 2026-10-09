@@ -2,6 +2,24 @@ import XCTest
 @testable import them
 
 final class ScreenplayDraftSaveOutboxTests: XCTestCase {
+    func testInterruptedSeedRetryOnlyChangesInflightEntryAndPreservesRequestIdentity() async throws {
+        let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        try await store.enqueue(makeEntry(id: "seed", source: "studio_initial_seed"))
+        try await store.markInflight(id: "seed")
+        try await store.markRetryable(id: "seed", error: "Selection changed", onlyIfInflight: true)
+        var entries = try await store.entriesForTesting()
+        XCTAssertEqual(entries.map(\.id), ["seed"])
+        XCTAssertEqual(entries.first?.status, .pending)
+        try await store.markParked(id: "seed", error: "Conflict")
+        try await store.markRetryable(id: "seed", error: "Late response", onlyIfInflight: true)
+        entries = try await store.entriesForTesting()
+        XCTAssertEqual(entries.first?.status, .parked)
+        try await store.remove(id: "seed")
+        try await store.markRetryable(id: "seed", error: "Discarded", onlyIfInflight: true)
+        entries = try await store.entriesForTesting()
+        XCTAssertTrue(entries.isEmpty)
+    }
+
     func testConflictHydrationOrderingNeverInfersOrderFromOpaqueIDsOrInvalidTimes() {
         func accepts(_ id: String, _ incoming: Double, known: Double = 300) -> Bool {
             ScreenplayConflictHydrationPolicy.canApply(baseVersionID: "base", knownServerVersionID: "known",

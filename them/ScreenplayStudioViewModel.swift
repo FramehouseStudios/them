@@ -1748,6 +1748,9 @@ final class ScreenplayStudioViewModel: ObservableObject {
     private var commentResponseGeneration: UInt64 = 0
     private var collaborationRefreshID: UUID?
     private var collaborationMutationID: UUID?
+    private var projectCreationID: UUID?
+    private var projectCreationSelectionGeneration: UInt64?
+    private var projectCreationAuthContext: ScreenplayStudioAuthContext?
 
     private struct CollaborationScope {
         let id = UUID()
@@ -2328,57 +2331,107 @@ final class ScreenplayStudioViewModel: ObservableObject {
     }
 
     func createProject() async {
-        let title = newProjectTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard (selectedProjectID.isEmpty && selectedProject == nil) || selectedProject?.id == selectedProjectID,
+              loadedDraftProjectID.isEmpty || loadedDraftProjectID == selectedProjectID else {
+            errorText = "Wait for the current project to finish loading before creating a project."
+            return
+        }
+        guard projectCreationID == nil, !isDraftSaveInFlight, !isSaving else {
+            errorText = "Wait for the current save to finish before creating a project."
+            return
+        }
+        let submittedTitle = newProjectTitle
+        let title = submittedTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !title.isEmpty else {
             errorText = "Enter a project title first."
             return
         }
-        let seededDraft = fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        let context = currentStudioAuthContext()
+        let originalProjectID = selectedProjectID
+        let hasSelectedProject = selectedProject != nil || !originalProjectID.isEmpty
+        let creationID = UUID()
+        projectCreationID = creationID
+        projectCreationAuthContext = context
+        projectCreationSelectionGeneration = collaborationSelectionGeneration
+        // Reserve the canonical save lane before the create await. An old save
+        // must never rebase a new project's first page or consume its retry.
+        isDraftSaveInFlight = true
         isSaving = true
-        defer { isSaving = false }
+        defer {
+            if projectCreationID == creationID {
+                projectCreationID = nil
+                projectCreationAuthContext = nil
+                projectCreationSelectionGeneration = nil
+                isDraftSaveInFlight = false
+                isSaving = false
+            }
+        }
+        func isCurrent() -> Bool {
+            projectCreationID == creationID && authContextIsCurrent(context)
+                && projectCreationSelectionGeneration == collaborationSelectionGeneration
+        }
         errorText = ""
         do {
-            let result = try await BackendMemoryAPI.shared.upsertScreenplayProject(
+            let result = try await draftSaveAPI.upsertScreenplayProject(
                 title: title,
                 phase: "scene_draft"
             )
-            if let project = result.payload.project {
-                upsertProject(project)
-                selectedProjectID = project.id
-                selectedProject = project
-                if !seededDraft.isEmpty {
-                    let versionResult = try await BackendMemoryAPI.shared.upsertScreenplayProjectVersion(
-                        projectId: project.id,
-                        draft: seededDraft,
-                        title: project.title,
-                        phase: project.lastPhase ?? "scene_draft",
-                        notes: "Initial Studio draft",
-                        source: "studio_initial_seed",
-                        baseVersionId: "",
-                        conflictStrategy: "reject_if_stale"
-                    )
-                    if let nextProject = versionResult.payload.project {
-                        upsertProject(nextProject)
-                        selectedProject = nextProject
-                        selectedProjectID = nextProject.id
-                    }
-                    let nextVersionId = (versionResult.payload.versionId ?? versionResult.payload.version?.id ?? "")
-                        .trimmingCharacters(in: .whitespacesAndNewlines)
-                    if !nextVersionId.isEmpty {
-                        latestVersionID = nextVersionId
-                    }
-                    lastSavedDraftFingerprint = fingerprint(for: seededDraft)
-                    lastRevisionBaseDraft = seededDraft
-                    hasUnsavedDraftChanges = false
-                    autosaveStatusText = "Saved now"
+            guard isCurrent() else { return }
+            guard let project = result.payload.project,
+                  !project.id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw BackendMemoryAPIError.invalidResponse
+            }
+            let seededDraft = StudioNewProjectSeedPolicy.seedDraft(
+                currentDraft: fountainDraft, hasSelectedProject: hasSelectedProject)
+            if hasSelectedProject, hasUnsavedDraftChanges {
+                persistRecoveryForUnconfirmedSave(projectId: originalProjectID,
+                    draft: fountainDraft, baseVersionId: latestVersionID, surfaceCandidate: false)
+            }
+            upsertProject(project)
+            selectedProjectID = project.id
+            selectedProject = project
+            projectCreationSelectionGeneration = collaborationSelectionGeneration
+            projectHydrationGeneration &+= 1
+            clearTransientProjectStateForSelectionChange(to: project.id)
+            studioWriteAnchors = []
+            screenplayBindings = []
+            applyServerDraft("", versionId: "", allowOverwriteDirtyLocalDraft: true)
+            if ScreenplayDraftTextIdentity.matches(newProjectTitle, submittedTitle) {
+                newProjectTitle = ""
+            }
+            if !seededDraft.isEmpty {
+                isHydratingDraft = true
+                fountainDraft = seededDraft
+                isHydratingDraft = false
+                hasUnsavedDraftChanges = true
+                isManualDraftEditing = true
+                persistRecoveryForUnconfirmedSave(projectId: project.id,
+                    draft: seededDraft, baseVersionId: "")
+                guard let request = makeDraftSaveRequest(draft: seededDraft,
+                    source: "studio_initial_seed", notes: "Initial Studio draft", baseVersionOverride: "") else {
+                    throw BackendMemoryAPIError.invalidResponse
+                }
+                let confirmed = await performDraftSave(request)
+                if !confirmed && !isCurrent() {
+                    // Admission is actor-serialized: never revive a parked or
+                    // discarded conflict copy, only this interrupted in-flight seed.
+                    try? await draftSaveOutbox.markRetryable(id: request.id,
+                        error: "Project selection changed before first-page confirmation.", onlyIfInflight: true)
+                }
+                guard isCurrent() else { return }
+                guard confirmed else {
+                    infoText = "Project created. Your first page is kept locally; use Save Now to retry."
+                    return
                 }
             }
-            newProjectTitle = ""
             infoText = seededDraft.isEmpty
                 ? "Project saved."
-                : "Project created with the live Studio draft."
+                : hasUnsavedDraftChanges
+                    ? "First page saved. Your newer edits are kept locally; save when ready."
+                    : "Project created with the live Studio draft."
             await loadSelectedProjectOutline()
         } catch {
+            guard isCurrent() else { return }
             errorText = error.localizedDescription
         }
     }
@@ -6259,6 +6312,16 @@ final class ScreenplayStudioViewModel: ObservableObject {
         baseVersionOverride: String? = nil,
         draftOverride: String? = nil
     ) async {
+        if projectCreationID != nil {
+            guard let context = projectCreationAuthContext, authContextIsCurrent(context) else { return }
+            if hasUnsavedDraftChanges {
+                let displayedProjectID = loadedDraftProjectID.isEmpty ? selectedProjectID : loadedDraftProjectID
+                persistRecoveryForUnconfirmedSave(projectId: displayedProjectID,
+                    draft: fountainDraft, baseVersionId: latestVersionID)
+            }
+            autosaveStatusText = "Creating project - edits remain on the page"
+            return
+        }
         guard let request = makeDraftSaveRequest(
             draft: draftOverride ?? fountainDraft,
             source: source,
@@ -6723,7 +6786,9 @@ final class ScreenplayStudioViewModel: ObservableObject {
     }
 
     private func draftSaveAuthorityIsCurrent(_ request: DraftSaveRequest) -> Bool {
-        authContextIsCurrent(request.authContext) && selectedProjectID == request.projectId &&
+        let creationIsCurrent = request.source != "studio_initial_seed" ||
+            projectCreationID == nil || projectCreationSelectionGeneration == collaborationSelectionGeneration
+        return creationIsCurrent && authContextIsCurrent(request.authContext) && selectedProjectID == request.projectId &&
             conflictState == nil && request.authorityGeneration == draftSaveAuthorityGeneration
     }
 
