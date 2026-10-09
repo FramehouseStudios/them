@@ -386,7 +386,35 @@ final class V1SmokeUITests: XCTestCase {
             app.buttons.matching(NSPredicate(format: "label CONTAINS[c] %@", "Markdown")).firstMatch.tap()
         }
 
-        XCTAssertTrue(staticText(containing: "Saved", in: app).waitForExistence(timeout: 6))
+        XCTAssertTrue(staticText(containing: ".md", in: app).waitForExistence(timeout: 6))
+    }
+
+    func test_iphone_export_opens_and_dismisses_native_share_sheet() {
+        let app = launchApp(openStudio: true, openExportTools: true, structuralSeed: true,
+                            launchEnvironment: ["THEM_UITEST_EXPORT_SHARE_SHEET": "1"])
+        XCTAssertTrue(waitForDraft(in: app, containing: "INT. DINER - NIGHT", timeout: 10))
+        let exportMenu = app.buttons["studio.export.menu"]
+        XCTAssertTrue(exportMenu.waitForExistence(timeout: 8))
+        exportMenu.tap()
+        let markdown = app.buttons["studio.export.md"]
+        XCTAssertTrue(markdown.waitForExistence(timeout: 5))
+        markdown.tap()
+        let sheet = app.otherElements["ActivityListView"]
+        XCTAssertTrue(sheet.waitForExistence(timeout: 10), "Native sharing must actually open.")
+        XCTAssertTrue(app.cells["Copy"].waitForExistence(timeout: 5), "The share sheet must expose a file action.")
+        XCTAssertTrue(app.cells["Save to Files"].exists)
+        XCTAssertEqual(app.otherElements["LP.CaptionBar.TopCaption"].label, "Debug-Structural",
+                       "Native sharing must identify the exported file.")
+        let proof = XCTAttachment(screenshot: app.screenshot())
+        proof.name = "Native screenplay export share sheet"
+        proof.lifetime = .keepAlways
+        add(proof)
+        let dismiss = app.otherElements["PopoverDismissRegion"]
+        XCTAssertTrue(dismiss.exists)
+        dismiss.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.1)).tap()
+        XCTAssertTrue(sheet.waitForNonExistence(timeout: 5))
+        XCTAssertFalse(staticText(containing: "Couldn't open sharing", in: app).exists)
+        XCTAssertTrue(waitForDraft(in: app, containing: "INT. DINER - NIGHT", timeout: 5))
     }
 
     @MainActor

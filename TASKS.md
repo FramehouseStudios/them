@@ -12,7 +12,7 @@
 ### T-942 — Prove and protect the existing iPhone export handoff
 
 - **Owner:** codex. **Branch:** `codex/T-942-export-share-proof`, directly above
-  original #868 `a6428e3d`. **Status:** in-progress. **Pillar:** mobile-first.
+  original #868 `a6428e3d`. **Status:** review. **Pillar:** mobile-first.
 - **Done when:** real native sheet is verified on an erased signed simulator,
   repeated same-name exports keep earlier exact bytes, missing presentation is
   honest/recoverable, focused/full tests and god-file checks pass.
@@ -20,6 +20,11 @@
   implementation, closing, squashing, main push or PDF enablement.
 - **Evidence:** #940 retains writer-gate diagnostics in the separate trust lane.
   This follow-up does not imply either lane is merged or shipping voice proven.
+- **Final proof:** 948 signed units and two export UI cases pass, zero fail/skip,
+  after explicit task-owned simulator erases. Offline backend: 2,923 pass,
+  zero fail, two skip. macOS scaffold build, D009 and diff checks pass.
+  Full evidence, earlier failures and uncovered external-save/lifecycle risks:
+  `docs/audits/export-share-proof-2026-10-08.md`.
 
 ---
 
