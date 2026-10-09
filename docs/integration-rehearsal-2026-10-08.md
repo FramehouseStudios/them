@@ -134,3 +134,34 @@ This rehearsal branch may be published for reproducible review evidence, but
 is not a replacement pull request or a candidate to shortcut the original
 landing sequence. No original head or main was altered. Local docs/task
 updates after the proof do not change the tested app/backend source.
+
+## #639 preserving integration — T-944
+
+VERIFIED: merge `88d5697f1d52282a094b076d7f497f4835d15301` retains original
+#639 head `57225143908b8fa0b3c832372f9f8676d4cdf43c` with a no-ff merge,
+without conflicts. Original heads and main remain untouched.
+
+- Full backend: Node 20.20.2, isolated full-checkout container
+  `them-proof-node20-943`, network disabled: 2,750 pass / 0 fail / 2 skip.
+  Output: `/tmp/them-944-backend.log`. Offline exemplar gate: MENTOR GOLDEN SET OK.
+- Signed full units after erasing task-owned simulator
+  `11CF5EFB-D8C3-4F19-8062-28AF37F27D93`: 632 pass / 0 fail / 0 skip.
+  Bundle: `/tmp/them-944-units.xcresult`.
+- Signed authenticated writer UI workflow after another owned-device erase:
+  1 pass / 0 fail / 0 skip; `/tmp/them-944-writer.xcresult`.
+  This uses the local deterministic fixture, not live model or physical-phone proof.
+- macOS scaffold build succeeds: `/tmp/them-944-mac.log`.
+  Signing disabled for this build-only target, never for iOS tests.
+- D009 vs `claude/mentor-core-port`: all five monitored files unchanged;
+  index.js remains 33,626 lines. `git diff --check` passes.
+
+HUMAN_INPUT_REQUIRED: the exactly-one authorized live-golden attempt exited 2:
+`MENTOR GOLDEN LIVE BLOCKED: OPENAI_API_KEY is required.` Zero provider calls;
+no per-case live scores or report were produced. Log: `/tmp/them-944-mentor-live.log`.
+Credit authorization remains documented, but is not credential provisioning or
+model-quality evidence. Do not source secret files or retry automatically.
+Clearance: provision the key through a secure process environment, then explicitly
+authorize another scoped attempt. No key should be pasted into chat or committed.
+
+Next: fix #640's upheld review findings on a branch retaining its original head,
+before integrating it. No main merge, squash, or replacement PR is authorized.
