@@ -13,6 +13,17 @@
 
 ## Active work — quick view
 
+### T-945 — Resolve #640 three-act review findings before integration
+
+- **Owner:** codex. **Branch:** `codex/T-945-three-act-review-fixes`.
+- **Status:** in-progress. **Pillar:** living companion / longitudinal learning.
+- **Done when:** planner intent regressions, trimmed craft survival, canonical
+  defaults, feature-map precedence and lexical retrieval are proven; all 110
+  cards retain their contents; Node 20 backend, offline golden, signed Swift
+  selection tests and D009 pass against `claude/mentor-golden-port`.
+- **Boundary:** retain original #640 `c8eb36ba`; no replacement PR, original-head
+  rewrite, squash or main merge. Post evidence on the original PR.
+
 | ID   | Title                                              | Owner  | Status            |
 |------|----------------------------------------------------|--------|-------------------|
 | T01  | Triage 409-file uncommitted snapshot               | human  | ready             |
