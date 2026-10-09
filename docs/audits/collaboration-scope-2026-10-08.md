@@ -51,7 +51,10 @@ preserving new comment/form words, ordinary save/refresh, malformed project IDs,
 duplicate dispatch, pending-write refresh and superseded manual-error feedback.
 Authenticated recovery UI: **five pass, zero fail/skip**,
 `/tmp/them-939-recovery-ui/screenplay-save-network-fault-79072.xcresult` and
-`/tmp/them-939-recovery-ui.log`; exact summary checked. Integrated writer pending.
+`/tmp/them-939-recovery-ui.log`; exact summary checked. Integrated authenticated
+writer UI: **one pass, zero fail/skip**, `/tmp/them-939-integrated-writer.log`.
+Its evaluator validates the exact single-case summary and removes the bundle
+at completion. This is deterministic local writer proof, not paid live speech.
 All iPhone runs erase only the owned simulator
 `11CF5EFB-D8C3-4F19-8062-28AF37F27D93`, iOS 26.2, signing enabled.
 Node 20.20.2 backend, external network disabled: 2,744 pass, zero fail, two skip,
@@ -69,7 +72,8 @@ ownership; screenplay saves retain their independent in-flight/outbox guards.
 This does not establish production database transaction ordering, cross-device
 collaboration convergence, or account authorization from a client guard. Server
 authorization remains canonical. Physical microphone, paid providers, shipping
-configuration, export parity and 120-page performance are not proved. Main
+configuration, export parity and 120-page performance are not proved. Full V1 UI
+was not rerun locally in this slice. Main
 unchanged; #766 then #770 remain first, with hosted gates and independent approval.
 
 Release check on this pass: `https://api.them.io/health` responds HTTP 200 with
