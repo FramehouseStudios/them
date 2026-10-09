@@ -24,7 +24,13 @@
   `/tmp/them-947-units.xcresult`, `/tmp/them-947-units.log`.
 - VERIFIED: macOS scaffold build succeeds (`/tmp/them-947-mac.log`; unsigned
   build only). Existing actor/Sendable warnings remain; this is not a
-  warning-free build claim. Writer UI and final preserving-tree proof follow.
+  warning-free build claim.
+- VERIFIED: signed authenticated local writer UI: **one passed, zero
+  failures/skips** (`/tmp/them-947-writer.xcresult`, `/tmp/them-947-writer.log`).
+  Typed draft -> authenticated save -> Markdown export -> relaunch restore;
+  local backend auth on, host Node 26.7. No voice model or physical phone proof.
+  The temporary backend stopped and fixture xcconfig was removed afterward.
+  Final preserving-tree proof follows separately in the rehearsal ledger.
 - No provider calls, secrets, production mutations, GitHub pushes, or main merges were performed by this correction lane. Offline exemplar scores are not live model scores.
 
 ## Not covered
