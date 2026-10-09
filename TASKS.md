@@ -5,6 +5,36 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-935 — Preserve conflict decisions through delayed base hydration
+
+- **Owner:** codex. **Branch:** `codex/T-935-stale-conflict-hydration`, above
+  #932 head `bace7ae3`. **Pillar:** mobile-first; goal items 1 and 4.
+  **Status:** review.
+- **Target:** a detail response for the old base must not erase an already
+  observed newer-server conflict. Keep exact writer bytes, parked outbox entry,
+  and explicit Keep Mine / Load Server choice through that ordering.
+- **Evidence:** #929 hosted run 37858536990 fails unresolved-conflict relaunch;
+  writer marker remains but parked count/conflict identifiers disappear. Exact
+  downloaded bundle reports 1 pass, 1 fail, 0 skip on iOS 26.5. This does not
+  yet prove which interleaving caused the hosted failure.
+- **Binary proof:** real Studio model observes v2 conflict, receives delayed
+  v1 detail, then still exposes the same conflict and raw writer/parked bytes.
+  Retained baseline: 1 test, 1 failed assertion. Review expanded v3 → delayed
+  v2/unknown/missing head: 1 test, 15 failed assertions; sparse known-head
+  response: 1 test, 3 failed assertions. Final signed units: 676 pass, 0 fail,
+  0 skip. Final Node 20 backend: 2,744 pass, 0 fail, 2 skip. macOS build passes.
+  Final signed authenticated recovery UI: 4 pass, 0 fail, 0 skip. Final integrated
+  authenticated writer: 1 pass, 0 fail, 0 skip. God/diff gates pass. Exact files,
+  retained red artifacts and boundaries: `docs/audits/stale-conflict-hydration-2026-10-08.md`.
+- **Fix:** preserve active choice; reject old/unorderable heads before draft or
+  queue cleanup; retain known timestamps on sparse same-version responses. Known
+  exact server-text confirmation can acknowledge the copy without another write.
+- **Landing follow-up:** Load Server uses cached nonempty text, not a fresh head.
+  Prove/fix that action before landing this lane. Same-project request ordering
+  and save-entry conflict guards remain tracked; hosted root is not established.
+- **Not covered:** precise hosted reproduction, physical voice/provider,
+  release or production Postgres. Do not clear a red gate with unchanged retries.
+
 ### T-934 — Honest, direct screenplay editor UI gate
 
 - **Owner:** codex. **Branch:** `codex/T-934-writer-loop-gate`, above #931

@@ -5696,6 +5696,13 @@ final class ScreenplayStudioViewModel: ObservableObject {
     func hydrateDraft(from project: BackendScreenplayProjectSummary) {
         guard project.id == selectedProjectID else { return }
         let selectedVersion = ScreenplayProjectDraftRestorePolicy.preferredVersion(in: project)
+        if let conflict = conflictState, conflict.projectId == project.id,
+           !ScreenplayConflictHydrationPolicy.canApply(
+               baseVersionID: conflict.baseVersionId, knownServerVersionID: conflict.serverVersionId,
+               knownServerUpdatedAt: conflict.serverUpdatedAt, incomingVersionID: selectedVersion?.id ?? "",
+               incomingUpdatedAt: selectedVersion?.updatedAt ?? selectedVersion?.createdAt ?? 0) {
+            return // A stale/incomplete detail cannot resolve or downgrade the writer's choice.
+        }
         if selectedVersion == nil {
             applyServerDraft("", versionId: "")
             return
@@ -5771,7 +5778,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
                     serverVersionId: normalizedServerVersionID,
                     serverDraft: draft,
                     serverDraftExcerpt: excerpt.isEmpty ? String(normalizedServerDraft.prefix(240)) : excerpt,
-                    serverUpdatedAt: serverUpdatedAt
+                    serverUpdatedAt: conflictState?.serverVersionId == normalizedServerVersionID
+                        ? max(conflictState?.serverUpdatedAt ?? 0, serverUpdatedAt) : serverUpdatedAt
                 )
                 autosaveStatusText = "Conflict detected"
                 infoText = "Another device updated this draft. Choose keep mine or load server."
@@ -5788,14 +5796,13 @@ final class ScreenplayStudioViewModel: ObservableObject {
                         await handleDraftSaveConflict(conflict, ownerUserId: context.userID, expectedContext: context)
                     }
                 }
-            } else {
+            } else if conflictState == nil {
                 autosaveStatusText = "Unsaved changes"
                 if infoText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
                     infoText == "Loaded latest draft" ||
                     infoText == "Project ready." {
                     infoText = "Kept your manual edits on the page. Save when you're ready."
                 }
-                conflictState = nil
             }
             evaluateLocalDraftRecovery(
                 projectId: selectedProjectID,
