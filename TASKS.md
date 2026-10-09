@@ -9,6 +9,17 @@
 - `codex/<task-id>-<short-name>`
 - `support/backend-<short-name>`
 
+### T-943 — Rehearse the first protected integration boundary
+
+- **Owner:** codex. **Branch:** `codex/T-943-integration-rehearsal`.
+- **Status:** in-progress. **Pillar:** longitudinal learning / living companion.
+- **Done when:** original #766, #770 and #638 commits integrate locally without
+  lost work; full signed units, backend tests and D009 have recorded outcomes.
+- **Boundary:** local rehearsal only, not replacement PRs or shipping proof.
+  Preserve original branches; require independent GitHub approval before main
+  merges and never promote #766 without its coupled #770 preservation fix.
+
+
 ---
 
 ## Active work — quick view
