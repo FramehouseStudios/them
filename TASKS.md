@@ -13,6 +13,15 @@
 
 ## Active work — quick view
 
+### T-949 — Prove confirmed Home-to-Studio first-turn writing
+
+- **Owner:** codex. **Status:** ready. **Pillar:** voice-to-scene.
+- **Scope:** current confirmed script request opens authenticated Studio before
+  page prompt preparation; never use a previous microphone transcript.
+- **Done when:** Home first utterance writes/saves; everyday/partial/stale words
+  never promote mode; authentication refusal blocks writing. Existing writer
+  UI begins in Studio and does not cover this transition. Runtime proof needed.
+
 ### T-947 — Filmmaker/dialogue review corrections
 - Owner: Codex; status: review.
 - Branch: `codex/T-947-filmmaker-review-fixes`; original #641 `232098ba` preserved.

@@ -19,9 +19,26 @@
 - VERIFIED: final full backend under Node **20.20.2**, whole-checkout container mount and network disabled: **2,768 passed, 0 failed, 2 skipped**; offline **MENTOR GOLDEN SET OK**. Log: `/tmp/them-947-backend-final.log`. The two skips are existing live-only gates, not hidden failures.
 - VERIFIED: D009 versus `claude/three-act-port`: `index.js` 33,626 → **33,602**; `RootExperienceView` 15,112 → **15,032**; the other monitored god files are unchanged.
 - VERIFIED: `git diff --check` passed before evidence capture.
-- Signed Swift unit/UI proof is coordinated by the integration owner; no simulator, signing state, or Xcode runner was mutated by this correction lane. Swift sources are frozen for that proof.
+- VERIFIED: signed full Swift units on the erased task-owned simulator
+  `11CF5EFB-D8C3-4F19-8062-28AF37F27D93`: **637 passed, zero failures/skips**.
+  `/tmp/them-947-units.xcresult`, `/tmp/them-947-units.log`.
+- VERIFIED: macOS scaffold build succeeds (`/tmp/them-947-mac.log`; unsigned
+  build only). Existing actor/Sendable warnings remain; this is not a
+  warning-free build claim. Writer UI and final preserving-tree proof follow.
 - No provider calls, secrets, production mutations, GitHub pushes, or main merges were performed by this correction lane. Offline exemplar scores are not live model scores.
 
 ## Not covered
 
 Physical shipping-backend voice generation, export opened outside THEM, paid live golden scores, hosted required checks, and independent non-author approval remain separate gates. These corrections are not evidence that the app is releasable or complete.
+
+### Confirmed Home-to-Studio first-turn boundary — not covered
+
+Read-only audit: realtime and turn-based handlers prepare the prompt before
+auto-opening Studio. The new active-surface guard intentionally prohibits a
+page target while closed. The writer UI starts in Studio and does not prove
+first-utterance Home writing. In turn-based microphone capture, effectiveText
+can be a previous transcript; opening on that stale value would be unsafe.
+Track T-949: prove current final transcript -> authenticated Studio open ->
+prompt preparation, with no opening for partial-only/stale/everyday words and
+no page target when authentication refuses. This is an unproven integration
+edge, not a claim that a physical-phone failure was reproduced.
