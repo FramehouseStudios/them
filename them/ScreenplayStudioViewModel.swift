@@ -1725,6 +1725,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
     private let outlineMutationOutbox = ScreenplayOutlineMutationOutbox.shared
     private let craftClient = BackendClient()
     private let projectSelectionAPI: BackendMemoryAPI
+    private var projectHydrationGeneration: UInt64 = 0
     private let draftSaveAPI: BackendMemoryAPI
     private var conflictProjectLoader: ((String) async throws -> BackendScreenplayProjectSummary)?
     @Published private(set) var isLoadingServerConflict = false
@@ -1848,6 +1849,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
             projects: projects
         )
         await restorePendingDraftSaveBeforeProjectHydration()
+        guard authContextIsCurrent(authContext), activeLoadRequestID == requestID else { return }
         await loadSelectedProjectOutline()
         guard authContextIsCurrent(authContext) else { return }
         await refreshPendingScreenplayQuestion()
@@ -1859,7 +1861,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
         await load()
     }
 
-    func restorePendingDraftSaveBeforeProjectHydration() async {
+    func restorePendingDraftSaveBeforeProjectHydration(expectedGeneration: UInt64? = nil) async {
+        let generation = expectedGeneration ?? projectHydrationGeneration
         let projectID = selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
         let context = currentStudioAuthContext()
         let ownerUserID = context.userID
@@ -1873,7 +1876,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
         } catch {
             return
         }
-        guard authContextIsCurrent(context), selectedProjectID == projectID,
+        guard projectHydrationGeneration == generation,
+              authContextIsCurrent(context), selectedProjectID == projectID,
               let entry = pendingEntry,
               ScreenplayQueuedDraftHydrationPolicy.shouldRestoreBeforeServerHydration(
                   selectedProjectID: projectID,
@@ -4501,6 +4505,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         guard authContextIsCurrent(owner), selectedProjectID == conflict.projectId,
               !conflict.serverVersionId.isEmpty else { return }
         let discardedGeneration = draftSaveAuthorityGeneration
+        projectHydrationGeneration &+= 1
         applyServerDraft(conflict.serverDraft, versionId: conflict.serverVersionId,
             allowOverwriteDirtyLocalDraft: true)
         clearLocalDraftRecovery(projectId: conflict.projectId)
@@ -5405,6 +5410,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
         reportErrors: Bool = true,
         remoteRefresh: Bool = false
     ) async {
+        projectHydrationGeneration &+= 1
+        let generation = projectHydrationGeneration
         let authContext = currentStudioAuthContext()
         let id = selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
         clearTransientProjectStateForSelectionChange(to: id)
@@ -5448,13 +5455,15 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 )
                 detailLoadedWithClientTokenOwner = shouldUseClientTokenOwner
             } catch BackendMemoryAPIError.server(let status, _) where shouldUseClientTokenOwner && status == 404 {
+                guard projectHydrationGeneration == generation, authContextIsCurrent(authContext),
+                      selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines) == id else { return }
                 detailResult = try await projectSelectionAPI.fetchScreenplayProject(
                     projectId: id,
                     includeDrafts: true,
                     versionLimit: 24
                 )
             }
-            guard authContextIsCurrent(authContext),
+            guard projectHydrationGeneration == generation, authContextIsCurrent(authContext),
                   selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines) == id else {
                 return
             }
@@ -5476,7 +5485,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 includeAuthToken: refreshedOwnerHeaders.includeAuthToken,
                 clientTokenOverride: refreshedOwnerHeaders.clientTokenOverride
             )
-            guard authContextIsCurrent(authContext),
+            guard projectHydrationGeneration == generation, authContextIsCurrent(authContext),
                   selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines) == id else {
                 return
             }
@@ -5484,13 +5493,15 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 selectedProject = project
                 selectedProjectID = project.id
                 upsertProject(project)
-                guard await hydrateDraftRestoringQueuedSaves(from: project) else { return }
+                guard await hydrateDraftRestoringQueuedSaves(from: project, expectedGeneration: generation),
+                      projectHydrationGeneration == generation else { return }
                 hydrateCollaboration(from: project)
             } else if let project = outlineResult?.payload.project {
                 selectedProject = project
                 selectedProjectID = project.id
                 upsertProject(project)
-                guard await hydrateDraftRestoringQueuedSaves(from: project) else { return }
+                guard await hydrateDraftRestoringQueuedSaves(from: project, expectedGeneration: generation),
+                      projectHydrationGeneration == generation else { return }
                 hydrateCollaboration(from: project)
             } else {
                 selectedProject = projects.first(where: { $0.id == id })
@@ -5513,12 +5524,15 @@ final class ScreenplayStudioViewModel: ObservableObject {
             }
             syncLiveDraftBridgeProjectContext()
             Task { [weak self] in
+                guard self?.projectHydrationGeneration == generation else { return }
                 await self?.refreshCollaborationData()
             }
             await refreshOutlineMutationOutboxStatus()
+            guard projectHydrationGeneration == generation, authContextIsCurrent(authContext),
+                  selectedProjectID == id else { return }
             await resumeQueuedOutlineMutationsIfNeeded()
         } catch {
-            guard authContextIsCurrent(authContext),
+            guard projectHydrationGeneration == generation, authContextIsCurrent(authContext),
                   selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines) == id else {
                 return
             }
@@ -5539,6 +5553,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 projectId: id
             )
             await refreshOutlineMutationOutboxStatus()
+            guard projectHydrationGeneration == generation, authContextIsCurrent(authContext),
+                  selectedProjectID == id else { return }
             await resumeQueuedOutlineMutationsIfNeeded()
         }
     }
@@ -5729,13 +5745,16 @@ final class ScreenplayStudioViewModel: ObservableObject {
     }
 
     @discardableResult
-    func hydrateDraftRestoringQueuedSaves(from project: BackendScreenplayProjectSummary) async -> Bool {
+    func hydrateDraftRestoringQueuedSaves(from project: BackendScreenplayProjectSummary,
+        expectedGeneration: UInt64? = nil) async -> Bool {
+        let generation = expectedGeneration ?? projectHydrationGeneration
         let context = currentStudioAuthContext()
-        guard project.id == selectedProjectID else { return false }
+        guard projectHydrationGeneration == generation, project.id == selectedProjectID else { return false }
         // Selection and detail refresh can run independently of load()'s
         // bootstrap. Restore the durable writer copy before either hydrates.
-        await restorePendingDraftSaveBeforeProjectHydration()
-        guard authContextIsCurrent(context), project.id == selectedProjectID else { return false }
+        await restorePendingDraftSaveBeforeProjectHydration(expectedGeneration: generation)
+        guard projectHydrationGeneration == generation, authContextIsCurrent(context),
+              project.id == selectedProjectID else { return false }
         hydrateDraft(from: project)
         return true
     }
@@ -6336,6 +6355,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 }
                 let serverDraft = serverVersion.draft ?? ""
                 if ScreenplayDraftTextIdentity.matches(serverDraft, request.draft) {
+                    projectHydrationGeneration &+= 1
                     guard try await draftSaveOutbox.markSucceeded(
                         id: request.id,
                         serverVersionId: serverVersion.id,
@@ -6460,6 +6480,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 throw BackendMemoryAPIError.server(status: 409,
                     message: "Server did not confirm your exact text. Your local copy is retained.")
             }
+            projectHydrationGeneration &+= 1
             guard try await draftSaveOutbox.markSucceeded(
                 id: request.id, serverVersionId: nextVersionId,
                 supersedesEarlierSaves: request.source == "studio_conflict_resolve",

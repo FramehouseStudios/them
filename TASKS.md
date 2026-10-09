@@ -5,6 +5,26 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-938 — Newest project hydration owns the page
+
+- **Owner:** codex. **Branch:** `codex/T-938-project-hydration-order`, above
+  #935 `daecfa34`. **Pillar:** mobile-first; goal items 1 and 4. **Status:** review.
+- **VERIFIED roots:** unchanged production, two overlapping-load tests fail
+  four assertions: late detail rewinds clean text/head/title; old timeout
+  overwrites newer success feedback. A separate explicit Load Server test
+  fails three assertions after an old detail rewinds its accepted page.
+  `/tmp/them-938-hydration-red-v2` and `/tmp/them-938-choice-red` artifacts.
+- **Target:** per-load generation checked after network and durable recovery
+  awaits; accepted Load Server and exact save confirmation invalidate old reads.
+  Preserve current owner/project/dirty/conflict boundaries and queue semantics.
+- **Final local proof:** signed units 691 pass, zero fail/skip; authenticated
+  recovery UI five pass, zero fail/skip; integrated authenticated writer one pass,
+  zero fail/skip. Node 20 backend 2,744 pass, zero fail, two skipped. macOS build,
+  four runner tests and god/diff gates pass. Retained baseline and exact artifacts:
+  `docs/audits/project-hydration-order-2026-10-08.md`.
+- **Limits:** not the exact hosted false-clean interleaving, all collaboration
+  or bootstrap request ordering, physical voice/provider, production DB or release.
+
 ### T-937 — Save acknowledgements cannot overrule newer writer choices
 
 - **Owner:** codex. **Branch:** `codex/T-937-save-conflict-authority`, above
