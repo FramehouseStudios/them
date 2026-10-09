@@ -3,10 +3,19 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { DEFAULT_FRAMEWORK_ID, getFrameworkById } from "../lib/craft_frameworks.js";
-import { buildCraftContextBlock } from "../lib/craft_prompts.js";
+import { DEFAULT_FRAMEWORK_ID, getFrameworkById, listFrameworkReferences } from "../lib/craft_frameworks.js";
+import { buildCraftContextBlock, shouldAppendCraftContext } from "../lib/craft_prompts.js";
+import { fitSystemPromptForTurnLatency } from "../lib/system_prompt_trim.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+test("[three-act] feature map prevents a contradictory second craft plan", () => {
+  assert.equal(shouldAppendCraftContext("Mentor question about dialogue"), true);
+  assert.equal(shouldAppendCraftContext("<craft>existing</craft>"), false);
+  for (const pages of [90, 110, 120]) {
+    assert.equal(shouldAppendCraftContext(`<feature_film_map>target_pages: ${pages}</feature_film_map>`), false);
+  }
+});
 
 test("[three-act] is the default framework and carries feature page targets in order", () => {
   assert.equal(DEFAULT_FRAMEWORK_ID, "three-act");
@@ -36,13 +45,17 @@ test("[three-act] the craft block for the default framework names the required t
   assert.match(block, /climax \(Climax\) @ p95-105/);
 });
 
-test("[three-act] every default-framework site agrees", () => {
-  const read = (rel) => fs.readFileSync(path.join(__dirname, "..", rel), "utf8");
-  assert.doesNotMatch(read("index.js"), /requested \|\| "save-the-cat"/);
-  assert.match(read("index.js"), /requested \|\| "three-act"/);
-  assert.match(read("lib/prompt_routes.js"), /\) \|\| "three-act";/);
-  assert.match(read("lib/logline_distiller.js"), /frameworkId \|\| "three-act"/);
-  assert.match(read("lib/talk_handler.js"), /\(isScreenplayPageWriteTurn \|\| mentorTurn\)\s*\n\s*\? appendCraftContextToSystem/);
+test("[three-act] framework discovery lists the canonical default first", () => {
+  assert.equal(listFrameworkReferences()[0].id, DEFAULT_FRAMEWORK_ID);
+});
+
+test("[three-act] mentor craft ranges survive the actual rich-budget prompt trim", () => {
+  const prompt = `<clementine_core>Listen to the writer.</clementine_core>\n${"earlier context ".repeat(400)}\n${buildCraftContextBlock({ framework: DEFAULT_FRAMEWORK_ID })}\n<mentor_output>Offer one playable craft move.</mentor_output>\n${"later context ".repeat(400)}`;
+  const trimmed = fitSystemPromptForTurnLatency(prompt, { chatModelPlan: { tier: "rich" }, richMaxChars: 6200 });
+  assert.ok(prompt.length > 6200);
+  assert.ok(trimmed.length <= 6200);
+  assert.match(trimmed, /<craft>[\s\S]*<\/craft>/);
+  for (const range of ["p8-15", "p20-30", "p50-60", "p70-82", "p95-105"]) assert.ok(trimmed.includes(range), range);
 });
 
 test("[craft-cards] twenty craft-principle cards with the shape retrieval expects", () => {

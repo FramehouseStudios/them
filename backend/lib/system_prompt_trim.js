@@ -9,6 +9,7 @@ const DEFAULT_PROTECTED_TAGS = Object.freeze([
   "screenplay_task",
   "screenplay_page_output",
   "mentor_output",
+  "craft",
   "block_signal",
 ]);
 

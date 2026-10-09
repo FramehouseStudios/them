@@ -1,6 +1,16 @@
 import Foundation
 
 enum StudioCraftResilience {
+    // Mirrors the backend's DEFAULT_FRAMEWORK_ID wire contract.
+    static let defaultFrameworkID = "three-act"
+
+    static func preferredFrameworkID(selected: String, availableIDs: [String]) -> String {
+        let selected = selected.trimmingCharacters(in: .whitespacesAndNewlines)
+        if availableIDs.contains(selected) { return selected }
+        if availableIDs.contains(defaultFrameworkID) { return defaultFrameworkID }
+        return availableIDs.first ?? ""
+    }
+
     static let maximumBackgroundRetryCount = 1
     static let backgroundRetryDelayNanoseconds: UInt64 = 180_000_000
 

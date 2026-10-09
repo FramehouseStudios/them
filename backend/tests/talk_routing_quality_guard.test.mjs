@@ -27,11 +27,13 @@ import assert from "node:assert/strict";
 
 process.env.OPENAI_API_KEY ||= "deterministic-guard-no-network";
 process.env.RUN_SERVER = "0";
+process.env.KNOWLEDGE_RAG_EMBEDDINGS_ENABLED = "0";
 
 const {
   directorFlagsFromTranscript,
   inferRoutingPriorityLane,
   buildTurnPlanner,
+  buildKnowledgeRetrievalAddendum,
   selectChatModelForTurn,
   computeChatMaxTokensForTurn,
   resolveTalkScreenplayRequestedPageBatch,
@@ -54,6 +56,26 @@ const KNOWLEDGE = [
   ["knowledge_philosophy", "Explain Stoicism like I'm in high school, then give me one deeper philosophical criticism."],
   ["knowledge_learning_science", "What's the fastest evidence-based way to learn a hard skill without burning out?"],
 ];
+
+for (const [message, expected] of [
+  ["I hate my screenplay right now, I feel like quitting.", "reflective_checkin"],
+  ["Can we brainstorm a logline for my screenplay about two sisters running a ferry?", "idea_development"],
+  ["Help me fix the plot point where she leaves", "practical_action"],
+  ["I finished the first act of my screenplay today!", "motivation_coaching"],
+  ["What is an inciting incident?", "knowledge_answer"],
+]) {
+  test(`[640-guard] craft vocabulary preserves conversational intent: ${message}`, () => {
+    assert.equal(plan(message).turnPlanner.intent, expected);
+  });
+}
+
+test("[640-guard] dialogue question retrieves a craft card without embeddings", async () => {
+  const transcript = "what makes good dialogue in a movie";
+  const { turnPlanner, flags, routingPlan } = plan(transcript);
+  const result = await buildKnowledgeRetrievalAddendum({ transcript, turnPlanner, flags, routingPlan, memory: {} });
+  assert.equal(result.meta.semanticUsed, false);
+  assert.ok(result.cards.some((card) => card.topic === "craft"), JSON.stringify(result.cards));
+});
 
 for (const [id, transcript] of KNOWLEDGE) {
   test(`[33-guard] ${id}: knowledge tier + knowledge-grade model (not fast/mini)`, () => {

@@ -230,7 +230,8 @@ import { configureLoglineDistiller, _defaultClassifier as defaultLoglineClassifi
 import { configureAcceptedTwistLog, getAcceptedTwistsForProject, acceptedTwistLogDeps } from "./lib/accepted_twist_log.js";
 import { configureFirstPageTelemetry } from "./lib/first_page_telemetry.js";
 import { mountFirstPageTelemetryRoute } from "./lib/first_page_telemetry_route.js";
-import { buildCraftContextBlock, CRAFT_BLOCK_OPEN } from "./lib/craft_prompts.js";
+import { buildCraftContextBlock, shouldAppendCraftContext } from "./lib/craft_prompts.js";
+import { DEFAULT_FRAMEWORK_ID } from "./lib/craft_frameworks.js";
 import {
   configureUserStore,
   deleteUserById,
@@ -3068,12 +3069,10 @@ const creativeMemoryStore = createCreativeMemoryStore({
 // per-project framework selection lives in T22's stored reports +
 // Codex-side BackendClient (T19).
 function appendCraftContextToSystem(systemPrompt, { req } = {}) {
-  if (String(systemPrompt || "").includes(CRAFT_BLOCK_OPEN)) return systemPrompt;
+  if (!shouldAppendCraftContext(systemPrompt)) return systemPrompt;
   const requested = String(req?.body?.craft_framework_id || "").trim();
-  const frameworkId = requested || "three-act";
-  const block = buildCraftContextBlock({ framework: frameworkId });
-  if (!block) return systemPrompt;
-  return `${systemPrompt}\n\n${block}`;
+  const block = buildCraftContextBlock({ framework: requested || DEFAULT_FRAMEWORK_ID });
+  return block ? `${systemPrompt}\n\n${block}` : systemPrompt;
 }
 
 // T08w-triggers: persist creative-memory writes from a completed turn.
@@ -20977,6 +20976,7 @@ const KNOWLEDGE_STOPWORDS = new Set([
 ]);
 
 const KNOWLEDGE_TOPIC_KEYWORDS = Object.freeze({
+  craft: ["dialogue", "screenwriting", "slugline", "parenthetical", "inciting incident", "plot point", "midpoint", "act break", "logline", "three-act", "subtext"],
   movies: ["movie", "movies", "film", "cinema", "director", "screenplay", "editing", "scene"],
   art_history: ["art", "artist", "painting", "museum", "renaissance", "baroque", "modernism", "sculpture"],
   philosophy: ["philosophy", "ethics", "existential", "stoic", "meaning", "truth", "consciousness", "virtue"],
@@ -24584,7 +24584,7 @@ function buildTurnPlanner({
     "difference between",
     "compare",
     "history of",
-    "movie", "screenplay", "slugline", "parenthetical", "inciting incident", "plot point", "midpoint", "act two", "act break", "final image", "logline",
+    "movie",
     "art history",
     "philosophy",
     "learning science",
