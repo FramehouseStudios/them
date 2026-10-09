@@ -198,7 +198,7 @@ does not clear checks or independent review requirements for this stack.
 Original #640 remains unchanged remotely: do not merge its uncorrected head to
 main. The correction commits require the normal review-controlled landing path.
 
-## Copy-and-paste handoff to Claude
+## Historical handoff to Claude — superseded by reopened review below
 
 Codex completed preserving rehearsal integration of #639 and original #640 plus
 review corrections. Tested combined source merge: `40bdf1db039a0a9c368f914c8fd7627f71298085`.
@@ -228,3 +228,60 @@ proof remain required. Original #640 must not land uncorrected.
 Next actual boundary: #641 claude/filmmaker-dialogue-port @232098ba, based on
 claude/three-act-port. Body and diff scope read; not independently proven yet.
 READY FOR CONTINUE.
+
+## Reopened review and preserving #641 integration
+
+The previous #640 readiness claim was reopened by independent review. Do not
+use that historical handoff as the current result. Original #640 and #641
+heads remain unchanged; no main merge, squash or replacement PR occurred.
+
+### #640 second correction boundary
+
+- Correction code `bd6c5360`, evidence-only tip `2757b8d6`, on
+  `codex/T-945-three-act-review-fixes` (published).
+- Capped protected-prompt allocation preserves actual core/mentor contents in
+  production order; real HTTP talk tests guard mentor craft and feature-map
+  precedence, including two meaningful behavioral mutation failures.
+- Context-scoped lexical retrieval covers both writing cases and both negative
+  relationship/Plato cases with embeddings off. Main JSON diff is +21/-1.
+- Late feature-map assembly removes competing craft. Minor persisted report
+  rail mismatch is explicitly tracked T-948, not claimed fixed.
+- Standalone proof: Node20 2,771 pass/0 fail/2 skip; signed full units
+  631/0/0; authenticated writer UI 1/0/0; scaffold/offline golden/D009/diff pass.
+- Preserving combined source `4e3c1c68` (evidence merge `89ad2363` has identical
+  code): Node20 2,771/0/2, signed units 635/0/0, authenticated writer UI 1/0/0,
+  scaffold/offline golden/D009/diff pass. Retained `/tmp/them-948-combined-*`
+  logs and unit/writer xcresult bundles. index 33,581, other god files unchanged.
+
+### #641 corrected boundary
+
+- Original head `232098ba46d1572fdb86f2c64490e3d997e66092` remains an ancestor.
+- Correction code `da73b3bc`, evidence tip `b85e391f`, on
+  `codex/T-947-filmmaker-review-fixes` (published).
+- Rewrite/advice routing, Home companion surface boundaries, server-owned
+  notes mode, shared project-memory policy, fresh pitch lane, distress
+  precedence and freshness marker parity are corrected. No orb removal.
+- Standalone proof: Node20 2,768 pass/0 fail/2 skip; signed full units
+  637/0/0; authenticated writer UI 1/0/0; scaffold/offline golden/D009/diff pass.
+  `/tmp/them-947-*` logs and unit/writer bundles retained. Initial three backend
+  failures and fixes are recorded in the dedicated correction ledger.
+- The Home first-script-utterance transition is NOT covered by this Studio-
+  starting UI workflow. T-949 tracks confirmed transcript/open/prepare ordering
+  without trusting stale microphone text, plus auth/partial/everyday negatives.
+- Preserving combined source is `aef7d390e3c5ec9d61fbd9f0c12994a9176c11bc`.
+  Four conflicts were resolved: keep both task ledgers and all canonical prompt
+  imports; identical no-growth assertions differed only in wording.
+- Combined D009: index 33,557 (-69); Root 15,032 (-80); other three unchanged.
+  Full combined source proof is running; final results must be recorded before
+  claiming this boundary integration-ready.
+
+VERIFIED next actual base-chain boundary: #642 `claude/pages-port`
+`7c40428b5ded625b703f9ca538d8a7539b5d2ea7`, based on
+`claude/filmmaker-dialogue-port`. Current body and both commits were read;
+neither integrated nor independently proven here.
+
+Live golden remains blocked on the missing process API key. No retry or paid
+call occurred. Hosted runs on the two scoped correction branches are absent,
+not green. Main remains 647e01fc; #766 is draft/REVIEW_REQUIRED. Current
+independent approvals, shipping/backend identity and physical-phone voice/
+rewrite/offline/external-export proof remain separate landing/release gates.

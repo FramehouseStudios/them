@@ -32,7 +32,7 @@
 ### T-945 — Resolve #640 three-act review findings before integration
 
 - **Owner:** codex. **Branch:** `codex/T-945-three-act-review-fixes`.
-- **Status:** in-progress. **Pillar:** living companion / longitudinal learning.
+- **Status:** review. **Pillar:** living companion / longitudinal learning.
 - **Done when:** planner intent regressions, trimmed craft survival, canonical
   defaults, feature-map precedence and lexical retrieval are proven; all 110
   cards retain their contents; Node 20 backend, offline golden, signed Swift
@@ -42,9 +42,9 @@
 - **Reopened:** production-order allocator content loss, talk-path mutation
   coverage, context-scoped retrieval, exact main JSON formatting and late-map
   precedence must be proven before renewed integration readiness.
-- **Proof:** Node 20.20.2 full backend 2,765 pass / 0 fail / 2 skip; offline
-  golden gate passes; signed Swift selection/resilience 9/9 after owned erase;
-  macOS scaffold build, D009 and diff checks pass. See
+- **Proof:** reopened corrections: Node20 full backend 2,771/0/2; signed full
+  units 631/0/0 standalone and 635/0/0 combined; authenticated writer UI 1/0/0
+  on each. Offline golden, macOS scaffold, D009 and diff checks pass. See
   `docs/three-act-review-corrections-2026-10-08.md` for all outcomes and boundaries.
 
 ### T-948 — Persisted craft report rail reconciliation
@@ -70,7 +70,7 @@
 - Branch: `codex/T-947-filmmaker-review-fixes`; original #641 `232098ba` preserved.
 - Scope: repair Home/Studio boundaries, rewrite and dialogue-notes routing, project-memory contracts, fresh Page-lane behavior and distress/freshness precedence.
 - Done: behavioral backend tests, signed Swift proof coordinated by integration owner, D009 and diff checks; no main merge or replacement PR.
-- Current proof: Node 20 full backend 2,768/0/2; focused 61/61; offline mentor golden and D009 pass. Signed units/UI and integrated proof pending with integration owner. Evidence: `docs/filmmaker-review-corrections-2026-10-08.md`.
+- Current proof: Node20 full backend 2,768/0/2; focused 61/61; signed units 637/0/0; authenticated writer UI 1/0/0; scaffold, offline mentor golden and D009 pass. Final integrated proof pending. Evidence: `docs/filmmaker-review-corrections-2026-10-08.md`.
 
 | ID   | Title                                              | Owner  | Status            |
 |------|----------------------------------------------------|--------|-------------------|
