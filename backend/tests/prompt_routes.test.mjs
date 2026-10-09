@@ -66,7 +66,20 @@ async function postJson(baseURL, path, payload, headers = {}) {
   return { status: r.status, body };
 }
 
-test("POST /screenplay/prompt/build assembles persona, memory, session, user input, and craft block", async () => {
+test("POST /screenplay/prompt/build defaults mentor craft to three-act without a feature map", async () => {
+  const { buildCraftContextBlock } = await import("../lib/craft_prompts.js");
+  await withTestServer(async ({ baseURL }) => {
+    const { status, body } = await postJson(baseURL, "/screenplay/prompt/build", {
+      persona: "Screenwriting mentor", user_input: "What makes good dialogue?", include_craft_context: true,
+    });
+    assert.equal(status, 200);
+    assert.equal(body.craft_framework_id, "three-act");
+    assert.equal(body.craft_context_applied, true);
+    assert.match(body.prompt, /<craft>[\s\S]*p8-15[\s\S]*<\/craft>/);
+  }, { promptRouteDeps: { buildCraftContextBlock } });
+});
+
+test("POST /screenplay/prompt/build retains feature map instead of a competing craft block", async () => {
   await withTestServer(
     async ({ baseURL, requestedMemoryUserId, requestedMemoryArgs }) => {
       const { status, body } = await postJson(baseURL, "/screenplay/prompt/build", {
@@ -114,7 +127,7 @@ test("POST /screenplay/prompt/build assembles persona, memory, session, user inp
       assert.equal(body.source, "buildModelPrompt");
       assert.equal(body.memory_applied, true);
       assert.equal(body.session_context_applied, true);
-      assert.equal(body.craft_context_applied, true);
+      assert.equal(body.craft_context_applied, false, "target-scaled feature map takes precedence");
       assert.equal(body.craft_framework_id, "story-circle");
       assert.equal(body.screenplay_task_intent, "write_scene");
       assert.equal(body.screenplay_task_label, "Write Scene");
@@ -172,7 +185,7 @@ test("POST /screenplay/prompt/build assembles persona, memory, session, user inp
       assert.ok(body.prompt.includes("draft_excerpt:"));
       assert.ok(body.prompt.includes("MARA watches the tide"));
       assert.ok(body.prompt.includes("Write the all-is-lost beat."));
-      assert.ok(body.prompt.includes("CRAFT CONTEXT (story-circle)"));
+      assert.ok(!body.prompt.includes("CRAFT CONTEXT"), "no competing fixed page plan");
     },
     {
       memory: {

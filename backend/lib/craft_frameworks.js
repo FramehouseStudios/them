@@ -98,7 +98,8 @@ const FRAMEWORKS_BY_ID = Object.freeze({
 });
 
 function listFrameworkReferences() {
-  return Object.values(FRAMEWORKS_BY_ID).map((f) => ({
+  const frameworks = Object.values(FRAMEWORKS_BY_ID);
+  return [getFrameworkById(DEFAULT_FRAMEWORK_ID), ...frameworks.filter((f) => f.id !== DEFAULT_FRAMEWORK_ID)].map((f) => ({
     id: f.id,
     title: f.title,
     version: f.version,
