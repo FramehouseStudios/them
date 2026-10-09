@@ -1711,7 +1711,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
     private let outlineMutationOutbox = ScreenplayOutlineMutationOutbox.shared
     private let craftClient = BackendClient()
     private let projectSelectionAPI = BackendMemoryAPI()
-    private let conflictProjectLoader: ((String) async throws -> BackendScreenplayProjectSummary)?
+    private var conflictProjectLoader: ((String) async throws -> BackendScreenplayProjectSummary)?
+    @Published private(set) var isLoadingServerConflict = false
     private var clientTokenOwnedProjectIDs: Set<String> = []
     private var activeLoadRequestID: UUID?
 
@@ -4393,24 +4394,25 @@ final class ScreenplayStudioViewModel: ObservableObject {
             : "Local recovery copy discarded."
     }
 
-    func applyServerVersionFromConflict() {
-        guard let conflict = conflictState else { return }
+    @discardableResult
+    func applyServerVersionFromConflict() -> Task<Void, Never>? {
+        guard !isLoadingServerConflict, let conflict = conflictState else { return nil }
         guard ScreenplayProjectScopedState.matches(conflict.projectId, selectedProjectId: selectedProjectID) else {
-            conflictState = nil
-            return
+            return nil
         }
         let owner = currentStudioAuthContext()
         let choiceTime = Date().timeIntervalSince1970
         let draftAtChoice = fountainDraft
-        if conflict.serverDraft.isEmpty {
-            Task { await loadMissingServerDraftForConflict(conflict, owner: owner,
-                draftAtChoice: draftAtChoice, choiceTime: choiceTime) }
-            return
+        isLoadingServerConflict = true
+        infoText = "Loading the current saved draft. Your local words are retained until it arrives."
+        return Task {
+            defer { isLoadingServerConflict = false }
+            await loadCurrentServerDraftForConflict(conflict, owner: owner,
+                draftAtChoice: draftAtChoice, choiceTime: choiceTime)
         }
-        finishLoadingServerConflict(conflict, owner: owner, choiceTime: choiceTime)
     }
 
-    func loadMissingServerDraftForConflict(_ conflict: SaveConflictState,
+    func loadCurrentServerDraftForConflict(_ conflict: SaveConflictState,
         owner: ScreenplayStudioAuthContext, draftAtChoice: String, choiceTime: TimeInterval) async {
         guard authContextIsCurrent(owner), selectedProjectID == conflict.projectId,
               conflictState == conflict else { return }
@@ -4431,14 +4433,20 @@ final class ScreenplayStudioViewModel: ObservableObject {
             }
             guard authContextIsCurrent(owner), selectedProjectID == conflict.projectId,
                   conflictState == conflict else { return }
-            guard fountainDraft == draftAtChoice else {
+            guard ScreenplayDraftTextIdentity.matches(fountainDraft, draftAtChoice) else {
                 infoText = "Kept your newer edits. Choose Keep Mine or Load Server again."
                 return
             }
             guard project.id == conflict.projectId,
-                  let version = ScreenplayProjectDraftRestorePolicy.preferredVersion(in: project),
+                  let version = ScreenplayServerChoicePolicy.currentHead(in: project),
                   !version.id.isEmpty, let draft = version.draft else {
                 throw BackendMemoryAPIError.server(status: 502, message: "server_draft_unavailable")
+            }
+            guard ScreenplayConflictHydrationPolicy.canApply(baseVersionID: conflict.baseVersionId,
+                knownServerVersionID: conflict.serverVersionId, knownServerUpdatedAt: conflict.serverUpdatedAt,
+                incomingVersionID: version.id, incomingUpdatedAt: version.updatedAt ?? version.createdAt ?? 0) else {
+                errorText = "The server response could not confirm the current draft. Your local words are retained. Try Load Server again."
+                return
             }
             let fetched = SaveConflictState(projectId: conflict.projectId, baseVersionId: conflict.baseVersionId,
                 serverVersionId: version.id, serverDraft: draft, serverDraftExcerpt: version.draftExcerpt ?? "",
@@ -4450,6 +4458,24 @@ final class ScreenplayStudioViewModel: ObservableObject {
             errorText = "Could not load the server draft. Your local words are retained: \(error.localizedDescription)"
         }
     }
+
+    #if DEBUG
+    func configureUITestConflictProject(_ conflict: SaveConflictState) {
+        guard IOThemRuntime.isRunningUITests,
+              ProcessInfo.processInfo.arguments.contains("--ui-show-draft-conflict") else { return }
+        conflictProjectLoader = { projectID in
+            guard projectID == conflict.projectId else {
+                throw BackendMemoryAPIError.server(status: 404, message: "fixture_project_mismatch")
+            }
+            let data = try JSONSerialization.data(withJSONObject: ["id": projectID, "title": "Conflict fixture",
+                "activeVersionId": conflict.serverVersionId, "versions": [["id": conflict.serverVersionId,
+                    "projectId": projectID, "draft": conflict.serverDraft, "updatedAt": conflict.serverUpdatedAt]]])
+            return try JSONDecoder().decode(BackendScreenplayProjectSummary.self, from: data)
+        }
+        hasUnsavedDraftChanges = true
+        autosaveStatusText = "Conflict detected"
+    }
+    #endif
 
     private func finishLoadingServerConflict(_ conflict: SaveConflictState,
         owner: ScreenplayStudioAuthContext, choiceTime: TimeInterval) {

@@ -353,6 +353,135 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
     }
 
     @MainActor
+    func testLoadServerFetchesCurrentHeadEvenWhenConflictHasCachedText() async throws {
+        let fetched = expectation(description: "Current head fetched")
+        let data = try JSONSerialization.data(withJSONObject: ["id": "project-1", "title": "Test",
+            "activeVersionId": "remote-v3", "versions": [["id": "remote-v3", "draft": "Current server words", "updatedAt": 3]]])
+        let project = try JSONDecoder().decode(BackendScreenplayProjectSummary.self, from: data)
+        let suite = "them.fresh-server-choice.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore:
+            ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "recovery"),
+            draftSaveOutbox: ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory),
+            conflictProjectLoader: { id in
+                XCTAssertEqual(id, "project-1")
+                fetched.fulfill()
+                return project
+            })
+        model.autosaveEnabled = false
+        model.selectedProjectID = "project-1"
+        model.fountainDraft = "Writer words"
+        model.hasUnsavedDraftChanges = true
+        model.conflictState = .init(projectId: "project-1", baseVersionId: "server-v1",
+            serverVersionId: "remote-v2", serverDraft: "Stale cached words",
+            serverDraftExcerpt: "Stale cached words", serverUpdatedAt: 2)
+        await model.applyServerVersionFromConflict()?.value
+        await fulfillment(of: [fetched], timeout: 2)
+        await Task.yield()
+        XCTAssertEqual(model.fountainDraft, "Current server words")
+        XCTAssertEqual(model.latestVersionID, "remote-v3")
+        XCTAssertNil(model.conflictState)
+        XCTAssertFalse(model.hasUnsavedDraftChanges)
+        try? await Task.sleep(nanoseconds: 1_100_000_000)
+    }
+
+    @MainActor
+    func testFreshServerChoiceRetainsDurableWordsForUnusableHeadsAndAllowsBlank() async throws {
+        let owner = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""
+        let cases: [(String, String, String, String?, Double, Bool)] = [
+            ("missing-active", "project-1", "absent", "Old text", 400, false),
+            ("missing-draft", "project-1", "remote", nil, 300, false),
+            ("wrong-project", "other-project", "remote", "Other text", 300, false),
+            ("older-head", "project-1", "older", "Older text", 200, false),
+            ("unknown-head", "project-1", "unknown", "Unknown text", 0, false),
+            ("fetch-failure", "project-1", "remote", "Cached text", 300, false),
+            ("blank-head", "project-1", "remote", "", 0, true),
+        ]
+        for (name, projectID, activeID, draft, timestamp, accepted) in cases {
+            let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory.appendingPathComponent(name))
+            let raw = "  Writer cafe\u{0301}\r\n"
+            try await queue.enqueue(replacingOwner(of: makeEntry(id: name, draft: raw), with: owner))
+            _ = try await queue.retainConflict(projectId: "project-1", ownerUserId: owner)
+            let suite = "them.choice-\(name).\(UUID().uuidString)"
+            let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+            defer { defaults.removePersistentDomain(forName: suite) }
+            let recovery = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "recovery")
+            recovery.save(ownerUserId: owner, projectId: "project-1", draft: raw,
+                baseVersionId: "server-v1", dirty: true)
+            var version: [String: Any] = ["id": name == "missing-active" ? "old" : activeID,
+                "projectId": projectID, "updatedAt": timestamp]
+            if let draft { version["draft"] = draft }
+            let data = try JSONSerialization.data(withJSONObject: ["id": projectID, "title": name,
+                "activeVersionId": activeID, "versions": [version]])
+            let project = try JSONDecoder().decode(BackendScreenplayProjectSummary.self, from: data)
+            let model = ScreenplayStudioViewModel(localDraftRecoveryStore: recovery,
+                draftSaveOutbox: queue, conflictProjectLoader: { _ in
+                    if name == "fetch-failure" { throw URLError(.notConnectedToInternet) }
+                    return project
+                })
+            model.autosaveEnabled = false
+            model.selectedProjectID = "project-1"
+            model.fountainDraft = raw
+            model.hasUnsavedDraftChanges = true
+            let conflict = ScreenplayStudioViewModel.SaveConflictState(projectId: "project-1",
+                baseVersionId: "server-v1", serverVersionId: "remote", serverDraft: "Cached text",
+                serverDraftExcerpt: "Cached text", serverUpdatedAt: 300)
+            model.conflictState = conflict
+            await model.applyServerVersionFromConflict()?.value
+            XCTAssertFalse(model.isLoadingServerConflict, name)
+            if accepted {
+                XCTAssertEqual(model.fountainDraft, "", name)
+                XCTAssertEqual(model.latestVersionID, "remote", name)
+                XCTAssertNil(model.conflictState, name)
+                XCTAssertFalse(model.hasUnsavedDraftChanges, name)
+            } else {
+                XCTAssertEqual(Array(model.fountainDraft.utf8), Array(raw.utf8), name)
+                XCTAssertEqual(model.conflictState, conflict, name)
+                XCTAssertTrue(model.hasUnsavedDraftChanges, name)
+                XCTAssertFalse(model.errorText.isEmpty, name)
+                XCTAssertEqual(recovery.payloads(ownerUserId: owner)["project-1"]?["draft"] as? String, raw, name)
+                let copies = try await queue.entriesForTesting()
+                XCTAssertEqual(copies.map(\.draft), [raw], name)
+                XCTAssertEqual(copies.first?.status, .parked, name)
+            }
+            try? await Task.sleep(nanoseconds: 1_100_000_000)
+        }
+    }
+
+    @MainActor
+    func testCanonicallyEquivalentTypingDuringServerFetchIsNotOverwritten() async throws {
+        let suite = "them.unicode-server-choice.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let deferred = DeferredConflictProject()
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore:
+            ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "recovery"),
+            draftSaveOutbox: ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory),
+            conflictProjectLoader: { _ in await deferred.load() })
+        model.autosaveEnabled = false
+        model.selectedProjectID = "project-1"
+        model.fountainDraft = "café"
+        let conflict = ScreenplayStudioViewModel.SaveConflictState(projectId: "project-1",
+            baseVersionId: "base", serverVersionId: "remote", serverDraft: "",
+            serverDraftExcerpt: "", serverUpdatedAt: 1)
+        model.conflictState = conflict
+        let task = try XCTUnwrap(model.applyServerVersionFromConflict())
+        XCTAssertNil(model.applyServerVersionFromConflict(), "A duplicate tap must not start another fetch.")
+        await fulfillment(of: [deferred.started], timeout: 2)
+        model.fountainDraft = "cafe\u{0301}"
+        model.hasUnsavedDraftChanges = true
+        let data = try JSONSerialization.data(withJSONObject: ["id": "project-1", "title": "Test",
+            "activeVersionId": "remote", "versions": [["id": "remote", "draft": "Server words"]]])
+        deferred.continuation?.resume(returning: try JSONDecoder().decode(BackendScreenplayProjectSummary.self, from: data))
+        await task.value
+        XCTAssertEqual(Array(model.fountainDraft.utf8), Array("cafe\u{0301}".utf8))
+        XCTAssertEqual(model.conflictState, conflict)
+        XCTAssertTrue(model.hasUnsavedDraftChanges)
+        try? await Task.sleep(nanoseconds: 1_100_000_000)
+    }
+
+    @MainActor
     func testTypingDuringServerChoiceFetchPreservesNewerEditorAndQueuedCopy() async throws {
         let owner = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""
         let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
@@ -371,7 +500,7 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
             baseVersionId: "server-v1", serverVersionId: "remote", serverDraft: "",
             serverDraftExcerpt: "", serverUpdatedAt: 1)
         model.conflictState = conflict
-        let task = Task { await model.loadMissingServerDraftForConflict(conflict,
+        let task = Task { await model.loadCurrentServerDraftForConflict(conflict,
             owner: ScreenplayStudioAuthContext(userID: owner,
                 sessionIntentGeneration: BackendAuthClient.currentAuthSessionIntentGeneration()),
             draftAtChoice: "Draft one", choiceTime: 200) }
@@ -439,7 +568,7 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
             baseVersionId: "server-v1", serverVersionId: "remote", serverDraft: "",
             serverDraftExcerpt: "", serverUpdatedAt: 1)
         model.conflictState = conflict
-        await model.loadMissingServerDraftForConflict(conflict,
+        await model.loadCurrentServerDraftForConflict(conflict,
             owner: ScreenplayStudioAuthContext(userID: owner,
                 sessionIntentGeneration: BackendAuthClient.currentAuthSessionIntentGeneration()),
             draftAtChoice: model.fountainDraft, choiceTime: 200)

@@ -1941,6 +1941,81 @@ final class V1SmokeUITests: XCTestCase {
     }
 
     @MainActor
+    func test_screenplay_load_server_fetches_fresh_head_and_restores_after_relaunch() async throws {
+        let baseURL = try XCTUnwrap(URL(string: "http://127.0.0.1:31337"))
+        guard await backendRestoreContractIsAvailable(baseURL: baseURL) else {
+            throw XCTSkip("Authenticated screenplay recovery server is not running.")
+        }
+        let fixture = try await seedBackendRestoreContractFixture(baseURL: baseURL)
+        let marker = "LOAD-SERVER-LOCAL-\(UUID().uuidString.uppercased())"
+        var app = launchApp(openStudio: true, screenplaySaveNetworkFaultMarker: marker,
+            restoreProjectID: fixture.projectID, restoreVersionID: fixture.versionID,
+            restoreLoadToken: fixture.loadToken, launchEnvironment: fixture.appLaunchEnvironment)
+        defer { app.terminate() }
+        XCTAssertTrue(waitForRestoreSnapshot(in: app, timeout: 60) { snapshot in
+            stringValue(snapshot["draft_tail_preview"]).contains(marker)
+                && intValue(snapshot["queued_draft_save_count"]) == 1
+                && boolValue(snapshot["has_unsaved_draft_changes"])
+        }, "Writer copy must be durable before the explicit server choice.")
+        app.terminate()
+        let headers = ["X-APP-TOKEN": "them-dev",
+            "X-Client-Token": fixture.appLaunchEnvironment["THEM_UITEST_CLIENT_TOKEN"] ?? "",
+            "Authorization": "Bearer \(fixture.appLaunchEnvironment["THEM_UITEST_AUTH_DEBUG_ACCESS_TOKEN"] ?? "")"]
+        func saveServer(_ draft: String, base: String) async throws -> String {
+            let response = try await requestJSON(baseURL: baseURL,
+                path: "/screenplay/projects/\(fixture.projectID)/version", method: "POST", headers: headers,
+                body: ["draft": draft, "phase": "scene_draft", "source": "ui_fresh_server_choice",
+                    "base_version_id": base, "conflict_strategy": "reject_if_stale",
+                    "client_request_id": "fresh-server-\(UUID().uuidString.lowercased())"])
+            try assertHTTP(response, context: "new server head")
+            return try firstNonEmptyString(response.payload["version_id"], response.payload["server_version_id"],
+                message: "Server write did not return a version ID.")
+        }
+        let v2 = try await saveServer("INT. ROOM - NIGHT\n\nEarlier collaborator version.", base: fixture.versionID)
+        app = launchApp(openStudio: true, resetState: false, launchEnvironment: fixture.appLaunchEnvironment)
+        XCTAssertTrue(waitForRestoreSnapshot(in: app, timeout: 75) { snapshot in
+            stringValue(snapshot["conflict_server_version_id"]) == v2
+                && intValue(snapshot["parked_draft_save_count"]) == 1
+                && stringValue(snapshot["draft_tail_preview"]).contains(marker)
+        }, "The writer must see a real v2 conflict before choosing.")
+        let freshMarker = "FRESH-SERVER-\(UUID().uuidString.uppercased())"
+        let freshDraft = "INT. ROOM - NIGHT\n\n\(freshMarker)"
+        let v3 = try await saveServer(freshDraft, base: v2)
+        let load = app.buttons["studio.conflict.load-server"]
+        if !load.isHittable { app.swipeUp() }
+        XCTAssertTrue(load.waitForExistence(timeout: 5) && load.isHittable)
+        load.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        XCTAssertTrue(waitForRestoreSnapshot(in: app, timeout: 75) { snapshot in
+            stringValue(snapshot["latest_version_id"]) == v3
+                && stringValue(snapshot["draft_tail_preview"]).contains(freshMarker)
+                && stringValue(snapshot["conflict_project_id"]).isEmpty
+                && intValue(snapshot["parked_draft_save_count"]) == 0
+                && intValue(snapshot["queued_draft_save_count"]) == 0
+                && !boolValue(snapshot["has_unsaved_draft_changes"])
+                && stringValue(snapshot["error_text"]).isEmpty
+        }, "Load Server must load the current v3 head and retire only the chosen local copy.")
+        XCTAssertTrue(waitForDraft(in: app, containing: freshMarker, timeout: 5))
+        app.terminate()
+        app = launchApp(openStudio: true, resetState: false, launchEnvironment: fixture.appLaunchEnvironment)
+        XCTAssertTrue(waitForRestoreSnapshot(in: app, timeout: 75) { snapshot in
+            stringValue(snapshot["latest_version_id"]) == v3
+                && stringValue(snapshot["draft_tail_preview"]).contains(freshMarker)
+                && stringValue(snapshot["conflict_project_id"]).isEmpty
+                && !boolValue(snapshot["has_unsaved_draft_changes"])
+        }, "Chosen server words must restore without reviving the discarded local copy.")
+        let response = try await requestJSON(baseURL: baseURL, path: "/screenplay/projects/\(fixture.projectID)",
+            method: "GET", headers: headers, body: nil,
+            queryItems: [URLQueryItem(name: "include_drafts", value: "1"), URLQueryItem(name: "version_limit", value: "24")])
+        try assertHTTP(response, context: "final server choice")
+        let envelope = response.payload["payload"] as? [String: Any] ?? response.payload
+        let project = envelope["project"] as? [String: Any] ?? envelope
+        let versions = project["versions"] as? [[String: Any]] ?? []
+        XCTAssertEqual(stringValue(project["active_version_id"] ?? project["activeVersionId"]), v3)
+        XCTAssertEqual(versions.filter { stringValue($0["draft"]).contains(marker) }.count, 0)
+        XCTAssertEqual(stringValue(versions.first { stringValue($0["id"]) == v3 }?["draft"]), freshDraft)
+    }
+
+    @MainActor
     func test_screenplay_save_outbox_refreshes_auth_and_resolves_stale_conflict_once() async throws {
         let configuredPort = Int(
             ProcessInfo.processInfo.environment["THEM_UITEST_SCREENPLAY_SAVE_BACKEND_PORT"] ?? ""

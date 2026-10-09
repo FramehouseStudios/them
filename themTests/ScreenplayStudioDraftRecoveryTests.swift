@@ -234,7 +234,10 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
 
     @MainActor
     func testExplicitLoadServerChoiceAllowsNormalLiveFollowingAgain() async {
-        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store)
+        let currentProject = projectSummary(id: "resolved-choice", activeVersionId: "remote",
+            versions: [version(id: "remote", projectID: "resolved-choice", draft: "Chosen server draft")])
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store,
+            conflictProjectLoader: { _ in currentProject })
         model.selectedProjectID = "resolved-choice"
         model.fountainDraft = "Writer draft"
         model.hasUnsavedDraftChanges = true
@@ -244,7 +247,7 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
             serverUpdatedAt: 1
         )
 
-        model.applyServerVersionFromConflict()
+        await model.applyServerVersionFromConflict()?.value
         XCTAssertNil(model.conflictState)
         XCTAssertEqual(model.fountainDraft, "Chosen server draft")
         XCTAssertEqual(model.latestVersionID, "remote")

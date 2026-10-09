@@ -64,7 +64,7 @@ try {
     `Screenplay save recovery result summary could not be read.\n${failureOutputTail(summary.stderr || summary.stdout)}`
   );
   assertPassedTestSummary(
-    JSON.parse(summary.stdout), process.env.SCREENPLAY_SAVE_TEST_IDENTIFIER ? 1 : 4,
+    JSON.parse(summary.stdout), process.env.SCREENPLAY_SAVE_TEST_IDENTIFIER ? 1 : 5,
     "Signed iPhone screenplay recovery did not execute every requested test"
   );
   assert(!/Executed 0 tests/.test(output), `Screenplay save recovery executed no tests.\n${output}`);
