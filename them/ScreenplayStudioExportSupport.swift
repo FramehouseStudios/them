@@ -26,6 +26,7 @@ enum ScreenplayStudioExportSupport {
         var setError: (String) -> Void
         var noteSavedDirectory: (URL) -> Void
         var openURL: (URL) -> Void
+        var presentExportShareSheet: ((URL) -> Bool)? = nil
     }
 
     nonisolated static func preferredExportDirectoryURL(navigatorCurrentURL: URL?) -> URL? {
@@ -146,7 +147,20 @@ enum ScreenplayStudioExportSupport {
 #else
         _ = preferredDirectoryURL
         _ = noteSavedDirectory
-        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(artifact.filename)
+        let invalidNameCharacters = CharacterSet.controlCharacters
+            .union(CharacterSet(charactersIn: "/\\"))
+        guard !artifact.filename.isEmpty, artifact.filename != ".", artifact.filename != "..",
+              artifact.filename.rangeOfCharacter(from: invalidNameCharacters) == nil else {
+            throw CocoaError(.fileWriteInvalidFileName)
+        }
+        // An activity may still be reading an earlier same-title export.
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("them-export-" + UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+        let tempURL = directory.appendingPathComponent(artifact.filename)
+        guard tempURL.standardizedFileURL.deletingLastPathComponent() == directory.standardizedFileURL else {
+            throw CocoaError(.fileWriteInvalidFileName)
+        }
         try artifact.data.write(to: tempURL, options: .atomic)
         return tempURL
 #endif
@@ -189,7 +203,27 @@ enum ScreenplayStudioExportSupport {
 #else
                 // The file sat in the app's own temp folder: "Saved script.fdx
                 // to tmp." and nothing the writer could open (2026-09-30).
-                if !deps.isRunningUITests { presentShareSheet(for: savedURL) }
+                var shouldPresent = !deps.isRunningUITests
+#if DEBUG
+                if deps.isRunningUITests,
+                   ProcessInfo.processInfo.environment["THEM_UITEST_EXPORT_SHARE_SHEET"] == "1" {
+                    shouldPresent = true
+                }
+#endif
+                if shouldPresent {
+                    let presented: Bool
+                    if let presenter = deps.presentExportShareSheet {
+                        presented = presenter(savedURL)
+                    } else {
+                        presented = await presentShareSheet(for: savedURL)
+                    }
+                    guard presented else {
+                        deps.setInfo("")
+                        deps.setError("Couldn't open sharing. Return to a single Studio window and tap Export Copy again. Your draft is unchanged.")
+                        return
+                    }
+                }
+                deps.setError("")
                 deps.setInfo(sharedInfoText(filename: artifact.filename))
 #endif
             }
@@ -200,18 +234,26 @@ enum ScreenplayStudioExportSupport {
 
 #if !os(macOS)
     @MainActor
-    static func presentShareSheet(for url: URL) {
+    static func presentShareSheet(for url: URL) async -> Bool {
         let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
-        let scene = scenes.first { $0.activationState == .foregroundActive } ?? scenes.first
-        guard var top = scene?.keyWindow?.rootViewController else { return }
+            .filter { $0.activationState == .foregroundActive }
+        // Never send a script into an arbitrary background/other window.
+        guard scenes.count == 1, var top = scenes.first?.keyWindow?.rootViewController else { return false }
         while let presented = top.presentedViewController { top = presented }
+        guard top.viewIfLoaded?.window != nil, !top.isBeingDismissed,
+              !top.isBeingPresented, !(top is UIActivityViewController) else { return false }
         let sheet = UIActivityViewController(activityItems: [url], applicationActivities: nil)
         if let popover = sheet.popoverPresentationController {
             popover.sourceView = top.view
             popover.sourceRect = CGRect(x: top.view.bounds.midX, y: top.view.bounds.midY, width: 1, height: 1)
             popover.permittedArrowDirections = []
         }
-        top.present(sheet, animated: true)
+        // The activity controller can present a remote/proxy controller.
+        // Its immediate identity is not proof of acceptance; UIKit's completed
+        // presentation is. Do not report a false error while sharing is open.
+        return await withCheckedContinuation { continuation in
+            top.present(sheet, animated: true) { continuation.resume(returning: true) }
+        }
     }
 #endif
 
