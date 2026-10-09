@@ -233,7 +233,7 @@ enum ScreenplayStudioDraftToolsPresentationPlanner {
     }
 
     static func snapshotCanRestore(_ version: BackendScreenplayVersion) -> Bool {
-        !(version.draft ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        version.draft != nil && !version.id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     static func visibleRevisionRanges(

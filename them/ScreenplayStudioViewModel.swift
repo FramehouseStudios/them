@@ -3178,6 +3178,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         }
 
         if let project = responseProject {
+            let project = retainingLoadedHistory(in: project)
             upsertProject(project)
             if isSelectedProject {
                 selectedProject = project
@@ -4260,7 +4261,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         }
         guard selectedProject != nil, !isLoading, !isDraftSaveInFlight, !isSaving else { return false }
         autosaveEnabled = false
-        if cleanMarker == "__DELETE_ALL_WRITER_TEXT__" {
+        if ["__DELETE_ALL_WRITER_TEXT__", "__SAVE_BLANK_SNAPSHOT__"].contains(cleanMarker) {
             fountainDraft = ""
             noteManualDraftEdit()
         } else if !fountainDraft.contains(cleanMarker) {
@@ -4270,28 +4271,48 @@ final class ScreenplayStudioViewModel: ObservableObject {
             fountainDraft += separator + cleanMarker
             noteManualDraftEdit()
         }
-        await manualSaveDraft()
+        if cleanMarker == "__SAVE_BLANK_SNAPSHOT__" {
+            snapshotLabel = "Blank writer snapshot"
+            await createRevisionSnapshot()
+        } else {
+            await manualSaveDraft()
+        }
         return true
     }
     #endif
 
     func createRevisionSnapshot() async {
+        rememberBlankWriterEdit()
         let label = snapshotLabel.trimmingCharacters(in: .whitespacesAndNewlines)
         let note = label.isEmpty ? "Snapshot" : label
         await saveCurrentDraft(source: "studio_snapshot", notes: note)
-        snapshotLabel = ""
     }
 
     func loadSnapshot(_ version: BackendScreenplayVersion) {
-        let snapshotDraft = version.draft ?? ""
-        guard !snapshotDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            errorText = "Snapshot draft is empty."
+        guard let snapshotDraft = version.draft else {
+            errorText = "Snapshot text is unavailable. Reload Saved and try again."
             return
         }
+        guard !version.id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              version.projectId == nil || ScreenplayProjectScopedState.matches(version.projectId, selectedProjectId: selectedProjectID),
+              !snapshotDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+                (!selectedProjectID.isEmpty && selectedProjectID == loadedDraftProjectID && !latestVersionID.isEmpty) else {
+            errorText = "Load this project's current draft before restoring this version."
+            return
+        }
+        if hasUnsavedDraftChanges && !ScreenplayDraftTextIdentity.matches(fountainDraft, snapshotDraft) {
+            guard localDraftRecoveryStore.savePreservedConflict(ownerUserId: currentStudioAuthContext().userID,
+                projectId: selectedProjectID, draft: fountainDraft, baseVersionId: latestVersionID,
+                allowEmptyDraft: hasIntentionalBlankDraft) else {
+                errorText = "Could not preserve your current edits. The page was not changed."
+                return
+            }
+        }
+        errorText = ""
         isHydratingDraft = true
         fountainDraft = snapshotDraft
         isHydratingDraft = false
-        hasUnsavedDraftChanges = !ScreenplayDraftTextIdentity.matches(snapshotDraft, lastRevisionBaseDraft)
+        noteManualDraftEdit()
         autosaveStatusText = "Snapshot loaded (unsaved)"
         infoText = "Snapshot loaded. Save to publish."
         persistLocalDraftRecovery(
@@ -5607,7 +5628,16 @@ final class ScreenplayStudioViewModel: ObservableObject {
         }
     }
 
+    private func retainingLoadedHistory(in response: BackendScreenplayProjectSummary) -> BackendScreenplayProjectSummary {
+        var project = response
+        if project.versions == nil, selectedProject?.id == project.id {
+            project.versions = selectedProject?.versions
+        }
+        return project
+    }
+
     func applyProjectMetadataUpdate(_ project: BackendScreenplayProjectSummary) {
+        let project = retainingLoadedHistory(in: project)
         upsertProject(project)
         if selectedProjectID == project.id {
             selectedProject = project
@@ -5912,7 +5942,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 .trimmingCharacters(in: .whitespacesAndNewlines),
             authContext: authContext,
             allowEmptyDraft: hasIntentionalBlankDraft &&
-                ["studio_manual", "studio_autosave", "studio_conflict_resolve"].contains(source)
+                ScreenplayIntentionalBlankSavePolicy.permits(source: source)
         )
     }
 
@@ -6366,6 +6396,10 @@ final class ScreenplayStudioViewModel: ObservableObject {
             } else {
                 autosaveStatusText = request.source == "studio_manual" ? "Saved now" : "Autosaved"
             }
+            if request.source == "studio_snapshot",
+               snapshotLabel.trimmingCharacters(in: .whitespacesAndNewlines) == request.notes {
+                snapshotLabel = ""
+            }
             if request.source == "studio_manual" && !hasUnsavedDraftChanges {
                 infoText = "Draft saved."
             } else if request.source == "studio_snapshot" && !hasUnsavedDraftChanges {
@@ -6658,6 +6692,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
 
     private func applyCollaboratorsPayload(_ payload: BackendScreenplayCollaboratorsResponse) {
         if let project = payload.project {
+            let project = retainingLoadedHistory(in: project)
             upsertProject(project)
             selectedProject = project
             selectedProjectID = project.id
@@ -6694,6 +6729,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
 
     private func applyCommentsPayload(_ payload: BackendScreenplayCommentsResponse) {
         if let project = payload.project {
+            let project = retainingLoadedHistory(in: project)
             upsertProject(project)
             selectedProject = project
             selectedProjectID = project.id

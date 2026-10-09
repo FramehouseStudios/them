@@ -135,6 +135,12 @@ struct ScreenplayProjectDraftRestorePolicy {
     }
 }
 
+struct ScreenplayIntentionalBlankSavePolicy {
+    static func permits(source: String) -> Bool {
+        ["studio_manual", "studio_autosave", "studio_conflict_resolve", "studio_snapshot"].contains(source)
+    }
+}
+
 struct ScreenplayUnconfirmedSaveRecoveryPolicy {
     static func shouldPersist(projectId: String, draft: String, allowEmptyDraft: Bool = false) -> Bool {
         !projectId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&

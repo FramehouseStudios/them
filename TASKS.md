@@ -5,6 +5,38 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-932 — Exact blank history restore and durable snapshot journey
+
+- **Owner:** codex. **Branch:** `codex/T-932-blank-history-restore`, above #930
+  head `fc8157df`. **Pillars:** mobile-first; goal items 1 and 4. **Status:** review.
+- **Root:** empty historical versions were rejected/disabled; Snapshot rejected
+  explicit blank edits; restoring history replaced dirty current words; snapshot
+  labels cleared even after failure. Signed history red: one test, eight failed
+  assertions. Route red: snapshot returned 400 rather than 201.
+- **Scope:** guarded snapshot source, shared client/outbox policy, actual-present
+  history text vs nil, project/version/base guards, preserved exact current bytes,
+  current-head restore base, honest label retention, enabled blank Restore, and
+  retaining same-project loaded history when metadata-only responses omit it.
+- **VERIFIED:** final backend Node 20.20.2, external network disabled: 2,744 pass,
+  0 fail, 2 skip. macOS build, four wrapper tests, syntax/god/diff gates pass.
+  Final signed units: 672 pass, 0 fail, 0 skip. Final four-case signed UI: 4 pass,
+  0 fail, 0 skip, including real Saved-tab Restore tap and handler feedback.
+  Both use the erased owned simulator with signing on. Initial UI failures
+  exposed missing history after summary adoption; its regression/fix are retained.
+- **Existing work retained:** Claude #729, #732, #838 bodies inspected. No branch
+  closed, squashed or reimplemented. Integrating #732's `studio_restore` needs the
+  explicit blank-source contract/proof then; that source remains disallowed here.
+- **Done when:** final signed full units and all four auth-required recovery UI
+  journeys pass, publish a scoped draft above #930. Exact files/evidence/limits:
+  `docs/audits/blank-history-restore-2026-10-08.md`.
+- **Next risk (T-933):** synchronous actor-deinit crash on iOS 26.2. Local two
+  crash traces match upstream Swift #88036/#87316. Async fixtures are not a
+  production compatibility fix; prove synchronous BackendClient/task-local
+  teardown and an explicit-deinit fix separately, retaining no-crash assertions.
+- **Not covered:** immediate power-loss fsync, unsynced uninstall, physical voice,
+  provider credits, production Postgres, export parity, 120-page performance or
+  release. #766 then #770 still first; independent review/gates are mandatory.
+
 ### T-931 — Persist and restore intentional writer deletions
 
 - **Owner:** codex. **Branch:** `codex/T-931-blank-writer-recovery`, above #929
@@ -24,8 +56,8 @@
   offline delete-all/relaunch/reconnect/exactly-one-version/online relaunch;
   publish only a scoped draft above #929. Audit and precise artifacts:
   `docs/audits/blank-writer-recovery-2026-10-08.md`.
-- **Follow-up:** blank revision snapshot create/load remains unsupported by its
-  deliberate source contract; handle explicitly in a separate scoped change.
+- **Follow-up:** T-932 above connects blank revision snapshot create/load with
+  its explicit source contract and signed recovery/Restore proof.
 - **Not covered:** physical voice/paid providers, unsynced uninstall, production
   Postgres soak, release proof, 120-page performance or export parity. #766 then
   #770 remain first; required independent review and hosted gates are not bypassed.

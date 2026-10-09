@@ -132,7 +132,7 @@ actor ScreenplayDraftSaveOutbox {
         try loadIfNeeded()
         guard !entry.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
             (entry.allowEmptyDraft == true && !entry.baseVersionId.isEmpty &&
-             ["studio_manual", "studio_autosave", "studio_conflict_resolve"].contains(entry.source)) else {
+             ScreenplayIntentionalBlankSavePolicy.permits(source: entry.source)) else {
             throw BackendMemoryAPIError.server(status: 400, message: "draft_required")
         }
         guard entry.draft.utf8.count <= Self.maxDraftBytes else {

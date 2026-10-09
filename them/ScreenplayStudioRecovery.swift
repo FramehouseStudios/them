@@ -178,6 +178,7 @@ struct ScreenplayLocalDraftRecoveryStore {
     /// Keeps a dirty local draft separate from the ordinary recovery slot so
     /// a remote live-sync draft can be followed without overwriting the only
     /// copy of the writer's local text.
+    @discardableResult
     func savePreservedConflict(
         ownerUserId: String,
         projectId: String,
@@ -185,11 +186,11 @@ struct ScreenplayLocalDraftRecoveryStore {
         baseVersionId: String,
         savedAt: TimeInterval = Date().timeIntervalSince1970,
         allowEmptyDraft: Bool = false
-    ) {
+    ) -> Bool {
         let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedProjectId.isEmpty,
               !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
-                (allowEmptyDraft && !baseVersionId.isEmpty) else { return }
+                (allowEmptyDraft && !baseVersionId.isEmpty) else { return false }
         var nextPayloads = payloads(ownerUserId: ownerUserId)
         var projectPayload = nextPayloads[normalizedProjectId] ?? [:]
         var preserved = preservedConflicts(in: projectPayload)
@@ -210,6 +211,11 @@ struct ScreenplayLocalDraftRecoveryStore {
         projectPayload.removeValue(forKey: "preservedConflict")
         nextPayloads[normalizedProjectId] = projectPayload
         defaults.set(nextPayloads, forKey: ownerScopedKey(ownerUserId))
+        let stored = payloads(ownerUserId: ownerUserId)[normalizedProjectId] ?? [:]
+        return preservedConflicts(in: stored).contains {
+            ScreenplayDraftTextIdentity.matches($0["draft"] as? String ?? "", draft) &&
+                ($0["baseVersionId"] as? String) == baseVersionId
+        }
     }
 
     func clearPreservedConflict(
