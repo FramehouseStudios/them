@@ -13,6 +13,12 @@
 
 ## Active work — quick view
 
+### T-947 — Filmmaker/dialogue review corrections
+- Owner: Codex; status: in-progress.
+- Branch: `codex/T-947-filmmaker-review-fixes`; original #641 `232098ba` preserved.
+- Scope: repair Home/Studio boundaries, rewrite and dialogue-notes routing, project-memory contracts, fresh Page-lane behavior and distress/freshness precedence.
+- Done: behavioral backend tests, signed Swift proof coordinated by integration owner, D009 and diff checks; no main merge or replacement PR.
+
 | ID   | Title                                              | Owner  | Status            |
 |------|----------------------------------------------------|--------|-------------------|
 | T01  | Triage 409-file uncommitted snapshot               | human  | ready             |
