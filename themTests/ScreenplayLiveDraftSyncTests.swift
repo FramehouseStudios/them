@@ -470,6 +470,26 @@ final class ScreenplayLiveDraftSyncServiceTests: XCTestCase {
         service.detach()
     }
 
+    func testHelloWithNoAgreedBaseAdoptsTheChannelInsteadOfConcatenating() async {
+        // Seen live 2026-09-28: on launch the editor held the cached draft and
+        // the channel held nearly the same text. With no agreed base (fresh
+        // mirror) the "rebase" treated both as inserts at 0 and appended one
+        // to the other, and the doubled page was published and autosaved.
+        let channel = "INT. DINER - NIGHT\n\nShe waits."
+        let cached = "INT. DINER - NIGHT\n\nShe waits.\n"
+        let transport = FakeLiveDraftTransport()
+        let editor = FakeLiveDraftEditor(projectID: "proj-1", text: cached)
+        let service = makeService(transport: transport)
+        service.attach(to: editor)
+        await waitUntil { !transport.openedStreams.isEmpty }
+        transport.emit("hello", #"{"seq":5,"checksum":"\#(LiveDraftText.checksum(channel))","seeded":false,"text":"INT. DINER - NIGHT\n\nShe waits."}"#)
+        await waitUntil { !editor.appliedRemoteTexts.isEmpty }
+        try? await Task.sleep(nanoseconds: 300_000_000)
+        XCTAssertEqual(editor.text, channel)
+        XCTAssertTrue(transport.postedOps.allSatisfy { !$0.op.insert.contains("INT. DINER") }, "no doubled page is published")
+        service.detach()
+    }
+
     func testOutOfOrderOpTriggersResync() async {
         let transport = FakeLiveDraftTransport()
         transport.snapshotText = "resynced"
