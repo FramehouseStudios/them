@@ -5,6 +5,34 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-934 — Honest, direct screenplay editor UI gate
+
+- **Owner:** codex. **Branch:** `codex/T-934-writer-loop-gate`, above #931
+  head `9dde9be5`. **Pillars:** voice→scene; mobile-first; goal item 7.
+  **Status:** review.
+- **VERIFIED root:** #928 hosted run `37857480304` failed its misleadingly named
+  voice test's first draft assertion. Downloaded failure hierarchy contains the
+  full expected kitchen scene in the native editor, surface and hidden snapshot,
+  plus a Typed page-write receipt. The assertion conflated inaccessible/slow
+  generic queries with missing content; no text-loss claim is supported.
+- **Scope:** name the actual typed-stub test, omit an unrelated command-bar
+  drawer, directly assert both required strings in the native editor within the
+  original ten-second bound, assert that editor is reachable and retain failure
+  hierarchy. No production behavior or timeout change, no retry/skip workaround.
+- **Proof:** unchanged isolated signed baseline passed 1/1 on an erased owned
+  simulator; corrected focused run passed 1/1. Full signed units: 672 pass,
+  0 fail, 0 skip. Shipping-Node full backend: 2,744 pass, 0 fail, 2 skip.
+  Full signed V1 UI: 28 pass, 0 fail, 11 fixture-dependent skips. Dedicated
+  authenticated writer gate: 1 pass, 0 fail, 0 skip. Dedicated signed recovery
+  gate: 4 pass, 0 fail, 0 skip. All use an erased owned simulator, signing on.
+  See audit for artifacts and retained invalid read-only persistence run.
+- **Not covered:** physical microphone, paid providers, startup hydration race,
+  older/newer runtime differences or release. T-933 actor-deinit risk remains.
+  #929 hosted recovery run 37858536990 is red: writer marker remained but
+  expected parked-conflict state disappeared on relaunch. Do not retry unchanged
+  code to clear it. Trace that transition before the next compatibility slice.
+
+
 ### T-932 — Exact blank history restore and durable snapshot journey
 
 - **Owner:** codex. **Branch:** `codex/T-932-blank-history-restore`, above #930

@@ -222,16 +222,30 @@ final class V1SmokeUITests: XCTestCase {
         XCTAssertTrue(waitForDraft(in: app, containing: "INT. KITCHEN - DAY", timeout: 10))
     }
 
-    func test_record_voice_turn_round_trips_to_screenplay() {
+    // This is a typed prompt with deterministic transport, not microphone proof.
+    func test_typed_page_prompt_round_trips_to_visible_editor() {
         let app = launchApp(
             openStudio: true,
-            openCommandBar: true,
             routePage: true,
             autoSubmitPagePrompt: "Write a tense kitchen scene where Lucy leaves before Frank can explain."
         )
 
-        XCTAssertTrue(waitForDraft(in: app, containing: "INT. KITCHEN - DAY", timeout: 10))
-        XCTAssertTrue(waitForDraft(in: app, containing: "LUCY", timeout: 5))
+        let editor = app.textViews["studio.draft.editor"]
+        let content = NSPredicate(format: "exists == true AND value CONTAINS %@ AND value CONTAINS %@",
+                                  "INT. KITCHEN - DAY", "LUCY")
+        let result = XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: content, object: editor)], timeout: 10)
+        guard result == .completed else {
+            let hierarchy = XCTAttachment(string: app.debugDescription)
+            hierarchy.name = "Typed screenplay editor failure hierarchy"
+            hierarchy.lifetime = .keepAlways
+            add(hierarchy)
+            XCTFail("The native screenplay editor did not contain the scene heading and character within 10 seconds.")
+            return
+        }
+        XCTAssertTrue(editor.isHittable, "The screenplay must be reachable on the visible page.")
+        let draft = editor.value as? String ?? ""
+        XCTAssertTrue(draft.contains("INT. KITCHEN - DAY"))
+        XCTAssertTrue(draft.contains("LUCY"))
     }
 
     func test_structural_repair_is_canon_aware_for_typed_and_voice_studio_turns() {
