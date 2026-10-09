@@ -5,6 +5,27 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1146 — Connect project creation focus and trustworthy writer proof
+
+- **Owner:** codex (Jarvis). **Branch:** `codex/T-1146-original-639-writer-input`.
+- **Status:** in-progress. **Base:** original6396ec372d; hosted run40190222594
+  fails the writer's project-title keyboard dismissal before V1/voice/Mac.
+- **Evidence:** log erases B34C2F57 but Xcode selects E839A11B by duplicate
+  name. Runner then deletes its own writer result, so the failure upload has
+  only the unit bundle. Do not invent a screenshot or exact focus cause.
+- **Scope:** reuse980c001's exact immutable simulator and safety fixtures,
+  9f64c97's compatible retained-writer owner/CI glob, and0fe58ca's title-field
+  focus correction. Preserve source attribution and both ledger histories;
+  later cumulative branches are not merged wholesale.
+- **Done when:** runner failure/zero/malformed-result and ambiguity guards
+  pass; actual authenticated Create dismisses its own keyboard without a test
+  helper; full writer save/export/relaunch and signed/Node20/Mac/D009 gates
+  pass at the coherent checkpoint. No skip, retry or weakened text/save count.
+- **Ownership:** canonical runner/resolver/tests/artifact glob; existing
+  Projects sidebar and writer UI contract; this entry and report. No new
+  persistence/auth/provider owner, god-file growth, paid call or production
+  change. Original PR/base/history preserved; no publication until proven.
+
 ### T-1145 — Repair original639's unnecessary selected-tab hit-point query
 
 - **Owner:** codex (Jarvis). **Branch:** `codex/T-1145-original-639-hosted-rail`.
