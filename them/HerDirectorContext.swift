@@ -47,6 +47,7 @@ struct HerDirectorContext {
     let isClimax: Bool
     let isOpeningOrClosing: Bool
     let isLongFormScreenplayRequest: Bool
+    let isDialogueNotesPrompt: Bool
 }
 
 extension HerDirectorContext {
@@ -255,7 +256,7 @@ extension HerDirectorContext {
             "synopsis", "logline", "treatment", "premise", "outline", "beat sheet"
         ]) || isSynopsisFocused || isStoryDirectionPrompt
 
-        let isCharacterFocused = affirmedAny([
+        let isCharacterFocused = ScreenplayIntentClassifier.asksAboutCharacter(userText) || affirmedAny([
             "character wants", "she wants", "he wants", "they want",
             "her backstory", "his backstory", "their backstory",
             "what motivates", "why does she", "why does he",
@@ -332,7 +333,8 @@ extension HerDirectorContext {
             isCharacterFocused: isCharacterFocused,
             isClimax: isClimax,
             isOpeningOrClosing: isOpeningOrClosing,
-            isLongFormScreenplayRequest: isLongFormScreenplayRequest
+            isLongFormScreenplayRequest: isLongFormScreenplayRequest,
+            isDialogueNotesPrompt: false // Server screenplay_task owns notes detection and output.
         )
     }
 }

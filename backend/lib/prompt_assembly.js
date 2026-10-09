@@ -20,6 +20,7 @@ import { enforceCraftContextPrecedence } from "./craft_prompts.js";
 // output.
 
 import { buildTraitsBlockForPrompt } from "./trait_library.js";
+import { asksForDialogueNotes, DIALOGUE_NOTES_CONTRACT } from "./dialogue_notes.js";
 import { buildAcceptedTwistsBlockForPrompt } from "./accepted_twist_log.js";
 import {
   FEATURE_MAP_BLOCK_OPEN,
@@ -74,6 +75,7 @@ const DIALOGUE_LOOP_INTENTS = Object.freeze([
   "rewrite_scene",
   "continue_script",
   "dialogue_punchup",
+  "dialogue_notes",
   "momentum_rescue",
 ]);
 const CLEMENTINE_DIALOGUE_LOOP_CONTRACT = Object.freeze([
@@ -509,6 +511,9 @@ function inferScreenplayTask(userInput = "") {
     /\bmake (?:the )?(?:dialogue|line|lines|exchange|argument|conversation|voices?) (?:sharper|tighter|cleaner)\b/,
   ]);
   const dialoguePunchupLike = explicitDialoguePunchupLike && (!rewriteLike || hasAny(lower, [/\bpunch[- ]up\b/]));
+  // Dialogue notes: the writer reads a line and wants it judged, not rewritten
+  // wholesale. Wins over scene_doctor when the ask is line-sized.
+  const dialogueNotesLike = asksForDialogueNotes(text);
   const continueLike = hasAny(lower, [
     /\b(continue|keep going|keep writing|carry on|carry this forward|take it from here|next page|next scene|what happens next|what should happen next|finish this scene|from here)\b/,
   ]);
@@ -548,7 +553,11 @@ function inferScreenplayTask(userInput = "") {
   let label = "General Story Help";
   let output = "Give specific, cinematic story guidance with one concrete next move.";
 
-  if (sceneDoctorLike && !rewriteLike) {
+  if (dialogueNotesLike) {
+    intent = "dialogue_notes";
+    label = "Dialogue Notes";
+    output = "Give a dialogue note the way a writers' room does: name what the line is doing in one sentence, then give exactly one rewritten line in quotes that carries the feeling through behavior or tactic, then stop. Spoken prose, no Fountain block, no list. Never praise a line that announces its feeling.";
+  } else if (sceneDoctorLike && !rewriteLike) {
     intent = "scene_doctor";
     label = "Scene Doctor";
     output = "Give concise script-doctor notes: what works, what is not landing, and the highest-leverage fix. Include sample replacement lines only when useful.";
@@ -769,6 +778,12 @@ function buildScreenplayTaskBlock(screenplayTask) {
   if (DIALOGUE_LOOP_INTENTS.includes(intent)) {
     lines.push("dialogue_loop:");
     for (const item of CLEMENTINE_DIALOGUE_LOOP_CONTRACT) {
+      lines.push(`  - ${item}`);
+    }
+  }
+  if (intent === "dialogue_notes") {
+    lines.push("dialogue_notes_contract:");
+    for (const item of DIALOGUE_NOTES_CONTRACT) {
       lines.push(`  - ${item}`);
     }
   }

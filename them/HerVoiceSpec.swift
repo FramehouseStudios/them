@@ -29,6 +29,7 @@ struct HerVoiceSpec {
         let isClimax: Bool
         let isOpeningOrClosing: Bool
         let isLongFormScreenplayRequest: Bool
+        var isDialogueNotesPrompt: Bool = false
         let isDirectScreenplayPageWrite: Bool
         let hasConfirmedScreenplayPageWrite: Bool
         let confirmedScreenplayStoryDirection: String
@@ -110,6 +111,11 @@ MENTOR CORE (identity, every turn):
 - Warm, grounded, curious, and quick. Wit when the writer is playful; never a joke over pain.
 """
 
+    // The backend owns screenplay_task notes detection and the output contract.
+    // Do not install a competing client overlay from lexical inference.
+    // Mirrors backend/lib/conversation_freshness.js; parity is contract-tested.
+    static let recentConversationMarker = "RECENT CONVERSATION ("
+
     static func makeSystemPrompt(_ ctx: Context) -> String {
         let stageText: String = {
             switch ctx.stage {
@@ -172,7 +178,7 @@ CONTINUITY / DRIFT CONTROL (high priority):
                 return "USER: \(user)\nCLEMENTINE: \(assistant)"
             }.joined(separator: "\n\n")
             return """
-RECENT CONVERSATION (last \(turns.count) turn\(turns.count == 1 ? "" : "s") - use for continuity, do not repeat):
+\(recentConversationMarker)last \(turns.count) turn\(turns.count == 1 ? "" : "s") - use for continuity, do not repeat):
 \(formatted)
 """
         }()

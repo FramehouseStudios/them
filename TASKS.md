@@ -56,6 +56,22 @@
   agree; explicit Three-Act selection stays selected. Signed behavioral tests
   and narrow Studio runtime proof required. Known minor issue, not fixed yet.
 
+### T-949 — Prove confirmed Home-to-Studio first-turn writing
+
+- **Owner:** codex. **Status:** ready. **Pillar:** voice-to-scene.
+- **Scope:** current confirmed script request opens authenticated Studio before
+  page prompt preparation; never use a previous microphone transcript.
+- **Done when:** Home first utterance writes/saves; everyday/partial/stale words
+  never promote mode; authentication refusal blocks writing. Existing writer
+  UI begins in Studio and does not cover this transition. Runtime proof needed.
+
+### T-947 — Filmmaker/dialogue review corrections
+- Owner: Codex; status: review.
+- Branch: `codex/T-947-filmmaker-review-fixes`; original #641 `232098ba` preserved.
+- Scope: repair Home/Studio boundaries, rewrite and dialogue-notes routing, project-memory contracts, fresh Page-lane behavior and distress/freshness precedence.
+- Done: behavioral backend tests, signed Swift proof coordinated by integration owner, D009 and diff checks; no main merge or replacement PR.
+- Current proof: Node 20 full backend 2,768/0/2; focused 61/61; offline mentor golden and D009 pass. Signed units/UI and integrated proof pending with integration owner. Evidence: `docs/filmmaker-review-corrections-2026-10-08.md`.
+
 | ID   | Title                                              | Owner  | Status            |
 |------|----------------------------------------------------|--------|-------------------|
 | T01  | Triage 409-file uncommitted snapshot               | human  | ready             |
