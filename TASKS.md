@@ -13,14 +13,14 @@
 
 - **Owner:** codex. **Branch:** `codex/T-943-integration-rehearsal`.
 - **Status:** review. **Pillar:** longitudinal learning / living companion.
-- **Done when:** original #766, #770 and #638 commits integrate locally without
+- **Done when:** original #766, #770, #638, #639 and corrected #640 commits integrate locally without
   lost work; full signed units, backend tests and D009 have recorded outcomes.
 - **Boundary:** local rehearsal only, not replacement PRs or shipping proof.
   Preserve original branches; require independent GitHub approval before main
   merges and never promote #766 without its coupled #770 preservation fix.
-- **Proof:** 631 signed iOS units and one authenticated writer UI test pass,
+- **Proof:** 635 signed iOS units and one authenticated writer UI test pass,
   zero failures/skips, after owned-device erases; backend Node 20.20.2 has
-  2,745 pass, zero fail, two skip. macOS scaffold build and D009 pass.
+  2,765 pass, zero fail, two skip. macOS scaffold build and D009 pass.
   `docs/integration-rehearsal-2026-10-08.md` records exact heads, retained
   results, initial environment failures and the remaining shipping gaps.
 

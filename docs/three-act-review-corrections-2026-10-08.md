@@ -63,3 +63,28 @@ those checks. Independent non-author approvals still apply.
 VERIFIED next original boundary: #641 `claude/filmmaker-dialogue-port`
 `232098ba46d1572fdb86f2c64490e3d997e66092`, based on `claude/three-act-port`.
 Its body has been read, but its readiness has not yet been independently proven.
+
+## Exact correction-file manifest
+
+- `TASKS.md`
+- `backend/.dockerignore`
+- `backend/DEPLOY.md`
+- `backend/index.js`
+- `backend/knowledge_cards.json`
+- `backend/lib/craft_frameworks.js`
+- `backend/lib/craft_prompts.js`
+- `backend/lib/logline_distiller.js`
+- `backend/lib/prompt_routes.js`
+- `backend/lib/system_prompt_trim.js`
+- `backend/tests/craft_three_act_default.test.mjs`
+- `backend/tests/logline_distiller.test.mjs`
+- `backend/tests/persona_mentor_contract.test.mjs`
+- `backend/tests/prompt_routes.test.mjs`
+- `backend/tests/talk_routing_quality_guard.test.mjs`
+- `docs/T21-craft-prompts-and-classification.md`
+- `docs/three-act-review-corrections-2026-10-08.md`
+- `them/ScreenplayStudioViewModel.swift`
+- `them/StudioCraftResilience.swift`
+- `themTests/StudioCraftFrameworkSelectionTests.swift`
+
+The rehearsal additionally updates `docs/integration-rehearsal-2026-10-08.md`.

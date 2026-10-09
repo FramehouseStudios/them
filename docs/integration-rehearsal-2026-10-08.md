@@ -165,3 +165,66 @@ authorize another scoped attempt. No key should be pasted into chat or committed
 
 Next: fix #640's upheld review findings on a branch retaining its original head,
 before integrating it. No main merge, squash, or replacement PR is authorized.
+
+## Corrected #640 preserving integration — T-946
+
+VERIFIED: `40bdf1db039a0a9c368f914c8fd7627f71298085` merges the correction
+branch without conflicts. It preserves original #640
+`c8eb36bad5979748130e2da7ed9ea2b9b6abe061` and correction
+`62828f32f254eea840f9eece4504b69221e31ebc` as ancestors. No original remote
+head or main was altered. Details, red characterization and decisions are in
+`docs/three-act-review-corrections-2026-10-08.md`.
+
+- Combined full backend Node 20.20.2: 2,765 pass / 0 fail / 2 skip;
+  `/tmp/them-946-backend.log`. Offline exemplar golden gate passes.
+- Combined full signed iOS units on the erased task-owned simulator:
+  635 pass / 0 fail / 0 skip; `/tmp/them-946-units.xcresult`.
+- Combined macOS scaffold build succeeds: `/tmp/them-946-mac.log`.
+- Combined signed authenticated local-fixture writer UI after another owned
+  simulator erase: 1 pass / 0 fail / 0 skip; `/tmp/them-946-writer.xcresult`.
+  Temporary backend stopped and fixture config removed; result bundle retained.
+- D009 against `claude/mentor-golden-port` passes; all five monitored files
+  unchanged and index.js exactly 33,626. Diff checks pass.
+
+VERIFIED: #641 `claude/filmmaker-dialogue-port` is the actual next base-chain
+boundary, tip `232098ba46d1572fdb86f2c64490e3d997e66092`. Its body and diff scope
+were inspected. It has no posted reviews/comments at this snapshot; do not
+promote its own reported numbers to independent combined-tree proof.
+
+Original #639/#640 hosted checks still show failed September 22 runs. A recent
+October 8 quality-gate run on `codex/T-942-export-share-proof` succeeded; therefore
+Actions billing is not established as a current universal blocker. That success
+does not clear checks or independent review requirements for this stack.
+Original #640 remains unchanged remotely: do not merge its uncorrected head to
+main. The correction commits require the normal review-controlled landing path.
+
+## Copy-and-paste handoff to Claude
+
+Codex completed preserving rehearsal integration of #639 and original #640 plus
+review corrections. Tested combined source merge: `40bdf1db039a0a9c368f914c8fd7627f71298085`.
+Correction branch: `codex/T-945-three-act-review-fixes` at `62828f32`.
+All original heads remain untouched. No squash, replacement PR or main merge.
+
+#640 fixes: remove broad knowledge lexicon; protect craft through actual rich6200
+persona/mentor trimming; canonical JS default and aligned Swift fallback;
+feature-map precedence instead of contradictory fixed craft ranges; lexical
+craft topic retrieval; unchanged 110 cards restored to compact format and copy.
+Production flags made the milestone motivation_coaching before #640; tests
+preserve that measured baseline rather than the no-flags reflective shorthand.
+
+Combined VERIFIED proof: backend Node20.20.2 2765/0/2 skipped; signed full units
+635/0/0 skipped; signed authenticated local-fixture writer UI 1/0/0 skipped;
+macOS scaffold build, offline mentor golden, D009 and diff checks pass. index.js
+is exactly 33626 lines. Correction-focused Swift tests separately pass 9/9.
+Proof comments are posted on original #639 and #640; artifact paths are above.
+
+The exactly-one live-golden attempt exited 2 before provider calls because the
+process lacked OPENAI_API_KEY. No live scores, no automatic retry. Provision a
+secure process environment and obtain explicit authorization for a new attempt.
+Original hosted checks still display old failures; recent other-branch Actions
+success does not clear them. Non-author approvals and shipping/physical-phone
+proof remain required. Original #640 must not land uncorrected.
+
+Next actual boundary: #641 claude/filmmaker-dialogue-port @232098ba, based on
+claude/three-act-port. Body and diff scope read; not independently proven yet.
+READY FOR CONTINUE.
