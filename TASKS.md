@@ -27,14 +27,26 @@
 
 ### T-941 — Usable iPhone exports and retained writer-gate evidence
 
-- **Owner:** codex. **Planned branch:** `codex/T-941-export-handoff` above T-940.
-  **Pillars:** mobile-first; goal items 4 and 7. **Status:** ready.
+- **Owner:** codex. **Branch:** `codex/T-941-export-handoff` above #939
+  `08a0b108`. **Pillars:** mobile-first; goal items 4 and 7. **Status:** in-progress.
 - **VERIFIED:** #938 hosted run 37874741945 unit step passes; writer fails at
   Markdown filename assertion. The evaluator unconditionally deletes its bundle,
   including on failure. iPhone export writes a temporary file without a share sheet.
 - **Target:** retain exact failed writer bundles; reproduce/resolve the export
   assertion, provide native file handoff and verify real artifact content. Do not
   infer a cause from the missing artifact or rerun unchanged to obtain green.
+- **Stage 1:** retain unique private result directories and emit diagnostics
+  before result validation; CI uploads failed writer bundles. Six harness cases
+  pass, including failed/empty/malformed results and repeated-run preservation.
+  Offline Node 20 suite: 2,750 pass, zero fail, two skip. Signed authenticated
+  writer: one pass, zero fail/skip; real result bundle retained and generated
+  configuration removed. Signed units: 730 pass, zero fail/skip; macOS build
+  succeeds. Authenticated recovery UI: five pass, zero fail/skip. Evidence-stage
+  draft is ready; native handoff and hosted failure diagnosis remain in progress.
+- **Preserved existing work:** read #868 body and exact `a6428e3d` helper/tests.
+  Its native share implementation is not replaced, closed or duplicated.
+  UI tests suppress that sheet, so actual handoff/content proof remains open.
+  Stage 1 is evidence repair, not completion of the whole export task.
 - **Boundaries:** iPhone PDF decision remains human-owned; do not enable it.
   Server create activation/idempotency remains a separate queued trust scope.
 

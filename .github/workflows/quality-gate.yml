@@ -275,5 +275,6 @@ jobs:
             /tmp/them-quality-gate-backend.log
             /tmp/them-smoke/them-home.png
             ${{ runner.temp }}/them-v1-ui-smoke/*.xcresult
+            ${{ runner.temp }}/them-studio-ios-writer-loop/*/*.xcresult
             ${{ runner.temp }}/them-screenplay-save-network-fault-smokes/*.xcresult
             ${{ runner.temp }}/them-voice-network-fault-smokes/*.xcresult
