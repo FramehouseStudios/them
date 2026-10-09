@@ -26,6 +26,11 @@ function shouldAppendCraftContext(systemPrompt) {
   return !/<(?:craft|feature_film_map)\b/i.test(String(systemPrompt || ""));
 }
 
+function enforceCraftContextPrecedence(systemPrompt) {
+  const text = String(systemPrompt || "");
+  return /<feature_film_map\b/i.test(text) ? text.replace(/<craft\b[^>]*>[\s\S]*?<\/craft>/gi, "").trim() : text;
+}
+
 function compactPageRange(range) {
   if (!range || typeof range !== "object") return "";
   const { start, end } = range;
@@ -157,6 +162,7 @@ function buildClassificationPromptBlock({ framework, scene } = {}) {
 }
 
 export {
+  enforceCraftContextPrecedence,
   shouldAppendCraftContext,
   buildCraftContextBlock,
   buildClassificationPromptBlock,
