@@ -77,6 +77,22 @@ test("[640-guard] dialogue question retrieves a craft card without embeddings", 
   assert.ok(result.cards.some((card) => card.topic === "craft"), JSON.stringify(result.cards));
 });
 
+for (const [transcript, topic] of [
+  ["what makes a good scene in a screenplay", "craft"],
+  ["explain setups and payoffs in a movie scene", "craft"],
+  ["what's the subtext when my partner says she's fine", "compatibility"],
+  ["explain Plato's dialogues", "philosophy"],
+]) {
+  test(`[640-retrieval] context-scoped lexical retrieval: ${transcript}`, async () => {
+    const { flags, routingPlan } = plan(transcript);
+    const result = await buildKnowledgeRetrievalAddendum({ transcript, flags, routingPlan, turnPlanner: { intent: "knowledge_answer" }, memory: {} });
+    assert.equal(result.meta.semanticUsed, false);
+    assert.ok(result.cards.some((card) => card.topic === topic), JSON.stringify(result.cards));
+    if (topic !== "craft") assert.ok(!result.cards.some((card) => card.topic === "craft"));
+    if (topic === "philosophy") assert.ok(result.cards.some((card) => /Plato/.test(card.title)));
+  });
+}
+
 for (const [id, transcript] of KNOWLEDGE) {
   test(`[33-guard] ${id}: knowledge tier + knowledge-grade model (not fast/mini)`, () => {
     const { routingPlan, turnPlanner, modelPlan } = plan(transcript);

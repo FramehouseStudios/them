@@ -31,6 +31,15 @@
   macOS scaffold build, D009 and diff checks pass. See
   `docs/three-act-review-corrections-2026-10-08.md` for all outcomes and boundaries.
 
+### T-948 — Persisted craft report rail reconciliation
+
+- **Owner:** codex. **Status:** ready. **Pillar:** mobile-first / living companion.
+- **Scope:** prefer a loaded report's framework if the writer has not explicitly
+  chosen one; preserve explicit choices. Separate from the T-945 allocator fix.
+- **Done when:** stored Save the Cat report, chip and successful Save Override
+  agree; explicit Three-Act selection stays selected. Signed behavioral tests
+  and narrow Studio runtime proof required. Known minor issue, not fixed yet.
+
 | ID   | Title                                              | Owner  | Status            |
 |------|----------------------------------------------------|--------|-------------------|
 | T01  | Triage 409-file uncommitted snapshot               | human  | ready             |
