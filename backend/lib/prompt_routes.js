@@ -1,4 +1,6 @@
 import express from "express";
+import { DEFAULT_FRAMEWORK_ID } from "./craft_frameworks.js";
+import { shouldAppendCraftContext } from "./craft_prompts.js";
 
 import { DEFAULT_FEATURE_TARGET_PAGES, findSequenceForPage } from "./feature_screenplay_map.js";
 import { buildModelPrompt, inferScreenplayTask } from "./prompt_assembly.js";
@@ -994,9 +996,9 @@ function mountPromptRoutes(app, {
     const craftFrameworkId = trimToString(
       req.body?.craft_framework_id ?? req.body?.craftFrameworkId,
       96
-    ) || "save-the-cat";
+    ) || DEFAULT_FRAMEWORK_ID;
     let craftContextApplied = false;
-    if (includeCraftContext && typeof buildCraftContextBlock === "function") {
+    if (includeCraftContext && shouldAppendCraftContext(prompt) && typeof buildCraftContextBlock === "function") {
       const craftBlock = buildCraftContextBlock({ framework: craftFrameworkId });
       if (craftBlock) {
         prompt = `${prompt}\n\n${craftBlock}`.trim();

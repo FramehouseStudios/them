@@ -4972,7 +4972,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
     }
 
     private func preferredCraftTwistContext() -> CraftTwistContext {
-        let selectedFramework = normalizedOrNil(selectedCraftFrameworkID) ?? craftReport?.framework.id ?? "save-the-cat"
+        let selectedFramework = normalizedOrNil(selectedCraftFrameworkID) ?? craftReport?.framework.id ?? StudioCraftResilience.defaultFrameworkID
         if let report = craftReport {
             let unsatisfied = report.majorTurns.first { !$0.isSatisfied }
             let drifting = report.majorTurns.first { abs($0.driftPages ?? 0) >= 4 }
@@ -5026,7 +5026,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         }
         let cleanSelected = selectedCraftFrameworkID.trimmingCharacters(in: .whitespacesAndNewlines)
         if cleanSelected.isEmpty || !craftFrameworks.contains(where: { $0.id == cleanSelected }) {
-            selectedCraftFrameworkID = craftFrameworks.first?.id ?? ""
+            selectedCraftFrameworkID = StudioCraftResilience.preferredFrameworkID(selected: cleanSelected, availableIDs: craftFrameworks.map(\.id))
         }
     }
 
