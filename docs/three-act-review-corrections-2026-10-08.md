@@ -70,8 +70,15 @@ limitation, not a completed correction. The human explicitly allowed tracking.
 - Both real-talk mutations fail on behavior after syntax checking; no real
   provider calls occur. Synthetic TTS bytes are not voice-quality proof.
 - D009 vs mentor-golden: index 33,626 -> 33,581; other monitored files unchanged.
-- Signed full units, writer UI and scaffold proof are pending below. Earlier
-  integration readiness is superseded until these current proofs finish.
+- VERIFIED: signed full units on the erased owned simulator: 631 passed,
+  zero failures/skips (`/tmp/them-948-units.xcresult`). Authenticated writer
+  workflow: one passed, zero failures/skips (`/tmp/them-948-writer.xcresult`),
+  local auth enabled, typed text -> save -> Markdown export -> relaunch.
+- VERIFIED: macOS scaffold build succeeds (`/tmp/them-948-mac.log`, unsigned
+  build only). UI local backend used host Node 26.7; full backend uses 20.20.2.
+- Combined preserving rehearsal source `4e3c1c68`: signed full units 635 passed,
+  zero failures/skips (`/tmp/them-948-combined-units.xcresult`); scaffold build
+  succeeds. Combined backend and writer UI ledger follows in rehearsal doc.
 
 ## Verification
 
