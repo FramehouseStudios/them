@@ -2426,6 +2426,11 @@ final class BackendClient {
         self.shouldAttachUserIDHeader = attachUserIDHeader
     }
 
+    // Explicit teardown avoids the synthesized actor-deinit TaskLocal crash on
+    // Swift 6.2 / iOS 26.2 (swiftlang/swift#88036). The session may be shared or
+    // caller-owned: releasing this client must not invalidate or cancel it.
+    deinit {}
+
     func health() async throws -> Bool {
         if await isHealthy(baseURL) {
             persistSharedBackendBaseURL(baseURL)
