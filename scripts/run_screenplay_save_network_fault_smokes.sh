@@ -25,6 +25,7 @@ else
     "themUITests/V1SmokeUITests/test_screenplay_save_outbox_refreshes_auth_and_resolves_stale_conflict_once"
     "themUITests/V1SmokeUITests/test_screenplay_delete_all_survives_offline_relaunch_and_saves_once"
     "themUITests/V1SmokeUITests/test_screenplay_blank_snapshot_survives_offline_relaunch_and_saves_once"
+    "themUITests/V1SmokeUITests/test_screenplay_load_server_fetches_fresh_head_and_restores_after_relaunch"
   )
 fi
 

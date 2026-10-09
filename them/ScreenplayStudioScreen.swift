@@ -9224,6 +9224,7 @@ Current draft version:
             .tint(Color.white.opacity(0.24))
             .keyboardShortcut("1", modifiers: [])
             .accessibilityIdentifier("studio.conflict.load-server")
+            .disabled(vm.isLoadingServerConflict)
 
             Button {
                 Task { await vm.keepLocalDraftAfterConflict() }
@@ -14998,8 +14999,7 @@ Look at the city.
             serverDraftExcerpt: "EXT. FERRY TERMINAL - DAWN",
             serverUpdatedAt: Date().timeIntervalSince1970 * 1_000
         )
-        vm.hasUnsavedDraftChanges = true
-        vm.autosaveStatusText = "Conflict detected"
+        if let conflict = vm.conflictState { vm.configureUITestConflictProject(conflict) }
         vm.infoText = "Another device updated this draft. Choose keep mine or load server."
         didApplyUITestDraftConflictFixture = true
     }

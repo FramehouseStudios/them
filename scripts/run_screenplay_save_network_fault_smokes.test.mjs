@@ -94,6 +94,7 @@ test("[screenplay-save-network-fault-smokes] erases the iPhone simulator and kee
     assert.ok(call.includes(xcconfig));
     assert.ok(call.includes("-only-testing:themUITests/V1SmokeUITests/test_screenplay_save_outbox_survives_relaunch_and_reconnects_once"));
     assert.ok(call.includes("-only-testing:themUITests/V1SmokeUITests/test_screenplay_save_outbox_refreshes_auth_and_resolves_stale_conflict_once"));
+    assert.ok(call.includes("-only-testing:themUITests/V1SmokeUITests/test_screenplay_load_server_fetches_fresh_head_and_restores_after_relaunch"));
   }
   assert.ok(ios.includes("-default-test-execution-time-allowance"));
   assert.ok(ios.includes("-maximum-test-execution-time-allowance"));

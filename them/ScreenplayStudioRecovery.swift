@@ -1,5 +1,18 @@
 import Foundation
 
+struct ScreenplayServerChoicePolicy {
+    static func currentHead(in project: BackendScreenplayProjectSummary) -> BackendScreenplayVersion? {
+        // A destructive choice must never substitute a different historical version.
+        let headID = [project.activeVersionId, project.lastVersionId]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { !$0.isEmpty }
+        guard let headID, let version = project.versions?.first(where: { $0.id == headID }),
+              version.projectId == nil || version.projectId == project.id,
+              version.draft != nil else { return nil }
+        return version
+    }
+}
+
 struct ScreenplayLocalDraftRecoverySnapshot: Equatable {
     let projectId: String
     let draft: String

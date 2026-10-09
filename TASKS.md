@@ -5,6 +5,29 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-936 — Fresh, byte-safe explicit Load Server choice
+
+- **Owner:** codex. **Branch:** `codex/T-936-fresh-server-choice`, above #933
+  head `25231907`. **Pillar:** mobile-first; goal items 1 and 4. **Status:** review.
+- **Target:** Load Server must fetch the authenticated current canonical head,
+  never trust cached conflict text, and never overwrite edits made during fetch.
+- **VERIFIED roots:** signed erased-simulator cached-head baseline: 1 failed
+  test, 3 failed assertions; canonical-equivalent Unicode typing baseline:
+  1 failed test, 3 failed assertions. Artifacts under `/tmp/them-936-*-red`.
+- **Binary proof:** real action fetches v3 after displayed v2; wrong/missing/
+  stale heads and fetch failures retain exact local words, conflict and queue;
+  legitimate blank server text remains loadable; duplicate taps serialize.
+- **Scope:** canonical existing fetch seam, UTF-8 identity, strict head lookup,
+  auth/project/conflict guards and original queue cutoff. No provider calls.
+- **Final local proof:** signed units 679 pass, 0 fail/skip; authenticated
+  recovery UI 5 pass, 0 fail/skip; original Ferry UI 1 pass, 0 fail/skip;
+  integrated authenticated writer 1 pass, 0 fail/skip. Node 20 backend
+  2,744 pass, 0 fail, 2 skip; macOS build, four runner tests and god/diff gates pass.
+  Exact artifacts and changed files: `docs/audits/fresh-server-choice-2026-10-08.md`.
+- **Not covered:** shipping provider/physical voice, production storage,
+  same-project hydration generations and save-entry guards. Main unchanged;
+  required hosted checks and independent approval remain mandatory.
+
 ### T-935 — Preserve conflict decisions through delayed base hydration
 
 - **Owner:** codex. **Branch:** `codex/T-935-stale-conflict-hydration`, above
@@ -29,8 +52,8 @@
 - **Fix:** preserve active choice; reject old/unorderable heads before draft or
   queue cleanup; retain known timestamps on sparse same-version responses. Known
   exact server-text confirmation can acknowledge the copy without another write.
-- **Landing follow-up:** Load Server uses cached nonempty text, not a fresh head.
-  Prove/fix that action before landing this lane. Same-project request ordering
+- **Landing follow-up:** T-936 above fixes/proves the cached Load Server path;
+  include it before landing this lane. Same-project request ordering
   and save-entry conflict guards remain tracked; hosted root is not established.
 - **Not covered:** precise hosted reproduction, physical voice/provider,
   release or production Postgres. Do not clear a red gate with unchanged retries.
