@@ -2635,7 +2635,7 @@ nonisolated struct BackendScreenplayProjectSummary: Decodable, Hashable {
     let studioAskNoteHistory: [BackendScreenplayStudioExchange]?
     let collaborators: [BackendScreenplayCollaborator]?
     let comments: [BackendScreenplayComment]?
-    let versions: [BackendScreenplayVersion]?
+    var versions: [BackendScreenplayVersion]?
     let outline: BackendScreenplayOutline?
 }
 

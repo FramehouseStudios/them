@@ -3,6 +3,89 @@ import XCTest
 
 final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
     @MainActor
+    func testOutlineSummaryRetainsLoadedHistoryButExplicitEmptyHistoryClearsIt() async throws {
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store)
+        model.selectedProjectID = "history"
+        let decoder = JSONDecoder()
+        model.selectedProject = try decoder.decode(BackendScreenplayProjectSummary.self,
+            from: Data("{\"id\":\"history\",\"title\":\"Script\",\"versions\":[{\"id\":\"blank\",\"draft\":\"\"}]}".utf8))
+        let summary = try decoder.decode(BackendScreenplayProjectSummary.self,
+            from: Data("{\"id\":\"history\",\"title\":\"Script\"}".utf8))
+        XCTAssertTrue(model.adoptCanonicalOutlineState(nil, outline: nil, project: summary, projectId: "history"))
+        XCTAssertEqual(model.selectedProject?.versions?.map(\.id), ["blank"])
+        let empty = try decoder.decode(BackendScreenplayProjectSummary.self,
+            from: Data("{\"id\":\"history\",\"title\":\"Script\",\"versions\":[]}".utf8))
+        XCTAssertTrue(model.adoptCanonicalOutlineState(nil, outline: nil, project: empty, projectId: "history"))
+        XCTAssertEqual(model.selectedProject?.versions?.count, 0)
+        await Task.yield()
+    }
+    @MainActor
+    func testBlankHistoryRestorePreservesPriorUnsavedWordsAndExactBlankBytes() async {
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store)
+        model.autosaveEnabled = false
+        model.selectedProjectID = "blank-history"
+        let owner = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""
+        for blank in ["", " \t\r\n"] {
+            model.applyStructuralUITestDraft("Saved words", versionID: "base")
+            let unsaved = "  cafe\u{0301}\r\nWriter's unsaved words.\t "
+            model.fountainDraft = unsaved
+            model.noteManualDraftEdit()
+            model.loadSnapshot(version(id: "historic-blank", projectID: "blank-history", draft: blank))
+            XCTAssertEqual(Array(model.fountainDraft.utf8), Array(blank.utf8))
+            XCTAssertTrue(model.hasIntentionalBlankDraft)
+            XCTAssertTrue(model.hasUnsavedDraftChanges)
+            XCTAssertEqual(model.latestVersionID, "base", "Restore must save against the current head, not the historical version.")
+            XCTAssertEqual(store.dirtyOrdinarySnapshot(ownerUserId: owner, projectId: "blank-history")?.draft, blank)
+            XCTAssertEqual(Array(store.firstPreservedConflict(ownerUserId: owner,
+                projectId: "blank-history")?.draft.utf8 ?? "".utf8), Array(unsaved.utf8))
+        }
+        try? await Task.sleep(nanoseconds: 1_100_000_000)
+    }
+
+    @MainActor
+    func testMissingHistoryTextDoesNotBecomeAnEmptyRestore() async throws {
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store)
+        model.autosaveEnabled = false
+        model.selectedProjectID = "missing-history"
+        model.applyStructuralUITestDraft("Current writer words", versionID: "base")
+        let missing = try JSONDecoder().decode(BackendScreenplayVersion.self,
+            from: Data("{\"id\":\"missing-text\"}".utf8))
+        model.loadSnapshot(missing)
+        XCTAssertEqual(model.fountainDraft, "Current writer words")
+        XCTAssertFalse(model.hasIntentionalBlankDraft)
+        XCTAssertFalse(model.errorText.isEmpty)
+        await Task.yield()
+    }
+
+    @MainActor
+    func testBlankHistoryRejectsWrongProjectMissingIDAndUnloadedBase() async {
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store)
+        model.autosaveEnabled = false
+        model.selectedProjectID = "project"
+        model.applyStructuralUITestDraft("Current writer words", versionID: "base")
+        for snapshot in [version(id: "foreign", projectID: "other", draft: ""),
+                         version(id: "", draft: "")] {
+            model.loadSnapshot(snapshot)
+            XCTAssertEqual(model.fountainDraft, "Current writer words")
+            XCTAssertFalse(model.errorText.isEmpty)
+        }
+        model.latestVersionID = ""
+        model.loadSnapshot(version(id: "blank", draft: ""))
+        XCTAssertEqual(model.fountainDraft, "Current writer words")
+        await Task.yield()
+    }
+
+    @MainActor
+    func testSnapshotFailureRetainsWritersLabel() async {
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store)
+        model.autosaveEnabled = false
+        model.snapshotLabel = "Before the harbor rewrite"
+        await model.createRevisionSnapshot()
+        XCTAssertEqual(model.snapshotLabel, "Before the harbor rewrite")
+        XCTAssertFalse(model.errorText.isEmpty)
+    }
+
+    @MainActor
     func testClearDraftRetainsUnresolvedConflictAndPriorWriterCopy() async {
         let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store)
         model.autosaveEnabled = false
@@ -135,7 +218,7 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         model.autosaveEnabled = false
         model.applyStructuralUITestDraft("Saved draft", versionID: "base")
         let raw = "  \tINT. ROOM - NIGHT\r\n\ncafe\u{0301}\t \r\n"
-        model.loadSnapshot(version(id: "historic", draft: raw))
+        model.loadSnapshot(version(id: "historic", projectID: "snapshot", draft: raw))
         XCTAssertEqual(Array(model.fountainDraft.utf8), Array(raw.utf8))
         XCTAssertTrue(model.hasUnsavedDraftChanges)
         try? await Task.sleep(nanoseconds: 1_100_000_000)
@@ -2029,6 +2112,7 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
 
     private func version(
         id: String,
+        projectID: String = "project",
         source: String? = nil,
         createdAt: TimeInterval? = nil,
         updatedAt: TimeInterval? = nil,
@@ -2036,7 +2120,7 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
     ) -> BackendScreenplayVersion {
         BackendScreenplayVersion(
             id: id,
-            projectId: "project",
+            projectId: projectID,
             phase: "scene_draft",
             source: source,
             clientRequestId: nil,

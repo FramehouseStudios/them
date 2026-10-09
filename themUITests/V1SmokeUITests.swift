@@ -1698,12 +1698,22 @@ final class V1SmokeUITests: XCTestCase {
 
     @MainActor
     func test_screenplay_delete_all_survives_offline_relaunch_and_saves_once() async throws {
+        try await assertBlankWriterSaveSurvivesOfflineRelaunch(marker: "__DELETE_ALL_WRITER_TEXT__", source: "studio_manual")
+    }
+
+    @MainActor
+    func test_screenplay_blank_snapshot_survives_offline_relaunch_and_saves_once() async throws {
+        try await assertBlankWriterSaveSurvivesOfflineRelaunch(marker: "__SAVE_BLANK_SNAPSHOT__", source: "studio_snapshot")
+    }
+
+    @MainActor
+    private func assertBlankWriterSaveSurvivesOfflineRelaunch(marker: String, source: String) async throws {
         let baseURL = URL(string: "http://127.0.0.1:31337")!
         guard await backendRestoreContractIsAvailable(baseURL: baseURL) else {
             throw XCTSkip("Authenticated local screenplay recovery backend is not running.")
         }
         let fixture = try await seedBackendRestoreContractFixture(baseURL: baseURL)
-        var app = launchApp(openStudio: true, screenplaySaveNetworkFaultMarker: "__DELETE_ALL_WRITER_TEXT__",
+        var app = launchApp(openStudio: true, screenplaySaveNetworkFaultMarker: marker,
             restoreProjectID: fixture.projectID, restoreVersionID: fixture.versionID,
             restoreLoadToken: fixture.loadToken, launchEnvironment: fixture.appLaunchEnvironment)
         var snapshot: [String: Any] = [:]
@@ -1751,6 +1761,8 @@ final class V1SmokeUITests: XCTestCase {
         let versions = try XCTUnwrap(project["versions"] as? [[String: Any]])
         XCTAssertEqual(versions.count, 2, "The initial version and one deletion must be retained.")
         let saved = try XCTUnwrap(versions.first { $0["draft"] as? String == "" })
+        XCTAssertEqual(saved["source"] as? String, source)
+        if source == "studio_snapshot" { XCTAssertEqual(saved["notes"] as? String, "Blank writer snapshot") }
         XCTAssertEqual(saved["id"] as? String, project["active_version_id"] as? String)
         XCTAssertEqual(versions.filter { $0["id"] as? String == fixture.versionID }.count, 1)
         app.terminate()
@@ -1760,6 +1772,35 @@ final class V1SmokeUITests: XCTestCase {
                 && stringValue(state["latest_version_id"]) == saved["id"] as? String
                 && !boolValue(state["has_unsaved_draft_changes"])
         }, "Online relaunch did not restore the confirmed blank version.")
+        if source == "studio_snapshot" {
+            let drawer = element(identifier: "studio.sidebar.right.drawer", in: app)
+            if !drawer.exists { app.buttons["studio.sidebar.right.toggle"].tap() }
+            let savedTab = app.buttons["studio.right-panel.saved"]
+            XCTAssertTrue(revealInspectorTab(savedTab, drawer: drawer, in: app))
+            guard revealInStudioDrawer(savedTab, drawer: drawer, scrollingUp: false, maxSwipes: 8) else {
+                XCTFail("Saved tab exists but cannot be tapped in the inspector.")
+                return
+            }
+            savedTab.tap()
+            guard waitForSelection(of: savedTab, timeout: 3),
+                  app.descendants(matching: .any)["studio.saved.panel"].waitForExistence(timeout: 4) else {
+                XCTFail("Saved tab did not select and reveal its panel.")
+                return
+            }
+            let restore = app.buttons["studio.saved.restore.\(stringValue(saved["id"]))"]
+            guard revealInStudioDrawer(restore, drawer: drawer, scrollingUp: true, maxSwipes: 12) else {
+                XCTFail("Saved panel did not expose the confirmed blank version's Restore button.")
+                return
+            }
+            XCTAssertTrue(restore.isEnabled, "A saved intentional blank is a real restore point.")
+            restore.tap()
+            XCTAssertTrue(waitForRestoreSnapshot(in: app, timeout: 10) { state in
+                state["draft_tail_preview"] as? String == ""
+                    && !boolValue(state["has_unsaved_draft_changes"])
+                    && stringValue(state["latest_version_id"]) == saved["id"] as? String
+                    && stringValue(state["info_text"]) == "Snapshot loaded. Save to publish."
+            })
+        }
     }
 
     @MainActor
