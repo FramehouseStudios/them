@@ -262,6 +262,22 @@ test("POST /screenplay/prompt/build carries rewrite, scene-doctor, and dialogue 
   });
 });
 
+test("POST /screenplay/prompt/build hydrates authenticated project continuity for dialogue notes", async () => {
+  await withTestServer(async ({ baseURL, requestedMemoryUserId }) => {
+    const { status, body } = await postJson(baseURL, "/screenplay/prompt/build", {
+      persona: "Clementine",
+      screenplay_task_hint: "Notes on this line: I'm fine.",
+    });
+    assert.equal(status, 200);
+    assert.equal(requestedMemoryUserId(), "user-prompt-1");
+    assert.equal(body.screenplay_task_intent, "dialogue_notes");
+    assert.equal(body.session_context_hydrated, true);
+    assert.match(body.prompt, /project: notes-project/);
+    assert.match(body.prompt, /MARA conceals the broken key/);
+    assert.match(body.prompt, /dialogue_notes_contract:/);
+  }, { memory: { screenplayProjectMemory: [{ projectId: "notes-project", updatedAt: 42, lastWritePreview: "MARA conceals the broken key", sceneLabel: "INT. KITCHEN - NIGHT" }] } });
+});
+
 test("POST /screenplay/prompt/build carries writer-block rescue lenses and runway", async () => {
   await withTestServer(async ({ baseURL }) => {
     const { status, body } = await postJson(baseURL, "/screenplay/prompt/build", {

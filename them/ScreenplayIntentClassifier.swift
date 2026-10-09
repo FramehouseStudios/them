@@ -6,6 +6,23 @@ import Foundation
 /// or recent turns that touched the script, keep her thinking like a
 /// filmmaker across the small talk in between.
 enum ScreenplayIntentClassifier {
+    // Home is companion-only unless the writer explicitly opens/requests a
+    // script. A remembered draft or everyday words cannot switch the surface.
+    static func canUseFilmmakerMode(isStudioActive: Bool, hasExplicitScriptIntent: Bool) -> Bool {
+        isStudioActive || hasExplicitScriptIntent
+    }
+
+    static func canWriteToPage(isStudioActive: Bool, useScreenplayMode: Bool) -> Bool {
+        isStudioActive && useScreenplayMode
+    }
+
+    static func hasExplicitScriptIntent(_ text: String) -> Bool {
+        let normalized = normalize(text)
+        let writingVerbs = ["write", "draft", "drafting", "outline", "outlining", "revise", "rewrite", "rewriting", "edit", "editing", "polish", "finish", "build", "develop", "brainstorm", "brainstorming", "start"]
+        let scriptObjects = ["script", "screenplay", "scene", "beat", "slugline", "dialogue", "pilot", "short film", "feature", "movie", "film"]
+        let opensStudio = normalized.contains(" studio ") && ["open", "go to", "take me to", "switch to", "bring up", "launch"].contains { normalized.contains(" \($0) ") }
+        return opensStudio || (writingVerbs.contains { normalized.contains(" \($0) ") } && scriptObjects.contains { normalized.contains(" \($0) ") }) || ["work on my script", "work on the script", "work on a script"].contains { normalized.contains(" \($0) ") }
+    }
     static let storyNouns: [String] = [
         "scene", "script", "screenplay", "story", "act one", "act two", "act three", "act 1", "act 2", "act 3",
         "first act", "second act", "third act", "opening act", "final act",
@@ -64,19 +81,6 @@ enum ScreenplayIntentClassifier {
         guard t.contains(" character ") || t.contains(" protagonist ") || t.contains(" antagonist ")
             || t.contains(" she ") || t.contains(" he ") || t.contains(" they ") else { return false }
         return characterCues.contains { t.contains($0) }
-    }
-
-    /// The writer read a line and wants it judged: notes on it, does it work,
-    /// is it on the nose, or "she says:" followed by the line.
-    static func asksForDialogueNotes(_ text: String) -> Bool {
-        let t = normalize(text)
-        let lineWords = [" line ", " lines ", " exchange ", " dialogue ", " speech ", " monologue ", " confession ", " apology "]
-        let mentionsLine = lineWords.contains { t.contains($0) }
-        let noteCues = [" notes on ", " note on ", " thoughts on ", " feedback on ", " opinion on ", " take on ", " does this ", " is this ", " on the nose ", " read this ", " check this ", " look at this ", " hear this ", " here's my ", " here is my ", " this is my ", " try this "]
-        if mentionsLine, noteCues.contains(where: { t.contains($0) }) { return true }
-        // "She says: ..." with a quoted or colon-introduced line.
-        if text.range(of: #"\b(she|he|they|[A-Z][a-z]+) says:"#, options: .regularExpression) != nil { return true }
-        return t.contains(" on the nose ")
     }
 
     /// Keep filmmaker mode on when the script is already in the room or the

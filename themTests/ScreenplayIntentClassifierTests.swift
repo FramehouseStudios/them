@@ -1,4 +1,5 @@
 import XCTest
+import DraftStudio
 @testable import them
 
 final class ScreenplayIntentClassifierTests: XCTestCase {
@@ -43,17 +44,37 @@ final class ScreenplayIntentClassifierTests: XCTestCase {
         XCTAssertTrue(ScreenplayIntentClassifier.shouldStayInFilmmakerMode(text: "I'm stuck on the second act.", recentTurns: [], hasScriptInRoom: false), "a direct ask always counts")
     }
 
-    func test_director_context_uses_the_classifier_for_story_help_and_character() {
+    func test_director_context_does_not_promote_lexical_script_intent_into_advice() {
         let store = HerEvolutionStore.shared
-        XCTAssertTrue(HerDirectorContext.build(from: store, userText: "Talk to me about a scene.").isAskingForStoryHelp)
-        XCTAssertTrue(HerDirectorContext.build(from: store, userText: "My ending feels flat.").isAskingForStoryHelp)
+        XCTAssertFalse(HerDirectorContext.build(from: store, userText: "Talk to me about a scene.").isAskingForStoryHelp)
+        XCTAssertFalse(HerDirectorContext.build(from: store, userText: "My ending feels flat.").isAskingForStoryHelp)
         XCTAssertTrue(HerDirectorContext.build(from: store, userText: "Why does she stay with him?").isCharacterFocused)
         XCTAssertFalse(HerDirectorContext.build(from: store, userText: "I had a rough morning.").isAskingForStoryHelp)
+    }
+
+    func test_explicit_rewrites_reach_the_page_router() {
+        for text in ["Rewrite this scene.", "Punch up this scene.", "Revise this scene with more tension.", "Rewrite the last line."] {
+            let director = HerDirectorContext.build(from: HerEvolutionStore.shared, userText: text)
+            XCTAssertFalse(director.isAskingForStoryHelp, text)
+            XCTAssertTrue(DraftStudioPromptRouter.shouldRouteToPage(text, signals: .init(isExplicitStoryAdvice: director.isAskingForStoryHelp || director.isStoryDirectionPrompt || director.isCharacterFocused, isForcedPageWrite: true)), text)
+        }
+    }
+
+    func test_home_everyday_words_remain_companion_even_with_a_remembered_draft() {
+        for text in ["I feel so lost, I don't know what my story is anymore", "I'm stuck in line at the DMV, help me stay calm", "Help me finish this draft of my email", "she wants to break up with me", "I love that ending"] {
+            let explicit = ScreenplayIntentClassifier.hasExplicitScriptIntent(text)
+            XCTAssertFalse(explicit, text)
+            let studioMode = ScreenplayIntentClassifier.canUseFilmmakerMode(isStudioActive: false, hasExplicitScriptIntent: explicit)
+            XCTAssertFalse(studioMode, text)
+            XCTAssertFalse(ScreenplayIntentClassifier.canWriteToPage(isStudioActive: false, useScreenplayMode: studioMode), text)
+        }
+        XCTAssertTrue(ScreenplayIntentClassifier.hasExplicitScriptIntent("Write a scene about two astronauts."))
+        XCTAssertFalse(ScreenplayIntentClassifier.canWriteToPage(isStudioActive: false, useScreenplayMode: true), "even an override cannot write while Studio is closed")
     }
 }
 
 final class DialogueNotesModeTests: XCTestCase {
-    func test_dialogue_notes_are_recognized() {
+    func test_dialogue_notes_are_not_inferred_by_the_client() {
         for text in [
             "Notes on this line: I'm so angry at you right now.",
             "Does this line work? He says: I'm scared we're going to lose the house.",
@@ -61,16 +82,16 @@ final class DialogueNotesModeTests: XCTestCase {
             "Here's my line. She says: You betrayed me.",
             "Marcus says: for the cup.",
         ] {
-            XCTAssertTrue(ScreenplayIntentClassifier.asksForDialogueNotes(text), text)
+            XCTAssertFalse(HerDirectorContext.build(from: HerEvolutionStore.shared, userText: text).isDialogueNotesPrompt, text)
         }
         for text in ["Write the next scene.", "Punch up this exchange.", "My sister says hi.", "What should happen after the midpoint?"] {
-            XCTAssertFalse(ScreenplayIntentClassifier.asksForDialogueNotes(text), text)
+            XCTAssertFalse(HerDirectorContext.build(from: HerEvolutionStore.shared, userText: text).isDialogueNotesPrompt, text)
         }
     }
 
     func test_director_context_and_studio_overlay_carry_the_notes_mode() {
         let director = HerDirectorContext.build(from: HerEvolutionStore.shared, userText: "Notes on this line: I'm so angry at you.")
-        XCTAssertTrue(director.isDialogueNotesPrompt)
+        XCTAssertFalse(director.isDialogueNotesPrompt)
         var ctx = HerVoiceSpec.Context(
             stage: 1, depthScore: 0, romanceTension: 0, personaPreset: .clementine,
             isLoveTopic: false, preferredName: "", subtleMemoryCue: "",
@@ -91,9 +112,8 @@ final class DialogueNotesModeTests: XCTestCase {
         XCTAssertFalse(ctx.isDialogueNotesPrompt, "defaults off so existing call sites are unchanged")
         ctx.isDialogueNotesPrompt = true
         let prompt = HerVoiceSpec.makeSystemPrompt(ctx)
-        XCTAssertTrue(prompt.contains("DIALOGUE NOTES MODE:"))
-        XCTAssertTrue(prompt.contains("exactly one rewritten line in quotes"))
-        XCTAssertFalse(prompt.contains("STORY ADVICE MODE:"), "notes mode replaces story advice for this turn")
+        XCTAssertFalse(prompt.contains("DIALOGUE NOTES MODE:"), "legacy flags cannot contradict the server task")
+        XCTAssertFalse(prompt.contains("exactly one rewritten line in quotes"))
         XCTAssertFalse(prompt.contains("PAGE WRITE MODE:"))
     }
 }

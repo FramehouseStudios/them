@@ -255,7 +255,6 @@ extension HerDirectorContext {
             "suggest something", "help me with", "what would make this better",
             "synopsis", "logline", "treatment", "premise", "outline", "beat sheet"
         ]) || isSynopsisFocused || isStoryDirectionPrompt
-            || ScreenplayIntentClassifier.asksForStoryHelp(userText)
 
         let isCharacterFocused = ScreenplayIntentClassifier.asksAboutCharacter(userText) || affirmedAny([
             "character wants", "she wants", "he wants", "they want",
@@ -335,7 +334,7 @@ extension HerDirectorContext {
             isClimax: isClimax,
             isOpeningOrClosing: isOpeningOrClosing,
             isLongFormScreenplayRequest: isLongFormScreenplayRequest,
-            isDialogueNotesPrompt: ScreenplayIntentClassifier.asksForDialogueNotes(userText)
+            isDialogueNotesPrompt: false // Server screenplay_task owns notes detection and output.
         )
     }
 }

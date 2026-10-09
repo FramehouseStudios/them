@@ -224,6 +224,28 @@ test("[reflex] complex ask still reaches talk_handler (no short-circuit)", async
   assert.equal(body.reply, "from-spark-stub");
 });
 
+test("fresh greeting reaches the actual talk adapter as pitch Companion low", async () => {
+  const pageStore = createPageReservationStore({ now: () => 2 });
+  const logs = [];
+  let observed;
+  const wrapped = createPageLaneTalkAdapter({
+    handleTalkRequest: async (req) => { observed = req.clementine; },
+    pageReservationStore: pageStore,
+    logger: { log(message) { logs.push(message); }, warn() {} },
+  });
+  await wrapped({ body: { text: "hello", conversation_turn_index: 0 }, headers: {}, get: () => "" }, { setHeader() {} });
+  assert.equal(observed.intent, INTENT.PITCH);
+  assert.equal(observed.lane, LANE.COMPANION);
+  assert.equal(observed.effort, "low");
+  assert.equal(pageStore.size(), 0);
+  assert.equal(logs.some((line) => line.includes("skipped greeting template")), true);
+});
+
+test("distress takes precedence over incidental stuck story-help", () => {
+  assert.equal(classifyIntent("I'm stuck and everything is falling apart"), INTENT.COMFORT);
+  assert.equal(classifyIntent("I'm stuck on the second act."), INTENT.STORY_HELP);
+});
+
 test("[reflex] sendReflexReply shape has no TPM fields", () => {
   let payload = null;
   const res = {

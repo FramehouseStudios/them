@@ -2722,7 +2722,7 @@ struct RootExperienceView: View {
         voice.onSpeechProgressSnapshot = { audioSnapshot, partial, speechAge in
             let cleaned = partial.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !cleaned.isEmpty else { return }
-            let screenplayModeHint = isStudioSurfaceActive || shouldAutoOpenStudioForScriptIntent(cleaned)
+            let screenplayModeHint = ScreenplayIntentClassifier.canUseFilmmakerMode(isStudioActive: isStudioSurfaceActive, hasExplicitScriptIntent: shouldAutoOpenStudioForScriptIntent(cleaned))
             let speculativePreparedPrompt = buildPreparedTurnPrompt(
                 confirmedTranscript: cleaned,
                 partialHint: cleaned,
@@ -5009,9 +5009,8 @@ You're okay. Let's slow it down for one beat and get our footing back. Pick the 
         let shouldAutoOpenStudioForTurn = isScreenplayModeOverride == nil
             ? shouldAutoOpenStudioForScriptIntent(directorText)
             : false
-        let filmmakerModeByContext = ScreenplayIntentClassifier.shouldStayInFilmmakerMode(text: directorText, recentTurns: recentTurnWindow, hasScriptInRoom: !screenplayDraftExcerpt.isEmpty)
         let useScreenplayModeForTurn = isScreenplayModeOverride
-            ?? (isStudioSurfaceActive || shouldAutoOpenStudioForTurn || filmmakerModeByContext)
+            ?? ScreenplayIntentClassifier.canUseFilmmakerMode(isStudioActive: isStudioSurfaceActive, hasExplicitScriptIntent: shouldAutoOpenStudioForTurn)
         let memoryDomain = useScreenplayModeForTurn
             ? studioMemoryDomain(for: directorText, preferredTarget: .automatic)
             : .companion
@@ -5027,7 +5026,7 @@ You're okay. Let's slow it down for one beat and get our footing back. Pick the 
             for: memoryDomain,
             isScreenplayMode: useScreenplayModeForTurn
         )
-        let shouldWriteToPage = useScreenplayModeForTurn
+        let shouldWriteToPage = ScreenplayIntentClassifier.canWriteToPage(isStudioActive: isStudioSurfaceActive, useScreenplayMode: useScreenplayModeForTurn)
             ? shouldRouteStudioPromptToPage(
                 directorText,
                 preferredTarget: .automatic
@@ -5689,7 +5688,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
         preferredTarget: ScreenplayStudioScreen.PromptRoutingMode = .automatic
     ) -> Bool {
         let clean = userText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !clean.isEmpty else { return false }
+        guard isStudioSurfaceActive, !clean.isEmpty else { return false }
         let target: DraftStudioPromptTarget
         switch preferredTarget {
         case .automatic:
@@ -8909,6 +8908,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
         userTranscript: String = "",
         promptSource: ScreenplayStudioUserPrompt.Source = .voice
     ) -> String {
+        guard isStudioSurfaceActive else { return "" }
         let cleanText = textToInsert.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanText.isEmpty else { return "" }
         if let lastCommittedWrite = screenplayDraftBridge.lastCommittedWrite {
@@ -9074,6 +9074,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
         requireAuthoritativePageOutput: Bool = false
     ) -> String? {
         let trace = result.screenplayTrace
+        guard isStudioSurfaceActive else { return nil }
         guard trace.modeEnabled || result.screenplayOutput != nil else { return nil }
 
         let cleanPack = trace.pack.trimmingCharacters(in: .whitespacesAndNewlines)

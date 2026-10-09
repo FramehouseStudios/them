@@ -111,17 +111,10 @@ MENTOR CORE (identity, every turn):
 - Warm, grounded, curious, and quick. Wit when the writer is playful; never a joke over pain.
 """
 
-    /// The writer read a line and asked for a note. Mirrors the backend
-    /// dialogue_notes contract in prompt_assembly.js.
-    static let dialogueNotesModeBlock = """
-DIALOGUE NOTES MODE:
-- The writer read you a line and wants it judged, not rewritten wholesale.
-- One sentence naming what the line is doing: on the nose, a label, exposition, or a tactic that already works.
-- Then exactly one rewritten line in quotes that carries the same feeling through behavior or tactic. Then stop.
-- Spoken prose in your voice. No Fountain block, no cue, no list. Keep the writer's character names and the scene's facts.
-- Never praise a line that announces its feeling. If the line already works, say why in one sentence and offer no rewrite.
-- One question at most, only if it unlocks the rewrite.
-"""
+    // The backend owns screenplay_task notes detection and the output contract.
+    // Do not install a competing client overlay from lexical inference.
+    // Mirrors backend/lib/conversation_freshness.js; parity is contract-tested.
+    static let recentConversationMarker = "RECENT CONVERSATION ("
 
     static func makeSystemPrompt(_ ctx: Context) -> String {
         let stageText: String = {
@@ -185,7 +178,7 @@ CONTINUITY / DRIFT CONTROL (high priority):
                 return "USER: \(user)\nCLEMENTINE: \(assistant)"
             }.joined(separator: "\n\n")
             return """
-RECENT CONVERSATION (last \(turns.count) turn\(turns.count == 1 ? "" : "s") - use for continuity, do not repeat):
+\(recentConversationMarker)last \(turns.count) turn\(turns.count == 1 ? "" : "s") - use for continuity, do not repeat):
 \(formatted)
 """
         }()
@@ -371,9 +364,7 @@ CHARACTER SIGNAL:
                 (ctx.isStoryDirectionPrompt || ctx.isAskingForStoryHelp || ctx.isCharacterFocused) &&
                 !isPageWriteMode
             let modeInstructions: String
-            if ctx.isDialogueNotesPrompt && !isPageWriteMode {
-                modeInstructions = dialogueNotesModeBlock
-            } else if ctx.isSynopsisFocused && !isPageWriteMode {
+            if ctx.isSynopsisFocused && !isPageWriteMode {
                 let outlineFormatBlock: String = {
                     guard ctx.isOutlineFocused else { return "" }
                     return """

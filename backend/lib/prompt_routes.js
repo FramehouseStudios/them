@@ -1,4 +1,5 @@
 import express from "express";
+import { screenplayTaskCanUseProjectMemory as screenplayTaskCanUsePersistentMemory } from "./screenplay_project_memory_policy.js";
 
 import { DEFAULT_FEATURE_TARGET_PAGES, findSequenceForPage } from "./feature_screenplay_map.js";
 import { buildModelPrompt, inferScreenplayTask } from "./prompt_assembly.js";
@@ -254,21 +255,6 @@ function firstNonEmptyList(...values) {
   return [];
 }
 
-const SCREENPLAY_MEMORY_ROUTE_INTENTS = new Set([
-  "write_scene",
-  "rewrite_scene",
-  "continue_script",
-  "scene_doctor",
-  "outline_structure",
-  "character_development",
-  "dialogue_punchup",
-  "dialogue_notes",
-  "emotional_continuity",
-  "pacing_pass",
-  "finish_feature",
-  "momentum_rescue",
-]);
-
 function snakeCaseKey(key) {
   return String(key || "").replace(/[A-Z]/g, (match) => `_${match.toLowerCase()}`);
 }
@@ -351,17 +337,6 @@ function sanitizeScreenplayMemoryRecords(memory, maxItems = 8) {
   return records
     .sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0))
     .slice(0, Math.max(1, Number(maxItems || 8)));
-}
-
-function screenplayTaskCanUsePersistentMemory(task, hint = "") {
-  const intent = trimToString(task?.intent, 80);
-  if (!SCREENPLAY_MEMORY_ROUTE_INTENTS.has(intent)) return false;
-  const lowerHint = String(hint || "").toLowerCase();
-  if (!lowerHint.trim()) return false;
-  if (["continue_script", "finish_feature", "write_scene", "rewrite_scene", "scene_doctor", "dialogue_punchup", "dialogue_notes"].includes(intent)) {
-    return true;
-  }
-  return /\b(screenplay|script|scene|pages?|act|feature|movie|film|draft|dialogue|beat|sequence|fountain|character|ending|outline|story|emotional continuity|pacing)\b/.test(lowerHint);
 }
 
 function selectScreenplayMemoryRecord(memory, context = null, body = {}, allowFallback = false) {

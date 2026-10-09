@@ -8,6 +8,7 @@
 // Documented stubs: no on-device CoreML; no server Glimmer yet.
 
 import { LANE } from "./lanes.js";
+import { RECENT_CONVERSATION_MARKER } from "../conversation_freshness.js";
 import { tryReflexReply } from "./reflex_lane.js";
 
 function peekKnownFacts(req) {
@@ -42,7 +43,6 @@ function isReflexEligibleLane(laneName) {
  * a RECENT CONVERSATION block only once there is history — so a non-empty
  * prompt without that block is a fresh conversation. Unknown → false.
  */
-const RECENT_CONVERSATION_MARKER = "RECENT CONVERSATION (";
 const FRESH_SKIPPED_TEMPLATES = /^(greeting|check_in)/;
 
 function peekConversationFreshness(req) {

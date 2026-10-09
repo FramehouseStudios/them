@@ -124,6 +124,7 @@ import { mountHistoryRoutes } from "./lib/history_routes.js";
 import { mountRecapRoutes } from "./lib/recap_routes.js";
 import { mountTasksRoutes } from "./lib/tasks_routes.js";
 import { createReadStateHelpers } from "./lib/read_state.js";
+import { screenplayTaskCanUseProjectMemory } from "./lib/screenplay_project_memory_policy.js";
 import { incrementErrorCounter, mountTalkErrorRoute } from "./lib/talk_error_counter.js";
 import { computeBlockSignal, buildBlockCoachingBlockForPrompt } from "./lib/block_detector.js";
 import {
@@ -4070,31 +4071,6 @@ function positiveTalkContextInteger(value) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed) || parsed <= 0) return 0;
   return Math.round(parsed);
-}
-
-const SCREENPLAY_PROJECT_MEMORY_PROMPT_INTENTS = new Set([
-  "write_scene",
-  "rewrite_scene",
-  "continue_script",
-  "scene_doctor",
-  "outline_structure",
-  "character_development",
-  "dialogue_punchup",
-  "emotional_continuity",
-  "pacing_pass",
-  "finish_feature",
-  "momentum_rescue",
-]);
-
-function screenplayTaskCanUseProjectMemory(task, hint = "") {
-  const intent = String(task?.intent || "").trim();
-  if (!SCREENPLAY_PROJECT_MEMORY_PROMPT_INTENTS.has(intent)) return false;
-  const lowerHint = String(hint || "").toLowerCase();
-  if (!lowerHint.trim()) return false;
-  if (["continue_script", "finish_feature", "write_scene", "rewrite_scene", "scene_doctor", "dialogue_punchup", "momentum_rescue"].includes(intent)) {
-    return true;
-  }
-  return /\b(screenplay|script|scene|pages?|act|feature|movie|film|draft|dialogue|beat|sequence|fountain|character|ending|outline|story|emotional continuity|pacing|stuck|blocked|writer'?s block|writers block|creative block|out of ideas|next move)\b/.test(lowerHint);
 }
 
 function selectScreenplayProjectMemoryForPrompt(memory, studioMeta = null, body = {}) {

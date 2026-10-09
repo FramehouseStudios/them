@@ -1,3 +1,5 @@
+import { DIALOGUE_NOTES_TRIM_CONTRACT } from "./dialogue_notes.js";
+
 const DEFAULT_PROTECTED_TAGS = Object.freeze([
   "clementine_core",
   "clementine_safety_contract",
@@ -287,6 +289,8 @@ function compactFeatureFilmMapBody(body, bodyLimit) {
 
 function screenplayModeContract(intent) {
   switch (String(intent || "").trim().toLowerCase()) {
+    case "dialogue_notes":
+      return DIALOGUE_NOTES_TRIM_CONTRACT;
     case "finish_feature":
       return "mode_contract: locate active act/sequence/due obligation; protect setups, payoffs, character need, next three turns, Act III path, and final image; start page requests in Fountain; planning returns an immediate page assignment.";
     case "rewrite_scene":
@@ -316,7 +320,7 @@ function compactScreenplayTaskBody(body, bodyLimit) {
     { value: firstLineStartingWith(lines, "requested_act:"), maxChars: 100 },
     { value: firstLineStartingWith(lines, "requested_page_batch:"), maxChars: 100 },
     {
-      value: "craft_contract: whole-feature authorship; page batch discipline; expert page engine; subtext engine; image system; speed discipline; Fountain pages first; verify continuity.",
+      value: intent === "dialogue_notes" ? "craft_contract: preserve the line's character, facts, tactic and feeling; spoken notes, not pages." : "craft_contract: whole-feature authorship; page batch discipline; expert page engine; subtext engine; image system; speed discipline; Fountain pages first; verify continuity.",
       maxChars: 180,
     },
     { value: screenplayModeContract(intent), maxChars: 230 },

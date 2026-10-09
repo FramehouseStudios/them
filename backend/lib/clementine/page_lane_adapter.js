@@ -256,7 +256,7 @@ function createPageLaneTalkAdapter({
       voiceSpecHints: peekVoiceSpecHints(req),
       freshConversation,
     });
-    if (!reflexHit?.handled && freshConversation && earlyLane?.intent === "greeting") {
+    if (!reflexHit?.handled && freshConversation && earlyLane?.intent === INTENT.PITCH) {
       logger?.log?.("[clementine/reflex] skipped greeting template on a fresh conversation (scene pitch goes to the model)");
     }
     if (reflexHit?.handled) {
@@ -303,7 +303,7 @@ function createPageLaneTalkAdapter({
     try {
       const started = beginPageWork(pageReservationStore, {
         utterance,
-        hints,
+        hints: { ...hints, fresh: freshConversation },
         sessionId,
         userId,
         meta: { source: "talk_edge" },
