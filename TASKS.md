@@ -5,6 +5,39 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-940 — Initial project saves preserve the writer's current words
+
+- **Owner:** codex. **Branch:** `codex/T-940-project-creation-trust`, above #938
+  `b8821848`. **Pillars:** mobile-first; goal items 1, 4 and 6. **Status:** review.
+- **VERIFIED root:** corrected unchanged-behavior baseline: four failed tests,
+  zero pass/skip. Creation trims first-page bytes, overwrites newer typing,
+  reselects after a project change and clears a newer title.
+- **Target:** canonical durable first-page save, auth/selection fences,
+  old-project recovery, byte-exact live-only adoption and retryable interruption.
+  Preserve Claude #702's no-copy policy and tests; do not close or replace its PR.
+- **Final proof:** signed units 730 pass, zero fail/skip (15 creation regressions).
+  Node 20 backend 2,744 pass, zero fail, two skip. Authenticated recovery UI five
+  pass and integrated writer one pass, zero fail/skip. macOS build, four runner
+  tests and god/diff gates pass. Captured auth/displayed-project recovery and
+  honest pre-project status are included in these final-code runs.
+  Exact evidence and limits: `docs/audits/project-creation-trust-2026-10-08.md`.
+- **Next scope:** durable create-request identity and server activation ordering;
+  the current endpoint can activate a dispatched creation after local selection
+  changes. No server-active-choice or ambiguous-create/relaunch guarantee yet.
+
+### T-941 — Usable iPhone exports and retained writer-gate evidence
+
+- **Owner:** codex. **Planned branch:** `codex/T-941-export-handoff` above T-940.
+  **Pillars:** mobile-first; goal items 4 and 7. **Status:** ready.
+- **VERIFIED:** #938 hosted run 37874741945 unit step passes; writer fails at
+  Markdown filename assertion. The evaluator unconditionally deletes its bundle,
+  including on failure. iPhone export writes a temporary file without a share sheet.
+- **Target:** retain exact failed writer bundles; reproduce/resolve the export
+  assertion, provide native file handoff and verify real artifact content. Do not
+  infer a cause from the missing artifact or rerun unchanged to obtain green.
+- **Boundaries:** iPhone PDF decision remains human-owned; do not enable it.
+  Server create activation/idempotency remains a separate queued trust scope.
+
 ### T-939 — Collaboration responses stay with their account and project
 
 - **Owner:** codex. **Branch:** `codex/T-939-collaboration-scope`, above #937

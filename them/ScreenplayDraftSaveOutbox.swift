@@ -325,9 +325,10 @@ actor ScreenplayDraftSaveOutbox {
         publishSnapshot()
     }
 
-    func markRetryable(id: String, error: String, now: Date = Date()) throws {
+    func markRetryable(id: String, error: String, now: Date = Date(), onlyIfInflight: Bool = false) throws {
         try loadIfNeeded()
         guard let index = entries.firstIndex(where: { $0.id == id }) else { return }
+        guard !onlyIfInflight || entries[index].status == .inflight else { return }
         let retryCount = entries[index].retries + 1
         entries[index].retries = retryCount
         entries[index].updatedAt = now.timeIntervalSince1970
