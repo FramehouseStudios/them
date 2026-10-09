@@ -5,6 +5,23 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-933 — Synchronous BackendClient teardown compatibility
+
+- **Owner:** codex. **Branch:** `codex/T-933-client-teardown`, above #936
+  `3a1449e5`. **Pillar:** mobile-first; goal items 1 and 5. **Status:** review.
+- **VERIFIED root:** unchanged production crashes in the synchronous task-local
+  release regression on signed iOS 26.2: zero pass, one failure. Diagnostic frames
+  show TaskLocal teardown → actor deinit → BackendClient release.
+- **Fix:** explicit empty deinit preserves actor isolation and ordinary property
+  release without invalidating shared or caller-owned URLSession resources.
+- **Proof:** focused two tests pass; full signed units 693 pass, zero fail/skip;
+  authenticated recovery UI five pass, integrated writer one pass, zero fail/skip.
+  Node 20 backend 2,744 pass, zero fail, two skipped. macOS build, four runner
+  tests and god/diff gates pass. Retained baseline and exact evidence:
+  `docs/audits/client-teardown-2026-10-08.md`.
+- **Limits:** not all actor classes/runtimes, physical voice, shipping provider,
+  production DB, export parity or 120-page performance. Main unchanged.
+
 ### T-938 — Newest project hydration owns the page
 
 - **Owner:** codex. **Branch:** `codex/T-938-project-hydration-order`, above
