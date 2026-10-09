@@ -45,6 +45,23 @@ struct ScreenplayBridgeDraftAdoptionPolicy {
     }
 }
 
+struct ScreenplayConflictHydrationPolicy {
+    static func canApply(
+        baseVersionID: String, knownServerVersionID: String, knownServerUpdatedAt: TimeInterval,
+        incomingVersionID: String, incomingUpdatedAt: TimeInterval
+    ) -> Bool {
+        let incoming = incomingVersionID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let known = knownServerVersionID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !incoming.isEmpty, !known.isEmpty else { return false }
+        if incoming == known { return true }
+        guard incoming != baseVersionID.trimmingCharacters(in: .whitespacesAndNewlines),
+              knownServerUpdatedAt.isFinite, incomingUpdatedAt.isFinite,
+              knownServerUpdatedAt > 0, incomingUpdatedAt > knownServerUpdatedAt else { return false }
+        // Version IDs are opaque. Missing/equal timestamps cannot prove a newer head.
+        return true
+    }
+}
+
 struct ScreenplayStudioHistoryMigrationPolicy {
     static let liveDraftKey = "live-draft"
 
