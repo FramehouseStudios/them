@@ -47,6 +47,31 @@ final class ScreenplayPageLayoutTests: XCTestCase {
         XCTAssertEqual(backend.lineCount, 55)
     }
 
+    func test_unicode_wrapping_preserves_graphemes_and_cues() {
+        for glyph in ["👩🏽‍🚀", "e\u{0301}", "界"] {
+            XCTAssertEqual(ScreenplayPageLayout.wrap(String(repeating: glyph, count: 5), width: 2), [glyph + glyph, glyph + glyph, glyph])
+        }
+        XCTAssertEqual(ScreenplayPageLayout.wrap("one\u{00a0}two", width: 4), ["one", "two"])
+        XCTAssertEqual(ScreenplayPageLayout.classify(["李", "I hear you."]), [.character, .dialogue])
+    }
+
+    func test_multi_page_speech_is_bounded_and_preserved_exactly_once() {
+        let speech = (1...200).map { "Sentence \($0) reaches the radio." }.joined(separator: " ")
+        let expected = ScreenplayPageLayout.wrap(speech, width: 36)
+        for fillerCount in [0, 14, 21] {
+            let filler = (0..<fillerCount).map { "Action line \($0 + 1)." }
+            let pages = ScreenplayPageLayout.paginate((filler + ["", "MARA", speech]).joined(separator: "\n"), linesPerPage: 24)
+            XCTAssertGreaterThan(pages.count, 3)
+            XCTAssertTrue(pages.allSatisfy { $0.lineCount <= 24 }, "\(pages.map(\.lineCount))")
+            let dialogue = pages.flatMap(\.lines).filter { !$0.isEmpty && $0 != "MARA" && $0 != "MARA (CONT'D)" && $0 != "(MORE)" && !$0.hasPrefix("Action line") }
+            XCTAssertEqual(dialogue, expected)
+            for (index, page) in pages.enumerated() {
+                if page.lines.contains("MARA (CONT'D)") { XCTAssertEqual(page.lines.first, "MARA (CONT'D)") }
+                if index < pages.count - 1 && page.lines.contains(where: { expected.contains($0) }) { XCTAssertEqual(page.lines.last, "(MORE)") }
+            }
+        }
+    }
+
     func test_scene_heading_keeps_with_next_block_and_cue_keeps_two_lines() {
         let filler = (1...20).map { "Action line \($0)." }.joined(separator: "\n")
         let heading = ScreenplayPageLayout.paginate("\(filler)\n\nINT. LATE - NIGHT\n\nThe heading moved with this line.", linesPerPage: 24)
@@ -109,6 +134,7 @@ final class ScreenplayPageLayoutParityTests: XCTestCase {
         let startLine: Int
         let endLine: Int
         let lineCount: Int
+        let lines: [String]
         let firstLine: String
         let lastLine: String
         let moreCount: Int
@@ -143,6 +169,7 @@ final class ScreenplayPageLayoutParityTests: XCTestCase {
                 XCTAssertEqual(page.startLine, expected.startLine, "\(fixture.id) p\(page.number) start")
                 XCTAssertEqual(page.endLine, expected.endLine, "\(fixture.id) p\(page.number) end")
                 XCTAssertEqual(page.lineCount, expected.lineCount, "\(fixture.id) p\(page.number) lines")
+                XCTAssertEqual(page.lines, expected.lines, "\(fixture.id) p\(page.number) exact rendered text")
                 XCTAssertEqual(page.lines.first ?? "", expected.firstLine, "\(fixture.id) p\(page.number) first")
                 XCTAssertEqual(page.lines.last ?? "", expected.lastLine, "\(fixture.id) p\(page.number) last")
                 XCTAssertEqual(page.lines.filter { $0 == "(MORE)" }.count, expected.moreCount, "\(fixture.id) p\(page.number) MORE")
