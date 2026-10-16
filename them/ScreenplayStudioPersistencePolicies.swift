@@ -271,6 +271,14 @@ struct ScreenplayDraftSaveRetryPolicy {
 }
 
 struct ScreenplayCommittedDraftAdoptionPolicy {
+    /// Reverse a commit only in the same project with the exact committed bytes.
+    /// Scratch documents (both IDs empty) remain undoable; unknown legacy scope
+    /// must not authorize a rollback into a selected project.
+    static func canRevert(selectedProjectID: String, committedProjectID: String, currentDraft: String, committedDraft: String) -> Bool {
+        selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines) == committedProjectID.trimmingCharacters(in: .whitespacesAndNewlines) &&
+        currentDraft.utf8.elementsEqual(committedDraft.utf8)
+    }
+
     static func shouldAdopt(
         selectedProjectID: String,
         committedProjectID: String,
