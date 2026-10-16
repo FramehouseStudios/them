@@ -58,7 +58,9 @@
 
 ### T-949 — Prove confirmed Home-to-Studio first-turn writing
 
-- **Owner:** codex. **Status:** ready. **Pillar:** voice-to-scene.
+- **Owner:** codex. **Status:** in-progress. **Pillar:** voice-to-scene.
+- **Branch:** `codex/T-949-confirmed-home-page-routing`, based on preserved
+  rehearsal `5cfa52bb`. App Store work deferred by the human on 2026-10-16.
 - **Scope:** current confirmed script request opens authenticated Studio before
   page prompt preparation; never use a previous microphone transcript.
 - **Done when:** Home first utterance writes/saves; everyday/partial/stale words
