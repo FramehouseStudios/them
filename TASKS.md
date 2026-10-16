@@ -29,6 +29,19 @@
 
 ## Active work — quick view
 
+### T-956 — Integrate exact-text recovery without losing prior proof fixes
+
+- **Owner:** codex. **Status:** in-progress. **Pillar:** longitudinal learning.
+- **Branch:** `codex/T-956-exact-recovery-integration`, from T-953 `af034900`.
+- **Scope:** preserving merge of original #919/#923/#924/#925/#927 through
+  `1f7c6061`; retain required signed runners, asynchronous hydration context
+  checks, full writer exactness and every original head/commit.
+- **Done when:** combined signed units, exact typing, authenticated recovery
+  and writer UI, Node20 backend, offline mentor, macOS, D009/diff pass with
+  retained evidence. Fix the first reproduced integration failure at its root.
+- **Boundary:** no main merge, replacement PR, secret access, live provider
+  call or physical-device claim. Hosted T-953 run remains separately observed.
+
 ### T-953 — Compose required CI and recovery proof
 
 - **Owner:** codex. **Status:** review. **Pillar:** longitudinal learning.
