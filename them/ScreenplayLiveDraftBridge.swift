@@ -10718,36 +10718,6 @@ private func hollywoodScreenplayEditorUIFont() -> UIFont {
     UIFont(name: "Courier", size: 12) ?? UIFont.monospacedSystemFont(ofSize: 12, weight: .regular)
 }
 
-struct ScreenplayDeferredTextPublicationRequirement: Equatable {
-    var text: String
-    var requestID: UUID?
-}
-
-enum ScreenplayDeferredPublicationGate {
-    static func requestIsCurrent(
-        _ requestID: UUID?,
-        lastAppliedInsertionID: UUID?,
-        activeInsertionRequestID: UUID?
-    ) -> Bool {
-        guard let requestID else { return true }
-        return lastAppliedInsertionID == requestID && activeInsertionRequestID == requestID
-    }
-
-    static func acceptsTextGeneration(
-        _ generation: Int,
-        requirements: [Int: ScreenplayDeferredTextPublicationRequirement],
-        currentText: String,
-        lastAppliedInsertionID: UUID?,
-        activeInsertionRequestID: UUID?
-    ) -> Bool {
-        guard let requirement = requirements[generation] else { return true }
-        return currentText == requirement.text && requestIsCurrent(
-            requirement.requestID,
-            lastAppliedInsertionID: lastAppliedInsertionID,
-            activeInsertionRequestID: activeInsertionRequestID
-        )
-    }
-}
 
 struct IOSCursorInsertTextEditor: UIViewRepresentable {
     @Binding var text: String
@@ -10868,7 +10838,7 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
             context.coordinator.applyActiveElementFromBinding(activeScreenplayElement)
         }
 
-        if !context.coordinator.isApplyingProgrammaticChange, uiView.text != text {
+        if !context.coordinator.isApplyingProgrammaticChange, uiView.text != text, context.coordinator.shouldApplyBoundText(text, currentText: uiView.text ?? "") {
             let previousSelection = uiView.selectedRange
             context.coordinator.isApplyingProgrammaticChange = true
             uiView.text = text
@@ -11038,6 +11008,11 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
                 )
             }
             scheduleDeferredPublicationFlush()
+        }
+
+        func shouldApplyBoundText(_ text: String, currentText: String) -> Bool {
+            let base = streamingInsertRange != nil ? streamingInsertBaseText : (voiceRevealContentRange != nil ? voiceRevealBaseText : nil)
+            return ScreenplayDeferredPublicationGate.shouldApplyBoundText(text, currentText: currentText, pendingExpectedText: deferredText?.expected, pendingText: deferredText?.value, activeStreamingBaseText: base)
         }
 
         private func publishText(_ value: String, requestID: UUID? = nil) {
@@ -11235,8 +11210,7 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
                 }
 
                 if let text,
-                   self.parent.text == text.expected,
-                   requestIsCurrent(text.requestID) {
+                   ScreenplayDeferredPublicationGate.acceptsNativeTextPublication(expectedBinding: text.expected, currentBinding: self.parent.text, queuedText: text.value, nativeText: self.textView?.text, requestID: text.requestID, activeRequestID: self.parent.insertionRequest?.id) {
                     self.parent.text = text.value
                 }
                 if let activeElement,

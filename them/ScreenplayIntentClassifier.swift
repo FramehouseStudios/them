@@ -19,7 +19,7 @@ enum ScreenplayIntentClassifier {
     static func hasExplicitScriptIntent(_ text: String) -> Bool {
         let normalized = normalize(text)
         let writingVerbs = ["write", "draft", "drafting", "outline", "outlining", "revise", "rewrite", "rewriting", "edit", "editing", "polish", "finish", "build", "develop", "brainstorm", "brainstorming", "start"]
-        let scriptObjects = ["script", "screenplay", "scene", "beat", "slugline", "dialogue", "pilot", "short film", "feature", "movie", "film"]
+        let scriptObjects = ["script", "screenplay", "scene", "story", "beat", "slugline", "dialogue", "pilot", "short film", "feature", "movie", "film"]
         let opensStudio = normalized.contains(" studio ") && ["open", "go to", "take me to", "switch to", "bring up", "launch"].contains { normalized.contains(" \($0) ") }
         return opensStudio || (writingVerbs.contains { normalized.contains(" \($0) ") } && scriptObjects.contains { normalized.contains(" \($0) ") }) || ["work on my script", "work on the script", "work on a script"].contains { normalized.contains(" \($0) ") }
     }
@@ -51,7 +51,7 @@ enum ScreenplayIntentClassifier {
         "hiding", "secret", "inner life", "the kind of person", "feels flat", "feels thin", "one-note", "one note",
     ]
 
-    private static func normalize(_ text: String) -> String {
+    static func normalize(_ text: String) -> String {
         " " + text.lowercased()
             .replacingOccurrences(of: "\u{2019}", with: "'")
             .replacingOccurrences(of: "[^a-z0-9' ]+", with: " ", options: .regularExpression)
