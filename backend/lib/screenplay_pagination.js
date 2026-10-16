@@ -46,7 +46,12 @@ export const SPACE_BEFORE = Object.freeze({
 
 const SCENE_PREFIXES = ["INT.", "EXT.", "INT ", "EXT ", "INT/EXT", "EXT/INT", "I/E.", "I/E ", "EST."];
 const graphemeSegmenter = new Intl.Segmenter("und", { granularity: "grapheme" });
-const graphemes = (text) => Array.from(graphemeSegmenter.segment(text), part => part.segment);
+// Printable ASCII has identical UTF-16/grapheme boundaries. Avoid invoking
+// ICU once per word on ordinary full-length scripts; Unicode keeps the same
+// canonical segmentation path as before.
+const graphemes = (text) => /^[\x20-\x7e]*$/.test(text)
+  ? text.split("")
+  : Array.from(graphemeSegmenter.segment(text), part => part.segment);
 
 function isSceneHeading(upper) {
   return SCENE_PREFIXES.some((p) => upper.startsWith(p));
