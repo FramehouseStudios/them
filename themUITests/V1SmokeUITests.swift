@@ -601,6 +601,14 @@ final class V1SmokeUITests: XCTestCase {
             // dismissal animation to reach the page-header chip.
             keyboardSave.tap()
         } else {
+            // Resolve keyboard coverage before the sole save action. Do not
+            // compensate for a swallowed tap with a second save attempt.
+            if screenplayKeyboard.exists {
+                guard dismissKeyboardIfPresent(in: app) else {
+                    XCTFail("The keyboard could not be dismissed before Save now.")
+                    return
+                }
+            }
             XCTAssertTrue(
                 waitForHittability(of: saveNow, timeout: writerLoopWait(5)),
                 "The edited screenplay page did not expose Save now."
@@ -615,30 +623,11 @@ final class V1SmokeUITests: XCTestCase {
             saveTriggerSnapshot = snapshot
             return self.intValue(snapshot["manual_save_trigger_count"]) == 1
         }
-        var saveTapReachedApp = waitForRestoreSnapshot(
+        let saveTapReachedApp = waitForRestoreSnapshot(
             in: app,
             timeout: writerLoopWait(4),
             predicate: saveDelivered
         )
-        if !saveTapReachedApp, intValue(saveTriggerSnapshot["manual_save_trigger_count"]) == 0 {
-            // Keep a single recovery path for older OS versions that do not
-            // publish the keyboard accessory. The == 1 check below still
-            // catches a double fire.
-            XCTContext.runActivity(
-                named: "Save now tap did not reach the app; dismissing keyboard and tapping once more"
-            ) { _ in }
-            _ = dismissKeyboardIfPresent(in: app)
-            XCTAssertTrue(
-                waitForHittability(of: saveNow, timeout: writerLoopWait(5)),
-                "Save now was not hittable for the retry tap."
-            )
-            saveNow.tap()
-            saveTapReachedApp = waitForRestoreSnapshot(
-                in: app,
-                timeout: writerLoopWait(5),
-                predicate: saveDelivered
-            )
-        }
         XCTAssertTrue(
             saveTapReachedApp,
             "Save now did not deliver exactly one UI action. Snapshot: \(saveTriggerSnapshot)"

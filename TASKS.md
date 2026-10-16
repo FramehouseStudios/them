@@ -29,6 +29,25 @@
 
 ## Active work — quick view
 
+### T-953 — Compose required CI and recovery proof
+
+- **Owner:** codex. **Status:** review. **Pillar:** longitudinal learning.
+- **Branch:** `codex/T-953-required-proof-integration`, from T-952.
+- **Scope:** preserve complete #904 `a27c75a8`; make smoke failures required,
+  retain signed results, protect local simulator selection and asynchronous
+  queued-draft adoption from changed account/project context.
+- **Done when:** runner failure contracts, signed units/full V1/recovery UI,
+  Node20 backend, macOS, D009/diff have actual recorded outcomes. No main merge,
+  original-head rewrite, replacement PR or paid provider calls.
+- **Proof:** signed units695/0/0; full V1 UI29/0/11 (40total), plus separate
+  authenticated recovery2/0/0 and single-tap writer1/0/0. Node20 backend2810/0/2,
+  offline mentor, macOS build, D009 and runner contracts15/0/0 pass. See
+  `docs/required-recovery-integration-proof-2026-10-16.md`; hosted exact-head
+  proof remains pending. api.them.io redirects to a domain landing service.
+- **Next:** preserve the existing focused-editor/live-conflict/durable-conflict
+  safety chain through #925/#927 before new coverage features. Existing #927
+  owns exact UTF-8 save identity; do not reimplement its normalization repair.
+
 ### T-952 — Preserve Studio actions and guard current-document execution
 
 - **Owner:** codex. **Status:** review. **Pillar:** voice-to-scene.
