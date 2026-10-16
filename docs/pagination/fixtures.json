@@ -1,0 +1,160 @@
+{
+  "generatedBy": "backend/evals/generate_pagination_fixtures.mjs",
+  "fixtures": [
+    {
+      "id": "raw_lines_120_at_55",
+      "linesPerPage": 55,
+      "draft": "line 1\nline 2\nline 3\nline 4\nline 5\nline 6\nline 7\nline 8\nline 9\nline 10\nline 11\nline 12\nline 13\nline 14\nline 15\nline 16\nline 17\nline 18\nline 19\nline 20\nline 21\nline 22\nline 23\nline 24\nline 25\nline 26\nline 27\nline 28\nline 29\nline 30\nline 31\nline 32\nline 33\nline 34\nline 35\nline 36\nline 37\nline 38\nline 39\nline 40\nline 41\nline 42\nline 43\nline 44\nline 45\nline 46\nline 47\nline 48\nline 49\nline 50\nline 51\nline 52\nline 53\nline 54\nline 55\nline 56\nline 57\nline 58\nline 59\nline 60\nline 61\nline 62\nline 63\nline 64\nline 65\nline 66\nline 67\nline 68\nline 69\nline 70\nline 71\nline 72\nline 73\nline 74\nline 75\nline 76\nline 77\nline 78\nline 79\nline 80\nline 81\nline 82\nline 83\nline 84\nline 85\nline 86\nline 87\nline 88\nline 89\nline 90\nline 91\nline 92\nline 93\nline 94\nline 95\nline 96\nline 97\nline 98\nline 99\nline 100\nline 101\nline 102\nline 103\nline 104\nline 105\nline 106\nline 107\nline 108\nline 109\nline 110\nline 111\nline 112\nline 113\nline 114\nline 115\nline 116\nline 117\nline 118\nline 119\nline 120",
+      "expected": {
+        "lineCount": 120,
+        "renderedLineCount": 120,
+        "pages": [
+          {
+            "page": 1,
+            "startLine": 1,
+            "endLine": 55,
+            "lineCount": 55,
+            "firstLine": "line 1",
+            "lastLine": "line 55",
+            "moreCount": 0,
+            "contdCount": 0
+          },
+          {
+            "page": 2,
+            "startLine": 56,
+            "endLine": 110,
+            "lineCount": 55,
+            "firstLine": "line 56",
+            "lastLine": "line 110",
+            "moreCount": 0,
+            "contdCount": 0
+          },
+          {
+            "page": 3,
+            "startLine": 111,
+            "endLine": 120,
+            "lineCount": 10,
+            "firstLine": "line 111",
+            "lastLine": "line 120",
+            "moreCount": 0,
+            "contdCount": 0
+          }
+        ]
+      }
+    },
+    {
+      "id": "kitchen_at_24",
+      "linesPerPage": 24,
+      "draft": "INT. KITCHEN - NIGHT\n\nJUNE, 30s, rinses a single cup. The tap coughs.\n\nJUNE\n(quiet)\nYou came back.\n\nMARCUS\nFor the cup.\n\nMARCUS\nI could tell you about the road about the road about the road and the 0 nights I counted them and the way the light goes.\n\nMARCUS\nI could tell you about the road about the road about the road and the 1 nights I counted them and the way the light goes.\n\nMARCUS\nI could tell you about the road about the road about the road and the 2 nights I counted them and the way the light goes.\n\nMARCUS\nI could tell you about the road about the road about the road and the 3 nights I counted them and the way the light goes.\n\nMARCUS\nI could tell you about the road about the road about the road and the 4 nights I counted them and the way the light goes.\n\nMARCUS\nI could tell you about the road about the road about the road and the 5 nights I counted them and the way the light goes.\n\nCUT TO:\n\nEXT. PORCH - DAWN\n\nThe light is wrong.",
+      "expected": {
+        "lineCount": 34,
+        "renderedLineCount": 51,
+        "pages": [
+          {
+            "page": 1,
+            "startLine": 1,
+            "endLine": 16,
+            "lineCount": 22,
+            "firstLine": "INT. KITCHEN - NIGHT",
+            "lastLine": "way the light goes.",
+            "moreCount": 0,
+            "contdCount": 0
+          },
+          {
+            "page": 2,
+            "startLine": 18,
+            "endLine": 28,
+            "lineCount": 23,
+            "firstLine": "MARCUS",
+            "lastLine": "way the light goes.",
+            "moreCount": 0,
+            "contdCount": 0
+          },
+          {
+            "page": 3,
+            "startLine": 30,
+            "endLine": 34,
+            "lineCount": 6,
+            "firstLine": "CUT TO:",
+            "lastLine": "The light is wrong.",
+            "moreCount": 0,
+            "contdCount": 0
+          }
+        ]
+      }
+    },
+    {
+      "id": "split_speech_at_24",
+      "linesPerPage": 24,
+      "draft": "INT. COURTROOM HALLWAY - DAY\n\nSIMONE waits by the vending machine. ANDRE holds a sandwich he cannot eat.\n\nSIMONE\nWalk back in.\n\nANDRE\nHe's my cousin.\n\nBeat. She does not move.\n\nThe clock above the door clicks over.\n\nSIMONE\nSentence 1 of a speech that keeps going past the foot of the page because he cannot stop. Sentence 2 of a speech that keeps going past the foot of the page because he cannot stop. Sentence 3 of a speech that keeps going past the foot of the page because he cannot stop. Sentence 4 of a speech that keeps going past the foot of the page because he cannot stop. Sentence 5 of a speech that keeps going past the foot of the page because he cannot stop. Sentence 6 of a speech that keeps going past the foot of the page because he cannot stop. Sentence 7 of a speech that keeps going past the foot of the page because he cannot stop. Sentence 8 of a speech that keeps going past the foot of the page because he cannot stop. Sentence 9 of a speech that keeps going past the foot of the page because he cannot stop.\n\nANDRE\nOkay.",
+      "expected": {
+        "lineCount": 19,
+        "renderedLineCount": 45,
+        "pages": [
+          {
+            "page": 1,
+            "startLine": 1,
+            "endLine": 16,
+            "lineCount": 24,
+            "firstLine": "INT. COURTROOM HALLWAY - DAY",
+            "lastLine": "(MORE)",
+            "moreCount": 1,
+            "contdCount": 0
+          },
+          {
+            "page": 2,
+            "startLine": 15,
+            "endLine": 19,
+            "lineCount": 21,
+            "firstLine": "SIMONE (CONT'D)",
+            "lastLine": "Okay.",
+            "moreCount": 0,
+            "contdCount": 1
+          }
+        ]
+      }
+    },
+    {
+      "id": "crlf_and_trim",
+      "linesPerPage": 54,
+      "draft": "  INT. GARAGE - NIGHT\r\n\r\nThe engine runs.\r\n\r\nOWEN\r\nSign it.\r\n  ",
+      "expected": {
+        "lineCount": 6,
+        "renderedLineCount": 6,
+        "pages": [
+          {
+            "page": 1,
+            "startLine": 1,
+            "endLine": 6,
+            "lineCount": 6,
+            "firstLine": "INT. GARAGE - NIGHT",
+            "lastLine": "Sign it.",
+            "moreCount": 0,
+            "contdCount": 0
+          }
+        ]
+      }
+    },
+    {
+      "id": "single_line",
+      "linesPerPage": 54,
+      "draft": "one line",
+      "expected": {
+        "lineCount": 1,
+        "renderedLineCount": 1,
+        "pages": [
+          {
+            "page": 1,
+            "startLine": 1,
+            "endLine": 1,
+            "lineCount": 1,
+            "firstLine": "one line",
+            "lastLine": "one line",
+            "moreCount": 0,
+            "contdCount": 0
+          }
+        ]
+      }
+    }
+  ]
+}

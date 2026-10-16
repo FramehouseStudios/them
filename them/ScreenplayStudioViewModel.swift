@@ -1622,6 +1622,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
     @Published var isStreamingDraftPreviewActive: Bool = false
     @Published var isManualDraftEditing: Bool = false
     @Published var paginationPages: [BackendScreenplayPaginationPage] = []
+    @Published var isPagesOverviewPresented: Bool = false
     @Published var isPaginationRefreshing: Bool = false
     @Published var paginationErrorText: String = ""
     @Published var linesPerPage: Int = 55
