@@ -90,6 +90,7 @@ public enum IOThemColors {
     }
 
     public enum Text {
+        public static var secondary: Color { primary.opacity(0.84) }
         public static var primary: Color { isDark ? Color(red: 0.957, green: 0.945, blue: 0.949) : Color(red: 0.31, green: 0.145, blue: 0.155) }
     }
 

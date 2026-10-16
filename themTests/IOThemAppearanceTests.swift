@@ -1,6 +1,9 @@
 import XCTest
 import SwiftUI
 import ScreenplayStudio
+#if canImport(UIKit)
+import UIKit
+#endif
 @testable import them
 
 /// Founder, 2026-10-01: the original peach by default, dark when the writer
@@ -17,6 +20,49 @@ final class IOThemAppearanceTests: XCTestCase {
         XCTAssertEqual(IOThemAppearance(rawValue: UserDefaults.standard.string(forKey: IOThemAppearance.storageKey) ?? "") ?? .peach, .peach)
         XCTAssertEqual(IOThemAppearance.allCases.map(\.title), ["Dark", "Peach"])
     }
+
+    func test_design_polish_preserves_the_orb_and_all_existing_destinations() {
+        IOThemAppearance.apply(.peach)
+        let orb = [IOThemColors.Orb.bgTop, IOThemColors.Orb.bgMid, IOThemColors.Orb.bgBottom]
+        IOThemAppearance.apply(.dark)
+        XCTAssertEqual([IOThemColors.Orb.bgTop, IOThemColors.Orb.bgMid, IOThemColors.Orb.bgBottom], orb)
+        XCTAssertEqual(ThemTab.allCases.map(\.title), ["Home", "Studio", "Memories", "Settings"])
+        let destinations = ThemHomeDestination.memoriesTab + ThemHomeDestination.settingsTab
+        XCTAssertEqual(Set(destinations), Set(ThemHomeDestination.allCases))
+        XCTAssertEqual(destinations.count, 12)
+        XCTAssertEqual(Set(destinations.map(\.accessibilityIdentifier)).count, 12)
+        XCTAssertEqual(ThemHomeDestination.account.title(signedIn: false), "Sign In")
+        XCTAssertEqual(ThemHomeDestination.account.title(signedIn: true), "Account")
+    }
+
+    #if canImport(UIKit)
+    @MainActor
+    func test_secondary_navigation_ink_contrast_on_each_theme_background() {
+        func rgba(_ color: Color) -> (rgb: [Double], alpha: Double) {
+            var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+            XCTAssertTrue(UIColor(color).getRed(&r, green: &g, blue: &b, alpha: &a))
+            return ([Double(r), Double(g), Double(b)], Double(a))
+        }
+        func luminance(_ rgb: [Double]) -> Double {
+            zip(rgb, [0.2126, 0.7152, 0.0722]).reduce(0) { result, channel in
+                let linear = channel.0 <= 0.04045 ? channel.0 / 12.92 : pow((channel.0 + 0.055) / 1.055, 2.4)
+                return result + linear * channel.1
+            }
+        }
+        for appearance in IOThemAppearance.allCases {
+            IOThemAppearance.apply(appearance)
+            let ink = rgba(IOThemColors.Text.secondary)
+            for ground in [IOThemColors.Background.peachTop, IOThemColors.Background.peachMid, IOThemColors.Background.peachBottom] {
+                let background = rgba(ground).rgb
+                let paintedInk = zip(ink.rgb, background).map { pair in
+                    pair.0 * ink.alpha + pair.1 * (1 - ink.alpha)
+                }
+                let values = [luminance(paintedInk), luminance(background)].sorted()
+                XCTAssertGreaterThanOrEqual((values[1] + 0.05) / (values[0] + 0.05), 4.5, appearance.title)
+            }
+        }
+    }
+    #endif
 
     func test_dark_changes_the_ground_text_and_chrome_but_not_the_script_page() {
         IOThemAppearance.apply(.peach)

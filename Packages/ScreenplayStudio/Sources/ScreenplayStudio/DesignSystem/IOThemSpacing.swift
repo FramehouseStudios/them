@@ -1,6 +1,10 @@
 import CoreGraphics
 
 public enum IOThemSpacing {
+    public enum Navigation {
+        public static let bottomClearance: CGFloat = 120
+        public static let accessibilityBottomClearance: CGFloat = 208
+    }
     public enum Scale {
         public static let xxxs: CGFloat = 2
         public static let xxs: CGFloat = 4

@@ -2,6 +2,62 @@ import Foundation
 import XCTest
 
 final class V1SmokeUITests: XCTestCase {
+    func test_reference_hubs_keep_all_rows_and_original_palette() {
+        let app = launchApp()
+        defer { app.terminate() }
+        let settings = app.buttons["home.tab.settings"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 10))
+        settings.tap()
+        let picker = app.segmentedControls["settings-appearance"]
+        XCTAssertTrue(picker.waitForExistence(timeout: 5))
+        picker.buttons["Peach"].tap()
+        recordDesignScreenshot("Settings — established peach", app: app)
+        assertHubRows(["account", "voice", "companion", "trust", "data-controls", "privacy", "report"], app: app)
+        app.buttons["home.tab.memories"].tap()
+        recordDesignScreenshot("Memories — established peach", app: app)
+        assertHubRows(["memories", "history", "notes", "tasks", "recap"], app: app)
+        settings.tap()
+        picker.buttons["Dark"].tap()
+        XCTAssertTrue(element(identifier: "home.hub.settings", in: app).waitForExistence(timeout: 5))
+        recordDesignScreenshot("Settings — dark", app: app)
+        app.buttons["home.tab.home"].tap()
+        XCTAssertTrue(app.buttons["home.open-studio"].isHittable)
+        recordDesignScreenshot("Home — original orb, dark", app: app)
+    }
+
+    func test_reference_hubs_large_text_remains_scrollable_and_tappable() {
+        let app = launchApp(additionalLaunchArguments: [
+            "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"
+        ])
+        defer { app.terminate() }
+        let settings = app.buttons["home.tab.settings"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 10))
+        settings.tap()
+        recordDesignScreenshot("Settings — accessibility XXXL", app: app)
+        assertHubRows(["account", "voice", "companion", "trust", "data-controls", "privacy", "report"], app: app)
+        app.buttons["home.tab.memories"].tap()
+        recordDesignScreenshot("Memories — accessibility XXXL", app: app)
+        XCTAssertTrue(app.buttons["home.open-memories"].isHittable, "Changing hubs must reset the scroll position to the top.")
+        assertHubRows(["memories", "history", "notes", "tasks", "recap"], app: app)
+    }
+
+    private func assertHubRows(_ destinations: [String], app: XCUIApplication) {
+        for destination in destinations {
+            let row = app.buttons["home.open-\(destination)"]
+            XCTAssertTrue(row.waitForExistence(timeout: 5), destination)
+            for _ in 0..<8 where !row.isHittable { app.scrollViews.firstMatch.swipeUp() }
+            XCTAssertTrue(row.isHittable, "\(destination) must remain reachable.")
+            XCTAssertGreaterThanOrEqual(row.frame.height, 44)
+        }
+    }
+
+    private func recordDesignScreenshot(_ name: String, app: XCUIApplication) {
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
     override func setUpWithError() throws {
         continueAfterFailure = false
     }
@@ -2985,7 +3041,8 @@ final class V1SmokeUITests: XCTestCase {
         restoreLoadToken: Int? = nil,
         submitTransportMode: String = "stub",
         resetState: Bool = true,
-        launchEnvironment: [String: String] = [:]
+        launchEnvironment: [String: String] = [:],
+        additionalLaunchArguments: [String] = []
     ) -> XCUIApplication {
         let app = XCUIApplication()
         var arguments = [
@@ -3102,7 +3159,7 @@ final class V1SmokeUITests: XCTestCase {
                 "\(restoreLoadToken)"
             ])
         }
-        app.launchArguments = arguments
+        app.launchArguments = arguments + additionalLaunchArguments
         if !launchEnvironment.isEmpty {
             app.launchEnvironment = launchEnvironment
         }

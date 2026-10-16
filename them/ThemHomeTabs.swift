@@ -110,48 +110,70 @@ enum ThemHomeDestination: String, CaseIterable, Identifiable {
 struct ThemTabBar: View {
     let selected: ThemTab
     let onSelect: (ThemTab) -> Void
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
-        HStack(spacing: 4) {
-            ForEach(ThemTab.allCases) { tab in
-                let isSelected = tab == selected
-                Button {
-                    onSelect(tab)
-                } label: {
-                    VStack(spacing: 4) {
-                        Image(systemName: tab.systemImage)
-                            .font(isSelected ? IOThemTypography.UI.compactTitle : IOThemTypography.UI.body)
-                        Text(tab.title)
-                            .font(isSelected ? IOThemTypography.UI.label : IOThemTypography.UI.labelMedium)
-                    }
-                    .foregroundColor(isSelected ? .herStudioAccent : .herText.opacity(0.62))
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 8)
-                    .background(
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .fill(isSelected ? Color.herStudioActiveFill.opacity(0.9) : Color.clear)
-                    )
-                    .contentShape(Rectangle())
+        Group {
+            if dynamicTypeSize.isAccessibilitySize {
+                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 4) {
+                    ForEach(ThemTab.allCases) { tabButton($0) }
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel(tab.title)
-                .accessibilityAddTraits(isSelected ? .isSelected : [])
-                .accessibilityIdentifier(tab.accessibilityIdentifier)
+            } else {
+                HStack(spacing: 4) {
+                    ForEach(ThemTab.allCases) { tabButton($0) }
+                }
             }
         }
         .padding(6)
-        .background(
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .fill(Color.herShellPanel.opacity(0.94))
-        )
+        .background {
+            if reduceTransparency {
+                RoundedRectangle(cornerRadius: 24, style: .continuous).fill(Color.herShellPanel)
+            } else {
+                RoundedRectangle(cornerRadius: 24, style: .continuous)
+                    .fill(.ultraThinMaterial)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 24, style: .continuous)
+                            .fill(Color.herShellPanel.opacity(0.72))
+                    )
+            }
+        }
         .overlay(
             RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .stroke(Color.herShellStroke.opacity(0.35), lineWidth: 1)
+                .stroke(Color.herShellStroke.opacity(0.65), lineWidth: 1)
         )
         .shadow(color: Color.black.opacity(0.12), radius: 18, x: 0, y: 8)
         .frame(maxWidth: 520)
         .padding(.horizontal, 16)
         .padding(.bottom, 8)
+    }
+
+    private func tabButton(_ tab: ThemTab) -> some View {
+        let isSelected = tab == selected
+        let icon = Image(systemName: tab.systemImage).font(IOThemTypography.UI.compactTitle)
+        let title = Text(tab.title).font(IOThemTypography.UI.navigationTabLabel)
+            .lineLimit(1).minimumScaleFactor(0.85)
+        return Button {
+            onSelect(tab)
+        } label: {
+            VStack(spacing: IOThemSpacing.Scale.xxs) { icon; title }
+            .foregroundColor(isSelected ? .herStudioAccent : .herText.opacity(0.80))
+            .frame(maxWidth: .infinity, minHeight: 44)
+            .padding(.vertical, IOThemSpacing.Scale.sm)
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(isSelected ? Color.herStudioActiveFill : Color.clear)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .stroke(isSelected ? Color.herStudioAccent.opacity(0.24) : .clear, lineWidth: 1)
+                    )
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(tab.title)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .accessibilityIdentifier(tab.accessibilityIdentifier)
     }
 }
 
@@ -162,37 +184,49 @@ struct ThemHomeHubView: View {
     let onOpen: (ThemHomeDestination) -> Void
 
     @AppStorage(IOThemAppearance.storageKey) private var appearanceRaw = IOThemAppearance.peach.rawValue
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 0) {
                 Text(tab.title)
-                    .font(IOThemTypography.UI.largeTitle)
+                    .font(IOThemTypography.UI.navigationHeading)
                     .foregroundColor(.herText)
-                    .padding(.bottom, 6)
+                    .frame(maxWidth: .infinity)
+                    .padding(.bottom, IOThemSpacing.Scale.xxxl)
+                    .accessibilityAddTraits(.isHeader)
 
                 if tab == .settings {
                     appearanceCard
+                        .padding(.bottom, IOThemSpacing.Scale.xxl)
                 }
 
-                ForEach(tab == .settings ? ThemHomeDestination.settingsTab : ThemHomeDestination.memoriesTab) { destination in
+                let destinations = tab == .settings ? ThemHomeDestination.settingsTab : ThemHomeDestination.memoriesTab
+                ForEach(destinations) { destination in
                     row(destination)
+                    if destination != destinations.last {
+                        Rectangle()
+                            .fill(Color.herShellStroke.opacity(0.65))
+                            .frame(height: 1)
+                            .padding(.leading, 42)
+                            .accessibilityHidden(true)
+                    }
                 }
             }
             .frame(maxWidth: 560, alignment: .leading)
-            .padding(.horizontal, 20)
-            .padding(.top, 28)
-            .padding(.bottom, 120)
+            .padding(.horizontal, IOThemSpacing.Scale.xxl)
+            .padding(.top, IOThemSpacing.Scale.xxxl)
+            .padding(.bottom, dynamicTypeSize.isAccessibilitySize
+                     ? IOThemSpacing.Navigation.accessibilityBottomClearance
+                     : IOThemSpacing.Navigation.bottomClearance)
             .frame(maxWidth: .infinity)
         }
+        .id(tab)
         .accessibilityIdentifier("home.hub.\(tab.rawValue)")
     }
 
     private var appearanceCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Label("Appearance", systemImage: "circle.lefthalf.filled")
-                .font(IOThemTypography.UI.sectionTitle)
-                .foregroundColor(.herText)
+        VStack(alignment: .leading, spacing: IOThemSpacing.Scale.sm) {
             Picker("Appearance", selection: $appearanceRaw) {
                 ForEach(IOThemAppearance.allCases, id: \.rawValue) { appearance in
                     Text(appearance.title).tag(appearance.rawValue)
@@ -201,8 +235,6 @@ struct ThemHomeHubView: View {
             .pickerStyle(.segmented)
             .accessibilityIdentifier("settings-appearance")
         }
-        .padding(IOThemSpacing.Scale.lg)
-        .background(card)
     }
 
     private func row(_ destination: ThemHomeDestination) -> some View {
@@ -214,33 +246,29 @@ struct ThemHomeHubView: View {
                     .font(IOThemTypography.UI.compactTitle)
                     .foregroundColor(.herStudioAccent)
                     .frame(width: 28)
+                    .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(destination.title(signedIn: signedIn))
-                        .font(IOThemTypography.UI.sectionTitle)
+                        .font(IOThemTypography.UI.navigationRowTitle)
                         .foregroundColor(.herText)
                     Text(destination.subtitle)
-                        .font(IOThemTypography.UI.callout)
-                        .foregroundColor(.herText.opacity(0.62))
+                        .font(IOThemTypography.UI.navigationRowDetail)
+                        .foregroundColor(IOThemColors.Text.secondary)
                 }
+                .fixedSize(horizontal: false, vertical: true)
+                .layoutPriority(1)
                 Spacer(minLength: 8)
                 Image(systemName: "chevron.right")
                     .font(IOThemTypography.UI.calloutStrong)
                     .foregroundColor(.herText.opacity(0.34))
+                    .accessibilityHidden(true)
             }
-            .padding(IOThemSpacing.Scale.lg)
-            .background(card)
+            .frame(minHeight: 44)
+            .padding(.vertical, IOThemSpacing.Scale.lg)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier(destination.accessibilityIdentifier)
     }
 
-    private var card: some View {
-        RoundedRectangle(cornerRadius: 20, style: .continuous)
-            .fill(Color.herShellPanel.opacity(0.78))
-            .overlay(
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .stroke(Color.herShellStroke.opacity(0.25), lineWidth: 1)
-            )
-    }
 }
