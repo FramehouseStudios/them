@@ -36,7 +36,25 @@ test("[studio-actions] capabilities parse with defaults and reject junk", () => 
   assert.deepEqual(partial.tabs, ["beats"]);
   assert.deepEqual(partial.revisionColors, ["pink"]);
   assert.equal(partial.hasDraft, false);
-  assert.deepEqual(parseStudioCapabilities({ tabs: ["nonsense"] }).tabs, [...STUDIO_TABS], "all-junk lists fall back to the full set");
+  assert.deepEqual(parseStudioCapabilities({ tabs: ["nonsense"] }).tabs, [], "Explicit unsupported options must not expand to every control.");
+});
+
+test("[studio-actions] empty or malformed capability lists fail closed", () => {
+  const empty = parseStudioCapabilities({tabs: [], draft_tools_sections: [], sidebar_sections: [], revision_colors: [], has_draft: true});
+  assert.deepEqual(extractStudioActions("[[studio: open_tab tab=beats]] [[studio: save_revision color=pink]]", empty).actions, []);
+  assert.equal(parseStudioCapabilities([]).enabled, false);
+  const absentDraft = parseStudioCapabilities({has_draft: false, scene_labels: ["INT. ROOM - DAY"]});
+  assert.equal(absentDraft.hasDraft, false, "Stale scene metadata cannot override an explicit empty draft.");
+  assert.deepEqual(extractStudioActions("[[studio: start_rewrite]]", absentDraft).actions, []);
+  assert.equal(parseStudioCapabilities({has_draft: "false"}).hasDraft, false);
+});
+
+test("[studio-actions] page output and non-control turns cannot execute reply dialogue", () => {
+  const reply = "INT. ROOM - NIGHT\n\nJOHN\nI'll start a rewrite.\n\n[[studio: save_draft]]";
+  const result = extractStudioActions(reply, caps, {allowActions: false});
+  assert.deepEqual(result.actions, []);
+  assert.ok(!result.spokenText.includes("[[studio:"));
+  assert.ok(result.spokenText.includes("I'll start a rewrite."));
 });
 
 test("[studio-actions] the controls block names only what the app offers and the tag syntax", () => {

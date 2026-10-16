@@ -2198,6 +2198,17 @@ as history, not new proof or active assignments for this original639 repair.
 ## Active work — quick view
 
 Historical Pages/security records below are dated context, not current proof.
+### T-952 — Preserve Studio actions and guard current-document execution
+
+- **Owner:** codex. **Status:** in-progress. **Pillar:** voice-to-scene.
+- **Branch:** `codex/T-952-studio-actions-integration`, based on T-951.
+- **Scope:** preserve original #643 and #879; reject duplicate/stale actions,
+  failed Studio mount and explicitly unsupported capability lists.
+- **Done when:** response-to-action behavioral regressions, signed units and
+  UI, full Node20 backend, macOS, offline golden, D009 and diff are recorded.
+- **Hold:** #648 already owns later prompt/action inference wiring. Preserve
+  that implementation; do not claim live voice actions proven at this boundary.
+
 ### T-951 — Integrate and re-prove original pagination
 
 - **Owner:** codex. **Status:** review (historical; current integration T-1096). **Pillar:** mobile-first.

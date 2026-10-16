@@ -39,7 +39,7 @@ export const HEADER_NAME = "x-studio-actions";
 function listOf(value, allowed, fallback) {
   if (!Array.isArray(value)) return fallback;
   const out = value.map((v) => String(v ?? "").trim().toLowerCase()).filter((v) => allowed.includes(v));
-  return out.length ? [...new Set(out)] : fallback;
+  return [...new Set(out)];
 }
 
 function labelsOf(value, limit = 40) {
@@ -54,7 +54,7 @@ export function parseStudioCapabilities(raw) {
     if (!text) return { enabled: false };
     try { obj = JSON.parse(text); } catch { return { enabled: false, error: "invalid_json" }; }
   }
-  if (!obj || typeof obj !== "object") return { enabled: false };
+  if (!obj || typeof obj !== "object" || Array.isArray(obj)) return { enabled: false };
   const tabs = listOf(obj.tabs, STUDIO_TABS, [...STUDIO_TABS]);
   const draftToolsSections = listOf(obj.draft_tools_sections ?? obj.draftToolsSections, DRAFT_TOOLS_SECTIONS, [...DRAFT_TOOLS_SECTIONS]);
   const sidebarSections = listOf(obj.sidebar_sections ?? obj.sidebarSections, SIDEBAR_SECTIONS, [...SIDEBAR_SECTIONS]);
@@ -63,6 +63,7 @@ export function parseStudioCapabilities(raw) {
   const beatLabels = labelsOf(obj.beat_labels ?? obj.beatLabels);
   const currentTab = String(obj.current_tab ?? obj.currentTab ?? "").trim().toLowerCase();
   const currentSection = String(obj.current_draft_tools_section ?? obj.currentDraftToolsSection ?? "").trim().toLowerCase();
+  const declaredHasDraft = obj.has_draft ?? obj.hasDraft;
   return Object.freeze({
     enabled: true,
     tabs,
@@ -74,7 +75,7 @@ export function parseStudioCapabilities(raw) {
     currentTab: tabs.includes(currentTab) ? currentTab : "",
     currentDraftToolsSection: draftToolsSections.includes(currentSection) ? currentSection : "",
     hasProject: Boolean(obj.has_project ?? obj.hasProject),
-    hasDraft: Boolean(obj.has_draft ?? obj.hasDraft) || sceneLabels.length > 0,
+    hasDraft: declaredHasDraft === true || (declaredHasDraft === undefined && sceneLabels.length > 0),
     studioOpen: Boolean(obj.studio_open ?? obj.studioOpen),
   });
 }
@@ -210,10 +211,10 @@ export function inferSpokenActions(text) {
   return found;
 }
 
-export function extractStudioActions(reply, caps) {
+export function extractStudioActions(reply, caps, { allowActions = true } = {}) {
   const text = String(reply ?? "");
   const result = { spokenText: text, actions: [], rejected: [], stripped: false };
-  if (!caps?.enabled) {
+  if (!caps?.enabled || !allowActions) {
     // Tags are still stripped so a stray one never reaches the voice.
     const cleaned = text.replace(TAG_RE, "").replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
     result.stripped = cleaned !== text;

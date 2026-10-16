@@ -7070,7 +7070,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
                     studioMetadata: initialStudioMetadata,
                     clientTranscriptOverride: cleanClientTranscriptOverride.isEmpty ? nil : cleanClientTranscriptOverride,
                     screenplayGenerationTranscriptOverride: talkScreenplayGenerationTranscript,
-                    onResponseMetadataReady: StudioActionDispatcher.handlingResponse(studioOpen: { isStudioSurfaceActive }, openStudio: { openStudio() }) { metadata in
+                    onResponseMetadataReady: StudioActionDispatcher.handlingResponse(bridge: screenplayDraftBridge, studioOpen: { isStudioSurfaceActive }, openStudio: { openStudio() }) { metadata in
                         Task { @MainActor in
                             if preparedPrompt.useScreenplayMode {
                                 screenplayDraftBridge.updateScreenplayQualityStatus(
