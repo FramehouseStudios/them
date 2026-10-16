@@ -31,7 +31,7 @@ hand-written tables lives in `tasks/HISTORY-2026-05.md`.
 ### T-955 — Quiet, usable Studio element controls
 - **Owner:** codex
 - **Branch:** codex/T-955-studio-reference-polish
-- **Status:** in-progress
+- **Status:** review — signed968units +4UI, zero failures/skips; Mac/D009/diff pass
 - **Pillar:** mobile-first
 - **Scope:** refine the existing element selector using the reference's quiet
   toolbar hierarchy; preserve all six handlers, draft text and page geometry.
@@ -39,6 +39,7 @@ hand-written tables lives in `tasks/HISTORY-2026-05.md`.
   screenshots and large-text checks pass alongside signed units, Mac/D009/diff.
 - **Boundary:** atop T-954; no main/original-head rewrite, provider call,
   competing editor or change to screenplay parsing/export semantics.
+- **Proof:** `docs/studio-reference-polish-2026-10-16.md`.
 
 ### T-954 — Reference-led design polish without changing THEM identity
 - **Owner:** codex

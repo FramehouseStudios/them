@@ -6,6 +6,7 @@ public enum IOThemTypography {
         public static let navigationRowTitle = Font.system(.body).weight(.semibold)
         public static let navigationRowDetail = Font.system(.subheadline)
         public static let navigationTabLabel = Font.system(.caption2).weight(.semibold)
+        public static let editorElementLabel = Font.system(.subheadline).weight(.semibold)
         public static let largeTitle = Font.system(size: 34, weight: .semibold, design: .default)
         public static let editorialTitle = Font.system(size: 30, weight: .semibold, design: .serif)
         public static let title = Font.system(size: 22, weight: .semibold, design: .default)

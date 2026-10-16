@@ -161,74 +161,72 @@ struct ScreenplayStudioElementModeBar: View {
     let panelColor: Color
     let strokeColor: Color
     let textColor: Color
-    let secondaryTextColor: Color
     let onSelect: (ScreenplayEditorElement) -> Void
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var hoveredElement: ScreenplayEditorElement?
 
     var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 3) {
+        ScrollView(.horizontal, showsIndicators: true) {
+            HStack(spacing: 4) {
                 ForEach(ScreenplayEditorElement.allCases) { element in
                     elementButton(element)
                 }
             }
-            .padding(.horizontal, 5)
+            .padding(.horizontal, 4)
             .padding(.vertical, 4)
         }
         .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(panelColor.opacity(0.92))
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(panelColor)
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .stroke(strokeColor.opacity(0.20), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(strokeColor, lineWidth: 1)
         )
-        .shadow(color: Color.black.opacity(0.03), radius: 6, y: 2)
+        .accessibilityIdentifier("studio.element-mode-bar")
     }
 
     private func elementButton(_ element: ScreenplayEditorElement) -> some View {
         let isActive = activeElement == element
         let isHovered = hoveredElement == element
         let foreground = isActive
-            ? textColor.opacity(0.94)
-            : secondaryTextColor.opacity(isHovered ? 0.88 : 0.76)
+            ? IOThemColors.StudioChrome.selectedElementInk
+            : textColor
         let fill = isActive
-            ? IOThemColors.StudioChrome.activeChip
-            : (isHovered ? Color.black.opacity(0.028) : Color.clear)
+            ? IOThemColors.StudioChrome.selectedElement
+            : (isHovered ? textColor.opacity(0.06) : Color.clear)
 
         return Button {
             onSelect(element)
         } label: {
             Text(buttonLabel(element))
-                .font(isActive ? IOThemTypography.UI.compactLabel : IOThemTypography.UI.compactLabelMedium)
+                .font(IOThemTypography.UI.editorElementLabel)
                 .foregroundStyle(foreground)
                 .lineLimit(1)
-                .frame(maxWidth: .infinity)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
+                .fixedSize(horizontal: true, vertical: false)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .frame(minWidth: 44, minHeight: 44)
                 .background(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
                         .fill(fill)
                 )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .stroke(isActive ? strokeColor.opacity(0.18) : Color.clear, lineWidth: 1)
-                )
-                .shadow(
-                    color: isActive ? Color.black.opacity(0.03) : Color.clear,
-                    radius: 2,
-                    y: 1
-                )
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier("studio.element-mode.\(element.rawValue)")
+        .accessibilityLabel(element.title)
+        .accessibilityHint(element.hint)
+        .accessibilityValue(isActive ? "Selected" : "Not selected")
+        .accessibilityAddTraits(isActive ? .isSelected : [])
         .onHover { hovering in
             hoveredElement = hovering
                 ? element
                 : (hoveredElement == element ? nil : hoveredElement)
         }
         .help(element.hint)
-        .animation(.easeOut(duration: 0.14), value: isActive)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.14), value: isActive)
     }
 
     private func buttonLabel(_ element: ScreenplayEditorElement) -> String {
@@ -242,9 +240,9 @@ struct ScreenplayStudioElementModeBar: View {
         case .dialogue:
             return "Dialogue"
         case .parenthetical:
-            return "( )"
+            return "Parenthetical"
         case .transition:
-            return "→"
+            return "Transition"
         }
     }
 }

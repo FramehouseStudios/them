@@ -2,6 +2,46 @@ import Foundation
 import XCTest
 
 final class V1SmokeUITests: XCTestCase {
+    func test_studio_element_controls_keep_six_actions_with_readable_targets() {
+        let app = launchApp(openStudio: true, structuralSeed: true)
+        defer { app.terminate() }
+        XCTAssertTrue(element(identifier: "studio.surface", in: app).waitForExistence(timeout: 12))
+        recordDesignScreenshot("Studio — peach element controls", app: app)
+        assertStudioElementTargets(app: app)
+        recordDesignScreenshot("Studio — transition selected with keyboard", app: app)
+    }
+
+    func test_studio_element_controls_large_text_and_dark_theme() {
+        let app = launchApp(openStudio: true, structuralSeed: true, additionalLaunchArguments: [
+            "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL",
+            "-io.them.appearance", "dark"
+        ])
+        defer { app.terminate() }
+        XCTAssertTrue(element(identifier: "studio.surface", in: app).waitForExistence(timeout: 12))
+        recordDesignScreenshot("Studio — dark accessibility XXXL", app: app)
+        assertStudioElementTargets(app: app)
+        recordDesignScreenshot("Studio — accessibility transition selected", app: app)
+    }
+
+    private func assertStudioElementTargets(app: XCUIApplication) {
+        let bar = element(identifier: "studio.element-mode-bar", in: app)
+        XCTAssertTrue(bar.waitForExistence(timeout: 5))
+        for (mode, label) in [("sceneHeading", "Scene Heading"), ("action", "Action"), ("character", "Character"),
+                              ("dialogue", "Dialogue"), ("parenthetical", "Parenthetical"), ("transition", "Transition")] {
+            let button = app.buttons["studio.element-mode.\(mode)"]
+            XCTAssertTrue(button.waitForExistence(timeout: 5))
+            for _ in 0..<6 where !button.isHittable { bar.swipeLeft() }
+            XCTAssertTrue(button.isHittable, "\(mode) must remain reachable.")
+            XCTAssertEqual(button.label, label)
+            guard button.frame.height >= 44, button.frame.width >= 44 else {
+                XCTFail("\(mode) has a \(button.frame.size)-point target; minimum is 44 × 44.")
+                return
+            }
+            button.tap()
+            XCTAssertTrue(button.isSelected, "\(mode) must invoke the existing formatting handler.")
+        }
+    }
+
     func test_reference_hubs_keep_all_rows_and_original_palette() {
         let app = launchApp()
         defer { app.terminate() }

@@ -79,6 +79,8 @@ public enum IOThemColors {
         public static var secondaryText: Color { isDark ? Color.white.opacity(0.62) : Color.black.opacity(0.52) }
         public static var tertiaryText: Color { isDark ? Color.white.opacity(0.42) : Color.black.opacity(0.34) }
         public static var activeChip: Color { isDark ? Color.white.opacity(0.14) : Color.white.opacity(0.84) }
+        public static var selectedElement: Color { Accent.studio }
+        public static var selectedElementInk: Color { isDark ? .black : Paper.script }
     }
 
     /// The orb keeps its original pinks in both themes.

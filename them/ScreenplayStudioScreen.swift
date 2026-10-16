@@ -8638,6 +8638,16 @@ Current draft version:
             StudioReadBackOfferBar(bridge: liveDraftBridge) { text in Task { _ = await onSubmitPrompt(text, .automatic, UUID().uuidString) } }
             StudioStatusLine(bridge: liveDraftBridge)
 
+            ScreenplayStudioElementModeBar(
+                activeElement: liveDraftBridge.activeScreenplayElement,
+                panelColor: directionOneChromePanel,
+                strokeColor: directionOneChromeStroke,
+                textColor: directionOneChromeText
+            ) { element in
+                liveDraftBridge.setActiveScreenplayElement(element)
+                liveDraftBridge.requestEditorFocus()
+            }
+
             ZStack(alignment: .top) {
                 VStack(spacing: 0) {
                     screenplayPageHeaderStrip(
@@ -8692,18 +8702,6 @@ Current draft version:
                 }
                 .scaleEffect(isDirectionOnePageFocusTransitionVisible ? 1.003 : 1.0)
                 .shadow(color: Color.herPaperShadow.opacity(0.26), radius: 28, y: 18)
-
-                ScreenplayStudioElementModeBar(
-                    activeElement: liveDraftBridge.activeScreenplayElement,
-                    panelColor: directionOneChromePanel,
-                    strokeColor: directionOneChromeStroke,
-                    textColor: directionOneChromeText,
-                    secondaryTextColor: directionOneChromeSecondaryText
-                ) { element in
-                    liveDraftBridge.setActiveScreenplayElement(element)
-                    liveDraftBridge.requestEditorFocus()
-                }
-                    .offset(y: -16)
 
 #if DEBUG || os(macOS)
                 if studioDebugOverlayEnabled {

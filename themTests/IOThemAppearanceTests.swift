@@ -38,10 +38,36 @@ final class IOThemAppearanceTests: XCTestCase {
     #if canImport(UIKit)
     @MainActor
     func test_secondary_navigation_ink_contrast_on_each_theme_background() {
+        for appearance in IOThemAppearance.allCases {
+            IOThemAppearance.apply(appearance)
+            for ground in [IOThemColors.Background.peachTop, IOThemColors.Background.peachMid, IOThemColors.Background.peachBottom] {
+                XCTAssertGreaterThanOrEqual(contrast(IOThemColors.Text.secondary, on: ground), 4.5, appearance.title)
+            }
+        }
+    }
+
+    @MainActor
+    func test_studio_element_ink_contrast_in_both_themes() {
+        for appearance in IOThemAppearance.allCases {
+            IOThemAppearance.apply(appearance)
+            XCTAssertGreaterThanOrEqual(contrast(IOThemColors.StudioChrome.selectedElementInk,
+                                                on: IOThemColors.StudioChrome.selectedElement), 4.5, appearance.title)
+            for ground in [IOThemColors.Background.peachTop, IOThemColors.Paper.script] {
+                XCTAssertGreaterThanOrEqual(contrast(IOThemColors.StudioChrome.text,
+                                                    on: IOThemColors.StudioChrome.panel, under: ground), 4.5, appearance.title)
+            }
+        }
+    }
+
+    @MainActor
+    private func contrast(_ ink: Color, on ground: Color, under substrate: Color = .white) -> Double {
         func rgba(_ color: Color) -> (rgb: [Double], alpha: Double) {
             var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
             XCTAssertTrue(UIColor(color).getRed(&r, green: &g, blue: &b, alpha: &a))
             return ([Double(r), Double(g), Double(b)], Double(a))
+        }
+        func paint(_ color: (rgb: [Double], alpha: Double), on background: [Double]) -> [Double] {
+            zip(color.rgb, background).map { $0.0 * color.alpha + $0.1 * (1 - color.alpha) }
         }
         func luminance(_ rgb: [Double]) -> Double {
             zip(rgb, [0.2126, 0.7152, 0.0722]).reduce(0) { result, channel in
@@ -49,18 +75,9 @@ final class IOThemAppearanceTests: XCTestCase {
                 return result + linear * channel.1
             }
         }
-        for appearance in IOThemAppearance.allCases {
-            IOThemAppearance.apply(appearance)
-            let ink = rgba(IOThemColors.Text.secondary)
-            for ground in [IOThemColors.Background.peachTop, IOThemColors.Background.peachMid, IOThemColors.Background.peachBottom] {
-                let background = rgba(ground).rgb
-                let paintedInk = zip(ink.rgb, background).map { pair in
-                    pair.0 * ink.alpha + pair.1 * (1 - ink.alpha)
-                }
-                let values = [luminance(paintedInk), luminance(background)].sorted()
-                XCTAssertGreaterThanOrEqual((values[1] + 0.05) / (values[0] + 0.05), 4.5, appearance.title)
-            }
-        }
+        let background = paint(rgba(ground), on: rgba(substrate).rgb)
+        let values = [luminance(paint(rgba(ink), on: background)), luminance(background)].sorted()
+        return (values[1] + 0.05) / (values[0] + 0.05)
     }
     #endif
 
