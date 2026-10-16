@@ -92,6 +92,27 @@ numbered overview and macOS proof use exactly the current Swift tree.
 
 ## Limits and next work
 
+Changed files versus T-950 (includes the preserved original implementation):
+
+```text
+TASKS.md
+backend/evals/generate_pagination_fixtures.mjs
+backend/lib/screenplay_companion_routes.js
+backend/lib/screenplay_pagination.js
+backend/tests/screenplay_pagination.test.mjs
+docs/pages-integration-proof-2026-10-16.md
+docs/pagination/NOTICE-opendraft.md
+docs/pagination/README.md
+docs/pagination/fixtures.json
+them/ScreenplayPageLayout.swift
+them/ScreenplayStudioPagesOverviewView.swift
+them/ScreenplayStudioScreen+PagesOverview.swift
+them/ScreenplayStudioScreen.swift
+them/ScreenplayStudioViewModel.swift
+themTests/ScreenplayPageLayoutTests.swift
+themUITests/V1SmokeUITests.swift
+```
+
 - These are deterministic/local checks, not microphone, model, phone or shipping
   persistence proof. No paid provider calls are required for pagination.
 - Page card rendering still uses a coarse classifier; editor/export agreement
