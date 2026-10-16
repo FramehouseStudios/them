@@ -31,7 +31,7 @@
 
 ### T-951 — Integrate and re-prove original pagination
 
-- **Owner:** codex. **Status:** in-progress. **Pillar:** mobile-first.
+- **Owner:** codex. **Status:** review. **Pillar:** mobile-first.
 - **Branch:** `codex/T-951-pages-integration-proof`, from T-950 `ccb50270`.
 - **Scope:** preserving merge of original #642 `7c40428b`; fix reproduced
   unbounded multi-page speech and Unicode phone/backend wrapping disagreement.
@@ -40,6 +40,10 @@
   offline golden, D009 and diff checks have recorded outcomes.
 - **Boundary:** no main merge or replacement PR; #80 export/editor element
   agreement and physical/shipping proof remain separate unmet requirements.
+- **Proof:** final Node20 backend 2,798/0/2; signed units 669/0/0 plus original
+  overview UI 1/0/0; authenticated writer UI 1/0/0. Existing #893 preserved;
+  macOS scaffold, offline golden, fixture reproduction, D009 and diff pass.
+  `docs/pages-integration-proof-2026-10-16.md` retains failures and limits.
 
 ### T-950 — Re-prove original security patch with the writing rehearsal
 

@@ -33,15 +33,62 @@ Goal requirements advanced: 2 (page agreement), 5 (full-length correctness),
 - Shared fixtures now include multi-page speech, emoji/combining characters,
   non-ASCII cues and NBSP; both suites compare every rendered line, not just
   counts and first/last text. Fixture generation remains the existing script.
-- Focused backend pagination after corrections: 9/0/0 on the host. Node20
-  full run and signed Swift parity pending; no pass claim yet.
+- Focused backend pagination after corrections: 9/0/0 on the host.
+- Initial combined Node20 backend: 2,798 pass, 0 fail, 2 skip; offline
+  mentor exemplar gate passes. After the measured ASCII optimization, a fresh
+  complete Node20 rerun also passes **2,798/0/2** and offline mentor gate.
+  Networking disabled; skips are the real PostgreSQL prefix test (no configured
+  DATABASE_URL) and opt-in live page-response test (RUN_LIVE_PAGE_TESTS=0).
+- Signed full Swift units on corrected `964bb7a7`: 669/0/0. After preserving
+  #893, final Swift source at `eb188b19` passes 669 units plus the original
+  numbered overview UI workflow: 670 total, 0 fail, 0 skip. Both runs used
+  normal signing after task-owned simulator erases, iPhone17Pro iOS26.2/23C54,
+  simulator11CF5EFB-D8C3-4F19-8062-28AF37F27D93.
+- Screenshot attachment from the numbered overview was visually inspected:
+  the single-slugline card, page number, summary and Done label are readable
+  at this device width. This is not proof of long-line/multi-page card fitting.
+- macOS scaffold build passes on the #893-inclusive Swift tree using the
+  canonical `scripts/desktop_preflight.sh` build-only configuration. Tests are
+  signed; the scaffold build uses its existing unsigned build-only defaults.
+
+## Measured backend cost
+
+Node20.20.2 test image, network disabled, 6,480 synthetic source lines,
+284,012 UTF-8 bytes, 120 output pages; five sequential samples, with local
+build activity on this machine. Before the ASCII fast path: milliseconds
+`[960.92,1002.4,765.73,636.13,763.67]`. After:
+`[34.83,19.87,36.57,24.58,34.51]`. Logs preserve the raw values. This caught
+the expensive per-word ICU calls introduced by the Unicode correction.
+Printable ASCII now skips ICU; Unicode retains grapheme segmentation.
+These measurements are backend-only, not a statistical benchmark, phone
+typing-latency measurement or clearance of the 120-page UI requirement.
 
 ## Existing repair to preserve
 
 #893 `58c3ff33` is an additive repair based on #642: guard the iOS-only
 navigationBarTitleDisplayMode modifier. Its body, full diff and provenance
-were read. Integrate its original commit after the active Xcode run finishes;
-do not edit Swift during a build or recreate the repair.
+were read. Preserving merge `eb188b19` includes the exact original commit;
+the merge happened only after the first Xcode run terminated. No recreation
+of the repair or original branch mutation.
+
+Backend optimization commit `eddb2ed5` changes no Swift. The final units,
+numbered overview and macOS proof use exactly the current Swift tree.
+- Authenticated writer workflow on final code `eddb2ed5`: **1/0/0**, after
+  another owned-simulator erase, normal signing. Existing synthetic runner sets
+  REQUIRE_USER_AUTH=1; creates/types/saves a script, exercises backend Markdown
+  export and verifies restoration after app relaunch. Provider counters all0:
+  this is not speech, generated-page quality or external file-opening proof.
+- Node20 fixture regeneration leaves the committed fixture bytes unchanged.
+  D009 versus T-950 passes: Studio17435 ->17432; other protected files unchanged
+  (index33557, Root15024, bridge12926, MemoryAPI10865). `git diff --check` passes.
+- Durable private artifacts, not committed/uploaded:
+  `/Users/halfmutantfilms/io.them-worktrees/_proof/T-951-20261016.AtOqss/`.
+  Contains the initial red regression log, focused green log, initial and final
+  backend logs, timing logs, fixture regeneration log, macOS log, both unit
+  bundles/logs, final writer bundle/log and exported page screenshot/manifest.
+- No test was repaired by retrying an unchanged failing implementation. The
+  original regression log remains red; root fixes precede green proof. Later
+  runs follow the preserved #893 repair and measured backend optimization.
 
 ## Limits and next work
 
@@ -52,6 +99,19 @@ do not edit Swift during a build or recreate the repair.
   work retain their existing original stack ownership. Do not claim this
   partial stack renders the final exported screenplay identically.
 - Full-session 120-page UI responsiveness is not measured by these unit tests.
+- Existing Swift concurrency warnings are not resolved by this pagination work.
 - Next original product boundary is #643 `86cc5b24`, base `claude/pages-port`.
   #893 is a sibling repair, not a replacement for that product boundary.
 - #766 then #770 still require actual non-author approval before main landing.
+
+## Copy-and-paste handoff
+
+T-951 preserved original #642 head7c40428b and #893 head58c3ff33 using no-ff
+merges onto T-950. Corrections964bb7a7 fix unbounded multi-page speeches and
+Unicode wrapping/cue parity, with independent regression tests and full-line
+shared fixtures. Optimizationeddb2ed5 avoids per-word ICU overhead on ASCII.
+Final backend Node20:2798/0/2; signed units669/0/0 plus overviewUI1/0/0;
+authenticated writerUI1/0/0; macOS/offline golden/fixture reproduction/D009/diff
+pass. Evidence retained here and the durable directory above. Original heads
+and main unchanged, no replacement PR, deployment or paid model calls. Retain
+#80/export/120-page UI/physical shipping gaps; next original product PR is#643.
