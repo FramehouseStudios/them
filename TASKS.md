@@ -5,6 +5,22 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-928 — Preserve exact screenplay save and recovery identity
+
+- **Owner:** codex
+- **Branch:** `codex/T-928-exact-save-identity`
+- **Pillar:** mobile-first, voice→scene (writer data safety)
+- **Status:** review
+- **Scope:** retain raw nonblank screenplay text across version saving, retry identity,
+  outbox coalescing, saved-state comparison, snapshot restoration and conflict recovery.
+- **Done when:** authenticated backend restart/replay proof, signed erased-simulator
+  unit and relaunch/reconnect UI proof, macOS scaffold, god-file gate and diff checks pass;
+  publish only a draft PR above #925, preserving the #918 prerequisite provenance.
+- **Evidence:** `docs/audits/exact-save-identity-2026-10-08.md`.
+- **Remaining outside this task:** empty/whitespace-only save contract; historical text
+  already normalized before storage; async lint/coverage/logline staleness comparisons;
+  physical microphone/provider proof; required hosted checks and independent merge review.
+
 ## Branch conventions
 - `codex/<task-id>-<short-name>`
 - `support/backend-<short-name>`

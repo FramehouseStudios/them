@@ -1,10 +1,11 @@
 import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { mkdirSync, mkdtempSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
 import { startBackend } from "../tests/helpers/backend_test_server.mjs";
+import { assertPassedTestSummary, failureOutputTail, xcresultFailureDetails } from "./studio_ios_writer_loop_contract_helpers.mjs";
 
 const ROOT_DIR = fileURLToPath(new URL("../..", import.meta.url));
 
@@ -35,29 +36,59 @@ try {
 
   const child = spawn("bash", ["scripts/run_screenplay_save_network_fault_smokes.sh"], {
     cwd: ROOT_DIR,
-    stdio: "inherit",
+    stdio: ["ignore", "pipe", "pipe"],
     env: {...process.env, SCREENPLAY_SAVE_RESULT_BUNDLE_PATH: resultBundle},
+  });
+  let stdout = "", stderr = "";
+  child.stdout.on("data", chunk => {
+    process.stdout.write(chunk);
+    stdout = failureOutputTail(stdout + chunk);
+  });
+  child.stderr.on("data", chunk => {
+    process.stderr.write(chunk);
+    stderr = failureOutputTail(stderr + chunk);
   });
   // Keep Node's event loop available to drain the owned backend's pipes.
   // A synchronous multi-minute Xcode wait can stall that backend under log load.
   const status = await new Promise((resolve, reject) => { child.on("error", reject); child.on("close", resolve); });
-  assert(status === 0, `Screenplay save recovery failed: status=${status}; evidence=${artifactDir}`);
+  const readResult = (kind, bundle = resultBundle) => spawnSync("xcrun", [
+    "xcresulttool", "get", "test-results", kind, "--path", bundle,
+  ], { cwd: ROOT_DIR, encoding: "utf8", maxBuffer: 16 * 1024 * 1024 });
+  if (status !== 0) {
+    let details = "No result bundle was produced.";
+    if (existsSync(resultBundle)) {
+      const tests = readResult("tests");
+      if (tests.status === 0) {
+        try { details = xcresultFailureDetails(JSON.parse(tests.stdout)); }
+        catch (error) { details = `Could not parse test details: ${error}`; }
+      } else {
+        details = failureOutputTail(tests.stderr || tests.stdout);
+      }
+    }
+    throw new Error(
+      `Screenplay save recovery failed.\nstatus=${status}; evidence=${artifactDir}\n`
+      + `xcresult failures:\n${failureOutputTail(details)}\n`
+      + `stdout tail:\n${stdout}\n`
+      + `stderr tail:\n${stderr}`
+    );
+  }
   const bundles = [resultBundle];
   if (process.env.SCREENPLAY_SAVE_INCLUDE_MACOS !== "0") bundles.push(resultBundle.replace(/\.xcresult$/, "-macos.xcresult"));
-  const expected = process.env.SCREENPLAY_SAVE_TEST_IDENTIFIER ? 1 : 2;
   for (const bundle of bundles) {
-    const report = spawnSync("xcrun", ["xcresulttool", "get", "test-results", "summary", "--path", bundle], {encoding: "utf8"});
-    assert(report.status === 0, `Missing recovery test summary: ${bundle}`);
-    const result = JSON.parse(report.stdout);
-    assert(result.passedTests === expected && result.failedTests === 0 && result.skippedTests === 0,
-      `Recovery proof incomplete: passed=${result.passedTests}, failed=${result.failedTests}, skipped=${result.skippedTests}; ${bundle}`);
+    const summary = readResult("summary", bundle);
+    assert(summary.status === 0,
+      `Missing recovery summary: ${bundle}\n${failureOutputTail(summary.stderr || summary.stdout)}`);
+    assertPassedTestSummary(JSON.parse(summary.stdout), process.env.SCREENPLAY_SAVE_TEST_IDENTIFIER ? 1 : 2,
+      `Signed screenplay recovery did not execute every requested test: ${bundle}`);
   }
   console.log(JSON.stringify({
     ok: true,
     backend: server.baseUrl,
     resultBundles: bundles,
     targets: process.env.SCREENPLAY_SAVE_INCLUDE_MACOS === "0" ? ["iPhone"] : ["iPhone", "macOS"],
-    contract: "queued saves recover exactly once across reconnect, expired auth, and stale-version resolution",
+    contract: process.env.SCREENPLAY_SAVE_TEST_IDENTIFIER
+      ? "the selected screenplay recovery test passed"
+      : "queued saves recover exactly once across reconnect, expired auth, and stale-version resolution",
   }, null, 2));
   console.log("screenplay-save-network-fault-ui-smoke: ok");
 } catch (error) {

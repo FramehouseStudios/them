@@ -1686,10 +1686,11 @@ final class ScreenplayStudioViewModel: ObservableObject {
     private var pendingDraftSaveRequest: DraftSaveRequest?
     private var shouldQueuePendingDraftSaveAfterFailure = false
     private let localDraftRecoveryStore: ScreenplayLocalDraftRecoveryStore
-    private let draftSaveOutbox = ScreenplayDraftSaveOutbox.shared
+    private let draftSaveOutbox: ScreenplayDraftSaveOutbox
     private let outlineMutationOutbox = ScreenplayOutlineMutationOutbox.shared
     private let craftClient = BackendClient()
     private let projectSelectionAPI = BackendMemoryAPI()
+    private let conflictProjectLoader: ((String) async throws -> BackendScreenplayProjectSummary)?
     private var clientTokenOwnedProjectIDs: Set<String> = []
     private var activeLoadRequestID: UUID?
 
@@ -1697,8 +1698,12 @@ final class ScreenplayStudioViewModel: ObservableObject {
         self.init(localDraftRecoveryStore: ScreenplayLocalDraftRecoveryStore())
     }
 
-    init(localDraftRecoveryStore: ScreenplayLocalDraftRecoveryStore) {
+    init(localDraftRecoveryStore: ScreenplayLocalDraftRecoveryStore,
+         draftSaveOutbox: ScreenplayDraftSaveOutbox = .shared,
+         conflictProjectLoader: ((String) async throws -> BackendScreenplayProjectSummary)? = nil) {
         self.localDraftRecoveryStore = localDraftRecoveryStore
+        self.draftSaveOutbox = draftSaveOutbox
+        self.conflictProjectLoader = conflictProjectLoader
         fountainDraft = ScreenplayLiveDraftBridge.shared.draftText
         draftDebounceCancellable = $fountainDraft
             .removeDuplicates()
@@ -1842,13 +1847,16 @@ final class ScreenplayStudioViewModel: ObservableObject {
             return
         }
 
-        let queuedDraft = entry.draft
+        let ordinary = localDraftRecoveryStore.dirtyOrdinarySnapshot(ownerUserId: ownerUserID, projectId: projectID)
+        let newerRecovery = ordinary.flatMap { $0.savedAt > entry.createdAt ? $0 : nil }
+        let queuedDraft = newerRecovery?.draft ?? entry.draft
+        let restoredBase = newerRecovery?.baseVersionId ?? entry.baseVersionId
         isHydratingDraft = true
         fountainDraft = queuedDraft
         isHydratingDraft = false
         loadedDraftProjectID = projectID
-        if !entry.baseVersionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            latestVersionID = entry.baseVersionId
+        if !restoredBase.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            latestVersionID = restoredBase
         }
         isManualDraftEditing = true
         lastManualDraftEditAt = Date()
@@ -1858,7 +1866,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         persistLocalDraftRecovery(
             projectId: projectID,
             draft: queuedDraft,
-            baseVersionId: entry.baseVersionId,
+            baseVersionId: restoredBase,
             dirty: true
         )
     }
@@ -1944,8 +1952,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         ) else {
             return
         }
-        let clean = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        applyServerDraft(clean, versionId: latestVersionID, allowOverwriteDirtyLocalDraft: true)
+        applyServerDraft(draft, versionId: latestVersionID, allowOverwriteDirtyLocalDraft: true)
     }
 
     /// Live typing from another device of the same account. Replaces the
@@ -1956,6 +1963,10 @@ final class ScreenplayStudioViewModel: ObservableObject {
         guard ScreenplayProjectScopedState.matches(projectID, selectedProjectId: selectedProjectID) else {
             return false
         }
+        // A remote update is not the writer's Keep Mine / Load Server decision.
+        guard !ScreenplayProjectScopedState.matches(conflictState?.projectId, selectedProjectId: projectID) else {
+            return false
+        }
         isFollowingRemoteLiveDraft = true
         isManualDraftEditing = false
         lastManualDraftEditAt = .distantPast
@@ -1963,12 +1974,11 @@ final class ScreenplayStudioViewModel: ObservableObject {
             remoteLiveDraftStatusText = "Live from \(LiveDraftDeviceIdentity.displayLabel(for: sourceDeviceID))"
         }
         scheduleRemoteLiveDraftFollowFallback()
-        guard fountainDraft != text else { return true }
+        guard !ScreenplayDraftTextIdentity.matches(fountainDraft, text) else { return true }
         isHydratingDraft = true
         fountainDraft = text
         isHydratingDraft = false
-        let normalized = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        hasUnsavedDraftChanges = fingerprint(for: normalized) != lastSavedDraftFingerprint
+        hasUnsavedDraftChanges = !ScreenplayDraftTextIdentity.matches(text, lastRevisionBaseDraft)
         conflictState = nil
         autosaveStatusText = remoteLiveDraftStatusText
         return true
@@ -1989,7 +1999,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         let normalizedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanProjectID.isEmpty,
               !normalizedText.isEmpty,
-              fingerprint(for: normalizedText) != lastSavedDraftFingerprint else { return }
+              !ScreenplayDraftTextIdentity.matches(text, lastRevisionBaseDraft) else { return }
 
         let savedAt = Date().timeIntervalSince1970
         let ownerUserID = currentStudioAuthContext().userID
@@ -2044,13 +2054,13 @@ final class ScreenplayStudioViewModel: ObservableObject {
         let cleanVersionID = versionID.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanVersionID.isEmpty,
               ScreenplayProjectScopedState.matches(projectID, selectedProjectId: selectedProjectID),
+              !ScreenplayProjectScopedState.matches(conflictState?.projectId, selectedProjectId: projectID),
               LiveDraftText.checksum(fountainDraft) == draftChecksum else {
             return
         }
         latestVersionID = cleanVersionID
-        let normalized = fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-        lastSavedDraftFingerprint = fingerprint(for: normalized)
-        lastRevisionBaseDraft = normalized
+        lastSavedDraftFingerprint = fingerprint(for: fountainDraft)
+        lastRevisionBaseDraft = fountainDraft
         hasUnsavedDraftChanges = false
         stopFollowingRemoteLiveDraft()
         isManualDraftEditing = false
@@ -2090,12 +2100,12 @@ final class ScreenplayStudioViewModel: ObservableObject {
         }
 
         let committedDraft = committedWrite.committedDraft
-        if fountainDraft != committedDraft {
+        if !ScreenplayDraftTextIdentity.matches(fountainDraft, committedDraft) {
             fountainDraft = committedDraft
         }
         isManualDraftEditing = false
         lastManualDraftEditAt = .distantPast
-        hasUnsavedDraftChanges = fingerprint(for: committedDraft) != lastSavedDraftFingerprint
+        hasUnsavedDraftChanges = !ScreenplayDraftTextIdentity.matches(committedDraft, lastRevisionBaseDraft)
         guard hasUnsavedDraftChanges else { return true }
 
         autosaveStatusText = "Saving Clementine’s page..."
@@ -2134,16 +2144,15 @@ final class ScreenplayStudioViewModel: ObservableObject {
 
         let cleanProjectID = projectID.trimmingCharacters(in: .whitespacesAndNewlines)
         let cleanVersionID = versionID.trimmingCharacters(in: .whitespacesAndNewlines)
-        let normalizedCommittedDraft = committedDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedLocalDraft = fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedLocalDraft.isEmpty else { return false }
-        let committedFingerprint = fingerprint(for: normalizedCommittedDraft)
+        let committedFingerprint = fingerprint(for: committedDraft)
 
         latestVersionID = cleanVersionID
         loadedDraftProjectID = cleanProjectID
         lastSavedDraftFingerprint = committedFingerprint
-        lastRevisionBaseDraft = normalizedCommittedDraft
-        hasUnsavedDraftChanges = fingerprint(for: normalizedLocalDraft) != committedFingerprint
+        lastRevisionBaseDraft = committedDraft
+        hasUnsavedDraftChanges = !ScreenplayDraftTextIdentity.matches(fountainDraft, committedDraft)
         if hasUnsavedDraftChanges {
             autosaveStatusText = "Unsaved changes"
         } else {
@@ -2189,7 +2198,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         stopFollowingRemoteLiveDraft()
         lastManualDraftEditAt = Date()
         let normalized = fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-        hasUnsavedDraftChanges = fingerprint(for: normalized) != lastSavedDraftFingerprint
+        hasUnsavedDraftChanges = !ScreenplayDraftTextIdentity.matches(fountainDraft, lastRevisionBaseDraft)
         if !normalized.isEmpty {
             persistLocalDraftRecovery(
                 projectId: selectedProjectID,
@@ -4208,8 +4217,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
         loadedDraftProjectID = selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
         isManualDraftEditing = false
         lastManualDraftEditAt = .distantPast
-        lastSavedDraftFingerprint = fingerprint(for: normalizedDraft)
-        lastRevisionBaseDraft = normalizedDraft
+        lastSavedDraftFingerprint = fingerprint(for: draft)
+        lastRevisionBaseDraft = draft
         hasUnsavedDraftChanges = false
         autosaveStatusText = normalizedDraft.isEmpty ? "Ready" : "Loaded latest draft"
         recoveryCandidate = nil
@@ -4248,15 +4257,15 @@ final class ScreenplayStudioViewModel: ObservableObject {
     }
 
     func loadSnapshot(_ version: BackendScreenplayVersion) {
-        let snapshotDraft = (version.draft ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !snapshotDraft.isEmpty else {
+        let snapshotDraft = version.draft ?? ""
+        guard !snapshotDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             errorText = "Snapshot draft is empty."
             return
         }
         isHydratingDraft = true
         fountainDraft = snapshotDraft
         isHydratingDraft = false
-        hasUnsavedDraftChanges = fingerprint(for: snapshotDraft) != lastSavedDraftFingerprint
+        hasUnsavedDraftChanges = !ScreenplayDraftTextIdentity.matches(snapshotDraft, lastRevisionBaseDraft)
         autosaveStatusText = "Snapshot loaded (unsaved)"
         infoText = "Snapshot loaded. Save to publish."
         persistLocalDraftRecovery(
@@ -4280,7 +4289,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
             latestVersionID = candidate.baseVersionId
         }
         syncLiveDraftBridgeProjectContext()
-        hasUnsavedDraftChanges = fingerprint(for: candidate.draft) != lastSavedDraftFingerprint
+        hasUnsavedDraftChanges = !ScreenplayDraftTextIdentity.matches(candidate.draft, lastRevisionBaseDraft)
         autosaveStatusText = "Recovered local draft"
         infoText = "Recovered your local unsaved draft."
         recoveryCandidate = nil
@@ -4339,19 +4348,78 @@ final class ScreenplayStudioViewModel: ObservableObject {
             conflictState = nil
             return
         }
-        if !conflict.serverDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            applyServerDraft(
-                conflict.serverDraft,
-                versionId: conflict.serverVersionId,
-                allowOverwriteDirtyLocalDraft: true
-            )
-        } else {
-            Task { await loadSelectedProjectOutline() }
+        let owner = currentStudioAuthContext()
+        let choiceTime = Date().timeIntervalSince1970
+        let draftAtChoice = fountainDraft
+        if conflict.serverDraft.isEmpty {
+            Task { await loadMissingServerDraftForConflict(conflict, owner: owner,
+                draftAtChoice: draftAtChoice, choiceTime: choiceTime) }
+            return
         }
+        finishLoadingServerConflict(conflict, owner: owner, choiceTime: choiceTime)
+    }
+
+    func loadMissingServerDraftForConflict(_ conflict: SaveConflictState,
+        owner: ScreenplayStudioAuthContext, draftAtChoice: String, choiceTime: TimeInterval) async {
+        guard authContextIsCurrent(owner), selectedProjectID == conflict.projectId,
+              conflictState == conflict else { return }
+        do {
+            let project: BackendScreenplayProjectSummary
+            if let conflictProjectLoader {
+                project = try await conflictProjectLoader(conflict.projectId)
+            } else {
+                let headers = projectOwnerHeaderOptions(forProjectID: conflict.projectId)
+                let result = try await projectSelectionAPI.fetchScreenplayProject(
+                    projectId: conflict.projectId, includeDrafts: true, versionLimit: 24,
+                    includeUserIdentity: !headers.usesDebugClientTokenOwner,
+                    includeAuthToken: headers.includeAuthToken, clientTokenOverride: headers.clientTokenOverride)
+                guard let fetchedProject = result.payload.project else {
+                    throw BackendMemoryAPIError.server(status: 502, message: "server_draft_unavailable")
+                }
+                project = fetchedProject
+            }
+            guard authContextIsCurrent(owner), selectedProjectID == conflict.projectId,
+                  conflictState == conflict else { return }
+            guard fountainDraft == draftAtChoice else {
+                infoText = "Kept your newer edits. Choose Keep Mine or Load Server again."
+                return
+            }
+            guard project.id == conflict.projectId,
+                  let version = ScreenplayProjectDraftRestorePolicy.preferredVersion(in: project),
+                  !version.id.isEmpty, let draft = version.draft else {
+                throw BackendMemoryAPIError.server(status: 502, message: "server_draft_unavailable")
+            }
+            let fetched = SaveConflictState(projectId: conflict.projectId, baseVersionId: conflict.baseVersionId,
+                serverVersionId: version.id, serverDraft: draft, serverDraftExcerpt: version.draftExcerpt ?? "",
+                serverUpdatedAt: version.updatedAt ?? version.createdAt ?? 0)
+            finishLoadingServerConflict(fetched, owner: owner, choiceTime: choiceTime)
+        } catch {
+            guard authContextIsCurrent(owner), selectedProjectID == conflict.projectId,
+                  conflictState == conflict else { return }
+            errorText = "Could not load the server draft. Your local words are retained: \(error.localizedDescription)"
+        }
+    }
+
+    private func finishLoadingServerConflict(_ conflict: SaveConflictState,
+        owner: ScreenplayStudioAuthContext, choiceTime: TimeInterval) {
+        guard authContextIsCurrent(owner), selectedProjectID == conflict.projectId,
+              !conflict.serverVersionId.isEmpty else { return }
+        applyServerDraft(conflict.serverDraft, versionId: conflict.serverVersionId,
+            allowOverwriteDirtyLocalDraft: true)
         clearLocalDraftRecovery(projectId: conflict.projectId)
         conflictState = nil
         errorText = ""
         infoText = "Loaded latest server draft."
+        Task {
+            do {
+                try await draftSaveOutbox.discardConflicts(projectId: conflict.projectId,
+                    ownerUserId: owner.userID, through: choiceTime)
+                await refreshDraftSaveOutboxStatus()
+            } catch {
+                guard authContextIsCurrent(owner), selectedProjectID == conflict.projectId else { return }
+                errorText = "Loaded the server draft, but local conflict copies were retained: \(error.localizedDescription)"
+            }
+        }
     }
 
     func keepLocalDraftAfterConflict() async {
@@ -4409,7 +4477,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         isHydratingDraft = true
         fountainDraft = normalized
         isHydratingDraft = false
-        hasUnsavedDraftChanges = fingerprint(for: normalized) != lastSavedDraftFingerprint
+        hasUnsavedDraftChanges = !ScreenplayDraftTextIdentity.matches(normalized, lastRevisionBaseDraft)
         autosaveStatusText = "Normalized format"
         infoText = "Draft normalized to the simple Hollywood format."
 
@@ -4444,7 +4512,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         isHydratingDraft = true
         fountainDraft = nextDraft
         isHydratingDraft = false
-        hasUnsavedDraftChanges = fingerprint(for: nextDraft) != lastSavedDraftFingerprint
+        hasUnsavedDraftChanges = !ScreenplayDraftTextIdentity.matches(nextDraft, lastRevisionBaseDraft)
         autosaveStatusText = "Imported draft"
         infoText = shouldAppend
             ? "Imported \(sourceName) and appended it to the current draft. Clear the draft first if you want a clean replacement."
@@ -5554,9 +5622,14 @@ final class ScreenplayStudioViewModel: ObservableObject {
         }
     }
 
-    private func hydrateDraft(from project: BackendScreenplayProjectSummary) {
+    func hydrateDraft(from project: BackendScreenplayProjectSummary) {
+        guard project.id == selectedProjectID else { return }
         let selectedVersion = ScreenplayProjectDraftRestorePolicy.preferredVersion(in: project)
-        let nextDraft = (selectedVersion?.draft ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if selectedVersion == nil {
+            applyServerDraft("", versionId: "")
+            return
+        }
+        guard let nextDraft = selectedVersion?.draft else { return }
         studioWriteAnchors = (selectedVersion?.studioWriteAnchors ?? []).filter { anchor in
             !anchor.writeId.trimmingCharacters(in: .whitespacesAndNewlines).lowercased().hasPrefix("binding:")
         }
@@ -5567,6 +5640,22 @@ final class ScreenplayStudioViewModel: ObservableObject {
             serverUpdatedAt: selectedVersion?.updatedAt ?? selectedVersion?.createdAt ?? 0,
             serverDraftExcerpt: selectedVersion?.draftExcerpt ?? ""
         )
+        let owner = currentStudioAuthContext()
+        if let version = selectedVersion, !version.id.isEmpty, ScreenplayDraftTextIdentity.matches(fountainDraft, nextDraft) {
+            Task {
+                do {
+                    guard let entry = try await draftSaveOutbox.pendingEntry(projectId: project.id, ownerUserId: owner.userID),
+                          ScreenplayDraftTextIdentity.matches(entry.draft, nextDraft), authContextIsCurrent(owner),
+                          selectedProjectID == project.id, ScreenplayDraftTextIdentity.matches(fountainDraft, nextDraft) else { return }
+                    try await draftSaveOutbox.markSucceeded(id: entry.id, serverVersionId: version.id,
+                        supersedesEarlierSaves: true)
+                    await refreshDraftSaveOutboxStatus()
+                } catch {
+                    guard authContextIsCurrent(owner), selectedProjectID == project.id else { return }
+                    errorText = "Server save confirmed; local copies retained: \(error.localizedDescription)"
+                }
+            }
+        }
     }
 
     private func applyServerDraft(
@@ -5577,10 +5666,12 @@ final class ScreenplayStudioViewModel: ObservableObject {
         serverDraftExcerpt: String = ""
     ) {
         let normalizedProjectID = selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
-        let normalizedLocalDraft = fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-        let normalizedServerDraft = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedLocalDraft = fountainDraft
+        let normalizedServerDraft = draft
         let normalizedServerVersionID = versionId.trimmingCharacters(in: .whitespacesAndNewlines)
-        let localEditsNeedProtection = ScreenplayRemoteDraftConflictPolicy.shouldProtectLocalDraft(
+        let exactLocalNeedsProtection = !allowOverwriteDirtyLocalDraft && normalizedProjectID == loadedDraftProjectID
+            && !fountainDraft.isEmpty && !ScreenplayDraftTextIdentity.matches(fountainDraft, draft) && hasUnsavedDraftChanges
+        let localEditsNeedProtection = exactLocalNeedsProtection || ScreenplayRemoteDraftConflictPolicy.shouldProtectLocalDraft(
             selectedProjectId: normalizedProjectID,
             loadedProjectId: loadedDraftProjectID,
             localDraft: normalizedLocalDraft,
@@ -5592,7 +5683,9 @@ final class ScreenplayStudioViewModel: ObservableObject {
         )
 
         if localEditsNeedProtection {
-            let remoteConflict = ScreenplayRemoteDraftConflictPolicy.shouldSurfaceConflict(
+            let remoteConflict = (exactLocalNeedsProtection && !latestVersionID.isEmpty
+                && !normalizedServerVersionID.isEmpty && latestVersionID != normalizedServerVersionID)
+                || ScreenplayRemoteDraftConflictPolicy.shouldSurfaceConflict(
                 localEditsProtected: true,
                 localVersionId: latestVersionID,
                 serverVersionId: normalizedServerVersionID,
@@ -5617,6 +5710,13 @@ final class ScreenplayStudioViewModel: ObservableObject {
                     baseVersionId: latestVersionID,
                     surfaceCandidate: false
                 )
+                if let conflict = conflictState {
+                    let context = currentStudioAuthContext()
+                    Task {
+                        guard conflictState == conflict, authContextIsCurrent(context) else { return }
+                        await handleDraftSaveConflict(conflict, ownerUserId: context.userID, expectedContext: context)
+                    }
+                }
             } else {
                 autosaveStatusText = "Unsaved changes"
                 if infoText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
@@ -5680,8 +5780,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
            ) != true {
             clearCoverageSimulation()
         }
-        let currentFingerprint = fingerprint(for: normalized)
-        hasUnsavedDraftChanges = currentFingerprint != lastSavedDraftFingerprint
+        hasUnsavedDraftChanges = !ScreenplayDraftTextIdentity.matches(draft, lastRevisionBaseDraft)
         if hasUnsavedDraftChanges && isManualDraftEditing {
             autosaveStatusText = "Unsaved changes"
             if infoText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
@@ -5713,6 +5812,10 @@ final class ScreenplayStudioViewModel: ObservableObject {
             baseVersionId: latestVersionID,
             dirty: hasUnsavedDraftChanges
         )
+        guard conflictState == nil else {
+            autosaveStatusText = "Conflict detected"
+            return
+        }
         if selectedProject == nil {
             autosaveStatusText = hasUnsavedDraftChanges ? "Create project to save" : "Live draft"
             return
@@ -5793,6 +5896,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
     func resumeQueuedDraftSavesIfNeeded(force: Bool = false) async {
         guard !isDraftSaveInFlight,
               !isSaving,
+              conflictState == nil,
               !isStreamingDraftPreviewActive else {
             return
         }
@@ -5844,7 +5948,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
     private func adoptQueuedDraftIntoUnchangedEditorIfNeeded(
         _ entry: ScreenplayDraftSaveOutboxEntry
     ) {
-        guard ScreenplayQueuedDraftAdoptionPolicy.shouldAdopt(
+        guard ScreenplayDraftTextIdentity.matches(fountainDraft, lastRevisionBaseDraft),
+              ScreenplayQueuedDraftAdoptionPolicy.shouldAdopt(
             selectedProjectID: selectedProjectID,
             loadedProjectID: loadedDraftProjectID,
             latestVersionID: latestVersionID,
@@ -5858,7 +5963,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
             return
         }
         let queuedDraft = entry.draft
-        guard fingerprint(for: fountainDraft) != fingerprint(for: queuedDraft) else { return }
+        guard !ScreenplayDraftTextIdentity.matches(fountainDraft, queuedDraft) else { return }
 
         isHydratingDraft = true
         fountainDraft = queuedDraft
@@ -5908,7 +6013,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
             return
         }
 
-        if !isDraftSaveInFlight,
+        if source != "studio_conflict_resolve", !isDraftSaveInFlight,
            (try? await draftSaveOutbox.hasActiveEntries(
                projectId: request.projectId,
                ownerUserId: request.ownerUserId
@@ -6009,8 +6114,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
            request.source == "studio_conflict_resolve",
            ProcessInfo.processInfo.arguments.contains("--ui-conflict-save-success") {
             latestVersionID = "ui-local-version"
-            lastSavedDraftFingerprint = fingerprint(for: normalized)
-            lastRevisionBaseDraft = normalized
+            lastSavedDraftFingerprint = fingerprint(for: request.draft)
+            lastRevisionBaseDraft = request.draft
             hasUnsavedDraftChanges = false
             isManualDraftEditing = false
             lastManualDraftEditAt = .distantPast
@@ -6063,10 +6168,11 @@ final class ScreenplayStudioViewModel: ObservableObject {
             case .canonicalVersion(let serverVersion):
                 guard authContextIsCurrent(request.authContext) else { return false }
                 let serverDraft = serverVersion.draft ?? ""
-                if fingerprint(for: serverDraft) == fingerprint(for: request.draft) {
+                if ScreenplayDraftTextIdentity.matches(serverDraft, request.draft) {
                     try? await draftSaveOutbox.markSucceeded(
                         id: request.id,
-                        serverVersionId: serverVersion.id
+                        serverVersionId: serverVersion.id,
+                        supersedesEarlierSaves: request.source == "studio_conflict_resolve"
                     )
                     latestVersionID = serverVersion.id
                     lastSavedDraftFingerprint = fingerprint(for: request.draft)
@@ -6089,7 +6195,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
                     return true
                 }
 
-                conflictState = SaveConflictState(
+                let conflict = SaveConflictState(
                     projectId: request.projectId,
                     baseVersionId: "",
                     serverVersionId: serverVersion.id,
@@ -6097,19 +6203,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
                     serverDraftExcerpt: serverVersion.draftExcerpt ?? String(serverDraft.prefix(240)),
                     serverUpdatedAt: serverVersion.updatedAt ?? serverVersion.createdAt ?? 0
                 )
-                hasUnsavedDraftChanges = true
-                autosaveStatusText = "Conflict detected"
-                infoText = "Another device already saved this project. Choose keep mine or load server."
-                persistRecoveryForUnconfirmedSave(
-                    projectId: request.projectId,
-                    draft: fountainDraft,
-                    baseVersionId: "",
-                    surfaceCandidate: false
-                )
-                try? await draftSaveOutbox.removeAll(
-                    projectId: request.projectId,
-                    ownerUserId: request.ownerUserId
-                )
+                await handleDraftSaveConflict(conflict, ownerUserId: request.ownerUserId, expectedContext: request.authContext)
                 return false
             }
             let ownerHeaders = projectOwnerHeaderOptions(forProjectID: request.projectId)
@@ -6163,7 +6257,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
                     .trimmingCharacters(in: .whitespacesAndNewlines)
                 let serverVersionId = (result.payload.serverVersionId ?? "")
                     .trimmingCharacters(in: .whitespacesAndNewlines)
-                conflictState = SaveConflictState(
+                let conflict = SaveConflictState(
                     projectId: request.projectId,
                     baseVersionId: baseVersionId,
                     serverVersionId: serverVersionId,
@@ -6171,20 +6265,19 @@ final class ScreenplayStudioViewModel: ObservableObject {
                     serverDraftExcerpt: result.payload.serverVersion?.draftExcerpt ?? "",
                     serverUpdatedAt: result.payload.serverVersion?.updatedAt ?? 0
                 )
-                hasUnsavedDraftChanges = true
-                autosaveStatusText = "Conflict detected"
-                infoText = "Another collaborator updated this draft. Choose keep mine or load server."
-                persistRecoveryForUnconfirmedSave(
-                    projectId: request.projectId,
-                    draft: fountainDraft,
-                    baseVersionId: baseVersionId.isEmpty ? latestVersionID : baseVersionId,
-                    surfaceCandidate: false
-                )
-                try? await draftSaveOutbox.removeAll(
-                    projectId: request.projectId,
-                    ownerUserId: request.ownerUserId
-                )
+                await handleDraftSaveConflict(conflict, ownerUserId: request.ownerUserId, expectedContext: request.authContext)
                 return false
+            }
+            let nextVersionId = (result.payload.versionId ?? result.payload.version?.id ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !nextVersionId.isEmpty else {
+                throw BackendMemoryAPIError.invalidResponse
+            }
+            guard ScreenplayDraftSaveCompletionPolicy.confirmsSavedDraft(
+                requestedDraft: request.draft, returnedDraft: result.payload.version?.draft
+            ) else {
+                throw BackendMemoryAPIError.server(status: 409,
+                    message: "Server did not confirm your exact text. Your local copy is retained.")
             }
             conflictState = nil
             if let nextProject = result.payload.project {
@@ -6192,14 +6285,10 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 selectedProject = nextProject
                 selectedProjectID = nextProject.id
             }
-            let nextVersionId = (result.payload.versionId ?? result.payload.version?.id ?? "")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !nextVersionId.isEmpty else {
-                throw BackendMemoryAPIError.invalidResponse
-            }
             try? await draftSaveOutbox.markSucceeded(
                 id: request.id,
-                serverVersionId: nextVersionId
+                serverVersionId: nextVersionId,
+                supersedesEarlierSaves: request.source == "studio_conflict_resolve"
             )
             latestVersionID = nextVersionId
             if let savedAnchors = result.payload.version?.studioWriteAnchors {
@@ -6211,8 +6300,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 screenplayBindings = savedBindings
             }
             syncLiveDraftBridgeProjectContext()
-            lastSavedDraftFingerprint = fingerprint(for: normalized)
-            lastRevisionBaseDraft = normalized
+            lastSavedDraftFingerprint = fingerprint(for: request.draft)
+            lastRevisionBaseDraft = request.draft
             hasUnsavedDraftChanges = ScreenplayDraftSaveCompletionPolicy.hasUnsavedChanges(
                 currentDraft: fountainDraft,
                 savedDraft: request.draft
@@ -6296,6 +6385,37 @@ final class ScreenplayStudioViewModel: ObservableObject {
             await refreshDraftSaveOutboxStatus()
             return false
         }
+    }
+
+    func handleDraftSaveConflict(_ conflict: SaveConflictState, ownerUserId: String,
+                                 expectedContext: ScreenplayStudioAuthContext? = nil) async {
+        let context = expectedContext ?? currentStudioAuthContext()
+        guard authContextIsCurrent(context), context.userID == ownerUserId,
+              ScreenplayProjectScopedState.matches(conflict.projectId, selectedProjectId: selectedProjectID) else { return }
+        conflictState = conflict
+        autosaveStatusText = "Conflict detected"
+        infoText = "Another collaborator updated this draft. Choose keep mine or load server."
+        do {
+            let retained = try await draftSaveOutbox.retainConflict(
+                projectId: conflict.projectId, ownerUserId: ownerUserId)
+            guard authContextIsCurrent(context), selectedProjectID == conflict.projectId,
+                  conflictState == conflict else { return }
+            if let retained, !hasUnsavedDraftChanges, !isManualDraftEditing {
+                isHydratingDraft = true
+                fountainDraft = retained.draft
+                isHydratingDraft = false
+                loadedDraftProjectID = conflict.projectId
+                isManualDraftEditing = true
+                lastManualDraftEditAt = Date()
+            }
+            hasUnsavedDraftChanges = true
+            persistRecoveryForUnconfirmedSave(projectId: conflict.projectId, draft: fountainDraft,
+                baseVersionId: conflict.baseVersionId, surfaceCandidate: false)
+        } catch {
+            guard authContextIsCurrent(context), selectedProjectID == conflict.projectId else { return }
+            errorText = "Your queued drafts were retained, but conflict recovery could not be updated: \(error.localizedDescription)"
+        }
+        await refreshDraftSaveOutboxStatus()
     }
 
     private func emptyBaseDraftSavePreflight(
@@ -6679,7 +6799,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         let hasDifferentPreservedConflict = recoveryCandidate.map {
             $0.projectId == normalizedProjectId &&
                 $0.isPreservedConflict &&
-                $0.draft != draft
+                !ScreenplayDraftTextIdentity.matches($0.draft, draft)
         } ?? false
         if !dirty && !hasDifferentPreservedConflict {
             recoveryCandidate = nil

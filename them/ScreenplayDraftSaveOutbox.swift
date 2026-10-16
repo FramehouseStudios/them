@@ -62,6 +62,7 @@ nonisolated struct ScreenplayDraftSaveOutboxSnapshot: Equatable {
 }
 
 actor ScreenplayDraftSaveOutbox {
+    static let conflictReason = "Server draft changed. Choose Keep Mine or Load Server."
     static let shared = ScreenplayDraftSaveOutbox(storageDirectory: defaultStorageDirectory())
 
     private static let maxDraftBytes = 2 * 1024 * 1024
@@ -133,7 +134,7 @@ actor ScreenplayDraftSaveOutbox {
         if let index = entries.firstIndex(where: { $0.id == entry.id }) {
             guard entries[index].projectId == entry.projectId,
                   entries[index].ownerUserId == entry.ownerUserId,
-                  normalizedDraft(entries[index].draft) == normalizedDraft(entry.draft) else {
+                  ScreenplayDraftTextIdentity.matches(entries[index].draft, entry.draft) else {
                 throw BackendMemoryAPIError.server(status: 409, message: "screenplay_save_id_reused")
             }
             let nextSnapshot = snapshotFor(entries)
@@ -145,7 +146,7 @@ actor ScreenplayDraftSaveOutbox {
                 existing.ownerUserId == entry.ownerUserId &&
                 existing.status != .parked &&
                 existing.baseVersionId == entry.baseVersionId &&
-                normalizedDraft(existing.draft) == normalizedDraft(entry.draft)
+                ScreenplayDraftTextIdentity.matches(existing.draft, entry.draft)
         }) {
             let nextSnapshot = snapshotFor(entries)
             publish(nextSnapshot)
@@ -212,15 +213,17 @@ actor ScreenplayDraftSaveOutbox {
     func markSucceeded(
         id: String,
         serverVersionId: String,
+        supersedesEarlierSaves: Bool = false,
         now: Date = Date()
     ) throws {
         try loadIfNeeded()
         guard let index = entries.firstIndex(where: { $0.id == id }) else { return }
+        let previous = entries
         let completed = entries.remove(at: index)
         entries.removeAll { entry in
             entry.projectId == completed.projectId &&
                 entry.ownerUserId == completed.ownerUserId &&
-                entry.status == .parked &&
+                (supersedesEarlierSaves || entry.status == .parked) &&
                 entry.createdAt <= completed.createdAt
         }
         let nextBase = serverVersionId.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -234,7 +237,7 @@ actor ScreenplayDraftSaveOutbox {
                 entries[queuedIndex].updatedAt = now.timeIntervalSince1970
             }
         }
-        try persist()
+        do { try persist() } catch { entries = previous; throw error }
         publishSnapshot()
     }
 
@@ -242,6 +245,37 @@ actor ScreenplayDraftSaveOutbox {
         try loadIfNeeded()
         entries.removeAll { $0.id == id }
         try persist()
+        publishSnapshot()
+    }
+
+    /// Retain every immutable draft until the writer resolves this chain.
+    func retainConflict(projectId: String, ownerUserId: String, now: Date = Date()) throws -> ScreenplayDraftSaveOutboxEntry? {
+        try loadIfNeeded()
+        let previous = entries
+        let project = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
+        let owner = ownerUserId.trimmingCharacters(in: .whitespacesAndNewlines)
+        for index in entries.indices where entries[index].projectId == project && entries[index].ownerUserId == owner {
+            entries[index].status = .parked
+            entries[index].updatedAt = now.timeIntervalSince1970
+            entries[index].nextAttemptAt = 0
+            entries[index].lastError = Self.conflictReason
+        }
+        do { try persist() } catch { entries = previous; throw error }
+        publishSnapshot()
+        return entries.last { $0.projectId == project && $0.ownerUserId == owner }
+    }
+
+    /// Only an explicit Load Server choice discards conflicts already present at that choice.
+    func discardConflicts(projectId: String, ownerUserId: String, through: TimeInterval) throws {
+        try loadIfNeeded()
+        let previous = entries
+        let project = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
+        let owner = ownerUserId.trimmingCharacters(in: .whitespacesAndNewlines)
+        entries.removeAll {
+            $0.projectId == project && $0.ownerUserId == owner && $0.status == .parked
+                && $0.lastError == Self.conflictReason && $0.createdAt <= through
+        }
+        do { try persist() } catch { entries = previous; throw error }
         publishSnapshot()
     }
 
@@ -295,10 +329,11 @@ actor ScreenplayDraftSaveOutbox {
         try loadIfNeeded()
         let cleanProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
         let cleanOwnerUserId = ownerUserId.trimmingCharacters(in: .whitespacesAndNewlines)
-        return entries.first { entry in
+        return entries.last { entry in
             entry.projectId == cleanProjectId
                 && entry.ownerUserId == cleanOwnerUserId
-                && (entry.status == .pending || entry.status == .inflight)
+                && (entry.status == .pending || entry.status == .inflight
+                    || (entry.status == .parked && entry.lastError == Self.conflictReason))
         }
     }
 
@@ -398,13 +433,6 @@ actor ScreenplayDraftSaveOutbox {
                 userInfo: snapshot.notificationUserInfo
             )
         }
-    }
-
-    private func normalizedDraft(_ draft: String) -> String {
-        draft
-            .replacingOccurrences(of: "\r\n", with: "\n")
-            .replacingOccurrences(of: "\r", with: "\n")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func normalizedError(_ error: String) -> String {

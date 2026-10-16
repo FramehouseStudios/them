@@ -1,10 +1,29 @@
 import SwiftUI
 import ScreenplayStudio
+#if os(iOS)
+import UIKit
+
+func hollywoodScreenplayEditorUIFont() -> UIFont {
+    UIFont(name: "Courier", size: 12) ?? UIFont.monospacedSystemFont(ofSize: 12, weight: .regular)
+}
+
+extension IOSCursorInsertTextEditor {
+    func shouldApplyModelText(to textView: UITextView, previous: (text: String, documentID: String), deferredAllows: Bool) -> Bool {
+        let documentDidChange = previous.documentID != documentID
+        return (documentDidChange || deferredAllows) && ScreenplayEditorTextBindingPolicy.shouldApplyModelText(
+            incomingText: text, currentEditorText: textView.text ?? "",
+            lastRenderedModelText: previous.text,
+            isEditorFocused: textView.isFirstResponder, documentDidChange: documentDidChange
+        )
+    }
+}
+#endif
 
 /// Keeps editor composition out of the live-draft bridge while forwarding the
 /// iPhone keyboard save affordance to the native screenplay editor.
 struct CursorInsertTextEditor: View {
     @Binding var text: String
+    var documentID: String = ""
     @Binding var activeScreenplayElement: ScreenplayEditorElement
     @Binding var insertionRequest: ScreenplayInsertionRequest?
     @Binding var lineJumpRequest: ScreenplayLineJumpRequest?
@@ -44,6 +63,7 @@ struct CursorInsertTextEditor: View {
 #elseif os(iOS)
         IOSCursorInsertTextEditor(
             text: $text,
+            documentID: documentID,
             activeScreenplayElement: $activeScreenplayElement,
             insertionRequest: $insertionRequest,
             lineJumpRequest: $lineJumpRequest,

@@ -63,26 +63,34 @@ final class V1SmokeUITests: XCTestCase {
             let editorDeadline = Date().addingTimeInterval(8)
             editorText = editor.value as? String ?? ""
             while Date() < editorDeadline,
-                  !editorText.localizedCaseInsensitiveContains(expectedPrefix) {
+                  editorText != expectedPrefix {
                 RunLoop.current.run(until: Date().addingTimeInterval(0.1))
                 editorText = editor.value as? String ?? ""
             }
-            XCTAssertTrue(
-                editorText.localizedCaseInsensitiveContains(expectedPrefix),
-                "UIKit editor lost or redirected characters in typing chunk \(index + 1). " +
-                    "Expected prefix: \(expectedPrefix). Editor: \(editorText). " +
+            XCTAssertEqual(
+                editorText,
+                expectedPrefix,
+                "UIKit editor lost, duplicated, or redirected characters in typing chunk \(index + 1). " +
                     "Draft model: \(accessibleDraftText(in: app))"
             )
         }
-        XCTAssertTrue(
-            editorText.localizedCaseInsensitiveContains(sentence),
-            "UIKit editor lost or redirected characters. Editor: \(editorText). Draft model: \(accessibleDraftText(in: app))"
+        XCTAssertEqual(
+            editorText,
+            sentence,
+            "UIKit editor did not preserve the exact screenplay text. Draft model: \(accessibleDraftText(in: app))"
         )
 
-        XCTAssertTrue(
-            waitForDraft(in: app, containing: sentence, timeout: 8),
-            "Editor accepted direct typing, but the published draft lost or redirected characters. " +
-                "Editor: \(editorText). Draft model: \(accessibleDraftText(in: app))"
+        let draftDeadline = Date().addingTimeInterval(8)
+        var draftText = accessibleDraftText(in: app)
+        while Date() < draftDeadline, draftText != sentence {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+            draftText = accessibleDraftText(in: app)
+        }
+        XCTAssertEqual(
+            draftText,
+            sentence,
+            "Editor accepted direct typing, but the published draft did not preserve the exact text. " +
+                "Editor: \(editorText)"
         )
 #else
         throw XCTSkip("The direct page typing regression specifically covers the iPhone editor.")
@@ -1806,7 +1814,7 @@ final class V1SmokeUITests: XCTestCase {
             throw XCTSkip("Screenplay save recovery server is not running on \(baseURL.absoluteString).")
         }
 
-        let fixture = try await seedBackendRestoreContractFixture(baseURL: baseURL)
+        let fixture = try await seedBackendRestoreContractFixture(baseURL: baseURL, preserveDraftBoundaries: true)
         let marker = "SAVE-OUTBOX-\(UUID().uuidString.uppercased())"
         var app = launchApp(
             openStudio: true,
@@ -1899,8 +1907,8 @@ final class V1SmokeUITests: XCTestCase {
         let recoveredVersion = try XCTUnwrap(recoveredVersions.first)
         let expectedRecoveredDraft = "\(fixture.expectedDraft)\n\n\(marker)"
         XCTAssertEqual(
-            stringValue(recoveredVersion["draft"]),
-            expectedRecoveredDraft,
+            Array((recoveredVersion["draft"] as? String ?? "").utf8),
+            Array(expectedRecoveredDraft.utf8),
             "The offline save must restore the writer's complete draft exactly, not just retain its marker."
         )
         let recoveredVersionID = try firstNonEmptyString(
@@ -2001,7 +2009,7 @@ final class V1SmokeUITests: XCTestCase {
                     && stringValue(snapshot["conflict_server_version_id"]).lowercased() == competingVersionID.lowercased()
                     && stringValue(snapshot["draft_tail_preview"]).contains(marker)
                     && intValue(snapshot["queued_draft_save_count"]) == 0
-                    && intValue(snapshot["parked_draft_save_count"]) == 0
+                    && intValue(snapshot["parked_draft_save_count"]) == 1
                     && boolValue(snapshot["has_unsaved_draft_changes"])
                     && stringValue(snapshot["error_text"]).isEmpty
             },
@@ -2030,6 +2038,22 @@ final class V1SmokeUITests: XCTestCase {
             0,
             "A stale queued save must not commit before the writer chooses a resolution."
         )
+
+        app.terminate()
+        app = launchApp(openStudio: true, resetState: false,
+                        launchEnvironment: fixture.appLaunchEnvironment)
+        XCTAssertTrue(app.otherElements["studio.surface"].waitForExistence(timeout: 12))
+        var relaunchedConflict: [String: Any] = [:]
+        XCTAssertTrue(waitForRestoreSnapshot(in: app, timeout: 75) { snapshot in
+            relaunchedConflict = snapshot
+            return stringValue(snapshot["conflict_project_id"]).lowercased() == fixture.projectID.lowercased()
+                && stringValue(snapshot["conflict_server_version_id"]).lowercased() == competingVersionID.lowercased()
+                && stringValue(snapshot["draft_tail_preview"]).contains(marker)
+                && intValue(snapshot["queued_draft_save_count"]) == 0
+                && intValue(snapshot["parked_draft_save_count"]) == 1
+                && boolValue(snapshot["has_unsaved_draft_changes"])
+                && stringValue(snapshot["error_text"]).isEmpty
+        }, "Unresolved conflict lost its durable writer copy after relaunch: \(relaunchedConflict)")
 
         let keepMine = app.buttons["studio.conflict.keep-mine"]
         if !keepMine.isHittable { app.swipeUp() }
@@ -4987,7 +5011,7 @@ final class V1SmokeUITests: XCTestCase {
         )
     }
 
-    private func seedBackendRestoreContractFixture(baseURL: URL) async throws -> RestoreContractFixture {
+    private func seedBackendRestoreContractFixture(baseURL: URL, preserveDraftBoundaries: Bool = false) async throws -> RestoreContractFixture {
         let appToken = "them-dev"
         let stamp = "\(Int(Date().timeIntervalSince1970 * 1000))-\(UUID().uuidString.prefix(6).lowercased())"
         let projectID = "studio-ios-restore-\(stamp)"
@@ -5001,7 +5025,9 @@ final class V1SmokeUITests: XCTestCase {
         let focusedDiffKey = "write:\(firstWriteID)"
         let firstText = "INT. ROOM - NIGHT\n\nHe closes the blinds and waits."
         let secondText = "INT. ROOM - NIGHT\n\nHe waits."
-        let thirdText = "INT. ROOM - NIGHT\n\nHe waits, still."
+        let thirdText = preserveDraftBoundaries
+            ? "  \tINT. ROOM - NIGHT\r\n\nHe waits at the cafe\u{0301}.\t \r\n"
+            : "INT. ROOM - NIGHT\n\nHe waits, still."
         let now = Date()
 
         let firstEntry = studioRestoreExchange(

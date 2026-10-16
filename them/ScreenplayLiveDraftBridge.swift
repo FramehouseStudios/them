@@ -10714,13 +10714,9 @@ final class HollywoodScreenplayUITextView: UITextView {
     }
 }
 
-private func hollywoodScreenplayEditorUIFont() -> UIFont {
-    UIFont(name: "Courier", size: 12) ?? UIFont.monospacedSystemFont(ofSize: 12, weight: .regular)
-}
-
-
 struct IOSCursorInsertTextEditor: UIViewRepresentable {
     @Binding var text: String
+    var documentID: String = ""
     @Binding var activeScreenplayElement: ScreenplayEditorElement
     @Binding var insertionRequest: ScreenplayInsertionRequest?
     @Binding var lineJumpRequest: ScreenplayLineJumpRequest?
@@ -10808,6 +10804,7 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
         let previousPendingID = context.coordinator.parent.pendingReplacementTarget?.id
         let previousSubmittedID = context.coordinator.parent.submittedReplacementTarget?.id
         let previousInsertionID = context.coordinator.parent.insertionRequest?.id
+        let previousParent = (text: context.coordinator.parent.text, documentID: context.coordinator.parent.documentID)
         context.coordinator.parent = self
         let currentPendingID = pendingReplacementTarget?.id
         let currentSubmittedID = submittedReplacementTarget?.id
@@ -10838,7 +10835,9 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
             context.coordinator.applyActiveElementFromBinding(activeScreenplayElement)
         }
 
-        if !context.coordinator.isApplyingProgrammaticChange, uiView.text != text, context.coordinator.shouldApplyBoundText(text, currentText: uiView.text ?? "") {
+        if !context.coordinator.isApplyingProgrammaticChange,
+           shouldApplyModelText(to: uiView, previous: previousParent,
+               deferredAllows: context.coordinator.shouldApplyBoundText(text, currentText: uiView.text ?? "")) {
             let previousSelection = uiView.selectedRange
             context.coordinator.isApplyingProgrammaticChange = true
             uiView.text = text

@@ -34,13 +34,13 @@ async function login(server, email, password) {
 }
 
 test("[screenplay-cross-device] iPhone save restores on desktop after backend restart", async () => {
-  let server = await startBackend();
+  let server = await startBackend({ env: { REQUIRE_USER_AUTH: "true" } });
   const dataDir = server.dataDir;
   const stamp = randomUUID().replace(/-/g, "");
   const email = `cross-device-${stamp}@example.test`;
   const password = `Cross-device-${stamp}-aA1!`;
   const projectId = `cross-device-${stamp.slice(0, 12)}`;
-  const firstDraft = "INT. EDIT SUITE - NIGHT\n\nThe desktop timeline waits.";
+  const firstDraft = "  \tINT. EDIT SUITE - NIGHT\r\n\r\nThe desktop timeline waits.\t \r\n";
   const iPhoneDraft = `${firstDraft}\n\nEXT. FERRY DOCK - DAWN\n\nMARA saves the scene from her phone.`;
   let firstVersionId = "";
   let iPhoneVersionId = "";
@@ -70,6 +70,7 @@ test("[screenplay-cross-device] iPhone save restores on desktop after backend re
       },
     });
     assert.equal(firstSave.status, 201, firstSave.text);
+    assert.equal(firstSave.json?.version?.draft, firstDraft, "Save exactly the submitted writer text.");
     firstVersionId = String(firstSave.json?.version_id || "");
     assert.ok(firstVersionId);
 
@@ -86,6 +87,7 @@ test("[screenplay-cross-device] iPhone save restores on desktop after backend re
       },
     });
     assert.equal(iPhoneSave.status, 201, iPhoneSave.text);
+    assert.equal(iPhoneSave.json?.version?.draft, iPhoneDraft);
     iPhoneVersionId = String(iPhoneSave.json?.version_id || "");
     assert.ok(iPhoneVersionId);
   } finally {
@@ -93,7 +95,7 @@ test("[screenplay-cross-device] iPhone save restores on desktop after backend re
     assert.equal(stopped.forced, false, "backend should drain before restart");
   }
 
-  server = await startBackend({ dataDir });
+  server = await startBackend({ dataDir, env: { REQUIRE_USER_AUTH: "true" } });
   try {
     const desktopToken = await login(server, email, password);
     const desktopHeaders = authHeaders(desktopToken);
@@ -130,6 +132,13 @@ test("[screenplay-cross-device] iPhone save restores on desktop after backend re
     assert.equal(replay.status, 200, replay.text);
     assert.equal(replay.json?.status, "replayed");
     assert.equal(replay.json?.version_id, iPhoneVersionId);
+
+    const changedReplay = await apiRequest(server, `/screenplay/projects/${projectId}/version`, {
+      method: "POST", headers: desktopHeaders,
+      json: { draft: iPhoneDraft + "\n", client_request_id: "iphone-durable-save" },
+    });
+    assert.equal(changedReplay.status, 409, "Whitespace-distinct requests must not replay an older save.");
+    assert.equal(changedReplay.json?.status, "client_request_id_reused");
 
     const stale = await apiRequest(server, `/screenplay/projects/${projectId}/version`, {
       method: "POST",

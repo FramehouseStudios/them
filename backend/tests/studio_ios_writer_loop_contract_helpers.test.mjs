@@ -3,10 +3,26 @@ import test from "node:test";
 
 import {
   assertSinglePassedTestSummary,
+  assertPassedTestSummary,
   failureOutputTail,
   FAILURE_OUTPUT_LIMIT,
   xcresultFailureDetails,
 } from "../evals/studio_ios_writer_loop_contract_helpers.mjs";
+
+test("[screenplay-save-recovery] requires both passing, unskipped recovery tests", () => {
+  assert.doesNotThrow(() => assertPassedTestSummary({
+    totalTestCount: 2, passedTests: 2, failedTests: 0, skippedTests: 0,
+  }, 2, "Recovery proof incomplete"));
+  for (const summary of [
+    undefined,
+    { totalTestCount: 1, passedTests: 1, failedTests: 0, skippedTests: 0 },
+    { totalTestCount: 2, passedTests: 1, failedTests: 0, skippedTests: 1 },
+    { totalTestCount: 2, passedTests: 1, failedTests: 1, skippedTests: 0 },
+    { totalTestCount: 3, passedTests: 3, failedTests: 0, skippedTests: 0 },
+  ]) {
+    assert.throws(() => assertPassedTestSummary(summary, 2, "Recovery proof incomplete"), /Recovery proof incomplete/);
+  }
+});
 
 test("[studio-ios-writer-loop] accepts exactly one passed, unskipped test", () => {
   assert.doesNotThrow(() => assertSinglePassedTestSummary({

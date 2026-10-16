@@ -37,6 +37,163 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         }
     }
 
+    func testSaveConfirmationRequiresExactReturnedWriterText() {
+        let draft = "  café\r\n"
+        XCTAssertTrue(ScreenplayDraftSaveCompletionPolicy.confirmsSavedDraft(
+            requestedDraft: draft, returnedDraft: draft))
+        for returned in [nil, "café", "  café\n", "  cafe\u{0301}\r\n"] as [String?] {
+            XCTAssertFalse(ScreenplayDraftSaveCompletionPolicy.confirmsSavedDraft(
+                requestedDraft: draft, returnedDraft: returned))
+        }
+        XCTAssertFalse(ScreenplayDraftSaveRetryPolicy.shouldRetry(
+            BackendMemoryAPIError.server(status: 409, message: "unconfirmed_exact_text")))
+    }
+
+    func testRecoveryDoesNotDiscardDistinctTextWhenFingerprintsCollide() {
+        store.save(ownerUserId: ownerUserID, projectId: "collision", draft: "Writer words",
+                   baseVersionId: "base", dirty: true)
+        let recovered = store.recoverySnapshot(ownerUserId: ownerUserID, projectId: "collision",
+            serverDraft: "Server words", fingerprint: { _ in "constant" })
+        XCTAssertEqual(recovered?.draft, "Writer words")
+        store.savePreservedConflict(ownerUserId: ownerUserID, projectId: "collision",
+            draft: "Preserved words", baseVersionId: "base")
+        XCTAssertEqual(store.recoverySnapshot(ownerUserId: ownerUserID, projectId: "collision",
+            serverDraft: "Server words", fingerprint: { _ in "constant" })?.draft, "Preserved words")
+    }
+
+    func testUnicodeDistinctRecoveryCopiesSurviveRelaunchAndSpecificRemoval() {
+        let composed = "café", decomposed = "cafe\u{0301}"
+        for draft in [composed, decomposed] {
+            store.savePreservedConflict(ownerUserId: ownerUserID, projectId: "unicode",
+                draft: draft, baseVersionId: "base", savedAt: 1)
+        }
+        let reopened = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: recoveryKey)
+        XCTAssertEqual(Array(reopened.firstPreservedConflict(ownerUserId: ownerUserID,
+            projectId: "unicode")!.draft.utf8), Array(composed.utf8))
+        XCTAssertEqual(Array(reopened.nextPreservedConflict(ownerUserId: ownerUserID,
+            projectId: "unicode", after: composed, savedAt: 1)!.draft.utf8), Array(decomposed.utf8))
+        reopened.clearPreservedConflict(ownerUserId: ownerUserID, projectId: "unicode", draft: decomposed)
+        XCTAssertEqual(Array(reopened.firstPreservedConflict(ownerUserId: ownerUserID,
+            projectId: "unicode")!.draft.utf8), Array(composed.utf8))
+        XCTAssertNil(reopened.nextPreservedConflict(ownerUserId: ownerUserID,
+            projectId: "unicode", after: composed, savedAt: 1))
+    }
+
+    @MainActor
+    func testHydrationPreservesDirtyUnicodeDistinctLocalDraft() async {
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store)
+        model.selectedProjectID = "unicode"
+        model.autosaveEnabled = false
+        model.applyStructuralUITestDraft("café", versionID: "base")
+        model.fountainDraft = "cafe\u{0301}"
+        model.noteManualDraftEdit()
+        model.hydrateDraft(from: projectSummary(id: "unicode", activeVersionId: "remote",
+            versions: [version(id: "remote", draft: "café")]))
+        XCTAssertEqual(Array(model.fountainDraft.utf8), Array("cafe\u{0301}".utf8))
+        XCTAssertTrue(model.hasUnsavedDraftChanges)
+        XCTAssertNotNil(model.conflictState)
+        try? await Task.sleep(nanoseconds: 1_100_000_000)
+    }
+
+    @MainActor
+    func testSnapshotRestoresRawBoundaryAndUnicodeBytes() async {
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store)
+        model.selectedProjectID = "snapshot"
+        model.autosaveEnabled = false
+        model.applyStructuralUITestDraft("Saved draft", versionID: "base")
+        let raw = "  \tINT. ROOM - NIGHT\r\n\ncafe\u{0301}\t \r\n"
+        model.loadSnapshot(version(id: "historic", draft: raw))
+        XCTAssertEqual(Array(model.fountainDraft.utf8), Array(raw.utf8))
+        XCTAssertTrue(model.hasUnsavedDraftChanges)
+        try? await Task.sleep(nanoseconds: 1_100_000_000)
+    }
+
+    func testCommittedPageCannotOverwriteByteDistinctManualEdit() {
+        for edited in ["cafe\u{0301}", "café\n"] {
+            XCTAssertFalse(ScreenplayCommittedDraftAdoptionPolicy.shouldAdopt(
+                selectedProjectID: "project", committedProjectID: "project",
+                currentDraft: edited, previousDraft: "café", committedDraft: "New page"))
+        }
+    }
+
+    @MainActor
+    func testExplicitLoadServerChoiceAllowsNormalLiveFollowingAgain() async {
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store)
+        model.selectedProjectID = "resolved-choice"
+        model.fountainDraft = "Writer draft"
+        model.hasUnsavedDraftChanges = true
+        model.conflictState = ScreenplayStudioViewModel.SaveConflictState(
+            projectId: model.selectedProjectID, baseVersionId: "base", serverVersionId: "remote",
+            serverDraft: "Chosen server draft", serverDraftExcerpt: "Chosen server draft",
+            serverUpdatedAt: 1
+        )
+
+        model.applyServerVersionFromConflict()
+        XCTAssertNil(model.conflictState)
+        XCTAssertEqual(model.fountainDraft, "Chosen server draft")
+        XCTAssertEqual(model.latestVersionID, "remote")
+        XCTAssertFalse(model.hasUnsavedDraftChanges)
+        XCTAssertTrue(model.applyRemoteLiveDraft("Next live revision",
+            projectID: model.selectedProjectID, sourceDeviceID: "other-device"))
+        model.adoptRemoteLiveVersion("next", projectID: model.selectedProjectID,
+                                    draftChecksum: LiveDraftText.checksum("Next live revision"))
+        XCTAssertEqual(model.latestVersionID, "next")
+        XCTAssertFalse(model.hasUnsavedDraftChanges)
+        try? await Task.sleep(nanoseconds: 1_100_000_000)
+    }
+
+    @MainActor
+    func testRemoteLiveDraftCannotDismissAnUnresolvedWriterChoice() async {
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store)
+        let local = "INT. ROOM - NIGHT\n\nThe writer's offline words.\n"
+        let conflict = ScreenplayStudioViewModel.SaveConflictState(
+            projectId: "pending-choice", baseVersionId: "base", serverVersionId: "remote",
+            serverDraft: "Collaborator revision", serverDraftExcerpt: "Collaborator revision",
+            serverUpdatedAt: 1
+        )
+        model.selectedProjectID = conflict.projectId
+        model.fountainDraft = local
+        model.hasUnsavedDraftChanges = true
+        model.conflictState = conflict
+        model.autosaveStatusText = "Conflict detected"
+
+        XCTAssertFalse(model.applyRemoteLiveDraft(conflict.serverDraft,
+            projectID: conflict.projectId, sourceDeviceID: "other-device"))
+        XCTAssertEqual(model.fountainDraft, local)
+        XCTAssertEqual(model.conflictState, conflict)
+        XCTAssertTrue(model.hasUnsavedDraftChanges)
+        XCTAssertEqual(model.autosaveStatusText, "Conflict detected")
+        try? await Task.sleep(nanoseconds: 1_100_000_000)
+    }
+
+    @MainActor
+    func testRemoteVersionReceiptCannotResolveConflictEvenWhenTextMatches() async {
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store)
+        let local = "INT. ROOM - NIGHT\n\nThe writer's offline words."
+        let conflict = ScreenplayStudioViewModel.SaveConflictState(
+            projectId: "pending-receipt-choice", baseVersionId: "base", serverVersionId: "remote",
+            serverDraft: local, serverDraftExcerpt: local, serverUpdatedAt: 1
+        )
+        model.selectedProjectID = conflict.projectId
+        model.fountainDraft = local
+        model.latestVersionID = "base"
+        model.hasUnsavedDraftChanges = true
+        model.conflictState = conflict
+        model.autosaveStatusText = "Conflict detected"
+        let owner = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""
+        store.save(ownerUserId: owner, projectId: conflict.projectId, draft: local,
+                   baseVersionId: "base", dirty: true)
+
+        model.adoptRemoteLiveVersion("remote", projectID: conflict.projectId,
+                                    draftChecksum: LiveDraftText.checksum(local))
+        XCTAssertEqual(model.latestVersionID, "base")
+        XCTAssertEqual(model.conflictState, conflict)
+        XCTAssertTrue(model.hasUnsavedDraftChanges)
+        XCTAssertEqual(model.autosaveStatusText, "Conflict detected")
+        XCTAssertEqual(store.payloads(ownerUserId: owner)[conflict.projectId]?["draft"] as? String, local)
+        try? await Task.sleep(nanoseconds: 1_100_000_000)
+    }
+
     func test_queuedDraftHydratesBeforeServerAndOnlyForItsOwnCleanProject() {
         XCTAssertTrue(ScreenplayQueuedDraftHydrationPolicy.shouldRestoreBeforeServerHydration(
             selectedProjectID: " project-1 ",
@@ -1354,7 +1511,7 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
             writeID: "page-write-1",
             projectID: "project-a",
             previousDraft: "FADE IN:",
-            committedDraft: draft.replacingOccurrences(of: "\r\n", with: "\n"),
+            committedDraft: draft,
             insertedText: "INT. FERRY - NIGHT\n\nMara turns back for both of them.",
             replacementApplied: false,
             replacedWriteID: nil,
@@ -1372,6 +1529,10 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
             ),
             .clementinePageWrite
         )
+        XCTAssertEqual(ScreenplayDraftSaveIntentPolicy.intent(
+            draft: draft.replacingOccurrences(of: "\r\n", with: "\n"),
+            selectedProjectID: "project-a", isManualDraftEditing: false,
+            committedWrite: committedWrite), .autosave)
     }
 
     func testPageWriteSaveIntentRejectsManualStaleAndCrossProjectDrafts() {
@@ -1422,10 +1583,11 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
     func testDraftSaveCompletionKeepsNewerPageDirtyUntilItIsPersisted() {
         let savedDraft = "INT. FERRY - NIGHT\n\nMara turns back."
 
-        XCTAssertFalse(ScreenplayDraftSaveCompletionPolicy.hasUnsavedChanges(
+        XCTAssertTrue(ScreenplayDraftSaveCompletionPolicy.hasUnsavedChanges(
             currentDraft: "  \(savedDraft)\r\n",
             savedDraft: savedDraft
         ))
+        XCTAssertFalse(ScreenplayDraftSaveCompletionPolicy.hasUnsavedChanges(currentDraft: savedDraft, savedDraft: savedDraft))
         XCTAssertTrue(ScreenplayDraftSaveCompletionPolicy.hasUnsavedChanges(
             currentDraft: savedDraft + "\n\nA second horn answers.",
             savedDraft: savedDraft
@@ -1446,7 +1608,7 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
     func testDraftSaveCoalescingOnlyDropsIdenticalPendingIntent() {
         let draft = "INT. FERRY - NIGHT\n\nMara turns back."
 
-        XCTAssertTrue(ScreenplayDraftSaveCoalescingPolicy.shouldCoalesce(
+        XCTAssertFalse(ScreenplayDraftSaveCoalescingPolicy.shouldCoalesce(
             activeDraft: draft,
             activeSource: "studio_clementine_page_write",
             activeNotes: "Saved from Clementine page write",
