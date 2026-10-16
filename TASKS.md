@@ -28,6 +28,18 @@ hand-written tables lives in `tasks/HISTORY-2026-05.md`.
 
 ## Notes
 
+### T-954 — Reference-led design polish without changing THEM identity
+- **Owner:** codex
+- **Branch:** codex/T-954-reference-design-polish
+- **Status:** in-progress
+- **Pillar:** mobile-first
+- **Scope:** refine original #902 hubs/tab bar and canonical typography; retain
+  #901 peach/dark palette, orb, white screenplay paper and every destination.
+- **Done when:** signed appearance/navigation tests, narrow-phone visual checks
+  in both themes and large text, macOS build and parent-relative D009 pass.
+- **Boundary:** isolated atop original #902, not a replacement PR, main merge
+  or substitute for the T-953 recovery rehearsal and required shipping proof.
+
 ### T-reconnect-base-version — Preserve the proven base of offline writer edits
 - **Owner:** codex
 - **Branch:** codex/T-reconnect-base-version
