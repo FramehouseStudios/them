@@ -58,12 +58,21 @@
 
 ### T-949 — Prove confirmed Home-to-Studio first-turn writing
 
-- **Owner:** codex. **Status:** ready. **Pillar:** voice-to-scene.
+- **Owner:** codex. **Status:** review. **Pillar:** voice-to-scene.
+- **Branch:** `codex/T-949-confirmed-home-page-routing`, based on preserved
+  rehearsal `5cfa52bb`. App Store work deferred by the human on 2026-10-16.
 - **Scope:** current confirmed script request opens authenticated Studio before
   page prompt preparation; never use a previous microphone transcript.
 - **Done when:** Home first utterance writes/saves; everyday/partial/stale words
-  never promote mode; authentication refusal blocks writing. Existing writer
-  UI begins in Studio and does not cover this transition. Runtime proof needed.
+  never promote mode; authentication refusal blocks writing. The prior writer
+  UI begins in Studio; dedicated Home runtime proof is recorded below.
+- **Proof:** local Node20 backend 2,788/0/2; complete signed units 657/0/0;
+  Home pair 2/0/0; long-audio raw 1/0/0; existing writer UI 1/0/0. Scaffold,
+  offline golden, D009 and diff pass. Full evidence and failed attempts:
+  docs/confirmed-home-voice-routing-2026-10-16.md.
+- **Boundary:** deterministic local proof, not shipping/phone/model proof.
+  Preserve #807's canonical transcribe-first implementation and reconcile the
+  raw two-generation path there before production promotion. No main merge.
 
 ### T-947 — Filmmaker/dialogue review corrections
 - Owner: Codex; status: review.
