@@ -2,6 +2,41 @@ import XCTest
 @testable import them
 
 final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
+    @MainActor
+    func testQueuedHydrationRejectsProjectAndAuthChangesDuringLookup() async {
+        for changeAuth in [false, true] {
+            let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store)
+            model.selectedProjectID = "queued-project-a"
+            model.fountainDraft = ""
+            let owner = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""
+            let entry = ScreenplayDraftSaveOutboxEntry(
+                id: "queued-entry", projectId: "queued-project-a", ownerUserId: owner,
+                draft: "INT. PRIVATE ROOM - NIGHT\n\nQueued project A words.", title: "A",
+                phase: "draft", notes: "", source: "studio_manual", studioWriteAnchors: [],
+                screenplayBindings: [], baseVersionId: "base-a", createdAt: 1, updatedAt: 1,
+                status: .pending, retries: 0, nextAttemptAt: 0, lastError: ""
+            )
+            let suspended = expectation(description: "outbox lookup suspended")
+            var resume: CheckedContinuation<ScreenplayDraftSaveOutboxEntry?, Never>?
+            let restore = Task {
+                await model.restorePendingDraftSaveBeforeProjectHydration { _, _ in
+                    await withCheckedContinuation { continuation in
+                        resume = continuation
+                        suspended.fulfill()
+                    }
+                }
+            }
+            await fulfillment(of: [suspended], timeout: 3)
+            if changeAuth { _ = BackendAuthClient.reserveAuthSessionIntent() }
+            else { model.selectedProjectID = "queued-project-b" }
+            resume?.resume(returning: entry)
+            await restore.value
+            XCTAssertEqual(model.fountainDraft, "", "A stale lookup must not insert another project/account's words.")
+            XCTAssertFalse(model.hasUnsavedDraftChanges)
+            try? await Task.sleep(for: .milliseconds(1_100))
+        }
+    }
+
     func test_queuedDraftHydratesBeforeServerAndOnlyForItsOwnCleanProject() {
         XCTAssertTrue(ScreenplayQueuedDraftHydrationPolicy.shouldRestoreBeforeServerHydration(
             selectedProjectID: " project-1 ",
