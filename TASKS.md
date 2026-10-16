@@ -2146,6 +2146,33 @@ as history, not new proof or active assignments for this original639 repair.
 
 ## Active work — quick view
 
+Historical Pages/security records below are dated context, not current proof.
+### T-951 — Integrate and re-prove original pagination
+
+- **Owner:** codex. **Status:** in-progress. **Pillar:** mobile-first.
+- **Branch:** `codex/T-951-pages-integration-proof`, from T-950 `ccb50270`.
+- **Scope:** preserving merge of original #642 `7c40428b`; fix reproduced
+  unbounded multi-page speech and Unicode phone/backend wrapping disagreement.
+- **Done when:** bounded pages without missing dialogue, Unicode-safe shared
+  fixtures, signed full units, numbered overview UI, Node20 backend, macOS,
+  offline golden, D009 and diff checks have recorded outcomes.
+- **Boundary:** no main merge or replacement PR; #80 export/editor element
+  agreement and physical/shipping proof remain separate unmet requirements.
+
+### T-950 — Re-prove original security patch with the writing rehearsal
+
+- **Owner:** codex. **Status:** review. **Pillar:** voice-to-scene.
+- **Branch:** `codex/T-950-security-integration-proof`.
+- **Scope:** preserving local merge of existing #909 `788e0107` onto #942
+  `6e7138b1`; no replacement dependency patch or original-head rewrite.
+- **Done when:** fresh lockfile install, Node20 full backend, signed Home
+  transcript/raw-audio save-and-restore UI, D009 and diff checks are recorded.
+- **Boundary:** not a main merge, shipping deployment, live provider or phone
+  proof. Original #883/#884/#926 runtime hardening remains separately required.
+- **Evidence:** `docs/security-integration-proof-2026-10-16.md`.
+- **Proof:** Node20 backend 2,789/0/2; signed Home UI 2/0/0 after owned-simulator
+  erase; fresh lockfile install, D009 and diff pass. No paid provider calls.
+
 Historical backport record below: these are the dated T-945 branch results,
 not fresh proof for the current original640 candidate.
 

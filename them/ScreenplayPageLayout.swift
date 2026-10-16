@@ -2,9 +2,8 @@ import Foundation
 
 /// Local mirror of the backend `POST /screenplay/paginate` rules so the Studio
 /// home page can show printed pages while the writer types, without a round
-/// trip: normalize CRLF, trim the whole draft, split on newlines, and cut
-/// every `linesPerPage` lines (55 = one screenplay page ≈ one screen minute).
-/// Keep this in step with `backend/lib/screenplay_companion_routes.js`.
+/// trip. Element widths, spacing and continuation rules mirror
+/// `backend/lib/screenplay_pagination.js`; shared fixtures pin their agreement.
 struct ScreenplayPageLayout {
     struct Page: Identifiable, Hashable {
         let number: Int
@@ -60,7 +59,7 @@ struct ScreenplayPageLayout {
         guard !clean.isEmpty else { return [""] }
         var out: [String] = []
         var current = ""
-        for word in clean.split(whereSeparator: { $0 == " " || $0 == "\t" }).map(String.init) {
+        for word in clean.split(whereSeparator: { $0.isWhitespace }).map(String.init) {
             var piece = word
             while piece.count > width {
                 if !current.isEmpty { out.append(current); current = "" }
@@ -155,18 +154,25 @@ struct ScreenplayPageLayout {
             }
             let remaining = linesPerPage - currentLines.count
 
-            if !atTop, need > remaining {
-                let isSpeech = block.kind == .character && block.pieces.count >= 5
+            // Continue for as many pages as needed, not just the first split.
+            if block.kind == .character, block.pieces.count >= 3 {
                 let fit = remaining - sb - 1
-                if isSpeech, fit >= 3, block.pieces.count - fit >= 2 {
-                    placeBlanks(sb)
-                    for piece in block.pieces.prefix(fit) { place(piece) }
+                if !atTop, need > remaining, fit < 3 || block.pieces.count - fit < 2 { closePage() }
+                if !currentLines.isEmpty { placeBlanks(spaceBefore(.character)) }
+                var pieces = block.pieces
+                while pieces.count > linesPerPage - currentLines.count {
+                    let take = min(linesPerPage - currentLines.count - 1, pieces.count - 2)
+                    for piece in pieces.prefix(take) { place(piece) }
                     currentLines.append("(MORE)")
+                    pieces = Array(pieces.dropFirst(take))
                     closePage()
                     place(Piece(text: "\(block.cue) (CONT'D)", sourceLine: block.pieces[0].sourceLine))
-                    for piece in block.pieces.dropFirst(fit) { place(piece) }
-                    continue
                 }
+                for piece in pieces { place(piece) }
+                continue
+            }
+
+            if !atTop, need > remaining {
                 closePage()
             }
 
