@@ -47,6 +47,8 @@ function runSmoke({
     cwd: repoRoot,
     env: {
       ...process.env,
+      CI: "",
+      IOS_SIMULATOR_NAME: "",
       XCODEBUILD: fakeXcodebuild,
       XCODEBUILD_CALLS_LOG: log,
       XCRUN: fakeXcrun,
@@ -126,4 +128,12 @@ test("[screenplay-save-network-fault-smokes] runs without an optional xcconfig u
     assert.ok(call.includes("test"));
     assert.equal(call.includes("-xcconfig"), false);
   }
+});
+
+test("[screenplay-save-network-fault-smokes] refuses an unspecified local simulator", () => {
+  const {result, calls, callOrder} = runSmoke({destination: ""});
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /explicit.*simulator/i);
+  assert.deepEqual(calls, []);
+  assert.ok(!callOrder.some(call => call.includes("simctl erase")));
 });

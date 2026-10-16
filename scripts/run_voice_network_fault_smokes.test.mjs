@@ -22,6 +22,9 @@ test("[voice-network-fault-smokes] tests iPhone faults and builds the macOS scaf
     "",
   ].join("\n"));
   fs.chmodSync(fakeXcodebuild, 0o755);
+  const fakeXcrun = path.join(tmp, "xcrun");
+  fs.writeFileSync(fakeXcrun, "#!/usr/bin/env bash\nexit 0\n");
+  fs.chmodSync(fakeXcrun, 0o755);
 
   const destination = "platform=iOS Simulator,id=deterministic-network-fault-smoke";
   const result = spawnSync("bash", [script], {
@@ -29,6 +32,7 @@ test("[voice-network-fault-smokes] tests iPhone faults and builds the macOS scaf
     env: {
       ...process.env,
       XCODEBUILD: fakeXcodebuild,
+      XCRUN: fakeXcrun,
       XCODEBUILD_CALLS_LOG: log,
       IOS_SIMULATOR_DESTINATION: destination,
     },
@@ -72,4 +76,12 @@ test("[voice-network-fault-smokes] tests iPhone faults and builds the macOS scaf
 
   assert.ok(ios.includes("test"));
   assert.ok(ios.includes(`-only-testing:themUITests/V1SmokeUITests/test_realtime_network_faults_resolve_exactly_once`));
+  const before = fs.readFileSync(log, "utf8");
+  const unspecified = spawnSync("bash", [script], {cwd: repoRoot, encoding: "utf8", env: {
+    ...process.env, CI: "", IOS_SIMULATOR_DESTINATION: "", IOS_SIMULATOR_NAME: "",
+    XCODEBUILD: fakeXcodebuild, XCRUN: fakeXcrun, XCODEBUILD_CALLS_LOG: log, ARTIFACT_DIR: tmp,
+  }});
+  assert.equal(unspecified.status, 2);
+  assert.match(unspecified.stderr, /explicit.*simulator/i);
+  assert.equal(fs.readFileSync(log, "utf8"), before, "No build/test may start for an unspecified local simulator");
 });

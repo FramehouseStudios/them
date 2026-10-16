@@ -17,8 +17,12 @@ if [[ -n "${IOS_SIMULATOR_DESTINATION:-}" ]]; then
 elif [[ -n "${IOS_SIMULATOR_NAME:-}" ]]; then
   destination="platform=iOS Simulator,name=${IOS_SIMULATOR_NAME}"
 else
+  if [[ "${CI:-}" != "true" ]]; then
+    echo "run-v1-ui-smoke: select an explicit task-owned simulator with IOS_SIMULATOR_DESTINATION or IOS_SIMULATOR_NAME before erasing local state." >&2
+    exit 2
+  fi
   simulator_name="$(
-    xcrun simctl list devices available \
+    "$XCRUN_BIN" simctl list devices available \
       | sed -n 's/^[[:space:]]*\(iPhone[^()]*\) (.*/\1/p' \
       | head -n 1 \
       | sed 's/[[:space:]]*$//'
@@ -71,7 +75,8 @@ fi
 if "$XCRUN_BIN" simctl bootstatus "$simulator_udid" -b >/dev/null 2>&1; then
   echo "run-v1-ui-smoke: erased and booted simulator ${simulator_udid}"
 else
-  echo "run-v1-ui-smoke: simulator ${simulator_udid} boot status unknown; continuing" >&2
+  echo "run-v1-ui-smoke: simulator ${simulator_udid} did not finish booting; refusing an unproven state." >&2
+  exit 2
 fi
 
 build_args=()

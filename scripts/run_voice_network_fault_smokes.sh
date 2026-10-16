@@ -13,35 +13,10 @@ ARTIFACT_DIR="${ARTIFACT_DIR:-${RUNNER_TEMP:-${TMPDIR:-/tmp}}/them-voice-network
 mkdir -p "${ARTIFACT_DIR}"
 result_bundle_prefix="${ARTIFACT_DIR}/voice-network-fault-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}-$$"
 
-if [[ -n "${IOS_SIMULATOR_DESTINATION:-}" ]]; then
-  ios_destination="${IOS_SIMULATOR_DESTINATION}"
-elif [[ -n "${IOS_SIMULATOR_NAME:-}" ]]; then
-  ios_destination="platform=iOS Simulator,name=${IOS_SIMULATOR_NAME}"
-else
-  simulator_name="$(
-    xcrun simctl list devices available \
-      | sed -n 's/^[[:space:]]*\(iPhone[^()]*\) (.*/\1/p' \
-      | head -n 1 \
-      | sed 's/[[:space:]]*$//'
-  )"
-  if [[ -z "${simulator_name}" ]]; then
-    echo "voice-network-fault-smokes: no available iPhone simulator found." >&2
-    echo "Set IOS_SIMULATOR_DESTINATION='platform=iOS Simulator,name=<device>' to override." >&2
-    exit 2
-  fi
-  ios_destination="platform=iOS Simulator,name=${simulator_name}"
-fi
-
 echo "=== Voice Network-Fault Smokes ==="
 echo "Project:            ${PROJECT}"
-echo "iPhone destination: ${ios_destination}"
-
-"${XCODEBUILD_BIN}" test \
-  -project "${PROJECT}" \
-  -scheme "${IOS_SCHEME}" \
-  -configuration "${IOS_CONFIGURATION}" \
-  -destination "${ios_destination}" \
-  -only-testing:"${TEST_IDENTIFIER}" \
+PROJECT="${PROJECT}" SCHEME="${IOS_SCHEME}" CONFIGURATION="${IOS_CONFIGURATION}" \
+ONLY_TESTING="${TEST_IDENTIFIER}" bash "${ROOT}/scripts/run_v1_ui_smoke.sh" \
   -resultBundlePath "${result_bundle_prefix}-ios.xcresult"
 
 "${XCODEBUILD_BIN}" build \
