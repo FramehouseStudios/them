@@ -110,6 +110,20 @@
 - Scope: repair Home/Studio boundaries, rewrite and dialogue-notes routing, project-memory contracts, fresh Page-lane behavior and distress/freshness precedence.
 - Done: behavioral backend tests, signed Swift proof coordinated by integration owner, D009 and diff checks; no main merge or replacement PR.
 - Current proof: standalone Node20 2,768/0/2; focused 61/61; signed units 637/0/0; authenticated writer UI 1/0/0. Combined rehearsal: backend 2,785/0/2; signed units 644/0/0; writer UI 1/0/0; scaffold, offline golden, D009 and diff pass. Evidence: `docs/filmmaker-review-corrections-2026-10-08.md` and rehearsal ledger.
+### T-studio-actions-gate — Preserve Studio voice actions without root-view growth
+- Owner: codex
+- Branch: codex/T-studio-actions-gate
+- Status: review
+- Pillar: voice→scene
+- Done when: #643's capability metadata and response actions retain their
+  behavior, existing action types own the integration, the god-file gate passes
+  against #642, and focused/full signed iOS and backend proof pass.
+- Scope: additive extraction on Claude's original #643 commits, no replacement
+  implementation or merge ahead of #766 and #770.
+- Proof: 10/10 focused Studio-action tests, 654/654 signed iOS unit tests,
+  2/2 signed iPhone UI tests (typing and all inspector destinations), and
+  backend 2,779 passed / 0 failed / 2 skipped. God-file gate passes against
+  both #642 and #643; see docs/audits/studio-actions-gate-2026-09-30.md.
 
 | ID   | Title                                              | Owner  | Status            |
 |------|----------------------------------------------------|--------|-------------------|
