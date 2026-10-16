@@ -33,6 +33,31 @@ enum StudioActionParser {
     }
 }
 
+/// A reply may operate only the exact authenticated document that requested it.
+/// Compare the bytes, not display-normalized text; no screenplay content is logged.
+struct StudioActionDocumentContext {
+    let auth: ScreenplayStudioAuthContext
+    let projectID: String
+    let draft: String
+    let isAuthenticated: Bool
+
+    func matches(_ current: StudioActionDocumentContext) -> Bool {
+        isAuthenticated && current.isAuthenticated &&
+        !auth.userID.isEmpty &&
+        ScreenplayStudioAuthContextPolicy.matches(expected: auth, current: current.auth) &&
+        projectID == current.projectID && draft.utf8.elementsEqual(current.draft.utf8)
+    }
+
+    static func current(bridge: ScreenplayLiveDraftBridge) -> StudioActionDocumentContext {
+        let session = BackendAuthClient.currentAuthSessionState()
+        return StudioActionDocumentContext(
+            auth: ScreenplayStudioAuthContext(userID: session.user?.userId ?? "", sessionIntentGeneration: BackendAuthClient.currentAuthSessionIntentGeneration()),
+            projectID: bridge.preferredProjectID, draft: bridge.draftText,
+            isAuthenticated: session.isAuthenticated && !session.accessExpired
+        )
+    }
+}
+
 /// The outline's beat labels, published by the Studio screen whenever the
 /// outline changes, so the capabilities snapshot can offer them to her even
 /// though the live-draft bridge does not carry the outline.
@@ -120,13 +145,24 @@ enum StudioActionDispatcher {
     /// Resolve visibility when the response arrives, dispatch its validated
     /// actions, then pass the unchanged response to the existing voice path.
     static func handlingResponse(
+        bridge: ScreenplayLiveDraftBridge? = nil,
         studioOpen: @escaping () -> Bool,
         openStudio: @escaping () -> Void,
         center: NotificationCenter = .default,
+        isCurrent: @escaping () -> Bool = { true },
         onResponse: @escaping (BackendTalkResponseMetadata) -> Void
     ) -> (BackendTalkResponseMetadata) -> Void {
-        { metadata in
-            dispatch(metadata.studioActions, studioOpen: studioOpen(), openStudio: openStudio, center: center)
+        let expectedDocument = bridge.map { StudioActionDocumentContext.current(bridge: $0) }
+        var didDispatch = false
+        return { metadata in
+            if !didDispatch {
+                didDispatch = true
+                dispatch(metadata.studioActions, studioOpen: studioOpen(), openStudio: openStudio, center: center, isCurrent: {
+                    guard isCurrent() else { return false }
+                    guard let bridge, let expectedDocument else { return true }
+                    return expectedDocument.matches(.current(bridge: bridge))
+                }, isReady: studioOpen)
+            }
             onResponse(metadata)
         }
     }
@@ -139,12 +175,20 @@ enum StudioActionDispatcher {
         studioOpen: Bool,
         openStudio: () -> Void,
         center: NotificationCenter = .default,
-        mountDelay: TimeInterval = 0.6
+        mountDelay: TimeInterval = 0.6,
+        isCurrent: @escaping () -> Bool = { true },
+        isReady: @escaping () -> Bool = { true }
     ) -> Int {
-        let supported = actions.filter(\.isSupported)
-        guard !supported.isEmpty else { return 0 }
+        var seen: Set<BackendStudioAction> = []
+        let supported = actions.filter { action in
+            var identity = action
+            identity.source = nil
+            return action.isSupported && seen.insert(identity).inserted
+        }.prefix(4)
+        guard !supported.isEmpty, isCurrent() else { return 0 }
         let post = {
             for action in supported {
+                guard isCurrent(), isReady() else { return }
                 center.post(name: .themStudioActionRequested, object: nil, userInfo: [userInfoKey: action])
             }
         }

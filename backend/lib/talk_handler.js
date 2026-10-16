@@ -3927,7 +3927,8 @@ GUIDANCE:
 ${directorOutputRule}
 `.trim();
     }
-    if (studioCapabilities.enabled && (mentorTurn || screenplayContextActive) && !isScreenplayPageWriteTurn) {
+    const studioControlsEnabled = studioCapabilities.enabled && (mentorTurn || screenplayContextActive) && !isScreenplayPageWriteTurn;
+    if (studioControlsEnabled) {
       directorAddendum = appendDirectorAddendum(directorAddendum, buildStudioControlsBlock(studioCapabilities));
     }
 
@@ -4197,7 +4198,7 @@ ${directorOutputRule}
     let reply = normalizeSnippet(rawReply, 8_000);
     // Studio actions: strip [[studio: …]] tags before anything is spoken and
     // keep the validated actions for the response header.
-    const studioActionExtraction = extractStudioActions(reply, studioCapabilities);
+    const studioActionExtraction = extractStudioActions(reply, studioCapabilities, { allowActions: studioControlsEnabled });
     if (studioActionExtraction.stripped || studioActionExtraction.actions.length) {
       reply = studioActionExtraction.spokenText;
       logger.log(
