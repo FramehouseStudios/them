@@ -45,6 +45,8 @@ export const SPACE_BEFORE = Object.freeze({
 });
 
 const SCENE_PREFIXES = ["INT.", "EXT.", "INT ", "EXT ", "INT/EXT", "EXT/INT", "I/E.", "I/E ", "EST."];
+const graphemeSegmenter = new Intl.Segmenter("und", { granularity: "grapheme" });
+const graphemes = (text) => Array.from(graphemeSegmenter.segment(text), part => part.segment);
 
 function isSceneHeading(upper) {
   return SCENE_PREFIXES.some((p) => upper.startsWith(p));
@@ -58,8 +60,8 @@ function isTransition(upper, original) {
 }
 
 function isCharacterCue(line) {
-  if (line.length > 40 || line !== line.toUpperCase()) return false;
-  if (!/[A-Za-z]/.test(line)) return false;
+  if (graphemes(line).length > 40 || line !== line.toUpperCase()) return false;
+  if (!/\p{L}/u.test(line)) return false;
   return !line.endsWith(".") || line.endsWith(")");
 }
 
@@ -89,15 +91,16 @@ export function wrapLine(text, width) {
   const out = [];
   let current = "";
   for (const word of clean.split(/\s+/)) {
-    let piece = word;
+    let piece = graphemes(word);
     while (piece.length > width) {
       if (current) { out.push(current); current = ""; }
-      out.push(piece.slice(0, width));
+      out.push(piece.slice(0, width).join(""));
       piece = piece.slice(width);
     }
-    if (!current) current = piece;
-    else if (current.length + 1 + piece.length <= width) current = `${current} ${piece}`;
-    else { out.push(current); current = piece; }
+    const tail = piece.join("");
+    if (!current) current = tail;
+    else if (graphemes(current).length + 1 + piece.length <= width) current = `${current} ${tail}`;
+    else { out.push(current); current = tail; }
   }
   if (current) out.push(current);
   return out.length ? out : [""];
@@ -171,19 +174,26 @@ export function paginateScreenplay(draft, { linesPerPage: requested } = {}) {
     }
     const remaining = linesPerPage - count();
 
-    if (!atTop && need > remaining) {
-      const isSpeech = block.kind === "character" && block.pieces.length >= 5;
-      // (MORE) reserve is 1; cue + 2 lines must fit; 2 lines must remain.
+    // Every speech boundary reserves MORE and repeats the original cue.
+    // Never append an unbounded tail onto a single continuation page.
+    if (block.kind === "character" && block.pieces.length >= 3) {
       const fit = remaining - sb - 1;
-      if (isSpeech && fit >= 3 && block.pieces.length - fit >= 2) {
-        placeBlanks(sb);
-        for (const piece of block.pieces.slice(0, fit)) place(piece);
+      if (!atTop && need > remaining && (fit < 3 || block.pieces.length - fit < 2)) closePage();
+      if (count() > 0) placeBlanks(SPACE_BEFORE.character);
+      let pieces = block.pieces;
+      while (pieces.length > linesPerPage - count()) {
+        const take = Math.min(linesPerPage - count() - 1, pieces.length - 2);
+        for (const piece of pieces.slice(0, take)) place(piece);
         current.lines.push("(MORE)");
+        pieces = pieces.slice(take);
         closePage();
-        place({ text: `${block.cue} (CONT'D)`, sourceLine: block.pieces[0].sourceLine, kind: "character" });
-        for (const piece of block.pieces.slice(fit)) place(piece);
-        continue;
+        place({ text: `${block.cue} (CONT'D)`, sourceLine: block.pieces[0].sourceLine });
       }
+      for (const piece of pieces) place(piece);
+      continue;
+    }
+
+    if (!atTop && need > remaining) {
       closePage();
     }
 

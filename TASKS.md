@@ -1107,6 +1107,18 @@ change or treat it as merged; original pre-proof text remains in Git history.
 
 ## Active work — quick view
 
+### T-951 — Integrate and re-prove original pagination
+
+- **Owner:** codex. **Status:** in-progress. **Pillar:** mobile-first.
+- **Branch:** `codex/T-951-pages-integration-proof`, from T-950 `ccb50270`.
+- **Scope:** preserving merge of original #642 `7c40428b`; fix reproduced
+  unbounded multi-page speech and Unicode phone/backend wrapping disagreement.
+- **Done when:** bounded pages without missing dialogue, Unicode-safe shared
+  fixtures, signed full units, numbered overview UI, Node20 backend, macOS,
+  offline golden, D009 and diff checks have recorded outcomes.
+- **Boundary:** no main merge or replacement PR; #80 export/editor element
+  agreement and physical/shipping proof remain separate unmet requirements.
+
 ### T-945 — Resolve #640 three-act review findings before integration
 
 - **Owner:** codex. **Branch:** `codex/T-945-three-act-review-fixes`.

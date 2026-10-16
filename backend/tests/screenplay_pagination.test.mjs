@@ -36,6 +36,32 @@ test("[pagination] classifier reads a page like a script", () => {
   assert.deepEqual(kinds, ["sceneHeading", "blank", "action", "blank", "character", "parenthetical", "dialogue", "blank", "transition", "blank", "action"]);
 });
 
+test("[pagination] wrapping preserves extended graphemes and Unicode cues", () => {
+  for (const glyph of ["👩🏽‍🚀", "e\u0301", "界"]) {
+    assert.deepEqual(wrapLine(glyph.repeat(5), 2), [glyph.repeat(2), glyph.repeat(2), glyph]);
+  }
+  assert.deepEqual(wrapLine("one\u00a0two", 4), ["one", "two"]);
+  assert.deepEqual(classifyLines(["李", "I hear you."]), ["character", "dialogue"]);
+});
+
+test("[pagination] speeches spanning many pages remain bounded and complete", () => {
+  const speech = Array.from({length: 200}, (_, i) => `Sentence ${i + 1} reaches the radio.`).join(" ");
+  const expected = wrapLine(speech, CHARS_PER_LINE.dialogue);
+  for (const fillerCount of [0, 14, 21]) {
+    const filler = Array.from({length: fillerCount}, (_, i) => `Action line ${i + 1}.`);
+    const draft = [...filler, "", "MARA", speech].join("\n");
+    const pages = paginateScreenplay(draft, {linesPerPage: 24}).pages;
+    assert.ok(pages.length > 3);
+    assert.ok(pages.every(p => p.lineCount <= 24), JSON.stringify(pages.map(p => p.lineCount)));
+    const dialogue = pages.flatMap(p => p.lines).filter(line => line && line !== "MARA" && line !== "MARA (CONT'D)" && line !== "(MORE)" && !line.startsWith("Action line"));
+    assert.deepEqual(dialogue, expected, "each dialogue line is present exactly once");
+    pages.forEach((p, i) => {
+      if (p.lines.includes("MARA (CONT'D)")) assert.equal(p.lines[0], "MARA (CONT'D)");
+      if (i < pages.length - 1 && p.lines.some(line => expected.includes(line))) assert.equal(p.lines.at(-1), "(MORE)");
+    });
+  }
+});
+
 test("[pagination] a scene heading never ends a page and a cue keeps two lines of speech", () => {
   const filler = Array.from({ length: 20 }, (_, i) => `Action line ${i + 1}.`).join("\n");
   const heading = paginateScreenplay(`${filler}\n\nINT. LATE - NIGHT\n\nThe heading moved with this line.`, { linesPerPage: 24 });
@@ -84,7 +110,7 @@ test("[pagination] the shared fixtures reproduce exactly (parity with Screenplay
     r.pages.forEach((p, i) => {
       const e = f.expected.pages[i];
       assert.deepEqual(
-        { page: p.page, startLine: p.startLine, endLine: p.endLine, lineCount: p.lineCount, firstLine: p.lines[0] ?? "", lastLine: p.lines[p.lines.length - 1] ?? "", moreCount: p.lines.filter((l) => l === "(MORE)").length, contdCount: p.lines.filter((l) => l.endsWith("(CONT'D)")).length },
+        { page: p.page, startLine: p.startLine, endLine: p.endLine, lineCount: p.lineCount, lines: p.lines, firstLine: p.lines[0] ?? "", lastLine: p.lines[p.lines.length - 1] ?? "", moreCount: p.lines.filter((l) => l === "(MORE)").length, contdCount: p.lines.filter((l) => l.endsWith("(CONT'D)")).length },
         e,
         `${f.id} page ${p.page}`,
       );
