@@ -66,7 +66,6 @@ extension ScreenplayStudioScreen {
             selectedDraftToolsSection = .revisions
             triggerStudioManualSave(revealSavedTab: false)
             Task { await vm.refreshDraftInsights(source: "Voice") }
-            vm.infoText = "Revision marked \(color) and saved."
         case "start_rewrite":
             let scope = action.scope ?? "scene"
             let target = action.scene.map { " \"\($0)\"" } ?? ""
@@ -97,12 +96,11 @@ extension ScreenplayStudioScreen {
             liveDraftBridge.highlightLineRange(startLine: scene.line, endLine: scene.endLine)
             vm.infoText = "Jumped to \(scene.shortLabel.isEmpty ? scene.slugline : scene.shortLabel)."
         case "undo_last_page_write":
-            guard liveDraftBridge.lastCommittedWrite != nil else {
+            guard let committedWrite = liveDraftBridge.lastCommittedWrite else {
                 vm.infoText = "There isn't a recent page write to undo yet."
                 return
             }
-            liveDraftBridge.requestStudioAction(.undoLastPageWrite)
-            vm.infoText = "Undoing the most recent page write."
+            undoLastCommittedWrite(committedWrite)
         default:
             break
         }

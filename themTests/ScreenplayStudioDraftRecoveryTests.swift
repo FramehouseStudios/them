@@ -1629,6 +1629,21 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         ))
     }
 
+    func testCommittedWriteRevertRequiresCurrentProjectAndExactBytes() {
+        let committed = "INT. CAFÉ - NIGHT\r\n\r\nShe waits."
+        XCTAssertTrue(ScreenplayCommittedDraftAdoptionPolicy.canRevert(selectedProjectID: "project-a", committedProjectID: "project-a", currentDraft: committed, committedDraft: committed))
+        for (project, draft) in [
+            ("project-b", committed),
+            ("project-a", committed + "\nA new line."),
+            ("project-a", committed.replacingOccurrences(of: "\r\n", with: "\n")),
+            ("project-a", committed.replacingOccurrences(of: "É", with: "E\u{0301}")),
+        ] {
+            XCTAssertFalse(ScreenplayCommittedDraftAdoptionPolicy.canRevert(selectedProjectID: project, committedProjectID: "project-a", currentDraft: draft, committedDraft: committed))
+        }
+        XCTAssertFalse(ScreenplayCommittedDraftAdoptionPolicy.canRevert(selectedProjectID: "project-a", committedProjectID: "", currentDraft: committed, committedDraft: committed))
+        XCTAssertTrue(ScreenplayCommittedDraftAdoptionPolicy.canRevert(selectedProjectID: "", committedProjectID: "", currentDraft: committed, committedDraft: committed))
+    }
+
     func testCommittedDraftAdoptionRejectsCrossProjectAndDivergedDrafts() {
         let previous = "INT. ROOM - NIGHT\n\nHe waits."
         let committed = previous + "\n\nThe door opens."
