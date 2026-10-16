@@ -2,6 +2,70 @@ import XCTest
 @testable import them
 
 final class StudioActionsTests: XCTestCase {
+    func test_actions_match_only_the_original_authenticated_document_bytes() {
+        let auth = ScreenplayStudioAuthContext(userID: "writer-a", sessionIntentGeneration: 7)
+        let expected = StudioActionDocumentContext(auth: auth, projectID: "project-a", draft: "Café", isAuthenticated: true)
+        XCTAssertTrue(expected.matches(expected))
+        for changed in [
+            StudioActionDocumentContext(auth: .init(userID: "writer-b", sessionIntentGeneration: 7), projectID: "project-a", draft: "Café", isAuthenticated: true),
+            StudioActionDocumentContext(auth: .init(userID: "writer-a", sessionIntentGeneration: 8), projectID: "project-a", draft: "Café", isAuthenticated: true),
+            StudioActionDocumentContext(auth: auth, projectID: "project-b", draft: "Café", isAuthenticated: true),
+            StudioActionDocumentContext(auth: auth, projectID: "project-a", draft: "Café\nA new line.", isAuthenticated: true),
+            StudioActionDocumentContext(auth: auth, projectID: "project-a", draft: "Cafe\u{0301}", isAuthenticated: true),
+            StudioActionDocumentContext(auth: auth, projectID: "project-a", draft: "Café", isAuthenticated: false),
+        ] { XCTAssertFalse(expected.matches(changed)) }
+        let anonymous = StudioActionDocumentContext(auth: .init(userID: "", sessionIntentGeneration: 0), projectID: "", draft: "", isAuthenticated: true)
+        XCTAssertFalse(anonymous.matches(anonymous))
+    }
+
+    func test_dispatch_rejects_stale_context_before_trying_to_open_studio() {
+        var opened = false
+        XCTAssertEqual(StudioActionDispatcher.dispatch([.init(type: "save_draft")], studioOpen: false, openStudio: { opened = true }, isCurrent: { false }), 0)
+        XCTAssertFalse(opened)
+    }
+
+    func test_delayed_dispatch_rechecks_context_and_mount_readiness() {
+        for stale in [false, true] {
+            let center = NotificationCenter()
+            var delivered = 0
+            var current = true
+            let token = center.addObserver(forName: .themStudioActionRequested, object: nil, queue: nil) { _ in delivered += 1 }
+            defer { center.removeObserver(token) }
+            StudioActionDispatcher.dispatch([.init(type: "save_draft")], studioOpen: false, openStudio: { if stale { current = false } }, center: center, mountDelay: 0.01, isCurrent: { current }, isReady: { stale })
+            let settled = expectation(description: "delayed action settled")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { settled.fulfill() }
+            wait(for: [settled], timeout: 2)
+            XCTAssertEqual(delivered, 0, stale ? "Context changed during mount" : "Studio refused to open")
+        }
+    }
+
+    func test_dispatch_deduplicates_across_sources_and_rechecks_between_actions() {
+        let center = NotificationCenter()
+        var received: [String] = []
+        var current = true
+        let token = center.addObserver(forName: .themStudioActionRequested, object: nil, queue: nil) { note in
+            received.append(StudioActionDispatcher.action(from: note)?.type ?? "missing")
+            current = false
+        }
+        defer { center.removeObserver(token) }
+        let queued = StudioActionDispatcher.dispatch([
+            .init(type: "save_draft", source: "tag"), .init(type: "save_draft", source: "spoken"),
+            .init(type: "open_tab", tab: "beats")
+        ], studioOpen: true, openStudio: {}, center: center, isCurrent: { current })
+        XCTAssertEqual(queued, 2, "Count describes accepted actions, not a success receipt")
+        XCTAssertEqual(received, ["save_draft"], "Second action must not run after the document changes")
+    }
+
+    func test_dispatch_caps_untrusted_response_actions_at_four() {
+        let center = NotificationCenter()
+        var received = 0
+        let token = center.addObserver(forName: .themStudioActionRequested, object: nil, queue: nil) { _ in received += 1 }
+        defer { center.removeObserver(token) }
+        let actions = ["draft", "beats", "craft", "outline", "them", "saved"].map { BackendStudioAction(type: "open_tab", tab: $0) }
+        XCTAssertEqual(StudioActionDispatcher.dispatch(actions, studioOpen: true, openStudio: {}, center: center), 4)
+        XCTAssertEqual(received, 4)
+    }
+
     func test_missing_studio_metadata_does_not_build_or_attach_capabilities() {
         var snapshotCalls = 0
         func makeSnapshot() -> StudioCapabilitiesSnapshot {
@@ -62,6 +126,8 @@ final class StudioActionsTests: XCTestCase {
         )
         handler(metadata)
         XCTAssertEqual(events, ["save_revision", "response"])
+        handler(metadata)
+        XCTAssertEqual(events, ["save_revision", "response", "response"], "Repeated transport metadata must not repeat a save or rewrite action.")
     }
 
     func test_header_parses_percent_encoded_actions_and_drops_unknown_types() {
