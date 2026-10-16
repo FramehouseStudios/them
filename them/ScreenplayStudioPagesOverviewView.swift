@@ -39,7 +39,9 @@ struct ScreenplayStudioPagesOverviewView: View {
             }
             .background(Color.herShellPanelSoft.ignoresSafeArea())
             .navigationTitle("Pages")
+            #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
+            #endif
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
