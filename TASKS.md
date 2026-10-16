@@ -31,7 +31,7 @@
 
 ### T-952 — Preserve Studio actions and guard current-document execution
 
-- **Owner:** codex. **Status:** in-progress. **Pillar:** voice-to-scene.
+- **Owner:** codex. **Status:** review. **Pillar:** voice-to-scene.
 - **Branch:** `codex/T-952-studio-actions-integration`, based on T-951.
 - **Scope:** preserve original #643 and #879; reject duplicate/stale actions,
   failed Studio mount and explicitly unsupported capability lists.
@@ -39,6 +39,12 @@
   UI, full Node20 backend, macOS, offline golden, D009 and diff are recorded.
 - **Hold:** #648 already owns later prompt/action inference wiring. Preserve
   that implementation; do not claim live voice actions proven at this boundary.
+- **Proof:** backend Node20 2,810/0/2; signed final units685/0/0 plus typing/tabs
+  UI2/0/0, signed auth/fault diagnostics2/0/0, authenticated Home pair2/0/0.
+  macOS scaffold, offline golden, D009 and diff pass. Evidence and retained red
+  bundles: `docs/studio-actions-integration-proof-2026-10-16.md`.
+- **Next:** #942's overall-success hosted run hides V1 and voice-fault failures.
+  Investigate those with existing #904 before #644. Main/original heads unchanged.
 
 ### T-951 — Integrate and re-prove original pagination
 
