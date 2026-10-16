@@ -9391,12 +9391,12 @@ Return revised screenplay lines only.
     }
 
     private func canRevertCommittedWrite(_ committedWrite: ScreenplayCommittedWrite) -> Bool {
-        vm.fountainDraft == committedWrite.committedDraft
+        ScreenplayCommittedDraftAdoptionPolicy.canRevert(selectedProjectID: vm.selectedProjectID, committedProjectID: committedWrite.projectID, currentDraft: vm.fountainDraft, committedDraft: committedWrite.committedDraft)
     }
 
     private func revertCommittedWrite(_ committedWrite: ScreenplayCommittedWrite, successMessage: String) {
         guard canRevertCommittedWrite(committedWrite) else {
-            vm.infoText = "The draft changed after that write, so there is nothing simple to undo now."
+            vm.infoText = "This write no longer matches the open draft. Your current words were kept."
             dismissLastCommittedWriteActions()
             return
         }
@@ -9490,7 +9490,7 @@ Return revised screenplay lines only.
         )
     }
 
-    private func undoLastCommittedWrite(_ committedWrite: ScreenplayCommittedWrite) {
+    func undoLastCommittedWrite(_ committedWrite: ScreenplayCommittedWrite) {
         revertCommittedWrite(committedWrite, successMessage: "Removed the last write from the page.")
     }
 
