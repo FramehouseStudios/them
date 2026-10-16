@@ -29,6 +29,20 @@
 
 ## Active work — quick view
 
+### T-950 — Re-prove original security patch with the writing rehearsal
+
+- **Owner:** codex. **Status:** review. **Pillar:** voice-to-scene.
+- **Branch:** `codex/T-950-security-integration-proof`.
+- **Scope:** preserving local merge of existing #909 `788e0107` onto #942
+  `6e7138b1`; no replacement dependency patch or original-head rewrite.
+- **Done when:** fresh lockfile install, Node20 full backend, signed Home
+  transcript/raw-audio save-and-restore UI, D009 and diff checks are recorded.
+- **Boundary:** not a main merge, shipping deployment, live provider or phone
+  proof. Original #883/#884/#926 runtime hardening remains separately required.
+- **Evidence:** `docs/security-integration-proof-2026-10-16.md`.
+- **Proof:** Node20 backend 2,789/0/2; signed Home UI 2/0/0 after owned-simulator
+  erase; fresh lockfile install, D009 and diff pass. No paid provider calls.
+
 ### T-945 — Resolve #640 three-act review findings before integration
 
 - **Owner:** codex. **Branch:** `codex/T-945-three-act-review-fixes`.
