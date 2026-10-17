@@ -15,6 +15,7 @@ import {
   BLOCK_SIGNAL_HISTORY_SCHEMA_VERSION,
 } from "../lib/block_signal_history_route.js";
 
+import { listenEphemeral } from "./helpers/ephemeral_server.mjs";
 function freshStore() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "io-them-bshist-route-"));
   return createCreativeMemoryStore({ persistence: createJsonPersistence({ jsonRoot: root }) });
@@ -65,7 +66,7 @@ async function withTestServer(fn, { userId = "u-test", seed = null } = {}) {
     app.use((req, _res, next) => { req.user = { id: userId }; next(); });
   }
   mountBlockSignalHistoryRoute(app, { creativeMemoryStore: store });
-  const server = app.listen(0);
+  const server = listenEphemeral(app);
   await new Promise((resolve) => server.once("listening", resolve));
   const port = server.address().port;
   const baseURL = `http://127.0.0.1:${port}`;

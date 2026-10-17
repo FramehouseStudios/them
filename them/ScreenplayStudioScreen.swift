@@ -3916,60 +3916,6 @@ Detail:
         }
     }
 
-    private var directionOneCraftPanel: some View {
-        ScreenplayCraftRailView(
-            projectTitle: vm.selectedProject?.title ?? "",
-            versionId: vm.latestVersionID,
-            selectedFrameworkID: $vm.selectedCraftFrameworkID,
-            frameworks: vm.craftFrameworks,
-            report: vm.craftReport,
-            coverageReport: vm.coverageReport,
-            isCoverageRefreshing: vm.isCoverageRefreshing,
-            coverageErrorText: vm.coverageErrorText,
-            onRefreshCoverage: { Task { await vm.refreshCoverage(source: "Craft") } },
-            isLoading: vm.isCraftLoading,
-            isAnalyzing: vm.isCraftAnalyzing,
-            errorText: vm.craftErrorText,
-            infoText: vm.craftInfoText,
-            fallbackPageCount: vm.craftFallbackPageCount,
-            isSavingOverride: vm.isCraftOverrideSaving,
-            logline: vm.craftLogline,
-            loglineDrift: vm.craftLoglineDrift,
-            loglineHistory: vm.craftLoglineHistory,
-            isLoglineLoading: vm.isCraftLoglineLoading,
-            loglineErrorText: vm.craftLoglineErrorText,
-            loglineInfoText: vm.craftLoglineInfoText,
-            formatLintCards: vm.formatLintCards,
-            isFormatLinting: vm.isFormatLinting,
-            formatLintErrorText: vm.formatLintErrorText,
-            formatLintSource: vm.formatLintSourceText,
-            coverageSimulationReport: vm.coverageSimulationReport,
-            isCoverageSimulating: vm.isCoverageSimulating,
-            coverageSimulationErrorText: vm.coverageSimulationErrorText,
-            coverageSimulationSource: vm.coverageSimulationSourceText,
-            canSimulateCoverage: vm.canSimulateCraftCoverage,
-            isCoverageSimulationCurrent: vm.isCoverageSimulationCurrent,
-            onRefresh: {
-                Task { await vm.loadCraftReport(force: true) }
-            },
-            onRefreshLogline: {
-                Task { await vm.refreshCraftLogline(source: "Manual check") }
-            },
-            onRefreshFormatLint: {
-                Task { await vm.refreshFormatLint(source: "Manual check") }
-            },
-            onSimulateCoverage: {
-                Task { await vm.refreshCraftCoverage(source: "Manual check") }
-            },
-            onAnalyze: {
-                Task { await vm.analyzeCraftReport() }
-            },
-            onCreateOverride: { override in
-                Task { await vm.createCraftTurnOverride(override) }
-            }
-        )
-    }
-
     private var directionOneOutlinePanel: some View {
         sectionCard(title: "Outline") {
             let featureSnapshot = featureWorkflowSnapshot
