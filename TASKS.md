@@ -5,6 +5,18 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-966 — Preserve and connect original title-page support
+
+- **Owner:** codex. **Branch:** `codex/T-966-title-page-integration`.
+- **Status:** review. **Pillar:** trustworthy formatted screenplay pages.
+- **Scope:** preserving merge of original #613; reconcile canonical local page
+  counts/source ranges and the newer iPhone FDX encoder with its title codec.
+- **Done when:** signed title/PDF/FDX/progress tests, connected writer proof,
+  macOS build, D009 and diff pass; document uncovered platform boundaries.
+- **Evidence:** package21/0; signed focused29/0/0, authenticated writer/export/
+  relaunch1/0/0; macOS compilation/D009/diff pass. Manifest:
+  `docs/title-page-integration-2026-10-16.md`. No main merge for this work.
+
 ### T-965 — Printed-page counts drive feature progress
 
 - **Owner:** codex. **Branch:** `codex/T-965-printed-page-progress`.

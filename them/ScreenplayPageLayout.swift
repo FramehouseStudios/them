@@ -1,4 +1,5 @@
 import Foundation
+import ScreenplayStudio
 
 /// Local mirror of the backend `POST /screenplay/paginate` rules so the Studio
 /// home page can show printed pages while the writer types, without a round
@@ -113,7 +114,8 @@ struct ScreenplayPageLayout {
     /// pinned to docs/pagination/fixtures.json.
     static func paginate(_ draft: String, linesPerPage requested: Int = defaultLinesPerPage) -> [Page] {
         let linesPerPage = min(max(requested, minimumLinesPerPage), maximumLinesPerPage)
-        let normalized = draft
+        let paginationSource = FountainPaginationSource.make(from: draft)
+        let normalized = paginationSource.scriptText
             .replacingOccurrences(of: "\r\n", with: "\n")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalized.isEmpty else { return [] }
@@ -127,8 +129,8 @@ struct ScreenplayPageLayout {
         func closePage() {
             pages.append(Page(
                 number: pages.count + 1,
-                startLine: currentSources.min() ?? 0,
-                endLine: currentSources.max() ?? 0,
+                startLine: paginationSource.documentLine(forScriptLine: currentSources.min() ?? 1),
+                endLine: paginationSource.documentLine(forScriptLine: currentSources.max() ?? 1),
                 lines: currentLines
             ))
             currentLines = []

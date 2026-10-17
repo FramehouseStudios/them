@@ -163,6 +163,13 @@ public enum ScreenplayEditorElement: String, CaseIterable, Identifiable, Codable
         return result
     }
 
+    /// Infers only screenplay elements from a complete Fountain document. Leading
+    /// title metadata is intentionally absent from the returned sequence so callers
+    /// cannot accidentally count it as action, dialogue, or screenplay page lines.
+    public static func inferredScreenplaySequence(for document: String) -> [ScreenplayEditorElement?] {
+        inferredSequence(for: FountainTitlePageCodec.parse(document).scriptPageText)
+    }
+
     public static func nextElementAfterReturn(
         currentLine: String,
         currentElement: ScreenplayEditorElement,

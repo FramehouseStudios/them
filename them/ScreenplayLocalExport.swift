@@ -232,9 +232,10 @@ enum ScreenplayLocalExport {
     }
 
     private static func screenplayPDFData(for draft: String) throws -> Data {
+        let document = FountainTitlePageCodec.parse(draft)
         let pageRect = CGRect(x: 0, y: 0, width: 612, height: 792)
         let contentRect = CGRect(x: 108, y: 72, width: 432, height: 648)
-        let attributed = attributedDraft(for: draft, printableWidth: contentRect.width)
+        let attributed = attributedDraft(for: document.scriptPageText, printableWidth: contentRect.width)
         let framesetter = CTFramesetterCreateWithAttributedString(attributed)
 
         let data = NSMutableData()
@@ -246,14 +247,28 @@ enum ScreenplayLocalExport {
             throw ScreenplayLocalExportError.failedToCreatePDFContext
         }
 
+        if let titlePage = document.titlePage {
+            context.beginPDFPage(nil)
+            context.saveGState()
+            context.textMatrix = .identity
+            context.translateBy(x: 0, y: pageRect.height)
+            context.scaleBy(x: 1, y: -1)
+            drawTitlePage(titlePage, in: context, pageRect: pageRect)
+            context.restoreGState()
+            context.endPDFPage()
+        }
+
         var currentRange = CFRange(location: 0, length: 0)
         let fullLength = attributed.length
+        var pageNumber = 1
         while currentRange.location < fullLength {
             context.beginPDFPage(nil)
             context.saveGState()
             context.textMatrix = .identity
             context.translateBy(x: 0, y: pageRect.height)
             context.scaleBy(x: 1, y: -1)
+
+            drawPageNumber(pageNumber, in: context)
 
             let path = CGPath(rect: contentRect, transform: nil)
             let frame = CTFramesetterCreateFrame(framesetter, currentRange, path, nil)
@@ -265,10 +280,86 @@ enum ScreenplayLocalExport {
 
             guard visible.length > 0 else { break }
             currentRange.location += visible.length
+            pageNumber += 1
         }
 
         context.closePDF()
         return data as Data
+    }
+
+    private static func drawTitlePage(
+        _ titlePage: FountainTitlePage,
+        in context: CGContext,
+        pageRect: CGRect
+    ) {
+        let title = titlePage.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let safeTitle = title.isEmpty ? FountainTitlePage.provisionalTitle : title
+        let centered = NSMutableParagraphStyle()
+        centered.alignment = .center
+        let titleFont = NSFont(name: "Courier-Bold", size: 18) ?? NSFont.boldSystemFont(ofSize: 18)
+        let bodyFont = NSFont(name: "Courier", size: 12) ?? NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
+        let titleBlock = NSMutableAttributedString(string: safeTitle.uppercased(), attributes: [
+            .font: titleFont,
+            .foregroundColor: NSColor.black,
+            .paragraphStyle: centered,
+        ])
+        let bylineParts = [titlePage.credit] + titlePage.authors
+        let byline = bylineParts
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n")
+        if !byline.isEmpty {
+            titleBlock.append(NSAttributedString(string: "\n\n" + byline, attributes: [
+                .font: bodyFont,
+                .foregroundColor: NSColor.black,
+                .paragraphStyle: centered,
+            ]))
+        }
+        draw(titleBlock, in: CGRect(x: 72, y: 220, width: pageRect.width - 144, height: 240), context: context)
+
+        if let contact = nonempty(titlePage.contact) {
+            draw(NSAttributedString(string: contact, attributes: [
+                .font: bodyFont,
+                .foregroundColor: NSColor.black,
+            ]), in: CGRect(x: 72, y: 640, width: 230, height: 90), context: context)
+        }
+        if let draftDate = nonempty(titlePage.draftDate) {
+            let right = NSMutableParagraphStyle()
+            right.alignment = .right
+            draw(NSAttributedString(string: draftDate, attributes: [
+                .font: bodyFont,
+                .foregroundColor: NSColor.black,
+                .paragraphStyle: right,
+            ]), in: CGRect(x: 310, y: 640, width: 230, height: 90), context: context)
+        }
+    }
+
+    private static func drawPageNumber(_ page: Int, in context: CGContext) {
+        let right = NSMutableParagraphStyle()
+        right.alignment = .right
+        let text = NSAttributedString(string: "\(page).", attributes: [
+            .font: NSFont(name: "Courier", size: 10) ?? NSFont.monospacedSystemFont(ofSize: 10, weight: .regular),
+            .foregroundColor: NSColor.black.withAlphaComponent(0.7),
+            .paragraphStyle: right,
+        ])
+        draw(text, in: CGRect(x: 108, y: 36, width: 400, height: 20), context: context)
+    }
+
+    private static func draw(_ text: NSAttributedString, in rect: CGRect, context: CGContext) {
+        let framesetter = CTFramesetterCreateWithAttributedString(text)
+        let frame = CTFramesetterCreateFrame(
+            framesetter,
+            CFRange(location: 0, length: text.length),
+            CGPath(rect: rect, transform: nil),
+            nil
+        )
+        CTFrameDraw(frame, context)
+    }
+
+    private static func nonempty(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let clean = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return clean.isEmpty ? nil : clean
     }
 
     private static func attributedDraft(for draft: String, printableWidth: CGFloat) -> NSAttributedString {

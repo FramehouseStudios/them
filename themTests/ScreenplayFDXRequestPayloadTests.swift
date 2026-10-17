@@ -2,6 +2,25 @@ import XCTest
 @testable import them
 
 final class ScreenplayFDXRequestPayloadTests: XCTestCase {
+    func testTitlePageMetadataIsExportedSeparatelyFromScreenplayBody() throws {
+        let body = "INT. ROOM - NIGHT\n\nA clock stops."
+        let draft = "Title: Orbit\nCredit: Written by\nAuthor: A Writer\nDraft date: 2026-10-16\nContact: writer@example.invalid\n\n" + body
+        let payload = ScreenplayFDXRequestPayload.document(draft: draft, title: "Older project label")
+        XCTAssertEqual(payload["title"] as? [String: String], [
+            "title": "Orbit", "credit": "Written by", "author": "A Writer",
+            "draftDate": "2026-10-16", "contact": "writer@example.invalid",
+        ])
+        let expected = ScreenplayFDXRequestPayload.document(draft: body, title: "Orbit")
+        XCTAssertEqual(try JSONSerialization.data(withJSONObject: payload["scenes"]!, options: .sortedKeys),
+                       try JSONSerialization.data(withJSONObject: expected["scenes"]!, options: .sortedKeys))
+    }
+
+    func testTitleOnlyExportDoesNotInventStoryOrAuthorship() throws {
+        let payload = ScreenplayFDXRequestPayload.document(draft: "Title: Orbit\n", title: "Older label")
+        XCTAssertEqual(try XCTUnwrap(payload["scenes"] as? [[String: Any]]).count, 0)
+        XCTAssertEqual((payload["title"] as? [String: String])?["author"], "")
+    }
+
     func testEmptyDocumentOmitsBlankTitleAndHasNoScenes() throws {
         let payload = ScreenplayFDXRequestPayload.document(draft: " \r\n\t", title: " \t ")
         XCTAssertNil(payload["title"])
