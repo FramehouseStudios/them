@@ -5,6 +5,51 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-929 — Restore parked writer saves before project hydration
+
+- **Owner:** codex
+- **Branch:** `codex/T-929-conflict-relaunch-hydration`, above #927 head `1f7c6061`.
+- **Pillar:** mobile-first (writer data safety).
+- **Status:** review.
+- **VERIFIED:** #927 hosted run `37753118979` passed 658 units, integrated writer loop,
+  and V1 smoke (28 pass, 0 fail, 9 skip). Offline-save conflict relaunch failed:
+  one parked copy remained, but the editor displayed collaborator text, dirty=false,
+  conflict=nil. This does not prove permanent loss. Main is unchanged at `647e01fc`.
+- **Root reproduced:** project-detail hydration bypassed bootstrap's queue restoration.
+  The signed regression failed 1/1 with collaborator text replacing the editor's
+  expected parked draft (`/tmp/them-929-hydration-red.xcresult`). Both production
+  detail/outline hydration paths now restore the existing owner-scoped queue first,
+  then recheck auth and selected project; stale continuations also stop before
+  collaboration/outline updates. No new queue or framework was introduced.
+- **VERIFIED signed units:** 659 pass, 0 fail, 0 skip, including the retained red
+  regression (`/tmp/them-929-hydration-units.xcresult`). Owned simulator
+  `11CF5EFB-D8C3-4F19-8062-28AF37F27D93`, iOS 26.2, signing on, erased first.
+- **Hosted evidence:** `/tmp/them-927-hosted-failure.log`; downloaded authoritative
+  result bundle under `/tmp/them-927-hosted-proof.rKDnz3` confirms 1 pass, 1 fail,
+  0 skip on iOS 26.5. A locally green result does not prove the hosted fix yet.
+- **Baseline:** full backend 2,740 pass, 0 fail, 2 skip (`/tmp/them-929-backend.log`);
+  god-file gate and diff check pass. No live paid model calls or human credentials.
+- **Final local proof:** shipping Node 20.20.2 full backend, network disabled:
+  2,740 pass, 0 fail, 2 skip (`/tmp/them-929-node20-backend.log`). Signed erased
+  simulator offline/relaunch/auth/conflict/Keep Mine UI: 2 pass, 0 fail, 0 skip
+  (`/tmp/them-929-ui/screenplay-save-network-fault-6110.xcresult`). The existing
+  exact-text, conflict-choice and exactly-once assertions were not weakened or
+  retried. macOS scaffold build exit 0 (`/tmp/them-929-mac.log`), unsigned build-only.
+  Existing Swift concurrency warnings remain. Protected files do not grow;
+  index.js remains 33,626 under the approved pre-stack exception.
+- **Exact files:** this ledger, `them/ScreenplayStudioViewModel.swift`, and
+  `themTests/ScreenplayDraftSaveOutboxTests.swift`. Original #925/#927 work preserved.
+- **Landing:** draft only above #927; required hosted checks and independent review
+  still required. No main mutation, self-approval, merge bypass or paid provider use.
+- **Done when:** root cause is reproduced; parked local bytes, conflict choice,
+  auth/project isolation and exactly-once Keep Mine are proven on signed erased
+  simulator units/UI; full backend, macOS and god gates pass; scoped draft PR only.
+- **Do not silently fix:** the earlier #925 remembered-login failure. It passed
+  on #927; retain that observation and investigate separately if it reproduces.
+- **Not covered:** paused-actor account/project-switch race injection, corrupt
+  outbox storage, same-version-but-byte-distinct conflict recovery, physical
+  microphone/provider calls, release configuration, 120-page performance or export.
+
 ### T-928 — Preserve exact screenplay save and recovery identity
 
 - **Owner:** codex
