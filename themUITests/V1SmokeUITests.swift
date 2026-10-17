@@ -326,7 +326,9 @@ final class V1SmokeUITests: XCTestCase {
             return
         }
         let projectID = try XCTUnwrap(snapshot["selected_project_id"] as? String)
-        _ = try await waitForWriterLoopSavedVersion(projectID: projectID, draft: draft, fixture: fixture, app: app, timeout: 30)
+        let savedProject = try await waitForWriterLoopSavedVersion(projectID: projectID, draft: draft, fixture: fixture, app: app, timeout: 30)
+        XCTAssertEqual(stringValue(savedProject["title"]), "Observatory at Night",
+                       "Automatic promotion must name the project from the scene, not its first action line.")
         app.terminate()
         environment.removeValue(forKey: "THEM_UITEST_HOME_VOICE_PROMPT")
         environment.removeValue(forKey: "THEM_UITEST_HOME_VOICE_RAW_AUDIO")
@@ -336,6 +338,8 @@ final class V1SmokeUITests: XCTestCase {
             ((object as? XCUIElement)?.value as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) == draft
         }
         XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: exact, object: restoredEditor)], timeout: 30), .completed)
+        let restoredProject = try await writerLoopProject(id: projectID, fixture: fixture)
+        XCTAssertEqual(stringValue(restoredProject["title"]), "Observatory at Night")
 #else
         throw XCTSkip("iPhone-only Home voice handoff")
 #endif
