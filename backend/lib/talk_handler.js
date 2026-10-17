@@ -80,6 +80,7 @@ import { parseShortFilmIntent } from "./clementine/short_film_intent.js";
 import { buildLivePaperPayload } from "./clementine/studio_live_paper.js";
 import { applyClementineTalkHeaders } from "./clementine/talk_clementine_headers.js";
 import { isMentorTurn, elevateChatModelPlanForMentorTurn } from "./mentor_turn.js";
+import { shapeMentorReply } from "./mentor_reply_shape.js";
 import {
   parseStudioCapabilities,
   buildStudioControlsBlock,
@@ -4199,13 +4200,22 @@ ${directorOutputRule}
       flags,
     });
     let reply = normalizeSnippet(rawReply, 8_000);
+    // Mentor turns: a grade of the premise is not an answer; drop it before
+    // anything is spoken. Page writes are never shaped.
+    const mentorShape = shapeMentorReply(reply, { mentorTurn, screenplayPageWrite: isScreenplayPageWriteTurn });
+    if (mentorShape.stripped) {
+      reply = mentorShape.text;
+      logger.log(`[${rid}] mentor_opener_stripped=true`);
+    }
     // Studio actions: strip [[studio: …]] tags before anything is spoken and
     // keep the validated actions for the response header.
-    const studioActionExtraction = extractStudioActions(reply, studioCapabilities, { allowActions: studioControlsEnabled });
-    if (studioActionExtraction.stripped || studioActionExtraction.actions.length) {
+    const studioActionExtraction = extractStudioActions(reply, studioCapabilities, {
+      transcript: talkGenerationTranscript || transcript, allowActions: studioControlsEnabled,
+    });
+    if (reply !== studioActionExtraction.spokenText || studioActionExtraction.actions.length) {
       reply = studioActionExtraction.spokenText;
       logger.log(
-        `[${rid}] studio_actions=${JSON.stringify(studioActionExtraction.actions)} rejected=${JSON.stringify(studioActionExtraction.rejected)}`
+        `[${rid}] studio_action_types=${studioActionExtraction.actions.map(action => action.type).join(",")} rejected_count=${studioActionExtraction.rejected.length}`
       );
     }
     let replyRepaired = false;
@@ -4224,6 +4234,18 @@ ${directorOutputRule}
         reply = normalizedPageReply;
         replyRepaired = reply !== normalizeSnippet(rawReply, 8_000);
       }
+      heuristicTurnQuality = evaluateTurnQualityHeuristics({
+        transcript,
+        reply,
+        flags,
+        routingLane,
+        turnIntent: String(turnPlanner.intent || "unknown"),
+      });
+    } else if (mentorTurn) {
+      // Mentor turns: the identity, the <mentor_output> contract, and the
+      // reply shaper own the form. The companion validate/direct/specificity
+      // pipeline below rewrites short craft answers into coaching scaffolds
+      // ("Sharpen pass: …"), so it is skipped here.
       heuristicTurnQuality = evaluateTurnQualityHeuristics({
         transcript,
         reply,
@@ -4324,7 +4346,10 @@ ${directorOutputRule}
         });
       }
     }
-    if (!isScreenplayPageWriteTurn && !localActionReply && screenplayQuestionPlan?.shouldAsk) {
+    // The mentor contract owns question shape on mentor turns (one question
+    // at most, only when it decides the next beat); the companion planner
+    // must not append a grounding question after it.
+    if (!isScreenplayPageWriteTurn && !mentorTurn && !localActionReply && screenplayQuestionPlan?.shouldAsk) {
       const plannedQuestionReply = enforceScreenplayQuestionPlan(reply, screenplayQuestionPlan);
       if (plannedQuestionReply && plannedQuestionReply !== reply) {
         reply = plannedQuestionReply;
@@ -4703,7 +4728,7 @@ ${directorOutputRule}
         }
       }
     }
-    if (!isScreenplayPageWriteTurn && !localActionReply && screenplayQuestionPlan?.shouldAsk) {
+    if (!isScreenplayPageWriteTurn && !mentorTurn && !localActionReply && screenplayQuestionPlan?.shouldAsk) {
       const finalPlannedQuestionReply = enforceScreenplayQuestionPlan(reply, screenplayQuestionPlan);
       if (finalPlannedQuestionReply && finalPlannedQuestionReply !== reply) {
         reply = finalPlannedQuestionReply;

@@ -88,12 +88,14 @@ export function buildCoverageReadBlock(caps) {
   const pillarText = COVERAGE_PILLARS.filter((k) => k in c.pillars).map((k) => `${k} ${c.pillars[k]}`).join(", ");
   const lowest = COVERAGE_PILLARS.filter((k) => k in c.pillars).sort((a, b) => c.pillars[a] - c.pillars[b])[0] || "";
   return [
+    "<coverage_read>",
     "YOUR READ OF THE PAGES (the coverage you already gave the writer on the Craft tab; quote it, never recompute or contradict it):",
     `- ${c.pageCount} page${c.pageCount === 1 ? "" : "s"}, ${c.sceneCount} scene${c.sceneCount === 1 ? "" : "s"}. Grade ${c.grade}, verdict ${c.verdict}, ${c.overall} of 10 overall.`,
     pillarText ? `- Pillars: ${pillarText}.${lowest ? ` Lowest: ${lowest}.` : ""}` : "",
     c.missing.length ? `- Missing: ${c.missing.join(" ")}` : "",
     c.move ? `- The move you named: ${c.move}` : "",
     "- When the writer asks how the script is doing, what to fix first, or what you think of the pages, answer from this read: name the grade and the lowest pillar, then the move. Do not invent other scores.",
+    "</coverage_read>",
   ].filter(Boolean).join("\n");
 }
 
@@ -141,6 +143,7 @@ export function buildStudioControlsBlock(caps) {
     ? caps.beatLabels.slice(0, 16).map((b) => `"${b}"`).join(", ") + (caps.beatLabels.length > 16 ? ", …" : "")
     : "(no beats on the outline yet)";
   return [
+    "<studio_controls>",
     "STUDIO CONTROLS (you can operate the app; the writer hears you and sees it happen):",
     `- Tabs: ${caps.tabs.join(", ")}${caps.currentTab ? ` (open now: ${caps.currentTab})` : ""}. Draft tools: ${caps.draftToolsSections.join(", ")}. Sidebar: ${caps.sidebarSections.join(", ")}.`,
     `- Revision colors, in production order: ${caps.revisionColors.join(", ")}.`,
@@ -154,6 +157,8 @@ export function buildStudioControlsBlock(caps) {
     "- Only tag what you actually said you will do this turn. Use only the tabs, sections, colors, scene labels, and beat labels listed above; if the writer asks for something not on the list, say so instead of tagging. A question is never a tag, except choose_beat, which opens the Beats tab while you ask which beat to change; with beat=… it selects that beat so the writer can say what to change.",
     "- undo_last_page_write only when the writer asks to undo, remove, or revert the last page you wrote.",
     "- Tags are stripped before your voice is heard; never read them aloud or mention them.",
+    "- The tags are the one exception to speaking in prose: they are not formatting, they are the action. If you say you will open, save, jump, or pull something up and do not tag it, nothing happens on the writer's screen.",
+    "</studio_controls>",
   ].join("\n");
 }
 
@@ -244,13 +249,14 @@ function validate(type, args, caps) {
 const COLOR_ALT = REVISION_COLORS.join("|");
 const SPOKEN_PATTERNS = [
   { type: "start_rewrite", re: /\b(?:i'?ll|let me|i'?m going to|i will|i can|let'?s)\s+(?:start|begin|do|take|run)\s+(?:a |the |another )?(?:full )?rewrite\b/i, args: () => ({ scope: "scene" }) },
-  { type: "save_revision", re: new RegExp(`\\b(?:sav(?:e|ing)|mark(?:ing)?|log(?:ging)?|fil(?:e|ing))\\s+(?:a |the |this |these |your )?(?:revision|revised pages?|pages?|pass)\\s+(?:in|as)\\s+(${COLOR_ALT})\\b`, "i"), args: (m) => ({ color: m[1].toLowerCase() }) },
+  { type: "save_revision", re: new RegExp(`\\b(?:sav(?:e|ed|ing)|mark(?:ed|ing)?|log(?:ged|ging)?|fil(?:e|ed|ing))\\s+(?:a |the |this |these |your )?(?:revision|revised pages?|pages?|pass)\\s+(?:in|as)\\s+(${COLOR_ALT})\\b`, "i"), args: (m) => ({ color: m[1].toLowerCase() }) },
   { type: "choose_beat", re: /\bwhich\s+(?:story(?:line)?\s+)?(?:beat|scene)\s+(?:would you like|do you want|should we)\s+to\s+(?:change|rework|revise|fix|rewrite|move)\b/i, args: () => ({}) },
-  { type: "choose_beat", re: /\b(?:pull(?:ing)? up|open(?:ing)?|select(?:ing)?|jump(?:ing)? to)\s+(?:the\s+)?["“]?([A-Za-z][^"”\n.,;:]{1,50}?)["”]?\s+beat\b/i, args: (m) => ({ beat: m[1].trim() }) },
+  { type: "choose_beat", re: /\b(?:pull(?:ed|ing)? up|open(?:ed|ing)?|select(?:ed|ing)?|jump(?:ed|ing)? to|focus(?:ing|ed)? on|look(?:ing)? at|go(?:ing)? to|bring(?:ing)? up)\s+(?:the\s+)?["“]?([A-Za-z][^"”\n.,;:]{1,50}?)["”]?\s+beat\b/i, args: (m) => ({ beat: m[1].trim() }) },
+  { type: "jump_to_scene", re: /\b(?:jump(?:ed|ing)? to|go(?:ing)? to|open(?:ed|ing)?|pull(?:ed|ing)? up|take (?:you|us) to)\s+(?:the\s+)?["“]?([A-Za-z][^"”\n.,;:]{1,60}?)["”]?\s+scene\b/i, args: (m) => ({ scene: m[1].trim() }) },
   { type: "undo_last_page_write", re: /\b(?:i'?ll|let me|i'?m going to|i will|let'?s)\s+(?:undo|remove|revert|pull back|take back)\s+(?:the |that |this )?(?:last |latest |most recent )?(?:page write|page|write|pages? i (?:just )?wrote)\b/i, args: () => ({}) },
-  { type: "open_tab", re: /\b(?:open(?:ing)?|pull(?:ing)? up|switch(?:ing)? to|bring(?:ing)? up)\s+(?:the\s+)?(draft|beats|craft|outline|saved)\s+(?:tab|panel)\b/i, args: (m) => ({ tab: m[1].toLowerCase() }) },
-  { type: "open_draft_tools", re: /\b(?:open(?:ing)?|pull(?:ing)? up|switch(?:ing)? to|bring(?:ing)? up)\s+(?:the\s+)?(pages|revisions|snapshots)\b/i, args: (m) => ({ section: m[1].toLowerCase() }) },
-  { type: "save_draft", re: /\b(?:sav(?:e|ing))\s+(?:the |this |your )?draft\b/i, args: () => ({}) },
+  { type: "open_tab", re: /\b(?:open(?:ed|ing)?|pull(?:ed|ing)? up|switch(?:ed|ing)? to|bring(?:ing)? up|brought up)\s+(?:the\s+)?(draft|beats|craft|outline|saved)\s+(?:tab|panel)\b/i, args: (m) => ({ tab: m[1].toLowerCase() }) },
+  { type: "open_draft_tools", re: /\b(?:open(?:ed|ing)?|pull(?:ed|ing)? up|switch(?:ed|ing)? to|bring(?:ing)? up|brought up)\s+(?:the\s+)?(pages|revisions|snapshots)\b/i, args: (m) => ({ section: m[1].toLowerCase() }) },
+  { type: "save_draft", re: /\b(?:sav(?:e|ed|ing))\s+(?:the |this |your )?draft\b/i, args: () => ({}) },
 ];
 
 export function inferSpokenActions(text) {
@@ -258,12 +264,95 @@ export function inferSpokenActions(text) {
   for (const spec of SPOKEN_PATTERNS) {
     if (found.some((f) => f.type === spec.type)) continue;
     const m = spec.re.exec(String(text || ""));
-    if (m) found.push({ type: spec.type, args: spec.args(m), inferred: true });
+    if (m && !isQuotedAt(String(text || ""), m.index) && !isNegatedAt(String(text || ""), m.index)) {
+      found.push({ type: spec.type, args: spec.args(m), inferred: true });
+    }
   }
   return found;
 }
 
-export function extractStudioActions(reply, caps, { allowActions = true } = {}) {
+// The writer's own command is the intent. When they say "open the craft tab"
+// or "pull up the midpoint beat" and she answers without narrating the
+// action, the app must still act. Only imperative control phrasings count;
+// talking *about* a scene or a beat is not a command.
+const WRITER_COMMAND_PATTERNS = [
+  { type: "open_tab", re: /\b(?:open|pull up|switch to|bring up|show me|go to)\s+(?:the\s+)?(draft|beats|craft|outline|saved)\s+(?:tab|panel)\b/i, args: (m) => ({ tab: m[1].toLowerCase() }) },
+  { type: "open_draft_tools", re: /\b(?:open|pull up|switch to|bring up|show me|go to)\s+(?:the\s+)?(pages|revisions|snapshots)\b/i, args: (m) => ({ section: m[1].toLowerCase() }) },
+  { type: "choose_beat", re: /\b(?:pull up|open|select|jump to|go to|bring up|show me)\s+(?:the\s+)?["“]?([A-Za-z][^"”\n.,;:?]{1,50}?)["”]?\s+beat\b/i, args: (m) => ({ beat: m[1].trim() }) },
+  { type: "jump_to_scene", re: /\b(?:jump to|go to|take me to|open|pull up|show me)\s+(?:the\s+)?["“]?([A-Za-z][^"”\n.,;:?]{1,60}?)["”]?\s+scene\b/i, args: (m) => ({ scene: m[1].trim() }) },
+  { type: "save_revision", re: new RegExp(`\\b(?:save|mark|log|file)\\s+(?:a |the |this |these |my )?(?:revision|revised pages?|pages?|pass)\\s+(?:in|as)\\s+(${COLOR_ALT})\\b`, "i"), args: (m) => ({ color: m[1].toLowerCase() }) },
+  { type: "save_draft", re: /\b(?:save)\s+(?:the |this |my )?draft\b/i, args: () => ({}) },
+  { type: "start_rewrite", re: /\b(?:start|begin|do|run)\s+(?:a |the |another )?(?:full )?rewrite\b/i, args: () => ({ scope: "scene" }) },
+  { type: "undo_last_page_write", re: /\b(?:undo|remove|revert|take back)\s+(?:the |that |this )?(?:last |latest |most recent )?(?:page write|page you wrote|page|write)\b/i, args: () => ({}) },
+];
+
+function replaceClaimSentence(text, claimRe, replacement) {
+  const sentences = String(text || "").split(/(?<=[.!?])\s+/);
+  const idx = sentences.findIndex((sentence) => claimRe.test(sentence));
+  if (idx === -1) return text;
+  sentences[idx] = replacement;
+  return sentences.join(" ").replace(/\s+/g, " ").trim();
+}
+
+function isQuotedAt(text, index) {
+  return [...text.matchAll(/"[^"]*(?:"|$)|“[^”]*(?:”|$)|`[^`]*(?:`|$)|‘[^’]*(?:’|$)|(?:^|[\s(:])'[^']*(?:'(?=[\s.,!?;)]|$)|$)/g)]
+    .some(match => index >= match.index && index < match.index + match[0].length);
+}
+
+function isNegatedAt(text, index) {
+  return /\b(?:not|never|won't|don't|cannot|can't|will not|do not)\b[^.!?;]{0,60}$/i
+    .test(text.slice(0, index).replace(/’/g, "'"));
+}
+
+function writerCommandIntent(transcript) {
+  const text = String(transcript || "").replace(/’/g, "'");
+  const matches = WRITER_COMMAND_PATTERNS.flatMap(spec =>
+    [...text.matchAll(new RegExp(spec.re.source, "ig"))].map(match => ({spec, match})))
+    .sort((a, b) => a.match.index - b.match.index);
+  const directives = new Map();
+  const mentioned = new Set();
+  let previous;
+  for (const {spec, match} of matches) {
+    const before = text.slice(0, match.index);
+    const boundary = [...before.matchAll(/[.!?;]\s+|\n+|\s+(?:but|and then)\s+/gi)].at(-1);
+    const start = boundary ? boundary.index + boundary[0].length : 0;
+    const prefix = before.slice(start).trim().replace(/^clementine[,!:]?\s*/i, "").replace(/^please\s+/i, "");
+    let mode = "mention";
+    if (!isQuotedAt(text, match.index)) {
+      if (/^(?:don't|do not|never)(?:\s+ever)?\s*$/i.test(prefix)) mode = "deny";
+      else if (/^(?:(?:can|could|would|will) you (?:please )?|(?:i want|i'd like) you to |let's )?$/i.test(prefix + (prefix ? " " : ""))) mode = "allow";
+      else if (/(?:\band(?: please)?|,)$/i.test(prefix) && previous?.start === start) mode = previous.mode;
+    }
+    previous = {start, mode};
+    if (mode === "mention") mentioned.add(spec.type);
+    else directives.set(spec.type, {mode, action: {type: spec.type, args: spec.args(match), inferred: true, fromWriter: true}});
+  }
+  return {
+    commands: [...directives.values()].filter(entry => entry.mode === "allow").map(entry => entry.action),
+    blocked: new Set([...mentioned].filter(type => !directives.has(type)).concat(
+      [...directives].filter(([, entry]) => entry.mode === "deny").map(([type]) => type))),
+  };
+}
+
+export function inferWriterCommands(transcript) {
+  return writerCommandIntent(transcript).commands;
+}
+
+function plannedActionSentence(action) {
+  switch (action.type) {
+    case "save_revision": return `I'll save a revision in ${action.color}.`;
+    case "save_draft": return "I'll save the draft.";
+    case "open_tab": return `I'll open the ${action.tab} tab.`;
+    case "open_draft_tools": return `I'll open ${action.section}.`;
+    case "open_sidebar": return `I'll open ${action.section}.`;
+    case "jump_to_scene": return `I'll go to ${action.scene}.`;
+    case "choose_beat": return "I'll open the Beats tab.";
+    case "start_rewrite": return `I'll open a ${action.scope} rewrite.`;
+    case "undo_last_page_write": return "I'll request undo for the last page write.";
+  }
+}
+
+export function extractStudioActions(reply, caps, { transcript = null, allowActions = true } = {}) {
   const text = String(reply ?? "");
   const result = { spokenText: text, actions: [], rejected: [], stripped: false };
   if (!caps?.enabled || !allowActions) {
@@ -286,15 +375,60 @@ export function extractStudioActions(reply, caps, { allowActions = true } = {}) 
   for (const inferred of inferSpokenActions(spoken)) {
     if (!tagged.has(inferred.type)) candidates.push(inferred);
   }
+  // Refusals win: if she says the thing does not exist, do not act on the command.
+  const refused = /\b(?:there(?:'s| is) no|i (?:can'?t|cannot|don'?t) (?:find|see|open|do)|isn'?t (?:a|an|on) )/i.test(spoken);
+  const refusesAction = type => SPOKEN_PATTERNS.some(spec => {
+    const match = spec.type === type && spec.re.exec(spoken);
+    return match && isNegatedAt(spoken, match.index);
+  });
+  const intent = writerCommandIntent(transcript);
+  if (transcript !== null && !intent.commands.some(command => command.type === "undo_last_page_write")) {
+    intent.blocked.add("undo_last_page_write");
+  }
+  const writerTypes = new Set(intent.commands.map(command => command.type));
+  for (const command of intent.commands.filter(command => !refused && !refusesAction(command.type))) {
+    const expected = validate(command.type, command.args, caps);
+    if (!expected.ok) continue;
+    const contradicts = candidates.some(candidate => {
+      if (candidate.type !== command.type) return false;
+      const actual = validate(candidate.type, candidate.args, caps);
+      return actual.ok && JSON.stringify(actual.action) !== JSON.stringify(expected.action);
+    });
+    const claim = SPOKEN_PATTERNS.find(spec => spec.type === command.type && spec.re.test(result.spokenText));
+    if (contradicts && claim) result.spokenText = replaceClaimSentence(result.spokenText, claim.re, plannedActionSentence(expected.action));
+  }
   const seen = new Set();
-  for (const candidate of candidates) {
+  for (const candidate of [...intent.commands.filter(() => !refused), ...candidates.filter(candidate => !writerTypes.has(candidate.type))]) {
+    if (refusesAction(candidate.type)) {
+      result.rejected.push({type: candidate.type, reason: "assistant_refused_action"});
+      continue;
+    }
+    if (intent.blocked.has(candidate.type)) {
+      result.rejected.push({type: candidate.type, reason: "writer_did_not_authorize"});
+      const claim = SPOKEN_PATTERNS.find(spec => spec.type === candidate.type && spec.re.test(result.spokenText));
+      if (claim) result.spokenText = replaceClaimSentence(result.spokenText, claim.re, "I won't carry out that action.");
+      continue;
+    }
     const verdict = validate(candidate.type, candidate.args, caps);
-    if (!verdict.ok) { result.rejected.push({ type: candidate.type, reason: verdict.reason, inferred: candidate.inferred }); continue; }
+    if (!verdict.ok) {
+      result.rejected.push({ type: candidate.type, reason: verdict.reason, inferred: candidate.inferred });
+      // She narrated a jump to something the page does not have. Do not let
+      // the writer hear a claim the app cannot honour: say what is true.
+      if (candidate.type === "jump_to_scene" && /^unknown_scene:/.test(verdict.reason)) {
+        result.spokenText = replaceClaimSentence(result.spokenText, /\b(?:jump(?:ed|ing)?|go(?:ing|ne)?|went)\s+to\b[^.!?]*\bscene\b/i,
+          `I don't see a ${candidate.args.scene} scene on the page yet.`);
+      }
+      continue;
+    }
     const key = JSON.stringify(verdict.action);
     if (seen.has(key)) continue;
     seen.add(key);
     if (result.actions.length >= MAX_ACTIONS_PER_TURN) { result.rejected.push({ type: candidate.type, reason: "too_many" }); continue; }
-    result.actions.push({ ...verdict.action, source: candidate.inferred ? "spoken" : "tag" });
+    result.actions.push({ ...verdict.action, source: candidate.fromWriter ? "writer" : (candidate.inferred ? "spoken" : "tag") });
+    if (["save_draft", "save_revision"].includes(candidate.type) && /\b(?:saved|marked|logged|filed)\b/i.test(result.spokenText)) {
+      const claim = SPOKEN_PATTERNS.find(spec => spec.type === candidate.type && spec.re.test(result.spokenText));
+      if (claim) result.spokenText = replaceClaimSentence(result.spokenText, claim.re, plannedActionSentence(verdict.action));
+    }
   }
   return result;
 }
