@@ -1454,6 +1454,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         let draft: String
         let baseVersionId: String
         let savedAt: TimeInterval
+        let isPreservedConflict: Bool
     }
 
     struct SaveConflictState: Equatable {
@@ -1914,6 +1915,38 @@ final class ScreenplayStudioViewModel: ObservableObject {
         conflictState = nil
         autosaveStatusText = remoteLiveDraftStatusText
         return true
+    }
+
+    /// Preserve a dirty local draft independently before live sync replaces
+    /// it with a remote snapshot that has no shared rebase base.
+    func preserveLocalDraftForLiveSyncRecovery(_ text: String, projectID: String) {
+        guard ScreenplayProjectScopedState.matches(projectID, selectedProjectId: selectedProjectID) else {
+            return
+        }
+        let cleanProjectID = projectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanProjectID.isEmpty,
+              !normalizedText.isEmpty,
+              fingerprint(for: normalizedText) != lastSavedDraftFingerprint else { return }
+
+        let savedAt = Date().timeIntervalSince1970
+        let ownerUserID = currentStudioAuthContext().userID
+        localDraftRecoveryStore.savePreservedConflict(
+            ownerUserId: ownerUserID,
+            projectId: cleanProjectID,
+            draft: text,
+            baseVersionId: latestVersionID,
+            savedAt: savedAt
+        )
+        recoveryCandidate = LocalDraftRecoveryCandidate(
+            projectId: cleanProjectID,
+            draft: text,
+            baseVersionId: latestVersionID,
+            savedAt: savedAt,
+            isPreservedConflict: true
+        )
+        autosaveStatusText = "Local draft protected"
+        infoText = "Your unsaved local draft is preserved while live sync loads the other device's text. Recover it or keep the server draft."
     }
 
     /// The typing device normally announces its saved version within a couple
@@ -4166,6 +4199,12 @@ final class ScreenplayStudioViewModel: ObservableObject {
         isHydratingDraft = false
         if !candidate.baseVersionId.isEmpty {
             latestVersionID = candidate.baseVersionId
+        }
+        if candidate.isPreservedConflict {
+            localDraftRecoveryStore.clearPreservedConflict(
+                ownerUserId: currentStudioAuthContext().userID,
+                projectId: candidate.projectId
+            )
         }
         syncLiveDraftBridgeProjectContext()
         hasUnsavedDraftChanges = fingerprint(for: candidate.draft) != lastSavedDraftFingerprint
@@ -6476,7 +6515,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
             projectId: snapshot.projectId,
             draft: snapshot.draft,
             baseVersionId: snapshot.baseVersionId,
-            savedAt: snapshot.savedAt
+            savedAt: snapshot.savedAt,
+            isPreservedConflict: snapshot.isPreservedConflict
         )
     }
 
@@ -6497,7 +6537,12 @@ final class ScreenplayStudioViewModel: ObservableObject {
             dirty: dirty,
             savedAt: savedAt
         )
-        if !dirty {
+        let hasDifferentPreservedConflict = recoveryCandidate.map {
+            $0.projectId == normalizedProjectId &&
+                $0.isPreservedConflict &&
+                $0.draft != draft
+        } ?? false
+        if !dirty && !hasDifferentPreservedConflict {
             recoveryCandidate = nil
         }
     }
@@ -6528,7 +6573,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
             projectId: normalizedProjectId,
             draft: draft,
             baseVersionId: baseVersionId,
-            savedAt: savedAt
+            savedAt: savedAt,
+            isPreservedConflict: false
         )
         if surfaceCandidate {
             recoveryCandidate = candidate
