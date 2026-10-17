@@ -3,6 +3,69 @@ import XCTest
 
 final class ScreenplayCoverageTests: XCTestCase {
     @MainActor
+    func testUnicodeEquivalentByteChangeRejectsInflightReadAndSpeech() async throws {
+        let vm = makeCoverageVM()
+        defer { StudioOutlineRegistry.shared.clearCoverage() }
+        let before = "INT. CAFE - NIGHT\n\nA caf\u{00e9} closes."
+        let after = "INT. CAFE - NIGHT\n\nA cafe\u{0301} closes."
+        XCTAssertEqual(before, after, "Swift String equality alone cannot identify this edit.")
+        XCTAssertNotEqual(Array(before.utf8), Array(after.utf8))
+        vm.fountainDraft = before
+        let report = try decodeSample()
+        var speechCount = 0
+        let observer = NotificationCenter.default.addObserver(forName: .themClementineSpeakRequested,
+            object: nil, queue: nil) { _ in speechCount += 1 }
+        defer { NotificationCenter.default.removeObserver(observer) }
+        await vm.refreshCoverage(speak: true) { _, _ in
+            await Task.yield()
+            vm.fountainDraft = after
+            return report
+        }
+        XCTAssertNil(vm.coverageReport)
+        XCTAssertNil(StudioOutlineRegistry.shared.coverageSummary)
+        XCTAssertEqual(speechCount, 0)
+        XCTAssertFalse(vm.isCoverageRefreshing)
+    }
+
+    @MainActor
+    func testCoverageRequestUsesTitleAndOnlyTheScreenplayBody() async throws {
+        let vm = makeCoverageVM()
+        defer { StudioOutlineRegistry.shared.clearCoverage() }
+        let body = "INT. ROOM - NIGHT\n\nA cafe\u{0301} closes."
+        vm.fountainDraft = "Title: Orbit\nAuthor: A Writer\n\n" + body
+        let report = try decodeSample()
+        var requests = 0
+        await vm.refreshCoverage { draft, title in
+            requests += 1
+            XCTAssertEqual(Array(draft.utf8), Array(body.utf8))
+            XCTAssertEqual(title, "Orbit")
+            return report
+        }
+        XCTAssertEqual(requests, 1)
+        XCTAssertEqual(Array(vm.fountainDraft.utf8), Array(("Title: Orbit\nAuthor: A Writer\n\n" + body).utf8))
+    }
+
+    @MainActor
+    func testTitleOnlyDocumentClearsReadWithoutRequestingOrSpeaking() async throws {
+        let vm = makeCoverageVM()
+        defer { StudioOutlineRegistry.shared.clearCoverage() }
+        let report = try decodeSample()
+        await vm.refreshCoverage { _, _ in report }
+        XCTAssertNotNil(vm.coverageReport)
+        vm.fountainDraft = "Title: Orbit\nAuthor: A Writer\n"
+        var requests = 0
+        var speechCount = 0
+        let observer = NotificationCenter.default.addObserver(forName: .themClementineSpeakRequested,
+            object: nil, queue: nil) { _ in speechCount += 1 }
+        defer { NotificationCenter.default.removeObserver(observer) }
+        await vm.refreshCoverage(speak: true) { _, _ in requests += 1; return report }
+        XCTAssertEqual(requests, 0)
+        XCTAssertNil(vm.coverageReport)
+        XCTAssertNil(StudioOutlineRegistry.shared.coverageSummary)
+        XCTAssertEqual(speechCount, 0)
+    }
+
+    @MainActor
     func test_cancelled_request_cannot_publish_even_when_transport_returns_success() async throws {
         let vm = makeCoverageVM()
         defer { StudioOutlineRegistry.shared.clearCoverage() }

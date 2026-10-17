@@ -1,11 +1,17 @@
 import Foundation
 import SwiftUI
+import ScreenplayStudio
 
 /// Local-only identity for a read; never sent as writer content or persisted.
 nonisolated struct ScreenplayCoverageContext: Equatable {
     let auth: ScreenplayStudioAuthContext
     let projectID: String
     let draft: String
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.auth == rhs.auth && lhs.projectID == rhs.projectID &&
+            ScreenplayDraftTextIdentity.matches(lhs.draft, rhs.draft)
+    }
 
     func hasSameOwner(as other: Self) -> Bool {
         ScreenplayStudioAuthContextPolicy.matches(expected: auth, current: other.auth) &&
