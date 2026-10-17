@@ -14,6 +14,10 @@ test("[voice-network-fault-smokes] tests iPhone faults and builds the macOS scaf
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "io-them-network-fault-smokes-"));
   const log = path.join(tmp, "xcodebuild.calls");
   const fakeXcodebuild = path.join(tmp, "xcodebuild");
+  const simulatorLog = path.join(tmp, "simulator.calls");
+  const fakeXcrun = path.join(tmp, "xcrun");
+  fs.writeFileSync(fakeXcrun, "#!/usr/bin/env bash\nprintf '%s\\n' \"$*\" >> \"$SIMULATOR_CALLS_LOG\"\n");
+  fs.chmodSync(fakeXcrun, 0o755);
   fs.writeFileSync(fakeXcodebuild, [
     "#!/usr/bin/env bash",
     "printf '%s\\n' '--- call ---' >> \"$XCODEBUILD_CALLS_LOG\"",
@@ -30,12 +34,18 @@ test("[voice-network-fault-smokes] tests iPhone faults and builds the macOS scaf
       ...process.env,
       XCODEBUILD: fakeXcodebuild,
       XCODEBUILD_CALLS_LOG: log,
+      XCRUN: fakeXcrun,
+      SIMULATOR_CALLS_LOG: simulatorLog,
       IOS_SIMULATOR_DESTINATION: destination,
     },
     encoding: "utf8",
   });
 
   assert.equal(result.status, 0, result.stderr);
+  const simulatorCalls = fs.existsSync(simulatorLog) ? fs.readFileSync(simulatorLog, "utf8") : "";
+  assert.match(simulatorCalls, /simctl erase deterministic-network-fault-smoke/,
+               "Voice proof must use the canonical clean-simulator runner.");
+  assert.match(simulatorCalls, /simctl bootstatus deterministic-network-fault-smoke -b/);
   assert.match(result.stdout, /Voice Network-Fault Smokes/);
   assert.match(result.stdout, /iPhone voice network-fault smoke and macOS scaffold build pass/);
 

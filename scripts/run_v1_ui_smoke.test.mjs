@@ -10,7 +10,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
 const script = path.join(repoRoot, "scripts", "run_v1_ui_smoke.sh");
 
-function runSmoke({ xcconfigPath = "", destination = "platform=iOS Simulator,id=deterministic-v1-ui-smoke", simulatorName = "", extraArgs = [] } = {}) {
+function runSmoke({ xcconfigPath = "", destination = "platform=iOS Simulator,id=deterministic-v1-ui-smoke", simulatorName = "", extraArgs = [], ci = "", exitCode = 0, bootExitCode = 0 } = {}) {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "io-them-v1-ui-smoke-"));
   const log = path.join(tmp, "xcodebuild.args");
   const callOrderLog = path.join(tmp, "calls.log");
@@ -20,7 +20,7 @@ function runSmoke({ xcconfigPath = "", destination = "platform=iOS Simulator,id=
     "#!/usr/bin/env bash",
     "printf 'xcodebuild\\n' >> \"$TEST_CALL_ORDER_LOG\"",
     "printf '%s\\n' \"$@\" > \"$XCODEBUILD_CALLS_LOG\"",
-    "exit 0",
+    `exit ${exitCode}`,
     "",
   ].join("\n"));
   fs.chmodSync(fakeXcodebuild, 0o755);
@@ -28,6 +28,7 @@ function runSmoke({ xcconfigPath = "", destination = "platform=iOS Simulator,id=
     "#!/usr/bin/env bash",
     "printf 'xcrun %s\\n' \"$*\" >> \"$TEST_CALL_ORDER_LOG\"",
     "if [[ \"$*\" == 'simctl list devices available' ]]; then printf '    iPhone 17 Pro (B76CE387-1D78-4B37-AD14-4A9F67002B61) (Shutdown)\\n'; fi",
+    `if [[ \"$*\" == simctl\\ bootstatus* ]]; then exit ${bootExitCode}; fi`,
     "exit 0",
     "",
   ].join("\n"));
@@ -40,6 +41,7 @@ function runSmoke({ xcconfigPath = "", destination = "platform=iOS Simulator,id=
     cwd: repoRoot,
     env: {
       ...process.env,
+      CI: ci,
       XCODEBUILD: fakeXcodebuild,
       XCODEBUILD_CALLS_LOG: log,
       XCRUN: fakeXcrun,
@@ -98,6 +100,42 @@ test("[v1-ui-smoke] forwards an optional restore xcconfig as one argument", () =
 
   assert.equal(result.status, 0, result.stderr);
   assert.deepEqual(args.slice(0, 3), ["-xcconfig", xcconfig, "test"]);
+});
+
+test("[v1-ui-smoke] does not choose and erase an unspecified local simulator", () => {
+  const {result, callOrder} = runSmoke({destination: "", simulatorName: "", ci: ""});
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /explicit.*simulator/i);
+  assert.ok(!callOrder.some(call => call.includes("simctl erase")));
+});
+
+test("[v1-ui-smoke] propagates Xcode failure without reporting a passing proof", () => {
+  const {result} = runSmoke({exitCode: 65});
+  assert.equal(result.status, 65);
+});
+
+test("[v1-ui-smoke] refuses proof after simulator boot failure", () => {
+  const {result, callOrder} = runSmoke({bootExitCode: 1});
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /did not finish booting/);
+  assert.ok(!callOrder.includes("xcodebuild"));
+});
+
+test("[v1-ui-smoke] CI discovery uses the injected simulator tool", () => {
+  const {result, callOrder} = runSmoke({destination: "", simulatorName: "", ci: "true"});
+  assert.equal(result.status, 0, result.stderr);
+  assert.ok(callOrder.includes("xcrun simctl erase B76CE387-1D78-4B37-AD14-4A9F67002B61"));
+});
+
+test("[v1-ui-smoke] hosted UI and voice failures remain required with retained bundles", () => {
+  const workflow = fs.readFileSync(path.join(repoRoot, ".github/workflows/quality-gate.yml"), "utf8");
+  for (const name of ["Run iOS V1 UI smoke tests (required)", "Run iPhone voice-fault smoke and macOS scaffold build (required)"]) {
+    const block = workflow.split(`- name: ${name}`)[1]?.split("- name:")[0];
+    assert.ok(block, name);
+    assert.doesNotMatch(block, /continue-on-error:\s*true/);
+  }
+  assert.match(workflow, /them-v1-ui-smoke\/\*\.xcresult/);
+  assert.match(workflow, /them-voice-network-fault-smokes\/\*\.xcresult/);
 });
 
 test("[v1-ui-smoke] preserves a caller-provided result bundle without adding a duplicate", () => {
