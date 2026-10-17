@@ -1819,9 +1819,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
     }
 
     func restorePendingDraftSaveBeforeProjectHydration(
-        lookup: (String, String) async throws -> ScreenplayDraftSaveOutboxEntry? = { projectID, ownerID in
-            try await ScreenplayDraftSaveOutbox.shared.pendingEntry(projectId: projectID, ownerUserId: ownerID)
-        }
+        lookup: ((String, String) async throws -> ScreenplayDraftSaveOutboxEntry?)? = nil
     ) async {
         let projectID = selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
         let authContext = currentStudioAuthContext()
@@ -1829,7 +1827,11 @@ final class ScreenplayStudioViewModel: ObservableObject {
         guard !projectID.isEmpty else { return }
         let pendingEntry: ScreenplayDraftSaveOutboxEntry?
         do {
-            pendingEntry = try await lookup(projectID, ownerUserID)
+            if let lookup {
+                pendingEntry = try await lookup(projectID, ownerUserID)
+            } else {
+                pendingEntry = try await draftSaveOutbox.pendingEntry(projectId: projectID, ownerUserId: ownerUserID)
+            }
         } catch {
             return
         }

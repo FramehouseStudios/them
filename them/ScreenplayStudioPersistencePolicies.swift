@@ -1,4 +1,5 @@
 import Foundation
+import ScreenplayStudio
 
 struct ScreenplayNavigatorRootPolicy {
     static func preferredRootURL(
@@ -238,14 +239,6 @@ struct ScreenplayDraftSaveIntentPolicy {
             return .autosave
         }
         return .clementinePageWrite
-    }
-}
-
-// Persistence identity is byte-exact: Swift String equality considers NFC/NFD
-// equivalent, and formatting normalization must not acknowledge writer edits.
-nonisolated struct ScreenplayDraftTextIdentity {
-    static func matches(_ lhs: String, _ rhs: String) -> Bool {
-        lhs.utf8.elementsEqual(rhs.utf8)
     }
 }
 

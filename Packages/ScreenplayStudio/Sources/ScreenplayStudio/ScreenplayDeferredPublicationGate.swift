@@ -14,7 +14,9 @@ public enum ScreenplayDeferredPublicationGate {
     /// Request IDs advance per chunk. Native text remains publishable when it
     /// still matches the editor and no external binding edit won the race.
     public static func acceptsNativeTextPublication(expectedBinding: String, currentBinding: String, queuedText: String, nativeText: String?, requestID: UUID? = nil, activeRequestID: UUID? = nil) -> Bool {
-        (requestID == nil || activeRequestID != nil) && currentBinding == expectedBinding && nativeText == queuedText
+        (requestID == nil || activeRequestID != nil)
+            && ScreenplayDraftTextIdentity.matches(currentBinding, expectedBinding)
+            && nativeText.map { ScreenplayDraftTextIdentity.matches($0, queuedText) } == true
     }
 
     /// A deferred native edit is newer than its expected SwiftUI binding.
@@ -23,7 +25,10 @@ public enum ScreenplayDeferredPublicationGate {
         _ boundText: String, currentText: String,
         pendingExpectedText: String?, pendingText: String?, activeStreamingBaseText: String? = nil
     ) -> Bool {
-        !(activeStreamingBaseText == boundText || (pendingExpectedText == boundText && pendingText == currentText))
+        let isStreamBaseline = activeStreamingBaseText.map { ScreenplayDraftTextIdentity.matches($0, boundText) } == true
+        let hasPendingBaseline = pendingExpectedText.map { ScreenplayDraftTextIdentity.matches($0, boundText) } == true
+        let hasPendingText = pendingText.map { ScreenplayDraftTextIdentity.matches($0, currentText) } == true
+        return !(isStreamBaseline || (hasPendingBaseline && hasPendingText))
     }
 
     public static func requestIsCurrent(
@@ -43,7 +48,7 @@ public enum ScreenplayDeferredPublicationGate {
         activeInsertionRequestID: UUID?
     ) -> Bool {
         guard let requirement = requirements[generation] else { return true }
-        return currentText == requirement.text && requestIsCurrent(
+        return ScreenplayDraftTextIdentity.matches(currentText, requirement.text) && requestIsCurrent(
             requirement.requestID,
             lastAppliedInsertionID: lastAppliedInsertionID,
             activeInsertionRequestID: activeInsertionRequestID

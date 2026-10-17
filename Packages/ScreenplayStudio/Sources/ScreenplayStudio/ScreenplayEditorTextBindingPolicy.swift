@@ -4,9 +4,11 @@ public enum ScreenplayEditorTextBindingPolicy {
         currentEditorText: String,
         lastRenderedModelText: String,
         isEditorFocused: Bool,
-        documentDidChange: Bool
+        documentDidChange: Bool,
+        deferredAllows: Bool = true
     ) -> Bool {
-        guard incomingText != currentEditorText else { return false }
-        return !isEditorFocused || documentDidChange || incomingText != lastRenderedModelText
+        guard !ScreenplayDraftTextIdentity.matches(incomingText, currentEditorText) else { return false }
+        guard documentDidChange || deferredAllows else { return false }
+        return !isEditorFocused || documentDidChange || !ScreenplayDraftTextIdentity.matches(incomingText, lastRenderedModelText)
     }
 }

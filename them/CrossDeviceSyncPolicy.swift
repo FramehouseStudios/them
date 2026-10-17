@@ -1,4 +1,5 @@
 import Foundation
+import ScreenplayStudio
 
 nonisolated struct ScreenplayStudioAuthContext: Equatable, Sendable {
     let userID: String

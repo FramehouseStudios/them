@@ -10,10 +10,11 @@ func hollywoodScreenplayEditorUIFont() -> UIFont {
 extension IOSCursorInsertTextEditor {
     func shouldApplyModelText(to textView: UITextView, previous: (text: String, documentID: String), deferredAllows: Bool) -> Bool {
         let documentDidChange = previous.documentID != documentID
-        return (documentDidChange || deferredAllows) && ScreenplayEditorTextBindingPolicy.shouldApplyModelText(
+        return ScreenplayEditorTextBindingPolicy.shouldApplyModelText(
             incomingText: text, currentEditorText: textView.text ?? "",
             lastRenderedModelText: previous.text,
-            isEditorFocused: textView.isFirstResponder, documentDidChange: documentDidChange
+            isEditorFocused: textView.isFirstResponder, documentDidChange: documentDidChange,
+            deferredAllows: deferredAllows
         )
     }
 }

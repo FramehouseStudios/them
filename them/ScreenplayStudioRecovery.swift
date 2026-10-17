@@ -1,4 +1,5 @@
 import Foundation
+import ScreenplayStudio
 
 struct ScreenplayLocalDraftRecoverySnapshot: Equatable {
     let projectId: String
