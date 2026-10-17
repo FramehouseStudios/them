@@ -3,6 +3,62 @@ import XCTest
 
 final class ScreenplayProjectHydrationOrderTests: XCTestCase {
     @MainActor
+    func testSuspendedQueuedLookupCannotRewindNewerSameProjectLoad() async throws {
+        let suite = "them.queued-hydration-order.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let transport = HydrationOrderTransport()
+        defer {
+            transport.releaseFirst(failing: false)
+            defaults.removePersistentDomain(forName: suite)
+            try? FileManager.default.removeItem(at: directory)
+            HydrationOrderURLProtocol.handler = nil
+        }
+        let api = transport.api()
+        let model = ScreenplayStudioViewModel(
+            localDraftRecoveryStore: ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "recovery"),
+            draftSaveOutbox: ScreenplayDraftSaveOutbox(storageDirectory: directory),
+            draftSaveAPI: api, projectSelectionAPI: api)
+        model.autosaveEnabled = false
+        model.selectedProjectID = "project"
+        model.applyStructuralUITestDraft("Initial saved words", versionID: "base")
+        let owner = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""
+        let entry = ScreenplayDraftSaveOutboxEntry(
+            id: "superseded-lookup", projectId: "project", ownerUserId: owner,
+            draft: "Old queued words cafe\u{0301}\r\n", title: "Old title", phase: "draft", notes: "",
+            source: "studio_manual", studioWriteAnchors: [], screenplayBindings: [],
+            baseVersionId: "base", createdAt: 1, updatedAt: 1, status: .pending,
+            retries: 0, nextAttemptAt: 0, lastError: "")
+        let suspended = expectation(description: "Old queue lookup suspended")
+        var resume: CheckedContinuation<ScreenplayDraftSaveOutboxEntry?, Never>?
+        let queuedRestore = Task {
+            await model.restorePendingDraftSaveBeforeProjectHydration { _, _ in
+                await withCheckedContinuation { continuation in
+                    resume = continuation
+                    suspended.fulfill()
+                }
+            }
+        }
+        await fulfillment(of: [suspended], timeout: 3)
+        let olderLoad = Task { await model.refreshSelectedProjectForDebug() }
+        await fulfillment(of: [transport.firstStarted], timeout: 3)
+        await model.refreshSelectedProjectForDebug()
+        transport.releaseFirst(failing: false)
+        await olderLoad.value
+        let expected = "Newest words cafe\u{0301}\r\n"
+        XCTAssertEqual(Array(model.fountainDraft.utf8), Array(expected.utf8))
+        resume?.resume(returning: entry)
+        await queuedRestore.value
+        XCTAssertEqual(Array(model.fountainDraft.utf8), Array(expected.utf8),
+            "The old outbox continuation cannot rewind a newer load of the same project.")
+        XCTAssertEqual(model.latestVersionID, "newer")
+        XCTAssertEqual(model.selectedProject?.title, "Newer title")
+        XCTAssertFalse(model.hasUnsavedDraftChanges)
+        XCTAssertNil(model.conflictState)
+        try? await Task.sleep(nanoseconds: 1_100_000_000)
+    }
+
+    @MainActor
     func testOlderSameProjectResponseCannotRewindNewerHydration() async throws {
         try await verifyOverlappingLoads(failOlder: false)
     }
