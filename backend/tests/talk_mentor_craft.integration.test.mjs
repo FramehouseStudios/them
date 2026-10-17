@@ -198,6 +198,53 @@ test("[650-talk] changed mentor replies cannot reuse audio for the old words", a
   }
 });
 
+test("[651-talk] spoken pitch and TTS input agree without logging the heading", async () => {
+  globalThis.fetch = fixtureFetch;
+  const server = app.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const originalLog = console.log;
+  const shapingLogs = [];
+  console.log = (...args) => {
+    const line = args.map(String).join(" ");
+    if (/mentor_slugline_spoken=/.test(line)) shapingLogs.push(line);
+    originalLog(...args);
+  };
+  const samples = [
+    {reply: "Picture this: INT. FAMILY DINER - NIGHT. Mara needs the key, but John blocks her. Who lies first?", prose: "a family diner at night", changed: true},
+    {reply: "Mara says “No.” Picture this: INT. THE DINER - NIGHT. Mara needs the key, but John blocks her. Who lies first?", prose: "the diner at night", changed: true},
+    {reply: "Your heading 'INT. FAMILY DINER - NIGHT.' works. Mara needs the key, but John blocks her. Who lies first?", prose: "'INT. FAMILY DINER - NIGHT.'", changed: false},
+  ];
+  try {
+    for (const sample of samples) {
+      fixtureReply = sample.reply;
+      const session = await realFetch(`${base}/session`, {method: "POST", headers: {"X-APP-TOKEN": "mentor-talk-test"}});
+      const {client_token} = await session.json();
+      const beforeLogs = shapingLogs.length;
+      const beforeSpeech = speechTexts.length;
+      const form = new FormData();
+      form.append("debug_transcript", "Pitch me a scene, anything.");
+      form.append("system_prompt", "SCENE PITCH (standing collaborator rule)");
+      form.append("file", new Blob([Buffer.alloc(64)], {type: "audio/wav"}), "test.wav");
+      const response = await realFetch(`${base}/talk`, {method: "POST", body: form,
+        headers: {"X-APP-TOKEN": "mentor-talk-test", "X-Client-Token": client_token}});
+      await response.arrayBuffer();
+      assert.equal(response.status, 200);
+      const spoken = decodeURIComponent(response.headers.get("x-reply") || "");
+      assert.ok(spoken.includes(sample.prose), spoken);
+      assert.equal(speechTexts.length - beforeSpeech, 1);
+      assert.ok(speechTexts.at(-1).includes(spoken), "TTS must receive the final response words");
+      assert.equal(shapingLogs.length - beforeLogs, sample.changed ? 1 : 0);
+      assert.equal(shapingLogs.some(line => /FAMILY|DINER|Mara/.test(line)), false);
+    }
+  } finally {
+    console.log = originalLog;
+    globalThis.fetch = realFetch;
+    server.closeAllConnections();
+    await new Promise(resolve => server.close(resolve));
+  }
+});
+
 test("[648-talk] actual HTTP action headers and spoken preview respect writer authority", async () => {
   globalThis.fetch = fixtureFetch;
   const server = app.listen(0, "127.0.0.1");

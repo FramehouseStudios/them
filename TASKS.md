@@ -5,6 +5,23 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-978 — Speak pitches without rewriting quoted screenplay headings
+
+- **Owner:** codex. **Branch:** `codex/T-978-mentor-pitch-integration`.
+- **Status:** review. **Pillar:** living companion; trustworthy voice.
+- **Scope:** preserving original #651 `0b2496f3` above T-977. Shared heading/
+  quote detection, exact-span prose conversion and metadata-only logs; retain
+  page-write bypass and matching-final-audio guard.
+- **Done when:** final Node20 full/offline gates, actual HTTP/TTS contracts,
+  signed authenticated Home handoffs and D009/diff pass. Client unchanged.
+- **Before:** focused24/4/0; separate abbreviated-location regression fails.
+  Final focused35/0/0; pinned Node20 backend2884/0/2, network-disabled
+  contracts72/0/0 plus offline golden gate, signed authenticated Home2/0/0;
+  D009/diff pass. Client source-identical prior evidence explicitly scoped.
+  Manifest:
+  `docs/mentor-pitch-integration-2026-10-16.md`.
+- **Next actual boundary:** original #652 `ece8cf76`, last-image craft/parity.
+
 ### T-977 — Codex-only execution without retired assistant dispatch
 
 - **Owner:** codex. **Branch:** `codex/T-977-codex-only-workflow`.

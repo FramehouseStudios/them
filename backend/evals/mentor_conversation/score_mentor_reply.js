@@ -12,7 +12,7 @@
 //   structure_accuracy      structure
 //   on_the_nose_detection   dialogue
 
-import { maskQuotedSpeech } from "../../lib/mentor_reply_shape.js";
+import { maskQuotedSpeech, hasUnquotedSlugline } from "../../lib/mentor_reply_shape.js";
 
 export const DIMENSIONS = Object.freeze([
   "register",
@@ -135,7 +135,7 @@ export function scorePitchConcreteness(reply) {
   if (OBSTACLE_WORDS.test(text)) { score += 1; } else notes.push("no obstacle");
   const last = sentences(text).slice(-1)[0] || "";
   if (!/\?$/.test(last)) { score -= 1; notes.push("does not hand the wheel back with a question"); }
-  if (/^\s*(INT|EXT)\.?\s/m.test(text)) { score -= 1; notes.push("writes sluglines instead of pitching"); }
+  if (hasUnquotedSlugline(text)) { score -= 1; notes.push("writes sluglines instead of pitching"); }
   return { score: clamp(score), notes };
 }
 
