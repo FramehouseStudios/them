@@ -7873,6 +7873,7 @@ actor BackendMemoryAPI {
     func upsertScreenplayProject(
         projectId: String? = nil,
         title: String,
+        creationOnly: Bool = false,
         phase: String = "scene_draft",
         tags: [String] = [],
         characters: [String] = [],
@@ -7893,7 +7894,12 @@ actor BackendMemoryAPI {
         studioAskNoteHistory: [BackendScreenplayStudioExchange]? = nil
     ) async throws -> BackendReadResult<BackendScreenplayProjectMutationResponse> {
         _ = try? await bootstrapSession(force: false)
-        var request = try makeWriteRequest(path: "/screenplay/projects")
+        if creationOnly && (projectId?.isEmpty ?? true) {
+            throw BackendMemoryAPIError.server(status: 400, message: "project_id_required")
+        }
+        let path = creationOnly ? "/screenplay/projects/\(projectId ?? "")/creation" : "/screenplay/projects"
+        var request = try makeWriteRequest(path: path)
+        if creationOnly { request.httpMethod = "PUT" }
         var payload: [String: Any] = [
             "title": title,
             "phase": phase,
@@ -7903,29 +7909,13 @@ actor BackendMemoryAPI {
             "tone": tone,
             "activate": true,
         ]
-        if let logline {
-            payload["logline"] = logline
-        }
-        if let themeArgument {
-            payload["theme_argument"] = themeArgument
-        }
-        if let centralQuestion {
-            payload["central_question"] = centralQuestion
-        }
-        if let protagonistWant {
-            payload["protagonist_want"] = protagonistWant
-        }
-        if let protagonistNeed {
-            payload["protagonist_need"] = protagonistNeed
-        }
-        if let antagonisticForce {
-            payload["antagonistic_force"] = antagonisticForce
-        }
-        if let actPosition {
-            payload["act_position"] = actPosition
-        }
-        if let endingImage {
-            payload["ending_image"] = endingImage
+        for (key, value) in [
+            ("logline", logline), ("theme_argument", themeArgument),
+            ("central_question", centralQuestion), ("protagonist_want", protagonistWant),
+            ("protagonist_need", protagonistNeed), ("antagonistic_force", antagonisticForce),
+            ("act_position", actPosition), ("ending_image", endingImage),
+        ] {
+            if let value { payload[key] = value }
         }
         if let unresolvedSetups {
             payload["unresolved_setups"] = unresolvedSetups

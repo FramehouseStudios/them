@@ -517,6 +517,78 @@ final class V1SmokeUITests: XCTestCase {
     }
 
     @MainActor
+    func test_project_creation_lost_reply_survives_relaunch_and_retries_once() async throws {
+#if os(iOS)
+        guard let port = Int(ProcessInfo.processInfo.environment["THEM_UITEST_WRITER_LOOP_BACKEND_PORT"] ?? "") else {
+            throw XCTSkip("Owned creation-response fault proxy required.")
+        }
+        let baseURL = try XCTUnwrap(URL(string: "http://127.0.0.1:\(port)"))
+        let probe = try await requestJSON(baseURL: baseURL, path: "/__proof/creation/status", method: "GET",
+            headers: ["X-APP-TOKEN": "them-dev"], body: nil)
+        guard probe.status == 200, probe.payload["state"] as? String == "closed" else {
+            throw XCTSkip("Owned creation-response fault proxy is not armed for this journey.")
+        }
+        let fixture = try await createWriterLoopAuthenticationFixture(baseURL: baseURL)
+        let title = "Creation Proof \(UUID().uuidString.prefix(8))"
+        let marker = "CREATION PROOF \(UUID().uuidString.prefix(8))"
+        var app = launchApp(openStudio: true, launchEnvironment: fixture.appLaunchEnvironment)
+        defer { app.terminate() }
+        let editor = app.textViews["studio.draft.editor"]
+        XCTAssertTrue(waitForHittability(of: editor, timeout: 15))
+        editor.tap()
+        editor.typeText("INT. FIRST ROOM - NIGHT\n\nA door opens. \(marker)\n\nJUNE\nWe begin.")
+        let exact = try XCTUnwrap(editor.value as? String)
+        XCTAssertTrue(exact.contains(marker))
+        func openProjects() {
+            if !element(identifier: "studio.sidebar.left.drawer", in: app).exists {
+                app.buttons["studio.sidebar.left.toggle"].tap()
+            }
+        }
+        openProjects()
+        XCTAssertTrue(waitForDisappearance(of: app.keyboards.firstMatch, timeout: 5),
+            "Opening Projects must end screenplay editing so creation controls remain reachable.")
+        let field = app.textFields["New project title"]
+        XCTAssertTrue(waitForHittability(of: field, timeout: 8))
+        field.tap(); field.typeText(title)
+        app.buttons["studio.project.create"].tap()
+        let ready = NSPredicate { _, _ in
+            let button = app.buttons["studio.project.create"]
+            return button.exists && button.isEnabled && button.label == "Retry creating \(title)"
+        }
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: ready, object: nil)], timeout: 20), .completed)
+        let projectID = try await waitForWriterLoopProject(titled: title, fixture: fixture, timeout: 10)
+        app.terminate()
+        app = launchApp(openStudio: true, resetState: false, launchEnvironment: fixture.appLaunchEnvironment)
+        let restored = app.textViews["studio.draft.editor"]
+        XCTAssertTrue(restored.waitForExistence(timeout: 15))
+        XCTAssertEqual(Array((restored.value as? String ?? "").utf8), Array(exact.utf8))
+        openProjects()
+        let retry = app.buttons["studio.project.create"]
+        XCTAssertTrue(waitForHittability(of: retry, timeout: 8))
+        XCTAssertEqual(retry.label, "Retry creating \(title)")
+        let arm = try await requestJSON(baseURL: baseURL, path: "/__proof/creation/arm", method: "POST",
+            headers: ["X-APP-TOKEN": "them-dev"], body: [:])
+        try assertHTTP(arm, context: "creation response recovery")
+        XCTAssertGreaterThan(intValue(arm.payload["droppedReplies"]), 0)
+        XCTAssertEqual(intValue(arm.payload["blockedVersions"]), 0, "Autosave must not bypass pending creation.")
+        retry.tap()
+        _ = try await waitForWriterLoopSavedVersion(projectID: projectID, draft: exact, fixture: fixture, app: app, timeout: 30)
+        let detail = try await requestJSON(baseURL: baseURL, path: "/screenplay/projects/\(projectID)", method: "GET",
+            headers: fixture.authorizedHeaders, body: nil, queryItems: [URLQueryItem(name: "include_drafts", value: "1")])
+        try assertHTTP(detail, context: "creation recovery exact server copy")
+        let project = try XCTUnwrap(detail.payload["project"] as? [String: Any])
+        let versions = try XCTUnwrap(project["versions"] as? [[String: Any]])
+        XCTAssertEqual(versions.count, 1)
+        XCTAssertEqual(Array((versions[0]["draft"] as? String ?? "").utf8), Array(exact.utf8))
+        let listing = try await requestJSON(baseURL: baseURL, path: "/screenplay/projects", method: "GET",
+            headers: fixture.authorizedHeaders, body: nil)
+        XCTAssertEqual((listing.payload["screenplay_projects"] as? [[String: Any]])?.count, 1)
+#else
+        throw XCTSkip("Signed iPhone creation proof only.")
+#endif
+    }
+
+    @MainActor
     func test_integrated_iphone_writer_loop_creates_saves_exports_and_restores() async throws {
 #if os(iOS)
         let portRaw = (ProcessInfo.processInfo.environment["THEM_UITEST_WRITER_LOOP_BACKEND_PORT"] ?? "")
@@ -557,7 +629,7 @@ final class V1SmokeUITests: XCTestCase {
         )
         projectTitleField.tap()
         projectTitleField.typeText(projectTitle)
-        let createProject = app.buttons["Create"]
+        let createProject = app.buttons["studio.project.create"]
         XCTAssertTrue(waitForHittability(of: createProject, timeout: writerLoopWait(5)))
         createProject.tap()
         XCTAssertTrue(

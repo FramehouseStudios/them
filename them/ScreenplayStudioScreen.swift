@@ -4658,6 +4658,7 @@ private var projectsSidebarContent: some View {
         projects: directionOneSortedProjects,
         selectedProjectID: vm.selectedProjectID,
         hasSelectedProject: vm.selectedProject != nil,
+        pendingCreationTitle: vm.pendingProjectCreationTitle,
         newProjectTitle: $vm.newProjectTitle,
         isSaving: vm.isSaving,
         isLoading: vm.isLoading,
@@ -4666,9 +4667,7 @@ private var projectsSidebarContent: some View {
         secondaryTextColor: directionOneChromeSecondaryText,
         tertiaryTextColor: directionOneChromeTertiaryText,
         selectionFill: directionOneChromeSelectionFill,
-        onCreate: {
-            Task { await vm.createProject() }
-        },
+        onCreate: { Task { await vm.createProject() } },
         onSelect: { projectID in
             Task { await vm.selectProject(projectID) }
         },
@@ -12373,6 +12372,9 @@ Return revised screenplay lines only.
     }
 
     private func toggleDirectionOneSidebarVisibility() {
+        #if os(iOS)
+        if isDirectionOneCompactLayout, !isDirectionOneSidebarVisible { endCompactScreenplayEditing() }
+        #endif
         withAnimation(.spring(response: 0.28, dampingFraction: 0.84)) {
             let nextIsVisible = !isDirectionOneSidebarVisible
             isDirectionOneSidebarVisible = nextIsVisible
@@ -12380,17 +12382,13 @@ Return revised screenplay lines only.
                 isDirectionOneRightRailExpanded = false
             }
         }
-        vm.infoText = isDirectionOneSidebarVisible
-            ? "Sidebar shown."
-            : "Sidebar hidden."
+        vm.infoText = isDirectionOneSidebarVisible ? "Sidebar shown." : "Sidebar hidden."
     }
 
     func toggleDirectionOneRightRailVisibility() {
         let nextIsVisible = !isDirectionOneRightRailExpanded
         #if os(iOS)
-        if isDirectionOneCompactLayout, nextIsVisible {
-            endCompactScreenplayEditing()
-        }
+        if isDirectionOneCompactLayout, nextIsVisible { endCompactScreenplayEditing() }
         #endif
         withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
             isDirectionOneRightRailExpanded = nextIsVisible

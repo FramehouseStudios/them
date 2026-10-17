@@ -161,6 +161,15 @@ struct ScreenplaySceneSessionRestorePolicy {
     }
 }
 
+struct ScreenplayProjectCreationIntent: Codable {
+    let projectId: String
+    let ownerUserId: String
+    let title: String
+    var draft: String
+    let seedsLiveDraft: Bool
+    var restoreAsCurrent: Bool
+}
+
 struct ScreenplayLocalDraftRecoveryStore {
     static let defaultKey = "screenplay.studio.localDraftRecovery.v1"
 
@@ -170,6 +179,52 @@ struct ScreenplayLocalDraftRecoveryStore {
     init(defaults: UserDefaults = .standard, key: String = Self.defaultKey) {
         self.defaults = defaults
         self.key = key
+    }
+
+    func pendingProjectCreation(ownerUserId: String) throws -> ScreenplayProjectCreationIntent? {
+        let storageKey = ownerScopedKey(ownerUserId) + ".projectCreation.v1"
+        guard defaults.object(forKey: storageKey) != nil else { return nil }
+        guard let data = defaults.data(forKey: storageKey),
+              let intent = try? JSONDecoder().decode(ScreenplayProjectCreationIntent.self, from: data),
+              intent.ownerUserId == ownerUserId, UUID(uuidString: intent.projectId) != nil,
+              !intent.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw NSError(domain: "THEM.ProjectRecovery", code: 1, userInfo: [NSLocalizedDescriptionKey:
+                "Pending project recovery could not be read. It has been retained; no new project will be requested."])
+        }
+        return intent
+    }
+
+    func saveProjectCreation(_ intent: ScreenplayProjectCreationIntent) throws {
+        if let existing = try pendingProjectCreation(ownerUserId: intent.ownerUserId), existing.projectId != intent.projectId {
+            throw NSError(domain: "THEM.ProjectRecovery", code: 4,
+                userInfo: [NSLocalizedDescriptionKey: "Retry the pending project before creating another one. Your first scene is retained."])
+        }
+        let storageKey = ownerScopedKey(intent.ownerUserId) + ".projectCreation.v1"
+        let data = try JSONEncoder().encode(intent)
+        defaults.set(data, forKey: storageKey)
+        guard defaults.data(forKey: storageKey) == data else {
+            throw NSError(domain: "THEM.ProjectRecovery", code: 2, userInfo: [NSLocalizedDescriptionKey:
+                "Could not keep your first scene safely on this device. Copy your text before closing the app."])
+        }
+        if intent.seedsLiveDraft {
+            save(ownerUserId: intent.ownerUserId, projectId: intent.projectId,
+                draft: intent.draft, baseVersionId: "", dirty: true)
+        }
+    }
+
+    func allowsAutomaticProjectCreation(ownerUserId: String) -> Bool {
+        do { return try pendingProjectCreation(ownerUserId: ownerUserId) == nil }
+        catch { return false } // An unreadable intent still owns recovery.
+    }
+
+    func clearProjectCreation(ownerUserId: String, projectId: String) throws {
+        guard try pendingProjectCreation(ownerUserId: ownerUserId)?.projectId == projectId else { return }
+        let storageKey = ownerScopedKey(ownerUserId) + ".projectCreation.v1"
+        defaults.removeObject(forKey: storageKey)
+        guard defaults.object(forKey: storageKey) == nil else {
+            throw NSError(domain: "THEM.ProjectRecovery", code: 3,
+                userInfo: [NSLocalizedDescriptionKey: "Project saved; its local setup record could not be retired."])
+        }
     }
 
     func payloads(ownerUserId: String) -> [String: [String: Any]] {

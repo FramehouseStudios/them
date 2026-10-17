@@ -40,6 +40,7 @@ struct ScreenplayStudioProjectsSidebar<FeatureSpine: View>: View {
     let projects: [BackendScreenplayProjectSummary]
     let selectedProjectID: String
     let hasSelectedProject: Bool
+    var pendingCreationTitle: String? = nil
     @Binding var newProjectTitle: String
     let isSaving: Bool
     let isLoading: Bool
@@ -71,10 +72,18 @@ struct ScreenplayStudioProjectsSidebar<FeatureSpine: View>: View {
                         RoundedRectangle(cornerRadius: 6, style: .continuous)
                             .fill(Color.black.opacity(0.86))
                     )
-                Button("Create", action: createProjectAndDismissKeyboard)
+                Button(pendingCreationTitle == nil ? "Create" : "Retry", action: createProjectAndDismissKeyboard)
                     .buttonStyle(.borderedProminent)
                     .controlSize(.small)
-                    .disabled(newProjectTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSaving)
+                    .accessibilityIdentifier("studio.project.create")
+                    .accessibilityLabel(pendingCreationTitle.map { "Retry creating \($0)" } ?? "Create project")
+                    .disabled((pendingCreationTitle == nil && newProjectTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) || isSaving)
+            }
+            if let pendingCreationTitle {
+                Text("Retry creating “\(pendingCreationTitle)”. Your first scene is kept on this device.")
+                    .font(IOThemTypography.UI.captionMedium)
+                    .foregroundStyle(secondaryTextColor)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             ScrollView(.vertical, showsIndicators: false) {
