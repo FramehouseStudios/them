@@ -17283,7 +17283,7 @@ Look at the city.
             draft: vm.fountainDraft,
             projectTitle: vm.selectedProject?.title,
             navigatorCurrentURL: navigatorCurrentURL,
-            isRunningUITests: IOThemRuntime.isRunningUITests,
+            usesUITestArtifact: ScreenplayStudioExportSupport.shouldUseUITestArtifact(),
             refreshFormatLint: { source in
                 await vm.refreshFormatLint(source: source)
             },

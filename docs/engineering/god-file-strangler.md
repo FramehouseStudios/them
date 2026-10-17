@@ -40,6 +40,18 @@ God files concentrate risk. Splitting them by line number usually breaks auth fl
 
 **Team rule:** no new product `@State` on Root/Studio god views — dedicated types only.
 
+## Current unmerged checkpoint — 2026-10-16
+
+T-963 moves Final Draft request encoding out of `BackendMemoryAPI` into
+`ScreenplayFDXRequestPayload`, retaining the existing authenticated API facade
+and deleting its inline parser. API **10836 -> 10717 (-119)**; none of the other
+watched files grows. Signed HTTP characterization precedes the move. The same
+export pass corrects synthetic artifacts being used in live UI tests and proves
+real authenticated Markdown/FDX exports in the writer/relaunch journey.
+Exact results, retained failures and limits:
+[`fdx-god-file-extraction-2026-10-16.md`](../fdx-god-file-extraction-2026-10-16.md).
+This is scoped extraction evidence, not a fully refactored or released app.
+
 ## PR checklist
 
 - [ ] Names the **capability** being moved (not a line range)

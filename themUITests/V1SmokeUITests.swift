@@ -606,9 +606,11 @@ final class V1SmokeUITests: XCTestCase {
         let projectTitle = "Writer Loop \(uniqueSuffix)"
         let marker = "WRITER LOOP DRAFT \(uniqueSuffix)"
         let expectedMarkdownFilename = "Writer-Loop-\(uniqueSuffix).md"
+        let expectedFDXFilename = "Writer Loop \(uniqueSuffix).fdx"
 
         var app = launchApp(
             openStudio: true,
+            submitTransportMode: "live",
             launchEnvironment: fixture.appLaunchEnvironment
         )
         defer { app.terminate() }
@@ -781,10 +783,19 @@ final class V1SmokeUITests: XCTestCase {
             staticText(containing: expectedMarkdownFilename, in: app).waitForExistence(timeout: writerLoopWait(10)),
             "Markdown export did not report its .md artifact."
         )
+        exportMenu.tap()
+        let fdxExport = app.buttons["studio.export.fdx"]
+        XCTAssertTrue(fdxExport.waitForExistence(timeout: writerLoopWait(5)), "Export Copy did not offer Final Draft.")
+        fdxExport.tap()
+        XCTAssertTrue(
+            staticText(containing: expectedFDXFilename, in: app).waitForExistence(timeout: writerLoopWait(10)),
+            "The live FDX exporter must return the backend filename with spaces, not the hyphenated stub artifact."
+        )
         app.terminate()
 
         app = launchApp(
             openStudio: true,
+            submitTransportMode: "live",
             resetState: false,
             launchEnvironment: fixture.appLaunchEnvironment
         )

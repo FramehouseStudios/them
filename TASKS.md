@@ -5,6 +5,25 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-963 — Extract Final Draft request encoding from the API god file
+
+- **Owner:** codex. **Branch:** `codex/T-963-fdx-encoder-extraction`.
+- **Status:** review. **Pillar:** trustworthy formatted screenplay export.
+- **Scope:** move the existing FDX document/scene encoder into a dedicated pure
+  owner; leave session/auth/request/response handling in BackendMemoryAPI.
+  Delete the inline implementation. Correct the discovered UI proof bypass:
+  explicit live test modes must export through the real backend, not a stub.
+  No new framework or screenplay classification-policy change.
+- **Done when:** signed before/after export HTTP characterization, large-input
+  scene/text retention, connected writer/export workflow, D009 and diff pass.
+  A 120-scene transport fixture is not 120-page generation or print-layout proof.
+- **Current evidence:** signed before13/0/0 and extraction-only after17/0/0;
+  Node20 export contracts60/0/0. Final live-routing units27/0/0 after fixing
+  a test destination assumption (retained first run26/1/0); authenticated
+  real Markdown/FDX writer/export/relaunch UI1/0/0. macOS scaffold build passed.
+  Manifest: `docs/fdx-god-file-extraction-2026-10-16.md`.
+  Main landing still waits for #766's live hosted gate.
+
 ### T-962 — Automatic first-project creation uses durable recovery
 
 - **Owner:** codex. **Branch:** `codex/T-962-automatic-creation-recovery`.

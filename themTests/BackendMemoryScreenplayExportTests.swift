@@ -143,6 +143,49 @@ final class BackendMemoryScreenplayExportTests: XCTestCase {
         XCTAssertTrue(recorder.requests.allSatisfy { $0.path != "/screenplay/export" })
     }
 
+    func testFDXRequestRetainsAll120ScenesAndTheirDialogue() async throws {
+        let recorder = ScreenplayExportRequestRecorder()
+        ScreenplayExportURLProtocolStub.handler = { request in
+            recorder.record(request)
+            if request.url?.path == "/session" {
+                return ScreenplayExportHTTPStub(status: 200, headers: [:],
+                    body: Data(#"{"client_token":"client-test","expires_in":3600}"#.utf8))
+            }
+            return ScreenplayExportHTTPStub(status: 200, headers: ["Content-Type": "application/xml"],
+                body: Data("<FinalDraft><Content /></FinalDraft>".utf8))
+        }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [ScreenplayExportURLProtocolStub.self]
+        let api = BackendMemoryAPI(session: URLSession(configuration: configuration),
+            baseURL: URL(string: "https://screenplay-export.test")!)
+        let draft = (1...120).map { index in
+            "INT. ROOM \(index) - NIGHT\r\n\r\nA lamp illuminates marker \(index).\r\n\r\nMAYA\r\n(quietly)\r\nExact words \(index) — cafe\u{0301} & <mirror>.\r\n\r\nCUT TO:"
+        }.joined(separator: "\r\n\r\n")
+        _ = try await api.exportScreenplayDraft(draft: draft, title: "  Long script  ", format: "fdx")
+        let request = try XCTUnwrap(recorder.requests.first { $0.path == "/screenplay/export/fdx" })
+        XCTAssertEqual(request.method, "POST")
+        XCTAssertEqual(request.acceptHeader, "application/xml")
+        let title = try XCTUnwrap(request.bodyObject?["title"] as? [String: String])
+        XCTAssertEqual(title["title"], "Long script")
+        let scenes = try XCTUnwrap(request.bodyObject?["scenes"] as? [[String: Any]])
+        XCTAssertEqual(scenes.count, 120, "This is 120 scenes of transport evidence, not a 120-page generation claim.")
+        for (offset, scene) in scenes.enumerated() {
+            let index = offset + 1
+            XCTAssertEqual(scene["heading"] as? String, "INT. ROOM \(index) - NIGHT")
+            let lines = try XCTUnwrap(scene["lines"] as? [[String: Any]])
+            XCTAssertEqual(lines.count, 3)
+            XCTAssertEqual(lines[0]["kind"] as? String, "action")
+            XCTAssertEqual(lines[0]["text"] as? String, "A lamp illuminates marker \(index).")
+            XCTAssertEqual(lines[1]["kind"] as? String, "character")
+            XCTAssertEqual(lines[1]["name"] as? String, "MAYA")
+            XCTAssertEqual(lines[1]["parenthetical"] as? String, "(quietly)")
+            let dialogue = try XCTUnwrap(lines[1]["dialogue"] as? [String])
+            XCTAssertEqual(Array(dialogue.joined().utf8), Array("Exact words \(index) — cafe\u{0301} & <mirror>.".utf8))
+            XCTAssertEqual(lines[2]["kind"] as? String, "transition")
+            XCTAssertEqual(lines[2]["text"] as? String, "CUT TO:")
+        }
+    }
+
     func testPDFExportRejectionSurfacesMessageAndAlternatives() async throws {
         ScreenplayExportURLProtocolStub.handler = { request in
             switch request.url?.path {
