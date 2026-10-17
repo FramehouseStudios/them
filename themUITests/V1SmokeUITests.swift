@@ -487,6 +487,12 @@ final class V1SmokeUITests: XCTestCase {
         )
         defer { app.terminate() }
 
+        // A returned launch call is not proof that SwiftUI has presented the
+        // restored document (the hosted failure recording was still blank).
+        // Keep startup readiness separate from the strict content deadlines.
+        let restoredStudio = element(identifier: "studio.surface", in: app)
+        _ = try XCTUnwrap(restoredStudio.waitForExistence(timeout: writerLoopWait(8)) ? restoredStudio : nil,
+                          "Studio never became ready after relaunch.\n\(app.debugDescription)")
         XCTAssertTrue(waitForDraft(in: app, containing: firstAnchor, timeout: 10))
         XCTAssertTrue(waitForDraft(in: app, containing: secondAnchor, timeout: 5))
         XCTAssertTrue(
@@ -497,6 +503,19 @@ final class V1SmokeUITests: XCTestCase {
             ),
             "Sequential page batches did not restore exactly once after relaunch."
         )
+        let rightDrawer = app.buttons["studio.sidebar.right.toggle"]
+        if rightDrawer.exists, rightDrawer.label.localizedCaseInsensitiveContains("Close") {
+            rightDrawer.tap()
+        }
+        let restoredEditor = app.textViews["studio.draft.editor"]
+        XCTAssertTrue(waitForHittability(of: restoredEditor, timeout: writerLoopWait(5)),
+                      "The restored screenplay must be reachable on the native page.")
+        let bothBatches = NSPredicate(format: "exists == true AND value CONTAINS %@ AND value CONTAINS %@",
+                                      firstAnchor, secondAnchor)
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: bothBatches, object: restoredEditor)], timeout: 10), .completed)
+        let paper = restoredEditor.value as? String ?? ""
+        XCTAssertEqual(occurrenceCount(of: firstAnchor, in: paper), 1)
+        XCTAssertEqual(occurrenceCount(of: secondAnchor, in: paper), 1)
     }
 
     func test_screenplay_export_returns_a_file() {
@@ -3525,6 +3544,25 @@ final class V1SmokeUITests: XCTestCase {
 
     private func submitFocusedPrompt(in app: XCUIApplication, field: XCUIElement) {
 #if os(iOS)
+        // A freshly erased simulator may show Apple's first-use keyboard
+        // tutorial. It overlays Send while AX still reports the toolbar button
+        // as hittable. Dismiss only this identified system tutorial, never an
+        // arbitrary Continue button or a second submission of the prompt.
+        let typingTutorial = app.staticTexts.matching(NSPredicate(
+            format: "label BEGINSWITH %@", "Speed up your typing by sliding"
+        )).firstMatch
+        if typingTutorial.waitForExistence(timeout: 0.5) {
+            let continueTyping = app.buttons["Continue"].firstMatch
+            guard continueTyping.exists, continueTyping.isHittable else {
+                XCTFail("The keyboard typing tutorial did not expose its Continue action.")
+                return
+            }
+            continueTyping.tap()
+            guard waitForDisappearance(of: typingTutorial, timeout: 5) else {
+                XCTFail("The keyboard typing tutorial still covers Send.")
+                return
+            }
+        }
         let toolbarSend = app.buttons["studio.prompt.keyboard-send"]
         if toolbarSend.waitForExistence(timeout: 5), toolbarSend.isHittable {
             toolbarSend.tap()

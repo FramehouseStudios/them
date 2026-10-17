@@ -2945,6 +2945,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
     @Published var draftText: String = "" {
         didSet {
             guard draftText != oldValue else { return }
+            persistDraftText(draftText)
             syncStructuredDraftSnapshot(text: draftText)
         }
     }
@@ -3782,7 +3783,6 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         text: String,
         elements explicitElements: [ScreenplayEditorElement?]? = nil
     ) {
-        persistDraftText(text)
         let previousStructuredDraft = structuredDraft
         let resolvedElements = explicitElements ?? bootstrapScreenplayParagraphElements(for: text)
         let lines = screenplayLineTexts(text)

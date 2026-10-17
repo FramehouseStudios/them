@@ -1951,6 +1951,29 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         )
     }
 
+    @MainActor
+    func testStaleEditorMetadataCannotOverwriteNewerPersistedDraft() {
+        let bridge = ScreenplayLiveDraftBridge.shared
+        let original = bridge.draftText
+        defer {
+            bridge.draftText = original
+            bridge.syncStructuredDraftSnapshot(text: original)
+        }
+        let owner = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""
+        let key = ScreenplayOwnerScopedStoragePolicy.storageKey(
+            baseKey: "studio_live_draft_text_v1", ownerUserID: owner
+        )
+        let first = "INT. KITCHEN - DAY\n\nLUCY leaves."
+        let combined = first + "\n\nEXT. FERRY TERMINAL - DAWN\n\nMARA waits."
+        bridge.draftText = first
+        bridge.draftText = combined
+        // A representable can deliver paragraph metadata from an older frame.
+        // That read-model update must not become a durable text write.
+        bridge.syncStructuredDraftSnapshot(text: first)
+        XCTAssertEqual(bridge.draftText, combined)
+        XCTAssertEqual(UserDefaults.standard.string(forKey: key), combined)
+    }
+
     func testLiveDraftTextPersistenceKeepsMeaningfulScreenplayExactly() {
         let draft = """
 

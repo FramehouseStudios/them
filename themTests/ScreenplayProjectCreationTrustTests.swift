@@ -2,6 +2,59 @@ import XCTest
 @testable import them
 
 final class ScreenplayProjectCreationTrustTests: XCTestCase {
+    @MainActor func testGeneratedBatchCannotReplaceAnotherProjectsPendingCreation() throws {
+        let suite = "them.creation-other-project.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "recovery")
+        let auth = ScreenplayStudioAuthContext.current()
+        let studio = ScreenplayStudioViewModel(localDraftRecoveryStore: store, connectsToLiveWorkspace: false)
+        let intent = ScreenplayProjectCreationIntent(projectId: UUID().uuidString.lowercased(),
+            ownerUserId: auth.userID, title: "Pending story", draft: "Original pending words",
+            seedsLiveDraft: true, restoreAsCurrent: true)
+        try store.saveProjectCreation(intent)
+        studio.selectedProjectID = "another-project"
+        studio.fountainDraft = "Words belonging to another screenplay"
+        XCTAssertEqual(try store.pendingProjectCreation(ownerUserId: auth.userID)?.draft, intent.draft)
+    }
+
+    @MainActor func testHydratingDraftCannotReplacePendingCreationWords() throws {
+        let suite = "them.creation-hydration.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "recovery")
+        let auth = ScreenplayStudioAuthContext.current()
+        let intent = ScreenplayProjectCreationIntent(projectId: UUID().uuidString.lowercased(),
+            ownerUserId: auth.userID, title: "Pending story", draft: "Original pending words",
+            seedsLiveDraft: true, restoreAsCurrent: true)
+        try store.saveProjectCreation(intent)
+        let studio = ScreenplayStudioViewModel(localDraftRecoveryStore: store, connectsToLiveWorkspace: false)
+        studio.applyStructuralUITestDraft("Hydrated server snapshot", versionID: "remote-version")
+        XCTAssertEqual(try store.pendingProjectCreation(ownerUserId: auth.userID)?.draft, intent.draft)
+    }
+
+    @MainActor func testGeneratedBatchUpdatesCreationIntentWrittenByAnotherModelBeforeRelaunch() throws {
+        let suite = "them.creation-new-batch.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "recovery")
+        let auth = ScreenplayStudioAuthContext.current()
+        let studio = ScreenplayStudioViewModel(localDraftRecoveryStore: store, connectsToLiveWorkspace: false)
+        let first = "INT. KITCHEN - DAY\n\nLUCY leaves."
+        let combined = first + "\n\nEXT. FERRY TERMINAL - DAWN\n\nMARA waits."
+        // Root's isolated creation worker writes after Studio has initialized.
+        let intent = ScreenplayProjectCreationIntent(projectId: UUID().uuidString.lowercased(),
+            ownerUserId: auth.userID, title: "Pending story", draft: first,
+            seedsLiveDraft: true, restoreAsCurrent: true, phase: "scene_draft")
+        try store.saveProjectCreation(intent)
+        // Generated page writes don't call noteManualDraftEdit or wait for a
+        // debounce. An immediate relaunch must still recover both batches.
+        studio.fountainDraft = combined
+        let reopened = ScreenplayStudioViewModel(localDraftRecoveryStore: store, connectsToLiveWorkspace: false)
+        XCTAssertEqual(Array(reopened.fountainDraft.utf8), Array(combined.utf8))
+        XCTAssertEqual(try store.pendingProjectCreation(ownerUserId: auth.userID)?.projectId, intent.projectId)
+    }
+
     @MainActor func testAutomaticCreationLostReplyUsesCanonicalRecoveryWithoutChangingLiveWorkspace() async throws {
         let suite = "them.automatic-creation.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))

@@ -8,7 +8,7 @@
 ### T-979 — Preserve ending mentorship and reject evaluator false positives
 
 - **Owner:** codex. **Branch:** `codex/T-979-mentor-ending-integration`.
-- **Status:** review. **Pillar:** living companion; trustworthy craft.
+- **Status:** review (local recovery proof passed; fresh hosted proof required). **Pillar:** living companion; trustworthy craft.
 - **Scope:** preserving original #652 `ece8cf76` above T-978. Keep client/core
   parity, target-aware page ranges and semantic prompt allocation. Bound alias
   matches and require a causal marker in the ending evaluation case. Replace
@@ -27,8 +27,32 @@
   quality or physical-phone claim. Manifest:
   `docs/mentor-ending-integration-2026-10-16.md`.
 - **Next actual boundary:** original #653 `8f5f4f2f`, body and full diff read.
-- **Human pause:** finish/save T-979, then pause. Do not start the next task
-  or merge #906 until the human resumes; recheck exact heads and required gates.
+- **Resume2026-10-17:** human resumed. #906 normal merged at deac1a6d after
+  exact-head independent approval and all required fresh checks. Main's new
+  run39075059944 is pending, not yet release proof. #961's run39010350710:
+  signed units852/0/0; V1 UI28 pass/15 skip/1 fail, sequential relaunch.
+  Repair the first red before #653. Evidence/manifest:
+  `docs/hosted-relaunch-proof-repair-2026-10-17.md`.
+- **Root reproduced:** keyboard tutorial blocked first local submit. After
+  fixing that, second batch was genuinely absent after relaunch: journal had
+  both, draft preference only first. Stale paragraph metadata overwrote durable
+  text. New signed regression0/1/0 proves it. Moved persistence to draftText
+  changes (bridge delta0). Intermediate full signed units853/0/0, but sequential
+  relaunch still0/1/0; later stages did not run. Observer experiment also failed
+  and was removed. Byte-only trace proved cache/journal restored402 bytes, but
+  pending creation recovery displayed its older173-byte seed. New two-model
+  regression0/1/0 confirms stale intent. Retain generated changes synchronously
+  from the shared store. First retention hook exposed initialization blanking:
+  20/4/0, fixed by the existing hydration boundary. Corrected creation24/0/0
+  and exact-once relaunch1/0/0 passed. Final combined pipeline94156 completed
+  exit0 on frozen960258a8: signed units856/0/0, Home2/0/0, writer/export/relaunch
+  1/0/0, macOS compile. Final checkpoint2ffabaf9 adds native-paper exact-once
+  assertions, also1/0/0; app/unit trees unchanged. Pinned Node20 full backend
+  on that tracked snapshot2886/0/2. All five D009 deltas0; whitespace clean.
+  Intermediate container setup errors retained in the proof document, not
+  counted as passing runs. api.them.io/healthz redirects302 to a parked domain.
+  Publish append-only repair to #961, then inspect its fresh hosted result;
+  do not advance #653 or claim physical-phone/live-provider proof.
 
 ### T-978 — Speak pitches without rewriting quoted screenplay headings
 

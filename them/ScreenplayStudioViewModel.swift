@@ -1640,6 +1640,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
 
     @Published var fountainDraft: String = "" {
         didSet {
+            if !isHydratingDraft { retainPendingCreationDraftIfNeeded() }
             if !fountainDraft.contains(where: { !$0.isWhitespace }) {
                 invalidateCoverage()
             } else if let active = activeCoverageContext, !ScreenplayDraftTextIdentity.matches(active.draft, fountainDraft) {
@@ -1820,7 +1821,11 @@ final class ScreenplayStudioViewModel: ObservableObject {
 
     private func retainPendingCreationDraftIfNeeded() {
         if let context = projectCreationAuthContext, !authContextIsCurrent(context) { return }
-        guard var intent = storedProjectCreation, intent.ownerUserId == currentStudioAuthContext().userID,
+        let pending: ScreenplayProjectCreationIntent?
+        do { pending = try localDraftRecoveryStore.pendingProjectCreation(ownerUserId: currentStudioAuthContext().userID) }
+        catch { errorText = error.localizedDescription; return }
+        storedProjectCreation = pending
+        guard var intent = pending, intent.ownerUserId == currentStudioAuthContext().userID,
               intent.seedsLiveDraft, intent.restoreAsCurrent,
               selectedProjectID.isEmpty || selectedProjectID == intent.projectId else { return }
         guard !ScreenplayDraftTextIdentity.matches(intent.draft, fountainDraft) else { return }
@@ -1897,8 +1902,10 @@ final class ScreenplayStudioViewModel: ObservableObject {
         self.draftSaveAPI = draftSaveAPI
         self.projectSelectionAPI = projectSelectionAPI
         self.conflictProjectLoader = conflictProjectLoader
+        isHydratingDraft = true
         fountainDraft = ScreenplayLiveDraftBridge.shared.draftText
         restoreProjectCreationIfNeeded()
+        isHydratingDraft = false
         guard connectsToLiveWorkspace else { return }
         coverageIdentityCancellable = NotificationCenter.default.publisher(for: .themBackendIdentityPartitionChanged)
             .receive(on: DispatchQueue.main)
