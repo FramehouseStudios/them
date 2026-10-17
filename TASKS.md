@@ -5,6 +5,25 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-971 — Preserve mentor structure guidance and strengthen its proof
+
+- **Owner:** codex. **Branch:** `codex/T-971-mentor-structure-integration`.
+- **Status:** review. **Pillars:** living companion; long-screenplay craft.
+- **Scope:** preserving original #645 `8a7f367a` above T-970. Shared mentor
+  page landmarks yield to the chosen target and active feature map. Tighten
+  scorer aliases and required-page evidence rather than inflate pass scores.
+- **Done when:** Node20 full backend and offline mentor exemplars, full signed
+  units, connected writer journey, macOS compile, D009 and diff checks pass.
+- **VERIFIED before:** original scorer with new regressions: 5 pass / 2 fail;
+  unrelated coin flips score as reversal and an alias bypasses wrong-page checks.
+  Original PR history is retained; no paid live score claimed or main merge.
+- **Current proof:** Node20 backend2837/0/2; offline mentor/persona10/0/0,
+  all40 strong accepted and all40 weak rejected; signed full units836/0/0.
+  Authenticated writer/Craft/native export/relaunch UI1/0/0; macOS compile
+  exit0; D009 all deltas0 and diff pass. Exact manifest:
+  `docs/mentor-structure-integration-2026-10-16.md`.
+- **Next original boundary:** #646 `claude/coverage-follows-draft`, by actual base.
+
 ### T-970 — Preserve the required-proof repair in rehearsal
 
 - **Owner:** codex. **Branch:** `codex/T-970-required-proof-integration`.

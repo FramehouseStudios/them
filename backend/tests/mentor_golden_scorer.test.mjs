@@ -78,3 +78,30 @@ test("[mentor-golden] the shared mentor core file exists and carries the identit
   assert.match(text, /verdict first/);
   assert.equal(THRESHOLDS.passMinOverall, 3.5);
 });
+
+test("[mentor-golden] conversational structure terms retain their dramatic meaning", () => {
+  for (const [reply, term] of [
+    ["He flips a coin because he cannot decide.", "reversal"],
+    ["The committee meets because the hearing starts today.", "commitment"],
+    ["She stands in for her father because he is ill.", "obstacle"],
+  ]) {
+    const result = scoreStructureAccuracy(reply, {expectTerms: [term]});
+    assert.ok(result.score <= 2, `${term}: ${JSON.stringify(result)}`);
+  }
+  const reversal = scoreStructureAccuracy("At the mid-point on page 55, a false win flips the tactic because the plan costs her an ally.", {
+    expectTerms: ["midpoint", "reversal"], expectPages: [{term: "midpoint", low: 50, high: 60}],
+  });
+  assert.equal(reversal.score, 5, JSON.stringify(reversal));
+});
+
+test("[mentor-golden] page evidence is required and checked for spoken aliases", () => {
+  const spec = {expectTerms: ["midpoint", "reversal"], expectPages: [{term: "midpoint", low: 50, high: 60}]};
+  for (const reply of [
+    "The mid-point on page 20 is a false win because the plan costs her an ally.",
+    "The midpoint is a reversal because the plan costs her an ally.",
+  ]) {
+    const result = scoreStructureAccuracy(reply, spec);
+    assert.ok(result.score < 3.5, JSON.stringify(result));
+    assert.ok(result.notes.some(note => /page/.test(note)), JSON.stringify(result));
+  }
+});
