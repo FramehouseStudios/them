@@ -113,19 +113,31 @@ enum ScreenplayPrintService {
         return try ScreenplayLocalExport.makeArtifact(draft: clean, title: title, format: "pdf").data
         #else
         // iOS: CoreText paginated PDF, same as macOS path but UIKit colors.
+        let document = FountainTitlePageCodec.parse(draft)
+        let screenplay = document.scriptPageText.trimmingCharacters(in: .whitespacesAndNewlines)
         let paper = ScreenplayPrintMemory.effectivePaper
         let pageRect: CGRect = (paper == .a4) ? CGRect(x: 0, y: 0, width: 595, height: 842) : CGRect(x: 0, y: 0, width: 612, height: 792)
         let contentRect = CGRect(x: 108, y: 72, width: pageRect.width - 216, height: pageRect.height - 144)
-        let attributed = iOSAttributedDraft(for: clean, printableWidth: contentRect.width)
+        let attributed = iOSAttributedDraft(for: screenplay, printableWidth: contentRect.width)
         let framesetter = CTFramesetterCreateWithAttributedString(attributed as CFAttributedString)
         let data = NSMutableData()
         guard let consumer = CGDataConsumer(data: data as CFMutableData) else { throw PrintError.emptyDraft }
         var mediaBox = pageRect
         guard let context = CGContext(consumer: consumer, mediaBox: &mediaBox, nil) else { throw PrintError.emptyDraft }
+        if let titlePage = document.titlePage {
+            context.beginPDFPage(nil)
+            context.saveGState()
+            context.textMatrix = .identity
+            context.translateBy(x: 0, y: pageRect.height)
+            context.scaleBy(x: 1, y: -1)
+            drawIOSTitlePage(titlePage, in: context, pageRect: pageRect)
+            context.restoreGState()
+            context.endPDFPage()
+        }
         var range = CFRange(location: 0, length: 0)
         let fullLength = attributed.length
-        let elements = ScreenplayEditorElement.inferredSequence(for: clean)
-        let lines = clean.components(separatedBy: .newlines)
+        let elements = ScreenplayEditorElement.inferredSequence(for: screenplay)
+        let lines = screenplay.components(separatedBy: .newlines)
         var pageNumber = 1
         while range.location < fullLength {
             context.beginPDFPage(nil)
@@ -142,14 +154,15 @@ enum ScreenplayPrintService {
             let headerPath = CGPath(rect: CGRect(x: 108, y: 36, width: 400, height: 20), transform: nil)
             let headerFrame = CTFramesetterCreateFrame(CTFramesetterCreateWithAttributedString(headerAttr), CFRange(location: 0, length: headerAttr.length), headerPath, nil)
             CTFrameDraw(headerFrame, context)
-            var path = CGPath(rect: contentRect, transform: nil)
+            let path = CGPath(rect: contentRect, transform: nil)
             var frame = CTFramesetterCreateFrame(framesetter, range, path, nil)
             var visible = CTFrameGetVisibleStringRange(frame)
             // Widow: pull back last line if next page would have single line — dual-aware for MORE/CONT'D pagination orphan
             if range.location + visible.length < fullLength {
                 let remaining = fullLength - (range.location + visible.length)
                 let nextIdxForWidow = visible.location + visible.length
-                let breakLineForWidow = (clean as NSString).substring(to: min(nextIdxForWidow, clean.count)).components(separatedBy: "\n").count - 1
+                let screenplayNSString = screenplay as NSString
+                let breakLineForWidow = screenplayNSString.substring(to: min(nextIdxForWidow, screenplayNSString.length)).components(separatedBy: "\n").count - 1
                 let nextElForWidow = elements.indices.contains(breakLineForWidow) ? elements[breakLineForWidow] : nil
                 let prevElForWidow = breakLineForWidow > 0 && elements.indices.contains(breakLineForWidow-1) ? elements[breakLineForWidow-1] : nil
                 let isDualBreak = (prevElForWidow == .dialogue || prevElForWidow == .character) && (nextElForWidow == .dialogue || nextElForWidow == .parenthetical)
@@ -187,7 +200,8 @@ enum ScreenplayPrintService {
             // MORE at bottom if dialogue breaks
             if range.location + visible.length < fullLength {
                 let nextIdx = visible.location + visible.length
-                let breakLine = (clean as NSString).substring(to: min(nextIdx, clean.count)).components(separatedBy: "\n").count - 1
+                let screenplayNSString = screenplay as NSString
+                let breakLine = screenplayNSString.substring(to: min(nextIdx, screenplayNSString.length)).components(separatedBy: "\n").count - 1
                 let nextEl = elements.indices.contains(breakLine) ? elements[breakLine] : nil
                 let prevEl = breakLine > 0 && elements.indices.contains(breakLine-1) ? elements[breakLine-1] : nil
                 if (prevEl == .dialogue || prevEl == .character) && (nextEl == .dialogue || nextEl == .parenthetical) {
@@ -199,7 +213,8 @@ enum ScreenplayPrintService {
             }
             if range.location > 0 {
                 let prevIdx = max(0, range.location - 1)
-                let prevLineIdx = (clean as NSString).substring(to: min(prevIdx, clean.count)).components(separatedBy: "\n").count - 1
+                let screenplayNSString = screenplay as NSString
+                let prevLineIdx = screenplayNSString.substring(to: min(prevIdx, screenplayNSString.length)).components(separatedBy: "\n").count - 1
                 let prevEl = elements.indices.contains(prevLineIdx) ? elements[prevLineIdx] : nil
                 if prevEl == .dialogue || prevEl == .parenthetical {
                     var charName: String?
@@ -239,15 +254,76 @@ enum ScreenplayPrintService {
 
     static func pageCountEstimate(for draft: String) -> Int {
         // Industry: 1 page ≈ 55 lines at Courier 12 with 1" margins — matches CTFramesetter contentRect; orphan guard keeps real pages honest.
-        let lines = draft.components(separatedBy: .newlines).count
+        let paginationSource = FountainPaginationSource.make(from: draft)
+        if paginationSource.hasTitlePage && !paginationSource.shouldPaginate { return 0 }
+        let lines = paginationSource.scriptText.components(separatedBy: .newlines).count
         return max(1, Int(ceil(Double(lines) / 55.0)))
-    }
-    /// Keep header pagination stable: "1." top-right per Final Draft, not centered.
-    static func titlePageLines(for title: String) -> [String] {
-        return [title.uppercased(), "written by", "io.them — Clementine"]
     }
 
     #if !os(macOS)
+    private static func drawIOSTitlePage(
+        _ titlePage: FountainTitlePage,
+        in context: CGContext,
+        pageRect: CGRect
+    ) {
+        let title = titlePage.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let safeTitle = title.isEmpty ? FountainTitlePage.provisionalTitle : title
+        let centered = NSMutableParagraphStyle()
+        centered.alignment = .center
+        let titleFont = UIFont(name: "Courier-Bold", size: 18) ?? UIFont.boldSystemFont(ofSize: 18)
+        let bodyFont = UIFont(name: "Courier", size: 12) ?? UIFont.monospacedSystemFont(ofSize: 12, weight: .regular)
+        let titleBlock = NSMutableAttributedString(string: safeTitle.uppercased(), attributes: [
+            .font: titleFont,
+            .foregroundColor: UIColor.black,
+            .paragraphStyle: centered,
+        ])
+        let byline = ([titlePage.credit] + titlePage.authors)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n")
+        if !byline.isEmpty {
+            titleBlock.append(NSAttributedString(string: "\n\n" + byline, attributes: [
+                .font: bodyFont,
+                .foregroundColor: UIColor.black,
+                .paragraphStyle: centered,
+            ]))
+        }
+        drawIOS(titleBlock, in: CGRect(x: 72, y: 220, width: pageRect.width - 144, height: 240), context: context)
+
+        if let contact = nonempty(titlePage.contact) {
+            drawIOS(NSAttributedString(string: contact, attributes: [
+                .font: bodyFont,
+                .foregroundColor: UIColor.black,
+            ]), in: CGRect(x: 72, y: pageRect.height - 152, width: 230, height: 90), context: context)
+        }
+        if let draftDate = nonempty(titlePage.draftDate) {
+            let right = NSMutableParagraphStyle()
+            right.alignment = .right
+            drawIOS(NSAttributedString(string: draftDate, attributes: [
+                .font: bodyFont,
+                .foregroundColor: UIColor.black,
+                .paragraphStyle: right,
+            ]), in: CGRect(x: pageRect.width - 302, y: pageRect.height - 152, width: 230, height: 90), context: context)
+        }
+    }
+
+    private static func drawIOS(_ text: NSAttributedString, in rect: CGRect, context: CGContext) {
+        let framesetter = CTFramesetterCreateWithAttributedString(text)
+        let frame = CTFramesetterCreateFrame(
+            framesetter,
+            CFRange(location: 0, length: text.length),
+            CGPath(rect: rect, transform: nil),
+            nil
+        )
+        CTFrameDraw(frame, context)
+    }
+
+    private static func nonempty(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let clean = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return clean.isEmpty ? nil : clean
+    }
+
     private static func iOSAttributedDraft(for draft: String, printableWidth: CGFloat) -> NSAttributedString {
         let fullText = draft.replacingOccurrences(of: "\r\n", with: "\n")
         let lines = fullText.components(separatedBy: .newlines)
@@ -374,9 +450,10 @@ enum ScreenplayDraftGate {
     static func hasFormatErrors(draft: String) -> Bool {
         let t = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         if t.isEmpty { return true }
+        let screenplay = FountainTitlePageCodec.parse(draft).scriptPageText
         // Final Draft parity — block prints that would be rejected in prod: orphan parenthetical/dialogue, slug without INT/EXT, empty character cue.
-        let lines = t.components(separatedBy: .newlines)
-        let els = ScreenplayEditorElement.inferredSequence(for: t)
+        let lines = screenplay.components(separatedBy: .newlines)
+        let els = ScreenplayEditorElement.inferredSequence(for: screenplay)
         for (i, el) in els.enumerated() {
             let line = lines.indices.contains(i) ? lines[i].trimmingCharacters(in: .whitespacesAndNewlines) : ""
             if el == .character && line.isEmpty { return true }
