@@ -16,15 +16,19 @@ const configuredPort = (process.env.THEM_UITEST_WRITER_LOOP_BACKEND_PORT || "").
 const requestedPort = configuredPort ? Number(configuredPort) : null;
 const ROOT_DIR = fileURLToPath(new URL("../..", import.meta.url));
 const WRITER_LOOP_TEST = "themUITests/V1SmokeUITests/test_integrated_iphone_writer_loop_creates_saves_exports_and_restores";
-const XCCONFIG_PATH = `/tmp/them_studio_ios_writer_loop_${process.pid}.xcconfig`;
-const artifactRoot = process.env.ARTIFACT_DIR || process.env.RUNNER_TEMP || tmpdir();
-mkdirSync(artifactRoot, { recursive: true });
-const artifactDir = mkdtempSync(path.join(artifactRoot, "them-writer-loop-"));
-const RESULT_BUNDLE_PATH = path.join(artifactDir, "writer-loop.xcresult");
 
 if (requestedPort !== null && (!Number.isInteger(requestedPort) || requestedPort < 1 || requestedPort > 65_535)) {
   throw new Error("THEM_UITEST_WRITER_LOOP_BACKEND_PORT must be an integer from 1 through 65535.");
 }
+
+// A failure must retain screenshots/hierarchy, not just a shortened assertion.
+// Unique owned directories also prevent a later run from replacing its proof.
+const ARTIFACT_ROOT = path.join(process.env.ARTIFACT_DIR || process.env.RUNNER_TEMP || tmpdir(), "them-studio-ios-writer-loop");
+mkdirSync(ARTIFACT_ROOT, { recursive: true });
+const ARTIFACT_DIR = mkdtempSync(path.join(ARTIFACT_ROOT, "run-"));
+const XCCONFIG_PATH = path.join(ARTIFACT_DIR, "restore.xcconfig");
+const RESULT_BUNDLE_PATH = path.join(ARTIFACT_DIR, "writer-loop.xcresult");
+console.log(`writer-loop artifacts: ${ARTIFACT_DIR}`);
 
 let server = null;
 try {
