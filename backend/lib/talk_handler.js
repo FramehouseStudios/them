@@ -4206,9 +4206,10 @@ ${directorOutputRule}
     // Mentor turns: a grade of the premise is not an answer; drop it before
     // anything is spoken. Page writes are never shaped.
     const mentorShape = shapeMentorReply(reply, { mentorTurn, screenplayPageWrite: isScreenplayPageWriteTurn });
-    if (mentorShape.stripped) {
+    if (mentorShape.stripped || mentorShape.droppedQuestions.length) {
       reply = mentorShape.text;
-      logger.log(`[${rid}] mentor_opener_stripped=true`);
+      if (mentorShape.stripped) logger.log(`[${rid}] mentor_opener_stripped=true`);
+      if (mentorShape.droppedQuestions.length) logger.log(`[${rid}] mentor_questions_dropped_count=${mentorShape.droppedQuestions.length}`);
     }
     // Studio actions: strip [[studio: …]] tags before anything is spoken and
     // keep the validated actions for the response header.
@@ -4807,8 +4808,8 @@ ${directorOutputRule}
       source: talkScreenplayOutput?.target === "page" ? "talk_screenplay_output" : "talk_turn",
     });
     let talkTtsSegmentCount = 1;
-    if (talkScreenplayOutput?.target === "page" && speculativeReuseApplied) {
-      logger.log(`[${rid}] speculative_reuse audio_disabled_for_page_sync=1`);
+    if (speculativeReuseApplied && (talkScreenplayOutput?.target === "page" || reply !== normalizeSnippet(speculativeReuse?.reply, 8_000))) {
+      logger.log(`[${rid}] speculative_reuse audio_disabled_for_final_reply=1`);
       speculativeReuseApplied = false;
     }
 

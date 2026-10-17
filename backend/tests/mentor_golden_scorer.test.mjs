@@ -106,6 +106,15 @@ test("[mentor-golden] page evidence is required and checked for spoken aliases",
   }
 });
 
+test("[mentor-golden] register counts external questions, not dialogue punctuation", () => {
+  for (const quote of ['"Where were you? Why did you leave?"', "'Where were you? Why did you leave?'", '“Where were you? Why did you leave?”']) {
+    const one = scoreRegister(`Try ${quote} What changes now?`);
+    assert.equal(one.notes.some(note => /questions/.test(note)), false, JSON.stringify(one));
+    const two = scoreRegister(`Try ${quote} What changes now? Why today?`);
+    assert.ok(two.notes.includes("2 questions"), JSON.stringify(two));
+  }
+});
+
 test("[mentor-golden] a quoted line rewrite cannot excuse replacing the writer's idea", () => {
   const base = 'Keep Ada and the lighthouse. Ada pockets the key. Instead of saying afraid, try: "Leave the light on."';
   const spec = {writerNouns: ["Ada", "lighthouse"]};

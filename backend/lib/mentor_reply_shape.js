@@ -66,7 +66,134 @@ export function stripPraiseOpener(reply) {
   return { text: fixed, stripped: parts.first };
 }
 
+// ---------------------------------------------------------------------------
+// One question at most. The core says "verdict first, then one question at
+// most"; the model still stacks them ("What does she want, what's the
+// deadline, and what's in her way? ... What's her first-scene want?"). The
+// last question is the handoff, so it stays; earlier question sentences go.
+// A two- or three-word label question ("The obstacle?") is spoken as a colon.
+// Quoted dialogue punctuation is not a mentor question. A mentor question
+// containing a quoted word is still a question and may be removed whole.
+
+const LABEL_QUESTION_MAX_WORDS = 3;
+const CONTINUATION = /^(?:or|and)\b,?\s+/i;
+// "What's the deadline?" is a question; "The obstacle?" is a label.
+const QUESTION_LEAD = /^(?:what|why|how|where|when|who|whom|which|does|do|did|is|are|was|were|can|could|will|would|should|shall|have|has|had|any|ready)\b/i;
+
+// Same-length mask shared by production shaping and its scorer. Apostrophes
+// in contractions/possessives are not quote delimiters. Unclosed dialogue is
+// conservatively protected through the end, including paragraph breaks.
+function analyzeQuotedSpeech(value) {
+  const text = String(value || "");
+  const chars = text.split("");
+  let close = "";
+  let escaped = false;
+  const ends = new Set();
+  const word = char => /[\p{L}\p{N}]/u.test(char || "");
+  for (let i = 0; i < text.length; i += 1) {
+    const char = text[i];
+    const apostrophe = (char === "'" || char === "’") && word(text[i - 1]) && word(text[i + 1]);
+    if (close) {
+      chars[i] = " ";
+      if (escaped) { escaped = false; continue; }
+      if (char === "\\") { escaped = true; continue; }
+      if (char === close && !apostrophe) { ends.add(i); close = ""; }
+    } else if (char === '"' || char === "“" || char === "‘" || (char === "'" && !word(text[i - 1]))) {
+      close = ({"“": "”", "‘": "’"})[char] || char;
+      chars[i] = " ";
+    }
+  }
+  return {mask: chars.join(""), ends};
+}
+
+export function maskQuotedSpeech(value) {
+  return analyzeQuotedSpeech(value).mask;
+}
+
+function splitSentences(paragraph) {
+  const {mask, ends} = analyzeQuotedSpeech(paragraph);
+  const parts = [];
+  let start = 0;
+  for (let i = 0; i < paragraph.length; i += 1) {
+    const outsidePunctuation = /[.!?]/.test(mask[i]);
+    const quotedEnd = ends.has(i) && /[.!?]/.test(paragraph[i - 1] || "");
+    if (!(outsidePunctuation || quotedEnd) || !/\s/.test(paragraph[i + 1] || "")) continue;
+    parts.push(paragraph.slice(start, i + 1));
+    start = i + 1;
+    while (/\s/.test(paragraph[start] || "")) start += 1;
+    i = start - 1;
+  }
+  if (start < paragraph.length) parts.push(paragraph.slice(start));
+  return parts;
+}
+
+function isQuestionSentence(sentence) {
+  return /\?$/.test(maskQuotedSpeech(sentence).trim());
+}
+
+function wordCount(sentence) {
+  return sentence.trim().split(/\s+/).filter(Boolean).length;
+}
+
+/**
+ * Cap a mentor reply at one question. Returns { text, dropped } where dropped
+ * lists the removed question sentences (empty when nothing changed).
+ */
+export function capQuestions(reply) {
+  const text = String(reply || "").trim();
+  if (!text) return { text, dropped: [] };
+  const paragraphs = [];
+  let start = 0;
+  for (const match of maskQuotedSpeech(text).matchAll(/\n{2,}/g)) {
+    paragraphs.push(text.slice(start, match.index));
+    start = match.index + match[0].length;
+  }
+  paragraphs.push(text.slice(start));
+  const units = []; // { p, i, sentence, kind: "label" | "question" | "text" }
+  paragraphs.forEach((paragraph, p) => {
+    splitSentences(paragraph).forEach((sentence, i) => {
+      let kind = "text";
+      if (isQuestionSentence(sentence)) {
+        const label = wordCount(sentence) <= LABEL_QUESTION_MAX_WORDS && !QUESTION_LEAD.test(sentence.trim().replace(/^["“(]/, ""));
+        kind = label ? "label" : "question";
+      }
+      units.push({ p, i, sentence, kind });
+    });
+  });
+  const questions = units.filter((u) => u.kind === "question");
+  const labels = units.filter((u) => u.kind === "label");
+  if (questions.length <= 1 && labels.length === 0) return { text, dropped: [] };
+
+  const dropped = [];
+  if (questions.length > 1) {
+    let keep = questions[questions.length - 1];
+    // "How does she win? Or was there something else?" keeps the first of the pair.
+    if (CONTINUATION.test(keep.sentence.trim())) keep = questions[questions.length - 2];
+    for (const q of questions) {
+      if (q === keep) continue;
+      q.kind = "drop";
+      dropped.push(q.sentence.trim());
+    }
+  }
+  // A label question followed by its answer is spoken as a colon.
+  for (const u of units) {
+    if (u.kind !== "label") continue;
+    const next = units.find((n) => n.p === u.p && n.i === u.i + 1);
+    if (next && next.kind !== "drop") {
+      u.sentence = u.sentence.trim().replace(/\?$/, ":");
+      u.kind = "text";
+    }
+  }
+  const rebuilt = paragraphs.map((_, p) =>
+    units.filter((u) => u.p === p && u.kind !== "drop").map((u) => u.sentence.trim()).join(" ")
+  ).filter((paragraph) => paragraph.length > 0).join("\n\n");
+  if (!rebuilt) return { text, dropped: [] };
+  return { text: rebuilt, dropped };
+}
+
 export function shapeMentorReply(reply, { mentorTurn = false, screenplayPageWrite = false } = {}) {
-  if (!mentorTurn || screenplayPageWrite) return { text: String(reply || ""), stripped: "" };
-  return stripPraiseOpener(reply);
+  if (!mentorTurn || screenplayPageWrite) return { text: String(reply || ""), stripped: "", droppedQuestions: [] };
+  const opener = stripPraiseOpener(reply);
+  const capped = capQuestions(opener.text);
+  return { text: capped.text, stripped: opener.stripped, droppedQuestions: capped.dropped };
 }
