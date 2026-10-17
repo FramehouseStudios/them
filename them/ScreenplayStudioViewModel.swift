@@ -1586,14 +1586,10 @@ final class ScreenplayStudioViewModel: ObservableObject {
         )
     }
 
+    private var featurePageCountCache = ScreenplayPrintedPageCountCache()
+
     var estimatedFeaturePageCount: Int {
-        if !paginationPages.isEmpty {
-            return paginationPages.count
-        }
-        let cleanDraft = fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !cleanDraft.isEmpty else { return 0 }
-        let lineCount = max(1, fountainDraft.components(separatedBy: .newlines).count)
-        return max(1, Int(ceil(Double(lineCount) / 55.0)))
+        featurePageCountCache.count(for: fountainDraft)
     }
 
     var featureProgressionGuide: ScreenplayFeatureProgressionGuide {

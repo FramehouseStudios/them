@@ -5,6 +5,24 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-965 — Printed-page counts drive feature progress
+
+- **Owner:** codex. **Branch:** `codex/T-965-printed-page-progress`.
+- **Status:** review. **Pillar:** accurate long-screenplay continuity.
+- **Scope:** use the existing Letter screenplay layout for current-draft
+  feature progress, not stale inspector pages or raw physical line counts.
+  Reuse one canonical engine; no new pagination policy or provider call.
+- **Done when:** signed before/after regression proves wrapped action,
+  stale-pagination rejection, a measured 120-page fixture and deletion;
+  layout/planner fixtures, connected writer workflow, D009 and diff pass.
+  Full-length generation and dramatic quality remain separate requirements.
+- **Evidence:** signed final layout/progress/planner36/0/0; authenticated writer/
+  printed-page badge/export/relaunch1/0/0; macOS scaffold/D009/diff passed.
+  Before regression0/1/0 and first after35/1/0 cache-teardown crash retained;
+  replaced actor-isolated reference cache with a model-owned memo value.
+  Manifest: `docs/printed-feature-progress-2026-10-16.md`. Main writer-loop
+  run38995445494 is red at the export status assertion; promotion remains held.
+
 ### T-964 — iPhone export hands the actual file to its writer
 
 - **Owner:** codex. **Branch:** `codex/T-964-iphone-export-handoff`.

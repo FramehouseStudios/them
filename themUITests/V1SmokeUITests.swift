@@ -769,6 +769,9 @@ final class V1SmokeUITests: XCTestCase {
             "Save Now did not commit the UI-entered draft. Snapshot: \(savedSnapshot)"
         )
 
+        XCTAssertTrue(app.buttons["studio.draft.page.pages"].label.hasPrefix("1 page."),
+                      "The printed-page overview must use the current canonical feature count.")
+
         XCTAssertTrue(rightDrawer.waitForExistence(timeout: writerLoopWait(5)))
         if !draftInspector.isSelected {
             draftInspector.tap()
