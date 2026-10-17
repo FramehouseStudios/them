@@ -2944,7 +2944,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
 
     @Published var draftText: String = "" {
         didSet {
-            guard draftText != oldValue else { return }
+            guard !ScreenplayDraftTextIdentity.matches(draftText, oldValue) else { return }
             persistDraftText(draftText)
             syncStructuredDraftSnapshot(text: draftText)
         }

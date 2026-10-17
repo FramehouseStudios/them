@@ -5,6 +5,35 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-980 — Preserve byte-distinct live screenplay edits
+
+- **Owner:** codex. **Branch:** `codex/T-980-exact-draft-retention`.
+- **Status:** review. **Pillar:** trustworthy voice-to-scene persistence.
+- **Scope:** characterize the bridge's canonical String-equality early return
+  after #961's persistence-owner correction. Reuse the existing shared
+  ScreenplayDraftTextIdentity if byte-distinct edits fail durable storage.
+  Do not normalize writer text or change owner/project storage boundaries.
+- **Done when:** a real bridge/UserDefaults regression fails before and passes
+  after the minimal fix; signed full units on an erased task-owned simulator,
+  native sequential-page recovery and writer/save/export/relaunch proof pass;
+  pinned backend suite, D009 and whitespace pass. Fixed-provider UI is not
+  physical microphone or generated120-page proof.
+- **Current evidence:** #961 head2fcdc772 is published and hosted proof is
+  running39077888031. Main post-#906 run39075059944 is independently running.
+  Do not retry either unchanged or advance original #653 before resolving red.
+- **VERIFIED:** real durable-byte regression0/1/0 before,1/0/0 after the
+  one-line shared-identity fix. Full signed units857/0/0; native exact-once
+  sequential recovery1/0/0; authenticated fixed-provider Home2/0/0 and
+  writer/save/native export/relaunch1/0/0; macOS compile exit0. Pinned Node20
+  backend2886/0/2, no network. All five D009 deltas0; whitespace clean.
+  Frozen source tree3293a14b; only docs changed afterward. Exact manifest and
+  evidence: `docs/exact-live-draft-retention-2026-10-17.md`.
+- **Next:** observe the actual hosted boundaries and repair first red; add
+  authenticated real-PostgreSQL writer/restart proof rather than counting
+  JSON-backed fixtures as production durability. Render login is human-owned:
+  Chrome showed sign-in; human requested a few minutes2026-10-17. No sign-in,
+  credentials, paid models or deployment mutation by Codex.
+
 ### T-979 — Preserve ending mentorship and reject evaluator false positives
 
 - **Owner:** codex. **Branch:** `codex/T-979-mentor-ending-integration`.

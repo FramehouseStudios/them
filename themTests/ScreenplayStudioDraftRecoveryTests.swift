@@ -1974,6 +1974,27 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         XCTAssertEqual(UserDefaults.standard.string(forKey: key), combined)
     }
 
+    @MainActor
+    func testCanonicallyEquivalentLiveDraftEditPersistsExactBytes() throws {
+        let bridge = ScreenplayLiveDraftBridge.shared
+        let original = bridge.draftText
+        defer { bridge.draftText = original }
+        let owner = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""
+        let key = ScreenplayOwnerScopedStoragePolicy.storageKey(
+            baseKey: "studio_live_draft_text_v1", ownerUserID: owner
+        )
+        let composed = "INT. CAF\u{00C9} - DAY\n\nREN\u{00C9}E\nStay."
+        let decomposed = "INT. CAFE\u{0301} - DAY\n\nRENE\u{0301}E\nStay."
+        XCTAssertEqual(composed, decomposed, "The regression must exercise Swift canonical equality.")
+        XCTAssertNotEqual(Array(composed.utf8), Array(decomposed.utf8))
+        bridge.draftText = composed
+        bridge.draftText = decomposed
+        XCTAssertEqual(Array(bridge.draftText.utf8), Array(decomposed.utf8))
+        let saved = try XCTUnwrap(UserDefaults.standard.string(forKey: key))
+        XCTAssertEqual(Array(saved.utf8), Array(decomposed.utf8),
+                       "A distinct writer revision must reach durable storage even when it looks identical.")
+    }
+
     func testLiveDraftTextPersistenceKeepsMeaningfulScreenplayExactly() {
         let draft = """
 
