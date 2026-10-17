@@ -5,6 +5,23 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-975 — Preserve mentor instructions through ingress and provider trimming
+
+- **Owner:** codex. **Branch:** `codex/T-975-mentor-prompt-integration`.
+- **Status:** review. **Pillars:** living companion; trustworthy craft.
+- **Scope:** preserving merge of original #649 `2dfddbaf` above T-974.
+  Preserve server-owned dialogue notes, writer-command authority, semantic
+  page contracts and target-scaled mentor landmarks. One shared mentor budget.
+- **Done when:** frozen Node20 full/offline gates, signed client units,
+  connected Home handoffs, macOS compile and D009/diff pass.
+- **VERIFIED:** oversized protected prompts exceeded2700 by422 characters;
+  late client scene-pitch rules were lost at ingress before mentor detection.
+  Fixed at the canonical allocator/normalizer; focused47/0/0. Final Node20
+  backend2864/0/2, offline85/0/0 plus golden gate, signed units852/0/0,
+  authenticated Home2/0/0 and writer1/0/0, macOS exit0, D009/diff pass.
+  Manifest: `docs/mentor-prompt-integration-2026-10-16.md`.
+- **Next actual boundary:** #650 `claude/mentor-question-cap` at `bf322156`.
+
 ### T-974 — Preserve mentor shaping and trustworthy Studio actions
 
 - **Owner:** codex. **Branch:** `codex/T-974-mentor-actions-integration`.

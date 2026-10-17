@@ -65,6 +65,43 @@ test("[640-talk] real talk path carries mentor craft and suppresses it for a fea
   }
 });
 
+test("[649-talk] crowded tagged client identity reaches the actual provider request whole", async () => {
+  globalThis.fetch = fixtureFetch;
+  const server = app.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const core = fs.readFileSync(new URL("../../docs/persona/mentor-core.txt", import.meta.url), "utf8").trim();
+  const pitch = "SCENE PITCH (standing collaborator rule):\nKeep the writer's ferry scene; give the captain a deadline.";
+  // The real client can place mode rules after a long Studio context. Protect
+  // them through ingress normalization too, not only the final provider trim.
+  const prompt = `<mentor_core>\n${core}\n</mentor_core>\n` + "Disposable companion context. ".repeat(900) + `\n<scene_pitch>\n${pitch}\n</scene_pitch>`;
+  try {
+    const session = await realFetch(`${base}/session`, {method: "POST", headers: {"X-APP-TOKEN": "mentor-talk-test"}});
+    const {client_token} = await session.json();
+    const before = systems.length;
+    const form = new FormData();
+    form.append("debug_transcript", "Help me strengthen the ferry captain's choice.");
+    form.append("system_prompt", prompt);
+    form.append("studio_capabilities", JSON.stringify({has_project: true, has_draft: true, tabs: ["draft", "craft"]}));
+    form.append("file", new Blob([Buffer.alloc(64)], {type: "audio/wav"}), "test.wav");
+    const response = await realFetch(`${base}/talk`, {method: "POST", body: form,
+      headers: {"X-APP-TOKEN": "mentor-talk-test", "X-Client-Token": client_token}});
+    await response.arrayBuffer();
+    assert.equal(response.status, 200);
+    const sent = systems.slice(before).find(value => value.includes("<mentor_output>"));
+    assert.ok(sent, "real handler must call provider");
+    assert.ok(sent.length > 6200 && sent.length <= 13000, `actual budget: ${sent.length}`);
+    assert.ok(sent.includes(`<mentor_core>\n${core}\n</mentor_core>`), "complete current identity, including target-aware landmarks");
+    assert.ok(sent.includes(pitch));
+    assert.match(sent, /<studio_controls>[\s\S]*<\/studio_controls>/);
+    assert.match(sent, /<craft>[\s\S]*<\/craft>/);
+  } finally {
+    globalThis.fetch = realFetch;
+    server.closeAllConnections();
+    await new Promise(resolve => server.close(resolve));
+  }
+});
+
 test("[648-talk] actual HTTP action headers and spoken preview respect writer authority", async () => {
   globalThis.fetch = fixtureFetch;
   const server = app.listen(0, "127.0.0.1");

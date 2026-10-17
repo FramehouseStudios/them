@@ -1,5 +1,11 @@
 import { DIALOGUE_NOTES_TRIM_CONTRACT } from "./dialogue_notes.js";
 
+// One owner for the production and golden-evaluation mentor budget.
+const MENTOR_TURN_SYSTEM_PROMPT_MAX_CHARS = Math.max(
+  6_200,
+  Number.parseInt(String(process.env.MENTOR_TURN_SYSTEM_PROMPT_MAX_CHARS || ""), 10) || 13_000
+);
+
 const DEFAULT_PROTECTED_TAGS = Object.freeze([
   "clementine_core",
   "clementine_safety_contract",
@@ -18,6 +24,11 @@ const DEFAULT_PROTECTED_TAGS = Object.freeze([
   // the tabs or quote the read she just gave.
   "studio_controls",
   "coverage_read",
+  // Her identity as the phone sends it. Without these a mentor turn runs on
+  // a truncated core and never pitches a scene.
+  "mentor_core",
+  "scene_pitch",
+  "dialogue_notes",
 ]);
 
 function normalizePromptText(value) {
@@ -469,9 +480,10 @@ function buildProtectedSection(blocks, budget) {
   if (!Array.isArray(blocks) || blocks.length === 0) return "";
   const totalBudget = Math.max(0, Math.floor(Number(budget || 0)));
   if (totalBudget < 160) return "";
+  const hasMentorCore = blocks.some((entry) => entry.tag === "mentor_core");
   const blockWeight = (tag) => {
     switch (String(tag || "").toLowerCase()) {
-      case "clementine_core": return 2.4;
+      case "clementine_core": return hasMentorCore ? 0.5 : 2.4;
       case "clementine_safety_contract": return 1.8;
       case "creative_memory": return 2.5;
       case "writer_block_memory": return 2.4;
@@ -479,21 +491,41 @@ function buildProtectedSection(blocks, budget) {
       case "feature_film_map": return 2;
       case "session": return 1.6;
       case "screenplay_task": return 1.3;
+      case "mentor_core": return 2.6;
+      case "mentor_output": return 1.6;
+      case "scene_pitch": return 1.4;
+      case "dialogue_notes": return 1.2;
+      case "studio_controls": return 1.2;
       default: return 1;
     }
   };
   const entries = blocks.slice(0, Math.floor((totalBudget + 2) / 122));
   const full = entries.map((entry) => compactTaggedBlock(entry.block, Math.max(totalBudget, entry.block.length)));
   const allocations = entries.map(() => 0);
+  const minimum = full.map((block) => Math.min(120, block.length));
   let remaining = totalBudget - Math.max(0, entries.length - 1) * 2;
   let active = entries.map((_, i) => i);
+  // Preserve the phone's complete mentor identity when it fits within half
+  // the pool. Keep the existing order-independent allocator and semantic
+  // compaction for all remaining contracts, including page-writing turns.
+  for (const i of active) {
+    const otherMinimum = active.reduce((sum, j) => sum + (j === i ? 0 : minimum[j]), 0);
+    if (entries[i].tag !== "mentor_core" || full[i].length > remaining * 0.5 || full[i].length > remaining - otherMinimum) continue;
+    allocations[i] = full[i].length;
+    remaining -= allocations[i];
+  }
+  active = active.filter((i) => allocations[i] === 0);
   // Capped weighted allocation: short blocks return their unused share before
   // long blocks are compacted. This is independent of production block order.
   while (active.length) {
     const weight = active.reduce((sum, i) => sum + blockWeight(entries[i].tag), 0);
-    const capped = active.filter((i) => full[i].length <= remaining * blockWeight(entries[i].tag) / weight);
+    // compactTaggedBlock has a 120-character floor. Reserve that floor before
+    // weighting surplus; otherwise many small shares expand beyond the cap.
+    const surplus = Math.max(0, remaining - active.reduce((sum, i) => sum + minimum[i], 0));
+    const share = (i) => minimum[i] + Math.floor(surplus * blockWeight(entries[i].tag) / weight);
+    const capped = active.filter((i) => full[i].length <= share(i));
     if (!capped.length) {
-      for (const i of active) allocations[i] = Math.floor(remaining * blockWeight(entries[i].tag) / weight);
+      for (const i of active) allocations[i] = share(i);
       break;
     }
     for (const i of capped) { allocations[i] = full[i].length; remaining -= allocations[i]; }
@@ -585,6 +617,7 @@ function fitSystemPromptForTurnLatency(
 }
 
 export {
+  MENTOR_TURN_SYSTEM_PROMPT_MAX_CHARS,
   DEFAULT_PROTECTED_TAGS,
   extractTaggedBlocks,
   fitSystemPromptForTurnLatency,
