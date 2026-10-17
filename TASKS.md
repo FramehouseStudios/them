@@ -8,13 +8,16 @@
 ### T-959 — Integrate project context and client lifetime safety
 
 - **Owner:** codex. **Branch:** `codex/T-959-context-lifetime-integration`.
-- **Status:** in-progress. **Pillars:** mobile-first; goal items 1, 3, 5 and 6.
+- **Status:** review. **Pillars:** mobile-first; goal items 1, 3, 5 and 6.
 - **Scope:** preserve original #936–#938 above T-958: newest-project-load
   authority, client teardown compatibility, account/project collaboration guards.
   Retain the existing owned-outbox lookup and test suspended generation changes.
 - **Done when:** focused signed ordering/teardown/collaboration/recovery cases
   and authenticated recovery UI pass, D009/diff pass, original heads preserved.
   Batch proof; no repeated full matrix per PR, main mutation or provider call.
+- **VERIFIED:** focused signed units164/0/0, authenticated recovery UI5/0/0,
+  runner5/0/0, D009/diff pass. No failed compile/runtime run in this batch.
+  Manifest/proof/limits: `docs/context-lifetime-integration-2026-10-16.md`.
 
 ### T-958 — Integrate explicit writer-choice authority
 
