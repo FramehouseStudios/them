@@ -1341,6 +1341,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         let screenplayBindings: [BackendScreenplayBindingRecord]
         let baseVersionId: String
         let authContext: ScreenplayStudioAuthContext
+        let allowEmptyDraft: Bool
 
         init(
             id: String,
@@ -1354,7 +1355,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
             studioWriteAnchors: [BackendScreenplayWriteAnchor],
             screenplayBindings: [BackendScreenplayBindingRecord],
             baseVersionId: String,
-            authContext: ScreenplayStudioAuthContext
+            authContext: ScreenplayStudioAuthContext,
+            allowEmptyDraft: Bool = false
         ) {
             self.id = id
             self.projectId = projectId
@@ -1368,6 +1370,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
             self.screenplayBindings = screenplayBindings
             self.baseVersionId = baseVersionId
             self.authContext = authContext
+            self.allowEmptyDraft = allowEmptyDraft
         }
 
         init(entry: ScreenplayDraftSaveOutboxEntry, authContext: ScreenplayStudioAuthContext) {
@@ -1383,6 +1386,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
             screenplayBindings = entry.screenplayBindings
             baseVersionId = entry.baseVersionId
             self.authContext = authContext
+            allowEmptyDraft = entry.allowEmptyDraft ?? false
         }
 
         var outboxEntry: ScreenplayDraftSaveOutboxEntry {
@@ -1404,7 +1408,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 status: .pending,
                 retries: 0,
                 nextAttemptAt: now,
-                lastError: ""
+                lastError: "",
+                allowEmptyDraft: allowEmptyDraft
             )
         }
 
@@ -1421,7 +1426,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 studioWriteAnchors: studioWriteAnchors,
                 screenplayBindings: screenplayBindings,
                 baseVersionId: serverVersionId.trimmingCharacters(in: .whitespacesAndNewlines),
-                authContext: authContext
+                authContext: authContext,
+                allowEmptyDraft: allowEmptyDraft
             )
         }
     }
@@ -1621,6 +1627,22 @@ final class ScreenplayStudioViewModel: ObservableObject {
     @Published var hasUnsavedDraftChanges: Bool = false
     @Published var isStreamingDraftPreviewActive: Bool = false
     @Published var isManualDraftEditing: Bool = false
+    private var blankDraftIntent: (projectID: String, auth: ScreenplayStudioAuthContext)?
+    var hasIntentionalBlankDraft: Bool {
+        guard let intent = blankDraftIntent else { return false }
+        return intent.projectID == selectedProjectID && selectedProjectID == loadedDraftProjectID
+            && authContextIsCurrent(intent.auth) && !latestVersionID.isEmpty
+            && fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+    var canPersistCurrentDraft: Bool {
+        !fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || hasIntentionalBlankDraft
+    }
+    private func rememberBlankWriterEdit() {
+        blankDraftIntent = !selectedProjectID.isEmpty && selectedProjectID == loadedDraftProjectID && !latestVersionID.isEmpty
+            && !isStreamingDraftPreviewActive
+            && fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? (selectedProjectID, currentStudioAuthContext()) : nil
+    }
     @Published var paginationPages: [BackendScreenplayPaginationPage] = []
     @Published var isPagesOverviewPresented: Bool = false
     @Published var isPaginationRefreshing: Bool = false
@@ -1844,7 +1866,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
                   queuedProjectID: entry.projectId,
                   queuedDraft: entry.draft,
                   hasUnsavedChanges: hasUnsavedDraftChanges,
-                  isManualEditing: isManualDraftEditing
+                  isManualEditing: isManualDraftEditing,
+                  allowEmptyDraft: entry.allowEmptyDraft ?? false
               ) else {
             return
         }
@@ -1863,6 +1886,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         isManualDraftEditing = true
         lastManualDraftEditAt = Date()
         hasUnsavedDraftChanges = true
+        if entry.allowEmptyDraft == true || newerRecovery != nil { rememberBlankWriterEdit() }
         autosaveStatusText = "Queued locally - reconnecting"
         infoText = "Restored your local screenplay save and reconnecting."
         persistLocalDraftRecovery(
@@ -1969,6 +1993,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         guard !ScreenplayProjectScopedState.matches(conflictState?.projectId, selectedProjectId: projectID) else {
             return false
         }
+        blankDraftIntent = nil
         isFollowingRemoteLiveDraft = true
         isManualDraftEditing = false
         lastManualDraftEditAt = .distantPast
@@ -2000,7 +2025,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         let cleanProjectID = projectID.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanProjectID.isEmpty,
-              !normalizedText.isEmpty,
+              !normalizedText.isEmpty || hasIntentionalBlankDraft,
               !ScreenplayDraftTextIdentity.matches(text, lastRevisionBaseDraft) else { return }
 
         let savedAt = Date().timeIntervalSince1970
@@ -2010,7 +2035,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
             projectId: cleanProjectID,
             draft: text,
             baseVersionId: latestVersionID,
-            savedAt: savedAt
+            savedAt: savedAt,
+            allowEmptyDraft: hasIntentionalBlankDraft
         )
         if let firstConflict = localDraftRecoveryStore.firstPreservedConflict(
             ownerUserId: ownerUserID,
@@ -2199,9 +2225,9 @@ final class ScreenplayStudioViewModel: ObservableObject {
         isManualDraftEditing = true
         stopFollowingRemoteLiveDraft()
         lastManualDraftEditAt = Date()
-        let normalized = fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        rememberBlankWriterEdit()
         hasUnsavedDraftChanges = !ScreenplayDraftTextIdentity.matches(fountainDraft, lastRevisionBaseDraft)
-        if !normalized.isEmpty {
+        if canPersistCurrentDraft {
             persistLocalDraftRecovery(
                 projectId: selectedProjectID,
                 draft: fountainDraft,
@@ -4205,6 +4231,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
     }
 
     func manualSaveDraft() async {
+        rememberBlankWriterEdit()
         await saveCurrentDraft(source: "studio_manual")
     }
 
@@ -4239,7 +4266,10 @@ final class ScreenplayStudioViewModel: ObservableObject {
         }
         guard selectedProject != nil, !isLoading, !isDraftSaveInFlight, !isSaving else { return false }
         autosaveEnabled = false
-        if !fountainDraft.contains(cleanMarker) {
+        if cleanMarker == "__DELETE_ALL_WRITER_TEXT__" {
+            fountainDraft = ""
+            noteManualDraftEdit()
+        } else if !fountainDraft.contains(cleanMarker) {
             let separator = fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 ? ""
                 : "\n\n"
@@ -4292,6 +4322,10 @@ final class ScreenplayStudioViewModel: ObservableObject {
         }
         syncLiveDraftBridgeProjectContext()
         hasUnsavedDraftChanges = !ScreenplayDraftTextIdentity.matches(candidate.draft, lastRevisionBaseDraft)
+        if candidate.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            rememberBlankWriterEdit()
+            isManualDraftEditing = true
+        }
         autosaveStatusText = "Recovered local draft"
         infoText = "Recovered your local unsaved draft."
         recoveryCandidate = nil
@@ -4440,11 +4474,14 @@ final class ScreenplayStudioViewModel: ObservableObject {
     }
 
     func clearDraft() {
+        if hasUnsavedDraftChanges {
+            localDraftRecoveryStore.savePreservedConflict(ownerUserId: currentStudioAuthContext().userID,
+                projectId: selectedProjectID, draft: fountainDraft, baseVersionId: latestVersionID,
+                allowEmptyDraft: hasIntentionalBlankDraft)
+        }
         fountainDraft = ""
-        hasUnsavedDraftChanges = false
-        isManualDraftEditing = false
-        lastManualDraftEditAt = .distantPast
-        autosaveStatusText = "Draft cleared"
+        noteManualDraftEdit()
+        autosaveStatusText = hasUnsavedDraftChanges ? "Unsaved changes" : "Draft cleared"
         paginationPages = []
         revisionSummary = nil
         revisionRanges = []
@@ -4452,10 +4489,6 @@ final class ScreenplayStudioViewModel: ObservableObject {
         formatLintErrorText = ""
         formatLintSourceText = ""
         clearCoverageSimulation()
-        conflictState = nil
-        if !selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            clearLocalDraftRecovery(projectId: selectedProjectID)
-        }
     }
 
     func normalizeDraftToHollywoodFormat() {
@@ -5684,7 +5717,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         let normalizedServerDraft = draft
         let normalizedServerVersionID = versionId.trimmingCharacters(in: .whitespacesAndNewlines)
         let exactLocalNeedsProtection = !allowOverwriteDirtyLocalDraft && normalizedProjectID == loadedDraftProjectID
-            && !fountainDraft.isEmpty && !ScreenplayDraftTextIdentity.matches(fountainDraft, draft) && hasUnsavedDraftChanges
+            && (!fountainDraft.isEmpty || hasIntentionalBlankDraft) && !ScreenplayDraftTextIdentity.matches(fountainDraft, draft) && hasUnsavedDraftChanges
         let localEditsNeedProtection = exactLocalNeedsProtection || ScreenplayRemoteDraftConflictPolicy.shouldProtectLocalDraft(
             selectedProjectId: normalizedProjectID,
             loadedProjectId: loadedDraftProjectID,
@@ -5749,6 +5782,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
 
         isHydratingDraft = true
         fountainDraft = draft
+        blankDraftIntent = nil
         latestVersionID = versionId.trimmingCharacters(in: .whitespacesAndNewlines)
         isHydratingDraft = false
         loadedDraftProjectID = normalizedProjectID
@@ -5813,11 +5847,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
             return
         }
 
-        guard !normalized.isEmpty else {
+        guard !normalized.isEmpty || hasIntentionalBlankDraft else {
             autosaveStatusText = "Draft empty"
-            if !selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                clearLocalDraftRecovery(projectId: selectedProjectID)
-            }
             return
         }
         persistLocalDraftRecovery(
@@ -5885,7 +5916,9 @@ final class ScreenplayStudioViewModel: ObservableObject {
             screenplayBindings: screenplayBindings,
             baseVersionId: (baseVersionOverride ?? latestVersionID)
                 .trimmingCharacters(in: .whitespacesAndNewlines),
-            authContext: authContext
+            authContext: authContext,
+            allowEmptyDraft: hasIntentionalBlankDraft &&
+                ["studio_manual", "studio_autosave", "studio_conflict_resolve"].contains(source)
         )
     }
 
@@ -6022,7 +6055,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
             return
         }
         let normalized = request.draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalized.isEmpty else {
+        guard !normalized.isEmpty || request.allowEmptyDraft else {
             autosaveStatusText = "Draft empty"
             return
         }
@@ -6116,7 +6149,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
 
     private func performDraftSave(_ request: DraftSaveRequest) async -> Bool {
         let normalized = request.draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalized.isEmpty else {
+        guard !normalized.isEmpty || request.allowEmptyDraft else {
             autosaveStatusText = "Draft empty"
             return false
         }
@@ -6236,6 +6269,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
                     baseVersionId: baseVersionId,
                     conflictStrategy: "reject_if_stale",
                     clientRequestId: request.id,
+                    allowEmptyDraft: request.allowEmptyDraft,
                     includeUserIdentity: ownerHeaders.includeUserIdentity,
                     includeAuthToken: ownerHeaders.includeAuthToken,
                     clientTokenOverride: ownerHeaders.clientTokenOverride
@@ -6254,7 +6288,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
                     screenplayBindings: request.screenplayBindings,
                     baseVersionId: baseVersionId,
                     conflictStrategy: "reject_if_stale",
-                    clientRequestId: request.id
+                    clientRequestId: request.id,
+                    allowEmptyDraft: request.allowEmptyDraft
                 )
             }
             guard authContextIsCurrent(request.authContext) else {
@@ -6808,7 +6843,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
             draft: draft,
             baseVersionId: baseVersionId,
             dirty: dirty,
-            savedAt: savedAt
+            savedAt: savedAt,
+            allowEmptyDraft: hasIntentionalBlankDraft
         )
         let hasDifferentPreservedConflict = recoveryCandidate.map {
             $0.projectId == normalizedProjectId &&
@@ -6829,7 +6865,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
     ) -> LocalDraftRecoveryCandidate? {
         guard ScreenplayUnconfirmedSaveRecoveryPolicy.shouldPersist(
             projectId: projectId,
-            draft: draft
+            draft: draft,
+            allowEmptyDraft: hasIntentionalBlankDraft
         ) else {
             return nil
         }

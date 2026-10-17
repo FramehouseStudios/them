@@ -137,9 +137,9 @@ struct ScreenplayProjectDraftRestorePolicy {
 }
 
 struct ScreenplayUnconfirmedSaveRecoveryPolicy {
-    static func shouldPersist(projectId: String, draft: String) -> Bool {
+    static func shouldPersist(projectId: String, draft: String, allowEmptyDraft: Bool = false) -> Bool {
         !projectId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-            !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            (!draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || allowEmptyDraft)
     }
 }
 
@@ -180,13 +180,14 @@ struct ScreenplayQueuedDraftHydrationPolicy {
         queuedProjectID: String,
         queuedDraft: String,
         hasUnsavedChanges: Bool,
-        isManualEditing: Bool
+        isManualEditing: Bool,
+        allowEmptyDraft: Bool = false
     ) -> Bool {
         let selectedID = selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
         let queuedID = queuedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
         return !selectedID.isEmpty
             && selectedID == queuedID
-            && !queuedDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && (!queuedDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || allowEmptyDraft)
             && !hasUnsavedChanges
             && !isManualEditing
     }
