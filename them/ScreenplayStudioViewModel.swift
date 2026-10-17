@@ -1684,7 +1684,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
     private var latestOptimisticOutlineMutationByProject: [String: ScreenplayOutlineMutationOutboxEntry] = [:]
     private var pendingDraftSaveRequest: DraftSaveRequest?
     private var shouldQueuePendingDraftSaveAfterFailure = false
-    private let localDraftRecoveryStore = ScreenplayLocalDraftRecoveryStore()
+    private let localDraftRecoveryStore: ScreenplayLocalDraftRecoveryStore
     private let draftSaveOutbox = ScreenplayDraftSaveOutbox.shared
     private let outlineMutationOutbox = ScreenplayOutlineMutationOutbox.shared
     private let craftClient = BackendClient()
@@ -1692,7 +1692,12 @@ final class ScreenplayStudioViewModel: ObservableObject {
     private var clientTokenOwnedProjectIDs: Set<String> = []
     private var activeLoadRequestID: UUID?
 
-    init() {
+    convenience init() {
+        self.init(localDraftRecoveryStore: ScreenplayLocalDraftRecoveryStore())
+    }
+
+    init(localDraftRecoveryStore: ScreenplayLocalDraftRecoveryStore) {
+        self.localDraftRecoveryStore = localDraftRecoveryStore
         fountainDraft = ScreenplayLiveDraftBridge.shared.draftText
         draftDebounceCancellable = $fountainDraft
             .removeDuplicates()
@@ -1990,7 +1995,15 @@ final class ScreenplayStudioViewModel: ObservableObject {
         conflictState = nil
         autosaveStatusText = "Saved"
         if !selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            clearLocalDraftRecovery(projectId: selectedProjectID)
+            let ownerUserID = currentStudioAuthContext().userID
+            localDraftRecoveryStore.clearOrdinaryDraft(
+                ownerUserId: ownerUserID,
+                projectId: selectedProjectID
+            )
+            evaluateLocalDraftRecovery(
+                projectId: selectedProjectID,
+                serverDraft: fountainDraft
+            )
         }
         syncLiveDraftBridgeProjectContext()
     }

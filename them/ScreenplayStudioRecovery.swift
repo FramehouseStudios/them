@@ -212,6 +212,25 @@ struct ScreenplayLocalDraftRecoveryStore {
         defaults.set(nextPayloads, forKey: ownerScopedKey(ownerUserId))
     }
 
+    /// Clears the ordinary autosave copy after the server confirms that text,
+    /// without discarding a distinct local draft preserved during live sync.
+    func clearOrdinaryDraft(ownerUserId: String, projectId: String) {
+        let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedProjectId.isEmpty else { return }
+        var nextPayloads = payloads(ownerUserId: ownerUserId)
+        guard var projectPayload = nextPayloads[normalizedProjectId] else { return }
+        projectPayload.removeValue(forKey: "draft")
+        projectPayload.removeValue(forKey: "baseVersionId")
+        projectPayload.removeValue(forKey: "dirty")
+        projectPayload.removeValue(forKey: "savedAt")
+        if projectPayload.isEmpty {
+            nextPayloads.removeValue(forKey: normalizedProjectId)
+        } else {
+            nextPayloads[normalizedProjectId] = projectPayload
+        }
+        defaults.set(nextPayloads, forKey: ownerScopedKey(ownerUserId))
+    }
+
     func clear(ownerUserId: String, projectId: String) {
         let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedProjectId.isEmpty else { return }
