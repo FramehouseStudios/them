@@ -1084,6 +1084,25 @@ final class V1SmokeUITests: XCTestCase {
         )
 
         XCTAssertTrue(rightDrawer.waitForExistence(timeout: writerLoopWait(5)))
+        let craftTab = app.buttons["studio.right-panel.craft"]
+        XCTAssertTrue(revealInspectorTab(craftTab, drawer: rightDrawer, in: app))
+        craftTab.tap()
+        XCTAssertTrue(waitForSelection(of: craftTab, timeout: writerLoopWait(5)))
+        let readPages = app.buttons["studio.craft.coverage.refresh"]
+        XCTAssertTrue(revealInStudioDrawer(readPages, drawer: rightDrawer, scrollingUp: true, maxSwipes: 8),
+                      "Craft must expose its connected Read it action.")
+        readPages.tap()
+        let grade = app.staticTexts["studio.craft.coverage.grade"]
+        XCTAssertTrue(grade.waitForExistence(timeout: writerLoopWait(15)),
+                      "Read it did not return a coverage card from the authenticated backend.")
+        let coverage = try await requestJSON(baseURL: baseURL, path: "/screenplay/coverage", method: "POST",
+            headers: fixture.authorizedHeaders, body: ["draft": marker, "title": projectTitle])
+        try assertHTTP(coverage, context: "writer's deterministic coverage read")
+        XCTAssertEqual(grade.label, stringValue(coverage.payload["grade"]))
+        let verdict = stringValue(coverage.payload["verdict"]).capitalized
+        XCTAssertTrue(staticText(containing: "\(grade.label) · \(verdict) · 1 page, 0 scenes", in: app).exists,
+                      "The card must describe this writer's saved one-page draft, not another script.")
+        XCTAssertTrue(revealInspectorTab(draftInspector, drawer: rightDrawer, in: app))
         if !draftInspector.isSelected {
             draftInspector.tap()
         }

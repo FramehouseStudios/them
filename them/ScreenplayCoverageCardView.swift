@@ -54,6 +54,7 @@ struct ScreenplayCoverageCardView: View {
             RoundedRectangle(cornerRadius: IOThemSpacing.Radius.md, style: .continuous)
                 .stroke(Color.herShellStroke.opacity(0.2), lineWidth: 1)
         )
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("studio.craft.coverage")
     }
 
