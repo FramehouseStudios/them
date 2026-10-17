@@ -823,9 +823,16 @@ final class ScreenplayLiveDraftSyncService: ObservableObject {
     ) {
         let previousMirror = mirrorText
         let localText = editor?.liveDraftText ?? previousMirror
+        // A rebase needs a base both sides agreed on. A fresh mirror (no seq
+        // yet, e.g. on launch) is "", so the cached draft and the channel
+        // both looked like inserts at 0 and the rebase appended one to the
+        // other: the whole page doubled and was published (seen live
+        // 2026-09-28). Without a base, or when local already matches, there
+        // is nothing to merge; the channel wins, as for overlapping edits.
+        let hasAgreedBase = mirrorSeq != nil
         setMirror(text: remoteText, seq: seq, checksum: checksum)
         var merged: String?
-        if localText != previousMirror,
+        if hasAgreedBase, localText != previousMirror, localText != remoteText,
            let localOp = LiveDraftText.diff(from: previousMirror, to: localText) {
             merged = LiveDraftText.rebase(localOp: localOp, base: previousMirror, remoteText: remoteText)
             if merged == nil {
