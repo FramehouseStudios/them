@@ -513,7 +513,10 @@ final class V1SmokeUITests: XCTestCase {
             app.buttons.matching(NSPredicate(format: "label CONTAINS[c] %@", "Markdown")).firstMatch.tap()
         }
 
-        XCTAssertTrue(staticText(containing: "Saved", in: app).waitForExistence(timeout: 6))
+        let closeShare = app.buttons["Close"].firstMatch
+        XCTAssertTrue(closeShare.waitForExistence(timeout: 10), "Export must offer the native file share sheet.")
+        closeShare.tap()
+        XCTAssertTrue(staticText(containing: "Export ready:", in: app).waitForExistence(timeout: 6))
     }
 
     @MainActor
@@ -779,6 +782,16 @@ final class V1SmokeUITests: XCTestCase {
         let markdownExport = app.buttons["studio.export.md"]
         XCTAssertTrue(markdownExport.waitForExistence(timeout: writerLoopWait(5)), "Export Copy did not offer Markdown.")
         markdownExport.tap()
+        let closeMarkdownShare = app.buttons["Close"].firstMatch
+        XCTAssertTrue(closeMarkdownShare.waitForExistence(timeout: writerLoopWait(10)),
+                      "Markdown export must present the native share sheet, not just create a temporary file.")
+        XCTAssertTrue(app.collectionViews["activityCollectionView"].cells["Save to Files"].waitForExistence(timeout: writerLoopWait(5)),
+                      "The writer must have a real external file destination.")
+        let markdownShareProof = XCTAttachment(screenshot: app.screenshot())
+        markdownShareProof.name = "Native Markdown file handoff"
+        markdownShareProof.lifetime = .keepAlways
+        add(markdownShareProof)
+        closeMarkdownShare.tap()
         XCTAssertTrue(
             staticText(containing: expectedMarkdownFilename, in: app).waitForExistence(timeout: writerLoopWait(10)),
             "Markdown export did not report its .md artifact."
@@ -787,6 +800,15 @@ final class V1SmokeUITests: XCTestCase {
         let fdxExport = app.buttons["studio.export.fdx"]
         XCTAssertTrue(fdxExport.waitForExistence(timeout: writerLoopWait(5)), "Export Copy did not offer Final Draft.")
         fdxExport.tap()
+        let closeFDXShare = app.buttons["Close"].firstMatch
+        XCTAssertTrue(closeFDXShare.waitForExistence(timeout: writerLoopWait(10)),
+                      "Final Draft export must present the native share sheet.")
+        XCTAssertTrue(app.collectionViews["activityCollectionView"].cells["Save to Files"].waitForExistence(timeout: writerLoopWait(5)))
+        let fdxShareProof = XCTAttachment(screenshot: app.screenshot())
+        fdxShareProof.name = "Native Final Draft file handoff"
+        fdxShareProof.lifetime = .keepAlways
+        add(fdxShareProof)
+        closeFDXShare.tap()
         XCTAssertTrue(
             staticText(containing: expectedFDXFilename, in: app).waitForExistence(timeout: writerLoopWait(10)),
             "The live FDX exporter must return the backend filename with spaces, not the hyphenated stub artifact."

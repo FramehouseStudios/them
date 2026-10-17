@@ -126,7 +126,7 @@ struct ScreenplayStudioDraftIntegrityActions {
 struct ScreenplayStudioDraftToolsActions {
     let onSaveNow: () -> Void
     let onImport: () -> Void
-    let onExport: (String) -> Void
+    let onExport: (String, @escaping (URL) -> Void) async -> Void
     let onRefreshExportFormats: () -> Void
     let onOpenGoogleDocs: () -> Void
     let onRefreshFormatLint: () -> Void
@@ -475,26 +475,11 @@ private struct ScreenplayStudioDraftDocumentControls: View {
     }
 
     private var exportMenu: some View {
-        Menu {
-            ForEach(presentation.exportItems) { item in
-                Button(item.title) {
-                    actions.onExport(item.format)
-                }
-                .accessibilityIdentifier("studio.export.\(item.format.lowercased())")
-                .disabled(!item.isEnabled)
-            }
-            Divider()
-            Button("Refresh Export Formats", action: actions.onRefreshExportFormats)
-            Button("Open in Google Docs", action: actions.onOpenGoogleDocs)
-        } label: {
-            Label("Export Copy", systemImage: "square.and.arrow.up")
-                .font(IOThemTypography.UI.calloutStrong)
-                .frame(maxWidth: .infinity)
-        }
-        .buttonStyle(.bordered)
-        .controlSize(.regular)
-        .accessibilityIdentifier("studio.export.menu")
-        .accessibilityHint("Shows the available screenplay export formats")
+        ScreenplayStudioExportMenu(
+            items: presentation.exportItems, onExport: actions.onExport,
+            onRefresh: actions.onRefreshExportFormats,
+            onOpenGoogleDocs: actions.onOpenGoogleDocs
+        )
     }
 }
 
