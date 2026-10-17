@@ -17,13 +17,25 @@ enum ScreenplayStudioExportSupport {
         var draft: String
         var projectTitle: String?
         var navigatorCurrentURL: URL?
-        var isRunningUITests: Bool
+        var usesUITestArtifact: Bool
         var refreshFormatLint: (String) async -> Void
         var exportFromBackend: (String) async throws -> BackendScreenplayExportArtifact
         var setInfo: (String) -> Void
         var setError: (String) -> Void
         var noteSavedDirectory: (URL) -> Void
         var openURL: (URL) -> Void
+    }
+
+    /// Stub-only UI stories stay isolated. Explicit live modes must exercise
+    /// the same authenticated export client as the shipping iPhone app.
+    nonisolated static func shouldUseUITestArtifact(
+        arguments: [String] = ProcessInfo.processInfo.arguments
+    ) -> Bool {
+        guard arguments.contains("--ui-testing") else { return false }
+        let mode = IOThemRuntime.explicitPreferenceArgumentValue(
+            forKey: "studio_debug_submit_transport_mode", arguments: arguments
+        )?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? "stub"
+        return !["live", "backend", "live-backend", "live-submit"].contains(mode)
     }
 
     nonisolated static func preferredExportDirectoryURL(navigatorCurrentURL: URL?) -> URL? {
@@ -156,7 +168,7 @@ enum ScreenplayStudioExportSupport {
                 format: format
             )
 #elseif DEBUG
-            if deps.isRunningUITests {
+            if deps.usesUITestArtifact {
                 artifact = try makeUITestArtifact(
                     draft: deps.draft,
                     title: deps.projectTitle,

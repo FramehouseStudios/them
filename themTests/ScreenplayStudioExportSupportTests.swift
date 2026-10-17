@@ -2,6 +2,46 @@ import XCTest
 @testable import them
 
 final class ScreenplayStudioExportSupportTests: XCTestCase {
+    func testLiveUITestModesNeverSynthesizeAnExportArtifact() {
+        for mode in ["live", "backend", "live-backend", "live-submit", " LIVE "] {
+            XCTAssertFalse(ScreenplayStudioExportSupport.shouldUseUITestArtifact(
+                arguments: ["--ui-testing", "-studio_debug_submit_transport_mode", mode]))
+        }
+    }
+
+    func testStubUITestsRemainIsolatedUnlessLiveModeIsExplicit() {
+        for mode in ["stub", "structural-quality-stub", "unknown", ""] {
+            XCTAssertTrue(ScreenplayStudioExportSupport.shouldUseUITestArtifact(
+                arguments: ["--ui-testing", "-studio_debug_submit_transport_mode", mode]))
+        }
+        XCTAssertTrue(ScreenplayStudioExportSupport.shouldUseUITestArtifact(arguments: ["--ui-testing"]))
+        XCTAssertFalse(ScreenplayStudioExportSupport.shouldUseUITestArtifact(arguments: []))
+    }
+
+#if DEBUG && !os(macOS)
+    @MainActor func testLiveExportCallsBackendAndWritesItsActualBytes() async throws {
+        let filename = "Backend Room \(UUID().uuidString).fdx"
+        let destination = FileManager.default.temporaryDirectory.appendingPathComponent(filename)
+        defer { try? FileManager.default.removeItem(at: destination) }
+        let bytes = Data("<FinalDraft><Content>Real encoder output</Content></FinalDraft>".utf8)
+        var calledFormats: [String] = [], info = "", error = ""
+        let deps = ScreenplayStudioExportSupport.Dependencies(
+            draft: "INT. ROOM - NIGHT\n\nThe actual page.", projectTitle: "Room",
+            navigatorCurrentURL: nil, usesUITestArtifact: false,
+            refreshFormatLint: { _ in }, exportFromBackend: { format in
+                calledFormats.append(format)
+                return BackendScreenplayExportArtifact(format: format, filename: filename,
+                    contentType: "application/xml", data: bytes)
+            }, setInfo: { info = $0 }, setError: { error = $0 },
+            noteSavedDirectory: { _ in }, openURL: { _ in })
+        await ScreenplayStudioExportSupport.exportCurrentDraft(format: "fdx", deps: deps)
+        XCTAssertEqual(calledFormats, ["fdx"])
+        XCTAssertEqual(try Data(contentsOf: destination), bytes)
+        XCTAssertTrue(info.contains(filename))
+        XCTAssertEqual(error, "")
+    }
+#endif
+
     func testPreferredExportDirectoryPrefersNavigatorURL() throws {
         let navigator = URL(fileURLWithPath: "/tmp/studio-nav", isDirectory: true)
         let preferred = ScreenplayStudioExportSupport.preferredExportDirectoryURL(
