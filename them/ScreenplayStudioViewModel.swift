@@ -1642,7 +1642,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         didSet {
             if !fountainDraft.contains(where: { !$0.isWhitespace }) {
                 invalidateCoverage()
-            } else if let active = activeCoverageContext, active.draft != fountainDraft {
+            } else if let active = activeCoverageContext, !ScreenplayDraftTextIdentity.matches(active.draft, fountainDraft) {
                 activeCoverageRequestID = nil
                 activeCoverageContext = nil
                 if isCoverageRefreshing { isCoverageRefreshing = false }
@@ -5002,7 +5002,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
     ) async {
         guard !Task.isCancelled else { return }
         let context = currentCoverageContext()
-        let draft = context.draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        let document = FountainTitlePageCodec.parse(context.draft)
+        let draft = document.scriptPageText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !draft.isEmpty else {
             invalidateCoverage()
             return
@@ -5012,7 +5013,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         activeCoverageContext = context
         coverageErrorContext = nil
         if !coverageErrorText.isEmpty { coverageErrorText = "" }
-        let title = selectedProject?.title ?? ""
+        let title = document.titlePage?.title ?? selectedProject?.title ?? ""
         if !isCoverageRefreshing { isCoverageRefreshing = true }
         defer {
             if activeCoverageRequestID == requestID {

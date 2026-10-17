@@ -5,6 +5,19 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-968 — Exact document identity for coverage
+
+- **Owner:** codex. **Branch:** `codex/T-968-coverage-document-identity`.
+- **Status:** review. **Pillar:** trustworthy current-script feedback.
+- **Scope:** reuse original title codec and exact-byte identity; reject stale
+  Unicode-byte reads and avoid reading title metadata as screenplay pages.
+- **Done when:** real-VM regressions reproduce red, full signed units pass,
+  D009/diff pass, raw writer bytes remain unchanged and limits are recorded.
+- **Evidence:** before15/3/0, after full836/0/0 on erased owned simulator;
+  D009 deltas0. `docs/coverage-document-identity-2026-10-16.md`.
+- **Priority hold:** #906 returned to draft after raw CI logs exposed hidden
+  Reuse and voice-fault failures. Reconcile original #904 CI prefix next.
+
 ### T-967 — Preserve coverage and context-isolation repairs
 
 - **Owner:** codex. **Branch:** `codex/T-967-coverage-integration`.
