@@ -1,3 +1,5 @@
+import { extractTaggedBlocks, fitSystemPromptForTurnLatency } from "./system_prompt_trim.js";
+
 function createPersonaRuntime({
   env = process.env,
   normalizeSnippet,
@@ -161,7 +163,15 @@ evolution:
   }
 
   function normalizeSystemPrompt(systemPrompt) {
-    return normalizeSystemPromptText(systemPrompt).slice(0, MAX_SYSTEM_PROMPT_CHARS);
+    const normalized = normalizeSystemPromptText(systemPrompt);
+    if (MAX_SYSTEM_PROMPT_CHARS < 500 || normalized.length <= MAX_SYSTEM_PROMPT_CHARS || extractTaggedBlocks(normalized).length === 0) {
+      return normalized.slice(0, MAX_SYSTEM_PROMPT_CHARS);
+    }
+    // Ingress must not slice through a protected client rule before the final
+    // turn-aware trim can see it. Reuse that same bounded semantic owner.
+    return fitSystemPromptForTurnLatency(normalized, {
+      chatModelPlan: {tier: "rich"}, richMaxChars: MAX_SYSTEM_PROMPT_CHARS,
+    });
   }
 
   function appendDirectorAddendum(systemPrompt, addendum) {
