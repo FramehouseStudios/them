@@ -5,6 +5,23 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-973 — Preserve project auto-titles with one Fountain owner
+
+- **Owner:** codex. **Branch:** `codex/T-973-project-title-integration`.
+- **Status:** review. **Pillars:** mobile-first; trustworthy first project.
+- **Scope:** preserve #647 `848e59d0`, keep its tested heading/pack fallback
+  and Root extraction; use canonical title-page parsing instead of a second
+  twelve-line scan. Preserve durable creation/recovery and exact page bytes.
+- **Done when:** signed title/creation regressions, authenticated Home handoff
+  saved-title/relaunch proof, macOS compile, D009 and diff pass.
+- **Before:** original helper compiled directly, three mismatches in three
+  boundary cases; not a signed XCTest result. Evidence retained.
+- **Current proof:** signed title/creation units29/0/0, all14 runner contracts;
+  D009 Root -29, other deltas0; both Home handoffs2/0/0 with saved-title and
+  exact draft restoration before the isolation-only annotation. Final signed
+  units29/0/0 and macOS exit0; title-helper actor warning eliminated.
+  Exact scope/limits: `docs/project-title-integration-2026-10-16.md`.
+
 ### T-972 — Coverage follows the owned screenplay, not title metadata
 
 - **Owner:** codex. **Branch:** `codex/T-972-coverage-follow-integration`.
