@@ -5,6 +5,20 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-967 — Preserve coverage and context-isolation repairs
+
+- **Owner:** codex. **Branch:** `codex/T-967-coverage-integration`.
+- **Status:** review. **Pillars:** living companion; project isolation.
+- **Scope:** preserving merges of original #644/#880/#881. Retain recovery,
+  creation and action-authority guards; connect real Craft action to writer UI.
+- **Done when:** full Node20/signed units, connected writer/Craft/export/restore,
+  macOS compilation, offline mentor, D009 and diff pass; limitations recorded.
+- **Evidence:** Node20 backend2835/0/2, final signed units833/0/0, connected
+  writer/Craft/export/relaunch1/0/0, macOS/offline mentor/D009/diff pass.
+  First UI0/1/0 retained; fixed parent identifier propagation with the existing
+  accessibility containment pattern, not a label workaround or unchanged retry.
+  `docs/coverage-integration-proof-2026-10-16.md`.
+
 ### T-966 — Preserve and connect original title-page support
 
 - **Owner:** codex. **Branch:** `codex/T-966-title-page-integration`.
