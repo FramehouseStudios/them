@@ -780,10 +780,10 @@ final class V1SmokeUITests: XCTestCase {
         let readPages = app.buttons["studio.craft.coverage.refresh"]
         XCTAssertTrue(revealInStudioDrawer(readPages, drawer: rightDrawer, scrollingUp: true, maxSwipes: 8),
                       "Craft must expose its connected Read it action.")
-        readPages.tap()
         let grade = app.staticTexts["studio.craft.coverage.grade"]
         XCTAssertTrue(grade.waitForExistence(timeout: writerLoopWait(15)),
-                      "Read it did not return a coverage card from the authenticated backend.")
+                      "Typing must automatically produce an authenticated coverage card before Read it is tapped.")
+        readPages.tap()
         let coverage = try await requestJSON(baseURL: baseURL, path: "/screenplay/coverage", method: "POST",
             headers: fixture.authorizedHeaders, body: ["draft": marker, "title": projectTitle])
         try assertHTTP(coverage, context: "writer's deterministic coverage read")

@@ -2,6 +2,78 @@ import XCTest
 @testable import them
 
 final class ScreenplayCoverageTests: XCTestCase {
+    func testTitleOnlyDocumentHasNoAutomaticCoverageShape() {
+        XCTAssertNil(ScreenplayCoverageRefreshPolicy.shape(of: "Title: Orbit\nAuthor: A Writer\n"))
+        XCTAssertFalse(ScreenplayCoverageRefreshPolicy.shouldRefresh(current: nil,
+            draft: "Title: Orbit\nAuthor: A Writer\n", isRefreshing: false, isStreaming: false))
+    }
+
+    @MainActor
+    func testAutomaticReadFollowsNewSceneButNotSameShapeWordsOrTitle() async throws {
+        let auth = ScreenplayStudioAuthContext(userID: "writer-a", sessionIntentGeneration: 1)
+        let vm = makeCoverageVM(auth: { auth })
+        defer { StudioOutlineRegistry.shared.clearCoverage() }
+        let report = try decodeSample()
+        var requests = 0
+        let request: (String, String) async throws -> BackendScreenplayCoverageReport = { _, _ in
+            requests += 1
+            return report
+        }
+        func context() -> ScreenplayCoverageContext {
+            .init(auth: auth, projectID: vm.selectedProjectID, draft: vm.fountainDraft)
+        }
+        await vm.refreshCoverageAfterDraftSettles(context(), request: request)
+        XCTAssertEqual(requests, 1)
+        vm.fountainDraft += "\nA light goes out."
+        await vm.refreshCoverageAfterDraftSettles(context(), request: request)
+        XCTAssertEqual(requests, 1, "A same-shape word edit must not request another read.")
+        vm.fountainDraft = "Title: Orbit\nAuthor: A Writer\n\n" + vm.fountainDraft
+        await vm.refreshCoverageAfterDraftSettles(context(), request: request)
+        XCTAssertEqual(requests, 1, "Title metadata is not a new scene or printed body page.")
+        vm.fountainDraft += "\n\nEXT. PORCH - DAWN\n\nA bell rings."
+        await vm.refreshCoverageAfterDraftSettles(context(), request: request)
+        XCTAssertEqual(requests, 2)
+    }
+
+    @MainActor
+    func testQueuedAutomaticReadRejectsStaleDraftProjectAndAccount() async throws {
+        var auth = ScreenplayStudioAuthContext(userID: "writer-a", sessionIntentGeneration: 1)
+        let vm = makeCoverageVM(auth: { auth })
+        let captured = ScreenplayCoverageContext(auth: auth, projectID: vm.selectedProjectID, draft: vm.fountainDraft)
+        let report = try decodeSample()
+        var requests = 0
+        let request: (String, String) async throws -> BackendScreenplayCoverageReport = { _, _ in requests += 1; return report }
+        vm.fountainDraft += "\nNew words."
+        await vm.refreshCoverageAfterDraftSettles(captured, request: request)
+        vm.fountainDraft = captured.draft
+        vm.selectedProjectID = "another-project"
+        await vm.refreshCoverageAfterDraftSettles(captured, request: request)
+        vm.selectedProjectID = captured.projectID
+        auth = .init(userID: "writer-b", sessionIntentGeneration: 2)
+        await vm.refreshCoverageAfterDraftSettles(captured, request: request)
+        XCTAssertEqual(requests, 0)
+    }
+
+    @MainActor
+    func testAutomaticReadSkipsSignedOutUnownedAndStreamingDrafts() async throws {
+        var auth = ScreenplayStudioAuthContext(userID: "", sessionIntentGeneration: 1)
+        let vm = makeCoverageVM(auth: { auth })
+        let report = try decodeSample()
+        var requests = 0
+        let request: (String, String) async throws -> BackendScreenplayCoverageReport = { _, _ in requests += 1; return report }
+        func context() -> ScreenplayCoverageContext {
+            .init(auth: auth, projectID: vm.selectedProjectID, draft: vm.fountainDraft)
+        }
+        await vm.refreshCoverageAfterDraftSettles(context(), request: request)
+        auth = .init(userID: "writer-a", sessionIntentGeneration: 2)
+        vm.selectedProjectID = ""
+        await vm.refreshCoverageAfterDraftSettles(context(), request: request)
+        vm.selectedProjectID = "project-a"
+        vm.isStreamingDraftPreviewActive = true
+        await vm.refreshCoverageAfterDraftSettles(context(), request: request)
+        XCTAssertEqual(requests, 0)
+    }
+
     @MainActor
     func testUnicodeEquivalentByteChangeRejectsInflightReadAndSpeech() async throws {
         let vm = makeCoverageVM()
@@ -339,6 +411,23 @@ final class ScreenplayCoverageTests: XCTestCase {
         XCTAssertEqual((coverage["pillars"] as? [String: Double])?["dialogue"] ?? 0, 9.1, accuracy: 0.001)
         XCTAssertEqual((coverage["missing"] as? [String])?.count, 1)
         XCTAssertNil(StudioCapabilitiesSnapshot().coverage)
+    }
+
+    func test_refresh_policy_follows_page_and_scene_count_only() throws {
+        let report = try decodeSample() // 1 page, 1 scene
+        let onePage = "INT. KITCHEN - NIGHT\n\nMARA stands at the sink.\n\nMARA\nYou said you would call.\n"
+        XCTAssertEqual(ScreenplayCoverageRefreshPolicy.shape(of: onePage), .init(pageCount: 1, sceneCount: 1))
+        // Same shape: a word edit inside the page does not re-read.
+        XCTAssertFalse(ScreenplayCoverageRefreshPolicy.shouldRefresh(current: report, draft: onePage, isRefreshing: false, isStreaming: false))
+        // A new scene re-reads.
+        let twoScenes = onePage + "\nEXT. PORCH - DAWN\n\nFRANK sits on the step.\n"
+        XCTAssertTrue(ScreenplayCoverageRefreshPolicy.shouldRefresh(current: report, draft: twoScenes, isRefreshing: false, isStreaming: false))
+        // No read yet and pages exist: read.
+        XCTAssertTrue(ScreenplayCoverageRefreshPolicy.shouldRefresh(current: nil, draft: onePage, isRefreshing: false, isStreaming: false))
+        // Empty draft, in-flight read, or live streaming: never.
+        XCTAssertFalse(ScreenplayCoverageRefreshPolicy.shouldRefresh(current: nil, draft: "   ", isRefreshing: false, isStreaming: false))
+        XCTAssertFalse(ScreenplayCoverageRefreshPolicy.shouldRefresh(current: report, draft: twoScenes, isRefreshing: true, isStreaming: false))
+        XCTAssertFalse(ScreenplayCoverageRefreshPolicy.shouldRefresh(current: report, draft: twoScenes, isRefreshing: false, isStreaming: true))
     }
 }
 
