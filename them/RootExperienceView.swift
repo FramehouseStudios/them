@@ -5979,7 +5979,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
         let knownProjectID = existingProjectID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             ? screenplayDraftBridge.preferredProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
             : existingProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
-        let createKey = utteranceFingerprint(Data("\(cleanDraft)|\(pack)|\(phase)".utf8))
+        let createKey = utteranceFingerprint(Data("\(draft)|\(pack)|\(phase)".utf8))
         guard ScreenplayRestoredLiveDraftProjectPromotionPolicy.shouldCreateProject(
             isStudioSurfaceActive: isStudioSurfaceActive,
             draft: cleanDraft,
@@ -5990,56 +5990,37 @@ Write this approved story direction directly into screenplay pages now. Maintain
         ) else { return }
 
         isAutoCreatingStudioProject = true
-        let creatingOwnerID = BackendAuthClient.currentAuthSessionState().user?.userId
+        let creatingAuth = ScreenplayStudioAuthContext.current()
         screenplayDraftBridge.autoInsertStatusText = "Creating a Studio project for this script..."
 
         Task { @MainActor in
             defer { isAutoCreatingStudioProject = false }
 
-            do {
-                let title = autoCreatedStudioProjectTitle(for: cleanDraft, pack: pack)
-                let normalizedPhase = phase.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                    ? "scene_draft"
-                    : phase.trimmingCharacters(in: .whitespacesAndNewlines)
-
-                let projectResult = try await BackendMemoryAPI.shared.upsertScreenplayProject(
-                    title: title,
-                    phase: normalizedPhase
-                )
-                guard let createdProject = projectResult.payload.project else {
-                    throw NSError(
-                        domain: "StudioAutoCreate",
-                        code: 1,
-                        userInfo: [NSLocalizedDescriptionKey: "Backend did not return a screenplay project."]
-                    )
-                }
-
-                let versionResult = try await BackendMemoryAPI.shared.upsertScreenplayProjectVersion(
-                    projectId: createdProject.id,
-                    draft: cleanDraft,
-                    title: createdProject.title,
-                    phase: createdProject.lastPhase ?? normalizedPhase,
-                    notes: "Auto-created from first Studio turn",
-                    source: "studio_first_turn_auto_create",
-                    baseVersionId: "",
-                    conflictStrategy: "reject_if_stale"
-                )
-
-                let resolvedProject = versionResult.payload.project ?? createdProject
-                let resolvedVersionID = (versionResult.payload.versionId ?? versionResult.payload.version?.id ?? "")
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-
-                guard BackendAuthClient.currentAuthSessionState().user?.userId == creatingOwnerID, screenplayDraftBridge.preferredProjectID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-                screenplayDraftBridge.preferredProjectID = resolvedProject.id
-                screenplayDraftBridge.preferredVersionID = resolvedVersionID
-
-                liveScreenplayProjectID = resolvedProject.id
-                liveScreenplayVersionID = resolvedVersionID
-                lastAutoCreatedStudioProjectKey = createKey
-                screenplayDraftBridge.autoInsertStatusText = "Saved to Studio project: \(resolvedProject.title)"
-            } catch {
-                screenplayDraftBridge.autoInsertStatusText = "Studio project save failed: \(error.localizedDescription)"
+            guard ScreenplayStudioAuthContextPolicy.matches(expected: creatingAuth, current: .current()) else { return }
+            let creation = ScreenplayStudioViewModel(localDraftRecoveryStore: .init(), connectsToLiveWorkspace: false)
+            await creation.createAutomaticProject(draft: draft,
+                title: autoCreatedStudioProjectTitle(for: cleanDraft, pack: pack),
+                phase: phase.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "scene_draft" : phase,
+                expectedAuth: creatingAuth)
+            guard ScreenplayStudioAuthContextPolicy.matches(expected: creatingAuth, current: .current()),
+                  screenplayDraftBridge.preferredProjectID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+            guard let project = creation.selectedProject else {
+                screenplayDraftBridge.autoInsertStatusText = "Project setup needs attention. Open Studio to recover or retry. \(creation.errorText)"
+                return
             }
+            let currentDraft = screenplayDraftBridge.draftText
+            if !ScreenplayDraftTextIdentity.matches(currentDraft, creation.fountainDraft) {
+                creation.fountainDraft = currentDraft
+                creation.noteManualDraftEdit() // Keep newer words with the confirmed project/base before adoption.
+            }
+            screenplayDraftBridge.preferredProjectID = project.id
+            screenplayDraftBridge.preferredVersionID = creation.latestVersionID
+            liveScreenplayProjectID = project.id
+            liveScreenplayVersionID = creation.latestVersionID
+            lastAutoCreatedStudioProjectKey = createKey
+            screenplayDraftBridge.autoInsertStatusText = !creation.latestVersionID.isEmpty && !creation.hasUnsavedDraftChanges
+                ? "Saved to Studio project: \(project.title)"
+                : "Project created. Your page is kept on this device; open Studio to finish saving."
         }
     }
 

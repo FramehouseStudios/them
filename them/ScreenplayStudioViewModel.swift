@@ -1735,6 +1735,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
     private var pendingDraftSaveRequest: DraftSaveRequest?
     private var shouldQueuePendingDraftSaveAfterFailure = false
     private let localDraftRecoveryStore: ScreenplayLocalDraftRecoveryStore
+    private let connectsToLiveWorkspace: Bool
     private let draftSaveOutbox: ScreenplayDraftSaveOutbox
     private let outlineMutationOutbox = ScreenplayOutlineMutationOutbox.shared
     private let craftClient = BackendClient()
@@ -1864,14 +1865,17 @@ final class ScreenplayStudioViewModel: ObservableObject {
          draftSaveOutbox: ScreenplayDraftSaveOutbox = .shared,
          draftSaveAPI: BackendMemoryAPI = .shared,
          projectSelectionAPI: BackendMemoryAPI = BackendMemoryAPI(),
-         conflictProjectLoader: ((String) async throws -> BackendScreenplayProjectSummary)? = nil) {
+         conflictProjectLoader: ((String) async throws -> BackendScreenplayProjectSummary)? = nil,
+         connectsToLiveWorkspace: Bool = true) {
         self.localDraftRecoveryStore = localDraftRecoveryStore
+        self.connectsToLiveWorkspace = connectsToLiveWorkspace
         self.draftSaveOutbox = draftSaveOutbox
         self.draftSaveAPI = draftSaveAPI
         self.projectSelectionAPI = projectSelectionAPI
         self.conflictProjectLoader = conflictProjectLoader
         fountainDraft = ScreenplayLiveDraftBridge.shared.draftText
         restoreProjectCreationIfNeeded()
+        guard connectsToLiveWorkspace else { return }
         draftDebounceCancellable = $fountainDraft
             .removeDuplicates()
             .debounce(for: .milliseconds(900), scheduler: RunLoop.main)
@@ -2419,7 +2423,23 @@ final class ScreenplayStudioViewModel: ObservableObject {
         }
     }
 
-    func createProject() async {
+    // Root automatic promotion uses this same write/outbox owner without
+    // attaching a second editor to the live-sync singleton.
+    func createAutomaticProject(draft: String, title: String, phase: String,
+                                expectedAuth: ScreenplayStudioAuthContext) async {
+        guard authContextIsCurrent(expectedAuth), selectedProjectID.isEmpty, selectedProject == nil,
+              localDraftRecoveryStore.allowsAutomaticProjectCreation(ownerUserId: expectedAuth.userID) else {
+            errorText = "Open Studio to recover the pending project. No new project was requested."
+            return
+        }
+        autosaveEnabled = false
+        fountainDraft = draft
+        newProjectTitle = title
+        noteManualDraftEdit()
+        await createProject(initialPhase: phase)
+    }
+
+    func createProject(initialPhase: String = "scene_draft") async {
         let context = currentStudioAuthContext()
         let pending: ScreenplayProjectCreationIntent?
         do {
@@ -2471,14 +2491,14 @@ final class ScreenplayStudioViewModel: ObservableObject {
             var intent = pending ?? ScreenplayProjectCreationIntent(projectId: UUID().uuidString.lowercased(),
                 ownerUserId: context.userID, title: title,
                 draft: StudioNewProjectSeedPolicy.seedDraft(currentDraft: fountainDraft, hasSelectedProject: hasSelectedProject),
-                seedsLiveDraft: !hasSelectedProject, restoreAsCurrent: !hasSelectedProject)
+                seedsLiveDraft: !hasSelectedProject, restoreAsCurrent: !hasSelectedProject, phase: initialPhase)
             try localDraftRecoveryStore.saveProjectCreation(intent)
             storedProjectCreation = intent
             let result = try await draftSaveAPI.upsertScreenplayProject(
                 projectId: intent.projectId,
                 title: title,
                 creationOnly: true,
-                phase: "scene_draft"
+                phase: intent.phase ?? "scene_draft"
             )
             guard isCurrent() else { return }
             guard let project = result.payload.project,
@@ -2563,7 +2583,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 : hasUnsavedDraftChanges
                     ? "First page saved. Your newer edits are kept locally; save when ready."
                     : "Project created with the live Studio draft."
-            await loadSelectedProjectOutline()
+            if connectsToLiveWorkspace { await loadSelectedProjectOutline() }
         } catch {
             guard isCurrent() else { return }
             errorText = error.localizedDescription
@@ -6845,11 +6865,13 @@ final class ScreenplayStudioViewModel: ObservableObject {
             if !hasUnsavedDraftChanges {
                 // The editor shows exactly what was saved, so the checksum the
                 // follower compares against its own editor text will match.
-                ScreenplayLiveDraftSyncService.shared.announceSavedVersion(
-                    projectID: request.projectId,
-                    versionID: nextVersionId,
-                    draft: fountainDraft
-                )
+                if connectsToLiveWorkspace {
+                    ScreenplayLiveDraftSyncService.shared.announceSavedVersion(
+                        projectID: request.projectId,
+                        versionID: nextVersionId,
+                        draft: fountainDraft
+                    )
+                }
                 isManualDraftEditing = false
                 lastManualDraftEditAt = .distantPast
             }
@@ -7255,6 +7277,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
     }
 
     private func syncLiveDraftBridgeProjectContext(clearWhenEmpty: Bool = false) {
+        guard connectsToLiveWorkspace else { return }
         let bridge = ScreenplayLiveDraftBridge.shared
         let projectID = selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             ? (selectedProject?.id ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
@@ -7460,11 +7483,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
     }
 
     private func currentStudioAuthContext() -> ScreenplayStudioAuthContext {
-        ScreenplayStudioAuthContext(
-            userID: BackendAuthClient.currentAuthSessionState().user?.userId
-                .trimmingCharacters(in: .whitespacesAndNewlines) ?? "",
-            sessionIntentGeneration: BackendAuthClient.currentAuthSessionIntentGeneration()
-        )
+        .current()
     }
 
     private func authContextIsCurrent(_ expected: ScreenplayStudioAuthContext) -> Bool {

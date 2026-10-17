@@ -5,6 +5,23 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-962 — Automatic first-project creation uses durable recovery
+
+- **Owner:** codex. **Branch:** `codex/T-962-automatic-creation-recovery`.
+- **Status:** review. **Pillars:** mobile-first; exact writer-word recovery.
+- **Scope:** replace Root's independent legacy creation/version writes with the
+  canonical Studio creation intent and outbox. Preserve raw draft bytes and the
+  original phase across retry; validate the captured session before adoption.
+  A temporary creation worker must not attach to or announce into live editing.
+- **Done when:** lost-reply/relaunch/retry, stale-session rejection, legacy
+  intent decoding, signed app workflow, D009 and whitespace checks pass.
+- **Current proof:** D009 passes versus T-961 (Root -19; other watched files
+  unchanged). Signed creation/seed units24/0/0; auth-required deterministic
+  Home-to-page/save/relaunch UI1/0/0. macOS scaffold compile passed. Manifest:
+  `docs/automatic-project-recovery-2026-10-16.md`. Full-length 120-page live
+  screenplay generation and shipping-device behavior remain unproven.
+  No main merge, original-head rewrite, paid provider call or shipping proof.
+
 ### T-961 — Durable project creation after an ambiguous response
 
 - **Owner:** codex. **Branch:** `codex/T-961-durable-project-creation`.

@@ -2,6 +2,85 @@ import XCTest
 @testable import them
 
 final class ScreenplayProjectCreationTrustTests: XCTestCase {
+    @MainActor func testAutomaticCreationLostReplyUsesCanonicalRecoveryWithoutChangingLiveWorkspace() async throws {
+        let suite = "them.automatic-creation.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer {
+            defaults.removePersistentDomain(forName: suite)
+            try? FileManager.default.removeItem(at: directory)
+            CreationTrustURLProtocol.handler = nil
+        }
+        let store = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "recovery")
+        let transport = CreationTrustTransport(holdCreate: true, holdRequests: false)
+        transport.dropNextCreationReply = true
+        let api = transport.api()
+        let bridge = ScreenplayLiveDraftBridge.shared
+        let previousProject = bridge.preferredProjectID, previousVersion = bridge.preferredVersionID
+        let raw = " \r\nINT. FIRST ROOM - NIGHT\r\nA cafe\u{0301} door opens.\t "
+        let auth = ScreenplayStudioAuthContext.current()
+        let worker = ScreenplayStudioViewModel(localDraftRecoveryStore: store,
+            draftSaveOutbox: ScreenplayDraftSaveOutbox(storageDirectory: directory), draftSaveAPI: api,
+            projectSelectionAPI: api, connectsToLiveWorkspace: false)
+        await worker.createAutomaticProject(draft: raw, title: "Original title", phase: "outline", expectedAuth: auth)
+        let intent = try XCTUnwrap(store.pendingProjectCreation(ownerUserId: auth.userID))
+        XCTAssertEqual(intent.phase, "outline")
+        XCTAssertEqual(Array(intent.draft.utf8), Array(raw.utf8))
+        XCTAssertEqual(transport.projectWrites, 1)
+        XCTAssertTrue(transport.versionWrites.isEmpty)
+        XCTAssertFalse(worker.errorText.isEmpty)
+        let reopened = ScreenplayStudioViewModel(localDraftRecoveryStore: store,
+            draftSaveOutbox: ScreenplayDraftSaveOutbox(storageDirectory: directory), draftSaveAPI: api,
+            projectSelectionAPI: api, connectsToLiveWorkspace: false)
+        await reopened.createAutomaticProject(draft: "Must not replace pending words", title: "Other", phase: "draft", expectedAuth: auth)
+        XCTAssertEqual(transport.projectWrites, 1, "Automatic promotion must not bypass an existing durable intent.")
+        XCTAssertEqual(Array(reopened.fountainDraft.utf8), Array(raw.utf8))
+        await reopened.createProject() // The actual Studio retry entry, retaining the original phase.
+        XCTAssertEqual(Set(transport.creationIDs), [intent.projectId])
+        XCTAssertEqual(transport.creationPhases, ["outline", "outline"])
+        XCTAssertEqual(transport.versionWrites.count, 1)
+        XCTAssertEqual(Array(try XCTUnwrap(transport.versionWrites.first).utf8), Array(raw.utf8))
+        XCTAssertEqual(reopened.latestVersionID, "saved")
+        XCTAssertFalse(reopened.hasUnsavedDraftChanges)
+        XCTAssertNil(try store.pendingProjectCreation(ownerUserId: auth.userID))
+        XCTAssertEqual(bridge.preferredProjectID, previousProject)
+        XCTAssertEqual(bridge.preferredVersionID, previousVersion)
+    }
+
+    @MainActor func testAutomaticCreationRejectsStaleAuthenticationBeforeRequestOrDraftMutation() async throws {
+        let suite = "them.automatic-creation-auth.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer {
+            defaults.removePersistentDomain(forName: suite)
+            try? FileManager.default.removeItem(at: directory)
+            CreationTrustURLProtocol.handler = nil
+        }
+        let store = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "recovery")
+        let transport = CreationTrustTransport(holdCreate: true, holdRequests: false)
+        let api = transport.api()
+        let worker = ScreenplayStudioViewModel(localDraftRecoveryStore: store,
+            draftSaveOutbox: ScreenplayDraftSaveOutbox(storageDirectory: directory), draftSaveAPI: api,
+            projectSelectionAPI: api, connectsToLiveWorkspace: false)
+        let current = ScreenplayStudioAuthContext.current()
+        let stale = ScreenplayStudioAuthContext(userID: current.userID,
+            sessionIntentGeneration: current.sessionIntentGeneration &+ 1)
+        let previous = worker.fountainDraft
+        await worker.createAutomaticProject(draft: "Another session's story", title: "Other", phase: "outline", expectedAuth: stale)
+        XCTAssertEqual(Array(worker.fountainDraft.utf8), Array(previous.utf8))
+        XCTAssertEqual(transport.projectWrites, 0)
+        XCTAssertTrue(transport.versionWrites.isEmpty)
+        XCTAssertNil(try store.pendingProjectCreation(ownerUserId: current.userID))
+    }
+
+    func testCreationIntentBeforePhaseFieldStillDecodes() throws {
+        let data = try JSONSerialization.data(withJSONObject: ["projectId": "project", "ownerUserId": "owner",
+            "title": "Title", "draft": "Exact page", "seedsLiveDraft": true, "restoreAsCurrent": true])
+        let intent = try JSONDecoder().decode(ScreenplayProjectCreationIntent.self, from: data)
+        XCTAssertNil(intent.phase)
+        XCTAssertEqual(intent.draft, "Exact page")
+    }
+
     @MainActor func testLostCreationReplySurvivesRelaunchWithOneProjectIdentityAndExactScene() async throws {
         let suite = "them.creation-relaunch.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
@@ -273,6 +352,8 @@ private final class CreationTrustTransport: @unchecked Sendable {
     private var requestedProjectID = "created"
     var dropNextCreationReply = false
     private var requestedIDs: [String] = []
+    private var requestedPhases: [String] = []
+    var creationPhases: [String] { lock.withLock { requestedPhases } }
     var creationIDs: [String] { lock.withLock { requestedIDs } }
     var createdID: String { lock.withLock { requestedProjectID } }
     private var invalidEcho = false
@@ -290,10 +371,12 @@ private final class CreationTrustTransport: @unchecked Sendable {
             let path = stub.request.url?.path ?? ""
             if path == "/session" { stub.respond(Data(#"{"client_token":"creation-fixture","expires_in":3600}"#.utf8)); return }
             if path.hasSuffix("/creation") && stub.request.httpMethod == "PUT" {
+                let body = (try? JSONSerialization.jsonObject(with: stub.body())) as? [String: Any]
                 lock.withLock {
                     creates += 1
                     requestedProjectID = String(path.split(separator: "/").dropLast().last ?? "")
                     requestedIDs.append(requestedProjectID)
+                    requestedPhases.append(body?["phase"] as? String ?? "")
                 }
                 if dropNextCreationReply {
                     dropNextCreationReply = false
