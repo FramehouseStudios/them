@@ -2,6 +2,24 @@ import XCTest
 @testable import them
 
 final class ScreenplayPageLayoutTests: XCTestCase {
+    func test_title_only_document_has_no_story_pages() {
+        XCTAssertEqual(ScreenplayPageLayout.paginate("Title: Orbit\nAuthor: A Writer\n"), [])
+    }
+
+    func test_title_metadata_does_not_add_to_120_story_pages_and_line_ranges_point_into_document() throws {
+        let body = draft(lines: 6_480)
+        let title = "Title: Orbit\nAuthor: A Writer\n\n"
+        let bodyPages = ScreenplayPageLayout.paginate(body)
+        let documentPages = ScreenplayPageLayout.paginate(title + body)
+        XCTAssertEqual(documentPages.count, 120)
+        XCTAssertEqual(documentPages.map(\.lines), bodyPages.map(\.lines))
+        XCTAssertEqual(documentPages.map(\.startLine), bodyPages.map { $0.startLine + 3 })
+        XCTAssertEqual(documentPages.map(\.endLine), bodyPages.map { $0.endLine + 3 })
+        XCTAssertNil(ScreenplayPageLayout.pageNumber(containingLine: 1, in: documentPages))
+        XCTAssertEqual(ScreenplayPageLayout.pageNumber(containingLine: 4, in: documentPages), 1)
+        XCTAssertEqual(try XCTUnwrap(documentPages.last).endLine, 6_483)
+    }
+
     private func draft(lines: Int, prefix: String = "Line") -> String {
         (1...lines).map { "\(prefix) \($0)" }.joined(separator: "\n")
     }

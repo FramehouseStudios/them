@@ -1,15 +1,25 @@
 import Foundation
+import ScreenplayStudio
 
 /// Pure Final Draft request encoding. Transport, authentication and server
 /// error handling remain owned by BackendMemoryAPI.
 nonisolated enum ScreenplayFDXRequestPayload {
     static func document(draft: String, title: String) -> [String: Any] {
         var payload: [String: Any] = [:]
-        let cleanTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let document = FountainTitlePageCodec.parse(draft)
+        let cleanTitle = (document.titlePage?.title ?? title).trimmingCharacters(in: .whitespacesAndNewlines)
+        var titleFields: [String: String] = [:]
         if !cleanTitle.isEmpty {
-            payload["title"] = ["title": cleanTitle]
+            titleFields["title"] = cleanTitle
         }
-        payload["scenes"] = screenplayExportScenes(from: draft)
+        if let titlePage = document.titlePage {
+            titleFields["credit"] = titlePage.credit
+            titleFields["author"] = titlePage.authors.joined(separator: "\n")
+            titleFields["draftDate"] = titlePage.draftDate
+            titleFields["contact"] = titlePage.contact
+        }
+        if !titleFields.isEmpty { payload["title"] = titleFields }
+        payload["scenes"] = screenplayExportScenes(from: document.scriptPageText)
         return payload
     }
 
