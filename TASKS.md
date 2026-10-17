@@ -5,6 +5,20 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-967 — Preserve coverage and context-isolation repairs
+
+- **Owner:** codex. **Branch:** `codex/T-967-coverage-integration`.
+- **Status:** review. **Pillars:** living companion; project isolation.
+- **Scope:** preserving merges of original #644/#880/#881. Retain recovery,
+  creation and action-authority guards; connect real Craft action to writer UI.
+- **Done when:** full Node20/signed units, connected writer/Craft/export/restore,
+  macOS compilation, offline mentor, D009 and diff pass; limitations recorded.
+- **Evidence:** Node20 backend2835/0/2, final signed units833/0/0, connected
+  writer/Craft/export/relaunch1/0/0, macOS/offline mentor/D009/diff pass.
+  First UI0/1/0 retained; fixed parent identifier propagation with the existing
+  accessibility containment pattern, not a label workaround or unchanged retry.
+  `docs/coverage-integration-proof-2026-10-16.md`.
+
 ### T-966 — Preserve and connect original title-page support
 
 - **Owner:** codex. **Branch:** `codex/T-966-title-page-integration`.
@@ -700,6 +714,35 @@
   2/2 signed iPhone UI tests (typing and all inspector destinations), and
   backend 2,779 passed / 0 failed / 2 skipped. God-file gate passes against
   both #642 and #643; see docs/audits/studio-actions-gate-2026-09-30.md.
+### T-coverage-gate — Preserve coverage UI and speech without god-file growth
+- Owner: codex
+- Branch: codex/T-coverage-gate
+- Status: review
+- Pillar: living companion
+- Goal criteria: 3 (grounded coverage), 4 (working controls), 7 (provable stack).
+- Done when: #644's Craft bindings and coverage speech behavior are preserved,
+  its canonical-parent god-file gate passes, and focused/full signed iOS,
+  backend and narrow-iPhone destination proof pass.
+- Scope: additive extraction on the original #644 head, not a replacement;
+  #766 then #770 remain first to land. No paid model calls or review bypass.
+- Proof: 71/71 focused and 657/657 full signed iOS tests; 2/2 signed iPhone
+  UI tests; backend 2,787 passed / 0 failed / 2 skipped after bringing forward
+  Claude's canonical HTTP fixture for a reproduced fetch failure. Parent gate
+  passes. See docs/audits/coverage-gate-2026-09-30.md for initial failures/limits.
+
+### T-coverage-context — Bind coverage to the current writer and script
+- Owner: codex
+- Branch: codex/T-coverage-context
+- Status: review
+- Pillar: longitudinal learning
+- Goal criteria: 3 and 6.
+- Done when: account/project changes and superseded reads cannot publish,
+  speak or send another script's coverage; delayed/out-of-order tests prove it.
+- Preserve: #644 feature, #646 refresh policy and #774 quiet announcements.
+- Evidence: real view-model reproduction failed four assertions before guards;
+  final signed units 666/666, signed UI 2/2, backend 2,787 pass/0 fail/2 skip.
+  macOS scaffold build passes after an inherited Pages availability fix.
+  See docs/audits/coverage-context-2026-09-30.md for scope and remaining limits.
 
 | ID   | Title                                              | Owner  | Status            |
 |------|----------------------------------------------------|--------|-------------------|

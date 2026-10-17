@@ -1491,6 +1491,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
     @Published var selectedProjectID: String = "" {
         didSet {
             if oldValue != selectedProjectID {
+                invalidateCoverageIfContextChanged()
                 noteProjectSelectionDuringCreation()
                 collaborationSelectionGeneration &+= 1
                 collaborationRefreshID = nil
@@ -1637,7 +1638,17 @@ final class ScreenplayStudioViewModel: ObservableObject {
     @Published var newBeatActID: String = ""
     @Published var editingBeatID: String = ""
 
-    @Published var fountainDraft: String = ""
+    @Published var fountainDraft: String = "" {
+        didSet {
+            if !fountainDraft.contains(where: { !$0.isWhitespace }) {
+                invalidateCoverage()
+            } else if let active = activeCoverageContext, active.draft != fountainDraft {
+                activeCoverageRequestID = nil
+                activeCoverageContext = nil
+                if isCoverageRefreshing { isCoverageRefreshing = false }
+            }
+        }
+    }
     @Published var latestVersionID: String = ""
     @Published var studioWriteAnchors: [BackendScreenplayWriteAnchor] = []
     @Published var screenplayBindings: [BackendScreenplayBindingRecord] = []
@@ -1664,6 +1675,21 @@ final class ScreenplayStudioViewModel: ObservableObject {
     }
     @Published var paginationPages: [BackendScreenplayPaginationPage] = []
     @Published var isPagesOverviewPresented: Bool = false
+    @Published private var publishedCoverageReport: BackendScreenplayCoverageReport?
+    var coverageReport: BackendScreenplayCoverageReport? {
+        guard publishedCoverageContext?.hasSameOwner(as: currentCoverageContext()) == true,
+              fountainDraft.contains(where: { !$0.isWhitespace }) else { return nil }
+        return publishedCoverageReport
+    }
+    private var publishedCoverageContext: ScreenplayCoverageContext?
+    private var publishedCoverageRequestID: UUID?
+    private var activeCoverageRequestID: UUID?
+    private var activeCoverageContext: ScreenplayCoverageContext?
+    private var coverageErrorContext: ScreenplayCoverageContext?
+    private var coverageIdentityCancellable: AnyCancellable?
+    private let coverageAuthContextProvider: (() -> ScreenplayStudioAuthContext)?
+    @Published var isCoverageRefreshing: Bool = false
+    @Published var coverageErrorText: String = ""
     @Published var isPaginationRefreshing: Bool = false
     @Published var paginationErrorText: String = ""
     @Published var linesPerPage: Int = 55
@@ -1853,8 +1879,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
          commentReplyToID, commentEditID].map { Array($0.utf8) }
     }
 
-    convenience init() {
-        self.init(localDraftRecoveryStore: ScreenplayLocalDraftRecoveryStore())
+    convenience init(coverageAuthContextProvider: (() -> ScreenplayStudioAuthContext)? = nil) {
+        self.init(localDraftRecoveryStore: ScreenplayLocalDraftRecoveryStore(), coverageAuthContextProvider: coverageAuthContextProvider)
     }
 
     init(localDraftRecoveryStore: ScreenplayLocalDraftRecoveryStore,
@@ -1862,7 +1888,9 @@ final class ScreenplayStudioViewModel: ObservableObject {
          draftSaveAPI: BackendMemoryAPI = .shared,
          projectSelectionAPI: BackendMemoryAPI = BackendMemoryAPI(),
          conflictProjectLoader: ((String) async throws -> BackendScreenplayProjectSummary)? = nil,
-         connectsToLiveWorkspace: Bool = true) {
+         connectsToLiveWorkspace: Bool = true,
+         coverageAuthContextProvider: (() -> ScreenplayStudioAuthContext)? = nil) {
+        self.coverageAuthContextProvider = coverageAuthContextProvider
         self.localDraftRecoveryStore = localDraftRecoveryStore
         self.connectsToLiveWorkspace = connectsToLiveWorkspace
         self.draftSaveOutbox = draftSaveOutbox
@@ -1872,6 +1900,9 @@ final class ScreenplayStudioViewModel: ObservableObject {
         fountainDraft = ScreenplayLiveDraftBridge.shared.draftText
         restoreProjectCreationIfNeeded()
         guard connectsToLiveWorkspace else { return }
+        coverageIdentityCancellable = NotificationCenter.default.publisher(for: .themBackendIdentityPartitionChanged)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.invalidateCoverageIfContextChanged() }
         draftDebounceCancellable = $fountainDraft
             .removeDuplicates()
             .debounce(for: .milliseconds(900), scheduler: RunLoop.main)
@@ -1897,6 +1928,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
     }
 
     deinit {
+        coverageIdentityCancellable?.cancel()
         draftDebounceCancellable?.cancel()
         bridgePreferredVersionCancellable?.cancel()
         outlineMutationRetryTask?.cancel()
@@ -4940,6 +4972,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         isHydratingDraft = false
         hasUnsavedDraftChanges = !ScreenplayDraftTextIdentity.matches(nextDraft, lastRevisionBaseDraft)
         autosaveStatusText = "Imported draft"
+        Task { await refreshCoverage(source: sourceName, speak: true) }
         infoText = shouldAppend
             ? "Imported \(sourceName) and appended it to the current draft. Clear the draft first if you want a clean replacement."
             : "Imported \(sourceName) into the draft."
@@ -4960,6 +4993,96 @@ final class ScreenplayStudioViewModel: ObservableObject {
         await refreshFormatLint(source: source)
     }
 
+    /// Clementine's read of the current draft (grade, verdict, pillars). Runs
+    /// after an import and on demand from the Craft tab; `speak` hands the
+    /// spoken read to the home voice.
+    func refreshCoverage(
+        source: String = "Draft", speak: Bool = false,
+        request: ((String, String) async throws -> BackendScreenplayCoverageReport)? = nil
+    ) async {
+        guard !Task.isCancelled else { return }
+        let context = currentCoverageContext()
+        let draft = context.draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !draft.isEmpty else {
+            invalidateCoverage()
+            return
+        }
+        let requestID = UUID()
+        activeCoverageRequestID = requestID
+        activeCoverageContext = context
+        coverageErrorContext = nil
+        if !coverageErrorText.isEmpty { coverageErrorText = "" }
+        let title = selectedProject?.title ?? ""
+        if !isCoverageRefreshing { isCoverageRefreshing = true }
+        defer {
+            if activeCoverageRequestID == requestID {
+                activeCoverageRequestID = nil
+                activeCoverageContext = nil
+                isCoverageRefreshing = false
+            }
+        }
+        do {
+            let report: BackendScreenplayCoverageReport
+            if let request {
+                report = try await request(draft, title)
+            } else {
+                report = try await BackendMemoryAPI.shared.fetchScreenplayCoverage(
+                    draft: draft, title: title
+                ).payload
+            }
+            guard !Task.isCancelled, activeCoverageRequestID == requestID, context == currentCoverageContext() else { return }
+            publishedCoverageContext = context
+            publishedCoverageRequestID = requestID
+            publishedCoverageReport = report
+            coverageErrorText = ""
+            StudioOutlineRegistry.shared.publishCoverage(report, context: context, requestID: requestID)
+            let readLine = "Clementine's read: \(report.grade), \(report.verdict.lowercased())."
+            infoText = infoText.isEmpty ? readLine : "\(infoText) \(readLine)"
+            if speak {
+                ScreenplayCoveragePresentation.requestSpeech(report.spoken)
+            }
+        } catch {
+            guard !Task.isCancelled, activeCoverageRequestID == requestID, context == currentCoverageContext() else { return }
+            coverageErrorContext = context
+            let presented = StudioCraftResilience.presentedError(error, source: source, subject: "coverage")
+            coverageErrorText = presented.isEmpty ? "Clementine could not read the pages right now." : presented
+        }
+    }
+
+    private func currentCoverageContext() -> ScreenplayCoverageContext {
+        ScreenplayCoverageContext(auth: coverageAuthContextProvider?() ?? currentStudioAuthContext(),
+                                  projectID: selectedProjectID, draft: fountainDraft)
+    }
+
+    private func invalidateCoverageIfContextChanged() {
+        guard activeCoverageContext != nil || publishedCoverageContext != nil || coverageErrorContext != nil else { return }
+        let context = currentCoverageContext()
+        if let active = activeCoverageContext, active != context {
+            activeCoverageRequestID = nil
+            activeCoverageContext = nil
+            if isCoverageRefreshing { isCoverageRefreshing = false }
+        }
+        if publishedCoverageContext?.hasSameOwner(as: context) == false ||
+            coverageErrorContext?.hasSameOwner(as: context) == false ||
+            context.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            invalidateCoverage()
+        }
+    }
+
+    private func invalidateCoverage() {
+        activeCoverageRequestID = nil
+        activeCoverageContext = nil
+        if isCoverageRefreshing { isCoverageRefreshing = false }
+        if let publishedCoverageRequestID {
+            StudioOutlineRegistry.shared.clearCoverage(requestID: publishedCoverageRequestID)
+        }
+        publishedCoverageRequestID = nil
+        publishedCoverageContext = nil
+        if publishedCoverageReport != nil { publishedCoverageReport = nil }
+        coverageErrorContext = nil
+        if !coverageErrorText.isEmpty { coverageErrorText = "" }
+    }
+
     func refreshPagination(source: String = "Draft") async {
         await recomputePagination(for: fountainDraft, source: source)
     }
@@ -4969,6 +5092,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
     }
 
     func resetCraftReportForProjectChange(clearFrameworks: Bool = false) {
+        invalidateCoverage()
         craftReport = nil
         craftErrorText = ""
         craftInfoText = ""
