@@ -5,6 +5,17 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-959 — Integrate project context and client lifetime safety
+
+- **Owner:** codex. **Branch:** `codex/T-959-context-lifetime-integration`.
+- **Status:** in-progress. **Pillars:** mobile-first; goal items 1, 3, 5 and 6.
+- **Scope:** preserve original #936–#938 above T-958: newest-project-load
+  authority, client teardown compatibility, account/project collaboration guards.
+  Retain the existing owned-outbox lookup and test suspended generation changes.
+- **Done when:** focused signed ordering/teardown/collaboration/recovery cases
+  and authenticated recovery UI pass, D009/diff pass, original heads preserved.
+  Batch proof; no repeated full matrix per PR, main mutation or provider call.
+
 ### T-958 — Integrate explicit writer-choice authority
 
 - **Owner:** codex. **Branch:** `codex/T-958-conflict-authority-integration`.
@@ -35,6 +46,24 @@
   recovery UI 4/0/0; pinned Node20 handler/restart contracts 73/0/0; runner
   contracts 5/0/0; syntax, D009 versus T-956 and diff pass. Full suites deliberately
   not repeated at this checkpoint. See `docs/blank-recovery-integration-2026-10-16.md`.
+### T-939 — Collaboration responses stay with their account and project
+
+- **Owner:** codex. **Branch:** `codex/T-939-collaboration-scope`, above #937
+  `2d5cc7b4`. **Pillar:** mobile-first; goal items 1, 3 and 6. **Status:** review.
+- **VERIFIED root:** unchanged production: three failed tests, one passed,
+  11 failed assertions. Old payloads reselect the previous project and a late
+  comment acknowledgement clears new-project words. Background timeout already
+  preserves feedback and is retained as a regression guard.
+  Corrected fixture evidence: `/tmp/them-939-collaboration-red-v2` bundle/log.
+- **Target:** captured auth/selection and per-collection response generations,
+  guarded retries, collection-only payload ownership and exact composer retention.
+- **Proof:** full signed units 711 pass, zero fail/skip, including 18 collaboration
+  cases; Node 20 backend 2,744 pass, zero fail, two skip. Final macOS build, four
+  runner tests and god/diff gates pass. Authenticated recovery UI five pass and
+  integrated writer one pass, zero fail/skip.
+  Evidence and boundaries: `docs/audits/collaboration-scope-2026-10-08.md`.
+  Main unchanged; no paid calls.
+
 ### T-933 — Synchronous BackendClient teardown compatibility
 
 - **Owner:** codex. **Branch:** `codex/T-933-client-teardown`, above #936
