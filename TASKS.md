@@ -5,6 +5,22 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-976 — One useful mentor question and matching spoken audio
+
+- **Owner:** codex. **Branch:** `codex/T-976-mentor-question-integration`.
+- **Status:** review. **Pillars:** living companion; trustworthy voice.
+- **Scope:** preserving original #650 `bf322156` above T-975. Reconcile
+  quote-aware mentor shaping/scoring, count-only logs and cached audio identity.
+- **Done when:** final Node20 full/offline gates, actual HTTP shaping/TTS/cache
+  contracts, authenticated Home handoffs and D009/diff pass. Client unchanged.
+- **VERIFIED before:** shaper10/2/0; real cache-hit regression4/1/0 demonstrated
+  old audio reused after text changed. Final focused contracts26/0/0;
+  pinned Node20 backend2875/0/2, offline64/0/0 plus golden gate, signed
+  authenticated Home2/0/0; D009/diff pass. Client source-identical to T-975.
+  Manifest:
+  `docs/mentor-question-integration-2026-10-16.md`.
+- **Next actual boundary:** #651 `claude/mentor-pitch-prose` at `0b2496f3`.
+
 ### T-975 — Preserve mentor instructions through ingress and provider trimming
 
 - **Owner:** codex. **Branch:** `codex/T-975-mentor-prompt-integration`.

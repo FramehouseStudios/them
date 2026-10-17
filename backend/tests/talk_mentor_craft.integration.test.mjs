@@ -21,6 +21,7 @@ Object.assign(process.env, {
 delete process.env.DATABASE_URL;
 const realFetch = globalThis.fetch;
 const systems = [];
+const speechTexts = [];
 let fixtureReply = "Give the captain an urgent want. He needs to get his sister across before midnight, but the ferry is grounded. Make him risk his license to move her.";
 const fixtureFetch = async (url, options = {}) => {
   if (String(url).startsWith("http://127.0.0.1:")) return realFetch(url, options);
@@ -29,7 +30,10 @@ const fixtureFetch = async (url, options = {}) => {
     systems.push(body.messages.filter((m) => m.role === "system").map((m) => m.content).join("\n"));
     return Response.json({ choices: [{ message: { content: fixtureReply } }], usage: { prompt_tokens: 10, completion_tokens: 20 } });
   }
-  if (String(url) === "https://api.openai.com/v1/audio/speech") return new Response(Buffer.concat([Buffer.from("ID3"), Buffer.alloc(128)]), { status: 200, headers: { "content-type": "audio/mpeg" } });
+  if (String(url) === "https://api.openai.com/v1/audio/speech") {
+    speechTexts.push(JSON.parse(options.body).input);
+    return new Response(Buffer.concat([Buffer.from("ID3"), Buffer.alloc(128)]), { status: 200, headers: { "content-type": "audio/mpeg" } });
+  }
   throw new Error(`Unmocked external provider request: ${new URL(url).pathname}`);
 };
 globalThis.fetch = fixtureFetch;
@@ -96,6 +100,98 @@ test("[649-talk] crowded tagged client identity reaches the actual provider requ
     assert.match(sent, /<studio_controls>[\s\S]*<\/studio_controls>/);
     assert.match(sent, /<craft>[\s\S]*<\/craft>/);
   } finally {
+    globalThis.fetch = realFetch;
+    server.closeAllConnections();
+    await new Promise(resolve => server.close(resolve));
+  }
+});
+
+test("[650-talk] spoken response preserves dialogue and logs only shaping counts", async () => {
+  globalThis.fetch = fixtureFetch;
+  const server = app.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const originalLog = console.log;
+  const shapingLogs = [];
+  console.log = (...args) => {
+    const line = args.map(String).join(" ");
+    if (/mentor_(?:opener_stripped|questions_dropped)/.test(line)) shapingLogs.push(line);
+    originalLog(...args);
+  };
+  const dialogue = "'Why did you leave? Can't you stay?'";
+  fixtureReply = `The line names the feeling instead of pursuing a tactic. Try ${dialogue} Why does PRIVATE_STORY_PHRASE need the key? What's the deadline?`;
+  try {
+    const session = await realFetch(`${base}/session`, {method: "POST", headers: {"X-APP-TOKEN": "mentor-talk-test"}});
+    const {client_token} = await session.json();
+    const form = new FormData();
+    form.append("debug_transcript", "Help me strengthen Mara's tactic in the ferry scene.");
+    form.append("system_prompt", "SCENE PITCH (standing collaborator rule)");
+    form.append("file", new Blob([Buffer.alloc(64)], {type: "audio/wav"}), "test.wav");
+    const response = await realFetch(`${base}/talk`, {method: "POST", body: form,
+      headers: {"X-APP-TOKEN": "mentor-talk-test", "X-Client-Token": client_token}});
+    await response.arrayBuffer();
+    assert.equal(response.status, 200);
+    const spoken = decodeURIComponent(response.headers.get("x-reply") || "");
+    assert.ok(spoken.includes(dialogue), spoken);
+    assert.ok(spoken.endsWith("What's the deadline?"), spoken);
+    assert.equal(spoken.includes("PRIVATE_STORY_PHRASE"), false, spoken);
+    assert.ok(shapingLogs.some(line => /mentor_questions_dropped_count=1/.test(line)));
+    assert.equal(shapingLogs.some(line => /PRIVATE_STORY_PHRASE|Why did you leave/.test(line)), false);
+  } finally {
+    console.log = originalLog;
+    globalThis.fetch = realFetch;
+    server.closeAllConnections();
+    await new Promise(resolve => server.close(resolve));
+  }
+});
+
+test("[650-talk] changed mentor replies cannot reuse audio for the old words", async () => {
+  globalThis.fetch = fixtureFetch;
+  const server = app.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const originalLog = console.log;
+  let cacheHits = 0;
+  console.log = (...args) => {
+    if (args.some(value => /speculative_reuse requested=1 hit=1/.test(String(value)))) cacheHits += 1;
+    originalLog(...args);
+  };
+  try {
+    for (const [index, changed] of [true, false].entries()) {
+      fixtureReply = changed ? "That's a strong setup. Mara pockets the key before she leaves." : "Mara pockets the key before she leaves.";
+      const session = await realFetch(`${base}/session`, {method: "POST", headers: {"X-APP-TOKEN": "mentor-talk-test"}});
+      const {client_token} = await session.json();
+      const headers = {"X-APP-TOKEN": "mentor-talk-test", "X-Client-Token": client_token};
+      const makeForm = () => {
+        const form = new FormData();
+        form.append("debug_transcript", "Mara waits by the ferry.");
+        form.append("system_prompt", "SCENE PITCH (standing collaborator rule)");
+        form.append("file", new Blob([Buffer.alloc(64)], {type: "audio/wav"}), "test.wav");
+        return form;
+      };
+      const prepareForm = makeForm();
+      prepareForm.append("speculative_key", `mentor-audio-${index}`);
+      const prepared = await realFetch(`${base}/talk`, {method: "POST", body: prepareForm,
+        headers: {...headers, "X-Speculative-Mode": "prepare"}});
+      assert.equal(prepared.status, 201);
+      const {prompt_hash} = await prepared.json();
+      const beforeHits = cacheHits;
+      const beforeSpeech = speechTexts.length;
+      const form = makeForm();
+      form.append("speculative_reuse_key", `mentor-audio-${index}`);
+      form.append("speculative_prompt_hash", prompt_hash);
+      const response = await realFetch(`${base}/talk`, {method: "POST", body: form, headers});
+      await response.arrayBuffer();
+      assert.equal(response.status, 200);
+      assert.equal(cacheHits - beforeHits, 1, "fixture must exercise the cache hit, not a miss");
+      const spoken = decodeURIComponent(response.headers.get("x-reply") || "");
+      assert.equal(spoken.includes("That's a strong setup"), false);
+      assert.equal(response.headers.get("x-speculative-reuse"), changed ? "0" : "1");
+      assert.equal(speechTexts.length - beforeSpeech, changed ? 1 : 0);
+      if (changed) assert.ok(speechTexts.at(-1).includes(spoken), "new audio must be synthesized from the final words");
+    }
+  } finally {
+    console.log = originalLog;
     globalThis.fetch = realFetch;
     server.closeAllConnections();
     await new Promise(resolve => server.close(resolve));
