@@ -776,6 +776,41 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
         XCTAssertEqual(Set(after.map(\.id)), ["private", "later"])
     }
 
+    func testOrdinaryAcknowledgementCannotRetireParkedConflictCopies() async throws {
+        let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        try await store.enqueue(makeEntry(id: "old", createdAt: 100))
+        try await store.enqueue(makeEntry(id: "new", draft: "Exact words\r\n", createdAt: 101))
+        _ = try await store.retainConflict(projectId: "project-1", ownerUserId: "user-1")
+        let acknowledged = try await store.markSucceeded(id: "old", serverVersionId: "stale-success",
+            requireUnparkedRequest: true)
+        XCTAssertFalse(acknowledged)
+        let relaunched = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let retained = try await relaunched.entriesForTesting()
+        XCTAssertEqual(retained.map(\.id), ["old", "new"])
+        XCTAssertTrue(retained.allSatisfy { $0.status == .parked && $0.baseVersionId == "server-v1" })
+        XCTAssertEqual(Array(retained.last!.draft.utf8), Array("Exact words\r\n".utf8))
+    }
+
+    func testExplicitDiscardFencesLateAdmissionWithoutDependingOnWallClock() async throws {
+        let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let authority = UUID()
+        try await store.discardConflicts(projectId: "project-1", ownerUserId: "user-1", through: 150,
+            authorityID: authority, authorityGeneration: 3)
+        try await store.enqueueConflictCopy(makeEntry(id: "late", createdAt: 999),
+            authorityID: authority, authorityGeneration: 3)
+        var entries = try await store.entriesForTesting()
+        XCTAssertTrue(entries.isEmpty)
+        try await store.enqueueConflictCopy(makeEntry(id: "new-choice", createdAt: 90),
+            authorityID: authority, authorityGeneration: 4)
+        try await store.enqueueConflictCopy(makeEntry(id: "new-model", createdAt: 90),
+            authorityID: UUID(), authorityGeneration: 1)
+        try await store.enqueueConflictCopy(replacingOwner(of: makeEntry(id: "other-owner"), with: "user-2"),
+            authorityID: authority, authorityGeneration: 1)
+        entries = try await store.entriesForTesting()
+        XCTAssertEqual(Set(entries.map(\.id)), ["new-choice", "new-model", "other-owner"])
+        XCTAssertTrue(entries.allSatisfy { $0.status == .parked })
+    }
+
     private var storageDirectory: URL!
 
     override func setUp() {

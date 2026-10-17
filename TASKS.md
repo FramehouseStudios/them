@@ -5,6 +5,17 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-958 — Integrate explicit writer-choice authority
+
+- **Owner:** codex. **Branch:** `codex/T-958-conflict-authority-integration`.
+- **Status:** in-progress. **Pillars:** mobile-first; goal items 1 and 4.
+- **Scope:** preserving merges of original #932–#935 above T-957; keep native
+  editor evidence, stale-head protection, fresh Load Server and late-save fences.
+- **Done when:** combined signed conflict/outbox/recovery units and authenticated
+  five-case recovery UI pass; runner contracts/D009/diff pass, original heads
+  remain ancestors. Full matrix is deferred to the integration checkpoint, not
+  rerun at each boundary. No main mutation, replacement PR or live provider call.
+
 ### T-957 — Batch blank-save and recovery integration
 
 - **Owner:** codex. **Branch:** `codex/T-957-blank-recovery-integration`.
@@ -20,6 +31,28 @@
   recovery UI 4/0/0; pinned Node20 handler/restart contracts 73/0/0; runner
   contracts 5/0/0; syntax, D009 versus T-956 and diff pass. Full suites deliberately
   not repeated at this checkpoint. See `docs/blank-recovery-integration-2026-10-16.md`.
+### T-937 — Save acknowledgements cannot overrule newer writer choices
+
+- **Owner:** codex. **Branch:** `codex/T-937-save-conflict-authority`, above
+  #934 `60e7ad1d`. **Pillar:** mobile-first; goal items 1 and 4. **Status:** review.
+- **VERIFIED roots:** real-model controlled transport baseline: two failed
+  tests, 12 failed assertions. Ordinary Save Now posts through a visible conflict;
+  a late acknowledgement clears a newer choice, dispatches/rebases a pending
+  edit, and retires parked copies. `/tmp/them-937-authority-red.xcresult` and `.log`.
+- **Target:** capture account/project/conflict-generation authority once per
+  immutable request; recheck before dispatch and after awaited work. Held saves
+  retain exact local bytes and explicit choice without posting. Valid Keep Mine
+  and Load Server must still work; late responses cannot rewind their results.
+- **Final local proof:** full signed units 686 pass, zero fail/skip;
+  authenticated recovery UI five pass, zero fail/skip; integrated authenticated
+  writer one pass, zero fail/skip. Node 20 backend 2,744 pass, zero fail, two skip;
+  macOS build, four runner tests and god/diff gates pass. Direct actor tests
+  verify durable parked-copy retention and generation fence scope independent
+  of wall clock. Exact files, retained reds, adversarial review and proof limits:
+  `docs/audits/save-conflict-authority-2026-10-08.md`.
+- **Limits:** not the exact hosted false-clean root, shipping provider/physical
+  voice, production database, export parity or performance. Main unchanged.
+
 ### T-936 — Fresh, byte-safe explicit Load Server choice
 
 - **Owner:** codex. **Branch:** `codex/T-936-fresh-server-choice`, above #933

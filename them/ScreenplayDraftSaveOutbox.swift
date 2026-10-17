@@ -76,6 +76,8 @@ actor ScreenplayDraftSaveOutbox {
     private let fileManager: FileManager
     private var didLoad = false
     private var entries: [ScreenplayDraftSaveOutboxEntry] = []
+    private struct ConflictScope: Hashable { let project: String; let owner: String; let authorityID: UUID }
+    private var discardedConflictGenerations: [ConflictScope: UInt64] = [:]
     private var networkMonitor: NWPathMonitor?
     private let networkMonitorQueue = DispatchQueue(label: "io.them.screenplay-save-outbox.network")
 
@@ -220,14 +222,18 @@ actor ScreenplayDraftSaveOutbox {
         publishSnapshot()
     }
 
+    @discardableResult
     func markSucceeded(
         id: String,
         serverVersionId: String,
         supersedesEarlierSaves: Bool = false,
+        requireUnparkedRequest: Bool = false,
         now: Date = Date()
-    ) throws {
+    ) throws -> Bool {
         try loadIfNeeded()
-        guard let index = entries.firstIndex(where: { $0.id == id }) else { return }
+        guard let index = entries.firstIndex(where: { $0.id == id }) else { return true }
+        if requireUnparkedRequest, entries[index].status == .parked,
+           entries[index].lastError == Self.conflictReason { return false }
         let previous = entries
         let completed = entries.remove(at: index)
         entries.removeAll { entry in
@@ -249,6 +255,20 @@ actor ScreenplayDraftSaveOutbox {
         }
         do { try persist() } catch { entries = previous; throw error }
         publishSnapshot()
+        return true
+    }
+
+    /// Actor-serialized admission cannot revive a copy explicitly discarded by Load Server.
+    func enqueueConflictCopy(_ entry: ScreenplayDraftSaveOutboxEntry,
+        authorityID: UUID, authorityGeneration: UInt64) throws {
+        let scope = ConflictScope(project: entry.projectId, owner: entry.ownerUserId, authorityID: authorityID)
+        if let discarded = discardedConflictGenerations[scope], authorityGeneration <= discarded { return }
+        _ = try retainConflict(projectId: entry.projectId, ownerUserId: entry.ownerUserId)
+        var parked = entry
+        parked.status = .parked
+        parked.lastError = Self.conflictReason
+        parked.nextAttemptAt = 0
+        _ = try enqueue(parked)
     }
 
     func remove(id: String) throws {
@@ -276,7 +296,8 @@ actor ScreenplayDraftSaveOutbox {
     }
 
     /// Only an explicit Load Server choice discards conflicts already present at that choice.
-    func discardConflicts(projectId: String, ownerUserId: String, through: TimeInterval) throws {
+    func discardConflicts(projectId: String, ownerUserId: String, through: TimeInterval,
+        authorityID: UUID? = nil, authorityGeneration: UInt64 = 0) throws {
         try loadIfNeeded()
         let previous = entries
         let project = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -286,6 +307,10 @@ actor ScreenplayDraftSaveOutbox {
                 && $0.lastError == Self.conflictReason && $0.createdAt <= through
         }
         do { try persist() } catch { entries = previous; throw error }
+        if let authorityID {
+            let scope = ConflictScope(project: project, owner: owner, authorityID: authorityID)
+            discardedConflictGenerations[scope] = max(discardedConflictGenerations[scope] ?? 0, authorityGeneration)
+        }
         publishSnapshot()
     }
 
