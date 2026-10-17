@@ -1,4 +1,9 @@
-# Claude Inbox
+# Historical Claude Inbox — retired
+
+The human retired this assistant lane on 2026-10-16. Everything below is a
+historical snapshot, not a current assignment or blocker. Codex owns all new
+implementation and verification. Start with `AGENTS.md` and `TASKS.md`; verify
+GitHub before acting. Do not send handoffs here or discard the original work.
 
 Short handoff for the Claude/support lane. Read after `AGENTS.md`, `TASKS.md`,
 `DECISIONS.md`, and `docs/coordination.json`. Codex owns this file per

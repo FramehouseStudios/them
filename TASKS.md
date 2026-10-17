@@ -5,6 +5,24 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-977 — Codex-only execution without retired assistant dispatch
+
+- **Owner:** codex. **Branch:** `codex/T-977-codex-only-workflow`.
+- **Status:** review. **Pillar:** trustworthy implementation continuity.
+- **Human direction:** retire the Claude/support workflow completely; Codex
+  owns execution, while original code/history and independent review remain.
+- **Scope:** one canonical workflow CLI, compatibility entrypoints, historical
+  inbox/coordination banners, no stale checklist completion percentages.
+- **Done when:** migrated entrypoints/tests, existing report-reader contract,
+  script suite, schema/safety checks, D009 and diff pass. No app/backend changes.
+- **Before:** new ownership regressions0/5; old-lane contracts4/11 expose the
+  deliberate migration boundary. Keep report-reader coverage, retire only
+  obsolete queue/role expectations. Final host script suite221/0/0;
+  network-disabled Node20 contracts28/0/0, D009/diff pass. Manifest:
+  `docs/codex-workflow-takeover-2026-10-16.md`.
+- **Resume product:** original #651 `0b2496f3`; #906 awaits its live required
+  CI run39006472727, independent approval already posted on b2994b00.
+
 ### T-976 — One useful mentor question and matching spoken audio
 
 - **Owner:** codex. **Branch:** `codex/T-976-mentor-question-integration`.

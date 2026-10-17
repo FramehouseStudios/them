@@ -14,6 +14,13 @@ shipping claims.
 
 ## Start here
 
+Codex is the sole active implementation owner. Start with `AGENTS.md`,
+`DECISIONS.md`, `TASKS.md` and fresh repository/GitHub evidence. Run
+`node scripts/print_codex_prompt.mjs` for the canonical workflow. The older
+inboxes, coordination rows and live-handoff snapshot are historical, not
+instructions to invoke or wait for another assistant. Original work/history
+is preserved; independent review and required checks remain mandatory.
+
 | Need | Document |
 | --- | --- |
 | Product vision, customer, boundaries, and phases | [`product/founder-product-brief.md`](product/founder-product-brief.md) |

@@ -1,5 +1,10 @@
 # Project Live Handoff
 
+Historical snapshot: the cleanup state below is from 2026-08-30, not current
+main or release proof. Since 2026-10-16 Codex owns implementation, review,
+integration and verification. Read `AGENTS.md` and `TASKS.md`, then inspect
+current GitHub state; do not revive the old assistant workflow below.
+
 This is the current repo-facing handoff for io.them. Historical helper-lane logs have been collapsed into project-owned status so future work starts from the real app, the current repository state, and the active GitHub queue.
 
 ## Current State

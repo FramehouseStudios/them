@@ -14,7 +14,10 @@ Throughput now means:
 
 ## Backend Backlog Use
 
-The compact backend backlog still lives in `docs/support-inbox.md` because existing scripts read that path. Treat the file as a backlog table, not as a live separate-owner instruction.
+The filename `docs/support-inbox.md` is retained as historical backlog evidence,
+not a separate-owner instruction or the current task queue. Current work lives
+in `TASKS.md`; all internal next-action entrypoints delegate to
+`scripts/codex_workflow.mjs`. Do not send second-assistant handoffs.
 
 ## Merge Discipline
 

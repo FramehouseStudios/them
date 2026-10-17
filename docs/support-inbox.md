@@ -1,5 +1,9 @@
 # Backend Backlog
 
+Historical backlog: the snapshot below is not current PR/deployment status.
+Since 2026-10-16 Codex owns all implementation and verification; current work
+is in `TASKS.md`. Keep useful ideas, but verify code and GitHub before acting.
+
 This is a project-owned backlog reference for backend and launch-hardening work. The filename is retained for compatibility with existing scripts, but the file is not a live instruction to wait for or invoke another assistant lane.
 
 Codex may use this file when it needs a compact list of backend tasks that remain useful to the app. New work should be ported into a fresh `codex/` branch, verified there, and reviewed as project-owned work.
