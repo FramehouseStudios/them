@@ -1,6 +1,19 @@
 import Foundation
 import SwiftUI
 
+/// Local-only identity for a read; never sent as writer content or persisted.
+nonisolated struct ScreenplayCoverageContext: Equatable {
+    let auth: ScreenplayStudioAuthContext
+    let projectID: String
+    let draft: String
+
+    func hasSameOwner(as other: Self) -> Bool {
+        ScreenplayStudioAuthContextPolicy.matches(expected: auth, current: other.auth) &&
+            projectID.trimmingCharacters(in: .whitespacesAndNewlines) ==
+                other.projectID.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
 /// Clementine's read of a script: grade, verdict, five pillars, what works,
 /// what's missing, the move, and the spoken version. Produced by
 /// `POST /screenplay/coverage` (deterministic; same draft, same read).
