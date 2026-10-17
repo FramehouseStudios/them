@@ -47,7 +47,7 @@
 
 ### T-956 — Integrate exact-text recovery without losing prior proof fixes
 
-- **Owner:** codex. **Status:** in-progress. **Pillar:** longitudinal learning.
+- **Owner:** codex. **Status:** review. **Pillar:** longitudinal learning.
 - **Branch:** `codex/T-956-exact-recovery-integration`, from T-953 `af034900`.
 - **Scope:** preserving merge of original #919/#923/#924/#925/#927 through
   `1f7c6061`; retain required signed runners, asynchronous hydration context
@@ -57,6 +57,14 @@
   retained evidence. Fix the first reproduced integration failure at its root.
 - **Boundary:** no main merge, replacement PR, secret access, live provider
   call or physical-device claim. Hosted T-953 run remains separately observed.
+- **Proof:** signed722units+exact typing1, authenticated recovery2, writer1,
+  Home handoff2 pass with zero failures/skips in those runs. Full V1 UI29/0/11;
+  Node20 backend2811/0/2; package11XCTest+6formatter, runner23, offline mentor,
+  macOS build, D009/diff pass. Retained failures and limits:
+  `docs/exact-recovery-integration-proof-2026-10-16.md`.
+- **Next:** original #928's independent hydration callers; then the original
+  guarded blank-save/history chain. Native two-device runner needs preference
+  isolation before use; do not overwrite the human's Mac app defaults.
 
 ### T-953 — Compose required CI and recovery proof
 
