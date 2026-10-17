@@ -128,6 +128,10 @@ struct ScreenplayCraftRailView: View {
     @Binding var selectedFrameworkID: String
     let frameworks: [ScreenplayCraftFrameworkReference]
     let report: ScreenplayCraftReport?
+    var coverageReport: BackendScreenplayCoverageReport? = nil
+    var isCoverageRefreshing: Bool = false
+    var coverageErrorText: String = ""
+    var onRefreshCoverage: () -> Void = {}
     let isLoading: Bool
     let isAnalyzing: Bool
     let errorText: String
@@ -164,6 +168,12 @@ struct ScreenplayCraftRailView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             header
+            ScreenplayCoverageCardView(
+                report: coverageReport,
+                isLoading: isCoverageRefreshing,
+                errorText: coverageErrorText,
+                onRefresh: onRefreshCoverage
+            )
             frameworkPicker
             loglinePanel
             ScreenplayCraftReaderPreviewView(
