@@ -15,9 +15,12 @@ result_bundle_prefix="${ARTIFACT_DIR}/voice-network-fault-${GITHUB_RUN_ID:-local
 
 echo "=== Voice Network-Fault Smokes ==="
 echo "Project:            ${PROJECT}"
+echo "iPhone destination: resolved by the canonical iPhone runner"
+
 PROJECT="${PROJECT}" SCHEME="${IOS_SCHEME}" CONFIGURATION="${IOS_CONFIGURATION}" \
-ONLY_TESTING="${TEST_IDENTIFIER}" bash "${ROOT}/scripts/run_v1_ui_smoke.sh" \
-  -resultBundlePath "${result_bundle_prefix}-ios.xcresult"
+  XCODEBUILD="${XCODEBUILD_BIN}" ONLY_TESTING="${TEST_IDENTIFIER}" \
+  ARTIFACT_DIR="${ARTIFACT_DIR}" V1_UI_RESULT_BUNDLE_PATH="${result_bundle_prefix}-ios.xcresult" \
+  bash "${ROOT}/scripts/run_v1_ui_smoke.sh"
 
 "${XCODEBUILD_BIN}" build \
   -project "${PROJECT}" \

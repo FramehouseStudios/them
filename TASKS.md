@@ -5,6 +5,21 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-970 — Preserve the required-proof repair in rehearsal
+
+- **Owner:** codex. **Branch:** `codex/T-970-required-proof-integration`.
+- **Status:** review. **Pillar:** trustworthy writer-loop evidence.
+- **Scope:** preserving merge of original #906's repaired `b2994b00` into
+  T-968. Keep the stronger existing required offline-recovery check; retain
+  original app/backend trees and original PR heads. No main merge.
+- **Done when:** Node20 runner contracts, signed owned-simulator voice-fault
+  entrypoint, macOS compile, D009 and diff checks pass; publish scoped draft.
+- **VERIFIED:** Node20 runner14/0/0; signed voice-fault UI1/0/0; macOS
+  scaffold build exit0; D009 all deltas0 and diff checks pass. Exact scope,
+  retained evidence and limits: `docs/required-proof-integration-2026-10-16.md`.
+- **Next original product boundary:** #645 `8a7f367a`, then actual-base #646.
+  Historical live golden scores are not current integrated model proof.
+
 ### T-968 — Exact document identity for coverage
 
 - **Owner:** codex. **Branch:** `codex/T-968-coverage-document-identity`.
@@ -550,6 +565,18 @@
 - **Remaining outside this task:** empty/whitespace-only save contract; historical text
   already normalized before storage; async lint/coverage/logline staleness comparisons;
   physical microphone/provider proof; required hosted checks and independent merge review.
+### T-969 — Truthful required checks on original #906
+
+- **Owner:** codex. **Task branch:** `codex/T-969-truthful-906-gate`.
+- **Status:** review. **Pillar:** trustworthy writer/recovery proof.
+- **Landing:** original #906, not a replacement PR. Preserve #904's CI prefix
+  and its remaining later recovery/inspector work separately.
+- **Done when:** signed units/failing UI cases, canonical erased voice entry,
+  Node20 runner contracts, macOS, D009 and diff pass; fresh hosted gate required.
+- **Evidence:** signed units624 + UI2 all pass; final voice1/0/0 and macOS pass;
+  Node20 contracts11/0/0, D009 deltas0. Original hidden hosted reds retained.
+  `docs/906-required-gate-repair-2026-10-16.md`.
+- **Hold:** changed head requires fresh independent approval and real green CI.
 
 ## Branch conventions
 - `codex/<task-id>-<short-name>`
