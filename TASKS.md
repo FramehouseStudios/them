@@ -5,6 +5,21 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-974 — Preserve mentor shaping and trustworthy Studio actions
+
+- **Owner:** codex. **Branch:** `codex/T-974-mentor-actions-integration`.
+- **Status:** review. **Pillars:** living companion; writer authority.
+- **Scope:** preserve both original #648 commits at `210c5ef0`; retain page/
+  non-control action gate, prior scorer/craft protections and exact client state.
+  Fix verified command-authority and mentor-evaluation defects before promotion.
+- **Done when:** final Node20 full/offline suites, actual talk HTTP contracts,
+  signed client units, authenticated Home handoffs and D009/diff pass.
+- **Evidence:** initial action regressions16/7/0; mentor adversarial10/2/0.
+  Final Node20 backend2860/0/2; offline contracts65/0/0 and golden gate pass;
+  signed client849/0/0; Home2/0/0 before log-only privacy refinement. D009/diff
+  pass, unchanged-client macOS compile reused from T-973. Manifest:
+  `docs/mentor-actions-integration-2026-10-16.md`.
+
 ### T-973 — Preserve project auto-titles with one Fountain owner
 
 - **Owner:** codex. **Branch:** `codex/T-973-project-title-integration`.

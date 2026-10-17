@@ -21,16 +21,18 @@ Object.assign(process.env, {
 delete process.env.DATABASE_URL;
 const realFetch = globalThis.fetch;
 const systems = [];
-globalThis.fetch = async (url, options = {}) => {
+let fixtureReply = "Give the captain an urgent want. He needs to get his sister across before midnight, but the ferry is grounded. Make him risk his license to move her.";
+const fixtureFetch = async (url, options = {}) => {
   if (String(url).startsWith("http://127.0.0.1:")) return realFetch(url, options);
   if (String(url) === "https://api.openai.com/v1/chat/completions") {
     const body = JSON.parse(options.body);
     systems.push(body.messages.filter((m) => m.role === "system").map((m) => m.content).join("\n"));
-    return Response.json({ choices: [{ message: { content: "Give the captain an urgent want. He needs to get his sister across before midnight, but the ferry is grounded. Make him risk his license to move her." } }], usage: { prompt_tokens: 10, completion_tokens: 20 } });
+    return Response.json({ choices: [{ message: { content: fixtureReply } }], usage: { prompt_tokens: 10, completion_tokens: 20 } });
   }
   if (String(url) === "https://api.openai.com/v1/audio/speech") return new Response(Buffer.concat([Buffer.from("ID3"), Buffer.alloc(128)]), { status: 200, headers: { "content-type": "audio/mpeg" } });
   throw new Error(`Unmocked external provider request: ${new URL(url).pathname}`);
 };
+globalThis.fetch = fixtureFetch;
 await import("../index.js");
 const { app } = await import("../app.js");
 
@@ -60,5 +62,46 @@ test("[640-talk] real talk path carries mentor craft and suppresses it for a fea
     globalThis.fetch = realFetch;
     server.closeAllConnections();
     await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("[648-talk] actual HTTP action headers and spoken preview respect writer authority", async () => {
+  globalThis.fetch = fixtureFetch;
+  const server = app.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const cases = [
+    { transcript: "Jump to the basement scene.", reply: "I've jumped to the basement scene. Give the captain an urgent want.",
+      action: [], spoken: /I don't see a basement scene on the page yet/ },
+    { transcript: "Don't save my draft.", reply: "I've saved the draft. [[studio: save_draft]]",
+      action: [], spoken: /I won't carry out that action/ },
+    { transcript: "Open the craft tab.", reply: "Give the captain an urgent want.",
+      action: [{type: "open_tab", tab: "craft", source: "writer"}], spoken: /Give the captain/ },
+    { transcript: "Save a revision in pink.", reply: "Saving a revision in blue. [[studio: save_revision color=blue]]",
+      action: [{type: "save_revision", color: "pink", source: "writer"}], spoken: /I'll save a revision in pink/ },
+  ];
+  try {
+    for (const sample of cases) {
+      fixtureReply = sample.reply;
+      const session = await realFetch(`${base}/session`, {method: "POST", headers: {"X-APP-TOKEN": "mentor-talk-test"}});
+      const {client_token} = await session.json();
+      const form = new FormData();
+      form.append("debug_transcript", sample.transcript);
+      form.append("system_prompt", "SCENE PITCH (standing collaborator rule)");
+      form.append("studio_capabilities", JSON.stringify({has_project: true, has_draft: true,
+        tabs: ["draft", "craft"], scene_labels: ["INT. FERRY - NIGHT"]}));
+      form.append("file", new Blob([Buffer.alloc(64)], {type: "audio/wav"}), "test.wav");
+      const response = await realFetch(`${base}/talk`, {method: "POST", body: form,
+        headers: {"X-APP-TOKEN": "mentor-talk-test", "X-Client-Token": client_token}});
+      await response.arrayBuffer();
+      assert.equal(response.status, 200, sample.transcript);
+      const actions = JSON.parse(decodeURIComponent(response.headers.get("x-studio-actions") || "%5B%5D"));
+      assert.deepEqual(actions, sample.action, sample.transcript);
+      assert.match(decodeURIComponent(response.headers.get("x-reply") || ""), sample.spoken, sample.transcript);
+    }
+  } finally {
+    globalThis.fetch = realFetch;
+    server.closeAllConnections();
+    await new Promise(resolve => server.close(resolve));
   }
 });

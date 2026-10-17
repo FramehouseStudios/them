@@ -105,3 +105,13 @@ test("[mentor-golden] page evidence is required and checked for spoken aliases",
     assert.ok(result.notes.some(note => /page/.test(note)), JSON.stringify(result));
   }
 });
+
+test("[mentor-golden] a quoted line rewrite cannot excuse replacing the writer's idea", () => {
+  const base = 'Keep Ada and the lighthouse. Ada pockets the key. Instead of saying afraid, try: "Leave the light on."';
+  const spec = {writerNouns: ["Ada", "lighthouse"]};
+  const good = scoreBuildOnWriter(base, spec);
+  assert.ok(good.score >= 4);
+  for (const replacement of [" Scrap the lighthouse and use a morgue.", " Instead, let's try a city morgue."]) {
+    assert.ok(scoreBuildOnWriter(base + replacement, spec).score <= good.score - 3);
+  }
+});
