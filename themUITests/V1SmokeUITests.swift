@@ -805,12 +805,23 @@ final class V1SmokeUITests: XCTestCase {
             "The writer-loop could not reach Export Copy."
         )
         exportMenu.tap()
+        let cancelExport = app.buttons["studio.export.cancel"]
+        _ = try XCTUnwrap(cancelExport.waitForExistence(timeout: writerLoopWait(5)) ? cancelExport : nil,
+                          "iPhone export must expose a dismissible format picker.")
+        cancelExport.tap()
+        XCTAssertTrue(waitForDisappearance(of: cancelExport, timeout: writerLoopWait(5)))
+        XCTAssertFalse(app.collectionViews["activityCollectionView"].exists,
+                       "Cancelling format selection must not prepare or share a file.")
+        exportMenu.tap()
         let markdownExport = app.buttons["studio.export.md"]
         XCTAssertTrue(markdownExport.waitForExistence(timeout: writerLoopWait(5)), "Export Copy did not offer Markdown.")
         markdownExport.tap()
         let closeMarkdownShare = app.buttons["Close"].firstMatch
-        XCTAssertTrue(closeMarkdownShare.waitForExistence(timeout: writerLoopWait(10)),
-                      "Markdown export must present the native share sheet, not just create a temporary file.")
+        // Async XCTest can continue after an assertion despite the suite's
+        // continueAfterFailure setting. Throw at the first absent handoff;
+        // downstream export/restore checks cannot prove anything without it.
+        _ = try XCTUnwrap(closeMarkdownShare.waitForExistence(timeout: writerLoopWait(10)) ? closeMarkdownShare : nil,
+                          "Markdown export must present the native share sheet, not just create a temporary file.")
         XCTAssertTrue(app.collectionViews["activityCollectionView"].cells["Save to Files"].waitForExistence(timeout: writerLoopWait(5)),
                       "The writer must have a real external file destination.")
         let markdownShareProof = XCTAttachment(screenshot: app.screenshot())
@@ -827,8 +838,8 @@ final class V1SmokeUITests: XCTestCase {
         XCTAssertTrue(fdxExport.waitForExistence(timeout: writerLoopWait(5)), "Export Copy did not offer Final Draft.")
         fdxExport.tap()
         let closeFDXShare = app.buttons["Close"].firstMatch
-        XCTAssertTrue(closeFDXShare.waitForExistence(timeout: writerLoopWait(10)),
-                      "Final Draft export must present the native share sheet.")
+        _ = try XCTUnwrap(closeFDXShare.waitForExistence(timeout: writerLoopWait(10)) ? closeFDXShare : nil,
+                          "Final Draft export must present the native share sheet.")
         XCTAssertTrue(app.collectionViews["activityCollectionView"].cells["Save to Files"].waitForExistence(timeout: writerLoopWait(5)))
         let fdxShareProof = XCTAttachment(screenshot: app.screenshot())
         fdxShareProof.name = "Native Final Draft file handoff"

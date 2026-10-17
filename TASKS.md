@@ -5,6 +5,31 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-979 — Preserve ending mentorship and reject evaluator false positives
+
+- **Owner:** codex. **Branch:** `codex/T-979-mentor-ending-integration`.
+- **Status:** review. **Pillar:** living companion; trustworthy craft.
+- **Scope:** preserving original #652 `ece8cf76` above T-978. Keep client/core
+  parity, target-aware page ranges and semantic prompt allocation. Bound alias
+  matches and require a causal marker in the ending evaluation case. Replace
+  the failing transient iPhone export menu with a cancellable selection sheet
+  whose completed dismissal owns export dispatch; retain native file sharing.
+- **Done when:** frozen Node20 full/offline gates, fresh signed full units,
+  authenticated Home/writer/export/relaunch workflows, macOS and D009/diff pass.
+- **VERIFIED:** scorer initially10/2/0; unrelated substrings counted as craft
+  terms and an answer with no reason could PASS. Final focused32/0/0;
+  pinned Node20 backend2886/0/2 and network-disabled contracts74/0/0 plus
+  offline exemplar gate pass. Initial writer0/1/0 retained; old instrumented
+  menu1/0/0 did not count as a fix. Replacement cancellation/export/restore1/0/0,
+  final signed units852/0/0, authenticated Home2/0/0 and macOS compile exit0.
+  D009/diff pass. Real PostgreSQL adapter1/0/0 after12 canonical migrations
+  and idempotent replay; not full writer restart proof. No live
+  quality or physical-phone claim. Manifest:
+  `docs/mentor-ending-integration-2026-10-16.md`.
+- **Next actual boundary:** original #653 `8f5f4f2f`, body and full diff read.
+- **Human pause:** finish/save T-979, then pause. Do not start the next task
+  or merge #906 until the human resumes; recheck exact heads and required gates.
+
 ### T-978 — Speak pitches without rewriting quoted screenplay headings
 
 - **Owner:** codex. **Branch:** `codex/T-978-mentor-pitch-integration`.

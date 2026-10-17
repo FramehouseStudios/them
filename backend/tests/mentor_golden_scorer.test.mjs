@@ -122,6 +122,24 @@ test("[mentor-golden] pitch scoring detects the supported unquoted heading forms
   assert.equal(scorePitchConcreteness('You wrote "INT. KITCHEN - NIGHT." Mara wants a key but John blocks her. What changes?').notes.includes("writes sluglines instead of pitching"), false);
 });
 
+test("[mentor-golden] ending aliases retain word boundaries", () => {
+  const spec = {expectTerms: ["final image", "opening"]};
+  const good = scoreStructureAccuracy("The last image returns to the first frame because their distance shows the cost.", spec);
+  assert.equal(good.score, 5);
+  const unrelated = scoreStructureAccuracy("The reopening is delayed because the final imagery needs a new lens.", spec);
+  assert.ok(unrelated.score <= 2, JSON.stringify(unrelated));
+});
+
+test("[mentor-golden] required ending causality cannot be replaced with synonyms alone", () => {
+  const spec = {...CASES.find(item => item.id === "structure-final-image"), requireCausality: true};
+  const nearMiss = "The last image should answer the first image. Show Mara back at the dock, now alone. What do you want the final frame to be?";
+  const weak = scoreMentorReply(nearMiss, spec);
+  assert.notEqual(weak.verdict, "PASS", JSON.stringify(weak));
+  assert.ok(weak.dimensions.structure_accuracy.notes.includes("no causality"));
+  const good = scoreMentorReply("The last image must answer the first image because the distance between the two frames shows what Mara paid to change. Put her back on the dock, now alone. What is the last thing we see?", spec);
+  assert.equal(good.verdict, "PASS", JSON.stringify(good));
+});
+
 test("[mentor-golden] a quoted line rewrite cannot excuse replacing the writer's idea", () => {
   const base = 'Keep Ada and the lighthouse. Ada pockets the key. Instead of saying afraid, try: "Leave the light on."';
   const spec = {writerNouns: ["Ada", "lighthouse"]};
