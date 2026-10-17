@@ -1778,3 +1778,60 @@ test("[screenplay-projects-routes] POST /version rejects empty draft with 400", 
     assert.equal(r.body.error, "draft_required");
   });
 });
+
+test("[screenplay-projects-routes] explicit writer blank saves preserve bytes and replay once", async () => {
+  for (const [draft, source] of ["studio_manual", "studio_autosave", "studio_conflict_resolve"]
+    .flatMap(source => ["", " \t\r\n"].map(draft => [draft, source]))) {
+    const deps = defaultDeps();
+    const project = deps._owner.projects[0];
+    project.activeVersionId = "base_v1";
+    project.versions = [{ id: "base_v1", draft: "Original writer text." }];
+    const body = { draft, allow_empty_draft: true, source,
+      base_version_id: "base_v1", client_request_id: "writer-delete-all" };
+    await withTestServer(deps, async (baseURL) => {
+      const saved = await postJson(baseURL, "/screenplay/projects/p1/version", body);
+      assert.equal(saved.status, 201);
+      assert.equal(saved.body.version.draft, draft);
+      assert.equal(project.versions[0].source, source);
+      const replay = await postJson(baseURL, "/screenplay/projects/p1/version", body);
+      assert.equal(replay.status, 200);
+      assert.equal(replay.body.version_id, saved.body.version_id);
+      assert.equal(project.versions.length, 2);
+      assert.equal(project.versions[1].draft, "Original writer text.");
+    });
+  }
+});
+
+test("[screenplay-projects-routes] blank save cannot bypass explicit writer intent or stale protection", async () => {
+  const deps = defaultDeps();
+  const project = deps._owner.projects[0];
+  project.activeVersionId = "base_v1";
+  project.versions = [{ id: "base_v1", draft: "Original writer text." }];
+  const body = { draft: "", allow_empty_draft: true, source: "studio_manual",
+    base_version_id: "base_v1", client_request_id: "writer-delete-all" };
+  await withTestServer(deps, async (baseURL) => {
+    for (const overrides of [
+      { allow_empty_draft: false }, { allow_empty_draft: "true" },
+      { draft: undefined }, { draft: null }, { draft: 0 },
+      { source: "studio_clementine_page_write" }, { source: "" },
+      { base_version_id: "" }, { client_request_id: "" },
+      { conflict_strategy: "allow" },
+    ]) {
+      const rejected = await postJson(baseURL, "/screenplay/projects/p1/version", { ...body, ...overrides });
+      assert.equal(rejected.status, 400, JSON.stringify(overrides));
+      assert.equal(rejected.body.error, "draft_required");
+      assert.equal(project.versions.length, 1);
+    }
+    const stale = await postJson(baseURL, "/screenplay/projects/p1/version", {
+      ...body, base_version_id: "old_version",
+    });
+    assert.equal(stale.status, 409);
+    assert.equal(stale.body.status, "conflict");
+    assert.equal(project.versions.length, 1);
+    project.activeVersionId = "";
+    project.versions = [];
+    const versionless = await postJson(baseURL, "/screenplay/projects/p1/version", body);
+    assert.equal(versionless.status, 400, "Do not create a blank version without an existing writer base.");
+    assert.equal(project.versions.length, 0);
+  });
+});

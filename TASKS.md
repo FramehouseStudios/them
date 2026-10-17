@@ -5,6 +5,44 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-930 — Guarded server contract for intentional blank writer saves
+
+- **Owner:** codex
+- **Branch:** `codex/T-930-intentional-empty-save`, above #928 head `34272775`.
+- **Pillar:** mobile-first (writer data safety).
+- **Status:** review.
+- **VERIFIED root:** client debounce clears recovery and skips saving blank text;
+  version API also rejects it. A writer's deletion therefore cannot become a saved
+  version. This server slice is a prerequisite, not an end-to-end client fix.
+- **Scope:** additive `allow_empty_draft: true` version contract requiring an
+  actual string, explicit writer source, nonempty base and retry ID, an existing
+  version, and `reject_if_stale`. Ordinary missing/empty generation remains 400.
+  Keep older nonblank clients and the existing auth/error envelope unchanged.
+- **Red/green:** two real handler regressions failed before the route change;
+  all 70 route tests then passed. Auth-required actual backend restart tests:
+  2 pass, 0 fail; exact empty/whitespace bytes, historical text, one-time replay,
+  altered retry, stale deletion, unsigned 401 and other-owner 404 are asserted.
+- **VERIFIED final proof:** Node 20.20.2 with external network disabled: 2,743
+  pass, 0 fail, 2 skip (`/tmp/them-930-final-node20.log`). Signed units: 659/659,
+  no skips (`/tmp/them-930-units.xcresult`). Existing signed auth-required recovery
+  UI: 2/2, no skips (`/tmp/them-930-ui/screenplay-save-network-fault-9775.xcresult`).
+  Owned iPhone 17 Pro simulator `11CF5EFB-D8C3-4F19-8062-28AF37F27D93`, iOS 26.2,
+  signing on, erased first. macOS scaffold build exit 0 with an isolated build
+  directory after the initial database-lock failure; god and diff gates pass.
+  Existing Swift concurrency warnings remain. Full audit:
+  `docs/audits/intentional-blank-save-contract-2026-10-08.md`.
+- **Done when:** full backend on shipping Node 20 with external networking off,
+  signed erased-simulator units/recovery UI, macOS scaffold, god-file gate and
+  diff check pass; publish only a scoped draft above #928.
+- **Next client scope:** preserve empty dirty recovery, protect it during
+  hydration, enqueue/replay explicit writer deletions, send the new flag and
+  prove delete-all → offline → relaunch → reconnect → exact saved blank version.
+- **Not covered:** that client journey, Postgres production soak, physical voice,
+  provider credits, release proof, 120-page performance and export parity.
+  Existing replay identity binds ID+exact text, not every source/base field.
+- **Landing:** #766 then #770 remain first, with independent review and required
+  hosted gates. No merge/self-approval, main mutation, secrets or paid calls.
+
 ### T-929 — Restore parked writer saves before project hydration
 
 - **Owner:** codex

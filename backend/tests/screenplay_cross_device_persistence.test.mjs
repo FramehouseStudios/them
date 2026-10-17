@@ -11,6 +11,78 @@ function authHeaders(token) {
   return { Authorization: `Bearer ${token}` };
 }
 
+test("[screenplay-cross-device] intentional blank edits survive restart with exact retry and owner isolation", async () => {
+  let server = await startBackend({ env: { REQUIRE_USER_AUTH: "true" } });
+  const dataDir = server.dataDir;
+  const stamp = randomUUID().replace(/-/g, "");
+  const email = `blank-writer-${stamp}@example.test`;
+  const password = `Blank-writer-${stamp}-aA1!`;
+  const projectId = `blank-${stamp.slice(0, 12)}`;
+  const whitespace = " \t\r\n";
+  let seedVersionId, emptyVersionId, blankVersionId;
+  const request = (draft, base, id) => ({ draft, base_version_id: base,
+    source: "studio_manual", allow_empty_draft: true,
+    conflict_strategy: "reject_if_stale", client_request_id: id });
+  try {
+    const token = await signup(server, email, password, "Blank Writer");
+    const headers = authHeaders(token);
+    const created = await apiRequest(server, "/screenplay/projects", { method: "POST", headers,
+      json: { project_id: projectId, title: "Delete All Proof", activate: true } });
+    assert.equal(created.status, 201, created.text);
+    const seed = await apiRequest(server, `/screenplay/projects/${projectId}/version`, {
+      method: "POST", headers, json: { draft: "Original writer text.", source: "studio_manual" } });
+    assert.equal(seed.status, 201, seed.text);
+    seedVersionId = seed.json.version_id;
+    const empty = await apiRequest(server, `/screenplay/projects/${projectId}/version`, {
+      method: "POST", headers, json: request("", seedVersionId, "delete-all-on-phone") });
+    assert.equal(empty.status, 201, empty.text);
+    assert.equal(empty.json.version.draft, "");
+    emptyVersionId = empty.json.version_id;
+    const blank = await apiRequest(server, `/screenplay/projects/${projectId}/version`, {
+      method: "POST", headers, json: request(whitespace, emptyVersionId, "whitespace-on-phone") });
+    assert.equal(blank.status, 201, blank.text);
+    assert.equal(blank.json.version.draft, whitespace);
+    blankVersionId = blank.json.version_id;
+    const unsigned = await apiRequest(server, `/screenplay/projects/${projectId}/version`, {
+      method: "POST", json: request("", blankVersionId, "unsigned-delete") });
+    assert.equal(unsigned.status, 401, unsigned.text);
+  } finally {
+    assert.equal((await server.stop()).forced, false);
+  }
+  server = await startBackend({ dataDir, env: { REQUIRE_USER_AUTH: "true" } });
+  try {
+    const headers = authHeaders(await login(server, email, password));
+    const read = () => apiRequest(server, `/screenplay/projects/${projectId}?include_drafts=1`, { headers });
+    const detail = await read();
+    assert.equal(detail.status, 200, detail.text);
+    assert.equal(detail.json.project.active_version_id, blankVersionId);
+    const versions = detail.json.project.versions;
+    assert.equal(versions.length, 3);
+    assert.equal(versions.find(v => v.id === emptyVersionId).draft, "");
+    assert.equal(versions.find(v => v.id === blankVersionId).draft, whitespace);
+    assert.equal(versions.find(v => v.id === seedVersionId).draft, "Original writer text.");
+    const replay = await apiRequest(server, `/screenplay/projects/${projectId}/version`, {
+      method: "POST", headers, json: request(whitespace, emptyVersionId, "whitespace-on-phone") });
+    assert.equal(replay.status, 200, replay.text);
+    assert.equal(replay.json.version_id, blankVersionId);
+    const altered = await apiRequest(server, `/screenplay/projects/${projectId}/version`, {
+      method: "POST", headers, json: request("", emptyVersionId, "whitespace-on-phone") });
+    assert.equal(altered.status, 409, altered.text);
+    const stale = await apiRequest(server, `/screenplay/projects/${projectId}/version`, {
+      method: "POST", headers, json: request("", seedVersionId, "stale-delete") });
+    assert.equal(stale.status, 409, stale.text);
+    const other = await signup(server, `other-blank-${stamp}@example.test`, password, "Other Writer");
+    const forbidden = await apiRequest(server, `/screenplay/projects/${projectId}/version`, {
+      method: "POST", headers: authHeaders(other), json: request("", blankVersionId, "other-delete") });
+    assert.equal(forbidden.status, 404, forbidden.text);
+    const after = await read();
+    assert.equal(after.json.project.versions.length, 3, "Rejected writes and retries must create no versions.");
+    assert.equal(after.json.project.active_version_id, blankVersionId);
+  } finally {
+    assert.equal((await server.stop()).forced, false);
+  }
+});
+
 async function signup(server, email, password, displayName) {
   const response = await apiRequest(server, "/auth/signup", {
     method: "POST",
