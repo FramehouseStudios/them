@@ -2339,7 +2339,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
 
     func createProject() async {
         guard (selectedProjectID.isEmpty && selectedProject == nil) || selectedProject?.id == selectedProjectID,
-              loadedDraftProjectID.isEmpty || loadedDraftProjectID == selectedProjectID else {
+              loadedDraftProjectID == selectedProjectID else {
             errorText = "Wait for the current project to finish loading before creating a project."
             return
         }

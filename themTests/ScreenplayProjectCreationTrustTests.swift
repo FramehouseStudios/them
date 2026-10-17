@@ -38,6 +38,9 @@ final class ScreenplayProjectCreationTrustTests: XCTestCase {
     @MainActor func testCreationWaitsUntilSelectedProjectOwnsTheDisplayedDraft() async throws {
         try await verifyCreation(holdCreate: true, edit: false, switchProject: false, selectedExisting: true, interleave: "loading")
     }
+    @MainActor func testCreationWaitsWhenSelectedProjectDraftHasNeverLoaded() async throws {
+        try await verifyCreation(holdCreate: true, edit: false, switchProject: false, interleave: "unloaded")
+    }
     @MainActor func testSaveDuringCreationRecoversUnderDisplayedProjectNotNewSelection() async throws {
         try await verifyCreation(holdCreate: false, edit: true, switchProject: true, interleave: "save-switch")
     }
@@ -54,7 +57,8 @@ final class ScreenplayProjectCreationTrustTests: XCTestCase {
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let recovery = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "recovery")
-        let transport = CreationTrustTransport(holdCreate: holdCreate, holdRequests: interleave != "loading")
+        let transport = CreationTrustTransport(holdCreate: holdCreate,
+            holdRequests: !["loading", "unloaded"].contains(interleave))
         transport.badEcho = interleave == "bad-echo"
         let api = transport.api()
         defer {
@@ -76,10 +80,11 @@ final class ScreenplayProjectCreationTrustTests: XCTestCase {
             model.selectedProjectID = "old"
             model.selectedProject = try JSONDecoder().decode(BackendScreenplayProjectSummary.self,
                 from: Data(#"{"id":"old","title":"Old"}"#.utf8))
-            model.latestVersionID = "old-version"
-        }
-        if interleave == "loading" {
             model.applyStructuralUITestDraft(original, versionID: "old-version")
+            model.hasUnsavedDraftChanges = true
+        }
+        if interleave == "loading" || interleave == "unloaded" {
+            if interleave == "loading" { model.applyStructuralUITestDraft(original, versionID: "old-version") }
             model.hasUnsavedDraftChanges = true
             model.selectedProjectID = "other"
             model.selectedProject = try JSONDecoder().decode(BackendScreenplayProjectSummary.self,
