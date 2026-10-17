@@ -1,5 +1,12 @@
 # Codex Inbox
 
+## Current workflow — 2026-10-16
+
+Codex is the sole active implementation owner. Use `AGENTS.md`, `DECISIONS.md`,
+`TASKS.md` and fresh code/GitHub evidence. No external assistant maintains this
+file or owes a handoff. All text below is historical, not a live assignment.
+Use `node scripts/print_codex_prompt.mjs` for the canonical current instructions.
+
 This is the short handoff Codex should read after `AGENTS.md`, `TASKS.md`,
 `DECISIONS.md`, `docs/codex-support-live-handoff.md`, and
 `docs/coordination.json`.

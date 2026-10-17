@@ -57,10 +57,17 @@ const STRUCTURED_BLOCKER_KINDS = new Set([
 
 function readState() {
   const raw = fs.readFileSync(FILE, "utf8");
-  return JSON.parse(raw);
+  const state = JSON.parse(raw);
+  if (state.workflow?.records === "historical") {
+    console.error("coordination_state: historical records, not current assignments or GitHub status. Codex owns active work; read TASKS.md and verify current state.");
+  }
+  return state;
 }
 
 function writeState(state, agent) {
+  if (state.workflow?.records === "historical") {
+    fail("historical coordination is read-only; record active Codex work in TASKS.md");
+  }
   state.updatedAt = new Date().toISOString();
   state.updatedBy = agent || process.env.COORD_AGENT || "unknown";
   fs.writeFileSync(FILE, JSON.stringify(state, null, 2) + "\n");
@@ -109,7 +116,7 @@ function textFormat(state) {
   const lines = [];
   lines.push(`updatedAt: ${state.updatedAt}  by ${state.updatedBy}`);
   lines.push("");
-  lines.push(`Open PRs (${state.openPullRequests.length}):`);
+  lines.push(`${state.workflow?.records === "historical" ? "Historical PR records" : "Open PRs"} (${state.openPullRequests.length}):`);
   for (const pr of state.openPullRequests) {
     const blocker = pr.blocker ? `  blocker: ${pr.blocker}` : "";
     const structured = [];
@@ -325,7 +332,7 @@ switch (cmd) {
     }
     console.log(
       `coordination_state validate: OK ` +
-      `(${state.openPullRequests.length} open PRs, ` +
+      `(${state.openPullRequests.length} ${state.workflow?.records === "historical" ? "historical PR records" : "open PRs"}, ` +
       `${state.blockers.length} blockers, ` +
       `${state.decisionsPending.length} decisions)`,
     );

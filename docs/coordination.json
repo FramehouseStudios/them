@@ -1,5 +1,13 @@
 {
   "schemaVersion": 1,
+  "workflow": {
+    "mode": "codex-only",
+    "implementationOwner": "codex",
+    "effectiveDate": "2026-10-16",
+    "taskSource": "TASKS.md",
+    "records": "historical",
+    "note": "Existing rows preserve historical evidence, not current PR status or active assistant assignments. Verify GitHub before acting."
+  },
   "updatedAt": "2026-09-05T04:29:41.147Z",
   "updatedBy": "support",
   "openPullRequests": [

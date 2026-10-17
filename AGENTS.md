@@ -9,7 +9,8 @@ Every change should move the app closer to a stable, usable, emotionally cinemat
 ## Active ownership model
 
 - The human is the product lead and final authority for product direction, privacy policy, release credentials, App Store metadata, and merges that materially change risk.
-- Codex is the active implementation owner. Build, verify, document, and keep moving.
+- Codex is the sole active implementation owner. Build, verify, document, and keep moving.
+- The human retired the Claude/support workflow on 2026-10-16. Do not assign it tasks, wait for its reports, or produce handoffs to it. Preserve useful code, original PR heads and commit history; authorship is not a reason to discard work. This does not change Clementine, runtime providers or independent-review protections.
 - Historical task records can contain older `support` ownership metadata. Treat that as history, not a live instruction to create or wait for another assistant lane.
 - Historical prompts addressed to another assistant are reference material only. Extract useful product or engineering intent, rewrite it as project-owned Codex guidance here, and never revive a separate named-agent workflow.
 - New work uses `codex/<task-id>-<short-name>` branches unless the human explicitly asks for a different branch.
