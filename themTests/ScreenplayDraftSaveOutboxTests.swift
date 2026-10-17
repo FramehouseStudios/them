@@ -2,6 +2,139 @@ import XCTest
 @testable import them
 
 final class ScreenplayDraftSaveOutboxTests: XCTestCase {
+    func testConflictHydrationOrderingNeverInfersOrderFromOpaqueIDsOrInvalidTimes() {
+        func accepts(_ id: String, _ incoming: Double, known: Double = 300) -> Bool {
+            ScreenplayConflictHydrationPolicy.canApply(baseVersionID: "base", knownServerVersionID: "known",
+                knownServerUpdatedAt: known, incomingVersionID: id, incomingUpdatedAt: incoming)
+        }
+        XCTAssertTrue(accepts(" known ", 0))
+        XCTAssertTrue(accepts("newer", 400))
+        XCTAssertFalse(accepts("base", 1000))
+        for invalid in [0, 299, 300, .infinity, .nan] {
+            XCTAssertFalse(accepts("different", invalid))
+        }
+        XCTAssertFalse(accepts("different", 400, known: 0))
+        XCTAssertFalse(accepts("different", 400, known: .nan))
+        XCTAssertFalse(accepts("", 400))
+    }
+
+    @MainActor
+    func testKnownServerHeadConfirmingExactWriterBytesRetiresConflictWithoutAnotherWrite() async throws {
+        let owner = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""
+        let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let raw = "  Writer words cafe\u{0301}\r\n"
+        try await queue.enqueue(replacingOwner(of: makeEntry(id: "writer", draft: raw), with: owner))
+        let suite = "them.exact-known-head.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore:
+            ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "recovery"), draftSaveOutbox: queue)
+        model.autosaveEnabled = false
+        model.selectedProjectID = "project-1"
+        await model.restorePendingDraftSaveBeforeProjectHydration()
+        let conflict = ScreenplayStudioViewModel.SaveConflictState(projectId: "project-1",
+            baseVersionId: "server-v1", serverVersionId: "confirmed", serverDraft: raw,
+            serverDraftExcerpt: raw, serverUpdatedAt: 300)
+        await model.handleDraftSaveConflict(conflict, ownerUserId: owner)
+        let data = try JSONSerialization.data(withJSONObject: ["id": "project-1", "title": "Test",
+            "activeVersionId": "confirmed", "versions": [["id": "confirmed", "draft": raw]]])
+        await model.hydrateDraftRestoringQueuedSaves(from:
+            try JSONDecoder().decode(BackendScreenplayProjectSummary.self, from: data))
+        try? await Task.sleep(nanoseconds: 1_100_000_000)
+        XCTAssertEqual(Array(model.fountainDraft.utf8), Array(raw.utf8))
+        XCTAssertEqual(model.latestVersionID, "confirmed")
+        XCTAssertNil(model.conflictState)
+        XCTAssertFalse(model.hasUnsavedDraftChanges)
+        let copies = try await queue.entriesForTesting()
+        XCTAssertTrue(copies.isEmpty)
+    }
+
+    @MainActor
+    func testConflictHydrationRejectsOlderUnknownAndMissingHeadsButAcceptsProvenNewerHead() async throws {
+        let owner = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""
+        let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let raw = "  Writer words cafe\u{0301}\r\n"
+        try await queue.enqueue(replacingOwner(of: makeEntry(id: "writer", draft: raw), with: owner))
+        let suite = "them.conflict-ordering.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore:
+            ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "recovery"), draftSaveOutbox: queue)
+        model.autosaveEnabled = false
+        model.selectedProjectID = "project-1"
+        await model.restorePendingDraftSaveBeforeProjectHydration()
+        let conflict = ScreenplayStudioViewModel.SaveConflictState(projectId: "project-1",
+            baseVersionId: "server-v1", serverVersionId: "remote-v3", serverDraft: "New collaborator words",
+            serverDraftExcerpt: "New collaborator words", serverUpdatedAt: 300)
+        await model.handleDraftSaveConflict(conflict, ownerUserId: owner)
+        for (id, draft, updatedAt) in [("remote-v2", "Older collaborator words", 200),
+                                       ("unknown", raw, 0), ("", "", 0),
+                                       ("server-v1", raw, 100)] {
+            let versions: [[String: Any]] = id.isEmpty ? [] : [["id": id, "draft": draft, "updatedAt": updatedAt]]
+            let data = try JSONSerialization.data(withJSONObject: ["id": "project-1", "title": "Test",
+                "activeVersionId": id, "versions": versions])
+            await model.hydrateDraftRestoringQueuedSaves(from:
+                try JSONDecoder().decode(BackendScreenplayProjectSummary.self, from: data))
+            await Task.yield()
+            XCTAssertEqual(model.conflictState, conflict, "An unproven or old head is not a resolution: \(id)")
+            XCTAssertEqual(Array(model.fountainDraft.utf8), Array(raw.utf8))
+            XCTAssertTrue(model.hasUnsavedDraftChanges)
+            let copies = try await queue.entriesForTesting()
+            XCTAssertEqual(copies.map(\.draft), [raw])
+            XCTAssertEqual(copies.first?.status, .parked)
+        }
+        let sameHead = try JSONSerialization.data(withJSONObject: ["id": "project-1", "title": "Test",
+            "activeVersionId": "remote-v3", "versions": [["id": "remote-v3", "draft": "New collaborator words"]]])
+        await model.hydrateDraftRestoringQueuedSaves(from:
+            try JSONDecoder().decode(BackendScreenplayProjectSummary.self, from: sameHead))
+        XCTAssertEqual(model.conflictState?.serverUpdatedAt, 300,
+            "A sparse response for the known version must not erase its ordering evidence.")
+        let newer = try JSONSerialization.data(withJSONObject: ["id": "project-1", "title": "Test",
+            "activeVersionId": "remote-v4", "versions": [["id": "remote-v4", "draft": "Newest words", "updatedAt": 400]]])
+        await model.hydrateDraftRestoringQueuedSaves(from:
+            try JSONDecoder().decode(BackendScreenplayProjectSummary.self, from: newer))
+        XCTAssertEqual(model.conflictState?.serverVersionId, "remote-v4")
+        XCTAssertEqual(model.conflictState?.serverDraft, "Newest words")
+        XCTAssertEqual(Array(model.fountainDraft.utf8), Array(raw.utf8))
+        try? await Task.sleep(nanoseconds: 1_100_000_000)
+        let retained = try await queue.entriesForTesting()
+        XCTAssertEqual(retained.map(\.draft), [raw])
+        XCTAssertEqual(retained.first?.status, .parked)
+    }
+
+    @MainActor
+    func testDelayedBaseHydrationCannotClearAnUnresolvedNewerServerConflict() async throws {
+        let owner = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""
+        let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let raw = "  Writer words cafe\u{0301}\r\n"
+        try await queue.enqueue(replacingOwner(of: makeEntry(id: "writer", draft: raw), with: owner))
+        let suite = "them.stale-conflict-hydration.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore:
+            ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "recovery"), draftSaveOutbox: queue)
+        model.autosaveEnabled = false
+        model.selectedProjectID = "project-1"
+        await model.restorePendingDraftSaveBeforeProjectHydration()
+        let conflict = ScreenplayStudioViewModel.SaveConflictState(projectId: "project-1",
+            baseVersionId: "server-v1", serverVersionId: "remote-v2", serverDraft: "Collaborator words",
+            serverDraftExcerpt: "Collaborator words", serverUpdatedAt: 200)
+        await model.handleDraftSaveConflict(conflict, ownerUserId: owner)
+        // A detail request started before v2 was observed returns its old v1 response.
+        let data = try JSONSerialization.data(withJSONObject: ["id": "project-1", "title": "Test",
+            "activeVersionId": "server-v1", "versions": [["id": "server-v1", "draft": "Original saved words"]]])
+        await model.hydrateDraftRestoringQueuedSaves(from:
+            try JSONDecoder().decode(BackendScreenplayProjectSummary.self, from: data))
+        try? await Task.sleep(nanoseconds: 1_100_000_000)
+        XCTAssertEqual(model.conflictState, conflict, "A delayed base response is not the writer's resolution.")
+        XCTAssertEqual(Array(model.fountainDraft.utf8), Array(raw.utf8))
+        XCTAssertTrue(model.hasUnsavedDraftChanges)
+        XCTAssertEqual(model.latestVersionID, "server-v1")
+        let copies = try await queue.entriesForTesting()
+        XCTAssertEqual(copies.map(\.draft), [raw])
+        XCTAssertEqual(copies.first?.status, .parked)
+    }
+
     func testBlankSnapshotQueueRequiresExplicitFlagAndWriterSource() async throws {
         let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
         var snapshot = makeEntry(id: "blank-snapshot", draft: "", source: "studio_snapshot")
