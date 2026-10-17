@@ -8,7 +8,7 @@
 ### T-957 — Batch blank-save and recovery integration
 
 - **Owner:** codex. **Branch:** `codex/T-957-blank-recovery-integration`.
-- **Status:** in-progress. **Pillar:** mobile-first writer data safety.
+- **Status:** review. **Pillar:** mobile-first writer data safety.
 - **Scope:** preserve original #928–#931 heads with no-ff merges above T-956;
   reconcile hydration, deliberate deletion, blank snapshots and loaded history.
 - **Done when:** focused server contracts, signed recovery/outbox units and four
@@ -16,6 +16,10 @@
 - **DECIDED:** batch related fixes and verify one combined checkpoint, per the
   human's request to spend less time repeating full suites. No main mutation,
   replacement PR, paid provider call or physical-phone completion claim.
+- **VERIFIED:** combined signed recovery/outbox units 124/0/0; authenticated
+  recovery UI 4/0/0; pinned Node20 handler/restart contracts 73/0/0; runner
+  contracts 5/0/0; syntax, D009 versus T-956 and diff pass. Full suites deliberately
+  not repeated at this checkpoint. See `docs/blank-recovery-integration-2026-10-16.md`.
 
 ### T-932 — Exact blank history restore and durable snapshot journey
 
