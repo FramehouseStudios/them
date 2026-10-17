@@ -791,6 +791,57 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
 
   // ---------- Phase 2b: write routes ----------
 
+  function newProjectRecord(id, title, now) {
+    return {
+      id, title, archived: false, tags: [], characters: [], setting: "", tone: "",
+      promptSeed: "", logline: "", themeArgument: "", centralQuestion: "",
+      protagonistWant: "", protagonistNeed: "", antagonisticForce: "", actPosition: "",
+      endingImage: "", unresolvedSetups: [], createdAt: now, updatedAt: now,
+      lastPhase: "scene_draft", activeVersionId: "", lastVersionId: "", lastVersionAt: 0,
+      studioThreadViewState: null, studioDiffAcknowledgedKeys: [], studioDiffAcknowledgedEntries: [],
+      studioAskNoteHistory: [], outline: createEmptyScreenplayOutline(), versions: [],
+      collaborators: [], comments: [],
+    };
+  }
+
+  // A durable client identity is scoped by the authenticated owner, never by
+  // the URL alone. Replays return the project without updating or activating it.
+  app.put("/screenplay/projects/:projectId/creation", express.json({ limit: "512kb" }), async (req, res) => {
+    const owner = getAuthorizedScreenplayOwner(req, res, "screenplay_project");
+    if (!owner) return;
+    const id = String(req.params.projectId || "");
+    if (!/^[A-Za-z0-9_-]{1,64}$/.test(id) || (req.body?.project_id != null && req.body.project_id !== id)) {
+      return res.status(400).json({ stage: "screenplay_project", error: "invalid_project_id" });
+    }
+    const title = normalizeSnippet(req.body?.title, 160);
+    if (!title) return res.status(400).json({ stage: "screenplay_project", error: "title_required" });
+    const now = Date.now();
+    const commit = await commitScreenplayOwnerMutation({
+      ownerKey: owner.ownerKey, now,
+      mutate(nextOwner) {
+        if (getScreenplayProjectRecord(nextOwner, id)) return { commit: false, created: false };
+        const project = newProjectRecord(id, title, now);
+        project.lastPhase = normalizeScreenplayPhaseValue(req.body?.phase);
+        nextOwner.projects.unshift(project);
+        nextOwner.activeProjectId = id;
+        return { created: true };
+      },
+    });
+    if (!commit?.ok) return sendScreenplayCommitFailure(res, "screenplay_project", commit);
+    const committedOwner = commit.owner || owner;
+    const project = getScreenplayProjectRecord(committedOwner, id);
+    if (!project) return sendScreenplayCommitFailure(res, "screenplay_project", { ok: false });
+    const created = commit.result?.created === true;
+    applyReadStateHeaders(res, buildScreenplayReadMeta(req, committedOwner));
+    return res.status(created ? 201 : 200).json(buildScreenplayEnvelope(req, committedOwner, {
+      stage: "screenplay_project", status: created ? "created" : "replayed",
+      created, replayed: !created, project_id: id,
+      project: toScreenplayProjectPayload(project, { includeVersions: true, includeDrafts: true, versionLimit: 24 }),
+      screenplay_active_project_id: committedOwner.activeProjectId || "",
+      screenplay_project_count: committedOwner.projects.length,
+    }));
+  });
+
   app.post("/screenplay/projects", express.json({ limit: "512kb" }), async (req, res) => {
     const owner = await getFreshAuthorizedScreenplayOwner(req, res, "screenplay_project");
     if (!owner) return;
@@ -821,39 +872,7 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
       || Object.prototype.hasOwnProperty.call(req.body, "studio_exchange_history")
       || Object.prototype.hasOwnProperty.call(req.body, "studioExchangeHistory")
     );
-    const project = existing || {
-      id: requestedProjectId || createScreenplayId("project"),
-      title,
-      archived: false,
-      tags: [],
-      characters: [],
-      setting: "",
-      tone: "",
-      promptSeed: "",
-      logline: "",
-      themeArgument: "",
-      centralQuestion: "",
-      protagonistWant: "",
-      protagonistNeed: "",
-      antagonisticForce: "",
-      actPosition: "",
-      endingImage: "",
-      unresolvedSetups: [],
-      createdAt: now,
-      updatedAt: now,
-      lastPhase: "scene_draft",
-      activeVersionId: "",
-      lastVersionId: "",
-      lastVersionAt: 0,
-      studioThreadViewState: null,
-      studioDiffAcknowledgedKeys: [],
-      studioDiffAcknowledgedEntries: [],
-      studioAskNoteHistory: [],
-      outline: createEmptyScreenplayOutline(),
-      versions: [],
-      collaborators: [],
-      comments: [],
-    };
+    const project = existing || newProjectRecord(requestedProjectId || createScreenplayId("project"), title, now);
     project.title = title;
     project.tags = normalizeScreenplayStringList(req.body?.tags, 24, 48);
     project.characters = normalizeScreenplayStringList(req.body?.characters, 24, 48);

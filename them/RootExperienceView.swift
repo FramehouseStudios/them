@@ -5974,6 +5974,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
         phase: String,
         existingProjectID: String
     ) {
+        guard ScreenplayLocalDraftRecoveryStore().allowsAutomaticProjectCreation(ownerUserId: BackendAuthClient.currentAuthSessionState().user?.userId ?? "") else { return }
         let cleanDraft = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         let knownProjectID = existingProjectID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             ? screenplayDraftBridge.preferredProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -5986,9 +5987,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
             isAutoCreatingProject: isAutoCreatingStudioProject,
             createKey: createKey,
             lastCreateKey: lastAutoCreatedStudioProjectKey
-        ) else {
-            return
-        }
+        ) else { return }
 
         isAutoCreatingStudioProject = true
         let creatingOwnerID = BackendAuthClient.currentAuthSessionState().user?.userId

@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 import { startBackend } from "../tests/helpers/backend_test_server.mjs";
+import { startCreationReplyFaultProxy } from "./creation_reply_fault_proxy.mjs";
 import {
   assertSinglePassedTestSummary,
   failureOutputTail,
@@ -15,7 +16,10 @@ const APP_TOKEN = "them-dev";
 const configuredPort = (process.env.THEM_UITEST_WRITER_LOOP_BACKEND_PORT || "").trim();
 const requestedPort = configuredPort ? Number(configuredPort) : null;
 const ROOT_DIR = fileURLToPath(new URL("../..", import.meta.url));
-const WRITER_LOOP_TEST = "themUITests/V1SmokeUITests/test_integrated_iphone_writer_loop_creates_saves_exports_and_restores";
+const creationFault = process.env.THEM_UITEST_CREATION_REPLY_FAULT === "1";
+const WRITER_LOOP_TEST = creationFault
+  ? "themUITests/V1SmokeUITests/test_project_creation_lost_reply_survives_relaunch_and_retries_once"
+  : "themUITests/V1SmokeUITests/test_integrated_iphone_writer_loop_creates_saves_exports_and_restores";
 
 if (requestedPort !== null && (!Number.isInteger(requestedPort) || requestedPort < 1 || requestedPort > 65_535)) {
   throw new Error("THEM_UITEST_WRITER_LOOP_BACKEND_PORT must be an integer from 1 through 65535.");
@@ -31,6 +35,7 @@ const RESULT_BUNDLE_PATH = path.join(ARTIFACT_DIR, "writer-loop.xcresult");
 console.log(`writer-loop artifacts: ${ARTIFACT_DIR}`);
 
 let server = null;
+let proxy = null;
 try {
   server = await startBackend({
     port: requestedPort,
@@ -42,9 +47,10 @@ try {
       KNOWLEDGE_RAG_EMBEDDINGS_ENABLED: "0",
     },
   });
+  if (creationFault) proxy = await startCreationReplyFaultProxy(server.baseUrl, APP_TOKEN);
   writeFileSync(
     XCCONFIG_PATH,
-    `THEM_UITEST_WRITER_LOOP_BACKEND_PORT = ${server.port}\n`,
+    `THEM_UITEST_WRITER_LOOP_BACKEND_PORT = ${proxy?.port ?? server.port}\n`,
     { encoding: "utf8", mode: 0o600 }
   );
 
@@ -128,5 +134,6 @@ try {
   console.log("studio-ios-writer-loop-contract-smoke: ok");
 } finally {
   if (existsSync(XCCONFIG_PATH)) unlinkSync(XCCONFIG_PATH);
+  if (proxy) await proxy.stop();
   if (server) await server.stop();
 }

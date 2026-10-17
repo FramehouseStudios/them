@@ -471,9 +471,9 @@ test("[screenplay-projects-routes] GET /comments returns 404 for unknown project
 
 // ---------- Phase 2b: write-route smoke tests ----------
 
-async function postJson(baseURL, path, body) {
+async function postJson(baseURL, path, body, method = "POST") {
   const r = await fetch(`${baseURL}${path}`, {
-    method: "POST",
+    method,
     headers: {
       connection: "close",
       "content-type": "application/json",
@@ -518,6 +518,51 @@ test("[screenplay-projects-routes] legacy project writes refresh a project creat
     assert.equal(response.status, 200);
     assert.equal(response.body.project_id, "remote-project");
     assert.equal(freshOwner.projects.at(-1).comments.length, 1);
+  });
+});
+
+test("[screenplay-projects-routes] creation replay is atomic and cannot mutate later project metadata or selection", async () => {
+  const deps = defaultDeps();
+  await withTestServer(deps, async (baseURL) => {
+    const responses = await Promise.all(Array.from({ length: 4 }, () =>
+      postJson(baseURL, "/screenplay/projects/intent-one/creation", { title: "Original" }, "PUT")));
+    assert.equal(responses.filter(r => r.status === 201).length, 1);
+    assert.equal(responses.filter(r => r.status === 200).length, 3);
+    assert.equal(deps._owner.projects.filter(p => p.id === "intent-one").length, 1);
+    const project = deps._owner.projects.find(p => p.id === "intent-one");
+    project.title = "Later title"; project.tags = ["keep"]; project.logline = "Later ideas";
+    deps._owner.activeProjectId = "p2";
+    const before = structuredClone(deps._owner);
+    const writes = deps._commitStats.writes;
+    const replay = await postJson(baseURL, "/screenplay/projects/intent-one/creation", { title: "Stale title" }, "PUT");
+    assert.equal(replay.status, 200);
+    assert.equal(replay.body.replayed, true);
+    assert.equal(replay.body.project.title, "Later title");
+    assert.deepEqual(deps._owner, before);
+    assert.equal(deps._commitStats.writes, writes);
+  });
+});
+
+test("[screenplay-projects-routes] creation rejects anonymous, mismatched and malformed identities without mutations", async () => {
+  const deps = defaultDeps();
+  await withTestServer(deps, async baseURL => {
+    assert.equal((await postJson(baseURL, "/screenplay/projects/id/creation", { title: "No" }, "PUT")).status, 401);
+  }, { authenticated: false });
+  await withTestServer(deps, async baseURL => {
+    for (const [id, body] of [["id", {title: "No", project_id: "other"}], ["bad%20id", {title: "No"}], ["ok", {title: ""}]]) {
+      assert.equal((await postJson(baseURL, `/screenplay/projects/${id}/creation`, body, "PUT")).status, 400);
+    }
+    assert.equal(deps._commitStats.writes, 0);
+  });
+});
+
+test("[screenplay-projects-routes] creation fails closed when the canonical commit fails", async () => {
+  const deps = defaultDeps({ commitScreenplayOwnerMutation: async () => ({ ok: false }) });
+  await withTestServer(deps, async baseURL => {
+    const r = await postJson(baseURL, "/screenplay/projects/id/creation", { title: "No" }, "PUT");
+    assert.equal(r.status, 503);
+    assert.equal(r.body.error, "screenplay_persistence_failed");
+    assert.equal(deps._owner.projects.some(p => p.id === "id"), false);
   });
 });
 

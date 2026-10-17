@@ -1491,6 +1491,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
     @Published var selectedProjectID: String = "" {
         didSet {
             if oldValue != selectedProjectID {
+                noteProjectSelectionDuringCreation()
                 collaborationSelectionGeneration &+= 1
                 collaborationRefreshID = nil
                 isCollaborationRefreshing = false
@@ -1752,6 +1753,65 @@ final class ScreenplayStudioViewModel: ObservableObject {
     private var projectCreationID: UUID?
     private var projectCreationSelectionGeneration: UInt64?
     private var projectCreationAuthContext: ScreenplayStudioAuthContext?
+    @Published private var storedProjectCreation: ScreenplayProjectCreationIntent?
+    var pendingProjectCreationTitle: String? {
+        storedProjectCreation?.ownerUserId == currentStudioAuthContext().userID ? storedProjectCreation?.title : nil
+    }
+
+    private func noteProjectSelectionDuringCreation() {
+        if let context = projectCreationAuthContext, !authContextIsCurrent(context) { return }
+        guard var intent = storedProjectCreation, intent.ownerUserId == currentStudioAuthContext().userID,
+              selectedProjectID != intent.projectId, intent.restoreAsCurrent else { return }
+        intent.restoreAsCurrent = false
+        do { try localDraftRecoveryStore.saveProjectCreation(intent); storedProjectCreation = intent }
+        catch { errorText = error.localizedDescription }
+    }
+
+    private func pendingCreationProject(_ intent: ScreenplayProjectCreationIntent) throws -> BackendScreenplayProjectSummary {
+        try JSONDecoder().decode(BackendScreenplayProjectSummary.self, from:
+            JSONSerialization.data(withJSONObject: ["id": intent.projectId, "title": intent.title, "versions": []]))
+    }
+
+    private func restoreProjectCreationIfNeeded() {
+        do {
+            let intent = try localDraftRecoveryStore.pendingProjectCreation(ownerUserId: currentStudioAuthContext().userID)
+            storedProjectCreation = intent
+            guard let intent else { return }
+            if newProjectTitle.isEmpty { newProjectTitle = intent.title }
+            guard intent.restoreAsCurrent, intent.seedsLiveDraft else { return }
+            let project = try pendingCreationProject(intent)
+            upsertProject(project)
+            selectedProjectID = project.id
+            selectedProject = project
+            isHydratingDraft = true
+            fountainDraft = intent.draft
+            isHydratingDraft = false
+            // A local pending project is not ready for live sync or a normal save.
+            loadedDraftProjectID = ""
+            hasUnsavedDraftChanges = true
+            isManualDraftEditing = true
+            autosaveStatusText = "Project kept locally - retry creation"
+            infoText = "Your first scene is kept on this device. Retry creating \(intent.title)."
+        } catch { errorText = error.localizedDescription }
+    }
+
+    private func retainPendingCreationDraftIfNeeded() {
+        if let context = projectCreationAuthContext, !authContextIsCurrent(context) { return }
+        guard var intent = storedProjectCreation, intent.ownerUserId == currentStudioAuthContext().userID,
+              intent.seedsLiveDraft, intent.restoreAsCurrent,
+              selectedProjectID.isEmpty || selectedProjectID == intent.projectId else { return }
+        guard !ScreenplayDraftTextIdentity.matches(intent.draft, fountainDraft) else { return }
+        intent.draft = fountainDraft
+        do { try localDraftRecoveryStore.saveProjectCreation(intent); storedProjectCreation = intent }
+        catch { errorText = error.localizedDescription }
+    }
+
+    private func finishProjectCreation(_ projectId: String, ownerUserId: String) {
+        do {
+            try localDraftRecoveryStore.clearProjectCreation(ownerUserId: ownerUserId, projectId: projectId)
+            if storedProjectCreation?.projectId == projectId { storedProjectCreation = nil }
+        } catch { errorText = error.localizedDescription }
+    }
 
     private struct CollaborationScope {
         let id = UUID()
@@ -1811,6 +1871,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         self.projectSelectionAPI = projectSelectionAPI
         self.conflictProjectLoader = conflictProjectLoader
         fountainDraft = ScreenplayLiveDraftBridge.shared.draftText
+        restoreProjectCreationIfNeeded()
         draftDebounceCancellable = $fountainDraft
             .removeDuplicates()
             .debounce(for: .milliseconds(900), scheduler: RunLoop.main)
@@ -1842,6 +1903,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
     }
 
     func load() async {
+        if projectCreationID != nil, let context = projectCreationAuthContext, authContextIsCurrent(context) { return }
         guard !IOThemRuntime.isRunningTests else {
             didLoadScreenplayProjectsFromBackend = false
             projects = []
@@ -1854,6 +1916,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
             syncLiveDraftBridgeProjectContext(clearWhenEmpty: true)
             return
         }
+        restoreProjectCreationIfNeeded()
         let requestID = UUID()
         let authContext = currentStudioAuthContext()
         let selectedProjectIDAtStart = selectedProjectID
@@ -1906,6 +1969,24 @@ final class ScreenplayStudioViewModel: ObservableObject {
         lastSeenScreenplayStateVersion = result.payload.stateVersion?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         projects = result.payload.screenplayProjects
+        if let intent = storedProjectCreation, intent.ownerUserId == authContext.userID, intent.restoreAsCurrent {
+            let remote = projects.first { $0.id == intent.projectId }
+            guard let local = try? pendingCreationProject(intent) else {
+                errorText = "Pending project recovery could not be opened. Its device copy is retained."
+                return
+            }
+            upsertProject(remote ?? local)
+            selectedProjectID = intent.projectId
+            selectedProject = remote ?? projects.first { $0.id == intent.projectId }
+            if remote != nil {
+                loadedDraftProjectID = intent.projectId
+                await loadSelectedProjectOutline()
+                guard authContextIsCurrent(authContext), activeLoadRequestID == requestID,
+                      selectedProjectID == intent.projectId else { return }
+                await resumeQueuedDraftSavesIfNeeded()
+            }
+            return
+        }
         let bridgePreferredProjectID = ScreenplayLiveDraftBridge.shared.preferredProjectID
         selectedProjectID = ScreenplayProjectSelectionRestorePolicy.selectedProjectId(
             activeProjectId: result.payload.screenplayActiveProjectId,
@@ -2310,6 +2391,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
 
     func noteManualDraftEdit() {
         guard !isHydratingDraft else { return }
+        retainPendingCreationDraftIfNeeded()
         isManualDraftEditing = true
         stopFollowingRemoteLiveDraft()
         lastManualDraftEditAt = Date()
@@ -2338,8 +2420,16 @@ final class ScreenplayStudioViewModel: ObservableObject {
     }
 
     func createProject() async {
-        guard (selectedProjectID.isEmpty && selectedProject == nil) || selectedProject?.id == selectedProjectID,
-              loadedDraftProjectID == selectedProjectID else {
+        let context = currentStudioAuthContext()
+        let pending: ScreenplayProjectCreationIntent?
+        do {
+            pending = try localDraftRecoveryStore.pendingProjectCreation(ownerUserId: context.userID)
+            storedProjectCreation = pending
+        } catch { errorText = error.localizedDescription; return }
+        let pendingOwnsDraft = pending?.projectId == selectedProjectID && pending?.seedsLiveDraft == true
+            && ScreenplayDraftTextIdentity.matches(pending?.draft ?? "", fountainDraft)
+        guard ((selectedProjectID.isEmpty && selectedProject == nil) || selectedProject?.id == selectedProjectID),
+              loadedDraftProjectID == selectedProjectID || pendingOwnsDraft else {
             errorText = "Wait for the current project to finish loading before creating a project."
             return
         }
@@ -2348,12 +2438,11 @@ final class ScreenplayStudioViewModel: ObservableObject {
             return
         }
         let submittedTitle = newProjectTitle
-        let title = submittedTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        let title = pending?.title ?? submittedTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !title.isEmpty else {
             errorText = "Enter a project title first."
             return
         }
-        let context = currentStudioAuthContext()
         let originalProjectID = selectedProjectID
         let hasSelectedProject = selectedProject != nil || !originalProjectID.isEmpty
         let creationID = UUID()
@@ -2379,17 +2468,29 @@ final class ScreenplayStudioViewModel: ObservableObject {
         }
         errorText = ""
         do {
+            var intent = pending ?? ScreenplayProjectCreationIntent(projectId: UUID().uuidString.lowercased(),
+                ownerUserId: context.userID, title: title,
+                draft: StudioNewProjectSeedPolicy.seedDraft(currentDraft: fountainDraft, hasSelectedProject: hasSelectedProject),
+                seedsLiveDraft: !hasSelectedProject, restoreAsCurrent: !hasSelectedProject)
+            try localDraftRecoveryStore.saveProjectCreation(intent)
+            storedProjectCreation = intent
             let result = try await draftSaveAPI.upsertScreenplayProject(
+                projectId: intent.projectId,
                 title: title,
+                creationOnly: true,
                 phase: "scene_draft"
             )
             guard isCurrent() else { return }
             guard let project = result.payload.project,
-                  !project.id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                  project.id == intent.projectId else {
                 throw BackendMemoryAPIError.invalidResponse
             }
-            let seededDraft = StudioNewProjectSeedPolicy.seedDraft(
-                currentDraft: fountainDraft, hasSelectedProject: hasSelectedProject)
+            if intent.seedsLiveDraft && (originalProjectID.isEmpty || originalProjectID == intent.projectId) {
+                intent.draft = fountainDraft
+                try localDraftRecoveryStore.saveProjectCreation(intent)
+                storedProjectCreation = intent
+            }
+            let seededDraft = intent.draft
             if hasSelectedProject, hasUnsavedDraftChanges {
                 persistRecoveryForUnconfirmedSave(projectId: originalProjectID,
                     draft: fountainDraft, baseVersionId: latestVersionID, surfaceCandidate: false)
@@ -2403,7 +2504,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
             studioWriteAnchors = []
             screenplayBindings = []
             applyServerDraft("", versionId: "", allowOverwriteDirtyLocalDraft: true)
-            if ScreenplayDraftTextIdentity.matches(newProjectTitle, submittedTitle) {
+            if ScreenplayDraftTextIdentity.matches(newProjectTitle, submittedTitle),
+               ScreenplayDraftTextIdentity.matches(title, submittedTitle.trimmingCharacters(in: .whitespacesAndNewlines)) {
                 newProjectTitle = ""
             }
             if !seededDraft.isEmpty {
@@ -2414,10 +2516,33 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 isManualDraftEditing = true
                 persistRecoveryForUnconfirmedSave(projectId: project.id,
                     draft: seededDraft, baseVersionId: "")
-                guard let request = makeDraftSaveRequest(draft: seededDraft,
+                let queued = try await draftSaveOutbox.pendingEntry(projectId: project.id, ownerUserId: context.userID)
+                guard isCurrent() else { return }
+                if queued == nil, let head = ScreenplayServerChoicePolicy.currentHead(in: project) {
+                    if let draft = head.draft, ScreenplayDraftTextIdentity.matches(draft, seededDraft) {
+                        applyServerDraft(draft, versionId: head.id, allowOverwriteDirtyLocalDraft: true)
+                        finishProjectCreation(project.id, ownerUserId: context.userID)
+                    } else {
+                        await handleDraftSaveConflict(.init(projectId: project.id, baseVersionId: "", serverVersionId: head.id,
+                            serverDraft: head.draft ?? "", serverDraftExcerpt: head.draftExcerpt ?? "",
+                            serverUpdatedAt: head.updatedAt ?? head.createdAt ?? 0), ownerUserId: context.userID)
+                    }
+                    return
+                }
+                guard let request = queued.map({ DraftSaveRequest(entry: $0, authContext: context,
+                    authorityGeneration: draftSaveAuthorityGeneration) }) ?? makeDraftSaveRequest(draft: seededDraft,
                     source: "studio_initial_seed", notes: "Initial Studio draft", baseVersionOverride: "") else {
                     throw BackendMemoryAPIError.invalidResponse
                 }
+                if queued?.status == .parked {
+                    finishProjectCreation(project.id, ownerUserId: context.userID)
+                    hydrateDraft(from: project)
+                    infoText = "Project recovered. Your first page is kept locally; resolve its pending save."
+                    return
+                }
+                try await draftSaveOutbox.enqueue(request.outboxEntry)
+                guard isCurrent() else { return }
+                finishProjectCreation(project.id, ownerUserId: context.userID)
                 let confirmed = await performDraftSave(request)
                 if !confirmed && !isCurrent() {
                     // Admission is actor-serialized: never revive a parked or
@@ -2430,6 +2555,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
                     infoText = "Project created. Your first page is kept locally; use Save Now to retry."
                     return
                 }
+            } else {
+                finishProjectCreation(project.id, ownerUserId: context.userID)
             }
             infoText = seededDraft.isEmpty
                 ? "Project saved."
@@ -4425,6 +4552,12 @@ final class ScreenplayStudioViewModel: ObservableObject {
     }
 
     func manualSaveDraft() async {
+        retainPendingCreationDraftIfNeeded()
+        if storedProjectCreation?.projectId == selectedProjectID,
+           storedProjectCreation?.ownerUserId == currentStudioAuthContext().userID, projectCreationID == nil {
+            await createProject()
+            return
+        }
         rememberBlankWriterEdit()
         await saveCurrentDraft(source: "studio_manual")
     }
@@ -5930,6 +6063,13 @@ final class ScreenplayStudioViewModel: ObservableObject {
         await restorePendingDraftSaveBeforeProjectHydration(expectedGeneration: generation)
         guard projectHydrationGeneration == generation, authContextIsCurrent(context),
               project.id == selectedProjectID else { return false }
+        if let intent = storedProjectCreation, intent.ownerUserId == context.userID,
+           intent.projectId == project.id, intent.restoreAsCurrent, intent.seedsLiveDraft,
+           ScreenplayDraftTextIdentity.matches(intent.draft, fountainDraft) {
+            // A confirmed detail now establishes this pending page's identity,
+            // including detail refreshes that did not pass through load().
+            loadedDraftProjectID = project.id
+        }
         hydrateDraft(from: project)
         return true
     }
@@ -6180,8 +6320,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
             projectId: project.id,
             ownerUserId: ownerUserId,
             draft: draft,
-            title: project.title,
-            phase: project.lastPhase ?? "scene_draft",
+            title: source == "studio_initial_seed" ? "" : project.title,
+            phase: source == "studio_initial_seed" ? "" : project.lastPhase ?? "scene_draft",
             source: source,
             notes: notes,
             studioWriteAnchors: studioWriteAnchors,
@@ -6319,6 +6459,12 @@ final class ScreenplayStudioViewModel: ObservableObject {
         baseVersionOverride: String? = nil,
         draftOverride: String? = nil
     ) async {
+        if projectCreationID == nil, storedProjectCreation?.ownerUserId == currentStudioAuthContext().userID,
+           storedProjectCreation?.projectId == selectedProjectID {
+            retainPendingCreationDraftIfNeeded()
+            autosaveStatusText = "Project kept locally - retry creation"
+            return
+        }
         if projectCreationID != nil {
             guard let context = projectCreationAuthContext, authContextIsCurrent(context) else { return }
             if hasUnsavedDraftChanges {
@@ -6692,6 +6838,10 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 currentDraft: fountainDraft,
                 savedDraft: request.draft
             )
+            if storedProjectCreation?.projectId == request.projectId,
+               storedProjectCreation?.ownerUserId == request.ownerUserId {
+                finishProjectCreation(request.projectId, ownerUserId: request.ownerUserId)
+            }
             if !hasUnsavedDraftChanges {
                 // The editor shows exactly what was saved, so the checksum the
                 // follower compares against its own editor text will match.
@@ -7207,6 +7357,16 @@ final class ScreenplayStudioViewModel: ObservableObject {
             serverDraft: serverDraft,
             fingerprint: { [weak self] value in self?.fingerprint(for: value) ?? value }
         ) else {
+            recoveryCandidate = nil
+            return
+        }
+        // The pending-creation page already restores these exact words and
+        // exposes Retry. Do not put a duplicate recovery decision over it.
+        if !snapshot.isPreservedConflict, let intent = storedProjectCreation,
+           intent.ownerUserId == currentStudioAuthContext().userID,
+           intent.projectId == normalizedProjectId, intent.restoreAsCurrent, intent.seedsLiveDraft,
+           ScreenplayDraftTextIdentity.matches(snapshot.draft, intent.draft),
+           ScreenplayDraftTextIdentity.matches(fountainDraft, intent.draft) {
             recoveryCandidate = nil
             return
         }

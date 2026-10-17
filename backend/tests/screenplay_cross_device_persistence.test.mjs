@@ -11,6 +11,64 @@ function authHeaders(token) {
   return { Authorization: `Bearer ${token}` };
 }
 
+test("[screenplay-cross-device] create intent replays after restart without metadata, selection or owner crossover", async () => {
+  const env = { REQUIRE_USER_AUTH: "true", CLEMENTINE_MUSE_ENABLED: "0", KNOWLEDGE_RAG_EMBEDDINGS_ENABLED: "0" };
+  let server = await startBackend({ env });
+  const dataDir = server.dataDir;
+  const stamp = randomUUID().replace(/-/g, "");
+  const email = `create-${stamp}@example.test`, password = `Create-${stamp}-aA1!`;
+  const id = randomUUID(), otherId = randomUUID();
+  const raw = " \r\nINT. FIRST ROOM - NIGHT\r\nA cafe\u0301 door opens.\t ";
+  let versionId;
+  try {
+    let headers = authHeaders(await signup(server, email, password, "Creation proof"));
+    const create = () => apiRequest(server, `/screenplay/projects/${id}/creation`, {
+      method: "PUT", headers, json: { title: "Original title", phase: "scene_draft" } });
+    assert.equal((await apiRequest(server, `/screenplay/projects/${id}/creation`, {
+      method: "PUT", json: { title: "Anonymous" } })).status, 401);
+    const first = await create();
+    assert.equal(first.status, 201, first.text);
+    const seed = await apiRequest(server, `/screenplay/projects/${id}/version`, {
+      method: "POST", headers, json: { draft: raw, source: "studio_initial_seed",
+        client_request_id: "durable-first-scene", conflict_strategy: "reject_if_stale" } });
+    assert.equal(seed.status, 201, seed.text);
+    versionId = seed.json.version_id;
+    assert.equal((await apiRequest(server, "/screenplay/projects", { method: "POST", headers,
+      json: { project_id: otherId, title: "Other active project" } })).status, 201);
+    assert.equal((await apiRequest(server, "/screenplay/projects", { method: "POST", headers,
+      json: { project_id: id, title: "Later title", logline: "Later ideas", tags: ["keep"], activate: false } })).status, 200);
+    assert.equal((await server.stop()).forced, false);
+    server = await startBackend({ dataDir, env });
+    headers = authHeaders(await login(server, email, password));
+    const replay = await create();
+    assert.equal(replay.status, 200, replay.text);
+    assert.equal(replay.json.replayed, true);
+    assert.equal(replay.json.project.title, "Later title");
+    assert.equal(replay.json.project.logline, "Later ideas");
+    assert.deepEqual(replay.json.project.tags, ["keep"]);
+    assert.equal(replay.json.screenplay_active_project_id, otherId);
+    assert.equal(replay.json.screenplay_project_count, 2);
+    assert.equal(replay.json.project.versions.length, 1);
+    assert.equal(replay.json.project.versions[0].draft, raw);
+    const repeatedSeed = await apiRequest(server, `/screenplay/projects/${id}/version`, {
+      method: "POST", headers, json: { draft: raw, source: "studio_initial_seed",
+        client_request_id: "durable-first-scene", conflict_strategy: "reject_if_stale" } });
+    assert.equal(repeatedSeed.status, 200, repeatedSeed.text);
+    assert.equal(repeatedSeed.json.version_id, versionId);
+    assert.equal(repeatedSeed.json.project.versions.length, 1);
+    const stranger = authHeaders(await signup(server, `stranger-${stamp}@example.test`, password, "Other owner"));
+    assert.equal((await apiRequest(server, `/screenplay/projects/${id}`, { headers: stranger })).status, 404);
+    const isolated = await apiRequest(server, `/screenplay/projects/${id}/creation`, {
+      method: "PUT", headers: stranger, json: { title: "Other owner's namespace" } });
+    assert.equal(isolated.status, 201, isolated.text);
+    assert.equal(isolated.json.project.versions.length, 0);
+    const original = await apiRequest(server, `/screenplay/projects/${id}?include_drafts=1`, { headers });
+    assert.equal(original.status, 200, original.text);
+    assert.equal(original.json.project.title, "Later title");
+    assert.equal(original.json.project.versions[0].draft, raw);
+  } finally { await server.stop(); }
+});
+
 for (const source of ["studio_manual", "studio_snapshot"]) {
 test(`[screenplay-cross-device] ${source} blank edits survive restart with exact retry and owner isolation`, async () => {
   let server = await startBackend({ env: { REQUIRE_USER_AUTH: "true" } });

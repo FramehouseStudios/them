@@ -222,7 +222,9 @@ jobs:
 
       - name: Run integrated iPhone writer loop (required)
         working-directory: backend
-        run: npm run eval:studio-ios-writer-loop-contract
+        run: |
+          npm run eval:studio-ios-writer-loop-contract
+          THEM_UITEST_CREATION_REPLY_FAULT=1 npm run eval:studio-ios-writer-loop-contract
 
       - name: Run iOS V1 UI smoke tests (required)
         run: scripts/run_v1_ui_smoke.sh

@@ -2,6 +2,79 @@ import XCTest
 @testable import them
 
 final class ScreenplayProjectCreationTrustTests: XCTestCase {
+    @MainActor func testLostCreationReplySurvivesRelaunchWithOneProjectIdentityAndExactScene() async throws {
+        let suite = "them.creation-relaunch.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer {
+            defaults.removePersistentDomain(forName: suite)
+            try? FileManager.default.removeItem(at: directory)
+            CreationTrustURLProtocol.handler = nil
+        }
+        let store = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "recovery")
+        let transport = CreationTrustTransport(holdCreate: true, holdRequests: false)
+        transport.dropNextCreationReply = true
+        let api = transport.api()
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store,
+            draftSaveOutbox: ScreenplayDraftSaveOutbox(storageDirectory: directory), draftSaveAPI: api, projectSelectionAPI: api)
+        model.autosaveEnabled = false
+        let raw = " \r\nINT. FIRST ROOM - NIGHT\r\nA cafe\u{0301} door opens.\t "
+        model.fountainDraft = raw
+        model.newProjectTitle = "Original title"
+        model.noteManualDraftEdit()
+        await model.createProject()
+        XCTAssertEqual(transport.projectWrites, 1)
+        XCTAssertEqual(transport.versionWrites.count, 0)
+        XCTAssertEqual(Array(model.fountainDraft.utf8), Array(raw.utf8))
+        let owner = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""
+        let intent = try XCTUnwrap(store.pendingProjectCreation(ownerUserId: owner))
+        let reopened = ScreenplayStudioViewModel(localDraftRecoveryStore: store,
+            draftSaveOutbox: ScreenplayDraftSaveOutbox(storageDirectory: directory), draftSaveAPI: api, projectSelectionAPI: api)
+        reopened.autosaveEnabled = false
+        XCTAssertEqual(reopened.selectedProjectID, intent.projectId)
+        XCTAssertEqual(reopened.pendingProjectCreationTitle, "Original title")
+        XCTAssertEqual(Array(reopened.fountainDraft.utf8), Array(raw.utf8))
+        await reopened.refreshSelectedProjectForDebug()
+        XCTAssertEqual(Array(reopened.fountainDraft.utf8), Array(raw.utf8))
+        XCTAssertNil(reopened.recoveryCandidate, "Pending creation owns this exact restored page; Retry must remain reachable.")
+        reopened.newProjectTitle = "A later title must survive retry"
+        await reopened.createProject()
+        XCTAssertEqual(Set(transport.creationIDs), [intent.projectId])
+        XCTAssertEqual(transport.projectWrites, 2, "Two HTTP attempts must reuse one project identity.")
+        XCTAssertEqual(transport.versionWrites.count, 1)
+        XCTAssertEqual(Array(transport.versionWrites[0].utf8), Array(raw.utf8))
+        XCTAssertEqual(reopened.newProjectTitle, "A later title must survive retry")
+        XCTAssertEqual(Array(reopened.fountainDraft.utf8), Array(raw.utf8))
+        XCTAssertFalse(reopened.hasUnsavedDraftChanges)
+        XCTAssertNil(try store.pendingProjectCreation(ownerUserId: owner))
+        try? await Task.sleep(nanoseconds: 1_100_000_000)
+    }
+
+    @MainActor func testPendingCreationCodecIsExactOwnerScopedAndRejectsReplacingAnotherIntent() throws {
+        let suite = "them.creation-codec.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "recovery")
+        let intent = ScreenplayProjectCreationIntent(projectId: UUID().uuidString.lowercased(), ownerUserId: "a",
+            title: "Title", draft: " cafe\u{0301}\r\n ", seedsLiveDraft: true, restoreAsCurrent: true)
+        try store.saveProjectCreation(intent)
+        XCTAssertFalse(store.allowsAutomaticProjectCreation(ownerUserId: "a"))
+        XCTAssertTrue(store.allowsAutomaticProjectCreation(ownerUserId: "b"))
+        let invalidKey = ScreenplayOwnerScopedStoragePolicy.storageKey(baseKey: "recovery", ownerUserID: "b") + ".projectCreation.v1"
+        defaults.set(Data("unreadable intent".utf8), forKey: invalidKey)
+        XCTAssertFalse(store.allowsAutomaticProjectCreation(ownerUserId: "b"), "Corrupt recovery must not enable a second creation path.")
+        defaults.removeObject(forKey: invalidKey)
+        let reopened = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "recovery")
+        XCTAssertEqual(Array(try XCTUnwrap(reopened.pendingProjectCreation(ownerUserId: "a")).draft.utf8), Array(intent.draft.utf8))
+        XCTAssertNil(try reopened.pendingProjectCreation(ownerUserId: "b"))
+        var replacement = intent
+        replacement = ScreenplayProjectCreationIntent(projectId: UUID().uuidString.lowercased(), ownerUserId: "a",
+            title: "Other", draft: "Other", seedsLiveDraft: true, restoreAsCurrent: true)
+        XCTAssertThrowsError(try reopened.saveProjectCreation(replacement))
+        try reopened.clearProjectCreation(ownerUserId: "a", projectId: replacement.projectId)
+        XCTAssertEqual(try reopened.pendingProjectCreation(ownerUserId: "a")?.projectId, intent.projectId)
+    }
+
     @MainActor func testInitialProjectSeedPreservesExactWriterBytes() async throws {
         try await verifyCreation(holdCreate: false, edit: false, switchProject: false)
     }
@@ -126,20 +199,23 @@ final class ScreenplayProjectCreationTrustTests: XCTestCase {
             await model.manualSaveDraft()
             XCTAssertEqual(model.autosaveStatusText, "Creating project - edits remain on the page")
             XCTAssertEqual(model.selectedProjectID, "")
+            let owner = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""
+            XCTAssertEqual(Array(try XCTUnwrap(recovery.pendingProjectCreation(ownerUserId: owner)).draft.utf8), Array(newer.utf8))
         }
         transport.release()
         await creation.value
+        let createdID = transport.createdID
         let rejected = switchProject || interleave == "aba" || interleave == "auth" || interleave == "save-auth"
         let expected = edit ? newer : original
         XCTAssertEqual(Array(model.fountainDraft.utf8), Array((selectedExisting ? "" : expected).utf8))
-        let expectedID = switchProject ? "other" : (rejected && holdCreate ? "" : "created")
+        let expectedID = switchProject ? "other" : (rejected && holdCreate ? "" : createdID)
         XCTAssertEqual(model.selectedProjectID, expectedID)
         XCTAssertEqual(model.newProjectTitle, edit ? "Next title" : "")
         XCTAssertEqual(transport.projectWrites, 1)
         XCTAssertEqual(transport.versionWrites.count, (selectedExisting || (rejected && holdCreate)) ? 0 : 1)
         let owner = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""
         if interleave == "save-switch" || interleave == "save-auth" {
-            let preserved = try XCTUnwrap(recovery.dirtyOrdinarySnapshot(ownerUserId: owner, projectId: "created"))
+            let preserved = try XCTUnwrap(recovery.dirtyOrdinarySnapshot(ownerUserId: owner, projectId: createdID))
             XCTAssertEqual(Array(preserved.draft.utf8), Array((interleave == "save-switch" ? newer : original).utf8))
             XCTAssertNil(recovery.dirtyOrdinarySnapshot(ownerUserId: owner, projectId: "other"))
         }
@@ -153,7 +229,7 @@ final class ScreenplayProjectCreationTrustTests: XCTestCase {
             XCTAssertEqual(Array(submitted.utf8), Array((holdCreate && edit ? newer : original).utf8))
             XCTAssertEqual(model.hasUnsavedDraftChanges, interleave == "bad-echo" || (edit && !holdCreate))
             if edit && !holdCreate {
-                let snapshot = try XCTUnwrap(recovery.dirtyOrdinarySnapshot(ownerUserId: owner, projectId: "created"))
+                let snapshot = try XCTUnwrap(recovery.dirtyOrdinarySnapshot(ownerUserId: owner, projectId: createdID))
                 XCTAssertEqual(Array(snapshot.draft.utf8), Array(newer.utf8))
             }
         }
@@ -161,14 +237,14 @@ final class ScreenplayProjectCreationTrustTests: XCTestCase {
             XCTAssertEqual(model.latestVersionID, "")
             XCTAssertFalse(model.errorText.isEmpty)
             XCTAssertTrue(model.infoText.contains("Save Now"))
-            let preserved = try XCTUnwrap(recovery.dirtyOrdinarySnapshot(ownerUserId: owner, projectId: "created"))
+            let preserved = try XCTUnwrap(recovery.dirtyOrdinarySnapshot(ownerUserId: owner, projectId: createdID))
             XCTAssertEqual(Array(preserved.draft.utf8), Array(original.utf8))
             let parked = await outbox.snapshot(ownerUserId: owner)
             XCTAssertEqual(parked.parkedCount, 1)
             transport.badEcho = false
             await model.manualSaveDraft()
             XCTAssertEqual(transport.projectWrites, 1)
-            XCTAssertEqual(model.selectedProjectID, "created")
+            XCTAssertEqual(model.selectedProjectID, createdID)
             XCTAssertEqual(model.latestVersionID, "saved")
             let snapshot = await outbox.snapshot(ownerUserId: owner)
             XCTAssertEqual(snapshot.activeCount, 0)
@@ -194,6 +270,11 @@ private final class CreationTrustTransport: @unchecked Sendable {
     private var didHold = false
     private var drafts: [String] = []
     private var creates = 0
+    private var requestedProjectID = "created"
+    var dropNextCreationReply = false
+    private var requestedIDs: [String] = []
+    var creationIDs: [String] { lock.withLock { requestedIDs } }
+    var createdID: String { lock.withLock { requestedProjectID } }
     private var invalidEcho = false
     var badEcho: Bool {
         get { lock.withLock { invalidEcho } }
@@ -208,8 +289,17 @@ private final class CreationTrustTransport: @unchecked Sendable {
         CreationTrustURLProtocol.handler = { [self] stub in
             let path = stub.request.url?.path ?? ""
             if path == "/session" { stub.respond(Data(#"{"client_token":"creation-fixture","expires_in":3600}"#.utf8)); return }
-            if path == "/screenplay/projects" && stub.request.httpMethod == "POST" {
-                lock.withLock { creates += 1 }
+            if path.hasSuffix("/creation") && stub.request.httpMethod == "PUT" {
+                lock.withLock {
+                    creates += 1
+                    requestedProjectID = String(path.split(separator: "/").dropLast().last ?? "")
+                    requestedIDs.append(requestedProjectID)
+                }
+                if dropNextCreationReply {
+                    dropNextCreationReply = false
+                    stub.client?.urlProtocol(stub, didFailWithError: URLError(.timedOut))
+                    return
+                }
             }
             if path.hasSuffix("/version") && stub.request.httpMethod == "POST" {
                 let body = stub.body()
@@ -217,7 +307,7 @@ private final class CreationTrustTransport: @unchecked Sendable {
                 lock.withLock { drafts.append(draft) }
             }
             let shouldHold = lock.withLock { () -> Bool in
-                let isCreate = path == "/screenplay/projects" && stub.request.httpMethod == "POST"
+                let isCreate = path.hasSuffix("/creation") && stub.request.httpMethod == "PUT"
                 let isVersion = path.hasSuffix("/version") && stub.request.httpMethod == "POST"
                 if holdRequests && !didHold && (holdCreate ? isCreate : isVersion) { held = stub; didHold = true; return true }
                 return false
@@ -237,7 +327,7 @@ private final class CreationTrustTransport: @unchecked Sendable {
     }
     private func respond(_ stub: CreationTrustURLProtocol) {
         let latest = lock.withLock { drafts.last }
-        var project: [String: Any] = ["id": "created", "title": "Original title", "versions": []]
+        var project: [String: Any] = ["id": createdID, "title": "Original title", "versions": []]
         var payload: [String: Any] = ["status": "ok", "outline": ["acts": [], "beats": [], "scenes": []],
             "collaborators": [], "comments": []]
         if let latest {

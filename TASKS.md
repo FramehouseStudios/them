@@ -5,6 +5,24 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-961 — Durable project creation after an ambiguous response
+
+- **Owner:** codex. **Branch:** `codex/T-961-durable-project-creation`.
+- **Status:** review. **Pillar:** mobile-first; goal items 1, 4 and 6.
+- **Scope:** owner-scoped durable creation identity/scene before request; atomic
+  create-only replay endpoint; canonical client/outbox recovery across retry and
+  relaunch. Preserve every original source head; no main merge or paid calls.
+- **Done when:** replay creates one project, cannot overwrite later metadata or
+  reactivate on retry; exact initial/newer words survive relaunch; account/project
+  guards and visible retry remain connected, with scoped proof and full checkpoint.
+- **VERIFIED:** Node20 full2827/0/2, offline mentor gate, targeted backend85/0/0;
+  final signed creation/seed units21/0/0 and real lost-reply/relaunch/Retry UI1/0/0.
+  Fixed keyboard dismissal, duplicate recovery overlay and Root's second creation
+  path uncovered by the app journey. D009/diff pass; main/original heads unchanged.
+  Exact manifest, retained failures and limits: `docs/durable-project-creation-2026-10-16.md`.
+  Next: migrate remaining automatic promotion to canonical exact durable creation;
+  reconcile the historical hosted conflict-copy failure on the updated tree.
+
 ### T-960 — First-project durability integration
 
 - **Owner:** codex. **Branch:** `codex/T-960-first-project-integration`.
