@@ -8,13 +8,18 @@
 ### T-960 — First-project durability integration
 
 - **Owner:** codex. **Branch:** `codex/T-960-first-project-integration`.
-- **Status:** in-progress. **Pillars:** mobile-first; goal items 1, 4, 6 and 7.
+- **Status:** review. **Pillars:** mobile-first; goal items 1, 4, 6 and 7.
 - **Scope:** preserve original #939 creation and #940 retained writer evidence
   above T-959; keep exact seed bytes, selection/auth authority, canonical outbox
   and asynchronous evaluator pipe draining. No original head rewrite or main merge.
 - **Done when:** signed focused creation/recovery checks, authenticated writer
   workflow, evidence harness, D009 and diff pass on the combined tree. Batch
   related work; no full-matrix repetition for each original PR boundary.
+- **VERIFIED:** corrected focused units92/0/0, authenticated writer1/0/0,
+  recovery UI5/0/0, Node20 evidence harness6/0/0, runner/helpers22/0/0;
+  syntax/D009/diff pass. Retained new single-case red (six assertions) proves
+  never-loaded creation clearing words/title; root guard fixed in `b2d08b40`.
+  Manifest/remaining ambiguity gap: `docs/first-project-integration-2026-10-16.md`.
 
 ### T-959 — Integrate project context and client lifetime safety
 
