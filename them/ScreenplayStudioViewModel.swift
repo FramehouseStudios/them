@@ -5055,6 +5055,21 @@ final class ScreenplayStudioViewModel: ObservableObject {
                                   projectID: selectedProjectID, draft: fountainDraft)
     }
 
+    /// A debounced callback may outlive its account, project or exact draft.
+    /// Recheck at execution, before beginning any background HTTP request.
+    func refreshCoverageAfterDraftSettles(
+        _ context: ScreenplayCoverageContext,
+        request: ((String, String) async throws -> BackendScreenplayCoverageReport)? = nil
+    ) async {
+        guard !isHydratingDraft, context == currentCoverageContext(),
+              !context.auth.userID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              !context.projectID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              ScreenplayCoverageRefreshPolicy.shouldRefresh(current: coverageReport,
+                draft: context.draft, isRefreshing: isCoverageRefreshing,
+                isStreaming: isStreamingDraftPreviewActive) else { return }
+        await refreshCoverage(source: "Draft", speak: false, request: request)
+    }
+
     private func invalidateCoverageIfContextChanged() {
         guard activeCoverageContext != nil || publishedCoverageContext != nil || coverageErrorContext != nil else { return }
         let context = currentCoverageContext()
@@ -6371,6 +6386,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
 
     private func handleDraftDebouncedChange(_ draft: String) async {
         guard !isHydratingDraft else { return }
+        let coverageContext = currentCoverageContext()
         let normalized = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         let hasCoveragePresentation = coverageSimulationReport != nil ||
             !coverageSimulationErrorText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -6394,6 +6410,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         await recomputePagination(for: draft, source: "Draft")
         await recomputeRevision(for: draft, source: "Draft")
         Task { await self.refreshFormatLint(source: "Draft") }
+        Task { await self.refreshCoverageAfterDraftSettles(coverageContext) }
 
         if isStreamingDraftPreviewActive {
             autosaveStatusText = "Receiving live draft..."

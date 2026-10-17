@@ -5,6 +5,22 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-972 — Coverage follows the owned screenplay, not title metadata
+
+- **Owner:** codex. **Branch:** `codex/T-972-coverage-follow-integration`.
+- **Status:** review. **Pillars:** living companion; mobile-first.
+- **Scope:** preserve original #646 `72f9375e`; reconcile title/body boundaries
+  and guard queued background reads with the captured account/project/draft.
+- **Done when:** signed policy/real-VM coverage tests and connected automatic
+  Craft read pass; macOS compile, runner/D009/diff pass. No paid model proof.
+- **Current proof:** signed before19/1/0, after23/0/0; all14 runner contracts
+  pass. Automatic-read/writer/export/relaunch UI1/0/0; macOS compile exit0;
+  D009 all deltas0 and diff pass. Limits in
+  `docs/coverage-follow-integration-2026-10-16.md`.
+- **Preserve:** #774 `a001ec04` already owns quiet status announcements and
+  content-appropriate moves/loglines; read in full, remains queued in its base
+  chain, not recreated here. Next actual boundary #647 `848e59d0`.
+
 ### T-971 — Preserve mentor structure guidance and strengthen its proof
 
 - **Owner:** codex. **Branch:** `codex/T-971-mentor-structure-integration`.
