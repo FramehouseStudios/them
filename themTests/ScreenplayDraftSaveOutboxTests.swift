@@ -2,6 +2,26 @@ import XCTest
 @testable import them
 
 final class ScreenplayDraftSaveOutboxTests: XCTestCase {
+    func testBlankSnapshotQueueRequiresExplicitFlagAndWriterSource() async throws {
+        let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        var snapshot = makeEntry(id: "blank-snapshot", draft: "", source: "studio_snapshot")
+        do {
+            try await queue.enqueue(snapshot)
+            XCTFail("A missing flag must never authorize deletion.")
+        } catch BackendMemoryAPIError.server(let status, _) {
+            XCTAssertEqual(status, 400)
+        }
+        snapshot.allowEmptyDraft = true
+        try await queue.enqueue(snapshot)
+        let reopened = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let saved = try await reopened.entriesForTesting()
+        XCTAssertEqual(saved.first?.source, "studio_snapshot")
+        XCTAssertEqual(saved.first?.draft, "")
+        XCTAssertEqual(saved.first?.allowEmptyDraft, true)
+        XCTAssertFalse(ScreenplayIntentionalBlankSavePolicy.permits(source: "studio_clementine_page_write"))
+        XCTAssertFalse(ScreenplayIntentionalBlankSavePolicy.permits(source: "studio_restore"))
+    }
+
     func testBlankIntentSurvivesQueueCodecAndOldManifestsDefaultOff() throws {
         let old = try JSONEncoder().encode(makeEntry(id: "legacy"))
         let decoded = try JSONDecoder().decode(ScreenplayDraftSaveOutboxEntry.self, from: old)
@@ -688,6 +708,7 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
     private func makeEntry(
         id: String,
         draft: String = "Draft one",
+        source: String = "studio_autosave",
         createdAt: TimeInterval = 100
     ) -> ScreenplayDraftSaveOutboxEntry {
         ScreenplayDraftSaveOutboxEntry(
@@ -698,7 +719,7 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
             title: "Feature",
             phase: "scene_draft",
             notes: "",
-            source: "studio_autosave",
+            source: source,
             studioWriteAnchors: [],
             screenplayBindings: [],
             baseVersionId: "server-v1",

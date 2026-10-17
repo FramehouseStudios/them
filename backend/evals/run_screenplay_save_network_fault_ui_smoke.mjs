@@ -78,7 +78,7 @@ try {
     const summary = readResult("summary", bundle);
     assert(summary.status === 0,
       `Missing recovery summary: ${bundle}\n${failureOutputTail(summary.stderr || summary.stdout)}`);
-    assertPassedTestSummary(JSON.parse(summary.stdout), process.env.SCREENPLAY_SAVE_TEST_IDENTIFIER ? 1 : 3,
+    assertPassedTestSummary(JSON.parse(summary.stdout), process.env.SCREENPLAY_SAVE_TEST_IDENTIFIER ? 1 : 4,
       `Signed screenplay recovery did not execute every requested test: ${bundle}`);
   }
   console.log(JSON.stringify({

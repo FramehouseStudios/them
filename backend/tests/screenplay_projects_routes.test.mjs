@@ -1780,7 +1780,7 @@ test("[screenplay-projects-routes] POST /version rejects empty draft with 400", 
 });
 
 test("[screenplay-projects-routes] explicit writer blank saves preserve bytes and replay once", async () => {
-  for (const [draft, source] of ["studio_manual", "studio_autosave", "studio_conflict_resolve"]
+  for (const [draft, source] of ["studio_manual", "studio_autosave", "studio_conflict_resolve", "studio_snapshot"]
     .flatMap(source => ["", " \t\r\n"].map(draft => [draft, source]))) {
     const deps = defaultDeps();
     const project = deps._owner.projects[0];

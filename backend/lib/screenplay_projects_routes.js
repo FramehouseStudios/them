@@ -1554,7 +1554,7 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
     // explicit intent plus the existing stale/retry guards before accepting one.
     const intentionalEmptyDraft = req.body?.allow_empty_draft === true &&
       typeof req.body?.draft === "string" &&
-      ["studio_manual", "studio_autosave", "studio_conflict_resolve"].includes(req.body?.source) &&
+      ["studio_manual", "studio_autosave", "studio_conflict_resolve", "studio_snapshot"].includes(req.body?.source) &&
       Boolean(baseVersionId && clientRequestId && currentVersionId) &&
       conflictStrategy === "reject_if_stale";
     if (!draft.trim() && !intentionalEmptyDraft) {

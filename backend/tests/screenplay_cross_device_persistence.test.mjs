@@ -11,7 +11,8 @@ function authHeaders(token) {
   return { Authorization: `Bearer ${token}` };
 }
 
-test("[screenplay-cross-device] intentional blank edits survive restart with exact retry and owner isolation", async () => {
+for (const source of ["studio_manual", "studio_snapshot"]) {
+test(`[screenplay-cross-device] ${source} blank edits survive restart with exact retry and owner isolation`, async () => {
   let server = await startBackend({ env: { REQUIRE_USER_AUTH: "true" } });
   const dataDir = server.dataDir;
   const stamp = randomUUID().replace(/-/g, "");
@@ -21,7 +22,7 @@ test("[screenplay-cross-device] intentional blank edits survive restart with exa
   const whitespace = " \t\r\n";
   let seedVersionId, emptyVersionId, blankVersionId;
   const request = (draft, base, id) => ({ draft, base_version_id: base,
-    source: "studio_manual", allow_empty_draft: true,
+    source, allow_empty_draft: true,
     conflict_strategy: "reject_if_stale", client_request_id: id });
   try {
     const token = await signup(server, email, password, "Blank Writer");
@@ -37,6 +38,7 @@ test("[screenplay-cross-device] intentional blank edits survive restart with exa
       method: "POST", headers, json: request("", seedVersionId, "delete-all-on-phone") });
     assert.equal(empty.status, 201, empty.text);
     assert.equal(empty.json.version.draft, "");
+    assert.equal(empty.json.version.source, source);
     emptyVersionId = empty.json.version_id;
     const blank = await apiRequest(server, `/screenplay/projects/${projectId}/version`, {
       method: "POST", headers, json: request(whitespace, emptyVersionId, "whitespace-on-phone") });
@@ -60,6 +62,7 @@ test("[screenplay-cross-device] intentional blank edits survive restart with exa
     assert.equal(versions.length, 3);
     assert.equal(versions.find(v => v.id === emptyVersionId).draft, "");
     assert.equal(versions.find(v => v.id === blankVersionId).draft, whitespace);
+    assert.equal(versions.find(v => v.id === blankVersionId).source, source);
     assert.equal(versions.find(v => v.id === seedVersionId).draft, "Original writer text.");
     const replay = await apiRequest(server, `/screenplay/projects/${projectId}/version`, {
       method: "POST", headers, json: request(whitespace, emptyVersionId, "whitespace-on-phone") });
@@ -82,6 +85,7 @@ test("[screenplay-cross-device] intentional blank edits survive restart with exa
     assert.equal((await server.stop()).forced, false);
   }
 });
+}
 
 async function signup(server, email, password, displayName) {
   const response = await apiRequest(server, "/auth/signup", {

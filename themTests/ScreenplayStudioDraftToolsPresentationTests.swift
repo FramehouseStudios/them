@@ -125,7 +125,13 @@ final class ScreenplayStudioDraftToolsPresentationTests: XCTestCase {
             draft: " \n "
         )
         XCTAssertNil(ScreenplayStudioDraftToolsPresentationPlanner.snapshotNotes(blank))
-        XCTAssertFalse(ScreenplayStudioDraftToolsPresentationPlanner.snapshotCanRestore(blank))
+        XCTAssertTrue(ScreenplayStudioDraftToolsPresentationPlanner.snapshotCanRestore(blank))
+        XCTAssertTrue(ScreenplayStudioDraftToolsPresentationPlanner.snapshotCanRestore(makeVersion(
+            id: "empty", phase: nil, createdAt: nil, updatedAt: nil, notes: nil, draft: "")))
+        XCTAssertFalse(ScreenplayStudioDraftToolsPresentationPlanner.snapshotCanRestore(makeVersion(
+            id: "absent", phase: nil, createdAt: nil, updatedAt: nil, notes: nil, draft: nil)))
+        XCTAssertFalse(ScreenplayStudioDraftToolsPresentationPlanner.snapshotCanRestore(makeVersion(
+            id: "", phase: nil, createdAt: nil, updatedAt: nil, notes: nil, draft: "")))
     }
 
     func testWarningIntegrityRefreshAndRevisionPresentationRulesRemainExact() {
