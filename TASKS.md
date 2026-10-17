@@ -8,13 +8,17 @@
 ### T-958 — Integrate explicit writer-choice authority
 
 - **Owner:** codex. **Branch:** `codex/T-958-conflict-authority-integration`.
-- **Status:** in-progress. **Pillars:** mobile-first; goal items 1 and 4.
+- **Status:** review. **Pillars:** mobile-first; goal items 1 and 4.
 - **Scope:** preserving merges of original #932–#935 above T-957; keep native
   editor evidence, stale-head protection, fresh Load Server and late-save fences.
 - **Done when:** combined signed conflict/outbox/recovery units and authenticated
   five-case recovery UI pass; runner contracts/D009/diff pass, original heads
   remain ancestors. Full matrix is deferred to the integration checkpoint, not
   rerun at each boundary. No main mutation, replacement PR or live provider call.
+- **VERIFIED:** signed focused units138/0/0 plus visible UI2/0/0; authenticated
+  recovery UI5/0/0; runner5/0/0; syntax/D009/diff pass. Original heads retained.
+  Initial missing canonical test import fixed in `0703e6c3`; failed proof retained.
+  Exact scope and manifest: `docs/conflict-authority-integration-2026-10-16.md`.
 
 ### T-957 — Batch blank-save and recovery integration
 
