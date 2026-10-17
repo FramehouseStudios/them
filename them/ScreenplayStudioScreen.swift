@@ -5183,9 +5183,7 @@ private var projectsSidebarContent: some View {
             onImport: {
                 importDraftDocument()
             },
-            onExport: { format in
-                Task { await exportCurrentDraft(format: format) }
-            },
+            onExport: { await exportCurrentDraft(format: $0, presentArtifact: $1) },
             onRefreshExportFormats: {
                 Task { await vm.refreshScreenplayExportFormats() }
             },
@@ -17278,7 +17276,7 @@ Look at the city.
     }
 
     @MainActor
-    private func studioExportDependencies() -> ScreenplayStudioExportSupport.Dependencies {
+    private func studioExportDependencies(presentArtifact: @escaping (URL) -> Void = { _ in }) -> ScreenplayStudioExportSupport.Dependencies {
         ScreenplayStudioExportSupport.Dependencies(
             draft: vm.fountainDraft,
             projectTitle: vm.selectedProject?.title,
@@ -17300,17 +17298,15 @@ Look at the city.
                 navigatorCurrentURL = directoryURL
                 refreshNavigatorEntries()
             },
-            openURL: { url in
-                openURL(url)
-            }
+            openURL: { url in openURL(url) }, presentArtifact: presentArtifact
         )
     }
 
     @MainActor
-    private func exportCurrentDraft(format: String) async {
+    private func exportCurrentDraft(format: String, presentArtifact: @escaping (URL) -> Void) async {
         await ScreenplayStudioExportSupport.exportCurrentDraft(
             format: format,
-            deps: studioExportDependencies()
+            deps: studioExportDependencies(presentArtifact: presentArtifact)
         )
     }
 

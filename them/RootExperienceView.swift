@@ -3279,7 +3279,7 @@ struct RootExperienceView: View {
         #if os(iOS)
         return AnyView(
             view.sheet(isPresented: $showingDebugBundleShareSheet) {
-                DebugBundleActivityView(items: debugBundleShareItems)
+                SystemActivityView(items: debugBundleShareItems)
             }
         )
         #else
@@ -14916,18 +14916,6 @@ private struct CompanionControlsPanel: View {
         )
     }
 }
-
-#if os(iOS)
-private struct DebugBundleActivityView: UIViewControllerRepresentable {
-    let items: [Any]
-
-    func makeUIViewController(context: Context) -> UIActivityViewController {
-        UIActivityViewController(activityItems: items, applicationActivities: nil)
-    }
-
-    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
-}
-#endif
 
 @MainActor
 private final class PersonalityPromptSpeaker: NSObject {

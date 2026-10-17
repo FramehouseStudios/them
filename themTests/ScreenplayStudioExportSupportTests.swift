@@ -25,6 +25,7 @@ final class ScreenplayStudioExportSupportTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: destination) }
         let bytes = Data("<FinalDraft><Content>Real encoder output</Content></FinalDraft>".utf8)
         var calledFormats: [String] = [], info = "", error = ""
+        var sharedURLs: [URL] = []
         let deps = ScreenplayStudioExportSupport.Dependencies(
             draft: "INT. ROOM - NIGHT\n\nThe actual page.", projectTitle: "Room",
             navigatorCurrentURL: nil, usesUITestArtifact: false,
@@ -33,12 +34,32 @@ final class ScreenplayStudioExportSupportTests: XCTestCase {
                 return BackendScreenplayExportArtifact(format: format, filename: filename,
                     contentType: "application/xml", data: bytes)
             }, setInfo: { info = $0 }, setError: { error = $0 },
-            noteSavedDirectory: { _ in }, openURL: { _ in })
+            noteSavedDirectory: { _ in }, openURL: { _ in },
+            presentArtifact: { sharedURLs.append($0) })
         await ScreenplayStudioExportSupport.exportCurrentDraft(format: "fdx", deps: deps)
         XCTAssertEqual(calledFormats, ["fdx"])
         XCTAssertEqual(try Data(contentsOf: destination), bytes)
+        XCTAssertEqual(sharedURLs, [destination])
         XCTAssertTrue(info.contains(filename))
+        XCTAssertTrue(info.contains("Choose Save to Files"))
+        XCTAssertFalse(info.contains("Saved "), "Preparing a temporary file is not a completed external save")
         XCTAssertEqual(error, "")
+    }
+
+    @MainActor func testFailedExportNeverPresentsAShareOrReportsSuccess() async {
+        var info = "", error = "", sharedURLs: [URL] = []
+        let deps = ScreenplayStudioExportSupport.Dependencies(
+            draft: "INT. ROOM - NIGHT\n\nWords remain on the page.", projectTitle: "Room",
+            navigatorCurrentURL: nil, usesUITestArtifact: false,
+            refreshFormatLint: { _ in }, exportFromBackend: { _ in
+                throw BackendMemoryAPIError.server(status: 503, message: "Export unavailable")
+            }, setInfo: { info = $0 }, setError: { error = $0 },
+            noteSavedDirectory: { _ in }, openURL: { _ in },
+            presentArtifact: { sharedURLs.append($0) })
+        await ScreenplayStudioExportSupport.exportCurrentDraft(format: "fdx", deps: deps)
+        XCTAssertTrue(sharedURLs.isEmpty)
+        XCTAssertTrue(info.isEmpty)
+        XCTAssertFalse(error.isEmpty)
     }
 #endif
 

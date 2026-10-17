@@ -24,6 +24,7 @@ enum ScreenplayStudioExportSupport {
         var setError: (String) -> Void
         var noteSavedDirectory: (URL) -> Void
         var openURL: (URL) -> Void
+        var presentArtifact: (URL) -> Void = { _ in }
     }
 
     /// Stub-only UI stories stay isolated. Explicit live modes must exercise
@@ -188,7 +189,12 @@ enum ScreenplayStudioExportSupport {
                 noteSavedDirectory: deps.noteSavedDirectory
             )
             if let savedURL {
+#if os(iOS)
+                deps.setInfo("Export ready: \(artifact.filename). Choose Save to Files or a sharing destination.")
+                deps.presentArtifact(savedURL)
+#else
                 deps.setInfo(savedInfoText(filename: artifact.filename, savedURL: savedURL))
+#endif
             }
         } catch {
             deps.setError(ScreenplayExportFormatMenu.displayMessage(for: error, format: format))

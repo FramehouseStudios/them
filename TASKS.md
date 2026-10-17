@@ -5,6 +5,22 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-964 — iPhone export hands the actual file to its writer
+
+- **Owner:** codex. **Branch:** `codex/T-964-iphone-export-handoff`.
+- **Status:** review. **Pillar:** usable screenplay export.
+- **Scope:** native save/share sheet for the actual backend artifact; honest
+  prepared-versus-saved feedback, repeat-tap guard, dedicated control state,
+  shared activity presenter extracted from Root. macOS save behavior unchanged.
+- **Done when:** signed focused success/error tests, authenticated writer/share/
+  relaunch UI, macOS scaffold, D009 and diff pass. External physical-device
+  opening and full-length screenplay quality are separate unproven requirements.
+- **Evidence:** `docs/iphone-export-handoff-2026-10-16.md`.
+  Signed focused export tests28/0/0; final authenticated native-share/relaunch
+  UI1/0/0 with both Save to Files destinations and screenshots. Retained initial
+  missing-import compile failure and Button-versus-cell test failure. macOS
+  scaffold build, D009 and diff checks passed.
+
 ### T-963 — Extract Final Draft request encoding from the API god file
 
 - **Owner:** codex. **Branch:** `codex/T-963-fdx-encoder-extraction`.
@@ -22,7 +38,7 @@
   a test destination assumption (retained first run26/1/0); authenticated
   real Markdown/FDX writer/export/relaunch UI1/0/0. macOS scaffold build passed.
   Manifest: `docs/fdx-god-file-extraction-2026-10-16.md`.
-  Main landing still waits for #766's live hosted gate.
+  Main landing started with #766; #770's fresh hosted UI proof is pending.
 
 ### T-962 — Automatic first-project creation uses durable recovery
 
