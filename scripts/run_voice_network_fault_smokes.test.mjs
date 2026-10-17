@@ -10,7 +10,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
 const script = path.join(repoRoot, "scripts", "run_voice_network_fault_smokes.sh");
 
-test("[voice-network-fault-smokes] runs one focused UI smoke on iPhone and macOS", () => {
+test("[voice-network-fault-smokes] tests iPhone faults and builds the macOS scaffold", () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "io-them-network-fault-smokes-"));
   const log = path.join(tmp, "xcodebuild.calls");
   const fakeXcodebuild = path.join(tmp, "xcodebuild");
@@ -37,7 +37,7 @@ test("[voice-network-fault-smokes] runs one focused UI smoke on iPhone and macOS
 
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /Voice Network-Fault Smokes/);
-  assert.match(result.stdout, /speech\/transcription\/thinking\/playback fault smokes pass/);
+  assert.match(result.stdout, /iPhone voice network-fault smoke and macOS scaffold build pass/);
 
   const calls = fs.readFileSync(log, "utf8")
     .split("--- call ---\n")
@@ -51,6 +51,11 @@ test("[voice-network-fault-smokes] runs one focused UI smoke on iPhone and macOS
   assert.ok(ios.includes("-configuration"));
   assert.ok(ios.includes("Debug"));
   assert.ok(ios.includes(destination));
+  assert.ok(ios.includes("-resultBundlePath"));
+  assert.ok(ios.some((argument) => argument.endsWith("-ios.xcresult")));
+  assert.ok(!ios.includes("-quiet"));
+  assert.ok(!ios.includes("CODE_SIGNING_ALLOWED=NO"));
+  assert.ok(!ios.includes("CODE_SIGNING_REQUIRED=NO"));
 
   assert.ok(macos.includes("-scheme"));
   assert.ok(macos.includes("them-macOS-scaffold"));
@@ -62,11 +67,9 @@ test("[voice-network-fault-smokes] runs one focused UI smoke on iPhone and macOS
   assert.ok(macos.includes("CODE_SIGN_ENTITLEMENTS="));
   assert.ok(macos.includes("ENABLE_APP_SANDBOX=NO"));
   assert.ok(macos.includes("REGISTER_APP_GROUPS=NO"));
+  assert.ok(macos.includes("build"));
+  assert.ok(!macos.includes("-only-testing"));
 
-  for (const call of calls) {
-    assert.ok(call.includes("test"));
-    assert.ok(call.includes(`-only-testing:themUITests/V1SmokeUITests/test_realtime_network_faults_resolve_exactly_once`));
-  }
-  assert.ok(ios.includes("CODE_SIGNING_ALLOWED=NO"));
-  assert.ok(ios.includes("CODE_SIGNING_REQUIRED=NO"));
+  assert.ok(ios.includes("test"));
+  assert.ok(ios.includes(`-only-testing:themUITests/V1SmokeUITests/test_realtime_network_faults_resolve_exactly_once`));
 });
