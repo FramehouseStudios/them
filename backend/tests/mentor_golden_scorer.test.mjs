@@ -115,6 +115,13 @@ test("[mentor-golden] register counts external questions, not dialogue punctuati
   }
 });
 
+test("[mentor-golden] pitch scoring detects the supported unquoted heading forms", () => {
+  for (const heading of ["INT KITCHEN - NIGHT.", "I/E. TRAIN CAR - NIGHT.", "INT./EXT. TRAIN CAR - NIGHT."]) {
+    assert.ok(scorePitchConcreteness(`Picture this: ${heading} Mara wants a key but John blocks her. What changes?`).notes.includes("writes sluglines instead of pitching"), heading);
+  }
+  assert.equal(scorePitchConcreteness('You wrote "INT. KITCHEN - NIGHT." Mara wants a key but John blocks her. What changes?').notes.includes("writes sluglines instead of pitching"), false);
+});
+
 test("[mentor-golden] a quoted line rewrite cannot excuse replacing the writer's idea", () => {
   const base = 'Keep Ada and the lighthouse. Ada pockets the key. Instead of saying afraid, try: "Leave the light on."';
   const spec = {writerNouns: ["Ada", "lighthouse"]};
