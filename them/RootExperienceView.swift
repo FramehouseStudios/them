@@ -782,6 +782,8 @@ struct RootExperienceView: View {
     @State private var didBumpSessionThisLaunch = false
     @FocusState private var onboardingNameFocused: Bool
     @FocusState private var onboardingSceneFocused: Bool
+    @AccessibilityFocusState private var onboardingAccessibilityFocused: Bool
+    @AccessibilityFocusState private var onboardingStatusAccessibilityFocused: Bool
     #if os(macOS)
     @State private var keyMonitor: Any?
     #endif
@@ -919,6 +921,14 @@ struct RootExperienceView: View {
 #if DEBUG
     @State private var uiTestRealtimeNetworkFaultStage: ClementineRealtimeFaultStage?
     @State private var uiTestRealtimeNetworkFaultResult = ""
+    @AppStorage("ui_test_magic_moment_submission_count")
+    private var uiTestMagicMomentSubmissionCount = 0
+    @AppStorage("ui_test_magic_moment_voice_start_count")
+    private var uiTestMagicMomentVoiceStartCount = 0
+    @AppStorage("studio_debug_root_submit_prompt")
+    private var uiTestLastRootSubmitPrompt = ""
+    @AppStorage("studio_debug_root_submit_request_id")
+    private var uiTestLastRootSubmitRequestID = ""
 #endif
 #endif
     @State private var lastVisualContextEnvelope: ClementineVisualContextEnvelope?
@@ -1217,6 +1227,9 @@ struct RootExperienceView: View {
     @ViewBuilder
     private var bodyForegroundLayers: some View {
         primarySurfaceLayer
+            .opacity(evolution.needsOnboardingName ? 0 : 1)
+            .allowsHitTesting(!evolution.needsOnboardingName)
+            .accessibilityHidden(evolution.needsOnboardingName)
 
         if evolution.needsOnboardingName {
             onboardingOverlay
@@ -1244,6 +1257,27 @@ struct RootExperienceView: View {
                 .accessibilityIdentifier("realtime.network-fault.result")
                 .accessibilityLabel(uiTestRealtimeNetworkFaultResult)
                 .zIndex(100)
+        }
+
+        if IOThemRuntime.allowsUITestAuthenticationResumeFixture {
+            Text(
+                "Magic moment submissions \(uiTestMagicMomentSubmissionCount). " +
+                "Voice starts \(uiTestMagicMomentVoiceStartCount). " +
+                "Request \(uiTestLastRootSubmitRequestID). " +
+                "Prompt \(uiTestLastRootSubmitPrompt)"
+            )
+                .font(.system(size: 1))
+                .foregroundStyle(Color.clear)
+                .frame(width: 1, height: 1)
+                .allowsHitTesting(false)
+                .accessibilityIdentifier("onboarding.auth-resume.proof")
+                .accessibilityLabel(
+                    "Magic moment submissions \(uiTestMagicMomentSubmissionCount). " +
+                    "Voice starts \(uiTestMagicMomentVoiceStartCount). " +
+                    "Request \(uiTestLastRootSubmitRequestID). " +
+                    "Prompt \(uiTestLastRootSubmitPrompt)"
+                )
+                .zIndex(101)
         }
 #endif
     }
@@ -3190,8 +3224,14 @@ struct RootExperienceView: View {
                     )
                     .themDesktopSheetFrame(minWidth: 900, minHeight: 680)
                 }
-                .sheet(isPresented: $showingProfileAccount) {
-                    ProfileAccountScreen(onSessionChanged: handleAccountSessionChanged)
+                .sheet(
+                    isPresented: profileAccountPresentationBinding,
+                    onDismiss: handleProfileAccountDismissed
+                ) {
+                    ProfileAccountScreen(
+                        onSessionChanged: handleAccountSessionChanged,
+                        onDone: dismissProfileAccount
+                    )
                 }
         )
     }
@@ -3893,112 +3933,185 @@ struct RootExperienceView: View {
 
     private var onboardingOverlay: some View {
         ZStack {
-            Color.black.opacity(0.12)
+            Color.black.opacity(0.08)
                 .ignoresSafeArea()
 
-            VStack(spacing: 16) {
-                VStack(spacing: 6) {
+            VStack(spacing: 22) {
+                VStack(spacing: 8) {
                     Text("Start your first page")
-                        .font(.system(size: 30, weight: .semibold, design: .default))
-                        .foregroundColor(.herText.opacity(0.94))
+                        .font(IOThemTypography.UI.editorialTitle)
+                        .foregroundStyle(IOThemColors.Text.primary)
                         .multilineTextAlignment(.center)
+                        .accessibilityAddTraits(.isHeader)
+                        .accessibilityFocused($onboardingAccessibilityFocused)
 
-                    Text("Tell io.them who you are and the scene you want to hear first.")
-                        .font(.system(size: 13, weight: .regular, design: .default))
-                        .foregroundColor(.herText.opacity(0.72))
+                    Text("Give io.them your name and, if you have one, the spark of a scene.")
+                        .font(IOThemTypography.UI.callout)
+                        .foregroundStyle(IOThemColors.Text.primary.opacity(0.82))
                         .multilineTextAlignment(.center)
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
-                VStack(spacing: 10) {
-                    TextField("Your name", text: $onboardingName)
-                        .font(.system(size: 17, weight: .regular, design: .default))
-                        .textFieldStyle(.roundedBorder)
-                        .focused($onboardingNameFocused)
-                        .submitLabel(.next)
-                        .onSubmit {
-                            if canSubmitOnboarding {
-                                onboardingSceneFocused = true
-                            }
-                        }
-                        .accessibilityIdentifier("onboarding.name.field")
+                VStack(alignment: .leading, spacing: 16) {
+                    VStack(alignment: .leading, spacing: 7) {
+                        Text("Your name")
+                            .font(IOThemTypography.UI.captionStrong)
+                            .foregroundStyle(IOThemColors.Text.primary.opacity(0.88))
 
-                    TextField("A detective finds a letter under a motel door...", text: $onboardingSceneSeed, axis: .vertical)
-                        .font(.system(size: 16, weight: .regular, design: .default))
-                        .textFieldStyle(.roundedBorder)
-                        .lineLimit(3...5)
-                        .focused($onboardingSceneFocused)
-                        .submitLabel(.go)
-                        .onSubmit {
-                            startMagicMomentOnboarding()
-                        }
-                        .accessibilityIdentifier("onboarding.scene.field")
+                        TextField("How should io.them address you?", text: $onboardingName)
+                            .font(IOThemTypography.UI.body)
+                            .foregroundStyle(IOThemColors.Text.primary)
+                            .textFieldStyle(.plain)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 12)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .fill(IOThemColors.Shell.panelSoft)
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .stroke(IOThemColors.Shell.stroke.opacity(0.64), lineWidth: 1)
+                            )
+                            .tint(IOThemColors.Accent.studio)
+                            .focused($onboardingNameFocused)
+                            .submitLabel(.next)
+                            .onSubmit {
+                                if canSubmitOnboarding {
+                                    onboardingSceneFocused = true
+                                }
+                            }
+                            .accessibilityLabel("Your name")
+                            .accessibilityHint("Required. Used to personalize your private writing workspace.")
+                            .accessibilityIdentifier("onboarding.name.field")
+                    }
+
+                    VStack(alignment: .leading, spacing: 7) {
+                        Text("Scene idea (optional)")
+                            .font(IOThemTypography.UI.captionStrong)
+                            .foregroundStyle(IOThemColors.Text.primary.opacity(0.88))
+
+                        TextField(
+                            "A detective finds a letter under a motel door…",
+                            text: $onboardingSceneSeed,
+                            axis: .vertical
+                        )
+                            .font(IOThemTypography.UI.body)
+                            .foregroundStyle(IOThemColors.Text.primary)
+                            .textFieldStyle(.plain)
+                            .lineLimit(3...5)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 12)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .fill(IOThemColors.Shell.panelSoft)
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .stroke(IOThemColors.Shell.stroke.opacity(0.64), lineWidth: 1)
+                            )
+                            .tint(IOThemColors.Accent.studio)
+                            .focused($onboardingSceneFocused)
+                            .submitLabel(.go)
+                            .onSubmit {
+                                startMagicMomentOnboarding()
+                            }
+                            .accessibilityLabel("Scene idea, optional")
+                            .accessibilityHint("Describe a scene spark, or leave this empty for a guided first page.")
+                            .accessibilityIdentifier("onboarding.scene.field")
+                    }
                 }
 
                 HStack(spacing: 10) {
                     Button {
                         startMagicMomentVoiceOnboarding()
                     } label: {
-                        Text("Voice to Scene")
+                        Text(magicMomentVoiceButtonTitle)
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.plain)
-                    .font(.system(size: 15, weight: .semibold, design: .default))
-                    .foregroundColor(.herText.opacity(canStartMagicMoment ? 0.90 : 0.45))
+                    .font(IOThemTypography.UI.bodyStrong)
+                    .foregroundStyle(IOThemColors.Accent.studio.opacity(canStartMagicMoment ? 1 : 0.44))
                     .padding(.vertical, 11)
                     .background(
                         RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .fill(Color.white.opacity(canStartMagicMoment ? 0.16 : 0.08))
+                            .fill(IOThemColors.Paper.surface)
                     )
                     .overlay(
                         RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .stroke(Color.white.opacity(0.18), lineWidth: 1)
+                            .stroke(IOThemColors.Accent.studio.opacity(canStartMagicMoment ? 0.70 : 0.30), lineWidth: 1)
                     )
                     .disabled(!canStartMagicMoment)
+                    .accessibilityHint("Opens your private workspace and starts listening for a scene.")
                     .accessibilityIdentifier("onboarding.voice-to-scene")
 
                     Button {
                         startMagicMomentOnboarding()
                     } label: {
-                        Text(isMagicMomentSubmitting ? "Writing..." : "Start Page")
+                        Text(magicMomentPageButtonTitle)
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.plain)
-                    .font(.system(size: 15, weight: .semibold, design: .default))
-                    .foregroundColor(.herText.opacity(canStartMagicMoment ? 0.94 : 0.45))
+                    .font(IOThemTypography.UI.bodyStrong)
+                    .foregroundStyle(IOThemColors.Paper.surface.opacity(canStartMagicMoment ? 1 : 0.70))
                     .padding(.vertical, 11)
                     .background(
                         RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .fill(Color.white.opacity(canStartMagicMoment ? 0.26 : 0.12))
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .stroke(Color.white.opacity(0.24), lineWidth: 1)
+                            .fill(IOThemColors.Accent.studio.opacity(canStartMagicMoment ? 1 : 0.42))
                     )
                     .disabled(!canStartMagicMoment)
+                    .accessibilityHint("Creates a private project and writes a first screenplay page from your scene idea.")
                     .accessibilityIdentifier("onboarding.start-page")
                 }
 
-                if !magicMomentOnboardingError.isEmpty {
-                    Text(magicMomentOnboardingError)
-                        .font(.system(size: 12, weight: .regular, design: .default))
-                        .foregroundColor(.red.opacity(0.86))
-                        .multilineTextAlignment(.center)
-                        .lineLimit(3)
-                }
+                Text(
+                    magicMomentOnboardingError.isEmpty
+                        ? "Your draft stays connected to your private account and syncs across your devices."
+                        : magicMomentOnboardingError
+                )
+                    .font(IOThemTypography.UI.caption)
+                    .foregroundStyle(
+                        magicMomentOnboardingError.isEmpty
+                            ? IOThemColors.Text.primary.opacity(0.76)
+                            : Color.red.opacity(0.92)
+                    )
+                    .multilineTextAlignment(.center)
+                    .lineLimit(3)
+                    .frame(minHeight: 34)
+                    .accessibilityFocused($onboardingStatusAccessibilityFocused)
             }
-            .padding(24)
+            .padding(28)
             .frame(maxWidth: 430)
             .background(
                 RoundedRectangle(cornerRadius: 24, style: .continuous)
-                    .fill(Color.white.opacity(0.18))
+                    .fill(IOThemColors.Paper.surface)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 24, style: .continuous)
-                    .stroke(Color.white.opacity(0.22), lineWidth: 1)
+                    .stroke(IOThemColors.Shell.stroke.opacity(0.56), lineWidth: 1)
             )
+            .shadow(color: IOThemColors.Paper.shadow, radius: 28, x: 0, y: 18)
             .padding(.horizontal, 20)
+            .accessibilityElement(children: .contain)
+            .accessibilityAddTraits(.isModal)
+            .onAppear {
+                onboardingAccessibilityFocused = true
+            }
         }
+    }
+
+    private var magicMomentNeedsSignInLabel: Bool {
+        !authSignedIn || authSessionTokenDeletionPending
+    }
+
+    private var magicMomentVoiceButtonTitle: String {
+        magicMomentNeedsSignInLabel ? "Sign in & Use Voice" : "Voice to Scene"
+    }
+
+    private var magicMomentPageButtonTitle: String {
+        if isMagicMomentSubmitting {
+            return showingProfileAccount ? "Waiting for sign-in…" : "Writing…"
+        }
+        return magicMomentNeedsSignInLabel ? "Sign in & Start Page" : "Start Page"
     }
 
     private var canSubmitOnboarding: Bool {
@@ -4010,9 +4123,57 @@ struct RootExperienceView: View {
     }
 
     @MainActor
+    private func authenticateBeforeMagicMoment(
+        _ requestedAction: ThemMagicMomentOnboardingPolicy.RequestedAction
+    ) -> Bool {
+        let session = BackendAuthClient.currentAuthSessionState()
+        let accessDecision = ThemWorkspaceAuthenticationPolicy.accessDecision(
+            isAuthenticated: session.isAuthenticated,
+            accessTokenExpired: session.accessExpired,
+            refreshTokenPresent: session.refreshTokenPresent,
+            isRunningUITests: IOThemRuntime.bypassesAuthenticationForUITests
+        )
+        let startDecision = ThemMagicMomentOnboardingPolicy.startDecision(
+            workspaceAccessDecision: accessDecision
+        )
+
+        guard startDecision != .proceed else { return true }
+
+        isMagicMomentSubmitting = requestedAction == .page
+        magicMomentOnboardingError =
+            "Sign in to save this draft to your private workspace and sync it across your devices."
+        resumeStudioAfterAccountSignIn = true
+
+        switch startDecision {
+        case .restorePersistedSession:
+            restorePersistedAuthSessionAndOpenStudio()
+        case .presentAccount:
+            openAccount(resumeStudioAfterSignIn: true)
+        case .proceed:
+            break
+        }
+        return false
+    }
+
+    @MainActor
     private func startMagicMomentOnboarding() {
         guard !isMagicMomentSubmitting else { return }
-        guard completeOnboarding(askForPersonality: false) else { return }
+        guard canSubmitOnboarding else {
+            onboardingNameFocused = true
+            return
+        }
+        guard authenticateBeforeMagicMoment(.page) else { return }
+
+        isMagicMomentSubmitting = true
+        resumeStudioAfterAccountSignIn = true
+        guard openStudio(authenticatedPreparation: {
+            _ = completeOnboarding(askForPersonality: false)
+        }) else {
+            magicMomentOnboardingError =
+                "Sign in to save this draft to your private workspace and sync it across your devices."
+            return
+        }
+        resumeStudioAfterAccountSignIn = false
 
         let cleanName = onboardingName.trimmingCharacters(in: .whitespacesAndNewlines)
         let sceneSeed = normalizedMagicMomentSceneSeed()
@@ -4020,9 +4181,7 @@ struct RootExperienceView: View {
         let requestID = "magic-moment-\(UUID().uuidString.lowercased())"
         let startedAt = Date()
 
-        isMagicMomentSubmitting = true
         magicMomentOnboardingError = ""
-        openStudio()
         screenplayDraftBridge.autoInsertStatusText = "io.them is writing the first page..."
         magicMomentPerceivedResponseMs = Date().timeIntervalSince(startedAt) * 1_000
 
@@ -4047,9 +4206,28 @@ struct RootExperienceView: View {
     @MainActor
     private func startMagicMomentVoiceOnboarding() {
         guard !isMagicMomentSubmitting else { return }
-        guard completeOnboarding(askForPersonality: false) else { return }
+        guard canSubmitOnboarding else {
+            onboardingNameFocused = true
+            return
+        }
+        guard authenticateBeforeMagicMoment(.voice) else { return }
+
+        isMagicMomentSubmitting = false
+        resumeStudioAfterAccountSignIn = true
+        guard openStudio(authenticatedPreparation: {
+            _ = completeOnboarding(askForPersonality: false)
+        }) else {
+            magicMomentOnboardingError =
+                "Sign in to save this draft to your private workspace and sync it across your devices."
+            return
+        }
+        resumeStudioAfterAccountSignIn = false
         magicMomentOnboardingError = ""
-        openStudio()
+#if DEBUG
+        if IOThemRuntime.allowsUITestAuthenticationResumeFixture {
+            uiTestMagicMomentVoiceStartCount += 1
+        }
+#endif
         startConversationLoopIfNeeded()
     }
 
@@ -4110,23 +4288,25 @@ struct RootExperienceView: View {
         showingMemories = true
     }
 
-    private func openStudio() {
+    @discardableResult
+    private func openStudio(authenticatedPreparation: (() -> Void)? = nil) -> Bool {
         let authSession = BackendAuthClient.currentAuthSessionState()
         switch ThemWorkspaceAuthenticationPolicy.accessDecision(
             isAuthenticated: authSession.isAuthenticated,
             accessTokenExpired: authSession.accessExpired,
             refreshTokenPresent: authSession.refreshTokenPresent,
-            isRunningUITests: IOThemRuntime.isRunningUITests
+            isRunningUITests: IOThemRuntime.bypassesAuthenticationForUITests
         ) {
         case .refreshPersistedSession:
             restorePersistedAuthSessionAndOpenStudio()
-            return
+            return false
         case .requireAccount:
             openAccount(resumeStudioAfterSignIn: true)
-            return
+            return false
         case .openWorkspace:
             break
         }
+        authenticatedPreparation?()
         cancelRealtimeStudioDraftStream(restorePreview: true)
         if !conversationLoopEnabled && (realtimeTransport.isLive || realtimeTransport.isBusy) {
             realtimeTransport.disconnect()
@@ -4164,6 +4344,7 @@ struct RootExperienceView: View {
                 await prewarmRealtimeIfNeeded(isScreenplayMode: true)
             }
         }
+        return true
     }
 
     @MainActor
@@ -4178,9 +4359,11 @@ struct RootExperienceView: View {
                     openAccount(resumeStudioAfterSignIn: true)
                     return
                 }
-                resumeStudioAfterAccountSignIn = false
+                let shouldResumeAfterRefresh = resumeStudioAfterAccountSignIn
                 handleAccountSessionChanged()
-                openStudio()
+                if !shouldResumeAfterRefresh {
+                    openStudio()
+                }
             } catch {
                 openAccount(resumeStudioAfterSignIn: true)
                 lastIssueSummary = "Your saved session could not be refreshed. Sign in again to continue into Studio."
@@ -4193,6 +4376,39 @@ struct RootExperienceView: View {
         showingProfileAccount = true
         if resumeStudioAfterSignIn {
             lastIssueSummary = "Sign in to open Studio and sync your screenplay projects."
+        }
+    }
+
+    private var profileAccountPresentationBinding: Binding<Bool> {
+        Binding(
+            get: { showingProfileAccount },
+            set: { isPresented in
+                guard showingProfileAccount != isPresented else { return }
+                if !isPresented {
+                    handleProfileAccountDismissed()
+                }
+                showingProfileAccount = isPresented
+            }
+        )
+    }
+
+    private func dismissProfileAccount() {
+        handleProfileAccountDismissed()
+        showingProfileAccount = false
+    }
+
+    private func handleProfileAccountDismissed() {
+        let dismissalDecision = ThemMagicMomentOnboardingPolicy.takeAccountDismissalDecision(
+            needsOnboardingName: evolution.needsOnboardingName,
+            shouldResumeAfterAccountSignIn: &resumeStudioAfterAccountSignIn
+        )
+        guard dismissalDecision == .preserveOnboardingDraft else { return }
+        isMagicMomentSubmitting = false
+        magicMomentOnboardingError =
+            "Sign in when you’re ready. Your name and scene idea are still here."
+        onboardingNameFocused = true
+        DispatchQueue.main.async {
+            onboardingStatusAccessibilityFocused = true
         }
     }
 
@@ -4232,11 +4448,27 @@ struct RootExperienceView: View {
             await screenplayDraftBridge.hydrateBackendCompanionState(force: true)
         }
 
-        guard resumeStudioAfterAccountSignIn else { return }
-        resumeStudioAfterAccountSignIn = false
+        let resumeDecision = ThemMagicMomentOnboardingPolicy.takeResumeDecision(
+            needsOnboardingName: evolution.needsOnboardingName,
+            shouldResumeAfterAccountSignIn: &resumeStudioAfterAccountSignIn,
+            pageSubmissionPending: isMagicMomentSubmitting
+        )
+
+        guard resumeDecision != .none else { return }
         showingProfileAccount = false
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-            openStudio()
+            switch resumeDecision {
+            case .start(.page):
+                isMagicMomentSubmitting = false
+                startMagicMomentOnboarding()
+            case .start(.voice):
+                startMagicMomentVoiceOnboarding()
+            case .openWorkspace:
+                isMagicMomentSubmitting = false
+                openStudio()
+            case .none:
+                break
+            }
         }
     }
 
@@ -4265,7 +4497,11 @@ struct RootExperienceView: View {
         case .closeStudio:
             closeStudio()
         case .toggleStudio:
-            isStudioSurfaceActive ? closeStudio() : openStudio()
+            if isStudioSurfaceActive {
+                closeStudio()
+            } else {
+                openStudio()
+            }
         }
     }
 
@@ -7770,6 +8006,11 @@ Write this approved story direction directly into screenplay pages now. Maintain
     ) async -> String? {
         let cleanPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanPrompt.isEmpty else { return "Enter a Studio prompt first." }
+#if DEBUG
+        if IOThemRuntime.allowsUITestAuthenticationResumeFixture {
+            uiTestMagicMomentSubmissionCount += 1
+        }
+#endif
 #if DEBUG || os(macOS)
         setStudioDebugPreferenceString("root_submit_started", forKey: "studio_debug_root_submit_stage")
         setStudioDebugPreferenceString(cleanPrompt, forKey: "studio_debug_root_submit_prompt")

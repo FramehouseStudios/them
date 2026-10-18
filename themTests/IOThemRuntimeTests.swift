@@ -2,6 +2,53 @@ import XCTest
 @testable import them
 
 final class IOThemRuntimeTests: XCTestCase {
+    func testUITestAuthenticationBypassCanOnlyBeDisabledInsideUITestMode() {
+        XCTAssertTrue(
+            IOThemRuntime.bypassesAuthenticationForUITests(
+                arguments: ["them", "--ui-testing"]
+            )
+        )
+        XCTAssertFalse(
+            IOThemRuntime.bypassesAuthenticationForUITests(
+                arguments: ["them", "--ui-testing", "--ui-enforce-production-auth"]
+            )
+        )
+        XCTAssertFalse(
+            IOThemRuntime.bypassesAuthenticationForUITests(
+                arguments: ["them", "--ui-enforce-production-auth"]
+            )
+        )
+    }
+
+    func testAuthenticationResumeFixtureRequiresEveryDebugLaunchMarker() {
+        XCTAssertTrue(
+            IOThemRuntime.allowsUITestAuthenticationResumeFixture(
+                arguments: [
+                    "them",
+                    "--ui-testing",
+                    "--ui-enforce-production-auth",
+                    "--ui-auth-resume-fixture",
+                ]
+            )
+        )
+        for missing in [
+            "--ui-testing",
+            "--ui-enforce-production-auth",
+            "--ui-auth-resume-fixture",
+        ] {
+            let arguments = [
+                "them",
+                "--ui-testing",
+                "--ui-enforce-production-auth",
+                "--ui-auth-resume-fixture",
+            ].filter { $0 != missing }
+            XCTAssertFalse(
+                IOThemRuntime.allowsUITestAuthenticationResumeFixture(arguments: arguments),
+                "Fixture unexpectedly activated without \(missing)."
+            )
+        }
+    }
+
     func testExplicitXCTestEnvironmentIdentifiesTestProcess() {
         XCTAssertTrue(IOThemRuntime.isTestProcessEnvironment([
             "XCTestConfigurationFilePath": "/tmp/them-tests.xctestconfiguration",

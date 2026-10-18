@@ -187,4 +187,133 @@ final class ThemWorkspaceNavigationCommandTests: XCTestCase {
             return XCTFail("Expected a live access token to open Studio immediately.")
         }
     }
+
+    func testMagicMomentWaitsForAuthenticationBeforeStartingWork() {
+        XCTAssertEqual(
+            ThemMagicMomentOnboardingPolicy.startDecision(
+                workspaceAccessDecision: .requireAccount
+            ),
+            .presentAccount
+        )
+        XCTAssertEqual(
+            ThemMagicMomentOnboardingPolicy.startDecision(
+                workspaceAccessDecision: .refreshPersistedSession
+            ),
+            .restorePersistedSession
+        )
+        XCTAssertEqual(
+            ThemMagicMomentOnboardingPolicy.startDecision(
+                workspaceAccessDecision: .openWorkspace
+            ),
+            .proceed
+        )
+    }
+
+    func testMagicMomentResumesThePendingIntentOnlyAfterAccountSignIn() {
+        var shouldResumePage = true
+        XCTAssertEqual(
+            ThemMagicMomentOnboardingPolicy.takeResumeDecision(
+                needsOnboardingName: true,
+                shouldResumeAfterAccountSignIn: &shouldResumePage,
+                pageSubmissionPending: true
+            ),
+            .start(.page)
+        )
+        XCTAssertFalse(shouldResumePage)
+        XCTAssertEqual(
+            ThemMagicMomentOnboardingPolicy.takeResumeDecision(
+                needsOnboardingName: true,
+                shouldResumeAfterAccountSignIn: &shouldResumePage,
+                pageSubmissionPending: true
+            ),
+            .none
+        )
+
+        var shouldResumeVoice = true
+        XCTAssertEqual(
+            ThemMagicMomentOnboardingPolicy.takeResumeDecision(
+                needsOnboardingName: true,
+                shouldResumeAfterAccountSignIn: &shouldResumeVoice,
+                pageSubmissionPending: false
+            ),
+            .start(.voice)
+        )
+        XCTAssertFalse(shouldResumeVoice)
+        XCTAssertEqual(
+            ThemMagicMomentOnboardingPolicy.takeResumeDecision(
+                needsOnboardingName: true,
+                shouldResumeAfterAccountSignIn: &shouldResumeVoice,
+                pageSubmissionPending: false
+            ),
+            .none
+        )
+
+        var shouldNotResume = false
+        XCTAssertEqual(
+            ThemMagicMomentOnboardingPolicy.takeResumeDecision(
+                needsOnboardingName: true,
+                shouldResumeAfterAccountSignIn: &shouldNotResume,
+                pageSubmissionPending: true
+            ),
+            .none
+        )
+
+        var shouldOpenWorkspace = true
+        XCTAssertEqual(
+            ThemMagicMomentOnboardingPolicy.takeResumeDecision(
+                needsOnboardingName: false,
+                shouldResumeAfterAccountSignIn: &shouldOpenWorkspace,
+                pageSubmissionPending: true
+            ),
+            .openWorkspace
+        )
+        XCTAssertFalse(shouldOpenWorkspace)
+    }
+
+    func testMagicMomentAccountDismissalAlwaysConsumesPendingResumeIntent() {
+        var shouldResumeOnboarding = true
+        XCTAssertEqual(
+            ThemMagicMomentOnboardingPolicy.takeAccountDismissalDecision(
+                needsOnboardingName: true,
+                shouldResumeAfterAccountSignIn: &shouldResumeOnboarding
+            ),
+            .preserveOnboardingDraft
+        )
+        XCTAssertFalse(shouldResumeOnboarding)
+        XCTAssertEqual(
+            ThemMagicMomentOnboardingPolicy.takeResumeDecision(
+                needsOnboardingName: true,
+                shouldResumeAfterAccountSignIn: &shouldResumeOnboarding,
+                pageSubmissionPending: true
+            ),
+            .none,
+            "A late authentication completion must not resume after dismissal."
+        )
+        XCTAssertEqual(
+            ThemMagicMomentOnboardingPolicy.takeAccountDismissalDecision(
+                needsOnboardingName: true,
+                shouldResumeAfterAccountSignIn: &shouldResumeOnboarding
+            ),
+            .none
+        )
+
+        var shouldResumeCompletedOnboarding = true
+        XCTAssertEqual(
+            ThemMagicMomentOnboardingPolicy.takeAccountDismissalDecision(
+                needsOnboardingName: false,
+                shouldResumeAfterAccountSignIn: &shouldResumeCompletedOnboarding
+            ),
+            .none
+        )
+        XCTAssertFalse(shouldResumeCompletedOnboarding)
+        XCTAssertEqual(
+            ThemMagicMomentOnboardingPolicy.takeResumeDecision(
+                needsOnboardingName: false,
+                shouldResumeAfterAccountSignIn: &shouldResumeCompletedOnboarding,
+                pageSubmissionPending: false
+            ),
+            .none,
+            "A late authentication completion must not open Studio after dismissal."
+        )
+    }
 }

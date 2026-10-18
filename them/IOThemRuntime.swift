@@ -16,6 +16,33 @@ nonisolated enum IOThemRuntime {
         ProcessInfo.processInfo.arguments.contains("--ui-testing")
     }
 
+    static var bypassesAuthenticationForUITests: Bool {
+        bypassesAuthenticationForUITests(arguments: ProcessInfo.processInfo.arguments)
+    }
+
+    static func bypassesAuthenticationForUITests(arguments: [String]) -> Bool {
+        #if DEBUG
+        arguments.contains("--ui-testing") &&
+            !arguments.contains("--ui-enforce-production-auth")
+        #else
+        false
+        #endif
+    }
+
+    static var allowsUITestAuthenticationResumeFixture: Bool {
+        allowsUITestAuthenticationResumeFixture(arguments: ProcessInfo.processInfo.arguments)
+    }
+
+    static func allowsUITestAuthenticationResumeFixture(arguments: [String]) -> Bool {
+        #if DEBUG
+        arguments.contains("--ui-testing") &&
+            arguments.contains("--ui-enforce-production-auth") &&
+            arguments.contains("--ui-auth-resume-fixture")
+        #else
+        false
+        #endif
+    }
+
     static var isStudioEvalSession: Bool {
         #if DEBUG
         isStudioEvalArguments(ProcessInfo.processInfo.arguments)
