@@ -52,7 +52,9 @@ counts above are historical, not current-head proof. Maintainer2.4 release and
 GHSA-3pph-fpjx-jg34 also fix an aborted diskStorage cleanup gap; THEM currently
 uses memoryStorage, but preserving the already-integrated newer release is
 the correct baseline. https://github.com/expressjs/multer/releases/tag/v2.4.0
-Fresh Node26 focused20/0/0 on2.4; full current Node20 proof pending. No claim
+Fresh Node26 focused20/0/0 on2.4. VERIFIED frozen runtime5230982c under
+Node20.20.2: backend2759/0/2 and scripts210/0/0, exit0, no retries;
+/tmp/them-1002-24-node20.log. D009/diff remain clean. No claim
 that this supplemental PR substitutes for original909 or fixes all uploads.
 
 ## Adversarial scope and limits
