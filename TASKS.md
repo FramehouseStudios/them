@@ -18,6 +18,9 @@
   recovery/writer/Home/full V1/fault/macOS, D009 and diff pass. Serialize iOS
   behind still-live T1003 native36287; never restart or erase its device.
 - **Evidence:** `docs/retention-current-parent-2026-10-19.md`.
+- **Verified:** frozen0577b913 Node20 scripts231/0/0, backend2897/0/2,
+  D009 all five actual deltas0 and whitespace/ancestors pass. Signed lane
+  not started until active T1003 finishes; original962 remainsaef.
 - **Hold:** independent review/fresh hosted child gate and production App Store
   credentials remain required. No physical/model/120-page completion claim.
 

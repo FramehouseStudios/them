@@ -27,8 +27,13 @@ head update until its own new combined proof; no replacement PR or main merge.
 5. Confirm original remote head is still aef, preserve source with a normal
    fast-forward append only after proof; fresh hosted checks/review required.
 
-All new checks pending; earlier T990 or parent/T1003 numbers are not this
-candidate's proof. Production remains blocked on App Store credentials;
+VERIFIED frozen runtime0577b913: pinned Node20.20.2 scripts231/0/0 and
+backend2897 pass/0 fail/2 skip, exit0, /tmp/them-1005-node20.log. Actual parent
+e689 remote baseline fetched and D009 compares all five files: deltas0.
+Whitespace and ancestry checks pass. Signed UI is NOT started; T1003's active
+native36287 still owns the lane, not a blocker or reason to restart it.
+Earlier T990 or parent/T1003 numbers are not this candidate's signed proof.
+Production remains blocked on App Store credentials;
 shipping backend, physical microphone,120-page craft/print parity and external
 file opening remain unverified. No paid calls or secrets consumed.
 
