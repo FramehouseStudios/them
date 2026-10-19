@@ -18,9 +18,12 @@
 - **Done when:** actual app settings and supported API surface agree, signed
   units and writer/recovery UI prove the updated source; older-runtime proof
   is recorded separately. Preserve orb/Clementine, original heads and main.
-- **Current:** minimal fallback and availability regression added; compile
-  diagnostic running in session74332, log `/tmp/them-992-ios17-fixed.log`.
-  Project minimum not changed yet. Production credential hold remains.
+- **Current:** minimal fallback and availability regression added. iOS17
+  override compile and actual-project build pass; iOS app/test Debug/Release
+  minimums now17 in this isolated branch (Mac configurations unchanged).
+  Official Xcode downloads reported17.5 arm64/universal and18.5 universal
+  unavailable. No old-runtime support claim; signed current-runtime proof
+  remains to run. Production credential hold remains.
 
 ### T-990 — Preserve exact-retention child with verified recovery parent
 
