@@ -28,9 +28,15 @@ actual model behavior or a completed feature screenplay.
   core byte-equal, recommendation/choice preserved, old unconditional110
   instruction absent. Existing small-budget bound tests remain green; not a
   claim that the entire identity fits every smaller companion budget.
-- Signed focused app mentor/core/parity tests running on erased owned
-  Pro11CF/iOS26.2, signing enabled. No result claimed until actual completed
-  xcresult is read. Full pinned Node20/offline gate pending.
+- VERIFIED signed focused app mentor/core/parity6/0/0 on erased owned
+  Pro11CF/iOS26.2/23C54, signing enabled, native45668 exit0. Actual completed
+  summary read: `/tmp/them-1010-mentor/v1-ui-smoke-local-1-26716.xcresult`.
+  This is not a fresh full unit/UI/macOS run; only the two mentor classes
+  were selected. Existing Swift6-concurrency warnings remain.
+- VERIFIED frozen9d9a504f pinned Node20.20.2: backend2988/0/2,
+  scripts238/0/0, offline golden OK, native97350 exit0, external networking
+  disabled. `/tmp/them-1010-node20.log`. Actual T1009 D009 all five deltas0;
+  whitespace clean. No model call, new secret access or production change.
 
 ## Exact files
 
@@ -45,7 +51,8 @@ actual model behavior or a completed feature screenplay.
 
 Spoken target extraction must connect to existing project target/account
 settings, preserving original #840/#861. Original #962 hosted Quality Gate
-still in progress at last read; original #963 update waits for that boundary.
+has advanced through required writer to full V1 UI, still in progress at
+last read; original #963 update waits for that boundary.
 This isolated combined branch does not skip original PRs or merge main.
 
 Human local-key readiness remains unconfirmed: no secret file read, no paid

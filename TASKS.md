@@ -8,7 +8,7 @@
 ### T-1010 — Align Clementine's actual mentor instructions with D017
 
 - **Owner:** codex. **Branch:** `codex/T-1010-mentor-target-recommendation`.
-- **Status:** in-progress. **Pillar:** living companion / voice-to-scene.
+- **Status:** review (local proof complete). **Pillar:** living companion / voice-to-scene.
 - **Scope:** actual shared/Swift mentor identity recommends120 pages without
   a quota; shorter/longer chosen targets and scaled map outrank110 examples.
   No model, budget, scorer, writer data or production configuration change.
@@ -17,6 +17,9 @@
 - **Done when:** signed mentor/parity checks, pinned backend/scripts/offline
   golden and D009/diff pass; live/phone proof remains distinct.
 - **Evidence:** `docs/mentor-target-recommendation-2026-10-19.md`.
+- **Full proof:** frozen9d9a504f Node20 backend2988/0/2, scripts238/0/0,
+  offline golden OK; signed focused mentor/parity6/0/0 on erased owned
+  Pro/iOS26.2. D009 all five deltas0; diff pass. No live/phone result.
 
 ### T-1009 — Fail closed before and during scoped live-model proof
 
