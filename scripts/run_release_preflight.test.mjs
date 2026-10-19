@@ -172,3 +172,138 @@ test("[run-release-preflight] checks the exact privacy URL shipped in Info-Relea
   assert.match(scriptSource, /PRIVACY_POLICY_URL.*does not match the URL shipped in Info-Release\.plist/);
   assert.match(scriptSource, /--url="\$\{shipped_privacy_url\}"/);
 });
+
+test("[run-release-preflight] records every gate and prints a PARTIAL/GREEN summary", () => {
+  const gates = [
+    ["voice-latency", "RUN_VOICE_LATENCY_GATE"],
+    ["voice-network-fault", "RUN_VOICE_NETWORK_FAULT_GATE"],
+    ["writer-block-quality", "RUN_WRITER_BLOCK_QUALITY_GATE"],
+    ["live-studio-story-quality", "RUN_LIVE_STUDIO_STRUCTURAL_CANARY"],
+    ["studio-instinct-writer-block", "RUN_STUDIO_INSTINCT_WRITER_BLOCK_GATE"],
+    ["v1-ui-smoke", "RUN_V1_UI_SMOKE_GATE"],
+    ["live-backend-health", "RUN_LIVE_BACKEND_CHECK"],
+    ["public-privacy-policy", "RUN_PUBLIC_RELEASE_SURFACE_CHECK"],
+  ];
+  for (const [name, flag] of gates) {
+    assert.match(scriptSource, new RegExp(`record_gate_ran "${name}"`), name);
+    assert.match(scriptSource, new RegExp(`record_gate_skipped "${name}" ${flag} 1`), name);
+  }
+  assert.match(scriptSource, /record_gate_skipped "mac-desktop-preflight" RUN_MAC_DESKTOP_PREFLIGHT 0/);
+  assert.match(scriptSource, /record_gate_ran "appstore-preflight"/);
+  assert.match(scriptSource, /record_gate_skipped "quality-gate" RUN_QUALITY_GATE 1/);
+  for (const [name, flag] of [
+    ["canon", "RUN_CANON"],
+    ["page-craft", "RUN_PAGE_CRAFT"],
+    ["regression-eval", "RUN_EVAL"],
+    ["strict-case-minimums", "RUN_STRICT_CASE_MINS"],
+    ["speculative-reuse", "RUN_SPECULATIVE_REUSE_GATE"],
+    ["smoke", "RUN_SMOKE"],
+    ["talk-recovery", "RUN_TALK_RECOVERY_GATE"],
+    ["ops-alerts", "RUN_ALERT"],
+    ["craft-completeness", "RUN_CRAFT_COMPLETENESS_GATE"],
+  ]) {
+    assert.match(scriptSource, new RegExp(`"${name}:${flag}:1"`), name);
+  }
+  assert.match(scriptSource, /"load-profile:RUN_LOAD:0"/);
+  assert.match(scriptSource, /print_preflight_summary\n*$/);
+  assert.match(scriptSource, /PARTIAL: default-on gate\(s\) were skipped/);
+  assert.match(scriptSource, /return 2/);
+});
+
+test("[run-release-preflight] summary helpers say PARTIAL only when a default-on gate is skipped", () => {
+  const start = scriptSource.indexOf("# Gate bookkeeping");
+  const end = scriptSource.indexOf('if [[ -e "${RELEASE_ENV_FILE}"');
+  assert.ok(start > 0 && end > start, "gate bookkeeping helpers must precede env loading");
+  const helpers = scriptSource.slice(start, end);
+
+  const runHelpers = (body) => spawnSync("bash", ["-c", `set -euo pipefail\n${helpers}\n${body}`], {
+    cwd: repoRoot,
+    encoding: "utf8",
+    env: { ...process.env, RUN_LIVE_BACKEND_CHECK: "0", RUN_MAC_DESKTOP_PREFLIGHT: "0" },
+  });
+
+  const green = runHelpers(
+    'record_gate_ran "v1-ui-smoke"\nrecord_gate_skipped "mac-desktop-preflight" RUN_MAC_DESKTOP_PREFLIGHT 0\nprint_preflight_summary',
+  );
+  assert.equal(green.status, 0, green.stderr);
+  assert.match(green.stdout, /ran:\s+v1-ui-smoke/);
+  assert.match(green.stdout, /skipped:\s+mac-desktop-preflight \(RUN_MAC_DESKTOP_PREFLIGHT=0\)/);
+  assert.match(green.stdout, /GREEN: every required iPhone release gate ran and passed/);
+  assert.doesNotMatch(green.stdout, /PARTIAL/);
+
+  const partial = runHelpers(
+    'record_gate_ran "v1-ui-smoke"\nrecord_gate_skipped "live-backend-health" RUN_LIVE_BACKEND_CHECK 1\nprint_preflight_summary',
+  );
+  assert.equal(partial.status, 2, partial.stderr);
+  assert.match(partial.stdout, /skipped:\s+live-backend-health \(RUN_LIVE_BACKEND_CHECK=0\)/);
+  assert.match(partial.stdout, /PARTIAL: default-on gate\(s\) were skipped; this run does not prove release readiness/);
+  assert.doesNotMatch(partial.stdout, /GREEN/);
+
+  const empty = runHelpers("print_preflight_summary");
+  assert.equal(empty.status, 2, empty.stderr);
+  assert.match(empty.stdout, /ran:\s+\(none\)/);
+  assert.match(empty.stdout, /skipped:\s+\(none\)/);
+  assert.match(empty.stdout, /PARTIAL/);
+});
+
+test("[run-release-preflight] a skipped quality gate makes the summary fail PARTIAL", () => {
+  const start = scriptSource.indexOf("# Gate bookkeeping");
+  const end = scriptSource.indexOf('if [[ -e "${RELEASE_ENV_FILE}"');
+  const helpers = scriptSource.slice(start, end);
+  const result = spawnSync("bash", ["-c", `set -euo pipefail
+${helpers}
+RUN_QUALITY_GATE=0
+record_quality_gate_results
+print_preflight_summary`], {
+    cwd: repoRoot,
+    encoding: "utf8",
+    env: { ...process.env, RUN_QUALITY_GATE: "0" },
+  });
+  assert.equal(result.status, 2, result.stderr);
+  assert.match(result.stdout, /quality-gate \(RUN_QUALITY_GATE=0\)/);
+  assert.match(result.stdout, /PARTIAL/);
+  assert.doesNotMatch(result.stdout, /GREEN/);
+});
+
+test("[run-release-preflight] a skipped nested quality check makes the summary fail PARTIAL", () => {
+  const start = scriptSource.indexOf("# Gate bookkeeping");
+  const end = scriptSource.indexOf('if [[ -e "${RELEASE_ENV_FILE}"');
+  const helpers = scriptSource.slice(start, end);
+  const flags = [
+    "RUN_CANON", "RUN_PAGE_CRAFT", "RUN_EVAL", "RUN_STRICT_CASE_MINS",
+    "RUN_SPECULATIVE_REUSE_GATE", "RUN_SMOKE", "RUN_TALK_RECOVERY_GATE",
+    "RUN_ALERT", "RUN_CRAFT_COMPLETENESS_GATE",
+  ];
+  const assignments = flags.map((flag) => `${flag}=1`).join("\n");
+  const result = spawnSync("bash", ["-c", `set -euo pipefail
+${helpers}
+RUN_QUALITY_GATE=1
+RUN_LOAD=0
+${assignments}
+RUN_EVAL=0
+record_quality_gate_results
+print_preflight_summary`], {
+    cwd: repoRoot,
+    encoding: "utf8",
+  });
+  assert.equal(result.status, 2, result.stderr);
+  assert.match(result.stdout, /quality-gate\/regression-eval \(RUN_EVAL=0\)/);
+  assert.match(result.stdout, /quality-gate\/load-profile \(RUN_LOAD=0\)/);
+  assert.match(result.stdout, /PARTIAL/);
+  assert.doesNotMatch(result.stdout, /GREEN/);
+});
+
+test("[run-release-preflight] gate controls reject values other than zero or one", () => {
+  const start = scriptSource.indexOf("# Gate bookkeeping");
+  const end = scriptSource.indexOf('if [[ -e "${RELEASE_ENV_FILE}"');
+  const helpers = scriptSource.slice(start, end);
+  const result = spawnSync("bash", ["-c", `set -euo pipefail
+${helpers}
+RUN_QUALITY_GATE=yes
+validate_gate_flag RUN_QUALITY_GATE`], {
+    cwd: repoRoot,
+    encoding: "utf8",
+  });
+  assert.equal(result.status, 64);
+  assert.match(result.stderr, /RUN_QUALITY_GATE must be 0 or 1/);
+});

@@ -44,6 +44,90 @@ validate_release_env_file() {
   fi
 }
 
+# Gate bookkeeping: every gate records whether it ran or was skipped so the
+# end-of-run summary can say exactly what this preflight proved. A run that
+# skipped any default-on gate ends with PARTIAL, never with a green line.
+ran_gates=()
+skipped_gates=()
+partial=0
+
+record_gate_ran() {
+  ran_gates+=("$1")
+}
+
+record_gate_skipped() {
+  local name="$1"
+  local flag="$2"
+  local default_on="${3:-1}"
+  skipped_gates+=("${name} (${flag}=${!flag})")
+  if [[ "${default_on}" == "1" ]]; then
+    partial=1
+  fi
+}
+
+validate_gate_flag() {
+  local flag="$1"
+  case "${!flag}" in
+    0|1) ;;
+    *)
+      printf "[FAIL] %s must be 0 or 1 (found %s).\n" "${flag}" "${!flag}" >&2
+      return 64
+      ;;
+  esac
+}
+
+print_preflight_summary() {
+  echo
+  echo "[release-preflight] Gate summary"
+  if [[ "${#ran_gates[@]}" -gt 0 ]]; then
+    printf "  ran:     %s\n" "${ran_gates[@]}"
+  else
+    echo "  ran:     (none)"
+  fi
+  if [[ "${#skipped_gates[@]}" -gt 0 ]]; then
+    printf "  skipped: %s\n" "${skipped_gates[@]}"
+  else
+    echo "  skipped: (none)"
+  fi
+  if [[ "${#ran_gates[@]}" == "0" ]]; then
+    partial=1
+  fi
+  if [[ "${partial}" == "1" ]]; then
+    echo "[release-preflight] PARTIAL: default-on gate(s) were skipped; this run does not prove release readiness."
+    return 2
+  else
+    echo "[release-preflight] GREEN: every required iPhone release gate ran and passed."
+  fi
+}
+
+record_quality_gate_results() {
+  if [[ "${RUN_QUALITY_GATE}" != "1" ]]; then
+    record_gate_skipped "quality-gate" RUN_QUALITY_GATE 1
+    return
+  fi
+
+  record_gate_ran "quality-gate"
+  local specification name flag default_on
+  for specification in \
+    "canon:RUN_CANON:1" \
+    "page-craft:RUN_PAGE_CRAFT:1" \
+    "regression-eval:RUN_EVAL:1" \
+    "strict-case-minimums:RUN_STRICT_CASE_MINS:1" \
+    "speculative-reuse:RUN_SPECULATIVE_REUSE_GATE:1" \
+    "smoke:RUN_SMOKE:1" \
+    "talk-recovery:RUN_TALK_RECOVERY_GATE:1" \
+    "ops-alerts:RUN_ALERT:1" \
+    "craft-completeness:RUN_CRAFT_COMPLETENESS_GATE:1" \
+    "load-profile:RUN_LOAD:0"; do
+    IFS=: read -r name flag default_on <<<"${specification}"
+    if [[ "${!flag}" == "1" ]]; then
+      record_gate_ran "quality-gate/${name}"
+    else
+      record_gate_skipped "quality-gate/${name}" "${flag}" "${default_on}"
+    fi
+  done
+}
+
 if [[ -e "${RELEASE_ENV_FILE}" || -L "${RELEASE_ENV_FILE}" ]]; then
   validate_release_env_file "${RELEASE_ENV_FILE}"
   set -a
@@ -79,6 +163,19 @@ RUN_EVAL="${RUN_EVAL:-1}"
 RUN_TALK_RECOVERY_GATE="${RUN_TALK_RECOVERY_GATE:-1}"
 RUN_SPECULATIVE_REUSE_GATE="${RUN_SPECULATIVE_REUSE_GATE:-1}"
 RUN_SMOKE="${RUN_SMOKE:-1}"
+RUN_CANON="${RUN_CANON:-1}"
+RUN_PAGE_CRAFT="${RUN_PAGE_CRAFT:-1}"
+RUN_STRICT_CASE_MINS="${RUN_STRICT_CASE_MINS:-1}"
+RUN_ALERT="${RUN_ALERT:-1}"
+RUN_CRAFT_COMPLETENESS_GATE="${RUN_CRAFT_COMPLETENESS_GATE:-1}"
+RUN_LOAD="${RUN_LOAD:-0}"
+for gate_flag in \
+  RUN_LIVE_STUDIO_STRUCTURAL_CANARY RUN_QUALITY_GATE RUN_EVAL \
+  RUN_TALK_RECOVERY_GATE RUN_SPECULATIVE_REUSE_GATE RUN_SMOKE RUN_CANON \
+  RUN_PAGE_CRAFT RUN_STRICT_CASE_MINS RUN_ALERT RUN_CRAFT_COMPLETENESS_GATE \
+  RUN_LOAD; do
+  validate_gate_flag "${gate_flag}"
+done
 if is_missing_value "${DEVELOPMENT_TEAM_ID:-}"; then
   missing+=("DEVELOPMENT_TEAM_ID")
 fi
@@ -111,55 +208,76 @@ fi
 node "${ROOT}/scripts/release_config_status.mjs" --release-env-file="${RELEASE_ENV_FILE}"
 
 RUN_VOICE_LATENCY_GATE="${RUN_VOICE_LATENCY_GATE:-1}"
+validate_gate_flag RUN_VOICE_LATENCY_GATE
 if [[ "${RUN_VOICE_LATENCY_GATE}" == "1" ]]; then
   "${ROOT}/scripts/run_voice_latency_gate.sh"
+  record_gate_ran "voice-latency"
 else
   echo "[release-preflight] Skipping voice latency gate (RUN_VOICE_LATENCY_GATE=${RUN_VOICE_LATENCY_GATE})."
+  record_gate_skipped "voice-latency" RUN_VOICE_LATENCY_GATE 1
 fi
 
 RUN_VOICE_NETWORK_FAULT_GATE="${RUN_VOICE_NETWORK_FAULT_GATE:-1}"
+validate_gate_flag RUN_VOICE_NETWORK_FAULT_GATE
 if [[ "${RUN_VOICE_NETWORK_FAULT_GATE}" == "1" ]]; then
   "${ROOT}/scripts/run_voice_network_fault_smokes.sh"
+  record_gate_ran "voice-network-fault"
 else
   echo "[release-preflight] Skipping voice network-fault gate (RUN_VOICE_NETWORK_FAULT_GATE=${RUN_VOICE_NETWORK_FAULT_GATE})."
+  record_gate_skipped "voice-network-fault" RUN_VOICE_NETWORK_FAULT_GATE 1
 fi
 
 RUN_STUDIO_INSTINCT_WRITER_BLOCK_GATE="${RUN_STUDIO_INSTINCT_WRITER_BLOCK_GATE:-1}"
 RUN_WRITER_BLOCK_QUALITY_GATE="${RUN_WRITER_BLOCK_QUALITY_GATE:-1}"
+validate_gate_flag RUN_STUDIO_INSTINCT_WRITER_BLOCK_GATE
+validate_gate_flag RUN_WRITER_BLOCK_QUALITY_GATE
 if [[ "${RUN_WRITER_BLOCK_QUALITY_GATE}" == "1" ]]; then
   npm --prefix "${ROOT}/backend" run eval:writer-block-rescue
+  record_gate_ran "writer-block-quality"
 else
   echo "[release-preflight] Skipping deterministic writer-block quality gate (RUN_WRITER_BLOCK_QUALITY_GATE=${RUN_WRITER_BLOCK_QUALITY_GATE})."
+  record_gate_skipped "writer-block-quality" RUN_WRITER_BLOCK_QUALITY_GATE 1
 fi
 
 if [[ "${RUN_LIVE_STUDIO_STRUCTURAL_CANARY}" == "1" ]]; then
   npm --prefix "${ROOT}/backend" run eval:live-studio-story-quality
+  record_gate_ran "live-studio-story-quality"
 else
   echo "[release-preflight] Skipping live Studio story-quality canary (RUN_LIVE_STUDIO_STRUCTURAL_CANARY=${RUN_LIVE_STUDIO_STRUCTURAL_CANARY})."
+  record_gate_skipped "live-studio-story-quality" RUN_LIVE_STUDIO_STRUCTURAL_CANARY 1
 fi
 
 if [[ "${RUN_STUDIO_INSTINCT_WRITER_BLOCK_GATE}" == "1" ]]; then
   npm --prefix "${ROOT}/backend" run eval:studio-instinct-writer-block-ui
+  record_gate_ran "studio-instinct-writer-block"
 else
   echo "[release-preflight] Skipping Studio instinct writer-block gate (RUN_STUDIO_INSTINCT_WRITER_BLOCK_GATE=${RUN_STUDIO_INSTINCT_WRITER_BLOCK_GATE})."
+  record_gate_skipped "studio-instinct-writer-block" RUN_STUDIO_INSTINCT_WRITER_BLOCK_GATE 1
 fi
 
 RUN_V1_UI_SMOKE_GATE="${RUN_V1_UI_SMOKE_GATE:-1}"
+validate_gate_flag RUN_V1_UI_SMOKE_GATE
 if [[ "${RUN_V1_UI_SMOKE_GATE}" == "1" ]]; then
   "${ROOT}/scripts/run_v1_ui_smoke.sh"
+  record_gate_ran "v1-ui-smoke"
 else
   echo "[release-preflight] Skipping signed iPhone V1 UI smoke (RUN_V1_UI_SMOKE_GATE=${RUN_V1_UI_SMOKE_GATE})."
+  record_gate_skipped "v1-ui-smoke" RUN_V1_UI_SMOKE_GATE 1
 fi
 
 RUN_LIVE_BACKEND_CHECK="${RUN_LIVE_BACKEND_CHECK:-1}"
+validate_gate_flag RUN_LIVE_BACKEND_CHECK
 if [[ "${RUN_LIVE_BACKEND_CHECK}" == "1" ]]; then
   APP_TOKEN="${APP_TOKEN:-${APP_TOKEN_RELEASE:-}}" \
     node "${ROOT}/scripts/live_backend_health.mjs" --url="${BACKEND_URL:-https://api.them.io}"
+  record_gate_ran "live-backend-health"
 else
   echo "[release-preflight] Skipping live backend health check (RUN_LIVE_BACKEND_CHECK=${RUN_LIVE_BACKEND_CHECK})."
+  record_gate_skipped "live-backend-health" RUN_LIVE_BACKEND_CHECK 1
 fi
 
 RUN_PUBLIC_RELEASE_SURFACE_CHECK="${RUN_PUBLIC_RELEASE_SURFACE_CHECK:-1}"
+validate_gate_flag RUN_PUBLIC_RELEASE_SURFACE_CHECK
 if [[ "${RUN_PUBLIC_RELEASE_SURFACE_CHECK}" == "1" ]]; then
   RELEASE_PLIST_FILE="${ROOT}/them/Info-Release.plist"
   shipped_privacy_url="$(plutil -extract PRIVACY_POLICY_URL raw -o - "${RELEASE_PLIST_FILE}" 2>/dev/null || true)"
@@ -173,17 +291,29 @@ if [[ "${RUN_PUBLIC_RELEASE_SURFACE_CHECK}" == "1" ]]; then
   fi
   node "${ROOT}/scripts/release_public_surface_health.mjs" \
     --url="${shipped_privacy_url}"
+  record_gate_ran "public-privacy-policy"
 else
   echo "[release-preflight] Skipping public privacy-policy check (RUN_PUBLIC_RELEASE_SURFACE_CHECK=${RUN_PUBLIC_RELEASE_SURFACE_CHECK})."
+  record_gate_skipped "public-privacy-policy" RUN_PUBLIC_RELEASE_SURFACE_CHECK 1
 fi
 
 RUN_MAC_DESKTOP_PREFLIGHT="${RUN_MAC_DESKTOP_PREFLIGHT:-0}"
+validate_gate_flag RUN_MAC_DESKTOP_PREFLIGHT
 if [[ "${RUN_MAC_DESKTOP_PREFLIGHT}" == "1" ]]; then
   MAC_DESKTOP_CONFIGURATION="${MAC_DESKTOP_CONFIGURATION:-Mac Scaffold Release}" \
     MAC_DESKTOP_ACTION="${MAC_DESKTOP_ACTION:-archive}" \
     "${ROOT}/scripts/desktop_preflight.sh"
+  record_gate_ran "mac-desktop-preflight"
 else
   echo "[release-preflight] Mac scaffold is outside the iPhone-only V1 release gate (RUN_MAC_DESKTOP_PREFLIGHT=${RUN_MAC_DESKTOP_PREFLIGHT})."
+  record_gate_skipped "mac-desktop-preflight" RUN_MAC_DESKTOP_PREFLIGHT 0
 fi
 
 "${ROOT}/scripts/appstore_preflight.sh"
+record_gate_ran "appstore-preflight"
+record_quality_gate_results
+
+# release_config_status.mjs ran unconditionally above; name it so the summary is complete.
+ran_gates=("release-config-status" "${ran_gates[@]}")
+
+print_preflight_summary

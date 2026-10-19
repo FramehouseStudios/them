@@ -313,7 +313,7 @@ function buildStatus(opts) {
         backendMessage = "Release BACKEND_URL must not point to localhost.";
       } else {
         backendOk = true;
-        backendMessage = "Release BACKEND_URL is hosted and HTTPS.";
+        backendMessage = "Release BACKEND_URL is a non-local HTTPS URL (string check only; reachability is proven by the live backend health step).";
       }
     } catch {
       backendMessage = "Release BACKEND_URL is not a valid URL.";
