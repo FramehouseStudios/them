@@ -19,10 +19,20 @@ Other lengths had internal holes/backward jumps. Both existing range owners
 now start each inclusive range immediately after the previous rounded end;
 the first starts at1. Explicit110 maps stay unchanged. Tests walk every
 page of60/90/110/120/150/180 targets and check three-act progression.
+The quality checker also duplicated act thresholds: page14of60 was ActII
+there but ActI in the feature map. Failing-first test reproduced this;
+it now calls the actual map owner rather than retaining independent ratios.
+Explicit act metadata still takes precedence. Final focused checks61/0/0.
 
 VERIFIED backend focused60/0/0 on host Node26.7 after failing-first evidence
 in `/tmp/them-1007-before.log`; corrected `/tmp/them-1007-focused.log`.
 Signed Swift and pinned Node20 full results pending, not claimed here.
+
+First frozen5ecb5beb Node20.20.2 full backend2982/0/2, scripts238/0/0 and
+offline golden OK, exit0. That result predates the quality-boundary sharing
+correction; final frozene92513db full run is separate and still pending.
+Signed full units are running with unchanged5ecb5beb Swift/project/test
+bytes; no concurrent simulator lane. D009 actual T1003 all five deltas0.
 
 ## Preserved work and remaining scope
 
