@@ -5,6 +5,20 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-988 — Preserve original focused-editor recovery
+
+- **Owner:** codex. **Branch:** `codex/T-988-editor-recovery-integration`.
+- **Status:** in-progress. **Pillar:** exact writer text while typing.
+- **Target:** investigate T-986's real direct-typing failure without relaxing
+  assertions; preserve original #919 rather than duplicate its existing fix.
+- **History:** normal merge `7b0d189` retains T-986 `dc64849` and original
+  #919 head `fc7a5571`, including its D009 follow-up. Original heads unchanged.
+- **Success:** exact editor/model typing, document-switch/fresh-model policy,
+  signed units and integrated recovery remain green on the combined tree;
+  full gates before promotion. Root-cause attribution requires evidence,
+  not merely a passing retry or a plausible code path.
+- **Evidence:** `docs/editor-recovery-integration-2026-10-19.md`.
+
 ### T-986 — Preserve and verify original #904 recovery
 
 - **Owner:** codex. **Branch:** `codex/T-986-original-904-recovery`.
