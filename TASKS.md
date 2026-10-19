@@ -22,7 +22,8 @@
   before1/2/0, after3/0/0: store historical model value instead of a live
   Binding read so focused fresh rewrites are not silently ignored.
   Full combined signed units635/0/0; Node20 scripts224/0/0, backend2749/0/2;
-  macOS build passes. Full V1 remains running; no whole-app completion claim.
+  macOS build passes; full V1 UI28/0/9, authenticated recovery2/0/0,
+  writer1/0/0, voice-fault1/0/0 pass. No whole-app completion claim.
 
 ### T-986 — Preserve and verify original #904 recovery
 

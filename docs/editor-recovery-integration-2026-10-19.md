@@ -64,9 +64,21 @@ is a root-cause candidate, not a proven explanation of the observed failure.
   Network disabled for tests; log `/tmp/them-988-node20.log`.
 - macOS scaffold compile exit0, separate DerivedData avoids active UI build
   database contention; log `/tmp/them-988-macos.log`. Existing warnings remain.
-- V1 UI remains active after the serial units pass, stopping at first red:
-  `/tmp/them-988-v1.log`; no final count or full UI success claimed yet.
-  Authenticated recovery/writer fixture journeys still need a fresh run.
+- Full V1 UI28 pass/0 fail/9 skip, exit0. Retained bundle
+  `/tmp/them-988-v1/v1-ui-smoke-local-1-64145.xcresult`; same erased owned
+  UDID/iOS26.2 confirmed. Direct typing passes in the full run. Fixture-only
+  skips are not claimed as passing or evidence of live model behavior.
+- Authenticated signed recovery2/0/0, exit0, retained bundle
+  `/tmp/them-988-recovery/them-save-recovery-OstmJn/recovery-ios.xcresult`;
+  log `/tmp/them-988-recovery.log`. Both full exact-text/exactly-once stories
+  execute. Controlled DEBUG save fault is not physical airplane-mode proof.
+- Authenticated writer/save/Markdown-export/relaunch1/0/0, exit0;
+  `/tmp/them-988-writer.log`. Existing helper removes its temporary bundle.
+- Signed voice-fault1/0/0 and wrapper macOS build exit0. Retained bundle
+  `/tmp/them-988-voice/voice-network-fault-local-1-69205-ios.xcresult`;
+  log `/tmp/them-988-voice.log`. Actual same erased UDID/iOS26.2 confirmed.
+- Executable source `bfbd5af` has no later app-code changes on this branch.
+  These are local fixture/transport proofs, not real speech/model outputs.
 
 ## Registrar observation
 
@@ -75,6 +87,19 @@ an empty domain-management list; its separate Simple Domain List also lists
 no domains. This does not prove the human owns no domain elsewhere. Requested
 the owning account or exact domain name before changing DNS. No purchase,
 transfer, DNS, nameserver, email, security or credential change performed.
+
+Read-only Render shell diagnostic on live instance b5244 prints booleans,
+never values. Nodev20.20.2, NODE_ENV production. DATABASE_URL, JWT_SECRET,
+OPENAI_API_KEY, APP_TOKEN, AUTH_APPLE_AUDIENCE and APP_STORE_BUNDLE_ID are
+present. APP_STORE_ISSUER_ID, APP_STORE_KEY_ID and APP_STORE_PRIVATE_KEY are
+absent. REQUIRE_USER_AUTH is not explicitly disabled. Presence does not
+validate the credentials or prove user/project isolation. These are live
+instance values, not a claim about pending environment changes for a future
+deploy. Current source's assertProductionEnv refuses missing IAP verification
+configuration. No guard was bypassed; requested human decision on an explicit
+purchases-disabled beta mode before changing that production policy.
+Human answered: keep production blocked until App Store credentials exist.
+Do not implement that beta-mode bypass or change production startup policy.
 
 Owned scoped branch backed up at source commit `bfbd5af`; evidence posted
 on original #919 comment6274955590. Original #919/#904 heads and main stay
