@@ -31,16 +31,25 @@ candidate is not shipped support until stronger runtime proof is recorded.
 - plutil project lint and whitespace pass. D009 all five deltas0 against
   fetched parent #961 head8b19d86 before the configuration-only change;
   no god-file content changed afterward.
-- No signed test has yet run on this candidate; inherited T-990 results
-  are not relabeled as candidate proof. Current only installed runtime26.2.
+- Signed full units active in native session40119 on exact erased owned
+ 11CF5EFB-D8C3-4F19-8062-28AF37F27D93, runtime26.2:
+  `/tmp/them-992-units.log`. Not yet a passing claim. Inherited T-990 results
+  are not relabeled as candidate proof.
+- Pinned Node20 scripts231/0/0; full backend still active in session13237,
+  `/tmp/them-992-node20.log`, no network/synthetic configuration. No backend
+  pass claim until terminal summary.
+- Created a separate owned iPhone SE3 simulator on installed26.2:
+  E8998A6B-35B1-49E3-896C-861550849927, name THEM compatibility SE20261019.
+  No existing device erased by creation. Narrow writer/recovery proof is
+  next after current units; this is not an older-OS simulator.
 
 Official Xcode runtime acquisition terminal results, not a silent skip:
 
--17.5 arm64 variant: unavailable, exit70,
+- 17.5 arm64 variant: unavailable, exit70,
   `/tmp/them-992-ios17-runtime-download.log`.
--17.5 universal variant: unavailable, exit70,
+- 17.5 universal variant: unavailable, exit70,
   `/tmp/them-992-ios17-runtime-universal.log`.
--18.5 universal: unavailable, exit70,
+- 18.5 universal: unavailable, exit70,
   `/tmp/them-992-ios18-runtime-download.log`.
 
 No runtime was installed and no existing simulator was erased by these
