@@ -17,6 +17,11 @@
   before updating the existing child PR. Stop on the first verified failure.
 - **Human decision:** production remains blocked until App Store credentials
   exist. No purchases-disabled bypass or paid-model completion claim.
+- **Verified:** signed erased units864/0/0; pinned Node20 backend2897/0/2,
+  scripts231/0/0; D009 all five deltas0 against fetched parent8b19d86.
+  Retained environment failures corrected without app/assertion changes.
+  UI pipeline and parent hosted iOS gate remain active. Manifest:
+  `docs/retention-parent-forward-2026-10-19.md`.
 
 ### T-980 — Preserve byte-distinct live screenplay edits
 
