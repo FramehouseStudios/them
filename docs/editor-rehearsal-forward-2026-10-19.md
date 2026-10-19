@@ -110,6 +110,28 @@ update existing #961 with a normal fast-forward before any child propagation.
 Original/public main heads remain untouched at this checkpoint.
 Continue status: READY FOR CONTINUE; production separately held by human.
 
+## Next original boundary review (not integrated)
+
+Read #653 body, its sole current commit8f5f4f2f and all three changed files;
+base remains claude/mentor-last-image (#652). Preserve its intended explicit
+causal mentor reason and two-sentence check-in cleanup. Historical three-run
+live scores are original evidence, not new combined-tree model results.
+
+Read-only execution of original stripPraiseOpener versus the current helper
+reproduced two regressions with synthetic inputs: original removes the
+concrete instruction that John must choose before midnight, and removes the
+diagnosis that the antagonist controls the deadline; current retains both.
+Log `/tmp/them-653-opener-characterization.log`. No unit-count or live-model
+claim is made from this standalone characterization. When integrating after
+the current parent proof, retain the newer narrow sympathy/quote-aware guards
+instead of blindly restoring broad first-remember/sounds-like matches. Check
+later follow-ups before implementing any competing fix. No #653 merge yet.
+
+Read-only GitHub refresh: main remainsdeac1a6d; strict up-to-date checks,
+God-file gate/Backend tests/Quality Gate, one approving review, stale-review
+dismissal and administrator enforcement all remain enabled. No protection
+change, main merge or approval fabrication.
+
 ## Hosted boundary independently cleared
 
 Run39298823662, exact original #961 head46a5b4e, completed success across
