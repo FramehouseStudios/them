@@ -5,6 +5,16 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-989 — Carry exact editor recovery into the product rehearsal
+
+- **Owner:** codex. **Branch:** `codex/T-989-editor-rehearsal-forward`.
+- **Status:** in-progress. Preserve T-988 and #961 histories with a normal
+  merge; retain newer raw-byte/deferred guards and all five recovery stories.
+- **Done when:** conflicts resolved, focused/full gates re-proven on combined
+  tree before updating any existing PR. No main merge or replacement PR.
+- **Human decision:** production remains blocked until App Store credentials
+  exist; do not add a purchases-disabled startup bypass.
+
 ### T-983 — Pin required iPhone proof to the exact erased simulator
 
 - **Owner:** codex. **Branch:** `codex/T-983-exact-simulator-proof`.
@@ -798,6 +808,71 @@
 - **Remaining outside this task:** empty/whitespace-only save contract; historical text
   already normalized before storage; async lint/coverage/logline staleness comparisons;
   physical microphone/provider proof; required hosted checks and independent merge review.
+### T-988 — Preserve original focused-editor recovery
+
+- **Owner:** codex. **Branch:** `codex/T-988-editor-recovery-integration`.
+- **Status:** in-progress. **Pillar:** exact writer text while typing.
+- **Target:** investigate T-986's real direct-typing failure without relaxing
+  assertions; preserve original #919 rather than duplicate its existing fix.
+- **History:** normal merge `7b0d189` retains T-986 `dc64849` and original
+  #919 head `fc7a5571`, including its D009 follow-up. Original heads unchanged.
+- **Success:** exact editor/model typing, document-switch/fresh-model policy,
+  signed units and integrated recovery remain green on the combined tree;
+  full gates before promotion. Root-cause attribution requires evidence,
+  not merely a passing retry or a plausible code path.
+- **Evidence:** `docs/editor-recovery-integration-2026-10-19.md`.
+- **Verified:** original typing1/0/0; policy5/0. Real coordinator regression
+  before1/2/0, after3/0/0: store historical model value instead of a live
+  Binding read so focused fresh rewrites are not silently ignored.
+  Full combined signed units635/0/0; Node20 scripts224/0/0, backend2749/0/2;
+  macOS build passes. Full V1 remains running; no whole-app completion claim.
+
+### T-986 — Preserve and verify original #904 recovery
+
+- **Owner:** codex. **Branch:** `codex/T-986-original-904-recovery`.
+- **Status:** in-progress. **Pillar:** writer words survive recovery.
+- **Scope:** preserving merge of original #904, current-main proof repairs,
+  reviewed post-await owner/project guard and retained actual CI artifacts.
+- **History:** merge `6f1ffa0` retains original `a27c75a`; no remote original
+  change or main merge yet. No replacement PR.
+- **Done when:** signed units, actual unskipped recovery and writer UI,
+  Node20 suites, macOS, D009 and diff pass on the combined head; record exact
+  evidence on original #904 and retain independent review/check requirements.
+- **Evidence:** `docs/original-904-recovery-rehearsal-2026-10-19.md`.
+- **Verified now:** signed units632/0/0; Node20 backend2749/0/2,
+  scripts224/0/0; macOS and offline quality gate pass; real recovery2/0/0.
+  Writer/export/relaunch1/0/0. Full V1 UI27/1/9: direct typing drops the
+  final character of chunk9 in both editor/model. Hold original remote head
+  unchanged; diagnose without relaxing assertions or retrying unchanged.
+
+### T-985 — Fail-closed recovery proof and preserve original #904
+
+- **Owner:** codex. **Branch:** `codex/T-985-recovery-proof-truth`.
+- **Status:** in-progress. **Pillar:** durable writer recovery.
+- **Scope:** reuse the original port fix and canonical async/summary proof;
+  reject false-green skips. Then preserve/re-prove original #904's existing
+  deterministic fault injection and queued-draft hydration protection.
+- **Evidence:** Node20 focused14/0/0, scripts223/0/0, backend2747/0/2,
+  D009 deltas0. Real parent recovery0/2/0 during queue setup; not green.
+- **Done when:** the actual requested recovery tests pass without skips on
+  the preserved combined head, with full gates and exact retained artifacts.
+- **Reference:** `docs/recovery-proof-truth-2026-10-19.md`.
+
+### T-984 — Exact, signed simulator proof on main
+
+- **Owner:** codex. **Branch:** `codex/T-984-main-simulator-proof`.
+- **Status:** review. **Pillar:** trustworthy writer/recovery proof.
+- **Scope:** resolve one exact simulator ID before erasure and Xcode; route
+  main's existing offline-save iPhone tests through that signed canonical
+  runner. No application runtime or unfinished product-stack changes.
+- **Done when:** regressions, full Node20 scripts/backend, erased signed units,
+  authenticated writer UI, macOS, D009 and diff pass; draft PR records proof.
+- **Evidence:** scripts223/0/0, backend2739/0/2, signed units624/0/0,
+  macOS exit0, writer UI1/0/0, D009 deltas0. Offline-save UI still running. See
+  `docs/main-simulator-proof-2026-10-19.md`.
+- **Hold:** required hosted checks and independent human review before merge.
+- **GitHub:** draft #964, initial implementation `ba55565`; no main merge.
+
 ### T-969 — Truthful required checks on original #906
 
 - **Owner:** codex. **Task branch:** `codex/T-969-truthful-906-gate`.
