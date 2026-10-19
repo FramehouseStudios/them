@@ -25,6 +25,8 @@ struct ScreenplayStudioScreen: View {
     var canTalk: Bool
     var talkStatusText: String
     var talkIsActive: Bool
+    var livePartialTranscript: String
+    @Binding var liveWriteEnabled: Bool
     var debugVoicePartialStableSeconds: Double
     var debugVoicePartialStabilityWindowSeconds: Double
     var isSubmittingPrompt: Bool
@@ -42,6 +44,8 @@ struct ScreenplayStudioScreen: View {
         canTalk: Bool,
         talkStatusText: String,
         talkIsActive: Bool,
+        livePartialTranscript: String,
+        liveWriteEnabled: Binding<Bool>,
         debugVoicePartialStableSeconds: Double,
         debugVoicePartialStabilityWindowSeconds: Double,
         isSubmittingPrompt: Bool,
@@ -58,6 +62,8 @@ struct ScreenplayStudioScreen: View {
         self.canTalk = canTalk
         self.talkStatusText = talkStatusText
         self.talkIsActive = talkIsActive
+        self.livePartialTranscript = livePartialTranscript
+        self._liveWriteEnabled = liveWriteEnabled
         self.debugVoicePartialStableSeconds = debugVoicePartialStableSeconds
         self.debugVoicePartialStabilityWindowSeconds = debugVoicePartialStabilityWindowSeconds
         self.isSubmittingPrompt = isSubmittingPrompt
@@ -617,7 +623,6 @@ Replace is best when this file should become the script you edit. Append is safe
                 guard newValue != nil else { return }
                 withAnimation(.spring(response: 0.28, dampingFraction: 0.84)) {
                     isDirectionOneRightRailExpanded = true
-                    directionOneRightPanelTab = .them
                 }
             }
     }
@@ -844,6 +849,9 @@ Replace is best when this file should become the script you edit. Append is safe
 
     private var studioInspectorWorkspaceBoundView: some View {
         studioProjectStateBoundView
+            .onAppear {
+                liveDraftBridge.activeStudioVoiceWorkspace = directionOneRightPanelTab.voiceWorkspaceContext
+            }
             .onChange(of: vm.selectedProjectID) { _, _ in
                 restoreInspectorWorkspaceState()
                 publishDebugStudioDiffState()
@@ -868,6 +876,7 @@ Replace is best when this file should become the script you edit. Append is safe
                 publishDebugStudioDiffState()
             }
             .onChange(of: directionOneRightPanelTab) { _, newValue in
+                liveDraftBridge.activeStudioVoiceWorkspace = newValue.voiceWorkspaceContext
                 if let mode = DirectionOneWorkspaceMode(tab: newValue) {
                     directionOneWorkspaceMode = mode
                 }
@@ -1195,7 +1204,10 @@ Replace is best when this file should become the script you edit. Append is safe
             }
             .onChange(of: liveDraftBridge.lastCommittedWrite) { _, committedWrite in
                 guard let committedWrite else { return }
-                vm.adoptCommittedPageWriteIfNeeded(committedWrite)
+                vm.adoptCommittedPageWriteIfNeeded(
+                    committedWrite,
+                    deferRemoteSave: liveWriteEnabled
+                )
                 if suppressLastCommittedWriteAutoReveal {
                     suppressLastCommittedWriteAutoReveal = false
                     publishDebugStudioDiffState()
@@ -2288,7 +2300,7 @@ Replace is best when this file should become the script you edit. Append is safe
         let shouldShowComposer = isDirectionOneComposerExpanded
         return VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
-                Text("Ask io.them")
+                Text("Ask Clementine")
                     .font(.system(size: 11, weight: .semibold, design: .default))
                     .foregroundStyle(Color.herText.opacity(0.74))
                 Spacer(minLength: 0)
@@ -2456,10 +2468,23 @@ private var directionOneColumnSurface: some View {
 
 @ViewBuilder
 private func directionOneHeader(usesDrawers: Bool) -> some View {
-    if usesDrawers {
-        directionOneCompactHeader
-    } else {
-        directionOneExpandedHeader
+    VStack(spacing: 0) {
+        if usesDrawers {
+            directionOneCompactHeader
+        } else {
+            directionOneExpandedHeader
+        }
+
+        if !livePartialTranscript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || liveWriteEnabled {
+            ClementineStudioVoiceCaption(
+                partialTranscript: livePartialTranscript,
+                isListening: talkIsActive,
+                textColor: directionOneChromeText,
+                secondaryTextColor: directionOneChromeSecondaryText,
+                panelColor: directionOneChromePanelSoft,
+                strokeColor: directionOneChromeStroke
+            )
+        }
     }
 }
 
@@ -2695,6 +2720,8 @@ private var directionOneHeaderSettingsButton: some View {
             )
     }
     .buttonStyle(.plain)
+    .accessibilityLabel("Studio settings")
+    .accessibilityIdentifier("studio.settings")
     .popover(isPresented: $showingDirectionOneSettings, arrowEdge: .top) {
         directionOneSettingsPopover
     }
@@ -2720,40 +2747,19 @@ private var directionOneHeaderDoneButton: some View {
 }
 
 private var directionOneCompactTalkButton: some View {
-    Button {
-        if talkIsActive {
-            onStopTalk()
-        } else if canTalk {
-            onArmTalk()
-        }
-    } label: {
-        Image(systemName: talkIsActive ? "stop.fill" : "waveform")
-            .font(.system(size: 12, weight: .semibold))
-            .foregroundStyle(
-                talkIsActive
-                    ? Color.red.opacity(0.86)
-                    : (canTalk ? directionOneChromeText.opacity(0.90) : directionOneChromeSecondaryText)
-            )
-            .frame(width: 28, height: 28)
-            .background(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(talkIsActive ? Color.red.opacity(0.10) : directionOneChromePanelSoft)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .stroke(
-                        talkIsActive
-                            ? Color.red.opacity(0.22)
-                            : directionOneChromeStroke.opacity(0.55),
-                        lineWidth: 1
-                    )
-            )
-    }
-    .buttonStyle(.plain)
-    .disabled(!canTalk && !talkIsActive)
-    .accessibilityLabel(talkIsActive ? "Stop talking" : "Start talking")
-    .accessibilityIdentifier("studio.compact.talk")
-    .help(talkIsActive ? "Stop talking" : "Start talking")
+    ScreenplayStudioClementineTalkButton(
+        style: .compact,
+        isActive: talkIsActive,
+        canTalk: canTalk,
+        statusText: talkStatusText,
+        isLiveWriteMode: liveWriteEnabled,
+        workspace: directionOneRightPanelTab.voiceWorkspaceContext,
+        textColor: directionOneChromeText,
+        secondaryTextColor: directionOneChromeSecondaryText,
+        panelColor: directionOneChromePanelSoft,
+        strokeColor: directionOneChromeStroke,
+        action: toggleClementineTalk
+    )
 }
 
 private var directionOneCompactDoneButton: some View {
@@ -2780,47 +2786,28 @@ private var directionOneCompactDoneButton: some View {
 }
 
 private var directionOneTalkButton: some View {
-    Button {
-        if talkIsActive {
-            onStopTalk()
-        } else if canTalk {
-            onArmTalk()
-        }
-    } label: {
-        HStack(spacing: 6) {
-            Circle()
-                .fill(talkIsActive ? Color.white.opacity(0.92) : (canTalk ? Color.white.opacity(0.92) : Color.herStudioActiveFill.opacity(0.30)))
-                .frame(width: 8, height: 8)
-            Text(talkIsActive ? "Stop" : "Talk")
-                .font(.system(size: 11, weight: .semibold, design: .default))
-        }
-        .foregroundStyle(
-            talkIsActive
-                ? Color.red.opacity(0.86)
-                : (canTalk ? Color.white : Color.herText.opacity(0.42))
-        )
-        .padding(.horizontal, 11)
-        .padding(.vertical, 5)
-        .background(
-            RoundedRectangle(cornerRadius: 9, style: .continuous)
-                .fill(
-                    talkIsActive
-                        ? Color.red.opacity(0.10)
-                        : (canTalk ? Color.accentColor.opacity(0.92) : directionOneChromePanelSoft)
-                )
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 9, style: .continuous)
-                .stroke(
-                    talkIsActive
-                        ? Color.red.opacity(0.22)
-                        : (canTalk ? Color.accentColor.opacity(0.94) : directionOneChromeStroke.opacity(0.55)),
-                    lineWidth: 1
-                )
-        )
+    ScreenplayStudioClementineTalkButton(
+        style: .expanded,
+        isActive: talkIsActive,
+        canTalk: canTalk,
+        statusText: talkStatusText,
+        isLiveWriteMode: liveWriteEnabled,
+        workspace: directionOneRightPanelTab.voiceWorkspaceContext,
+        textColor: directionOneChromeText,
+        secondaryTextColor: directionOneChromeSecondaryText,
+        panelColor: directionOneChromePanelSoft,
+        strokeColor: directionOneChromeStroke,
+        action: toggleClementineTalk
+    )
+}
+
+private func toggleClementineTalk() {
+    if talkIsActive {
+        onStopTalk()
+    } else if canTalk {
+        liveDraftBridge.activeStudioVoiceWorkspace = directionOneRightPanelTab.voiceWorkspaceContext
+        onArmTalk()
     }
-    .buttonStyle(.plain)
-    .disabled(!canTalk && !talkIsActive)
 }
 private var directionOneScriptEditor: some View {
     GeometryReader { proxy in
@@ -2900,6 +2887,15 @@ private var directionOneScriptEditor: some View {
                         studioPerceivedPageSkeleton
                             .padding(.top, 18)
                             .padding(.trailing, 18)
+                    }
+                }
+                .overlay(alignment: .bottomLeading) {
+                    if liveWriteEnabled,
+                       !streamingAssistantReply.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        ClementineLiveWritePreview(
+                            screenplay: streamingAssistantReply,
+                            textColor: directionOneChromeText
+                        )
                     }
                 }
             }
@@ -3820,7 +3816,7 @@ Detail:
                 try await liveDraftBridge.clearCompanionMemoryAndSync()
                 vm.infoText = "Cleared companion memory. Screenplay pages and project facts were kept."
             } catch {
-                vm.infoText = "Could not clear companion memory. Try again when io.them is online."
+                vm.infoText = "Could not clear companion memory. Try again when Clementine is online."
             }
         }
     }
@@ -4508,6 +4504,11 @@ private func refreshStudioCreativeInstincts(
                 .font(.system(size: 12, weight: .regular, design: .default))
                 .toggleStyle(.switch)
 
+            ClementineLiveWriteSetting(
+                isEnabled: $liveWriteEnabled,
+                secondaryTextColor: directionOneChromeSecondaryText
+            )
+
             Toggle("Autosave draft", isOn: $vm.autosaveEnabled)
                 .font(.system(size: 12, weight: .regular, design: .default))
                 .toggleStyle(.switch)
@@ -4837,7 +4838,7 @@ private var projectsSidebarContent: some View {
             displayText: retrySnapshot.displayText,
             source: .typed,
             routingMode: featurePlannerRoutingMode(for: retrySnapshot),
-            successMessage: retrySnapshot.command?.successMessage ?? "Asked io.them to continue the feature plan.",
+            successMessage: retrySnapshot.command?.successMessage ?? "Asked Clementine to continue the feature plan.",
             clearSeedOnSuccess: false,
             sendingSuggestionID: nil,
             requestIDOverride: requestID,
@@ -7328,7 +7329,7 @@ Current draft version:
             displayText: "Restore original page write",
             source: .typed,
             routingMode: .page,
-            successMessage: "Asked io.them to restore the original page write.",
+            successMessage: "Asked Clementine to restore the original page write.",
             clearSeedOnSuccess: false,
             sendingSuggestionID: nil
         )
@@ -7361,7 +7362,7 @@ Current draft version:
             displayText: "Rewrite from diff",
             source: .typed,
             routingMode: .page,
-            successMessage: "Asked io.them to rewrite the section from the diff.",
+            successMessage: "Asked Clementine to rewrite the section from the diff.",
             clearSeedOnSuccess: false,
             sendingSuggestionID: nil
         )
@@ -7943,7 +7944,7 @@ Current draft version:
 
             if !exchange.noteTitle.isEmpty || !exchange.noteBody.isEmpty {
                 VStack(alignment: .leading, spacing: 5) {
-                    Text(exchange.noteTitle.isEmpty ? "io.them" : exchange.noteTitle)
+                    Text(exchange.noteTitle.isEmpty ? "Clementine" : exchange.noteTitle)
                         .font(.system(size: 12, weight: .semibold, design: .default))
                         .foregroundStyle(Color.herText.opacity(0.72))
                     if !exchange.noteBody.isEmpty {
@@ -7972,7 +7973,7 @@ Current draft version:
                     .buttonStyle(.plain)
                     .foregroundStyle(Color.herText.opacity(0.72))
 
-                    Text("Adds io.them's development beats to Outline/Beats.")
+                    Text("Adds Clementine's development beats to Outline/Beats.")
                         .font(.system(size: 10, weight: .regular, design: .default))
                         .foregroundStyle(Color.herText.opacity(0.50))
 
@@ -8291,7 +8292,7 @@ Current draft version:
         case .rewrite:
             return "Describe the rewrite you want on the page"
         case .voicePin:
-            return "Pin a note for io.them to hold"
+            return "Pin a note for Clementine to hold"
         }
     }
 
@@ -8334,7 +8335,7 @@ Current draft version:
         .frame(maxWidth: .infinity, alignment: .leading)
         .labelsHidden()
         .accessibilityLabel("Response intent")
-        .accessibilityHint("Changes how io.them responds to the next request.")
+        .accessibilityHint("Changes how Clementine responds to the next request.")
         .accessibilityIdentifier("studio.prompt.intent")
     }
 
@@ -8797,7 +8798,7 @@ Current draft version:
                             ProgressView()
                                 .controlSize(.small)
                                 .tint(Color.green.opacity(0.82))
-                            Text("io.them is drafting…")
+                            Text("Clementine is drafting…")
                                 .font(.system(size: 10, weight: .semibold, design: .default))
                                 .foregroundStyle(Color.green.opacity(0.88))
                         }
@@ -9403,7 +9404,7 @@ Return revised screenplay lines only.
             displayText: preset.displayPrompt,
             source: .typed,
             routingMode: .page,
-            successMessage: "Asked io.them to make the last write \(preset.title).",
+            successMessage: "Asked Clementine to make the last write \(preset.title).",
             clearSeedOnSuccess: false,
             sendingSuggestionID: nil
         )
@@ -9970,7 +9971,7 @@ Return revised screenplay lines only.
         }
         let source = StudioPromptSource(rawValue: (thread.screenplayPromptSource ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()) ?? .voice
         let noteTitle = (thread.screenplayNoteTitle ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            ? (target == .page ? "Wrote to page" : "io.them")
+            ? (target == .page ? "Wrote to page" : "Clementine")
             : (thread.screenplayNoteTitle ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         let noteBody = noteBodyForExchange(
             (thread.screenplayNoteBody ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -10240,8 +10241,8 @@ Return revised screenplay lines only.
         highlightedStudioExchangeID = exchange.id
         studioThreadListFocused = true
         vm.infoText = exchange.target == .page
-            ? "Loaded this page write back into io.them."
-            : "Loaded this Voice Pin ask back into io.them."
+            ? "Loaded this page write back into Clementine."
+            : "Loaded this Voice Pin ask back into Clementine."
     }
 
     private func restoredStudioPromptIntent(
@@ -12123,7 +12124,7 @@ Return revised screenplay lines only.
             isDirectionOneComposerExpanded = true
             studioPromptFocused = true
             studioThreadListFocused = false
-            vm.infoText = "Focused io.them's prompt."
+            vm.infoText = "Focused Clementine's prompt."
         }
     }
 
@@ -12496,7 +12497,7 @@ Return revised screenplay lines only.
             source: .typed,
             routingMode: studioPromptRoutingMode,
             intent: studioPromptIntent,
-            successMessage: "Prompt sent to io.them.",
+            successMessage: "Prompt sent to Clementine.",
             clearSeedOnSuccess: true,
             sendingSuggestionID: nil
         )
@@ -12527,7 +12528,7 @@ Return revised screenplay lines only.
             source: .typed,
             routingMode: studioPromptRoutingMode,
             intent: studioPromptIntent,
-            successMessage: "Prompt sent to io.them.",
+            successMessage: "Prompt sent to Clementine.",
             clearSeedOnSuccess: true,
             sendingSuggestionID: nil,
             debugSubmitToken: preparedTokenForSubmit,
@@ -12980,7 +12981,6 @@ Return revised screenplay lines only.
         } else {
             withAnimation(.easeInOut(duration: 0.14)) {
                 isDirectionOneRightRailExpanded = true
-                directionOneRightPanelTab = .them
             }
         }
     }
@@ -14836,7 +14836,7 @@ Look at the city.
                 displayText: prompt,
                 source: .typed,
                 routingMode: .page,
-                successMessage: "Prompt sent to io.them.",
+                successMessage: "Prompt sent to Clementine.",
                 clearSeedOnSuccess: true,
                 sendingSuggestionID: nil
             )
@@ -14848,7 +14848,7 @@ Look at the city.
                 displayText: prompt,
                 source: .typed,
                 routingMode: .voicePin,
-                successMessage: "Prompt sent to io.them.",
+                successMessage: "Prompt sent to Clementine.",
                 clearSeedOnSuccess: true,
                 sendingSuggestionID: nil
             )
@@ -14860,7 +14860,7 @@ Look at the city.
                 displayText: prompt,
                 source: .voice,
                 routingMode: .voicePin,
-                successMessage: "Voice prompt sent to io.them.",
+                successMessage: "Voice prompt sent to Clementine.",
                 clearSeedOnSuccess: true,
                 sendingSuggestionID: nil
             )
@@ -15196,7 +15196,7 @@ Look at the city.
             prompt: "Can you coach me through the next beat?",
             target: .voicePin,
             source: .voice,
-            noteTitle: "io.them",
+            noteTitle: "Clementine",
             noteBody: "Try grounding Lucy in what she refuses to say out loud.",
             developmentText: "Try grounding Lucy in what she refuses to say out loud.",
             writeID: nil,
@@ -16228,7 +16228,7 @@ Look at the city.
             displayText: text,
             source: .typed,
             routingMode: routingMode,
-            successMessage: "Prompt sent to io.them.",
+            successMessage: "Prompt sent to Clementine.",
             clearSeedOnSuccess: true,
             sendingSuggestionID: nil,
             requestIDOverride: requestID,
