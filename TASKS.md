@@ -21,7 +21,8 @@
 - **Verified:** original typing1/0/0; policy5/0. Real coordinator regression
   before1/2/0, after3/0/0: store historical model value instead of a live
   Binding read so focused fresh rewrites are not silently ignored.
-  Full combined signed units/V1 are running; no whole-app completion claim.
+  Full combined signed units635/0/0; Node20 scripts224/0/0, backend2749/0/2;
+  macOS build passes. Full V1 remains running; no whole-app completion claim.
 
 ### T-986 — Preserve and verify original #904 recovery
 

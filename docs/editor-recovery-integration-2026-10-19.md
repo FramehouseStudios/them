@@ -56,9 +56,30 @@ is a root-cause candidate, not a proven explanation of the observed failure.
   of the earlier intermittent direct-typing failure.
 - D009 after correction: bridge -22 versus main (-1 versus preserved #919),
   Studio -4 versus main, other watched deltas0; whitespace checks pass.
-- Full combined signed units then V1 run serially, stopping at first red:
-  `/tmp/them-988-units.log`, `/tmp/them-988-v1.log`. No final counts yet.
-  Recovery, backend and macOS are not yet re-proven on the updated tree.
+- Full combined signed units635 pass/0 fail/0 skip, exit0, actual same owned
+  erased UDID/iOS26.2 confirmed. Bundle
+  `/tmp/them-988-units/v1-ui-smoke-local-1-64155.xcresult`;
+  log `/tmp/them-988-units.log`.
+- Full combined Node20.20.2 scripts224/0/0 and backend2749/0/2, exit0.
+  Network disabled for tests; log `/tmp/them-988-node20.log`.
+- macOS scaffold compile exit0, separate DerivedData avoids active UI build
+  database contention; log `/tmp/them-988-macos.log`. Existing warnings remain.
+- V1 UI remains active after the serial units pass, stopping at first red:
+  `/tmp/them-988-v1.log`; no final count or full UI success claimed yet.
+  Authenticated recovery/writer fixture journeys still need a fresh run.
+
+## Registrar observation
+
+Human signed in to Porkbun in Chrome. Current account `framehouse` presents
+an empty domain-management list; its separate Simple Domain List also lists
+no domains. This does not prove the human owns no domain elsewhere. Requested
+the owning account or exact domain name before changing DNS. No purchase,
+transfer, DNS, nameserver, email, security or credential change performed.
+
+Owned scoped branch backed up at source commit `bfbd5af`; evidence posted
+on original #919 comment6274955590. Original #919/#904 heads and main stay
+unchanged. Original #909 proof is separately backed up on T-987 and posted
+in comment6274956110 (audit0; backend2740/0/2), not merged or deployed.
 
 Production microphone/model, physical phone, shipping backend, external-open
 export and generated120-page screenplay remain unproven. No provider call,
