@@ -30,8 +30,13 @@ head update until its own new combined proof; no replacement PR or main merge.
 VERIFIED frozen runtime0577b913: pinned Node20.20.2 scripts231/0/0 and
 backend2897 pass/0 fail/2 skip, exit0, /tmp/them-1005-node20.log. Actual parent
 e689 remote baseline fetched and D009 compares all five files: deltas0.
-Whitespace and ancestry checks pass. Signed UI is NOT started; T1003's active
-native36287 still owns the lane, not a blocker or reason to restart it.
+Whitespace and ancestry checks pass. T1003 native36287 completed exit0 with
+its full narrow/fault/macOS pipeline before this child started. Current
+signed native2317 is active on head69486a11, whose product/test/script tree
+is identical to0577b913; artifact root/tmp/them-1005-ui.fyQYMX,
+log/tmp/them-1005-ui.log. It is currently in signed units/build; no pass
+count is claimed until the completed bundle is inspected. No concurrent
+simulator/build lane, test restart or original head mutation.
 Earlier T990 or parent/T1003 numbers are not this candidate's signed proof.
 Production remains blocked on App Store credentials;
 shipping backend, physical microphone,120-page craft/print parity and external
