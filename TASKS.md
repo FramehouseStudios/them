@@ -5,6 +5,18 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1004 — Fail closed when god-file comparison evidence is missing
+
+- **Owner:** codex. **Branch:** `codex/T-1004-god-gate-base`.
+- **Status:** in-progress. **Pillar:** trustworthy integration/release proof.
+- **Root:** unresolved/missing baseline returns counts without deltas but
+  exits0 and prints Pass; allow-growth also masks unverifiable evidence.
+- **Verified:** isolated Git fixture regression1 pass/6 fail before,7/0/0 after.
+- **Fix:** require a resolvable commit and readable baseline for present files;
+  preserve actual growth waiver but label it accurately. JSON error additive.
+- **Next:** pinned Node20 full scripts/backend, draft PR with fresh checks.
+- **Evidence:** `docs/god-gate-base-2026-10-19.md`.
+
 ### T-969 — Truthful required checks on original #906
 
 - **Owner:** codex. **Task branch:** `codex/T-969-truthful-906-gate`.
