@@ -63,6 +63,42 @@
   Still no generated120-page or physical-phone proof. Render login is human-owned:
   Chrome showed sign-in; human requested a few minutes2026-10-17. No sign-in,
   credentials, paid models or deployment mutation by Codex.
+### T-997 — Keep durable writer-save authority across relaunch
+
+- **Owner:** codex. **Branch:** `codex/T-997-conflict-base-authority`.
+- **Status:** review (fresh hosted proof required). **Pillar:** writer words and recovery choices.
+- **Parent:** exact original961 head8b19d86b; preserve original history.
+  Hosted39312650862 recovery4/1/0 on26.5 failed durable-conflict relaunch.
+  Marker remains; conflict/dirty/parked state absent. No text-loss or root-cause
+  claim solely from that snapshot.
+- **Plan:** prove whether preferred-version notifications can acknowledge or
+  rebase a persisted pending/parked writer save without a matching save receipt.
+  Canonical ViewModel + persisted/reopened real outbox; no substitute fake.
+- **Binary success:** original writer bytes/base/dirty choice survive a late
+  bridge version hint and conflicting canonical hydration; ordinary generated
+  Page acknowledgement still works. Focused signed regression, full relevant
+  gates and real authenticated recovery before parent promotion.
+- **Human hold:** production remains blocked until App Store credentials exist;
+  no paid-model, physical-phone,120-page completion or main merge claim.
+- **Evidence:** `docs/conflict-base-authority-2026-10-19.md`.
+- **Before:** signed erased Pro baseline45/1/0,14 failed assertions in the
+  one new real-ViewModel regression: version hint clears dirty/base authority
+  and canonical hydration replaces writer words. Positive page ack passes.
+- **Fix:** canonical bridge-version adoption rejects active conflict and
+  dirty manual/restored writer state. Full signed units865/0/0 pass on exact
+  erased owned Pro/iOS26.2; D009 all five deltas0 and diff pass. Hosted causal
+  attribution unproven. Frozen runtime0c1afb1a Node20.20.2 backend2897/0/2,
+  scripts231/0/0 pass. Authenticated recovery/writer/Home/V1/voice/macOS serial
+  native65975 active, stops at first red. Original961 head unchanged.
+- **Recovery:** authenticated local five-story gate5/0/0 on exact erased Pro
+  /26.2, evaluator exit0; writer stage active on unchanged0c1afb1a. Hosted26.5
+  cause and full remaining workflow still unproven; no promotion yet.
+- **Final local:** native65975 exit0: recovery5/0/0, writer1/0/0,
+  fixed-provider Home2/0/0, full V1 UI29/0/15, voice-fault1/0/0 and macOS
+  build0. Runtime0c1afb1a unchanged. All seven bundles retained/compared.
+  Ready for preserving original961 update and fresh hosted checks, not a
+  main merge. Original base/head verified ancestors; production hold remains.
+
 ### T-989 — Carry exact editor recovery into the product rehearsal
 
 - **Owner:** codex. **Branch:** `codex/T-989-editor-rehearsal-forward`.
