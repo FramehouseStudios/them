@@ -4,6 +4,8 @@
 
 Base: `deac1a6d54a65dbf5f849f0f35476ad4ff07e1f0`.
 Branch: `codex/T-984-main-simulator-proof`.
+Draft PR: https://github.com/FramehouseStudios/them/pull/964.
+Initial implementation: `ba55565` (no main merge).
 
 The canonical runner previously resolved a simulator name for erasure but
 passed that name to Xcode, allowing it to select a different installed runtime.
@@ -81,7 +83,7 @@ the rehearsal also has actual-summary/no-skips verification. Those original
 heads are preserved, not silently replaced. This scoped main runner repair
 does not claim to fix the outer harness. A direct authenticated fixture on
 its documented port31337 is running the changed shell with actual xcresult
-count validation; record the result separately before publication. Carry
+count validation; record the result separately when it finishes. Carry
 forward the existing harness repair and fail-closed summary validation next.
 
 ## Still required
