@@ -13,6 +13,9 @@
 - **Done when:** conflicts resolved, focused/full gates re-proven on combined
   tree before updating any existing PR. No main merge or replacement PR.
 - **Evidence:** `docs/editor-rehearsal-forward-2026-10-19.md`.
+- **Verified:** merged scripts25/0 host; full Node20 scripts231/0/0,
+  backend2897/0/2; signed units863/0/0; package11+21 pass; macOS compile0,
+  audit0, D009 bridge -1 versus actual #961 base. UI pipeline running.
 - **Human decision:** production remains blocked until App Store credentials
   exist; do not add a purchases-disabled startup bypass.
 

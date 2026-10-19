@@ -12,9 +12,9 @@ before merging. It still obtains previous text through a live Binding.
 Forward the independently reproduced stored-snapshot correction, retaining
 the newer exact-byte policy and deferred-publication veto. A deferred
 rejection must not consume the fresh model snapshot; update history only
-after application or exact editor equality. Added actual coordinator cases
-for delayed acceptance and document-switch authority. They are not yet run
-on this combined tree at this checkpoint.
+  after application or exact editor equality. Added actual coordinator cases
+for delayed acceptance and document-switch authority; all five pass within
+the full signed unit run below.
 
 Nine conflict files reconciled deliberately:
 
@@ -42,13 +42,26 @@ for the five-story contract. It does not simulate a passing app journey.
   base: bridge12925→12924 (-1), all four other deltas0. Syntax/diff pass.
   An earlier command before fetching the ref reported only absolute counts;
   that was not accepted as comparative proof.
-- Full pinned Node20 scripts/backend currently running with test networking
-  disabled: `/tmp/them-989-node20.log`.
-- Full signed units currently running on erased owned iPhone17Pro/iOS26.2
+- Full pinned Node20 scripts231/0/0 and backend2897/0/2, exit0, with test
+  networking disabled: `/tmp/them-989-node20.log`. The eleven extra backend
+  cases versus the old rehearsal are evidence-harness contracts, not claimed
+  model/craft improvements.
+- Full signed units863/0/0, exit0, on erased owned iPhone17Pro/iOS26.2
   UDID11CF5EFB-D8C3-4F19-8062-28AF37F27D93:
-  `/tmp/them-989-units.log`. Counts not yet known; no green claim.
+  `/tmp/them-989-units.log`, retained bundle
+  `/tmp/them-989-units/v1-ui-smoke-local-1-71173.xcresult`.
+- ScreenplayStudio package: XCTest11/0 plus Swift Testing21/0, exit0;
+  `/tmp/them-989-package.log`. Not added to the iOS unit count.
+- macOS compile exit0, separate DerivedData; `/tmp/them-989-macos.log`.
+- Fresh production dependency audit0, exit0; `/tmp/them-989-audit.json`.
+  Original #909 is already an ancestor of this rehearsal: installed locked
+  multer2.4.0/proxy-addr2.0.8/fast-uri3.1.8. Do not duplicate that patch.
+  jsrsasign11.1.5 maintenance and Node20 EOL remain separate release debt.
 - Updated-head writer/Home/five-story recovery/UI/voice/macOS/offline gates
-  remain to be re-proven before promotion.
+  remain to be re-proven before promotion (standalone macOS compile above
+  completed). Serial pipeline currently starts with five-story recovery,
+  then writer, fixed-provider Home, V1 and voice/macOS, stopping at first red.
+  Logs `/tmp/them-989-{recovery,writer,home,v1,voice}.log`.
 
 ## Hosted boundary independently cleared
 
@@ -66,6 +79,16 @@ change accepted D011 enforcement. The signed-in Porkbun account lists no
 domains; domain ownership remains unverified there. Old Render live process
 has presence-only readiness evidence in the T-988 document, not credential
 validity or new-deploy proof. No provider call or production change performed.
+
+Human-only clearance, verified against Apple's current instructions:
+sign in to App Store Connect as Account Holder/Admin; Users and Access →
+Integrations → Keys → In-App Purchase. Generate the appropriate In-App
+Purchase key, retain its one-time-download private key securely, and supply
+the issuer ID, key ID and private key directly in Render's corresponding
+APP_STORE_* settings. Do not paste values into chat or commit them. Save
+without deploying until the integrated configuration/migration/rollback
+preflight is verified. This is not a request to buy anything or submit an app.
+Source: [Apple's In-App Purchase key instructions](https://developer.apple.com/help/app-store-connect/configure-in-app-purchase-settings/generate-keys-for-in-app-purchases/).
 
 Physical microphone, real generated reply/rewrites, shipping-backend auth,
 offline phone/relaunch, external-open export and a generated120-page Hollywood
