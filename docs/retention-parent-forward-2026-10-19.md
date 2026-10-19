@@ -29,14 +29,27 @@ Original #962 remote is not updated pending combined proof and parent CI.
 - Signed full themTests running through the exact-device erase runner on
   owned11CF5EFB-D8C3-4F19-8062-28AF37F27D93, iOS26.2:
   `/tmp/them-990-units.log`, native session41220. Not yet a passing result.
-- Node20.20.2 full script/backend suite running with read-only source and
-  dependencies, no external network, synthetic configuration:
-  `/tmp/them-990-node20.log`, native session23143. Not yet a passing result.
+- Node20.20.2 scripts231/0/0 on the corrected disposable environment.
+  Backend suite in that process has observed failures and is still running:
+  `/tmp/them-990-node20.log`, native session78495. No backend passing claim.
+  Actual first failure: craft analysis creates its default persistence root
+  under read-only backend/data. Other index-import tests hit the same root.
+  After this process terminates, configure canonical PERSISTENCE_JSON_ROOT
+  in disposable /tmp and re-prove; do not weaken application checks.
 - Initial Docker start exited125 before any test: nested dependency mount
   lacked a mountpoint under the read-only source. Created only an empty
   ignored backend/node_modules directory; retained failure log at
   `/tmp/them-990-node20-container-setup-failed.log`. No application or test
   assertion changed to repair the environment.
+- Two subsequent environment-only failures were retained: fixture executables
+  could not execute on noexec /tmp and a global APP_TOKEN overrode a script's
+  expected fixture value (scripts205/26/0); then release-config fixtures could
+  not write their intentional temporary output under read-only them/
+  (scripts228/3/0). Corrected with executable disposable /tmp, backend-only
+  synthetic configuration and a tmpfs them/ overlay populated from tracked
+  HEAD. Final script suite231/0/0; host source and signing files untouched.
+  Logs `/tmp/them-990-node20-fixture-environment-failed.log` and
+  `/tmp/them-990-node20-readonly-fixture-failed.log`.
 - Parent hosted run39312650862 on8b19d86: D009 and Backend tests completed
   success; required iOS Quality Gate still running at last API observation.
   Do not transfer old46a5b4e hosted success to the new head.
