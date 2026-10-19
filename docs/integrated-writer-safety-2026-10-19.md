@@ -89,6 +89,35 @@ No final combined UI success is claimed yet.
 
 ## Next and release limits
 
+Exact file inventory versus original #961 head8b19d86:
+
+- .github/workflows/quality-gate.yml
+- TASKS.md
+- backend/evals/postgres_writer_restart_scenario.mjs
+- backend/lib/clementine/page_lane_adapter.js
+- backend/lib/clementine/short_film_lane.js
+- backend/lib/talk_generate.js
+- backend/tests/empty_generation_billing.test.mjs
+- backend/tests/helpers/billing_provider_stub.mjs
+- backend/tests/postgres_writer_gate.test.mjs
+- backend/tests/talk_empty_billing.integration.test.mjs
+- docs/billing-main-proof-2026-10-19.md
+- docs/empty-generation-billing-proof.md
+- docs/exact-live-draft-retention-2026-10-17.md
+- docs/exact-retention-combined-proof-2026-10-19.md
+- docs/integrated-writer-safety-2026-10-19.md
+- docs/iphone-compatibility-2026-10-19.md
+- docs/postgres-cleanup-safety-2026-10-19.md
+- docs/postgres-writer-gate-2026-10-19.md
+- docs/retention-parent-forward-2026-10-19.md
+- scripts/run_postgres_writer_gate.mjs
+- them.xcodeproj/project.pbxproj
+- them/ScreenplayLiveDraftBridge.swift
+- them/ScreenplayStudioKeyboardSaveAccessory.swift
+- themTests/ScreenplayEditorBindingIntegrationTests.swift
+- themTests/ScreenplayStudioDraftRecoveryTests.swift
+- themUITests/V1SmokeUITests.swift
+
 Finish the exact active combined authenticated narrow workflow. Original
 PR625 and parent961 hosted gates remain separate exact-head requirements;
 do not transfer earlier-head green or fabricate independent approval.
