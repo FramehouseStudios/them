@@ -71,13 +71,13 @@ test("[fdx] transitions are upper-cased and end with TO:", () => {
 
 test("[fdx] title page renders supported fields as centered General paragraphs", () => {
   const xml = serializeTitlePage({
-    title: "io.them",
+    title: "THEM",
     credit: "Written by",
     author: "Half Mutant Films",
   });
   assert.match(xml, /<TitlePage>/);
   assert.match(xml, /Alignment="Center"/);
-  assert.match(xml, /Title: io\.them/);
+  assert.match(xml, /Title: THEM/);
   assert.match(xml, /Credit: Written by/);
   assert.match(xml, /Author: Half Mutant Films/);
 });
@@ -114,6 +114,16 @@ test("[fdx] determinism: same input → same output", () => {
     scenes: [{ heading: "INT. X - DAY", lines: [{ kind: "action", text: "x" }] }],
   };
   assert.equal(exportToFDX(input), exportToFDX(input));
+});
+
+test("[fdx] export does not mutate its input", () => {
+  const input = {
+    title: { title: "T", draftDate: "2026-09-08" },
+    scenes: [{ heading: "INT. X - DAY", lines: [{ kind: "action", text: "x" }] }],
+  };
+  const before = JSON.parse(JSON.stringify(input));
+  exportToFDX(input);
+  assert.deepEqual(input, before);
 });
 
 test("[fdx] non-object input returns the empty document, not throws", () => {
@@ -219,7 +229,7 @@ test("[fdx] route parses its own JSON body (no app-level express.json required)"
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        title: { title: "io.them" },
+        title: { title: "THEM" },
         scenes: [{ heading: "INT. ROOM - DAY", paragraphs: [{ type: "Action", text: "She walks in." }] }],
       }),
     });
@@ -308,21 +318,62 @@ test("[fdx] revision true carries Revision 1; trailing * without flag does NOT",
   assert.equal(plainStar.includes('Revision="1"'), false);
 });
 
-test("[fdx] draft date auto-fill: title present + no draftDate -> today; no title -> no draftDate", () => {
-  const today = new Date().toISOString().slice(0, 10);
-  const withTitle = exportToFDX({
+test("[fdx] draft date is omitted unless canonical title metadata supplies it", () => {
+  const omitted = exportToFDX({
     title: { title: "My Script", author: "A" },
     scenes: [],
   });
-  assert.match(withTitle, new RegExp(`Draft Date: ${today}`));
-  const noTitle = exportToFDX({
-    title: { title: "", author: "A" },
+  assert.equal(omitted.includes("Draft Date"), false);
+
+  const explicit = exportToFDX({
+    title: { title: "My Script", draftDate: "2026-09-08" },
     scenes: [],
   });
-  assert.equal(noTitle.includes("Draft Date"), false);
-  const emptyTitle = exportToFDX({
-    title: {},
+  assert.match(explicit, /Draft Date: 2026-09-08/);
+});
+
+test("[fdx] undocumented top-level date aliases do not alter title metadata", () => {
+  const xml = exportToFDX({
+    title: { title: "My Script" },
+    draftDate: "2026-09-08",
+    draft_date: "2026-09-09",
     scenes: [],
   });
-  assert.equal(emptyTitle.includes("Draft Date"), false);
+  assert.equal(xml.includes("Draft Date"), false);
+});
+
+test("[fdx] route preserves explicit nested draft date and never invents one", async () => {
+  await withTestServer(async ({ baseURL }) => {
+    const withoutDate = await post(baseURL, "/screenplay/export/fdx", {
+      title: { title: "My Script" },
+      scenes: [],
+    });
+    assert.equal(withoutDate.status, 200);
+    assert.equal(withoutDate.json.fdx.includes("Draft Date"), false);
+
+    const withDate = await post(baseURL, "/screenplay/export/fdx", {
+      title: { title: "My Script", draftDate: "2026-09-08" },
+      scenes: [],
+    });
+    assert.equal(withDate.status, 200);
+    assert.match(withDate.json.fdx, /Draft Date: 2026-09-08/);
+  });
+});
+
+test("[fdx] raw XML response follows the same explicit draft-date contract", async () => {
+  await withTestServer(async ({ baseURL }) => {
+    const withoutDate = await post(baseURL, "/screenplay/export/fdx", {
+      title: { title: "My Script" },
+      scenes: [],
+    }, { accept: "application/xml" });
+    assert.equal(withoutDate.status, 200);
+    assert.equal(withoutDate.text.includes("Draft Date"), false);
+
+    const withDate = await post(baseURL, "/screenplay/export/fdx", {
+      title: { title: "My Script", draftDate: "2026-09-08" },
+      scenes: [],
+    }, { accept: "application/xml" });
+    assert.equal(withDate.status, 200);
+    assert.match(withDate.text, /Draft Date: 2026-09-08/);
+  });
 });
