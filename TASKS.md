@@ -18,9 +18,11 @@
   native sequential-page recovery and writer/save/export/relaunch proof pass;
   pinned backend suite, D009 and whitespace pass. Fixed-provider UI is not
   physical microphone or generated120-page proof.
-- **Current evidence:** #961 head2fcdc772 is published and hosted proof is
-  running39077888031. Main post-#906 run39075059944 is independently running.
-  Do not retry either unchanged or advance original #653 before resolving red.
+- **Current evidence2026-10-19:** main deac1a6d configured gate is green.
+  Parent #961's repair cbb2d2fa has fresh checks in progress/queued; old run
+  39077888031 was red. Child783fbc99 run39078694476 was red on one parked-copy
+  unit. Preserving merge1c79c38a incorporates the parent without conflicts;
+  both old heads remain ancestors. No unchanged retry or #653 advancement.
 - **VERIFIED:** real durable-byte regression0/1/0 before,1/0/0 after the
   one-line shared-identity fix. Full signed units857/0/0; native exact-once
   sequential recovery1/0/0; authenticated fixed-provider Home2/0/0 and
@@ -28,9 +30,16 @@
   backend2886/0/2, no network. All five D009 deltas0; whitespace clean.
   Frozen source tree3293a14b; only docs changed afterward. Exact manifest and
   evidence: `docs/exact-live-draft-retention-2026-10-17.md`.
-- **Next:** observe the actual hosted boundaries and repair first red; add
-  authenticated real-PostgreSQL writer/restart proof rather than counting
-  JSON-backed fixtures as production durability. Render login is human-owned:
+- **Combined proof:** source1c79c38a passes signed units858/0/0; all five
+  offline/auth/conflict stories5/0/0; Home2/0/0; writer/save/native export/
+  relaunch1/0/0; macOS compile; pinned backend2886/0/2. Real PostgreSQL16.15
+  authenticated create/rewrite/exact read, database+backend restart with fresh
+  local files, prior access, sign-in, cross-user read denial and durable
+  idempotent replay passed in a disposable internal-only environment. Not the
+  shipping deployment. Manifest: `docs/exact-retention-combined-proof-2026-10-19.md`.
+- **Next:** publish/recheck the exact updated child; promote the retained
+  restart probe into a repeatable maintained gate while hosted checks run.
+  Still no generated120-page or physical-phone proof. Render login is human-owned:
   Chrome showed sign-in; human requested a few minutes2026-10-17. No sign-in,
   credentials, paid models or deployment mutation by Codex.
 
