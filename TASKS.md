@@ -5,6 +5,25 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-996 — Reach inline clear confirmations on a compact inspector
+
+- **Owner:** codex. **Branch:** `codex/T-996-compact-clear-confirmation`.
+- **Status:** review. **Pillar:** mobile-first trustworthy controls.
+- **Scope:** test navigation only. The completed combined SE V1 run28/1/15
+  fails because the inline Clear Thread warning expands below the viewport;
+  its recording was inspected. Scroll to both confirmation buttons with the
+  existing bounded drawer helper, then keep all mutation/disappearance checks.
+- **Done when:** the exact failed workflow passes signed on erased owned SE;
+  no runtime code or assertions weakened; D009/diff clean. Full UI remains
+  red until a fresh combined full run, not merely this focused correction.
+- **Next priority:** parent961 hosted recovery4/1/0 on26.5; conflict state
+  missing after relaunch despite retained marker. No child promotion or
+  unchanged retry. Production remains held until App Store credentials.
+- **Evidence:** `docs/compact-clear-confirmation-2026-10-19.md`.
+- **Final focused proof:**1/0/0 signed on exact erased owned SE/iOS26.2,
+  native94705 exit0; both confirmation callbacks/removals verified. Full V1
+  not rerun here; preserve its prior red28/1/15. Runtime sources unchanged.
+
 ### T-994 — Prove combined writer safety, billing and compatibility
 
 - **Owner:** codex. **Branch:** `codex/T-994-integrated-writer-safety`.

@@ -1519,7 +1519,10 @@ final class V1SmokeUITests: XCTestCase {
                 in: app.buttons.matching(NSPredicate(format: "label == %@", "Clear Thread"))
             ) ?? app.buttons["Clear Thread"]
         }
-        XCTAssertTrue(waitForHittability(of: confirmThread, timeout: 4))
+        XCTAssertTrue(
+            revealInStudioDrawer(confirmThread, drawer: drawer, scrollingUp: true, maxSwipes: 8),
+            "Clear Thread confirmation was not reachable after its inline panel expanded."
+        )
 #if os(macOS)
         confirmThread.click()
 #else
@@ -1559,7 +1562,10 @@ final class V1SmokeUITests: XCTestCase {
                 in: app.buttons.matching(NSPredicate(format: "label == %@", "Clear Memory"))
             ) ?? app.buttons["Clear Memory"]
         }
-        XCTAssertTrue(waitForHittability(of: confirmMemory, timeout: 4))
+        XCTAssertTrue(
+            revealInStudioDrawer(confirmMemory, drawer: drawer, scrollingUp: true, maxSwipes: 8),
+            "Clear Memory confirmation was not reachable after its inline panel expanded."
+        )
 #if os(macOS)
         confirmMemory.click()
 #else
