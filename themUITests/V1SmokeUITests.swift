@@ -3921,11 +3921,25 @@ final class V1SmokeUITests: XCTestCase {
             if target.exists, target.isHittable {
                 return true
             }
-            if scrollingUp {
-                drawer.swipeUp()
+            // Caller hints assumed a tall phone. On a short viewport the
+            // same target can sit below it, or above it after a prior reveal.
+            // Follow the actual target geometry rather than scrolling away.
+            let targetFrame = target.exists ? target.frame : .zero
+            let viewport = drawer.frame
+            let distance: CGFloat
+            if !targetFrame.isEmpty, targetFrame.minY < viewport.minY + 20 {
+                distance = targetFrame.minY - (viewport.minY + 20)
+            } else if !targetFrame.isEmpty, targetFrame.maxY > viewport.maxY - 20 {
+                distance = targetFrame.maxY - (viewport.maxY - 20)
             } else {
-                drawer.swipeDown()
+                distance = scrollingUp ? 160 : -160
             }
+            // A full-height fling can jump over a nearby row and oscillate
+            // past it on SE. Use the bounded-drag pattern from screen reveals.
+            let limit = min(CGFloat(220), viewport.height * 0.4)
+            let anchor = drawer.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            let end = anchor.withOffset(CGVector(dx: 0, dy: -min(max(distance, -limit), limit)))
+            anchor.press(forDuration: 0.05, thenDragTo: end, withVelocity: .slow, thenHoldForDuration: 0.12)
             RunLoop.current.run(until: Date().addingTimeInterval(0.12))
         }
         return waitForHittability(of: target, timeout: 2)

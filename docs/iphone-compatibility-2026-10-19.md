@@ -49,7 +49,19 @@ Completed narrow-device stages, actual summaries confirm the SE UDID:
 recovery5/0/0, authenticated writer/Craft/native MD+FDX export/relaunch1/0/0,
 fixed-provider Home2/0/0 (fixture STT1/chat4/TTS24). Retained three completed
 bundles privately beside the unit result and compared each byte-identical.
-Full SE V1 UI and voice/macOS remain running/pending, not passing claims.
+Full SE V1 completed27/2/15; pipeline stopped before voice/macOS. Failed
+Pages route and Creative Partner metrics were not ignored. Exported retained
+recordings/hierarchy show Pages below the SE viewport while the helper swipes
+the wrong way, and later targets skipped by full-height flings. A geometry-
+only direction correction passed Pages/metrics but failed at the mode rows
+(focused1/1/0). Bounded slow drags follow the actual target using the existing
+screen-reveal pattern: final focused2/0/0, same erased SE UDID, no changed
+assertions, timeout/swipe-limit increases or skips. No production layout fix
+is claimed for a test navigation defect. All three result bundles retained,
+including the original full red and intermediate partial failure.
+Final bundle `/tmp/them-992-se-drawer-bounded/v1-ui-smoke-local-1-92800.xcresult`
+compared byte-identical in private retention. Full combined SE UI is next;
+the focused pass does not retroactively make the earlier full run green.
 This is narrow-screen26.2 proof, not17-runtime or physical microphone proof.
 
 Actual-settings source frozen atec309e2 (later commits documentation only).
