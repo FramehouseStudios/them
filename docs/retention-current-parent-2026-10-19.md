@@ -34,8 +34,13 @@ Whitespace and ancestry checks pass. T1003 native36287 completed exit0 with
 its full narrow/fault/macOS pipeline before this child started. Current
 signed native2317 is active on head69486a11, whose product/test/script tree
 is identical to0577b913; artifact root/tmp/them-1005-ui.fyQYMX,
-log/tmp/them-1005-ui.log. It is currently in signed units/build; no pass
-count is claimed until the completed bundle is inspected. No concurrent
+log/tmp/them-1005-ui.log. Direct completed xcresult summaries now verify
+signed units866/0/0, authenticated recovery5/0/0, writer/export/relaunch1/0/0
+and fixed-provider Home2/0/0 (STT1/chat4/TTS24). All on the erased owned Pro,
+iOS26.2/23C54, signing enabled. Native2317 completed exit0: full Pro V1
+29/0/15, voice-fault1/0/0 (completed summaries read), macOS scaffold build0.
+Six completed xcresults retained in private proof T-1005-20261019.28AHJR;
+comparison and final head-promotion checks still pending. No concurrent
 simulator/build lane, test restart or original head mutation.
 Earlier T990 or parent/T1003 numbers are not this candidate's signed proof.
 Production remains blocked on App Store credentials;
