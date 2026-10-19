@@ -2370,7 +2370,10 @@ final class ScreenplayStudioViewModel: ObservableObject {
         versionID: String,
         committedDraft: String
     ) -> Bool {
-        guard ScreenplayBridgeVersionAdoptionPolicy.shouldAdoptCommittedPageWriteBase(
+        // Preferred version is shared context, not a receipt for restored or
+        // manually edited words. Only canonical hydration/save may retire them.
+        guard conflictState == nil, !(hasUnsavedDraftChanges && isManualDraftEditing),
+              ScreenplayBridgeVersionAdoptionPolicy.shouldAdoptCommittedPageWriteBase(
             selectedProjectId: selectedProjectID,
             preferredProjectId: projectID,
             currentVersionId: latestVersionID,
