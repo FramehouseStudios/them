@@ -20,7 +20,8 @@ two distinct persisted wallets, all four caller owner aliases, spoofed user
 and session headers, global auth on/off, invalid tokens, logout/revocation,
 restart, unchanged balances, and the successful response allow-list.
 Log: /tmp/them-999-focused.log. D009 all five deltas0; diff check passes.
-Full pinned Node20 regression pending. No Swift/UI/provider changes or paid
+VERIFIED frozen runtime6f360de3 on Node20.20.2: backend2741 pass/0 fail/2
+skip; scripts210 pass/0 fail/0 skip. /tmp/them-999-node20.log. No Swift/UI/provider changes or paid
 calls; no physical-phone or production security certification claimed.
 
 ## Adversarial scope
