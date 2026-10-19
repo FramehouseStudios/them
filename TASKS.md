@@ -5,6 +5,23 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-992 — Remove avoidable older-iPhone install/API blockers
+
+- **Owner:** codex. **Branch:** `codex/T-992-iphone-compatibility`.
+- **Status:** in-progress. **Pillar:** mobile-first writer accessibility.
+- **Verified gap:** app minimum iOS26.2 excludes older systems although both
+  shared packages target17. Actual iOS17 compile fails on the editor's
+  unguarded UIBarButtonItem.Style.prominent (requires26).
+- **Scope:** preserve prominent Save on26 and use done before26 through the
+  existing editor accessory owner. Compile before lowering app/test minimums;
+  do not claim old-runtime behavior from compile or a newer simulator alone.
+- **Done when:** actual app settings and supported API surface agree, signed
+  units and writer/recovery UI prove the updated source; older-runtime proof
+  is recorded separately. Preserve orb/Clementine, original heads and main.
+- **Current:** minimal fallback and availability regression added; compile
+  diagnostic running in session74332, log `/tmp/them-992-ios17-fixed.log`.
+  Project minimum not changed yet. Production credential hold remains.
+
 ### T-990 — Preserve exact-retention child with verified recovery parent
 
 - **Owner:** codex. **Branch:** `codex/T-990-retention-parent-forward`.

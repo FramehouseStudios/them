@@ -10775,7 +10775,7 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
         keyboardToolbar.sizeToFit()
         let saveDraftItem = UIBarButtonItem(
             title: "Save draft",
-            style: .prominent,
+            style: Self.keyboardSaveButtonStyle,
             target: context.coordinator,
             action: #selector(Coordinator.saveDraftFromKeyboard)
         )

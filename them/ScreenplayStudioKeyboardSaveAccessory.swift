@@ -7,6 +7,13 @@ func hollywoodScreenplayEditorUIFont() -> UIFont {
     UIFont(name: "Courier", size: 12) ?? UIFont.monospacedSystemFont(ofSize: 12, weight: .regular)
 }
 
+extension IOSCursorInsertTextEditor {
+    static var keyboardSaveButtonStyle: UIBarButtonItem.Style {
+        if #available(iOS 26.0, *) { return .prominent }
+        return .done
+    }
+}
+
 extension IOSCursorInsertTextEditor.Coordinator {
     func shouldApplyModelText(
         incomingText: String,

@@ -6,6 +6,14 @@ import UIKit
 
 @MainActor
 final class ScreenplayEditorBindingIntegrationTests: XCTestCase {
+    func testKeyboardSaveStyleKeepsModernAppearanceWithAnOlderSystemFallback() {
+        if #available(iOS 26.0, *) {
+            XCTAssertEqual(IOSCursorInsertTextEditor.keyboardSaveButtonStyle, .prominent)
+        } else {
+            XCTAssertEqual(IOSCursorInsertTextEditor.keyboardSaveButtonStyle, .done)
+        }
+    }
+
     private final class FocusedTextView: UITextView {
         override var isFirstResponder: Bool { true }
     }
