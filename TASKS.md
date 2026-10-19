@@ -5,6 +5,33 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-981 — Maintained production-mode PostgreSQL writer restart gate
+
+- **Owner:** codex. **Branch:** `codex/T-981-postgres-writer-gate`.
+- **Status:** review (normal hosted execution required). **Pillar:** writer text safety and release proof.
+- **Scope:** promote the retained real-database probe into a one-command gate
+  inside the existing required Backend tests job. Use the canonical runtime
+  image, disposable disk volume/internal network and synthetic credentials;
+  never consume a host database URL or paid-provider credentials. Preserve the
+  current integration/heads, orb and Clementine; no production behavior change.
+- **Done when:** actual6,600-line/422KB exact-byte write/rewrite survives real
+  database and backend restart with new local files and duplicate replay;
+  cross-user read remains denied. CLI failures/refusal redaction are tested,
+  full pinned backend suite/D009/whitespace pass; CI is wired without bypasses.
+- **Before:** first automated canonical-image run passed real restart. New
+  refusal canary test exposed URL leakage (4 pass/1 fail); Boolean refusal
+  avoids echoing an accidentally supplied DSN. Six safety tests now pass;
+  actual final gate passed with cleanup before its PASS marker.
+- **Current proof:** actual422,201-byte restart gate passes, safety6/0/0,
+  workflow wired in existing required Backend tests job. First full pinned
+  suite2863/1/2: existing auth round-trip file SIGABRT, not an assertion.
+  Focused diagnostic36/0/0; full frozen1076a99c diagnostic2892/0/2, no native
+  report generated. Original abort remains unexplained, not claimed fixed.
+  No speculative auth change or unchanged CI retry. Normal hosted gate must
+  pass before merge. Client/runtime logic unchanged; D009 and whitespace pass.
+  Manifest/limits:
+  `docs/postgres-writer-gate-2026-10-19.md`.
+
 ### T-980 — Preserve byte-distinct live screenplay edits
 
 - **Owner:** codex. **Branch:** `codex/T-980-exact-draft-retention`.
