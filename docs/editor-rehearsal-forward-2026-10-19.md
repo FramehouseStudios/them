@@ -57,9 +57,11 @@ for the five-story contract. It does not simulate a passing app journey.
   Original #909 is already an ancestor of this rehearsal: installed locked
   multer2.4.0/proxy-addr2.0.8/fast-uri3.1.8. Do not duplicate that patch.
   jsrsasign11.1.5 maintenance and Node20 EOL remain separate release debt.
-- Full V1 UI and the voice-fault/macOS wrapper remain active/pending before
-  promotion. Serial pipeline runs recovery, writer, fixed-provider Home, V1
-  then voice/macOS, stopping at first red; the first three stages passed.
+- Full V1 UI29/0/15 (44 executed), voice-fault1/0/0 and macOS wrapper pass,
+  exit0. Actual xcresult summaries confirm counts; signed tests use the same
+  erased owned simulator. Serial pipeline completed all five stages.
+  V1 bundle `/tmp/them-989-v1/v1-ui-smoke-local-1-74507.xcresult`;
+  voice bundle `/tmp/them-989-voice/voice-network-fault-local-1-72661-ios.xcresult`.
   Logs `/tmp/them-989-{recovery,writer,home,v1,voice}.log`.
 - Five-story signed authenticated recovery completed5/0/0, exit0; actual
   summary confirms the same erased owned UDID/iOS26.2. Retained bundle
@@ -81,7 +83,7 @@ for the five-story contract. It does not simulate a passing app journey.
   Log `/tmp/them-989-offline-quality.log`.
 - Completed bundles/logs retained privately outside /tmp at
   `/Users/halfmutantfilms/io.them-worktrees/_proof/T-989-20261019.1OcRMU/`.
-  All four bundle copies compared byte-identical; manifest records exact
+  All six bundle copies compared byte-identical; manifest records exact
   source7f90700, counts and unproven scope. Same-computer retention is not
   an off-device disaster backup. Do not copy an in-progress UI bundle.
 
@@ -104,10 +106,10 @@ for the five-story contract. It does not simulate a passing app journey.
 - themTests/ScreenplayStudioDraftRecoveryTests.swift
 
 CI/evaluator/V1-runner conflict resolutions preserve their newer file content;
-they are not extra product changes versus46a5b4e. Next active task: finish the
-same serial UI pipeline, fix its first failure if any, then re-prove and
-update existing #961 with a normal fast-forward before any child propagation.
-Original/public main heads remain untouched at this checkpoint.
+they are not extra product changes versus46a5b4e. Local proof is complete.
+Next active task: update existing #961 with a normal fast-forward, require
+fresh exact-head hosted proof, then consider preserving child propagation.
+Public main remains untouched; no merge authorization or review is fabricated.
 Continue status: READY FOR CONTINUE; production separately held by human.
 
 ## Next original boundary review (not integrated)
