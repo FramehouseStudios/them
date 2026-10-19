@@ -4480,6 +4480,7 @@ private func refreshStudioCreativeInstincts(
                     .font(.system(size: 11, weight: .regular, design: .default))
                     .foregroundStyle(directionOneChromeSecondaryText)
                     .lineLimit(1)
+                    .accessibilityIdentifier("studio.transient.status.info")
             }
 
             Spacer(minLength: 0)
@@ -14404,6 +14405,7 @@ The door closes softly. That is worse than a slam.
         let requestedVersionID = liveDraftBridge.debugRequestedVersionID
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !requestedProjectID.isEmpty else { return false }
+        guard token <= 0 || token != studioDebugLoadProjectAckToken else { return false }
         if token > 0,
            token == lastAppliedBridgeDebugProjectLoadToken,
            isStudioDebugProjectLoadReady(
@@ -14911,14 +14913,8 @@ Look at the city.
               ) else {
             return
         }
-        didApplyUITestSaveNetworkFault = true
-        let offlineBaseURL = uiTestLaunchArgumentValue(
-            "--ui-screenplay-save-network-fault-url",
-            in: arguments
-        ) ?? "http://127.0.0.1:3999"
-        await vm.runQueuedSaveNetworkFaultUITest(
-            marker: marker,
-            offlineBaseURL: offlineBaseURL
+        didApplyUITestSaveNetworkFault = await vm.runQueuedSaveNetworkFaultUITest(
+            marker: marker
         )
         publishDebugStudioDiffState()
     }

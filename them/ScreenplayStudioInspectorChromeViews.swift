@@ -11,10 +11,28 @@ struct ScreenplayStudioRightPanelTabs: View {
     let strokeColor: Color
 
     var body: some View {
-        let columns = Array(repeating: GridItem(.flexible(), spacing: 6), count: 3)
+        let tabs = ScreenplayStudioScreen.DirectionOneRightPanelTab.allCases
+        let rowCount = (tabs.count + 2) / 3
 
-        LazyVGrid(columns: columns, spacing: 8) {
-            ForEach(ScreenplayStudioScreen.DirectionOneRightPanelTab.allCases) { tab in
+        VStack(spacing: 8) {
+            ForEach(0..<rowCount, id: \.self) { row in
+                rightPanelTabRow(Array(tabs.dropFirst(row * 3).prefix(3)))
+            }
+        }
+        .padding(6)
+        .background(panelSoftColor)
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(strokeColor.opacity(0.55), lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    private func rightPanelTabRow(
+        _ tabs: [ScreenplayStudioScreen.DirectionOneRightPanelTab]
+    ) -> some View {
+        HStack(spacing: 6) {
+            ForEach(tabs) { tab in
                 let isActive = selection == tab
                 Button {
                     withAnimation(.easeInOut(duration: 0.16)) {
@@ -53,13 +71,6 @@ struct ScreenplayStudioRightPanelTabs: View {
                 .accessibilityAddTraits(isActive ? .isSelected : [])
             }
         }
-        .padding(6)
-        .background(panelSoftColor)
-        .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(strokeColor.opacity(0.55), lineWidth: 1)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 }
 
