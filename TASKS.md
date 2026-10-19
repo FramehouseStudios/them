@@ -20,6 +20,11 @@
   full Node20 suite, signed erased units, D009/diff pass; adversarial limits
   recorded; fresh original PR/head checks and independent review still needed.
 - **Human hold:** production blocked until App Store credentials exist.
+- **Verified:** focused33/0/0 after auth enforcement; full pinned Node20
+  backend2761/0/2; signed erased units624/0/0; D009 all five deltas0 and diff
+  clean. Unit source7f6159d and backend129d22c differ only by a Node test.
+  No new writer UI/macOS/live-provider claim. Manifest:
+  `docs/billing-main-proof-2026-10-19.md`.
 
 ### T-969 — Truthful required checks on original #906
 
