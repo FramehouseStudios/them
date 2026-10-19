@@ -5,6 +5,22 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1012 — Preserve the mentor because contract on the current database parent
+
+- **Owner:** codex. **Branch:** `codex/T-1012-mentor-current-parent`.
+- **Status:** in-progress. **Pillar:** trustworthy living companion / integration.
+- **Scope:** preserving original #653 at8f5f4f2f onto proven T1008 at728df63e,
+  without unrelated later changes or updating original heads before their gates.
+- **Root reproduced:** original broad opener matching discards concrete advice;
+  focused before21 pass/3 fail/0 skip, corrected24/0/0 (host Node24.19.0).
+- **Correction:** retain original because contract/two-check-in bound; narrow
+  bland patterns and protect unquoted causal/critical advice. Dedicated
+  provider transport fixture verifies actual auth/talk/TTS/persistence path.
+- **Done when:** pinned Node20 full backend/scripts, offline golden, connected
+  mentor response, actual-parent D009 and clean diff pass; preserve original
+  histories and report parent-only Swift proof separately from a new run.
+- **Evidence:** `docs/mentor-current-parent-2026-10-19.md`.
+
 ### T-1008 — Re-prove real database restart on the current retained parent
 
 - **Owner:** codex. **Branch:** `codex/T-1008-postgres-current-parent`.
