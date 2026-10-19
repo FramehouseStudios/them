@@ -14,7 +14,7 @@
 //   PR checklists import this, not a duplicated inline `wc | awk`.
 // - Works locally and in CI (quality-gate.yml god-file-gate job).
 //   CI does `fetch-depth: 0` so merge-base is available; locally falls
-//   back to origin/main if present, else just reports absolute sizes.
+//   back to origin/main or main. Missing/unreadable baselines fail closed.
 // - Strict by default; `--allow-growth` prints sizes without failing
 //   (useful for deliberate strangler B/I steps that justify growth).
 //
@@ -91,9 +91,10 @@ function main() {
   const allowGrowth = process.argv.includes("--allow-growth");
   const jsonOut = process.argv.includes("--json");
   const ref = baseRef();
-  const isPR = Boolean(String(process.env.GITHUB_BASE_REF || "").trim()) || gitOutput(["rev-parse", "--verify", ref]);
+  let comparisonError = !ref ? "No comparison baseline is available." :
+    !gitOutput(["rev-parse", "--verify", `${ref}^{commit}`]) ? `Base reference ${ref} is unavailable.` : "";
 
-  let failed = false;
+  let failed = Boolean(comparisonError);
   const rows = [];
 
   for (const rel of GOD_FILES) {
@@ -104,14 +105,18 @@ function main() {
       continue;
     }
     const base = ref ? baseLineCount(rel, ref) : null;
+    if (base === null) {
+      failed = true;
+      comparisonError ||= "One or more protected files cannot be read from the baseline.";
+    }
     const delta = base === null ? null : head - base;
     const grew = delta !== null && delta > 0;
     if (grew && !allowGrowth) failed = true;
-    rows.push({ file: rel, head, base, delta, status: grew ? "grew" : "ok", ref: ref || null });
+    rows.push({ file: rel, head, base, delta, status: base === null ? "unverified" : grew ? "grew" : "ok", ref: ref || null });
   }
 
   if (jsonOut) {
-    console.log(JSON.stringify({ ref: ref || null, allowGrowth, failed, rows }, null, 2));
+    console.log(JSON.stringify({ ref: ref || null, allowGrowth, failed, comparisonError: comparisonError || null, rows }, null, 2));
   } else {
     const label = ref ? `vs ${ref}` : "(no base — absolute sizes)";
     console.log(`[god-file-gate] ${label} — D009: line count must not grow on feature work`);
@@ -129,13 +134,20 @@ function main() {
     }
     if (failed) {
       console.log("");
-      console.log("Failing: one or more god files grew vs base.");
-      console.log("Fix: extract the capability to backend/lib/... or them/<Child> per D009,");
-      console.log("     or re-run with --allow-growth if this PR is an approved strangler step");
-      console.log("     and name the capability + removal issue in the PR description.");
+      if (comparisonError) {
+        console.log(`Failing: baseline comparison unavailable. ${comparisonError}`);
+        console.log("Fix: fetch the requested base and ensure its protected files are readable; --allow-growth cannot waive missing evidence.");
+      } else {
+        console.log("Failing: one or more god files grew vs base.");
+        console.log("Fix: extract the capability to backend/lib/... or them/<Child> per D009,");
+        console.log("     or re-run with --allow-growth if this PR is an approved strangler step");
+        console.log("     and name the capability + removal issue in the PR description.");
+      }
     } else {
       console.log("");
-      console.log("Pass: no god file grew vs base.");
+      console.log(rows.some(row => row.status === "grew")
+        ? "Pass: growth explicitly allowed for a reviewed strangler step."
+        : "Pass: no god file grew vs base.");
     }
   }
 
