@@ -8,13 +8,14 @@
 ### T-1004 — Fail closed when god-file comparison evidence is missing
 
 - **Owner:** codex. **Branch:** `codex/T-1004-god-gate-base`.
-- **Status:** in-progress. **Pillar:** trustworthy integration/release proof.
+- **Status:** review. **Pillar:** trustworthy integration/release proof.
 - **Root:** unresolved/missing baseline returns counts without deltas but
   exits0 and prints Pass; allow-growth also masks unverifiable evidence.
 - **Verified:** isolated Git fixture regression1 pass/6 fail before,7/0/0 after.
 - **Fix:** require a resolvable commit and readable baseline for present files;
   preserve actual growth waiver but label it accurately. JSON error additive.
-- **Next:** pinned Node20 full scripts/backend, draft PR with fresh checks.
+- **Verified:** pinned Node20 scripts217/0/0, backend2739/0/2; D009/diff pass.
+- **Next:** draft PR, independent review and fresh hosted checks.
 - **Evidence:** `docs/god-gate-base-2026-10-19.md`.
 
 ### T-969 — Truthful required checks on original #906

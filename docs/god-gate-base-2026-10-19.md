@@ -21,7 +21,9 @@ allowed, not falsely claimed no-growth. The canonical five-file list and
 comparison/counting rules are unchanged. Missing current files retain the
 existing deletion/strangler posture; no new source-file cap is introduced.
 
-Full pinned Node20 script/backend proof pending. Actual main-based D009,
+VERIFIED frozen runtimebaad9185 under Node20.20.2, external network disabled:
+scripts217 pass/0 fail/0 skip; backend2739 pass/0 fail/2 skip, exit0.
+/tmp/them-1004-node20.log. Actual main-based D009,
 syntax and git diff --check pass. No application/backend/Swift source change;
 no new local signed UI run or physical/model-quality claim from this task.
 
