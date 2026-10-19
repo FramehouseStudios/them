@@ -1855,6 +1855,64 @@ final class BackendClientCraftAPITests: XCTestCase {
         }
     }
 
+    @MainActor
+    func testTalkProviderAuthFailureDoesNotRefreshTheWritersSession() async throws {
+        BackendAuthClient.clearSharedClientToken()
+        defer { BackendAuthClient.clearSharedClientToken() }
+        let server = try TalkAuthHTTPFixture(mode: .providerAuth)
+        let url = try await server.start()
+        defer { server.stop() }
+        let client = BackendClient(baseURL: url, fallbackURL: url, persistBackendBaseURL: false, attachUserIDHeader: false)
+        do {
+            _ = try await client.talkText(transcript: "Write a scene about two astronauts.")
+            XCTFail("Provider failure must surface, not become a successful reply.")
+        } catch let BackendError.stage(stage, _) {
+            XCTAssertEqual(stage, "talk_chat")
+        }
+        XCTAssertEqual(server.paths.filter { $0 == "/session" }.count, 1, "A provider key failure cannot repair a valid app session.")
+        XCTAssertEqual(server.paths.filter { $0 == "/talk" }.count, 1, "Do not resend the writer's turn for an unrelated provider credential failure.")
+    }
+
+    @MainActor
+    func testTalkExpiredClientSessionStillRefreshesExactlyOnce() async throws {
+        try await assertTalkSessionRefresh(mode: .expiredClient)
+    }
+
+    @MainActor
+    func testTalkLegacyUnstagedUnauthorizedStillRefreshesExactlyOnce() async throws {
+        try await assertTalkSessionRefresh(mode: .legacyClient)
+    }
+
+    func testClientSessionRefreshPolicyRejectsProviderAndUserAuthStages() {
+        XCTAssertTrue(BackendProviderFailurePolicy.shouldRefreshClientSession(statusCode: 401, stage: nil))
+        XCTAssertTrue(BackendProviderFailurePolicy.shouldRefreshClientSession(statusCode: 401, stage: ""))
+        XCTAssertTrue(BackendProviderFailurePolicy.shouldRefreshClientSession(statusCode: 401, stage: " AUTH_CLIENT "))
+        for stage in ["talk_stt", "talk_chat", "talk_tts", "stt", "chat", "tts", "auth_user", "auth_app", "unknown"] {
+            XCTAssertFalse(BackendProviderFailurePolicy.shouldRefreshClientSession(statusCode: 401, stage: stage), stage)
+        }
+        for status in [400, 403, 429, 500, 502] {
+            XCTAssertFalse(BackendProviderFailurePolicy.shouldRefreshClientSession(statusCode: status, stage: "auth_client"))
+        }
+    }
+
+    @MainActor
+    private func assertTalkSessionRefresh(mode: TalkAuthHTTPFixture.Mode) async throws {
+        BackendAuthClient.clearSharedClientToken()
+        defer { BackendAuthClient.clearSharedClientToken() }
+        let server = try TalkAuthHTTPFixture(mode: mode)
+        let url = try await server.start()
+        defer { server.stop() }
+        let client = BackendClient(baseURL: url, fallbackURL: url, persistBackendBaseURL: false, attachUserIDHeader: false)
+        do {
+            _ = try await client.talkText(transcript: "Write a scene about two astronauts.")
+            XCTFail("The controlled second response is a failure, not generated screenplay.")
+        } catch let BackendError.stage(stage, _) {
+            XCTAssertEqual(stage, "talk_chat")
+        }
+        XCTAssertEqual(server.paths.filter { $0 == "/session" }.count, 2)
+        XCTAssertEqual(server.paths.filter { $0 == "/talk" }.count, 2)
+    }
+
     private func makeClient(
         recorder: CraftRequestRecorder,
         handler: @escaping (URLRequest) throws -> CraftHTTPStub

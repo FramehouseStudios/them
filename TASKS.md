@@ -5,6 +5,27 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1011 — Distinguish provider authentication failure from app session expiry
+
+- **Owner:** codex. **Branch:** `codex/T-1011-provider-auth-retry`.
+- **Status:** in-progress. **Pillar:** dependable voice-to-scene / sign-in.
+- **Verified root:** actual HTTP provider401 caused2/session and2/talk;
+  signed before1/1/0. First URLProtocol attempt0/2 was a DNS-fixture failure,
+  not product reproduction. No claim about an old physical-phone cause.
+- **Before proof:** actual BackendClient.talkText via existing URLProtocol
+  fixture; provider401 should make one/session and one/talk, while auth_client
+  expiry should still refresh once. Signed native47718 is running on erased
+  owned Pro11CF/iOS26.2; no production/client code changed yet.
+- **Done when:** reproduce then correct canonical retry ownership, retain
+  legitimate/legacy auth recovery, signed client/full unit and connected
+  checks pass; preserve writer data/auth and shrink rather than grow façade.
+- **Correction:** extend/extract existing provider policy; preserve quota and
+  ordinary HTTP-retry methods byte-for-byte. BackendClient shrinks53 lines.
+  Explicit provider401 fails once; real/legacy session recovery retries once.
+- **Focused:** full client API class46/0/0, signed erased Pro/iOS26.2,
+  completed bundle read. D009 all five deltas0; diff pass. Full proof pending.
+- **Evidence:** `docs/provider-auth-retry-2026-10-19.md`.
+
 ### T-1010 — Align Clementine's actual mentor instructions with D017
 
 - **Owner:** codex. **Branch:** `codex/T-1010-mentor-target-recommendation`.

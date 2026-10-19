@@ -2097,58 +2097,6 @@ enum BackendError: LocalizedError {
     }
 }
 
-nonisolated enum BackendProviderFailurePolicy {
-    static let userMessage = "Clementine's writing service is temporarily unavailable. Your draft is safe. Please try again later."
-
-    static func isQuotaExhausted(
-        statusCode: Int? = nil,
-        data: Data
-    ) -> Bool {
-        isQuotaExhausted(
-            statusCode: statusCode,
-            payload: String(data: data, encoding: .utf8) ?? ""
-        )
-    }
-
-    static func isQuotaExhausted(
-        statusCode: Int? = nil,
-        payload: String
-    ) -> Bool {
-        let normalized = payload
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-            .replacingOccurrences(of: "-", with: "_")
-            .replacingOccurrences(of: " ", with: "_")
-
-        if normalized.contains("provider_quota") ||
-            normalized.contains("insufficient_quota") ||
-            normalized.contains("quota_exhausted") ||
-            normalized.contains("quota_exceeded") {
-            return true
-        }
-
-        guard statusCode == 429 || normalized.contains("quota") else {
-            return false
-        }
-        return normalized.contains("quota") && [
-            "insufficient",
-            "exhausted",
-            "exceeded",
-            "credit_balance",
-            "billing_balance",
-        ].contains { normalized.contains($0) }
-    }
-
-    static func shouldRetryHTTP(
-        statusCode: Int,
-        data: Data,
-        retryableStatusCodes: Set<Int>
-    ) -> Bool {
-        retryableStatusCodes.contains(statusCode) &&
-            !isQuotaExhausted(statusCode: statusCode, data: data)
-    }
-}
-
 nonisolated enum BackendErrorMessageSanitizer {
     static func displayMessage(
         from data: Data,
@@ -4936,9 +4884,8 @@ final class BackendClient {
                     forceNoStreamAudio: forceNoStreamAudio
                 )
             }
-            if statusCode == 401,
-               allowClientTokenRefresh,
-               !isUserAuthStage(parsedStageError?.stage ?? "") {
+            if allowClientTokenRefresh,
+               BackendProviderFailurePolicy.shouldRefreshClientSession(statusCode: statusCode, stage: parsedStageError?.stage) {
                 print("POST /talk -> 401 unauthorized, refreshing session token and retrying once")
                 clearSessionToken()
                 let refreshed = try await refreshClientToken(for: baseURL, userID: userID)
