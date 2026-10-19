@@ -5,6 +5,17 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1001 — Patch HTTP trust and URI dependencies
+
+- **Owner:** codex. **Branch:** `codex/T-1001-http-dependency-patches`.
+- **Status:** in-progress. **Pillar:** trustworthy network/auth boundaries.
+- **Root:** locked proxy-addr2.0.7/fast-uri3.1.6 match upstream security advisories.
+- **Verified:** pure failing-first2 pass/5 fail; patched focused13/0/0.
+- **Fix:** only transitive lock entries change to2.0.8/3.1.8; no major update,
+  trust-policy change or new dependency. Upstream cases plus valid controls.
+- **Next:** frozen offline Node20 full regression, draft child PR.
+- **Evidence:** `docs/http-dependency-patches-2026-10-19.md`.
+
 ### T-1000 — Owner-scoped Page cancellation
 
 - **Owner:** codex. **Branch:** `codex/T-1000-page-cancel-owner`.
