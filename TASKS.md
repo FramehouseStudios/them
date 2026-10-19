@@ -5,6 +5,20 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1006 — Keep the mentor's causal craft advice
+
+- **Owner:** codex. **Branch:** `codex/T-1006-mentor-causal-preservation`.
+- **Status:** in-progress. **Pillar:** living companion / voice-to-scene.
+- **Scope:** preserving original #653 on T1003 without advancing its remote
+  head or skipping the pending #962/#963 boundaries. Keep the original
+  causal mentor contract; prevent broad check-in removal from deleting advice.
+- **Verified:** before21/3/0, corrected focused24/0/0; connected real-handler
+  fixture28/0/0 on host Node26.7. TTS receives the causal note, saved project
+  unchanged. No live provider, phone or generated120-page claim.
+- **Done when:** frozen Node20 backend/scripts, offline golden and D009/diff
+  pass; retain original history and document uncovered live/feature-length gaps.
+- **Evidence:** `docs/mentor-causal-preservation-2026-10-19.md`.
+
 ### T-1003 — One combined voice-to-writer safety proof
 
 - **Owner:** codex. **Branch:** `codex/T-1003-integrated-voice-writer`.

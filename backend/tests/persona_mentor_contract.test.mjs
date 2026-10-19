@@ -49,6 +49,7 @@ test("[persona-mentor] the mentor contract replaces the check-in contract on men
   const mentor = r.withOutputContract(base, { mentorTurn: true });
   assert.match(mentor, /<mentor_output>/);
   assert.match(mentor, /Verdict first/);
+  assert.match(mentor, /one sentence that contains the word "because"/);
   assert.match(mentor, /intention and obstacle/);
   assert.match(mentor, /because\/therefore across three acts/);
   assert.match(mentor, /Know the ending first/);
