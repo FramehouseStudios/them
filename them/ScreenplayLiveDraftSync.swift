@@ -845,9 +845,6 @@ final class ScreenplayLiveDraftSyncService: ObservableObject {
         // 2026-09-28). Without a base, or when local already matches, there
         // is nothing to merge; the channel wins, as for overlapping edits.
         let hasAgreedBase = mirrorSeq != nil
-        if !hasAgreedBase, localText != remoteText {
-            editor?.preserveLocalDraftForLiveSyncRecovery(localText, projectID: projectID)
-        }
         setMirror(text: remoteText, seq: seq, checksum: checksum)
         var merged: String?
         if hasAgreedBase, localText != previousMirror, localText != remoteText,
@@ -856,6 +853,14 @@ final class ScreenplayLiveDraftSyncService: ObservableObject {
             if merged == nil {
                 logger.notice("live draft: overlapping edits, channel text kept")
             }
+        }
+        let hasUnmergedLocalWork = localText != remoteText &&
+            (!hasAgreedBase || (localText != previousMirror && merged == nil))
+        if hasUnmergedLocalWork {
+            // A clean remote adoption or overlapping edit must not erase the
+            // only copy of local text. Preserve it before the editor follows
+            // the channel; the recovery UI lets the writer choose afterward.
+            editor?.preserveLocalDraftForLiveSyncRecovery(localText, projectID: projectID)
         }
         applyToEditor(merged ?? remoteText, projectID: projectID, sourceDeviceID: sourceDeviceID)
         if let revealLine, merged == nil {
