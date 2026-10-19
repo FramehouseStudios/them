@@ -7,14 +7,44 @@ func hollywoodScreenplayEditorUIFont() -> UIFont {
     UIFont(name: "Courier", size: 12) ?? UIFont.monospacedSystemFont(ofSize: 12, weight: .regular)
 }
 
-extension IOSCursorInsertTextEditor {
-    func shouldApplyModelText(to textView: UITextView, previous: (text: String, documentID: String), deferredAllows: Bool) -> Bool {
-        let documentDidChange = previous.documentID != documentID
-        return ScreenplayEditorTextBindingPolicy.shouldApplyModelText(
-            incomingText: text, currentEditorText: textView.text ?? "",
-            lastRenderedModelText: previous.text,
-            isEditorFocused: textView.isFirstResponder, documentDidChange: documentDidChange,
+extension IOSCursorInsertTextEditor.Coordinator {
+    func shouldApplyModelText(
+        incomingText: String,
+        to textView: UITextView,
+        documentDidChange: Bool,
+        deferredAllows: Bool = true
+    ) -> Bool {
+        // A Binding reads today's model, even when held by yesterday's parent.
+        // Keep the previous render's value independently of that live binding.
+        let shouldApply = ScreenplayEditorTextBindingPolicy.shouldApplyModelText(
+            incomingText: incomingText,
+            currentEditorText: textView.text ?? "",
+            lastRenderedModelText: lastRenderedModelText,
+            isEditorFocused: textView.isFirstResponder,
+            documentDidChange: documentDidChange,
             deferredAllows: deferredAllows
+        )
+        // A deferred rejection is not a render: keep its rewrite eligible
+        // when the pending local publication finishes.
+        if shouldApply || ScreenplayDraftTextIdentity.matches(incomingText, textView.text ?? "") {
+            lastRenderedModelText = incomingText
+        }
+        return shouldApply
+    }
+
+    func traceParentReplacementChanges(
+        previousPendingID: UUID?, previousSubmittedID: UUID?, previousInsertionID: UUID?
+    ) {
+        let currentPendingID = parent.pendingReplacementTarget?.id
+        let currentSubmittedID = parent.submittedReplacementTarget?.id
+        let currentInsertionID = parent.insertionRequest?.id
+        guard previousPendingID != currentPendingID ||
+            previousSubmittedID != currentSubmittedID ||
+            previousInsertionID != currentInsertionID else { return }
+        traceReplacementTarget(
+            kind: "ios-update-parent-sync",
+            target: parent.submittedReplacementTarget ?? parent.pendingReplacementTarget,
+            detail: "Synced representable parent. pending=\(previousPendingID?.uuidString.lowercased() ?? "nil")->\(currentPendingID?.uuidString.lowercased() ?? "nil") submitted=\(previousSubmittedID?.uuidString.lowercased() ?? "nil")->\(currentSubmittedID?.uuidString.lowercased() ?? "nil") insertion=\(previousInsertionID?.uuidString.lowercased() ?? "nil")->\(currentInsertionID?.uuidString.lowercased() ?? "nil")"
         )
     }
 }

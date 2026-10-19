@@ -2,6 +2,75 @@ import XCTest
 @testable import them
 
 final class ScreenplayDraftSaveOutboxTests: XCTestCase {
+    @MainActor
+    func testBridgeVersionHintCannotAcknowledgeOrRebaseRestoredWriterSave() async throws {
+        let owner = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""
+        for parked in [false, true] {
+            let directory = storageDirectory.appendingPathComponent(parked ? "parked" : "pending")
+            let queue = ScreenplayDraftSaveOutbox(storageDirectory: directory)
+            try await queue.enqueue(replacingOwner(of: makeEntry(id: "writer"), with: owner))
+            if parked { _ = try await queue.retainConflict(projectId: "project-1", ownerUserId: owner) }
+            let suite = "them.bridge-restored-authority.\(UUID().uuidString)"
+            let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+            defer { defaults.removePersistentDomain(forName: suite) }
+            let recovery = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "recovery")
+            let reopenedQueue = ScreenplayDraftSaveOutbox(storageDirectory: directory)
+            let model = ScreenplayStudioViewModel(localDraftRecoveryStore: recovery,
+                draftSaveOutbox: reopenedQueue, connectsToLiveWorkspace: false)
+            model.autosaveEnabled = false
+            model.selectedProjectID = "project-1"
+            model.fountainDraft = ""
+            await model.restorePendingDraftSaveBeforeProjectHydration()
+
+            XCTAssertFalse(model.adoptSavedPageWriteVersionIfNeeded(projectID: "project-1",
+                versionID: "collaborator-version", committedDraft: "Draft one"),
+                "A preferred-version hint is not a receipt for this durable writer save.")
+            XCTAssertEqual(model.latestVersionID, "server-v1")
+            XCTAssertTrue(model.hasUnsavedDraftChanges)
+            XCTAssertEqual(recovery.dirtyOrdinarySnapshot(ownerUserId: owner, projectId: "project-1")?.baseVersionId, "server-v1")
+
+            let data = try JSONSerialization.data(withJSONObject: ["id": "project-1", "title": "Script",
+                "activeVersionId": "collaborator-version", "versions": [["id": "collaborator-version",
+                    "draft": "Collaborator words", "updatedAt": 300]]])
+            model.hydrateDraft(from: try JSONDecoder().decode(BackendScreenplayProjectSummary.self, from: data))
+            XCTAssertEqual(model.fountainDraft, "Draft one")
+            XCTAssertEqual(model.conflictState?.serverVersionId, "collaborator-version")
+            XCTAssertTrue(model.hasUnsavedDraftChanges)
+            let entries = try await reopenedQueue.entriesForTesting()
+            XCTAssertEqual(entries.map(\.draft), ["Draft one"])
+            XCTAssertEqual(entries.map(\.baseVersionId), ["server-v1"])
+        }
+    }
+
+    @MainActor
+    func testBridgeVersionAdoptionRequiresUncontestedGeneratedPage() throws {
+        let suite = "them.bridge-page-ack.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore:
+            ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "recovery"),
+            draftSaveOutbox: ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory),
+            connectsToLiveWorkspace: false)
+        model.selectedProjectID = "project-1"
+        model.applyStructuralUITestDraft("Earlier saved page", versionID: "base")
+        model.fountainDraft = "Generated page"
+        model.hasUnsavedDraftChanges = true
+        XCTAssertTrue(model.adoptSavedPageWriteVersionIfNeeded(projectID: "project-1",
+            versionID: "confirmed-page", committedDraft: "Generated page"))
+        XCTAssertEqual(model.latestVersionID, "confirmed-page")
+        XCTAssertFalse(model.hasUnsavedDraftChanges)
+        let conflict = ScreenplayStudioViewModel.SaveConflictState(projectId: "project-1",
+            baseVersionId: "confirmed-page", serverVersionId: "other-device",
+            serverDraft: "Other device words", serverDraftExcerpt: "Other device words", serverUpdatedAt: 300)
+        model.conflictState = conflict
+        model.hasUnsavedDraftChanges = true
+        XCTAssertFalse(model.adoptSavedPageWriteVersionIfNeeded(projectID: "project-1",
+            versionID: "late-hint", committedDraft: "Generated page"))
+        XCTAssertEqual(model.latestVersionID, "confirmed-page")
+        XCTAssertEqual(model.conflictState, conflict)
+        XCTAssertTrue(model.hasUnsavedDraftChanges)
+    }
+
     func testInterruptedSeedRetryOnlyChangesInflightEntryAndPreservesRequestIdentity() async throws {
         let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
         try await store.enqueue(makeEntry(id: "seed", source: "studio_initial_seed"))
@@ -610,14 +679,18 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let model = ScreenplayStudioViewModel(localDraftRecoveryStore:
-            ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "recovery"), draftSaveOutbox: queue)
+            ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "recovery"), draftSaveOutbox: queue,
+            connectsToLiveWorkspace: false)
         model.selectedProjectID = "project-1"
         await model.restorePendingDraftSaveBeforeProjectHydration()
         let data = try JSONSerialization.data(withJSONObject: ["id": "project-1", "title": "Test",
             "activeVersionId": "confirmed", "versions": [["id": "confirmed", "draft": raw]]])
         let project = try JSONDecoder().decode(BackendScreenplayProjectSummary.self, from: data)
         model.hydrateDraft(from: project)
-        try? await Task.sleep(nanoseconds: 1_100_000_000)
+        let deadline = ContinuousClock.now.advanced(by: .milliseconds(1100))
+        while !(try await queue.entriesForTesting()).isEmpty, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
         XCTAssertEqual(model.fountainDraft, raw)
         XCTAssertEqual(model.latestVersionID, "confirmed")
         XCTAssertFalse(model.hasUnsavedDraftChanges)

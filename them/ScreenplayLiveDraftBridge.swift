@@ -2945,6 +2945,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
     @Published var draftText: String = "" {
         didSet {
             guard draftText != oldValue else { return }
+            persistDraftText(draftText)
             syncStructuredDraftSnapshot(text: draftText)
         }
     }
@@ -3782,7 +3783,6 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         text: String,
         elements explicitElements: [ScreenplayEditorElement?]? = nil
     ) {
-        persistDraftText(text)
         let previousStructuredDraft = structuredDraft
         let resolvedElements = explicitElements ?? bootstrapScreenplayParagraphElements(for: text)
         let lines = screenplayLineTexts(text)
@@ -10804,20 +10804,13 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
         let previousPendingID = context.coordinator.parent.pendingReplacementTarget?.id
         let previousSubmittedID = context.coordinator.parent.submittedReplacementTarget?.id
         let previousInsertionID = context.coordinator.parent.insertionRequest?.id
-        let previousParent = (text: context.coordinator.parent.text, documentID: context.coordinator.parent.documentID)
+        let previousDocumentID = context.coordinator.parent.documentID
         context.coordinator.parent = self
-        let currentPendingID = pendingReplacementTarget?.id
-        let currentSubmittedID = submittedReplacementTarget?.id
-        let currentInsertionID = insertionRequest?.id
-        if previousPendingID != currentPendingID ||
-            previousSubmittedID != currentSubmittedID ||
-            previousInsertionID != currentInsertionID {
-            context.coordinator.traceReplacementTarget(
-                kind: "ios-update-parent-sync",
-                target: submittedReplacementTarget ?? pendingReplacementTarget,
-                detail: "Synced representable parent. pending=\(previousPendingID?.uuidString.lowercased() ?? "nil")->\(currentPendingID?.uuidString.lowercased() ?? "nil") submitted=\(previousSubmittedID?.uuidString.lowercased() ?? "nil")->\(currentSubmittedID?.uuidString.lowercased() ?? "nil") insertion=\(previousInsertionID?.uuidString.lowercased() ?? "nil")->\(currentInsertionID?.uuidString.lowercased() ?? "nil")"
-            )
-        }
+        context.coordinator.traceParentReplacementChanges(
+            previousPendingID: previousPendingID,
+            previousSubmittedID: previousSubmittedID,
+            previousInsertionID: previousInsertionID
+        )
         context.coordinator.textView = uiView
         context.coordinator.saveDraftItem?.isEnabled = canSaveDraft
         uiView.draftProvider = { uiView.text ?? "" }
@@ -10836,8 +10829,12 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
         }
 
         if !context.coordinator.isApplyingProgrammaticChange,
-           shouldApplyModelText(to: uiView, previous: previousParent,
-               deferredAllows: context.coordinator.shouldApplyBoundText(text, currentText: uiView.text ?? "")) {
+           context.coordinator.shouldApplyModelText(
+               incomingText: text,
+               to: uiView,
+               documentDidChange: previousDocumentID != documentID,
+               deferredAllows: context.coordinator.shouldApplyBoundText(text, currentText: uiView.text ?? "")
+           ) {
             let previousSelection = uiView.selectedRange
             context.coordinator.isApplyingProgrammaticChange = true
             uiView.text = text
@@ -10944,6 +10941,7 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
         var explicitCurrentLineLocation: Int?
         var paragraphElements: [ScreenplayEditorElement?] = []
         var lastKnownTextSnapshot: String
+        var lastRenderedModelText: String
         private var representableUpdateDepth = 0
         private var representableUpdateGeneration = 0
         private var activeRepresentableUpdateGeneration: Int?
@@ -10965,6 +10963,7 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
             self.parent = parent
             self.lastKnownActiveElement = parent.activeScreenplayElement
             self.lastKnownTextSnapshot = parent.text
+            self.lastRenderedModelText = parent.text
         }
 
         @objc func saveDraftFromKeyboard() {

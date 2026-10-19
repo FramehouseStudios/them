@@ -487,6 +487,12 @@ final class V1SmokeUITests: XCTestCase {
         )
         defer { app.terminate() }
 
+        // A returned launch call is not proof that SwiftUI has presented the
+        // restored document (the hosted failure recording was still blank).
+        // Keep startup readiness separate from the strict content deadlines.
+        let restoredStudio = element(identifier: "studio.surface", in: app)
+        _ = try XCTUnwrap(restoredStudio.waitForExistence(timeout: writerLoopWait(8)) ? restoredStudio : nil,
+                          "Studio never became ready after relaunch.\n\(app.debugDescription)")
         XCTAssertTrue(waitForDraft(in: app, containing: firstAnchor, timeout: 10))
         XCTAssertTrue(waitForDraft(in: app, containing: secondAnchor, timeout: 5))
         XCTAssertTrue(
@@ -497,6 +503,19 @@ final class V1SmokeUITests: XCTestCase {
             ),
             "Sequential page batches did not restore exactly once after relaunch."
         )
+        let rightDrawer = app.buttons["studio.sidebar.right.toggle"]
+        if rightDrawer.exists, rightDrawer.label.localizedCaseInsensitiveContains("Close") {
+            rightDrawer.tap()
+        }
+        let restoredEditor = app.textViews["studio.draft.editor"]
+        XCTAssertTrue(waitForHittability(of: restoredEditor, timeout: writerLoopWait(5)),
+                      "The restored screenplay must be reachable on the native page.")
+        let bothBatches = NSPredicate(format: "exists == true AND value CONTAINS %@ AND value CONTAINS %@",
+                                      firstAnchor, secondAnchor)
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: bothBatches, object: restoredEditor)], timeout: 10), .completed)
+        let paper = restoredEditor.value as? String ?? ""
+        XCTAssertEqual(occurrenceCount(of: firstAnchor, in: paper), 1)
+        XCTAssertEqual(occurrenceCount(of: secondAnchor, in: paper), 1)
     }
 
     func test_screenplay_export_returns_a_file() {
@@ -805,12 +824,23 @@ final class V1SmokeUITests: XCTestCase {
             "The writer-loop could not reach Export Copy."
         )
         exportMenu.tap()
+        let cancelExport = app.buttons["studio.export.cancel"]
+        _ = try XCTUnwrap(cancelExport.waitForExistence(timeout: writerLoopWait(5)) ? cancelExport : nil,
+                          "iPhone export must expose a dismissible format picker.")
+        cancelExport.tap()
+        XCTAssertTrue(waitForDisappearance(of: cancelExport, timeout: writerLoopWait(5)))
+        XCTAssertFalse(app.collectionViews["activityCollectionView"].exists,
+                       "Cancelling format selection must not prepare or share a file.")
+        exportMenu.tap()
         let markdownExport = app.buttons["studio.export.md"]
         XCTAssertTrue(markdownExport.waitForExistence(timeout: writerLoopWait(5)), "Export Copy did not offer Markdown.")
         markdownExport.tap()
         let closeMarkdownShare = app.buttons["Close"].firstMatch
-        XCTAssertTrue(closeMarkdownShare.waitForExistence(timeout: writerLoopWait(10)),
-                      "Markdown export must present the native share sheet, not just create a temporary file.")
+        // Async XCTest can continue after an assertion despite the suite's
+        // continueAfterFailure setting. Throw at the first absent handoff;
+        // downstream export/restore checks cannot prove anything without it.
+        _ = try XCTUnwrap(closeMarkdownShare.waitForExistence(timeout: writerLoopWait(10)) ? closeMarkdownShare : nil,
+                          "Markdown export must present the native share sheet, not just create a temporary file.")
         XCTAssertTrue(app.collectionViews["activityCollectionView"].cells["Save to Files"].waitForExistence(timeout: writerLoopWait(5)),
                       "The writer must have a real external file destination.")
         let markdownShareProof = XCTAttachment(screenshot: app.screenshot())
@@ -827,8 +857,8 @@ final class V1SmokeUITests: XCTestCase {
         XCTAssertTrue(fdxExport.waitForExistence(timeout: writerLoopWait(5)), "Export Copy did not offer Final Draft.")
         fdxExport.tap()
         let closeFDXShare = app.buttons["Close"].firstMatch
-        XCTAssertTrue(closeFDXShare.waitForExistence(timeout: writerLoopWait(10)),
-                      "Final Draft export must present the native share sheet.")
+        _ = try XCTUnwrap(closeFDXShare.waitForExistence(timeout: writerLoopWait(10)) ? closeFDXShare : nil,
+                          "Final Draft export must present the native share sheet.")
         XCTAssertTrue(app.collectionViews["activityCollectionView"].cells["Save to Files"].waitForExistence(timeout: writerLoopWait(5)))
         let fdxShareProof = XCTAttachment(screenshot: app.screenshot())
         fdxShareProof.name = "Native Final Draft file handoff"
@@ -3514,6 +3544,25 @@ final class V1SmokeUITests: XCTestCase {
 
     private func submitFocusedPrompt(in app: XCUIApplication, field: XCUIElement) {
 #if os(iOS)
+        // A freshly erased simulator may show Apple's first-use keyboard
+        // tutorial. It overlays Send while AX still reports the toolbar button
+        // as hittable. Dismiss only this identified system tutorial, never an
+        // arbitrary Continue button or a second submission of the prompt.
+        let typingTutorial = app.staticTexts.matching(NSPredicate(
+            format: "label BEGINSWITH %@", "Speed up your typing by sliding"
+        )).firstMatch
+        if typingTutorial.waitForExistence(timeout: 0.5) {
+            let continueTyping = app.buttons["Continue"].firstMatch
+            guard continueTyping.exists, continueTyping.isHittable else {
+                XCTFail("The keyboard typing tutorial did not expose its Continue action.")
+                return
+            }
+            continueTyping.tap()
+            guard waitForDisappearance(of: typingTutorial, timeout: 5) else {
+                XCTFail("The keyboard typing tutorial still covers Send.")
+                return
+            }
+        }
         let toolbarSend = app.buttons["studio.prompt.keyboard-send"]
         if toolbarSend.waitForExistence(timeout: 5), toolbarSend.isHittable {
             toolbarSend.tap()

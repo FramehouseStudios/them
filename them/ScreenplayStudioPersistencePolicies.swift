@@ -182,6 +182,8 @@ struct ScreenplayQueuedDraftAdoptionPolicy {
 
 struct ScreenplayQueuedDraftHydrationPolicy {
     static func shouldRestoreBeforeServerHydration(
+        expectedAuthContext: ScreenplayStudioAuthContext,
+        currentAuthContext: ScreenplayStudioAuthContext,
         selectedProjectID: String,
         queuedProjectID: String,
         queuedDraft: String,
@@ -191,7 +193,10 @@ struct ScreenplayQueuedDraftHydrationPolicy {
     ) -> Bool {
         let selectedID = selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
         let queuedID = queuedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
-        return !selectedID.isEmpty
+        return ScreenplayStudioAuthContextPolicy.matches(
+            expected: expectedAuthContext,
+            current: currentAuthContext
+        ) && !selectedID.isEmpty
             && selectedID == queuedID
             && (!queuedDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || allowEmptyDraft)
             && !hasUnsavedChanges

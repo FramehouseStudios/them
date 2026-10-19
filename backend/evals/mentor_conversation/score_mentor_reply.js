@@ -174,19 +174,21 @@ const TERM_SYNONYMS = Object.freeze({
   "midpoint": [/midpoint/, /mid-point/, /middle of the (script|story|film)/],
   "act one": [/act one/, /act 1\b/, /act i\b/],
   "act two": [/act two/, /act 2\b/, /act ii\b/],
+  "final image": [/final image/, /last image/, /last (thing|frame|shot) (we|the audience|they) sees?/, /final (frame|shot)/],
+  "opening": [/opening/, /first image/, /first (frame|shot)/, /page one/, /where (it|your story|the story|we) (began|begins|started|starts)/],
 });
 
 function termPattern(term) {
   const literal = String(term).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const alternatives = TERM_SYNONYMS[term] || [];
-  return `(?:\\b${literal}\\b${alternatives.map(re => `|${re.source}`).join("")})`;
+  return `(?:\\b${literal}\\b${alternatives.map(re => `|\\b(?:${re.source})\\b`).join("")})`;
 }
 
 function termPresent(lower, term) {
   return new RegExp(termPattern(term), "i").test(lower);
 }
 
-export function scoreStructureAccuracy(reply, { expectTerms = [], expectPages = [] } = {}) {
+export function scoreStructureAccuracy(reply, { expectTerms = [], expectPages = [], requireCausality = false } = {}) {
   const text = String(reply || "");
   const lower = text.toLowerCase();
   const notes = [];
@@ -198,6 +200,7 @@ export function scoreStructureAccuracy(reply, { expectTerms = [], expectPages = 
   const causal = /\b(because|therefore|so that|which forces|which means|forces|costs)\b/.test(lower);
   const andThen = (lower.match(/\band then\b/g) || []).length >= 2;
   if (causal && !andThen) { score += 1; } else notes.push(andThen ? "and-then chain" : "no causality");
+  if (requireCausality && (!causal || andThen)) score = Math.min(score, 2);
   for (const spec of expectPages) {
     const term = termPattern(String(spec.term).toLowerCase());
     // Match either order, including the adjacent sentence used by the shared

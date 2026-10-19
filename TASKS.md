@@ -5,6 +5,157 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-997 — Keep durable writer-save authority across relaunch
+
+- **Owner:** codex. **Branch:** `codex/T-997-conflict-base-authority`.
+- **Status:** review (fresh hosted proof required). **Pillar:** writer words and recovery choices.
+- **Parent:** exact original961 head8b19d86b; preserve original history.
+  Hosted39312650862 recovery4/1/0 on26.5 failed durable-conflict relaunch.
+  Marker remains; conflict/dirty/parked state absent. No text-loss or root-cause
+  claim solely from that snapshot.
+- **Plan:** prove whether preferred-version notifications can acknowledge or
+  rebase a persisted pending/parked writer save without a matching save receipt.
+  Canonical ViewModel + persisted/reopened real outbox; no substitute fake.
+- **Binary success:** original writer bytes/base/dirty choice survive a late
+  bridge version hint and conflicting canonical hydration; ordinary generated
+  Page acknowledgement still works. Focused signed regression, full relevant
+  gates and real authenticated recovery before parent promotion.
+- **Human hold:** production remains blocked until App Store credentials exist;
+  no paid-model, physical-phone,120-page completion or main merge claim.
+- **Evidence:** `docs/conflict-base-authority-2026-10-19.md`.
+- **Before:** signed erased Pro baseline45/1/0,14 failed assertions in the
+  one new real-ViewModel regression: version hint clears dirty/base authority
+  and canonical hydration replaces writer words. Positive page ack passes.
+- **Fix:** canonical bridge-version adoption rejects active conflict and
+  dirty manual/restored writer state. Full signed units865/0/0 pass on exact
+  erased owned Pro/iOS26.2; D009 all five deltas0 and diff pass. Hosted causal
+  attribution unproven. Frozen runtime0c1afb1a Node20.20.2 backend2897/0/2,
+  scripts231/0/0 pass. Authenticated recovery/writer/Home/V1/voice/macOS serial
+  native65975 active, stops at first red. Original961 head unchanged.
+- **Recovery:** authenticated local five-story gate5/0/0 on exact erased Pro
+  /26.2, evaluator exit0; writer stage active on unchanged0c1afb1a. Hosted26.5
+  cause and full remaining workflow still unproven; no promotion yet.
+- **Final local:** native65975 exit0: recovery5/0/0, writer1/0/0,
+  fixed-provider Home2/0/0, full V1 UI29/0/15, voice-fault1/0/0 and macOS
+  build0. Runtime0c1afb1a unchanged. All seven bundles retained/compared.
+  Ready for preserving original961 update and fresh hosted checks, not a
+  main merge. Original base/head verified ancestors; production hold remains.
+
+### T-989 — Carry exact editor recovery into the product rehearsal
+
+- **Owner:** codex. **Branch:** `codex/T-989-editor-rehearsal-forward`.
+- **Status:** in-progress. Preserve T-988 and #961 histories with a normal
+  merge; retain newer raw-byte/deferred guards and all five recovery stories.
+- **Done when:** conflicts resolved, focused/full gates re-proven on combined
+  tree before updating any existing PR. No main merge or replacement PR.
+- **Evidence:** `docs/editor-rehearsal-forward-2026-10-19.md`.
+- **Verified:** merged scripts25/0 host; full Node20 scripts231/0/0,
+  backend2897/0/2; signed units863/0/0; package11+21 pass; macOS compile0,
+  audit0, D009 bridge -1 versus actual #961 base. Authenticated recovery5/0/0;
+  writer1/0/0 and fixed-provider Home2/0/0; offline quality gate PASS.
+  V1 UI29/0/15, voice-fault1/0/0 and its macOS wrapper pass. Original #961 old-head
+  hosted gate39298823662 completed success; not new-head proof.
+- **Human decision:** production remains blocked until App Store credentials
+  exist; do not add a purchases-disabled startup bypass.
+
+### T-983 — Pin required iPhone proof to the exact erased simulator
+
+- **Owner:** codex. **Branch:** `codex/T-983-exact-simulator-proof`.
+- **Status:** in-progress. **Pillar:** trustworthy integration/recovery proof.
+- **Scope:** failed #961 run39285905264 erased one UDID and tested another
+  same-named device. Resolve the inventory once, honor explicit runtime/ID,
+  reject ambiguity before erasure and pass the same exact ID to Xcode.
+- **Done when:** failing-before regression passes, runner contracts/full
+  Node20 suite and owned signed lost-reply journey pass; fresh hosted proof
+  validates newest-runtime behavior before merge. No unchanged CI retry.
+- **Current:** before10/3/0; final Node20 backend2886/0/2 and canonical
+  runner/voice contracts20/0/0. Intermediate full2881/5/2 exposed stale
+  evidence-test inventories; all assertions retained, focused6/0/0 after.
+  Final sealed source adds a failing-before caller-override guard: Node20
+  backend2886/0/2, runner contracts21/0/0, signed units857/0/0. Earlier
+  lost-reply/relaunch1/0/0 and sealed unit xcresults confirm the erased UDID;
+  no Swift change. macOS compile exit0. Hosted26.5 focus failure
+  remains unproven, not papered over. App/god files unchanged. Manifest:
+  `docs/exact-simulator-proof-2026-10-19.md`.
+- **Hosted follow-up:** head980 run39297714806 failed before iPhone testing:
+  omitted offline-save wrapper doubles still returned no JSON (1/4/0).
+  Updated only that fixture and strengthened exact-ID forwarding;5/0/0.
+  Complete35-file script suite228/0/0 under Node20 (initial216/12/0 image
+  lacked git). Canonical PR-shaped offline quality gate PASS with auth,
+  disposable data and network off. No executable/app change or unchanged CI
+  retry. Append correction to original #961 and require fresh hosted proof.
+
+### T-979 — Preserve ending mentorship and reject evaluator false positives
+
+- **Owner:** codex. **Branch:** `codex/T-979-mentor-ending-integration`.
+- **Status:** review (bounded local gate repairs proven; fresh hosted proof required). **Pillar:** living companion; trustworthy craft.
+- **Scope:** preserving original #652 `ece8cf76` above T-978. Keep client/core
+  parity, target-aware page ranges and semantic prompt allocation. Bound alias
+  matches and require a causal marker in the ending evaluation case. Replace
+  the failing transient iPhone export menu with a cancellable selection sheet
+  whose completed dismissal owns export dispatch; retain native file sharing.
+- **Done when:** frozen Node20 full/offline gates, fresh signed full units,
+  authenticated Home/writer/export/relaunch workflows, macOS and D009/diff pass.
+- **VERIFIED:** scorer initially10/2/0; unrelated substrings counted as craft
+  terms and an answer with no reason could PASS. Final focused32/0/0;
+  pinned Node20 backend2886/0/2 and network-disabled contracts74/0/0 plus
+  offline exemplar gate pass. Initial writer0/1/0 retained; old instrumented
+  menu1/0/0 did not count as a fix. Replacement cancellation/export/restore1/0/0,
+  final signed units852/0/0, authenticated Home2/0/0 and macOS compile exit0.
+  D009/diff pass. Real PostgreSQL adapter1/0/0 after12 canonical migrations
+  and idempotent replay; not full writer restart proof. No live
+  quality or physical-phone claim. Manifest:
+  `docs/mentor-ending-integration-2026-10-16.md`.
+- **Next actual boundary:** original #653 `8f5f4f2f`, body and full diff read.
+- **Authoritative refresh2026-10-19:** main deac1a6d run39075059944 completed
+  green on its configured gates: backend2739/0/2, units624/0/0, writer,
+  V1 UI28/0/9, voice-fault1/0/0, macOS. Not physical/production durability
+  proof. #961 head2fcdc772 run39077888031 passed856 units and V1 UI29/0/15
+  but failed the separate required offline-save stale-conflict story before
+  queuing. #962 head783fbc99 run39078694476 failed parked-copy hydration:
+  units856 passed/1 failed. Fix this parent boundary first; no unchanged CI
+  retry or #653 advancement. Triage:
+  `docs/offline-save-hosted-triage-2026-10-19.md`.
+- **Gate repair2026-10-19:** unchanged local exact story1/0/0 and full ordered
+  five-story suite5/0/0 did not reproduce hosted red. A deterministic selected-
+  detail mismatch regression did reproduce premature fixture completion:
+  0 passed/1 failed. DEBUG hook now waits for the matching hydrated target
+  within its existing10s budget. Isolate the parked-copy unit from live workspace
+  listeners and await its real queue within the same1.1s maximum; assertions
+  unchanged. Final signed units857/0/0, required offline suite5/0/0, authenticated
+  fixed-provider writer/save/native export/relaunch1/0/0, macOS compile exit0,
+  pinned Node20 backend2886/0/2; D009 all five deltas0 and whitespace pass.
+  Source f937636a; only docs finalized afterward. Hosted causality is partial,
+  not a claim every historic red is explained. Append to #961; preserve all
+  original/child heads. Next propagate parent into #962 with a preserving merge
+  and re-prove its updated head; no original #653 advancement before green.
+- **Resume2026-10-17:** human resumed. #906 normal merged at deac1a6d after
+  exact-head independent approval and all required fresh checks. Main's new
+  run39075059944 is pending, not yet release proof. #961's run39010350710:
+  signed units852/0/0; V1 UI28 pass/15 skip/1 fail, sequential relaunch.
+  Repair the first red before #653. Evidence/manifest:
+  `docs/hosted-relaunch-proof-repair-2026-10-17.md`.
+- **Root reproduced:** keyboard tutorial blocked first local submit. After
+  fixing that, second batch was genuinely absent after relaunch: journal had
+  both, draft preference only first. Stale paragraph metadata overwrote durable
+  text. New signed regression0/1/0 proves it. Moved persistence to draftText
+  changes (bridge delta0). Intermediate full signed units853/0/0, but sequential
+  relaunch still0/1/0; later stages did not run. Observer experiment also failed
+  and was removed. Byte-only trace proved cache/journal restored402 bytes, but
+  pending creation recovery displayed its older173-byte seed. New two-model
+  regression0/1/0 confirms stale intent. Retain generated changes synchronously
+  from the shared store. First retention hook exposed initialization blanking:
+  20/4/0, fixed by the existing hydration boundary. Corrected creation24/0/0
+  and exact-once relaunch1/0/0 passed. Final combined pipeline94156 completed
+  exit0 on frozen960258a8: signed units856/0/0, Home2/0/0, writer/export/relaunch
+  1/0/0, macOS compile. Final checkpoint2ffabaf9 adds native-paper exact-once
+  assertions, also1/0/0; app/unit trees unchanged. Pinned Node20 full backend
+  on that tracked snapshot2886/0/2. All five D009 deltas0; whitespace clean.
+  Intermediate container setup errors retained in the proof document, not
+  counted as passing runs. api.them.io/healthz redirects302 to a parked domain.
+  Publish append-only repair to #961, then inspect its fresh hosted result;
+  do not advance #653 or claim physical-phone/live-provider proof.
+
 ### T-978 — Speak pitches without rewriting quoted screenplay headings
 
 - **Owner:** codex. **Branch:** `codex/T-978-mentor-pitch-integration`.
@@ -700,6 +851,71 @@
 - **Remaining outside this task:** empty/whitespace-only save contract; historical text
   already normalized before storage; async lint/coverage/logline staleness comparisons;
   physical microphone/provider proof; required hosted checks and independent merge review.
+### T-988 — Preserve original focused-editor recovery
+
+- **Owner:** codex. **Branch:** `codex/T-988-editor-recovery-integration`.
+- **Status:** in-progress. **Pillar:** exact writer text while typing.
+- **Target:** investigate T-986's real direct-typing failure without relaxing
+  assertions; preserve original #919 rather than duplicate its existing fix.
+- **History:** normal merge `7b0d189` retains T-986 `dc64849` and original
+  #919 head `fc7a5571`, including its D009 follow-up. Original heads unchanged.
+- **Success:** exact editor/model typing, document-switch/fresh-model policy,
+  signed units and integrated recovery remain green on the combined tree;
+  full gates before promotion. Root-cause attribution requires evidence,
+  not merely a passing retry or a plausible code path.
+- **Evidence:** `docs/editor-recovery-integration-2026-10-19.md`.
+- **Verified:** original typing1/0/0; policy5/0. Real coordinator regression
+  before1/2/0, after3/0/0: store historical model value instead of a live
+  Binding read so focused fresh rewrites are not silently ignored.
+  Full combined signed units635/0/0; Node20 scripts224/0/0, backend2749/0/2;
+  macOS build passes. Full V1 remains running; no whole-app completion claim.
+
+### T-986 — Preserve and verify original #904 recovery
+
+- **Owner:** codex. **Branch:** `codex/T-986-original-904-recovery`.
+- **Status:** in-progress. **Pillar:** writer words survive recovery.
+- **Scope:** preserving merge of original #904, current-main proof repairs,
+  reviewed post-await owner/project guard and retained actual CI artifacts.
+- **History:** merge `6f1ffa0` retains original `a27c75a`; no remote original
+  change or main merge yet. No replacement PR.
+- **Done when:** signed units, actual unskipped recovery and writer UI,
+  Node20 suites, macOS, D009 and diff pass on the combined head; record exact
+  evidence on original #904 and retain independent review/check requirements.
+- **Evidence:** `docs/original-904-recovery-rehearsal-2026-10-19.md`.
+- **Verified now:** signed units632/0/0; Node20 backend2749/0/2,
+  scripts224/0/0; macOS and offline quality gate pass; real recovery2/0/0.
+  Writer/export/relaunch1/0/0. Full V1 UI27/1/9: direct typing drops the
+  final character of chunk9 in both editor/model. Hold original remote head
+  unchanged; diagnose without relaxing assertions or retrying unchanged.
+
+### T-985 — Fail-closed recovery proof and preserve original #904
+
+- **Owner:** codex. **Branch:** `codex/T-985-recovery-proof-truth`.
+- **Status:** in-progress. **Pillar:** durable writer recovery.
+- **Scope:** reuse the original port fix and canonical async/summary proof;
+  reject false-green skips. Then preserve/re-prove original #904's existing
+  deterministic fault injection and queued-draft hydration protection.
+- **Evidence:** Node20 focused14/0/0, scripts223/0/0, backend2747/0/2,
+  D009 deltas0. Real parent recovery0/2/0 during queue setup; not green.
+- **Done when:** the actual requested recovery tests pass without skips on
+  the preserved combined head, with full gates and exact retained artifacts.
+- **Reference:** `docs/recovery-proof-truth-2026-10-19.md`.
+
+### T-984 — Exact, signed simulator proof on main
+
+- **Owner:** codex. **Branch:** `codex/T-984-main-simulator-proof`.
+- **Status:** review. **Pillar:** trustworthy writer/recovery proof.
+- **Scope:** resolve one exact simulator ID before erasure and Xcode; route
+  main's existing offline-save iPhone tests through that signed canonical
+  runner. No application runtime or unfinished product-stack changes.
+- **Done when:** regressions, full Node20 scripts/backend, erased signed units,
+  authenticated writer UI, macOS, D009 and diff pass; draft PR records proof.
+- **Evidence:** scripts223/0/0, backend2739/0/2, signed units624/0/0,
+  macOS exit0, writer UI1/0/0, D009 deltas0. Offline-save UI still running. See
+  `docs/main-simulator-proof-2026-10-19.md`.
+- **Hold:** required hosted checks and independent human review before merge.
+- **GitHub:** draft #964, initial implementation `ba55565`; no main merge.
+
 ### T-969 — Truthful required checks on original #906
 
 - **Owner:** codex. **Task branch:** `codex/T-969-truthful-906-gate`.

@@ -7,6 +7,7 @@
 // `writerNouns` are the words a build-on reply must keep. `expectTerms` and
 // `expectPages` pin structure answers to the three-act map for a 110-page
 // feature. `flatLine` is the on-the-nose line a dialogue note must catch.
+// `requireCausality` makes a named case's reason mandatory, not bonus vocabulary.
 
 export const CASES = [
   // ---------------------------------------------------------------- pitch
@@ -159,6 +160,7 @@ export const CASES = [
   },
   {
     id: "structure-final-image", category: "structure",
+    requireCausality: true,
     writer: "How should it end?",
     expectTerms: ["final image", "opening", "answer"],
     golden: "With a final image that answers the opening one. Whatever you showed us on page one, show it again changed, because the distance between those two frames is the movie's argument. Before you write another scene, tell me the last image and we'll work backward from it. What is the last thing we see?",

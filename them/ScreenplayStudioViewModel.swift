@@ -1640,6 +1640,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
 
     @Published var fountainDraft: String = "" {
         didSet {
+            if !isHydratingDraft { retainPendingCreationDraftIfNeeded() }
             if !fountainDraft.contains(where: { !$0.isWhitespace }) {
                 invalidateCoverage()
             } else if let active = activeCoverageContext, !ScreenplayDraftTextIdentity.matches(active.draft, fountainDraft) {
@@ -1820,7 +1821,11 @@ final class ScreenplayStudioViewModel: ObservableObject {
 
     private func retainPendingCreationDraftIfNeeded() {
         if let context = projectCreationAuthContext, !authContextIsCurrent(context) { return }
-        guard var intent = storedProjectCreation, intent.ownerUserId == currentStudioAuthContext().userID,
+        let pending: ScreenplayProjectCreationIntent?
+        do { pending = try localDraftRecoveryStore.pendingProjectCreation(ownerUserId: currentStudioAuthContext().userID) }
+        catch { errorText = error.localizedDescription; return }
+        storedProjectCreation = pending
+        guard var intent = pending, intent.ownerUserId == currentStudioAuthContext().userID,
               intent.seedsLiveDraft, intent.restoreAsCurrent,
               selectedProjectID.isEmpty || selectedProjectID == intent.projectId else { return }
         guard !ScreenplayDraftTextIdentity.matches(intent.draft, fountainDraft) else { return }
@@ -1897,8 +1902,10 @@ final class ScreenplayStudioViewModel: ObservableObject {
         self.draftSaveAPI = draftSaveAPI
         self.projectSelectionAPI = projectSelectionAPI
         self.conflictProjectLoader = conflictProjectLoader
+        isHydratingDraft = true
         fountainDraft = ScreenplayLiveDraftBridge.shared.draftText
         restoreProjectCreationIfNeeded()
+        isHydratingDraft = false
         guard connectsToLiveWorkspace else { return }
         coverageIdentityCancellable = NotificationCenter.default.publisher(for: .themBackendIdentityPartitionChanged)
             .receive(on: DispatchQueue.main)
@@ -2063,6 +2070,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
               let entry = pendingEntry,
               entry.ownerUserId.trimmingCharacters(in: .whitespacesAndNewlines) == ownerUserID,
               ScreenplayQueuedDraftHydrationPolicy.shouldRestoreBeforeServerHydration(
+                  expectedAuthContext: authContext,
+                  currentAuthContext: currentStudioAuthContext(),
                   selectedProjectID: selectedProjectID,
                   queuedProjectID: entry.projectId,
                   queuedDraft: entry.draft,
@@ -2361,7 +2370,10 @@ final class ScreenplayStudioViewModel: ObservableObject {
         versionID: String,
         committedDraft: String
     ) -> Bool {
-        guard ScreenplayBridgeVersionAdoptionPolicy.shouldAdoptCommittedPageWriteBase(
+        // Preferred version is shared context, not a receipt for restored or
+        // manually edited words. Only canonical hydration/save may retire them.
+        guard conflictState == nil, !(hasUnsavedDraftChanges && isManualDraftEditing),
+              ScreenplayBridgeVersionAdoptionPolicy.shouldAdoptCommittedPageWriteBase(
             selectedProjectId: selectedProjectID,
             preferredProjectId: projectID,
             currentVersionId: latestVersionID,
@@ -4636,10 +4648,12 @@ final class ScreenplayStudioViewModel: ObservableObject {
     func runQueuedSaveNetworkFaultUITest(marker: String) async -> Bool {
         let cleanMarker = marker.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanMarker.isEmpty else { return false }
-        for _ in 0..<40 where selectedProject == nil || isLoading || isDraftSaveInFlight || isSaving {
+        for _ in 0..<40 where selectedProject?.id != selectedProjectID || loadedDraftProjectID != selectedProjectID
+            || isLoading || isDraftSaveInFlight || isSaving {
             try? await Task.sleep(for: .milliseconds(250))
         }
-        guard selectedProject != nil, !isLoading, !isDraftSaveInFlight, !isSaving else { return false }
+        guard !Task.isCancelled, !selectedProjectID.isEmpty, selectedProject?.id == selectedProjectID,
+              loadedDraftProjectID == selectedProjectID, !isLoading, !isDraftSaveInFlight, !isSaving else { return false }
         autosaveEnabled = false
         if ["__DELETE_ALL_WRITER_TEXT__", "__SAVE_BLANK_SNAPSHOT__"].contains(cleanMarker) {
             fountainDraft = ""

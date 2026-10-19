@@ -349,7 +349,10 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
     }
 
     func test_queuedDraftHydratesBeforeServerAndOnlyForItsOwnCleanProject() {
+        let auth = ScreenplayStudioAuthContext(userID: "user-recovery", sessionIntentGeneration: 7)
         XCTAssertTrue(ScreenplayQueuedDraftHydrationPolicy.shouldRestoreBeforeServerHydration(
+            expectedAuthContext: auth,
+            currentAuthContext: auth,
             selectedProjectID: " project-1 ",
             queuedProjectID: "project-1",
             queuedDraft: "INT. ROOM - NIGHT\n\nRecovered writer text.",
@@ -358,6 +361,8 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         ))
 
         XCTAssertFalse(ScreenplayQueuedDraftHydrationPolicy.shouldRestoreBeforeServerHydration(
+            expectedAuthContext: auth,
+            currentAuthContext: auth,
             selectedProjectID: "project-2",
             queuedProjectID: "project-1",
             queuedDraft: "Recovered writer text.",
@@ -365,12 +370,33 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
             isManualEditing: false
         ))
         XCTAssertFalse(ScreenplayQueuedDraftHydrationPolicy.shouldRestoreBeforeServerHydration(
+            expectedAuthContext: auth,
+            currentAuthContext: auth,
             selectedProjectID: "project-1",
             queuedProjectID: "project-1",
             queuedDraft: "Recovered writer text.",
             hasUnsavedChanges: true,
             isManualEditing: true
         ))
+    }
+
+    func test_queuedDraftHydrationRejectsOwnerOrSessionChangesDuringLookup() {
+        let expected = ScreenplayStudioAuthContext(userID: "user-recovery", sessionIntentGeneration: 7)
+        for current in [
+            ScreenplayStudioAuthContext(userID: "another-user", sessionIntentGeneration: 7),
+            ScreenplayStudioAuthContext(userID: "user-recovery", sessionIntentGeneration: 8),
+            ScreenplayStudioAuthContext(userID: "", sessionIntentGeneration: 8),
+        ] {
+            XCTAssertFalse(ScreenplayQueuedDraftHydrationPolicy.shouldRestoreBeforeServerHydration(
+                expectedAuthContext: expected,
+                currentAuthContext: current,
+                selectedProjectID: "project-1",
+                queuedProjectID: "project-1",
+                queuedDraft: "Private queued writer text.",
+                hasUnsavedChanges: false,
+                isManualEditing: false
+            ), "An awaited queue result cannot be applied under another account or sign-in intent.")
+        }
     }
 
     func test_queuedDraftAdoptionRestoresOnlyWhenEditorStillMatchesItsBase() {
@@ -1949,6 +1975,29 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
             ),
             ScreenplayStudioHistoryMigrationPolicy.liveDraftKey
         )
+    }
+
+    @MainActor
+    func testStaleEditorMetadataCannotOverwriteNewerPersistedDraft() {
+        let bridge = ScreenplayLiveDraftBridge.shared
+        let original = bridge.draftText
+        defer {
+            bridge.draftText = original
+            bridge.syncStructuredDraftSnapshot(text: original)
+        }
+        let owner = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""
+        let key = ScreenplayOwnerScopedStoragePolicy.storageKey(
+            baseKey: "studio_live_draft_text_v1", ownerUserID: owner
+        )
+        let first = "INT. KITCHEN - DAY\n\nLUCY leaves."
+        let combined = first + "\n\nEXT. FERRY TERMINAL - DAWN\n\nMARA waits."
+        bridge.draftText = first
+        bridge.draftText = combined
+        // A representable can deliver paragraph metadata from an older frame.
+        // That read-model update must not become a durable text write.
+        bridge.syncStructuredDraftSnapshot(text: first)
+        XCTAssertEqual(bridge.draftText, combined)
+        XCTAssertEqual(UserDefaults.standard.string(forKey: key), combined)
     }
 
     func testLiveDraftTextPersistenceKeepsMeaningfulScreenplayExactly() {

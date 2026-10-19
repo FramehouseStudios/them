@@ -12,6 +12,18 @@ ARTIFACT_DIR="${ARTIFACT_DIR:-${RUNNER_TEMP:-${TMPDIR:-/tmp}}/them-v1-ui-smoke}"
 mkdir -p "${ARTIFACT_DIR}"
 result_bundle_path="${V1_UI_RESULT_BUNDLE_PATH:-${ARTIFACT_DIR}/v1-ui-smoke-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}-$$.xcresult}"
 
+# These invariants belong to this runner, not appended Xcode arguments.
+# Otherwise a later destination/parallel option can bypass the exact-device
+# guarantee after an unrelated simulator has already been erased.
+for arg in "$@"; do
+  case "$arg" in
+    -destination|-destination=*|-parallel-testing-enabled|-parallel-testing-enabled=*|CODE_SIGNING_ALLOWED=NO|CODE_SIGNING_REQUIRED=NO)
+      echo "run-v1-ui-smoke: destination, non-parallel testing and signing are owned by the clean-simulator runner; use IOS_SIMULATOR_DESTINATION to select a device." >&2
+      exit 2
+      ;;
+  esac
+done
+
 if [[ -n "${IOS_SIMULATOR_DESTINATION:-}" ]]; then
   destination="$IOS_SIMULATOR_DESTINATION"
 elif [[ -n "${IOS_SIMULATOR_NAME:-}" ]]; then
@@ -21,18 +33,7 @@ else
     echo "run-v1-ui-smoke: select an explicit task-owned simulator with IOS_SIMULATOR_DESTINATION or IOS_SIMULATOR_NAME before erasing local state." >&2
     exit 2
   fi
-  simulator_name="$(
-    "$XCRUN_BIN" simctl list devices available \
-      | sed -n 's/^[[:space:]]*\(iPhone[^()]*\) (.*/\1/p' \
-      | head -n 1 \
-      | sed 's/[[:space:]]*$//'
-  )"
-  if [[ -z "$simulator_name" ]]; then
-    echo "run-v1-ui-smoke: no available iPhone simulator found." >&2
-    echo "Set IOS_SIMULATOR_DESTINATION='platform=iOS Simulator,name=<device>' to override." >&2
-    exit 2
-  fi
-  destination="platform=iOS Simulator,name=${simulator_name}"
+  destination=""
 fi
 
 echo "run-v1-ui-smoke: destination=${destination}"
@@ -42,32 +43,21 @@ echo "run-v1-ui-smoke: only-testing=${ONLY_TESTING}"
 # leave Keychain/UserDefaults state behind and turn a launch-time sync test into
 # a state-dependent pass or a SwiftUI publishing loop. Resolve the exact device
 # selected for xcodebuild, erase it, then boot it before tests begin.
-if [[ "$destination" != *"platform=iOS Simulator"* ]]; then
+if [[ -n "$destination" && "$destination" != *"platform=iOS Simulator"* ]]; then
   echo "run-v1-ui-smoke: destination must be an iOS Simulator so it can be erased safely: ${destination}" >&2
   exit 2
 fi
 
-simulator_udid=""
-if [[ "$destination" == *"id="* ]]; then
-  simulator_udid="${destination##*id=}"
-  simulator_udid="${simulator_udid%%,*}"
-elif [[ "$destination" == *"name="* ]]; then
-  simulator_name="${destination##*name=}"
-  simulator_name="${simulator_name%%,*}"
-  simulator_udid="$(
-    "$XCRUN_BIN" simctl list devices available \
-      | sed -n "s/^[[:space:]]*${simulator_name} (\([0-9A-F-]*\)) (.*/\1/p" \
-      | head -n 1
-  )"
-else
+if [[ -n "$destination" && "$destination" != *"id="* && "$destination" != *"name="* ]]; then
   echo "run-v1-ui-smoke: cannot resolve the simulator UDID; use a destination with name= or id= so the proof can erase its device." >&2
   exit 2
 fi
 
-if [[ -z "$simulator_udid" ]]; then
-  echo "run-v1-ui-smoke: could not resolve simulator for ${destination}; refusing to run a non-clean proof." >&2
-  exit 2
-fi
+destination="$("$XCRUN_BIN" simctl list devices available --json \
+  | node "${ROOT}/scripts/resolve_ios_simulator.mjs" "$destination" "${CI:-}")"
+simulator_udid="${destination##*id=}"
+simulator_udid="${simulator_udid%%,*}"
+echo "run-v1-ui-smoke: resolved destination=${destination}"
 
 "$XCRUN_BIN" simctl shutdown "$simulator_udid" >/dev/null 2>&1 || true
 "$XCRUN_BIN" simctl erase "$simulator_udid"
