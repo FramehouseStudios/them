@@ -19,7 +19,7 @@ test(`real /talk rejected ${reply} preserves history and wallet balance`, { time
   const persistence = createJsonPersistence({ jsonRoot: path.join(dataDir, 'persistence') });
   const stub = fileURLToPath(new URL('./helpers/billing_provider_stub.mjs', import.meta.url));
   const options = { dataDir, env: {
-    NODE_OPTIONS: `--import=${stub}`, REQUIRE_USER_AUTH: '0',
+    NODE_OPTIONS: `--import=${stub}`, REQUIRE_USER_AUTH: '1',
     TALK_TEST_DEBUG_TRANSCRIPT_ENABLED: '1', TALK_TEST_DEBUG_OFFLINE_ENABLED: '0',
     CHAT_STREAM_ENABLED: '0', TALK_STREAM_AUDIO_ENABLED: '0',
     CLEMENTINE_SHORT_FILM_BETA: '1', CLEMENTINE_MUSE_ENABLED: '0',
@@ -55,6 +55,8 @@ test(`real /talk rejected ${reply} preserves history and wallet balance`, { time
     assert.equal(created.status, 201);
     const projectId = created.json.project_id || created.json.project?.id;
     assert.ok(projectId);
+    const anonymous = await apiRequest(server, `/screenplay/projects/${projectId}`);
+    assert.equal(anonymous.status, 401, 'Billing preservation proof must enforce the account boundary');
     const saved = await apiRequest(server, `/screenplay/projects/${projectId}/version`, {
       method: 'POST', headers, json: { draft: 'INT. CABIN - NIGHT\n\nMARA\nKeep this line exactly as written.' },
     });
