@@ -62,6 +62,37 @@ for the five-story contract. It does not simulate a passing app journey.
   completed). Serial pipeline currently starts with five-story recovery,
   then writer, fixed-provider Home, V1 and voice/macOS, stopping at first red.
   Logs `/tmp/them-989-{recovery,writer,home,v1,voice}.log`.
+- Five-story signed authenticated recovery completed5/0/0, exit0; actual
+  summary confirms the same erased owned UDID/iOS26.2. Retained bundle
+  `/tmp/them-989-recovery/them-save-recovery-mIIBZB/recovery-ios.xcresult`.
+  Includes exact reconnect/relaunch, auth/conflict, delete-all, blank snapshot
+  and fresh-head Load Server recovery. These use controlled DEBUG faults,
+  not physical airplane mode or a production provider.
+
+## Files changed versus original rehearsal46a5b4e
+
+- TASKS.md
+- backend/tests/screenplay_save_evidence_contract.test.mjs
+- docs/editor-recovery-integration-2026-10-19.md
+- docs/editor-rehearsal-forward-2026-10-19.md
+- docs/main-simulator-proof-2026-10-19.md
+- docs/original-904-recovery-rehearsal-2026-10-19.md
+- docs/recovery-proof-truth-2026-10-19.md
+- scripts/run_screenplay_save_network_fault_smokes.sh
+- scripts/run_screenplay_save_network_fault_smokes.test.mjs
+- them/ScreenplayLiveDraftBridge.swift
+- them/ScreenplayStudioKeyboardSaveAccessory.swift
+- them/ScreenplayStudioPersistencePolicies.swift
+- them/ScreenplayStudioViewModel.swift
+- themTests/ScreenplayEditorBindingIntegrationTests.swift
+- themTests/ScreenplayStudioDraftRecoveryTests.swift
+
+CI/evaluator/V1-runner conflict resolutions preserve their newer file content;
+they are not extra product changes versus46a5b4e. Next active task: finish the
+same serial UI pipeline, fix its first failure if any, then re-prove and
+update existing #961 with a normal fast-forward before any child propagation.
+Original/public main heads remain untouched at this checkpoint.
+Continue status: READY FOR CONTINUE; production separately held by human.
 
 ## Hosted boundary independently cleared
 
