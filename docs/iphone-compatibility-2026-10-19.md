@@ -31,17 +31,29 @@ candidate is not shipped support until stronger runtime proof is recorded.
 - plutil project lint and whitespace pass. D009 all five deltas0 against
   fetched parent #961 head8b19d86 before the configuration-only change;
   no god-file content changed afterward.
-- Signed full units active in native session40119 on exact erased owned
- 11CF5EFB-D8C3-4F19-8062-28AF37F27D93, runtime26.2:
-  `/tmp/them-992-units.log`. Not yet a passing claim. Inherited T-990 results
-  are not relabeled as candidate proof.
-- Pinned Node20 scripts231/0/0; full backend still active in session13237,
-  `/tmp/them-992-node20.log`, no network/synthetic configuration. No backend
-  pass claim until terminal summary.
+- Signed full units865/0/0, exit0, actual summary inspected, exact erased
+  owned11CF5EFB-D8C3-4F19-8062-28AF37F27D93, runtime26.2:
+  `/tmp/them-992-units.log`, bundle
+  `/tmp/them-992-units/v1-ui-smoke-local-1-84106.xcresult`. Includes the new
+  availability-style case. This is candidate proof, not inherited T-990 counts.
+- Pinned Node20.20.2 scripts231/0/0 and full backend2897/0/2, exit0,
+  `/tmp/them-992-node20.log`, no external network/synthetic configuration.
 - Created a separate owned iPhone SE3 simulator on installed26.2:
   E8998A6B-35B1-49E3-896C-861550849927, name THEM compatibility SE20261019.
   No existing device erased by creation. Narrow writer/recovery proof is
-  next after current units; this is not an older-OS simulator.
+  active in native session44129; this is not an older-OS simulator. Logs
+  `/tmp/them-992-se-{recovery,writer,home,v1,voice}.log`, sequentially stopped
+  at first failure. Exact destination observed in the recovery runner.
+
+Actual-settings source frozen atec309e2 (later commits documentation only).
+The compiled app Info.plist reports MinimumOSVersion17.0. Completed unit
+bundle privately retained and compared byte-identical at
+`/Users/halfmutantfilms/io.them-worktrees/_proof/T-992-20261019.3aQPpb/`,
+beside final backend, before/after compiler and unavailable-runtime logs.
+Same-computer retention is not off-device backup. A temporary Xcode wrapper
+only injects the isolated cached DerivedData and two build jobs; all canonical
+signing, exact-device erasure, test selection and result assertions remain.
+Retained wrapper SHA256e6955423f89a4085dc27f13592829505baa72d259d14526959c2d1533f07d780.
 
 Official Xcode runtime acquisition terminal results, not a silent skip:
 
@@ -70,8 +82,8 @@ and [official component installation instructions](https://developer.apple.com/d
 
 ## Next proof and release limits
 
-Freeze actual-settings source, then full signed units and authenticated
-writer/recovery/export/relaunch on the exact erased task-owned26.2 simulator.
+Finish authenticated narrow writer/recovery/export/relaunch and full UI
+on the exact erased task-owned SE3/26.2 simulator.
 Obtain an official17.x runtime through Apple Developer Downloads or an
 appropriate physical device for the remaining minimum-OS proof. No credentials
 may be entered for the human; any required sign-in is theirs. Do not claim17

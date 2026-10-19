@@ -22,8 +22,10 @@
   override compile and actual-project build pass; iOS app/test Debug/Release
   minimums now17 in this isolated branch (Mac configurations unchanged).
   Official Xcode downloads reported17.5 arm64/universal and18.5 universal
-  unavailable. No old-runtime support claim; signed current-runtime proof
-  remains to run. Production credential hold remains.
+  unavailable. Signed erased units865/0/0, Node20 backend2897/0/2 and
+  scripts231/0/0 pass on sourceec309e2. New owned SE3/26.2 UI pipeline is
+  active; no old-runtime support claim. Manifest:
+  `docs/iphone-compatibility-2026-10-19.md`. Production hold remains.
 
 ### T-990 — Preserve exact-retention child with verified recovery parent
 
