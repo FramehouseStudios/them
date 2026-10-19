@@ -2,7 +2,12 @@
 
 ## Combined source, not separate green islands
 
-Runtime source frozen at0d4b5d5912bc27883573e76b004022a185e1bca2.
+Initial runtime source0d4b5d5912bc27883573e76b004022a185e1bca2.
+Final UI validation head65eeb95652cc7b5c433bb24fd38ae606ead332cd preserves
+the verified drawer-helper correction6a57ff9 with a normal merge. Backend,
+scripts, app/unit/package/project sources remain byte-identical to0d4b5d5;
+only UI-test navigation and docs changed. Do not relabel initial unit proof
+as a new-head run: fresh final units/full UI are explicitly running below.
 
 - Mergef5e85a40d3112a4f84f689bf1253696b9e75215d preserves compatibility/
   recovery46de00f08d6cba9ac8c703bf6aa5e882df8b769b and original billing
@@ -63,14 +68,28 @@ screen height. Do not claim a production layout fix from this evidence.
 
 T-992 changes only the shared test reveal helper to follow actual target
 geometry, retaining the same selectors, hit-test requirements, swipe limits
-and timeouts. Focused two-case correction is active in session74811;
-`/tmp/them-992-se-drawer-fixed.log`. It is NOT yet in this frozen combined
-head and is not yet a passing result. No unchanged retry or skip.
+and timeouts. First direction-only correction1/1/0 exposed full-height fling
+overshoot at mode controls; its failure remains retained. Bounded slow target-
+relative drags then passed both original failing routes2/0/0 on the erased
+SE, actual summary checked:
+`/tmp/them-992-se-drawer-bounded/v1-ui-smoke-local-1-92800.xcresult`.
+Preserved source6a57ff9 is now in final65eeb95; no unchanged retry or skip.
+
+## Final combined workflow in progress
+
+Native session68131: fresh signed full units on exact erased owned Pro,
+then erased owned SE3 authenticated five-story recovery, writer/Craft/native
+export/relaunch, fixed-provider Home, full V1 and voice-fault/macOS. Stops at
+first red. Logs `/tmp/them-994-final-units.log` and
+`/tmp/them-994-se-{recovery,writer,home,v1,voice}.log`.
+Only the two task-owned IDs already recorded are erased. Temporary wrapper
+`/tmp/them-994-xcodebuild` injects cached separate DerivedData plus two jobs;
+it does not alter test assertions, signing, selectors or simulator selection.
+No final combined UI success is claimed yet.
 
 ## Next and release limits
 
-Finish the focused narrow correction, preserve it into this tree, then run
-combined authenticated narrow writer/recovery/full UI and macOS. Original
+Finish the exact active combined authenticated narrow workflow. Original
 PR625 and parent961 hosted gates remain separate exact-head requirements;
 do not transfer earlier-head green or fabricate independent approval.
 

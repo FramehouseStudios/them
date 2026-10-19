@@ -18,9 +18,10 @@
 - **Human hold:** production blocked until App Store credentials exist.
 - **Verified:** exact source0d4b5d5 Node20 backend2929/0/2, scripts231/0/0,
   signed erased Pro units865/0/0, actual PostgreSQL16.15 restart/cleanup PASS;
-  D009 all five deltas0, syntax/diff clean. Small-screen pre-integration UI
-  red27/2/15 is being fixed at the demonstrated wrong-direction test helper;
-  do not call combined UI complete. Manifest:
+  D009 all five deltas0, syntax/diff clean. Small-screen full red27/2/15 and
+  intermediate1/1/0 retained; bounded-navigation correction2/0/0 merged as
+  65eeb95. Fresh final units/narrow UI pipeline68131 active; do not call it
+  complete. Runtime/backend/unit sources unchanged from0d4b5d5. Manifest:
   `docs/integrated-writer-safety-2026-10-19.md`.
 
 ### T-992 — Remove avoidable older-iPhone install/API blockers
