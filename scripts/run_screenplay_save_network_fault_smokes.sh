@@ -46,12 +46,17 @@ macos_build_args+=(
   REGISTER_APP_GROUPS=NO
 )
 
+if [[ -n "${SCREENPLAY_SAVE_RESULT_BUNDLE_PATH:-}" ]]; then
+  macos_build_args+=(-resultBundlePath "${SCREENPLAY_SAVE_RESULT_BUNDLE_PATH%.xcresult}-macos.xcresult")
+fi
+
 ios_runner_args=(-quiet)
 for ((index = 1; index < ${#test_identifiers[@]}; index++)); do
   ios_runner_args+=("-only-testing:${test_identifiers[index]}")
 done
 PROJECT="${PROJECT}" SCHEME="${IOS_SCHEME}" CONFIGURATION="${IOS_CONFIGURATION}" \
   XCODEBUILD="${XCODEBUILD_BIN}" ONLY_TESTING="${test_identifiers[0]}" \
+  V1_UI_RESULT_BUNDLE_PATH="${SCREENPLAY_SAVE_RESULT_BUNDLE_PATH:-${V1_UI_RESULT_BUNDLE_PATH:-}}" \
   THEM_UITEST_RESTORE_XCCONFIG_PATH="${THEM_UITEST_SCREENPLAY_SAVE_XCCONFIG_PATH:-}" \
   bash "${ROOT}/scripts/run_v1_ui_smoke.sh" "${ios_runner_args[@]}"
 "${XCODEBUILD_BIN}" "${macos_build_args[@]}"

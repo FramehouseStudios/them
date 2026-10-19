@@ -5,6 +5,19 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-985 — Fail-closed recovery proof and preserve original #904
+
+- **Owner:** codex. **Branch:** `codex/T-985-recovery-proof-truth`.
+- **Status:** in-progress. **Pillar:** durable writer recovery.
+- **Scope:** reuse the original port fix and canonical async/summary proof;
+  reject false-green skips. Then preserve/re-prove original #904's existing
+  deterministic fault injection and queued-draft hydration protection.
+- **Evidence:** Node20 focused14/0/0, scripts223/0/0, backend2747/0/2,
+  D009 deltas0. Real parent recovery0/2/0 during queue setup; not green.
+- **Done when:** the actual requested recovery tests pass without skips on
+  the preserved combined head, with full gates and exact retained artifacts.
+- **Reference:** `docs/recovery-proof-truth-2026-10-19.md`.
+
 ### T-984 — Exact, signed simulator proof on main
 
 - **Owner:** codex. **Branch:** `codex/T-984-main-simulator-proof`.
