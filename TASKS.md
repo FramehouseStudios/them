@@ -8,14 +8,15 @@
 ### T-998 — Keep advice off the Page wallet meter
 
 - **Owner:** codex. **Branch:** `codex/T-998-advice-cost-lane`.
-- **Status:** in-progress. **Pillar:** trustworthy writer intent and cost.
+- **Status:** review. **Pillar:** trustworthy writer intent and cost.
 - **Scope:** extend the canonical request guard across destination inference
   and cost classification; no duplicate parser, rate change or auth bypass.
   Actual Page controls and wallet-empty enforcement must keep working.
 - **Before:** real-store regression3/9/0; advice could hold Page credit or
   reject with wallet_empty. **Focused after:**52/0/0 including real authenticated
   /talk advice with zero Page credits, preserved saved script and actual Page402.
-- **Next:** frozen Node20 full suite, D009/diff and scoped backup. No main,
+- **Verified:** frozen Node20 backend2955/0/2, scripts231/0/0, D009/diff pass.
+- **Next:** scoped backup and combined integration proof. No main,
   original PR or production promotion from focused results. Deep/Companion
   accounting is not certified by this Page-cost correction.
 - **Separate priority:** loopback two-account wallet probe reproduced a read

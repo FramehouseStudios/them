@@ -24,7 +24,9 @@ generation with Page balance0, returns200 without error_recovered, preserves
 the entire saved project; subsequent actual Page request returns402. Anonymous
 project read remains401. Fixed generated advice is not model-quality proof.
 
-Full pinned Node20 regression remains required before readiness. No new signed
+VERIFIED frozen runtime8e0edffc on Node20.20.2: full backend2955 pass/0 fail/2
+skip; scripts231 pass/0 fail/0 skip. Log: /tmp/them-998-node20.log. D009 and
+git diff --check pass. No new signed
 Swift/UI run claimed: no Swift, project, package or UI source changed here.
 Integrated writer/UI proof is still required when these branches combine.
 Production remains blocked until App Store credentials exist. No paid calls.
