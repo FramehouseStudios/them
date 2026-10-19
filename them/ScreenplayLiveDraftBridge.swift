@@ -10808,7 +10808,6 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
         let previousPendingID = context.coordinator.parent.pendingReplacementTarget?.id
         let previousSubmittedID = context.coordinator.parent.submittedReplacementTarget?.id
         let previousInsertionID = context.coordinator.parent.insertionRequest?.id
-        let previousParentText = context.coordinator.parent.text
         let previousDocumentID = context.coordinator.parent.documentID
         context.coordinator.parent = self
         let currentPendingID = pendingReplacementTarget?.id
@@ -10841,11 +10840,9 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
         }
 
         if !context.coordinator.isApplyingProgrammaticChange,
-           ScreenplayEditorTextBindingPolicy.shouldApplyModelText(
+           context.coordinator.shouldApplyModelText(
                incomingText: text,
-               currentEditorText: uiView.text ?? "",
-               lastRenderedModelText: previousParentText,
-               isEditorFocused: uiView.isFirstResponder,
+               to: uiView,
                documentDidChange: previousDocumentID != documentID
            ) {
             let previousSelection = uiView.selectedRange
@@ -10954,6 +10951,7 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
         var explicitCurrentLineLocation: Int?
         var paragraphElements: [ScreenplayEditorElement?] = []
         var lastKnownTextSnapshot: String
+        var lastRenderedModelText: String
         private var representableUpdateDepth = 0
         private var representableUpdateGeneration = 0
         private var activeRepresentableUpdateGeneration: Int?
@@ -10975,6 +10973,7 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
             self.parent = parent
             self.lastKnownActiveElement = parent.activeScreenplayElement
             self.lastKnownTextSnapshot = parent.text
+            self.lastRenderedModelText = parent.text
         }
 
         @objc func saveDraftFromKeyboard() {

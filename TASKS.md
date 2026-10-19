@@ -18,6 +18,10 @@
   full gates before promotion. Root-cause attribution requires evidence,
   not merely a passing retry or a plausible code path.
 - **Evidence:** `docs/editor-recovery-integration-2026-10-19.md`.
+- **Verified:** original typing1/0/0; policy5/0. Real coordinator regression
+  before1/2/0, after3/0/0: store historical model value instead of a live
+  Binding read so focused fresh rewrites are not silently ignored.
+  Full combined signed units/V1 are running; no whole-app completion claim.
 
 ### T-986 — Preserve and verify original #904 recovery
 
