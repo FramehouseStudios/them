@@ -48,3 +48,15 @@ and target-setting still need one coherent UI/account/request path.
 This change does not prove actual provider-generated feature quality,
 physical microphone, live writing/rewrite, printing or external file open.
 It is not a release or deployment. Orb/Clementine/aesthetic unchanged.
+
+## Exact changed-file inventory
+
+- DECISIONS.md — human-accepted D017.
+- TASKS.md — task scope and proof status.
+- backend/lib/feature_screenplay_map.js — default and contiguous ranges.
+- backend/lib/screenplay_page_quality.js — shared default and act lookup.
+- backend/tests/feature_screenplay_map.test.mjs — varied-length page walk.
+- backend/tests/screenplay_page_quality.test.mjs — real quality/map parity.
+- them/ScreenplayFeaturePlanning.swift — Swift default and range correction.
+- themTests/ScreenplayStudioDraftRecoveryTests.swift — actual Swift guide checks.
+- docs/feature-default-120-2026-10-19.md — this evidence inventory.
