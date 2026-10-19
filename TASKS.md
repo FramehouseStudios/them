@@ -19,7 +19,9 @@
 - **Evidence:** `docs/original-904-recovery-rehearsal-2026-10-19.md`.
 - **Verified now:** signed units632/0/0; Node20 backend2749/0/2,
   scripts224/0/0; macOS and offline quality gate pass; real recovery2/0/0.
-  Writer/export/relaunch then V1 UI running; original remote head unchanged.
+  Writer/export/relaunch1/0/0. Full V1 UI27/1/9: direct typing drops the
+  final character of chunk9 in both editor/model. Hold original remote head
+  unchanged; diagnose without relaxing assertions or retrying unchanged.
 
 ### T-985 — Fail-closed recovery proof and preserve original #904
 

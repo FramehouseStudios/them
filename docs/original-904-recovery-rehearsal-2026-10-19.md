@@ -64,14 +64,43 @@ remains a separate required gate, not an implied successful Mac UI run.
   log `/tmp/them-986-recovery.log`. This uses controlled DEBUG save failure,
   not a physical airplane-mode typing journey. The
   local UI harness backend uses host Node26.7.0; the complete backend suite
-  above independently runs on the supported Node20.20.2 container.
+  above independently runs on the repository-pinned Node20.20.2 container.
 - Original #961 head46a5b4e run39298823662 passed its hosted signed-unit and
   writer-loop steps; full V1 UI is still running. Overall green is unproven.
 
-The reviewed combined executable tree is `e0477d5`; writer/export/relaunch
-then full V1 UI are running sequentially, stopping on the first failure.
-Original #904's remote head is still unchanged. Only then update original #904
-with a normal preserving fast-forward, retaining review/protection gates.
+The reviewed combined executable tree is `e0477d5`. Writer/save/Markdown-export/
+relaunch passed1/0/0 (`/tmp/them-986-writer.log`); that helper removes its
+temporary result bundle, so no retained writer bundle is claimed.
+Full signed V1 UI stopped red:27 pass/1 fail/9 skip on the exact owned erased
+simulator. Retained bundle:
+`/tmp/them-986-v1/v1-ui-smoke-local-1-54352.xcresult`; log
+`/tmp/them-986-v1.log`. The failing direct-typing test's chunk9 expected
+`motel sign`, but both UIKit and the draft model contained `motel sig`.
+Root cause is not established; do not classify it as merely XCTest flakiness,
+weaken the assertion, or retry unchanged to manufacture green.
+Original #904's remote head remains unchanged. Hold its update pending the
+first-red diagnosis and fresh proof, retaining review/protection gates.
+
+## Shipping-readiness observation, 2026-10-19
+
+Read-only authenticated Render inspection: backend service
+`srv-dact95cmqu1s73bpjal0` serves last-successful commit
+`a5ea13faada2a7411637354cb434017113c5e776`, not current main.
+Public `https://them-backend.onrender.com/healthz` returns HTTP200.
+`https://api.them.io/healthz` returns302 to a domain parking page. Render
+reports Waiting for DNS and Waiting for Verification. Its required record
+is CNAME hostname `api`, target `them-backend.onrender.com`; public DNS
+currently returns `uixie.porkbun.com.` with Porkbun authoritative nameservers.
+Requested human sign-in to the registrar to establish domain control before
+any DNS change. No deploy, secret inspection, credential entry, or production
+configuration change was performed.
+
+The current production lockfile audit flags two transitive packages:
+proxy-addr2.0.7 (critical) and fast-uri3.1.6 (high). This does not prove the
+application is exploitable. Original #909 is being preserved/re-proved in
+the separate owned T-987 worktree; not merged or deployed. Node20 is now
+upstream EOL, despite remaining the repository-pinned compatibility proof;
+a separately verified supported-LTS migration is still a release gap.
 
 Production/physical microphone, live generation, external-open export and a
 generated120-page Hollywood screenplay remain unproven. No paid call or
