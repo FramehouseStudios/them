@@ -72,8 +72,10 @@ bundles:
 `/tmp/them-990-recovery/them-save-recovery-p9djES/recovery-ios.xcresult`,
 `/tmp/them-990-writer/them-studio-ios-writer-loop/run-BSQSjs/writer-loop.xcresult`,
 `/tmp/them-home-voice-79731.xcresult`.
-V1 and voice/macOS remain active/pending; do not call them completed until
-actual terminal summaries are inspected.
+V1 completed29/0/15 (44 executed), exit0; actual summary inspected. Bundle
+`/tmp/them-990-v1/v1-ui-smoke-local-1-80466.xcresult`, retained and compared
+byte-identical beside the other four completed bundles. Voice/macOS remains
+active; do not call it completed until actual terminal results are inspected.
 
 Required remaining proof: writer/recovery UI, macOS and exact-head hosted
 result. Inspect first red before child
