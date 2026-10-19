@@ -1,6 +1,7 @@
 const FEATURE_MAP_BLOCK_OPEN = "<feature_film_map>";
 const FEATURE_MAP_BLOCK_CLOSE = "</feature_film_map>";
-const DEFAULT_FEATURE_TARGET_PAGES = 110;
+// Product recommendation, never a quota. Explicit project targets take priority.
+const DEFAULT_FEATURE_TARGET_PAGES = 120;
 
 const FEATURE_SEQUENCE_TEMPLATE = Object.freeze([
   {
@@ -219,7 +220,11 @@ function currentPageFromContext(sessionContext = {}) {
 
 function scaledRange(template, targetPages) {
   const target = targetPagesFromContext({ targetPages });
-  const start = clamp(Math.round(template.startRatio * target), 1, target);
+  const index = FEATURE_SEQUENCE_TEMPLATE.indexOf(template);
+  const previousEnd = index > 0 ? FEATURE_SEQUENCE_TEMPLATE[index - 1].endRatio * target : 0;
+  // Inclusive page ranges must meet. Independently rounding the old start
+  // ratios left gaps (even page 1 at 180 pages), falling through to Act III.
+  const start = clamp(Math.round(previousEnd) + 1, 1, target);
   const end = clamp(Math.round(template.endRatio * target), start, target);
   return { start, end };
 }

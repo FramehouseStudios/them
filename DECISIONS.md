@@ -164,3 +164,11 @@ Each entry follows the ADR pattern:
   2. M1 is PR1 only: flag (`short_film_beta.js`), pure parser (`short_film_intent.js` → `{totalPages,requestedPages,genre,setting,characters}`), 3-line gate in `intents.js:35` + `lanes.js` mapping to `Page`. No store/prompt/lane/wallet changes in M1.
   3. Follow-on PRs (prompt, lane/wallet, store/bridge, evals) stay additive under `backend/lib/clementine/`, never `backend/index.js`.
 - **Consequences:** Flag off → same utterance → `UNKNOWN`/legacy (no side effects). Flag on → beta intent verified by parser tests + offline eval. See `docs/product/short-film-beta.md`. Strangler check: `git diff --stat backend/index.js` stays empty for M1.
+
+## D017 — Recommend a 120-page three-act feature, without a length quota
+
+- **Date:** 2026-10-19
+- **Status:** accepted
+- **Context:** The human clarified that 120 pages is THEM's recommended feature length, not a requirement that every screenplay contain exactly 120 pages.
+- **Decision:** Recommend 120 pages when a feature project has no chosen target. Guide the complete first, second and third acts. Writers may choose shorter or longer scripts; preserve explicit targets and existing drafts. Do not pad, truncate or prevent saving/export merely to hit the recommendation. Describe this as THEM's recommendation, not a universal industry requirement.
+- **Consequences:** Align the existing Swift progression default and backend feature-map default. Quality fallback imports the backend owner rather than duplicating it. Target-setting and account-sync work must preserve chosen lengths. End-to-end completion still requires real speech/typing, useful formatted screenplay, exact recovery and usable export; a fixed page count alone is not success.

@@ -1135,6 +1135,28 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         ))
     }
 
+    func testFeatureRecommendationIs120ButChosenLengthsKeepThreeActs() {
+        XCTAssertEqual(ScreenplayFeatureProgressionGuide.defaultTargetPages, 120)
+        let recommended = ScreenplayFeatureProgressionGuide.guide(actPosition: "", currentPage: 60)
+        XCTAssertEqual(recommended.progressText, "p60 / 120")
+        for pages in [60, 90, 110, 120, 150, 180] {
+            let opening = ScreenplayFeatureProgressionGuide.guide(actPosition: "", currentPage: 1, targetPages: pages)
+            let middle = ScreenplayFeatureProgressionGuide.guide(actPosition: "", currentPage: pages / 2, targetPages: pages)
+            let ending = ScreenplayFeatureProgressionGuide.guide(actPosition: "", currentPage: pages, targetPages: pages)
+            XCTAssertEqual(opening.currentAct, "Act I")
+            XCTAssertEqual(middle.currentAct, "Act II")
+            XCTAssertEqual(ending.currentAct, "Act III")
+            XCTAssertEqual(ending.progressText, "p\(pages) / \(pages)")
+            var previousAct = 1
+            for page in 1...pages {
+                let guide = ScreenplayFeatureProgressionGuide.guide(actPosition: "", currentPage: page, targetPages: pages)
+                let act = guide.currentAct == "Act I" ? 1 : (guide.currentAct == "Act II" ? 2 : 3)
+                XCTAssertTrue(act >= previousAct && act <= previousAct + 1, "Page \(page) of \(pages)")
+                previousAct = act
+            }
+        }
+    }
+
     func testFeatureProgressionGuideMapsPageToNextScenePlan() {
         let guide = ScreenplayFeatureProgressionGuide.guide(
             actPosition: "",
