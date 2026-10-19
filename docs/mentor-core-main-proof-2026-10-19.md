@@ -69,10 +69,17 @@ paths preserved; the follow-up filename audit found only that pending folder.
 - Signed full iOS units: **633 pass / 0 fail**, on erased task-owned simulator
   `11CF5EFB-D8C3-4F19-8062-28AF37F27D93`; signing was not disabled.
   Log: `/tmp/them-982-ios-units.log`; artifacts `/tmp/them-982-ios`.
-- Writer UI and macOS build: not yet run on this merge.
+- Authenticated local writer/save/Markdown-export/relaunch UI contract:
+  **1 pass / 0 fail / 0 skip**, runner exit zero. Log:
+  `/tmp/them-982-writer.log`. The temporary backend requires user auth;
+  provider/database credentials were excluded from its environment. This
+  journey types a marker, not a real microphone/live screenplay-generation test.
+- macOS scaffold build: exit zero with existing warnings. Log:
+  `/tmp/them-982-macos.log`.
 
 Original PR proof and the larger rehearsal's proof are not substitutes for
-this updated head. Writer UI/macOS remain outstanding on this merge.
+this updated head. Production/physical-phone and generated120-page proof
+remain outstanding.
 
 ## Separate hosted evidence
 
@@ -85,8 +92,14 @@ a generated 120-page screenplay nor production/physical-phone proof.
 
 ## Remaining gates
 
-Finish and inspect the exact live proof handles; fix the first failure,
-then complete writer UI/macOS verification before updating original #638.
+Local proof is complete on source merge a5e02304; documentation alone follows.
+The rehearsal parent #961's run39285905264 subsequently failed its lost-reply
+UI journey. Its log also proves that the canonical runner erased one simulator
+and Xcode tested another same-named device. T-983 fixes that independent
+identity bug before further integration. Local T-982 proof explicitly selected
+the owned UDID and is not affected by that name-resolution mismatch.
+Do not treat the separate keyboard-focus failure as explained or fixed yet.
+Update original #638 only after resolving the active first-red boundary.
 Required independent approval and current hosted checks still apply.
 Render sign-in remains human-owned. No production setting, secret, paid model
 call, or physical-phone journey was changed or claimed here.

@@ -15,8 +15,12 @@
   macOS build, D009 and whitespace checks pass on the updated source; evidence
   is posted on the original PR. Independent approval remains human-owned.
 - **Current:** source merge `a5e02304` has both original/current-main parents,
-  no conflicts and zero D009 growth. Full backend and signed units are running,
-  not yet claimed green. Recovered the pushed T-981 checkout into independent
+  no conflicts and zero D009 growth. Node20 backend2745/0/2, signed units633/0,
+  authenticated local writer/save/export/relaunch1/0/0 and macOS build passed.
+  Initial plain Alpine run2743/2/2 lacked the C compiler required by two shell
+  tests; focused13/0/0 and full supported-tools image proof passed, no assertion
+  removed. Original #638 remains unchanged while the first red on #961 is
+  repaired in T-983. Recovered the pushed T-981 checkout into independent
   metadata after the old Desktop repository disappeared; old source untouched.
   Manifest: `docs/mentor-core-main-proof-2026-10-19.md`.
 
