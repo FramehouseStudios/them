@@ -20,8 +20,11 @@
   signed erased Pro units865/0/0, actual PostgreSQL16.15 restart/cleanup PASS;
   D009 all five deltas0, syntax/diff clean. Small-screen full red27/2/15 and
   intermediate1/1/0 retained; bounded-navigation correction2/0/0 merged as
-  65eeb95. Fresh final units/narrow UI pipeline68131 active; do not call it
-  complete. Runtime/backend/unit sources unchanged from0d4b5d5. Manifest:
+  65eeb95. Final68131 exit65: fresh units865/0/0, recovery/writer/Home pass,
+  SE V1 UI28/1/15 (Clear Thread confirmation below viewport); voice/mac not
+  run. T996 focused correction active; parent961 hosted durable-conflict
+  restore also red, so no child promotion. Do not call integration complete.
+  Runtime/backend/unit sources unchanged from0d4b5d5. Manifest:
   `docs/integrated-writer-safety-2026-10-19.md`.
 
 ### T-992 — Remove avoidable older-iPhone install/API blockers

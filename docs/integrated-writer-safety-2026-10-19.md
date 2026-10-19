@@ -85,7 +85,28 @@ first red. Logs `/tmp/them-994-final-units.log` and
 Only the two task-owned IDs already recorded are erased. Temporary wrapper
 `/tmp/them-994-xcodebuild` injects cached separate DerivedData plus two jobs;
 it does not alter test assertions, signing, selectors or simulator selection.
-No final combined UI success is claimed yet.
+Native68131 completed exit65 at full V1; voice-fault/macOS did not run.
+Fresh final-source signed Pro units865/0/0:
+/tmp/them-994-final-units/v1-ui-smoke-local-1-93498.xcresult.
+SE recovery runner passed all required cases; writer runner passed; Home
+summary2/0/0 with fixed-provider STT1/chat4/TTS24 (not live providers).
+Final SE V1 summary28 pass/1 fail/15 skip:
+/tmp/them-994-se-v1/v1-ui-smoke-local-1-95982.xcresult.
+The earlier two drawer failures now pass; the remaining failure is Creative
+Partner Clear Thread confirmation hittability at Swift line1522. Exported
+test recording2B3193F2-4726-4D57-97BA-D738233DB988.mp4 and viewed final image
+/tmp/them-994-clear-confirmation.png show the inline warning expanded below
+the viewport; buttons require another scroll. Test assumed existence implies
+visibility. T996 is verifying the real bounded scroll before both confirmation
+buttons, retaining mutation/disappearance assertions and the destructive gate.
+Do not classify this as a production clear action failure or full UI success.
+
+Separate parent #961 hosted run39312650862 is now red on durable-conflict
+restore after relaunch at Swift line2404, then signal term. Synthetic marker
+is still in its snapshot, but conflict/parked/dirty state is absent. Root cause
+not yet proven; no unchanged retry, child promotion or text-loss claim.
+This stronger unresolved persistence boundary takes priority after the
+already-running focused confirmation diagnostic. Main remainsdeac1a6d.
 
 ## Next and release limits
 
