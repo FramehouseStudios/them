@@ -16,7 +16,8 @@
 - **Verified:** merged scripts25/0 host; full Node20 scripts231/0/0,
   backend2897/0/2; signed units863/0/0; package11+21 pass; macOS compile0,
   audit0, D009 bridge -1 versus actual #961 base. Authenticated recovery5/0/0;
-  remaining writer/Home/V1/voice pipeline running. Original #961 old-head
+  writer1/0/0 and fixed-provider Home2/0/0; offline quality gate PASS.
+  Remaining V1/voice pipeline running. Original #961 old-head
   hosted gate39298823662 completed success; not new-head proof.
 - **Human decision:** production remains blocked until App Store credentials
   exist; do not add a purchases-disabled startup bypass.

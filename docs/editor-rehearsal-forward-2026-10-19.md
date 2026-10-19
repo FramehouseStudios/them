@@ -57,10 +57,9 @@ for the five-story contract. It does not simulate a passing app journey.
   Original #909 is already an ancestor of this rehearsal: installed locked
   multer2.4.0/proxy-addr2.0.8/fast-uri3.1.8. Do not duplicate that patch.
   jsrsasign11.1.5 maintenance and Node20 EOL remain separate release debt.
-- Updated-head writer/Home/five-story recovery/UI/voice/macOS/offline gates
-  remain to be re-proven before promotion (standalone macOS compile above
-  completed). Serial pipeline currently starts with five-story recovery,
-  then writer, fixed-provider Home, V1 and voice/macOS, stopping at first red.
+- Full V1 UI and the voice-fault/macOS wrapper remain active/pending before
+  promotion. Serial pipeline runs recovery, writer, fixed-provider Home, V1
+  then voice/macOS, stopping at first red; the first three stages passed.
   Logs `/tmp/them-989-{recovery,writer,home,v1,voice}.log`.
 - Five-story signed authenticated recovery completed5/0/0, exit0; actual
   summary confirms the same erased owned UDID/iOS26.2. Retained bundle
@@ -68,6 +67,23 @@ for the five-story contract. It does not simulate a passing app journey.
   Includes exact reconnect/relaunch, auth/conflict, delete-all, blank snapshot
   and fresh-head Load Server recovery. These use controlled DEBUG faults,
   not physical airplane mode or a production provider.
+- Authenticated writer/Craft/native Markdown+FDX export/relaunch1/0/0, exit0;
+  retained `/tmp/them-989-writer/them-studio-ios-writer-loop/run-EplR3A/writer-loop.xcresult`.
+  Same erased owned UDID/iOS26.2 confirmed in actual summary. Not an external
+  consumer opening the files outside THEM or live model proof.
+- Home fixed-provider handoffs2/0/0, exit0; retained
+  `/tmp/them-home-voice-73893.xcresult`; actual same erased UDID confirmed.
+  Mock counts STT1/chat4/TTS24, not real microphone/provider performance.
+- Canonical PR-shaped offline quality gate PASS with server/canon,
+  heuristic craft, fresh completeness and runner contracts enabled. All live
+  gates disabled, external network off, synthetic auth/disposable storage.
+  Offline mentor exemplar gate passes; no live model quality claim.
+  Log `/tmp/them-989-offline-quality.log`.
+- Completed bundles/logs retained privately outside /tmp at
+  `/Users/halfmutantfilms/io.them-worktrees/_proof/T-989-20261019.1OcRMU/`.
+  All four bundle copies compared byte-identical; manifest records exact
+  source7f90700, counts and unproven scope. Same-computer retention is not
+  an off-device disaster backup. Do not copy an in-progress UI bundle.
 
 ## Files changed versus original rehearsal46a5b4e
 
