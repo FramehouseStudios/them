@@ -5,6 +5,21 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-986 — Preserve and verify original #904 recovery
+
+- **Owner:** codex. **Branch:** `codex/T-986-original-904-recovery`.
+- **Status:** in-progress. **Pillar:** writer words survive recovery.
+- **Scope:** preserving merge of original #904, current-main proof repairs,
+  reviewed post-await owner/project guard and retained actual CI artifacts.
+- **History:** merge `6f1ffa0` retains original `a27c75a`; no remote original
+  change or main merge yet. No replacement PR.
+- **Done when:** signed units, actual unskipped recovery and writer UI,
+  Node20 suites, macOS, D009 and diff pass on the combined head; record exact
+  evidence on original #904 and retain independent review/check requirements.
+- **Evidence:** `docs/original-904-recovery-rehearsal-2026-10-19.md`.
+- **Verified now:** signed units632/0/0; Node20 backend2749/0/2,
+  scripts224/0/0; macOS and offline quality gate pass; real recovery running.
+
 ### T-985 — Fail-closed recovery proof and preserve original #904
 
 - **Owner:** codex. **Branch:** `codex/T-985-recovery-proof-truth`.

@@ -33,7 +33,9 @@ done
 echo "=== Screenplay Save Network-Fault Smokes ==="
 echo "Project:            ${PROJECT}"
 echo "iPhone destination: resolved by the canonical clean-simulator runner"
-echo "macOS destination:  platform=macOS"
+if [[ "${INCLUDE_MACOS}" == "1" ]]; then
+  echo "macOS destination:  platform=macOS"
+fi
 
 macos_build_args=()
 if [[ -n "${THEM_UITEST_SCREENPLAY_SAVE_XCCONFIG_PATH:-}" ]]; then
@@ -70,7 +72,7 @@ if [[ "${INCLUDE_MACOS}" == "1" ]]; then
 fi
 
 if [[ "${INCLUDE_MACOS}" == "1" ]]; then
-echo "[OK] iPhone and macOS queued screenplay saves recover exactly once across reconnect, expired auth, and stale-version resolution."
+  echo "[OK] iPhone and macOS queued screenplay saves recover exactly once across reconnect, expired auth, and stale-version resolution."
 else
-echo "[OK] Signed iPhone queued screenplay saves recover exactly once across reconnect, expired auth, and stale-version resolution."
+  echo "[OK] Signed iPhone queued screenplay saves recover exactly once across reconnect, expired auth, and stale-version resolution."
 fi
