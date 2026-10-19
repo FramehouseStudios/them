@@ -54,7 +54,10 @@
 - **Verified:** signed erased units864/0/0; pinned Node20 backend2897/0/2,
   scripts231/0/0; D009 all five deltas0 against fetched parent8b19d86.
   Retained environment failures corrected without app/assertion changes.
-  UI pipeline and parent hosted iOS gate remain active. Manifest:
+  Recovery5/0/0, writer1/0/0, fixed-provider Home2/0/0, V1 UI29/0/15,
+  voice-fault1/0/0 and macOS wrapper pass. All six bundles privately retained
+  and compared. Parent hosted units passed; full hosted workflow still active.
+  Original child head unchanged pending that boundary. Manifest:
   `docs/retention-parent-forward-2026-10-19.md`.
 ### T-991 — Never hide or abandon database proof cleanup failures
 

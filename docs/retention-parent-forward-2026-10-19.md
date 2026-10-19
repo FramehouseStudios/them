@@ -61,7 +61,7 @@ Completed unit/recovery/writer/Home bundles compared byte-identical in private r
 Final backend and all environment-failure logs also retained there. This is
 same-computer retention, not an off-device backup.
 
-Signed authenticated UI pipeline active, native session33553, using the
+Signed authenticated UI pipeline completed, native session33553 exit0, using the
 same exact erased owned device for each stage, stopping at first failure:
 five-story recovery → writer/export/relaunch → fixed-provider Home → V1 →
 voice-fault/macOS. Logs `/tmp/them-990-{recovery,writer,home,v1,voice}.log`.
@@ -72,12 +72,17 @@ bundles:
 `/tmp/them-990-recovery/them-save-recovery-p9djES/recovery-ios.xcresult`,
 `/tmp/them-990-writer/them-studio-ios-writer-loop/run-BSQSjs/writer-loop.xcresult`,
 `/tmp/them-home-voice-79731.xcresult`.
-V1 and voice/macOS remain active/pending; do not call them completed until
-actual terminal summaries are inspected.
+V1 completed29/0/15 (44 executed), exit0; actual summary inspected. Bundle
+`/tmp/them-990-v1/v1-ui-smoke-local-1-80466.xcresult`, retained and compared
+byte-identical beside the other four completed bundles. Voice-fault1/0/0,
+actual summary inspected, and macOS wrapper BUILD SUCCEEDED; final bundle
+`/tmp/them-990-voice/voice-network-fault-local-1-78203-ios.xcresult`, retained
+and compared byte-identical. All six completed bundles are retained privately.
 
-Required remaining proof: writer/recovery UI, macOS and exact-head hosted
-result. Inspect first red before child
-publication. Current task is preparation, not a verified child promotion.
+Required remaining boundary: parent's full exact-head hosted result, then
+normal fast-forward update of original child and its own fresh hosted proof.
+Inspect first red before child publication. All local child gates above pass;
+this is not yet a verified hosted child promotion.
 
 ## Long-form requirement audit (not a new implementation)
 
