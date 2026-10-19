@@ -1138,6 +1138,59 @@
   clean. Unit source7f6159d and backend129d22c differ only by a Node test.
   No new writer UI/macOS/live-provider claim. Manifest:
   `docs/billing-main-proof-2026-10-19.md`.
+### T-1002 — Harden the real voice upload parser
+
+- **Owner:** codex. **Branch:** `codex/T-1002-voice-upload-security`.
+- **Status:** review. **Pillar:** reliable voice-to-scene input.
+- **Root:** Multer1 is affected by eleven open upstream/GitHub advisories;
+  malformed inputs also surface as generic500 instead of safe upload400.
+- **Fix:** reviewed patched2.3 minor line; preserve audio fields/buffers and
+  existing25MB413. Normalize known parser errors at the upload boundary.
+- **Verified:** failing-first2 pass/2 fail; extended focused20/0/0 includes
+  real authenticated /talk rejection, truncation, disconnect and health.
+- **Verified:** frozen offline Node20 backend2759/0/2, scripts210/0/0; D009/diff pass.
+- **Next:** scoped draft child PR and combined signed writer/recovery proof.
+- **Evidence:** `docs/voice-upload-security-2026-10-19.md`.
+
+### T-1001 — Patch HTTP trust and URI dependencies
+
+- **Owner:** codex. **Branch:** `codex/T-1001-http-dependency-patches`.
+- **Status:** review. **Pillar:** trustworthy network/auth boundaries.
+- **Root:** locked proxy-addr2.0.7/fast-uri3.1.6 match upstream security advisories.
+- **Verified:** pure failing-first2 pass/5 fail; patched focused13/0/0.
+- **Fix:** only transitive lock entries change to2.0.8/3.1.8; no major update,
+  trust-policy change or new dependency. Upstream cases plus valid controls.
+- **Verified:** frozen offline Node20 backend2752/0/2, scripts210/0/0; D009/diff pass.
+- **Next:** independent reviewed draft child PR, then upload parser migration.
+- **Evidence:** `docs/http-dependency-patches-2026-10-19.md`.
+
+### T-1000 — Owner-scoped Page cancellation
+
+- **Owner:** codex. **Branch:** `codex/T-1000-page-cancel-owner`.
+- **Status:** review. **Pillar:** trustworthy writer control and cost.
+- **Root:** cancellation by ID lacked ownership validation; session mode
+  trusted body user aliases, and scoped store cancellation matched unowned work.
+- **Verified:** route/store failing-first1 pass/3 fail; corrected focused29/0/0.
+- **Fix:** canonical verified identity required, foreign/unowned ID returns404,
+  exact owner match for session mode; own abort/refund/idempotency preserved.
+- **Verified:** frozen Node20 backend2745/0/2, scripts210/0/0; D009/diff pass.
+- **Next:** independent reviewed draft PR; dependency security follow-up.
+- **Evidence:** `docs/page-cancel-owner-2026-10-19.md`.
+
+### T-999 — Bind wallet reads to verified identity
+
+- **Owner:** codex. **Branch:** `codex/T-999-wallet-owner-scope`.
+- **Status:** review. **Pillar:** trustworthy account/cost isolation.
+- **Root:** body owner aliases overrode verified identity in /talk/wallet.
+- **Verified:** two synthetic accounts reproduced the cross-account read
+  with global auth on/off; failing-first2/2, corrected focused15/0/0.
+- **Fix:** reuse canonical trusted-user resolver; ignore caller ownership;
+  reject anonymous/invalid/revoked identity even when global auth is off.
+  Auth rejection is no-store; successful balance schema stays unchanged.
+- **Verified:** frozen Node20 backend2741/0/2, scripts210/0/0; D009/diff pass.
+- **Next:** draft PR with fresh hosted proof and adversarial review.
+  Independent approval/fresh checks required; production remains blocked.
+- **Evidence:** `docs/wallet-owner-scope-2026-10-19.md`.
 
 ### T-969 — Truthful required checks on original #906
 
