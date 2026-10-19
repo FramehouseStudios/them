@@ -5,6 +5,19 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1009 — Fail closed before and during scoped live-model proof
+
+- **Owner:** codex. **Branch:** `codex/T-1009-live-proof-fail-closed`.
+- **Status:** in-progress. **Pillar:** trustworthy living-companion proof.
+- **Scope:** stop the existing mentor CLI on render failure, redact raw
+  provider errors, refuse fixed-reply live mode/empty selection, replace stale
+  green reports on preflight failure. Keep scorer/provider/runtime unchanged.
+- **Verified:** failing-first0/3; focused20/0/0 with transport fixtures,
+  including genuine CLI success path and safe partial report. No paid calls.
+- **Done when:** frozen Node20 backend/scripts and offline golden pass,
+  D009/diff clean, original heads preserved. Live/phone proof remains separate.
+- **Evidence:** `docs/live-proof-fail-closed-2026-10-19.md`.
+
 ### T-1007 — Recommend 120 pages without constraining the writer
 
 - **Owner:** codex. **Branch:** `codex/T-1007-feature-default-120`.

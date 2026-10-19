@@ -108,6 +108,17 @@ function writeReport(report) {
 }
 
 const cases = only ? CASES.filter((c) => c.id === only || c.category === only) : CASES;
+function blockEvaluation(reason) {
+  // Replace any previous green report, even when preflight stops before calls.
+  writeReport({ generatedAt: new Date().toISOString(), blocked: reason,
+    summary: { mode: live ? "live" : "offline", selected: cases.length, total: 0, unattempted: cases.length },
+    gate: { ok: false, complete: false }, results: [] });
+  console.error(`MENTOR GOLDEN BLOCKED: ${reason}`);
+  process.exit(2);
+}
+if (!cases.length) {
+  blockEvaluation("no matching cases selected.");
+}
 let ok = true;
 
 if (!live) {
@@ -145,10 +156,12 @@ if (!live) {
 }
 
 // ---- live mode ----
+if (String(process.env.STUDIO_RENDER_TEST_REPLY || "").trim()) {
+  blockEvaluation("fixed-reply test mode must be disabled for live evaluation.");
+}
 const apiKey = String(process.env.OPENAI_API_KEY || "").trim();
 if (!apiKey) {
-  console.error("MENTOR GOLDEN LIVE BLOCKED: OPENAI_API_KEY is required.");
-  process.exit(2);
+  blockEvaluation("OPENAI_API_KEY is required for live evaluation.");
 }
 process.env.RUN_SERVER = "0";
 const { renderStudioRealtimeText } = await import("../index.js");
@@ -166,7 +179,12 @@ for (const testCase of cases) {
       maxTokens: 420,
     });
   } catch (err) {
-    error = String(err?.message || err);
+    // Provider bodies can echo authentication material. Retain safe status,
+    // never the raw message, and stop this scoped run rather than spend on
+    // every remaining case after a transport/auth/quota failure.
+    const status = Number(err?.status);
+    error = Number.isInteger(status) && status >= 100 && status <= 599
+      ? `Provider request failed (HTTP ${status}).` : "Provider request failed.";
   }
   // The app shapes mentor replies before speaking them (lib/mentor_reply_shape.js);
   // measure what the writer hears.
@@ -181,12 +199,15 @@ for (const testCase of cases) {
     console.log(`      reply: ${reply.replace(/\s+/g, " ").slice(0, 320)}`);
   }
   results.push({ id: testCase.id, category: testCase.category, reply, error, ...scored });
+  if (error) break;
 }
-const summary = { mode: "live", model: "rich", ...summarize(results) };
+const complete = results.length === cases.length && results.every(result => !result.error);
+const summary = { mode: "live", model: "rich", selected: cases.length,
+  unattempted: cases.length - results.length, ...summarize(results) };
 const REGISTER_FLOOR = 3.5;
 const registerFloor = results.every((r) => (r.dimensions?.register?.score ?? 0) >= REGISTER_FLOOR);
-const gate = summary.passRate >= 0.8 && summary.fail === 0 && registerFloor;
-writeReport({ generatedAt: new Date().toISOString(), thresholds: THRESHOLDS, gate: { passRateMin: 0.8, failMax: 0, registerMin: REGISTER_FLOOR, ok: gate }, summary, results });
+const gate = complete && summary.passRate >= 0.8 && summary.fail === 0 && registerFloor;
+writeReport({ generatedAt: new Date().toISOString(), thresholds: THRESHOLDS, gate: { passRateMin: 0.8, failMax: 0, registerMin: REGISTER_FLOOR, complete, ok: gate }, summary, results });
 console.log(`live: ${summary.pass}/${summary.total} PASS (${Math.round(summary.passRate * 100)}%), ${summary.fail} FAIL, register floor ${registerFloor ? "met" : "MISSED"}`);
 console.log(JSON.stringify(summary.byCategory));
 console.log(gate ? "MENTOR GOLDEN SET OK (live)" : "MENTOR GOLDEN SET FAILED (live)");
