@@ -2070,6 +2070,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
               let entry = pendingEntry,
               entry.ownerUserId.trimmingCharacters(in: .whitespacesAndNewlines) == ownerUserID,
               ScreenplayQueuedDraftHydrationPolicy.shouldRestoreBeforeServerHydration(
+                  expectedAuthContext: authContext,
+                  currentAuthContext: currentStudioAuthContext(),
                   selectedProjectID: selectedProjectID,
                   queuedProjectID: entry.projectId,
                   queuedDraft: entry.draft,
