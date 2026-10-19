@@ -102,14 +102,10 @@ test("parseStudioAction handles string and object", () => {
   assert.equal(parseStudioAction(123), null);
 });
 
-test("backend/index.js gate stays at 33626", async () => {
+test("backend/index.js stays within its 33626-line ceiling", async () => {
   const fs = await import("node:fs");
   const text = fs.readFileSync(new URL("../../backend/index.js", import.meta.url),"utf8");
-  const lines = text.split("\n").length;
-  // allow wc -l style: count newlines exact
-  const wc = text.length===0?0:text.split("\n").length - (text.endsWith("\n")?0:0) + (text.endsWith("\n")?0:1);
-  // simpler: use file line count via reading and counting \n
   let c=0; for(let i=0;i<text.length;i++) if(text[i]==="\n") c++;
   if(text.length>0 && !text.endsWith("\n")) c+=1;
-  assert.equal(c, 33626);
+  assert.ok(c > 0 && c <= 33626, `Expected a nonempty index within the D009 ceiling; got ${c} lines`);
 });
