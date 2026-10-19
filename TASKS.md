@@ -23,6 +23,42 @@
 - **Final focused proof:**1/0/0 signed on exact erased owned SE/iOS26.2,
   native94705 exit0; both confirmation callbacks/removals verified. Full V1
   not rerun here; preserve its prior red28/1/15. Runtime sources unchanged.
+### T-998 — Keep advice off the Page wallet meter
+
+- **Owner:** codex. **Branch:** `codex/T-998-advice-cost-lane`.
+- **Status:** review. **Pillar:** trustworthy writer intent and cost.
+- **Scope:** extend the canonical request guard across destination inference
+  and cost classification; no duplicate parser, rate change or auth bypass.
+  Actual Page controls and wallet-empty enforcement must keep working.
+- **Before:** real-store regression3/9/0; advice could hold Page credit or
+  reject with wallet_empty. **Focused after:**52/0/0 including real authenticated
+  /talk advice with zero Page credits, preserved saved script and actual Page402.
+- **Verified:** frozen Node20 backend2955/0/2, scripts231/0/0, D009/diff pass.
+- **Next:** scoped backup and combined integration proof. No main,
+  original PR or production promotion from focused results. Deep/Companion
+  accounting is not certified by this Page-cost correction.
+- **Separate priority:** loopback two-account wallet probe reproduced a read
+  scope defect. Fix in T999 before any releasable claim; no production probing.
+- **Evidence:** `docs/advice-cost-lane-2026-10-19.md`.
+
+### T-995 — Infer page-writing requests without mutating advice turns
+
+- **Owner:** codex. **Branch:** `codex/T-995-feature-request-routing`.
+- **Status:** review. **Pillar:** trustworthy voice-to-scene intent.
+- **Scope:** canonical screenplay destination inference only. Direct screenplay
+  requests must select Page without an existing draft; advice, outline and
+  negative writing instructions must not infer Page. Explicit destinations win.
+- **Verified:** original regression13 pass/5 fail; extended regression23/3;
+  corrected focused26/0/0, including the production metadata sanitizer.
+- **Done when:** frozen-source pinned Node20 full backend/scripts and D009/diff
+  pass. This does not prove raw-audio late classification, financial lane
+  agreement, live generation or a complete120-page screenplay. See
+  `docs/feature-request-routing-2026-10-19.md`.
+- **Final:** committed runtime89fce1db, Node20.20.2 backend2942/0/2,
+  scripts231/0/0, exit0; D009 and whitespace pass. Broader integration remains
+  red: parent961 hosted durable-conflict assertion; T994 SE confirmation
+  hittability. No production/main/original-head promotion from these results.
+- **Human hold:** production blocked until App Store credentials exist.
 
 ### T-994 — Prove combined writer safety, billing and compatibility
 

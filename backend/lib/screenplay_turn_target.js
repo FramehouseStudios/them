@@ -1,4 +1,5 @@
 import { inferScreenplayTask } from "./prompt_assembly.js";
+import { asksForAdviceOrPlanning } from "./screenplay_request_guard.js";
 
 function trimToString(value = "", maxLength = 8_000) {
   return String(value ?? "").trim().slice(0, Math.max(1, Number(maxLength || 8_000)));
@@ -194,6 +195,8 @@ function shouldAutoRouteTaskToPage({
   hasProjectContext,
   requestedPages,
 }) {
+  if (asksForAdviceOrPlanning(lowerText)) return false;
+  if (/^(?:please\s+)?(?:write|draft|generate|compose)\s+(?:(?:me\s+)?(?:a|the)\s+)?(?:screenplay|script)\b/.test(lowerText)) return true;
   const intent = trimToString(task?.intent, 80);
   if (!intent) return false;
   if (requestedPages > 0) return true;
@@ -206,7 +209,7 @@ function shouldAutoRouteTaskToPage({
     return hasLiveContext || hasPageCue || (hasProjectContext && hasActCue);
   }
   if (intent === "finish_feature") {
-    return (
+    return hasPageCue || (
       hasLiveContext && (hasPageCue || hasFeaturePageWritingCue(lowerText) || hasActCue)
     ) || (
       hasProjectContext && (hasPageCue || hasActCue)

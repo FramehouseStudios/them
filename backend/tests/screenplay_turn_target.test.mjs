@@ -11,6 +11,59 @@ import {
 
 const { sanitizeStudioTurnMetadata } = await import("../index.js");
 
+test("[screenplay-turn-target] an explicit complete-feature draft starts pages without existing context", () => {
+  assert.equal(resolveScreenplayTargetFromRequest({
+    transcript: "Write a complete 120-page screenplay.",
+  }), "page");
+});
+
+test("[screenplay-turn-target] a direct screenplay request does not need an inferred task or existing draft", () => {
+  for (const transcript of ["Write a screenplay.", "Please write a script."]) {
+    assert.equal(resolveScreenplayTargetFromRequest({ transcript }), "page");
+  }
+});
+
+for (const transcript of [
+  "How do I write a 120-page screenplay?",
+  "Write an outline for a 120-page screenplay.",
+  "Do not write a 120-page screenplay yet. Help me plan.",
+  "Please don't write the scene yet; explain the structure.",
+  "Clementine, please don’t rewrite the scene yet.",
+  "Could you explain how to write the next three pages?",
+  "Draft a treatment for my screenplay.",
+  "Help me plan how to write a scene.",
+  "I do not want you to write the scene yet.",
+]) {
+  test(`[screenplay-turn-target] advice or planning does not infer a page mutation: ${transcript}`, () => {
+    assert.equal(resolveScreenplayTargetFromRequest({ transcript }), "");
+    assert.equal(resolveScreenplayTargetFromRequest({
+      transcript,
+      screenplayProjectId: "existing-project",
+      screenplayDraftExcerpt: "INT. WORKSHOP - NIGHT\n\nA clock stops.",
+    }), "", "Existing writer text must not turn an advice request into a page mutation");
+    assert.equal(sanitizeStudioTurnMetadata({
+      transcript,
+      screenplayTargetPages: 120,
+      screenplayProjectId: "existing-project",
+    }).screenplayTarget, "", "The production sanitizer must not treat project length as permission to write");
+  });
+}
+
+test("[screenplay-turn-target] story dialogue is not mistaken for a negative instruction", () => {
+  assert.equal(resolveScreenplayTargetFromRequest({
+    transcript: 'Write the scene: JOHN says "Do not write the letter."',
+  }), "page");
+});
+
+test("[screenplay-turn-target] explicit destination remains authoritative", () => {
+  for (const screenplayTarget of ["page", "voice_pin"]) {
+    assert.equal(resolveScreenplayTargetFromRequest({
+      screenplayTarget,
+      transcript: "How do I write the next scene?",
+    }), screenplayTarget);
+  }
+});
+
 test("[screenplay-turn-target] infers page target for continuation with live draft context", () => {
   assert.equal(resolveScreenplayTargetFromRequest({
     clientTranscript: "Keep writing from here into the next scene.",

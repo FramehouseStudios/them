@@ -13,6 +13,69 @@ import { createWalletStore } from '../lib/clementine/wallet.js';
 import { createPageReservationStore } from '../lib/clementine/page_cancel.js';
 import { createPageLaneTalkAdapter } from '../lib/clementine/page_lane_adapter.js';
 
+test('real authenticated /talk advice works without Page credits and does not change a saved script', { timeout: 60000 }, async () => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'them-advice-wallet-'));
+  const persistence = createJsonPersistence({ jsonRoot: path.join(dataDir, 'persistence') });
+  const stub = fileURLToPath(new URL('./helpers/billing_provider_stub.mjs', import.meta.url));
+  const options = { dataDir, env: {
+    NODE_OPTIONS: `--import=${stub}`, REQUIRE_USER_AUTH: '1', OPENAI_API_KEY: 'fixture-only-no-live',
+    TALK_TEST_DEBUG_TRANSCRIPT_ENABLED: '1', TALK_TEST_DEBUG_OFFLINE_ENABLED: '0',
+    CHAT_STREAM_ENABLED: '0', TALK_STREAM_AUDIO_ENABLED: '0', CLEMENTINE_SHORT_FILM_BETA: '0',
+    CLEMENTINE_MUSE_ENABLED: '0', CLEMENTINE_PROVIDER: 'openai', BILLING_TEST_REPLY: 'advice',
+  } };
+  let server = await startBackend(options);
+  try {
+    const signup = await apiRequest(server, '/auth/signup', { method: 'POST',
+      json: { email: 'advice-fixture@example.com', password: 'advice-fixture-password-123' } });
+    assert.equal(signup.status, 201);
+    const ownerId = signup.json.user.user_id;
+    const auth = { Authorization: `Bearer ${signup.json.token || signup.json.access_token}` };
+    await server.stop();
+    await createAdapterWalletPersistence({ persistence }).putBalance({ ownerId,
+      pageMilliturns: 0, companionMilliturns: 100000,
+      grantedPageMilliturns: 0, grantedCompanionMilliturns: 100000 });
+    server = await startBackend(options);
+    const session = await apiRequest(server, '/session', { method: 'POST', headers: auth });
+    assert.equal(session.status, 201);
+    const headers = { ...auth, 'X-Client-Token': session.json.client_token };
+    const created = await apiRequest(server, '/screenplay/projects', { method: 'POST', headers,
+      json: { title: 'Advice should leave this script intact' } });
+    assert.equal(created.status, 201);
+    const projectId = created.json.project_id || created.json.project?.id;
+    assert.ok(projectId);
+    const saved = await apiRequest(server, `/screenplay/projects/${projectId}/version`, { method: 'POST', headers,
+      json: { draft: 'INT. CABIN - NIGHT\n\nMARA\nKeep my words exactly.' } });
+    assert.ok([200, 201].includes(saved.status));
+    const projectPath = `/screenplay/projects/${projectId}?include_drafts=1`;
+    const before = await apiRequest(server, projectPath, { headers });
+    assert.equal(before.status, 200);
+    assert.equal((await apiRequest(server, projectPath)).status, 401);
+    const form = (transcript, target = '') => {
+      const value = new FormData();
+      value.append('debug_transcript', transcript);
+      value.append('screenplay_project_id', projectId);
+      value.append('max_output_tokens', '400');
+      if (target) value.append('screenplay_target', target);
+      value.append('file', new Blob([fs.readFileSync(new URL('../test.wav', import.meta.url))], { type: 'audio/wav' }), 'test.wav');
+      return value;
+    };
+    const advice = await apiRequest(server, '/talk', { method: 'POST', headers,
+      body: form('How do I write a screenplay?') });
+    assert.equal(advice.status, 200, 'Advice must reach the real handler, not a false Page wallet_empty');
+    assert.notEqual(advice.headers.get('x-turn-status'), 'error_recovered');
+    assert.ok(server.stdout.join('').includes('[billing-test] provider generation requested'));
+    const page = await apiRequest(server, '/talk', { method: 'POST', headers,
+      body: form('Write the next scene.', 'page') });
+    assert.equal(page.status, 402, 'Actual Page writing must still enforce its balance');
+    const after = await apiRequest(server, projectPath, { headers });
+    assert.equal(after.status, 200);
+    assert.deepEqual(after.json.project, before.json.project);
+    const balance = await apiRequest(server, '/talk/wallet', { method: 'POST', headers: auth, json: { owner_id: ownerId } });
+    assert.equal(balance.status, 200);
+    assert.equal(balance.json.pageTurnsLeft, 0);
+  } finally { await server.stop(); }
+});
+
 for (const reply of ['empty', 'prose']) {
 test(`real /talk rejected ${reply} preserves history and wallet balance`, { timeout: 60000 }, async () => {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'them-billing-handler-'));
