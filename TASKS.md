@@ -1163,12 +1163,13 @@
 - **Status:** review. **Pillar:** reliable voice-to-scene input.
 - **Root:** Multer1 is affected by eleven open upstream/GitHub advisories;
   malformed inputs also surface as generic500 instead of safe upload400.
-- **Fix:** reviewed patched2.3 minor line; preserve audio fields/buffers and
+- **Fix:** preserve original909's2.4 baseline; preserve audio fields/buffers and
   existing25MB413. Normalize known parser errors at the upload boundary.
 - **Verified:** failing-first2 pass/2 fail; extended focused20/0/0 includes
   real authenticated /talk rejection, truncation, disconnect and health.
-- **Verified:** frozen offline Node20 backend2759/0/2, scripts210/0/0; D009/diff pass.
-- **Next:** scoped draft child PR and combined signed writer/recovery proof.
+- **Historical:**2.3 candidate Node20 backend2759/0/2, scripts210/0/0.
+- **Current:**2.4 focused20/0/0; frozen Node20 backend2759/0/2, scripts210/0/0.
+- **Next:** update existing draft evidence and combined signed writer/recovery proof.
 - **Evidence:** `docs/voice-upload-security-2026-10-19.md`.
 
 ### T-1001 — Patch HTTP trust and URI dependencies
