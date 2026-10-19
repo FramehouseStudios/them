@@ -21,7 +21,9 @@ confirms Express and AJV consume them. No hand-written replacement parser.
 
 VERIFIED focused host Node26:13/0/0 including all seven advisory/valid-input
 controls and T999/T1000 authorization regressions. /tmp/them-1001-focused.log.
-Full pinned Node20 suite pending. No new Swift/UI, paid call or deployment.
+VERIFIED frozen runtimef6645b35 on Node20.20.2: backend2752 pass/0 fail/2
+skip; scripts210 pass/0 fail/0 skip. /tmp/them-1001-node20.log. D009 all five
+deltas0 and git diff --check pass. No new Swift/UI, paid call or deployment.
 
 ## Adversarial interpretation and remaining debt
 
