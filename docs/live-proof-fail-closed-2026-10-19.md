@@ -37,9 +37,17 @@ No available platform-key tool was found. No real key file read or paid call.
   fixture, NOT the scorer, bar or golden set. These are NOT live model results.
 - Syntax/diff pass. Actual fetched T1007 baseline D009 all five deltas0.
   A first missing-base invocation failed closed; baseline fetched and rerun.
-- Frozen full Node20 backend/scripts and offline gate pending. Swift/app/
+- VERIFIED frozen cb1e0caf, pinned Node20.20.2 with external network disabled:
+  backend2988 pass/0 fail/2 skip; scripts238/0/0; offline golden OK;
+  native25103 exit0. `/tmp/them-1009-node20.log`. No paid model calls.
+  D009 all five actual deltas0; syntax/diff pass. Swift/app/
   project/package bytes unchanged from T1007's868 signed-unit tree; no fresh
   iPhone, macOS or actual generated feature result is claimed here.
+- Direct completed T1007 xcresult tree confirms mentor parity/core cases
+  actually executed; source literal and shared persona file are4043 characters
+  each and equal. An apparent extra line in concatenated tool output came
+  from the following source excerpt, not a real parity defect. No speculative
+  parity repair or weakened assertions. T1009 changes no Swift/app bytes.
 
 ## Exact files
 

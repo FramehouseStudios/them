@@ -8,7 +8,7 @@
 ### T-1009 — Fail closed before and during scoped live-model proof
 
 - **Owner:** codex. **Branch:** `codex/T-1009-live-proof-fail-closed`.
-- **Status:** in-progress. **Pillar:** trustworthy living-companion proof.
+- **Status:** review (local proof complete). **Pillar:** trustworthy living-companion proof.
 - **Scope:** stop the existing mentor CLI on render failure, redact raw
   provider errors, refuse fixed-reply live mode/empty selection, replace stale
   green reports on preflight failure. Keep scorer/provider/runtime unchanged.
@@ -17,6 +17,9 @@
 - **Done when:** frozen Node20 backend/scripts and offline golden pass,
   D009/diff clean, original heads preserved. Live/phone proof remains separate.
 - **Evidence:** `docs/live-proof-fail-closed-2026-10-19.md`.
+- **Full proof:** frozen cb1e0caf Node20.20.2 backend2988/0/2,
+  scripts238/0/0, offline golden OK, native25103 exit0; D009/diff pass.
+  No paid call, production change or fresh signed result claimed.
 
 ### T-1007 — Recommend 120 pages without constraining the writer
 
