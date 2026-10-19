@@ -46,6 +46,13 @@ deltas0 and git diff --check pass. No new Swift/UI, paid call or deployment.
 
 ## Exact files
 
+Integration correction: original909788e0107 already carries these patched
+versions in the product rehearsal (preserved by a4755332). Preserve that
+original code/provenance; this main-based branch is supplemental regression
+coverage, not a replacement of909. Its dependency delta becomes redundant
+when909 is present. The combined rehearsal keeps the original lock exactly,
+including Multer2.4; do not use this branch to overwrite original work.
+
 - backend/package-lock.json
 - backend/tests/http_dependency_security.test.mjs
 - TASKS.md
