@@ -1,1791 +1,250 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-05T04:29:41.147Z",
-  "updatedBy": "support",
+  "updatedAt": "2026-09-08T20:15:00.000Z",
+  "updatedBy": "codex",
   "openPullRequests": [
     {
-      "number": 354,
-      "title": "T150: take over Phase 7c talk supplier glue",
-      "owner": "codex",
-      "tier": 2,
-      "status": "merged",
-      "branch": "codex/T150-phase7c-takeover",
-      "blocker": null,
-      "reviewer_note": "Merged by Codex under D005 after GitHub evaluate passed. Codex took over the unclaimed Phase 7c lane. Local verification passed: strict pre-flight, talk tests 127/127, backend npm test 1194 pass / 1 skipped / 0 fail on rerun, task-frontmatter strict eval, and diff check."
-    },
-    {
-      "number": 94,
-      "title": "T-creative-memory-export: GET /memory/export — V1 core-only",
-      "owner": "support",
-      "tier": 3,
-      "status": "merged",
-      "branch": "support/T-creative-memory-export",
-      "blocker": null,
-      "reviewer_note": "Merged by Codex under D005 after the V1 contract was narrowed to core-only. Codex rebased over PR #212, resolved the decisions-queue conflict, verified no projectIds/loglineHistory/acceptedTwists export path remains, ran pre_flight, focused memory-export tests 7/7, backend npm test 1188 pass / 1 skipped, and confirmed GitHub evaluate green."
-    },
-    {
-      "number": 212,
-      "title": "T-decompose-phase4-auth-routes: extract 11 /auth/* routes",
-      "owner": "support",
-      "tier": 3,
-      "status": "merged",
-      "branch": "support/T-decompose-phase4-auth-routes",
-      "blocker": null,
-      "reviewer_note": "Merged by Codex under D005 after one-time human auth clearance and Codex auth/security review. Byte-identical extraction only: same 256kb parser on POST routes, GET /auth/sessions parser-free, existing userAuth handlers injected unchanged. Local focused auth tests passed 44/44; backend npm test passed 1181 pass / 1 skipped."
-    },
-    {
-      "number": 345,
-      "title": "T143: record core-only memory export decision",
+      "number": 590,
+      "title": "fix: make iPhone screenplay export dependable",
       "owner": "codex",
       "tier": 1,
-      "status": "merged",
-      "branch": "codex/T143-memory-export-core-decision",
-      "blocker": null,
-      "reviewer_note": "Merged by Codex under D005 after GitHub evaluate passed. Makes core-only the V1 decision for PR #94 and records the needs_scope_narrowing blocker for support agent."
+      "status": "blocked",
+      "branch": "codex/T-writer-beta-files-picker",
+      "blocker": "Await the corrected baseline and rerun the required hosted checks on the exact candidate SHA.",
+      "blocker_kind": "needs_rebase",
+      "reviewer_note": "Current-main scoped work with strong local signed iPhone and macOS evidence; first branch in the landing train.",
+      "expected_action": "Rebase after the baseline repair lands and rerun exact-SHA hosted checks."
     },
     {
-      "number": 343,
-      "title": "T141: add safe local release config handoff",
+      "number": 591,
+      "title": "feat: make Studio Pages readable and useful on iPhone",
       "owner": "codex",
       "tier": 1,
-      "status": "merged",
-      "branch": "codex/T141-release-config-local-runbook",
-      "blocker": null,
-      "reviewer_note": "Merged by Codex under D005 after GitHub evaluate passed. Adds ignored local release config template and runner so real Development Team and APP_TOKEN_RELEASE can be supplied without committing secrets. Release BACKEND_URL is hosted as https://api.them.io unless the release backend changes. Does not clear the missing private values by itself."
+      "status": "blocked",
+      "branch": "codex/T-pages-narrow-inspector-v2",
+      "blocker": "Land after #590 and rerun required checks once GitHub Actions can execute.",
+      "blocker_kind": "needs_rebase",
+      "blocker_against_pr": 590,
+      "reviewer_note": "Current-main Pages redesign with signed narrow-phone verification.",
+      "expected_action": "Rebase after #590 and rerun the combined Pages and export workflows."
     },
     {
-      "number": 341,
-      "title": "T139: record V1 release smoke clearance",
+      "number": 592,
+      "title": "feat: connect Clementine voice across every Studio tab",
       "owner": "codex",
       "tier": 1,
-      "status": "merged",
-      "branch": "codex/T139-v1-release-smoke-clearance",
-      "blocker": null,
-      "reviewer_note": "Merged by Codex under D005 after GitHub evaluate passed. Records T139 launch evidence: app build/tests and generic unsigned iOS build are green; Launch Doctor report exists but is intentionally not_started; release preflight still blocks on missing Development Team, APP_TOKEN_RELEASE, signing, and human manual smoke. Release BACKEND_URL is hosted as https://api.them.io. No secrets committed."
-    },
-    {
-      "number": 335,
-      "title": "Phase 7b: extract handleTalkRequest into lib/talk_handler.js (createTalkHandler)",
-      "owner": "support",
-      "tier": 2,
-      "status": "merged",
-      "branch": "support/T-decompose-phase7b-talk-handler",
-      "blocker": null,
-      "reviewer_note": "Merged by Codex under D005 after rebase repair. Local proof: pre_flight passed, talk tests 121/121 passed, backend npm test 1171 pass / 1 skipped / 0 fail, git diff --check passed, and live local /talk dispatch smoke returned 200 with fixture audio. Full human/TestFlight app smoke remains a V1 release gate, not claimed here."
-    },
-    {
-      "number": 336,
-      "title": "T134: record Phase 7b PR blocker",
-      "owner": "codex",
-      "tier": 1,
-      "status": "merged",
-      "branch": "codex/T134-phase7b-blocker-refresh",
-      "blocker": null
-    },
-    {
-      "number": 334,
-      "title": "T133: refresh after T132 merge",
-      "owner": "codex",
-      "tier": 1,
-      "status": "merged",
-      "branch": "codex/T133-refresh-after-t132",
-      "blocker": null
-    },
-    {
-      "number": 333,
-      "title": "T132: codify Phase 7b scope-tool decision",
-      "owner": "codex",
-      "tier": 1,
-      "status": "merged",
-      "branch": "codex/T132-phase7b-scope-tool-handoff",
-      "blocker": null
-    },
-    {
-      "number": 331,
-      "title": "T130: clear noisy release preflight blockers",
-      "owner": "codex",
-      "tier": 1,
-      "status": "merged",
-      "branch": "codex/T130-release-preflight-clearance",
-      "blocker": null
-    },
-    {
-      "number": 329,
-      "title": "T128: add in-app V1 Launch Doctor",
-      "owner": "codex",
-      "tier": 1,
-      "status": "merged",
-      "branch": "codex/T128-v1-launch-doctor",
-      "blocker": null
-    },
-    {
-      "number": 202,
-      "title": "T-snapshot-eval-accepted-twists",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-snapshot-eval-accepted-twists",
-      "blocker": null
-    },
-    {
-      "number": 201,
-      "title": "T-eval-canon-into-gate",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-eval-canon-into-gate",
-      "blocker": null
-    },
-    {
-      "number": 200,
-      "title": "T-utils-smoke-test",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-utils-smoke-test",
-      "blocker": null
-    },
-    {
-      "number": 199,
-      "title": "T-pre-flight-required-deps-rule",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-pre-flight-required-deps-rule",
-      "blocker": null
-    },
-    {
-      "number": 197,
-      "title": "T-decompose-phase2b-screenplay-projects-writes",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-decompose-phase2b-screenplay-projects-writes",
-      "blocker": null
-    },
-    {
-      "number": 148,
-      "title": "T-ops-routes-list-route",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-ops-routes-list-route",
-      "blocker": null
-    },
-    {
-      "number": 142,
-      "title": "T-known-domains-startup-check",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-known-domains-startup-check",
-      "blocker": null
-    },
-    {
-      "number": 127,
-      "title": "T-decisions-queue-md-lint",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-decisions-queue-md-lint",
-      "blocker": null
-    },
-    {
-      "number": 124,
-      "title": "T-block-signal-atms-zero-fix",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-block-signal-atms-zero-fix",
-      "blocker": null
-    },
-    {
-      "number": 117,
-      "title": "T-coordination-state-eval",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-coordination-state-eval",
-      "blocker": null
-    },
-    {
-      "number": 115,
-      "title": "T-known-domains-runtime-check",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-known-domains-runtime-check",
-      "blocker": null
-    },
-    {
-      "number": 112,
-      "title": "T-prompt-assembly-snapshot-eval",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-prompt-assembly-snapshot-eval",
-      "blocker": null
-    },
-    {
-      "number": 111,
-      "title": "T-creative-memory-stats-route",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-creative-memory-stats-route",
-      "blocker": null
-    },
-    {
-      "number": 110,
-      "title": "T-prompt-size-eval",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-prompt-size-eval",
-      "blocker": null
-    },
-    {
-      "number": 107,
-      "title": "T-tasks-sync-check",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-tasks-sync-check",
-      "blocker": null
-    },
-    {
-      "number": 105,
-      "title": "T-memory-quality-eval",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-memory-quality-eval",
-      "blocker": null
-    },
-    {
-      "number": 104,
-      "title": "T-decisions-queue-route",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-decisions-queue-route",
-      "blocker": null
-    },
-    {
-      "number": 100,
-      "title": "T-talk-error-rate-tracker",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-talk-error-rate-tracker",
-      "blocker": null
-    },
-    {
-      "number": 97,
-      "title": "T-talk-turn-meta-stats",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-talk-turn-meta-stats",
-      "blocker": null
-    },
-    {
-      "number": 92,
-      "title": "T-payoff-tracker",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-payoff-tracker",
-      "blocker": null
-    },
-    {
-      "number": 90,
-      "title": "T-fdx-export-endpoint",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-fdx-export-endpoint",
-      "blocker": null
-    },
-    {
-      "number": 88,
-      "title": "T-coverage-simulator",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-coverage-simulator",
-      "blocker": null
-    },
-    {
-      "number": 87,
-      "title": "T-screenplay-import-fountain",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-screenplay-import-fountain",
-      "blocker": null
-    },
-    {
-      "number": 86,
-      "title": "T-genre-classifier",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-genre-classifier",
-      "blocker": null
-    },
-    {
-      "number": 85,
-      "title": "T-backend-surface-smoke",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-backend-surface-smoke",
-      "blocker": null
-    },
-    {
-      "number": 84,
-      "title": "T-realtime-supplier-failover",
-      "owner": "support",
-      "tier": 2,
-      "status": "merged",
-      "branch": "support/T-realtime-supplier-failover",
-      "blocker": null
-    },
-    {
-      "number": 83,
-      "title": "T-fountain-export-endpoint",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-fountain-export-endpoint",
-      "blocker": null
-    },
-    {
-      "number": 82,
-      "title": "T-realtime-supplier-health",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-realtime-supplier-health",
-      "blocker": null
-    },
-    {
-      "number": 81,
-      "title": "T-block-signal-clears-on-completion",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-block-signal-clears-on-completion",
-      "blocker": null
-    },
-    {
-      "number": 80,
-      "title": "T-craft-frameworks-eval",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-craft-frameworks-eval",
-      "blocker": null
-    },
-    {
-      "number": 79,
-      "title": "T-first-page-telemetry-sink",
-      "owner": "support",
-      "tier": 2,
-      "status": "merged",
-      "branch": "support/T-first-page-telemetry-sink",
-      "blocker": null
-    },
-    {
-      "number": 76,
-      "title": "T-logline-drift-alert",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-logline-drift-alert",
-      "blocker": null
-    },
-    {
-      "number": 74,
-      "title": "T-prompt-wire-traits-and-twists",
-      "owner": "support",
-      "tier": 2,
-      "status": "merged",
-      "branch": "support/T-prompt-wire-traits-and-twists",
-      "blocker": null
-    },
-    {
-      "number": 63,
-      "title": "T-trust-tiers",
-      "owner": "support",
-      "tier": 3,
-      "status": "closed",
-      "branch": "support/T-trust-tiers",
-      "blocker": "closed: superseded by accepted D005/D006 and current AGENTS.md supervisor guardrails",
-      "blocker_kind": "policy_gated",
-      "reviewer_note": "Codex closed PR #63 as stale policy after confirming D005/D006 already record the current supervisor authority.",
-      "expected_action": "Do not reopen or merge stale trust-tier policy unless the human asks for a fresh policy change."
-    },
-    {
-      "number": 133,
-      "title": "T-build-tasks-md-anchors",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-build-tasks-md-anchors",
-      "blocker": null
-    },
-    {
-      "number": 134,
-      "title": "T-ops-health-summary-route",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-ops-health-summary-route",
-      "blocker": null
-    },
-    {
-      "number": 138,
-      "title": "T61-post-t60-coordination-refresh",
-      "owner": "codex",
-      "tier": 1,
-      "status": "merged",
-      "branch": "codex/T61-post-t60-coordination-refresh",
-      "blocker": null
-    },
-    {
-      "number": 139,
-      "title": "T62-studio-offline-refresh-quiet",
-      "owner": "codex",
-      "tier": 1,
-      "status": "merged",
-      "branch": "codex/T62-studio-offline-refresh-quiet",
-      "blocker": null
-    },
-    {
-      "number": 140,
-      "title": "T63-post-t62-coordination-refresh",
-      "owner": "codex",
-      "tier": 1,
-      "status": "merged",
-      "branch": "codex/T63-post-t62-coordination-refresh",
-      "blocker": null
-    },
-    {
-      "number": 146,
-      "title": "T64-session-evolution-quiet",
-      "owner": "codex",
-      "tier": 1,
-      "status": "merged",
-      "branch": "codex/T64-session-evolution-quiet",
-      "blocker": null
-    },
-    {
-      "number": 147,
-      "title": "T65-post-t64-coordination-refresh",
-      "owner": "codex",
-      "tier": 1,
-      "status": "merged",
-      "branch": "codex/T65-post-t64-coordination-refresh",
-      "blocker": null
-    },
-    {
-      "number": 141,
-      "title": "T-prompt-assembly-block-signal-cap-eval",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-prompt-assembly-block-signal-cap-eval",
-      "blocker": null
-    },
-    {
-      "number": 143,
-      "title": "T-decisions-queue-fixture-template",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-decisions-queue-fixture-template",
-      "blocker": null
-    },
-    {
-      "number": 144,
-      "title": "T-coordination-state-cli-validate",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-coordination-state-cli-validate",
-      "blocker": null
-    },
-    {
-      "number": 145,
-      "title": "T-codex-inbox-refresh-round11",
-      "owner": "support",
-      "tier": 1,
-      "status": "closed",
-      "branch": "support/T-codex-inbox-refresh-round11",
-      "blocker": "closed: conflicting inbox-only refresh superseded by current coordination docs"
-    },
-    {
-      "number": 149,
-      "title": "T66-refresh-after-support-pr-triage",
-      "owner": "codex",
-      "tier": 1,
-      "status": "merged",
-      "branch": "codex/T66-refresh-after-support-pr-triage",
-      "blocker": null
-    },
-    {
-      "number": 152,
-      "title": "T67-refresh-after-pr148-triage",
-      "owner": "codex",
-      "tier": 1,
-      "status": "merged",
-      "branch": "codex/T67-refresh-after-pr148-triage",
-      "blocker": null
-    },
-    {
-      "number": 150,
-      "title": "T-creative-memory-version-check-eval",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-creative-memory-version-check-eval",
-      "blocker": null
-    },
-    {
-      "number": 151,
-      "title": "T-screenplay-export-pdf-error-clarity",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-screenplay-export-pdf-error-clarity",
-      "blocker": null
-    },
-    {
-      "number": 153,
-      "title": "T68-refresh-after-pr150-151",
-      "owner": "codex",
-      "tier": 1,
-      "status": "merged",
-      "branch": "codex/T68-refresh-after-pr150-151",
-      "blocker": null
-    },
-    {
-      "number": 157,
-      "title": "T69-refresh-after-pr134",
-      "owner": "codex",
-      "tier": 1,
-      "status": "merged",
-      "branch": "codex/T69-refresh-after-pr134",
-      "blocker": null
-    },
-    {
-      "number": 154,
-      "title": "T-talk-turn-rate-limit-helper",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-talk-turn-rate-limit-helper",
-      "blocker": null
-    },
-    {
-      "number": 155,
-      "title": "T-tasks-active-frontmatter-eval",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-tasks-active-frontmatter-eval",
-      "blocker": null
-    },
-    {
-      "number": 156,
-      "title": "T-prompt-assembly-readme",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-prompt-assembly-readme",
-      "blocker": null
-    },
-    {
-      "number": 158,
-      "title": "T-tasks-active-stats",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-tasks-active-stats",
-      "blocker": null
-    },
-    {
-      "number": 162,
-      "title": "T70-refresh-after-pr154-158",
-      "owner": "codex",
-      "tier": 1,
-      "status": "merged",
-      "branch": "codex/T70-refresh-after-pr154-158",
-      "blocker": null
-    },
-    {
-      "number": 167,
-      "title": "T71-agent-throughput",
-      "owner": "codex",
-      "tier": 2,
-      "status": "merged",
-      "branch": "codex/T71-agent-throughput",
-      "blocker": null
-    },
-    {
-      "number": 160,
-      "title": "T-archetype-engine-canon-eval",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-archetype-engine-canon-eval",
-      "blocker": null
-    },
-    {
-      "number": 168,
-      "title": "T-creative-memory-store-eviction-eval",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-creative-memory-store-eviction-eval",
-      "blocker": null
-    },
-    {
-      "number": 169,
-      "title": "T-coordination-state-mutate-eval",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-coordination-state-mutate-eval",
-      "blocker": null
-    },
-    {
-      "number": 170,
-      "title": "T-talk-turn-rate-limit-route",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-talk-turn-rate-limit-route",
-      "blocker": null
-    },
-    {
-      "number": 159,
-      "title": "T-ops-health-summary-eval",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-ops-health-summary-eval",
-      "blocker": null
-    },
-    {
-      "number": 161,
-      "title": "T-trait-library-canon-eval",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-trait-library-canon-eval",
-      "blocker": null
-    },
-    {
-      "number": 163,
-      "title": "T-twist-engine-canon-eval",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-twist-engine-canon-eval",
-      "blocker": null
-    },
-    {
-      "number": 164,
-      "title": "T-block-detector-canon-eval",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-block-detector-canon-eval",
-      "blocker": null
-    },
-    {
-      "number": 166,
-      "title": "T-format-linter-rules-canon-eval",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-format-linter-rules-canon-eval",
-      "blocker": null
-    },
-    {
-      "number": 171,
-      "title": "T-eval-gate-add-canon-evals",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-eval-gate-add-canon-evals",
-      "blocker": null
-    },
-    {
-      "number": 165,
-      "title": "T-codex-inbox-refresh-round12",
-      "owner": "support",
-      "tier": 1,
-      "status": "closed",
-      "branch": "support/T-codex-inbox-refresh-round12",
-      "blocker": "closed: stale inbox-only refresh superseded by T72 batch refresh"
-    },
-    {
-      "number": 172,
-      "title": "T-codex-inbox-refresh-round13",
-      "owner": "support",
-      "tier": 1,
-      "status": "closed",
-      "branch": "support/T-codex-inbox-refresh-round13",
-      "blocker": "closed: stale inbox-only refresh superseded by T72 batch refresh"
-    },
-    {
-      "number": 174,
-      "title": "T72-batch-refresh",
-      "owner": "codex",
-      "tier": 1,
-      "status": "merged",
-      "branch": "codex/T72-batch-refresh",
-      "blocker": null
-    },
-    {
-      "number": 176,
-      "title": "T73-ios-fountain-import",
-      "owner": "codex",
-      "tier": 1,
-      "status": "merged",
-      "branch": "codex/T73-ios-fountain-import",
-      "blocker": null
-    },
-    {
-      "number": 178,
-      "title": "T74-ops-routes-diagnostics",
-      "owner": "codex",
-      "tier": 1,
-      "status": "merged",
-      "branch": "codex/T74-ops-routes-diagnostics",
-      "blocker": null
-    },
-    {
-      "number": 179,
-      "title": "T75-talk-turn-rate-limit-retry",
-      "owner": "codex",
-      "tier": 1,
-      "status": "merged",
-      "branch": "codex/T75-talk-turn-rate-limit-retry",
-      "blocker": null
-    },
-    {
-      "number": 175,
-      "title": "T-agent-events-jsonl-live-lane",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-agent-events-jsonl-live-lane",
-      "blocker": null
-    },
-    {
-      "number": 177,
-      "title": "T-pre-flight-self-check-script",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-pre-flight-self-check-script",
-      "blocker": null
-    },
-    {
-      "number": 173,
-      "title": "T-coord-refresh-clear-148-142-133-87-90",
-      "owner": "support",
-      "tier": 1,
-      "status": "closed",
-      "branch": "support/T-coord-refresh-clear-148-142-133-87-90",
-      "blocker": "closed: stale coordination refresh superseded by T72/T73/T74/T75 and the T76 efficiency merge refresh"
-    },
-    {
-      "number": 182,
-      "title": "T76-efficiency-merge-refresh",
-      "owner": "codex",
-      "tier": 1,
-      "status": "merged",
-      "branch": "codex/T76-efficiency-merge-refresh",
-      "blocker": null
-    },
-    {
-      "number": 180,
-      "title": "T-pre-flight-outbox-console-cleanup",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-pre-flight-outbox-console-cleanup",
-      "blocker": null
-    },
-    {
-      "number": 181,
-      "title": "T-decompose-backend-index",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-decompose-backend-index",
-      "blocker": null
-    },
-    {
-      "number": 184,
-      "title": "T77-post-efficiency-prs-refresh",
-      "owner": "codex",
-      "tier": 1,
-      "status": "merged",
-      "branch": "codex/T77-post-efficiency-prs-refresh",
-      "blocker": null
-    },
-    {
-      "number": 183,
-      "title": "T-decompose-phase0-health-route",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-decompose-phase0-health-route",
-      "blocker": null
-    },
-    {
-      "number": 185,
-      "title": "T78-refresh-after-pr183",
-      "owner": "codex",
-      "tier": 1,
-      "status": "merged",
-      "branch": "codex/T78-refresh-after-pr183",
-      "blocker": null
-    },
-    {
-      "number": 186,
-      "title": "T79-second-pass-agent-efficiency-protocol",
-      "owner": "codex",
-      "tier": 1,
-      "status": "merged",
-      "branch": "codex/T79-second-pass-efficiency",
-      "blocker": null
-    },
-    {
-      "number": 190,
-      "title": "T-decompose-phase1-ops-routes",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-decompose-phase1-ops-routes",
-      "blocker": null
-    },
-    {
-      "number": 192,
-      "title": "T-decompose-phase2a-screenplay-projects-reads",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-decompose-phase2-screenplay-projects",
-      "blocker": null
-    },
-    {
-      "number": 191,
-      "title": "T-coord-refresh-batch-13",
-      "owner": "support",
-      "tier": 1,
-      "status": "closed",
-      "branch": "support/T-coord-refresh-batch-13",
-      "blocker": "closed: stale duplicate superseded by merged PR #189"
-    },
-    {
-      "number": 193,
-      "title": "T-route-local-parsers",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-route-local-parsers",
-      "blocker": null
-    },
-    {
-      "number": 194,
-      "title": "T-decompose-spec-update",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-decompose-spec-update",
-      "blocker": null
-    },
-    {
-      "number": 195,
-      "title": "T-coord-refresh-batch-14",
-      "owner": "support",
-      "tier": 1,
-      "status": "closed",
-      "branch": "support/T-coord-refresh-batch-14",
-      "blocker": "closed: stale duplicate superseded by PR #196 and later #193/#194 merges"
-    },
-    {
-      "number": 204,
-      "title": "T-decompose-phase3-screenplay-companion",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-decompose-phase3-screenplay-companion",
-      "blocker": null
-    },
-    {
-      "number": 205,
-      "title": "T-persona-smoke-test",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-persona-smoke-test",
-      "blocker": null
-    },
-    {
-      "number": 206,
-      "title": "T-screenplay-store-smoke-test",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-screenplay-store-smoke-test",
-      "blocker": null
-    },
-    {
-      "number": 207,
-      "title": "T-outbox-store-smoke-test",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-outbox-store-smoke-test",
-      "blocker": null
-    },
-    {
-      "number": 214,
-      "title": "T-protocol-infra-batch",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-protocol-infra-batch",
-      "blocker": null
-    },
-    {
-      "number": 215,
-      "title": "T-decompose-phase5a-realtime-reads",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-decompose-phase5-realtime-routes",
-      "blocker": null
-    },
-    {
-      "number": 216,
-      "title": "T-memory-store-smoke-test",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-memory-store-smoke-test",
-      "blocker": null
-    },
-    {
-      "number": 217,
-      "title": "T-user-store-smoke-test",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-user-store-smoke-test",
-      "blocker": null
-    },
-    {
-      "number": 218,
-      "title": "T-user-auth-smoke-test",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-user-auth-smoke-test",
-      "blocker": null
-    },
-    {
-      "number": 220,
-      "title": "T-fix-214-audit-and-readme",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-fix-214-audit-and-readme",
-      "blocker": null
-    },
-    {
-      "number": 221,
-      "title": "T-decompose-phase4-auth-design",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-decompose-phase4-auth-design-note",
-      "blocker": null
-    },
-    {
-      "number": 222,
-      "title": "T84-talk-health-diagnostics",
-      "owner": "codex",
-      "tier": 1,
-      "status": "merged",
-      "branch": "codex/T84-talk-health-diagnostics",
-      "blocker": null
-    },
-    {
-      "number": 223,
-      "title": "T-decompose-phase7-talk-pipeline-design",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-decompose-phase7-talk-pipeline-design",
-      "blocker": null
-    },
-    {
-      "number": 224,
-      "title": "T-v1-voice-to-page-smoke",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-v1-voice-to-page-smoke",
-      "blocker": null
-    },
-    {
-      "number": 226,
-      "title": "T-schema-docs-scaffold",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-schema-docs-scaffold",
-      "blocker": null
-    },
-    {
-      "number": 227,
-      "title": "T-decompose-phase5b-realtime-design",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-decompose-phase5b-realtime-design",
-      "blocker": null
-    },
-    {
-      "number": 228,
-      "title": "T-decompose-phase6-memories-design",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-decompose-phase6-memories-design",
-      "blocker": null
-    },
-    {
-      "number": 229,
-      "title": "T-decompose-phase6-1-long-tail-design",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-decompose-phase6-1-long-tail-design",
-      "blocker": null
-    },
-    {
-      "number": 231,
-      "title": "T-v1-three-smoke-fixtures",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-v1-screenplay-smoke",
-      "blocker": null
-    },
-    {
-      "number": 233,
-      "title": "T-schema-docs-batch-2",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-schema-docs-batch-2",
-      "blocker": null
-    },
-    {
-      "number": 235,
-      "title": "T-v1-pillar-rule-and-canon-wire",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-v1-pillar-rule-and-canon-wire",
-      "blocker": null
-    },
-    {
-      "number": 237,
-      "title": "T-deeper-lib-tests-batch",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-deeper-lib-tests-batch",
-      "blocker": null
-    },
-    {
-      "number": 239,
-      "title": "T-backfill-v1-pillar-legacy",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-backfill-v1-pillar-legacy",
-      "blocker": null
-    },
-    {
-      "number": 240,
-      "title": "T90: V1 memory and realtime diagnostics",
-      "owner": "codex",
-      "tier": 1,
-      "status": "merged",
-      "branch": "codex/T90-v1-memory-realtime-diagnostics",
-      "blocker": null
-    },
-    {
-      "number": 241,
-      "title": "T-deeper-memstore-and-user-auth-tests",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-deeper-memory-store-tests",
-      "blocker": null
-    },
-    {
-      "number": 238,
-      "title": "T-decompose-phase5b1-realtime-client-secret",
-      "owner": "support",
-      "tier": 2,
-      "status": "merged",
-      "branch": "support/T-decompose-phase5b1-realtime-client-secret",
-      "blocker": null,
-      "blocker_kind": null,
-      "reviewer_note": null,
-      "expected_action": null
-    },
-    {
-      "number": 242,
-      "title": "T-user-auth-roundtrip-tests",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-user-auth-roundtrip-tests",
-      "blocker": null
-    },
-    {
-      "number": 243,
-      "title": "T-v1-status-reporter",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-v1-status-reporter",
-      "blocker": null,
-      "blocker_kind": null,
-      "reviewer_note": null,
-      "expected_action": null
-    },
-    {
-      "number": 245,
-      "title": "T-schema-docs-batch-3",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-schema-docs-batch-3",
-      "blocker": null,
-      "blocker_kind": null,
-      "reviewer_note": null,
-      "expected_action": null
-    },
-    {
-      "number": 250,
-      "title": "T-preflight-task-status-vocab",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-preflight-task-status-vocab",
-      "blocker": null
-    },
-    {
-      "number": 251,
-      "title": "T-runbook-v1-smoke",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-runbook-v1-smoke",
-      "blocker": null
-    },
-    {
-      "number": 253,
-      "title": "T-operating-protocol-narrative",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-operating-protocol-narrative",
-      "blocker": null
-    },
-    {
-      "number": 256,
-      "title": "T-schema-docs-batch-4",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-schema-docs-batch-4",
-      "blocker": null
-    },
-    {
-      "number": 259,
-      "title": "T-preflight-task-id-matches-filename",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-preflight-task-id-matches-filename",
-      "blocker": null
-    },
-    {
-      "number": 261,
-      "title": "T-talk-response-doc-drift-fix",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-talk-response-doc-drift-fix",
-      "blocker": null
-    },
-    {
-      "number": 262,
-      "title": "T-runbook-smoke-section-drift-fix",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-runbook-smoke-section-drift-fix",
-      "blocker": null
-    },
-    {
-      "number": 264,
-      "title": "T-decompose-phase5b2-studio-render",
-      "owner": "support",
-      "tier": 2,
-      "status": "merged",
-      "branch": "support/T-decompose-phase5b2-studio-render",
-      "blocker": null
-    },
-    {
-      "number": 265,
-      "title": "T-fdx-export-schema-doc",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-fdx-export-schema-doc",
-      "blocker": null
-    },
-    {
-      "number": 266,
-      "title": "T-fdx-export-deeper",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-fdx-export-deeper",
-      "blocker": null
-    },
-    {
-      "number": 267,
-      "title": "T-persistence-json-tests",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-persistence-json-tests",
-      "blocker": null
-    },
-    {
-      "number": 268,
-      "title": "T-screenplay-markdown-export-tests",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-screenplay-markdown-export-tests",
-      "blocker": null
-    },
-    {
-      "number": 269,
-      "title": "T-v1-status-diff-flag",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-v1-status-diff-flag",
-      "blocker": null
-    },
-    {
-      "number": 270,
-      "title": "T-v1-status-md-comment-flag",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-v1-status-md-comment-flag",
-      "blocker": null
-    },
-    {
-      "number": 271,
-      "title": "T-v1-status-npm-script",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-v1-status-npm-script",
-      "blocker": null
-    },
-    {
-      "number": 273,
-      "title": "T-decompose-phase5b3-turn-commit",
-      "owner": "support",
-      "tier": 2,
-      "status": "merged",
-      "branch": "support/T-decompose-phase5b3-turn-commit",
-      "blocker": null
-    },
-    {
-      "number": 276,
-      "title": "T-memories-list-schema-doc",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-memories-list-schema-doc",
-      "blocker": null
-    },
-    {
-      "number": 277,
-      "title": "T100-agent-next-inbox-backlog",
-      "owner": "codex",
-      "tier": 1,
-      "status": "merged",
-      "branch": "codex/T100-agent-next-inbox-backlog",
-      "blocker": null
-    },
-    {
-      "number": 278,
-      "title": "T-visual-context-schema-doc",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-visual-context-schema-doc",
-      "blocker": null
-    },
-    {
-      "number": 279,
-      "title": "T101-agent-event-kind-sync",
-      "owner": "codex",
-      "tier": 1,
-      "status": "merged",
-      "branch": "codex/T101-agent-event-kind-sync",
-      "blocker": null
-    },
-    {
-      "number": 280,
-      "title": "T-realtime-routes-deeper",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-realtime-routes-deeper",
-      "blocker": null
-    },
-    {
-      "number": 281,
-      "title": "T-memories-mutate-schema-doc",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-memories-mutate-schema-doc",
-      "blocker": null
-    },
-    {
-      "number": 282,
-      "title": "T-memories-export-schema-doc",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-memories-export-schema-doc",
-      "blocker": null
-    },
-    {
-      "number": 283,
-      "title": "T-recap-schema-doc",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-recap-schema-doc",
-      "blocker": null
-    },
-    {
-      "number": 284,
-      "title": "T-tasks-schema-doc",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-tasks-schema-doc2",
-      "blocker": null
-    },
-    {
-      "number": 285,
-      "title": "T-history-schema-doc",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-history-schema-doc",
-      "blocker": null
-    },
-    {
-      "number": 286,
-      "title": "T-outbox-routes-schema-doc",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-outbox-routes-schema-doc-fresh",
-      "blocker": null
-    },
-    {
-      "number": 288,
-      "title": "T-decompose-phase5b4-realtime-call",
-      "owner": "support",
-      "tier": 2,
-      "status": "merged",
-      "branch": "support/T-decompose-phase5b4-realtime-call",
-      "blocker": null
-    },
-    {
-      "number": 287,
-      "title": "T-state-schema-doc",
-      "owner": "codex",
-      "tier": 1,
-      "status": "closed",
-      "branch": "support/T-state-schema-doc",
-      "blocker": "closed-out-of-lane-schema-doc-only-pr"
-    },
-    {
-      "number": 289,
-      "title": "T-screenplay-companion-schema-doc",
-      "owner": "codex",
-      "tier": 1,
-      "status": "closed",
-      "branch": "support/T-screenplay-companion-schema-doc",
-      "blocker": "closed-out-of-lane-schema-doc-only-pr"
-    },
-    {
-      "number": 291,
-      "title": "T-screenplay-prompt-build-schema-doc",
-      "owner": "codex",
-      "tier": 1,
-      "status": "closed",
-      "branch": "support/T-screenplay-prompt-build-schema-doc-v2",
-      "blocker": "closed-out-of-lane-schema-doc-only-pr"
-    },
-    {
-      "number": 292,
-      "title": "T-screenplay-export-formats-schema",
-      "owner": "codex",
-      "tier": 1,
-      "status": "closed",
-      "branch": "support/T-screenplay-export-formats-schema",
-      "blocker": "closed-out-of-lane-schema-doc-only-pr"
-    },
-    {
-      "number": 293,
-      "title": "T-decompose-phase7a-helpers-design",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-decompose-phase7a-helpers-design",
-      "blocker": null
-    },
-    {
-      "number": 294,
-      "title": "T-linkedin-analyze-schema-doc",
-      "owner": "codex",
-      "tier": 1,
-      "status": "closed",
-      "branch": "support/T-linkedin-analyze-schema-doc-v2",
-      "blocker": "closed-out-of-lane-schema-doc-only-and-not-current-V1-critical-path"
-    },
-    {
-      "number": 296,
-      "title": "T-decompose-phase6-memories",
-      "owner": "support",
-      "tier": 2,
-      "status": "merged",
-      "branch": "support/T-decompose-phase6-memories",
-      "blocker": null
-    },
-    {
-      "number": 298,
-      "title": "T-decompose-phase7b-handler-design",
-      "owner": "codex",
-      "tier": 1,
-      "status": "closed",
-      "branch": "support/T-decompose-phase7b-handler-design",
-      "blocker": "closed-premature-until-Phase-7a-guard-extraction-lands"
-    },
-    {
-      "number": 299,
-      "title": "T-session-schema-doc",
-      "owner": "codex",
-      "tier": 1,
-      "status": "closed",
-      "branch": "support/T-session-schema-doc",
-      "blocker": "closed-out-of-lane-schema-doc-only-pr"
-    },
-    {
-      "number": 319,
-      "title": "T118: prove V1 build and test readiness",
-      "owner": "codex",
-      "tier": 1,
-      "status": "merged",
-      "branch": "codex/T118-v1-build-test-readiness-proof",
-      "blocker": null
-    },
-    {
-      "number": 320,
-      "title": "T119: close Screenplay Studio export UX gap",
-      "owner": "codex",
-      "tier": 1,
-      "status": "merged",
-      "branch": "codex/T119-screenplay-export-ux",
-      "blocker": null
-    },
-    {
-      "number": 321,
-      "title": "T120: document memory export/delete decision packet",
-      "owner": "codex",
-      "tier": 1,
-      "status": "merged",
-      "branch": "codex/T120-memory-privacy-decision-packet",
-      "blocker": null
-    },
-    {
-      "number": 322,
-      "title": "T121: refresh V1 handoff after Codex merges",
-      "owner": "codex",
-      "tier": 1,
-      "status": "merged",
-      "branch": "codex/T121-post-v1-progress-refresh",
-      "blocker": null
-    },
-    {
-      "number": 323,
-      "title": "T122: reprove current app build and tests",
-      "owner": "codex",
-      "tier": 1,
-      "status": "merged",
-      "branch": "codex/T122-current-app-test-proof",
-      "blocker": null
-    },
-    {
-      "number": 324,
-      "title": "T123: add one-command V1 smoke prompt",
-      "owner": "codex",
-      "tier": 1,
-      "status": "merged",
-      "branch": "codex/T123-v1-smoke-prompt",
-      "blocker": null
-    },
-    {
-      "number": 325,
-      "title": "T124: refresh after V1 smoke prompt merge",
-      "owner": "codex",
-      "tier": 1,
-      "status": "merged",
-      "branch": "codex/T124-refresh-after-v1-smoke-prompt",
-      "blocker": null
-    },
-    {
-      "number": 326,
-      "title": "T125: record deterministic V1 smoke proof",
-      "owner": "codex",
-      "tier": 1,
-      "status": "merged",
-      "branch": "codex/T125-deterministic-v1-smoke-proof",
-      "blocker": null
-    },
-    {
-      "number": 327,
-      "title": "T126: record release preflight blockers",
-      "owner": "codex",
-      "tier": 1,
-      "status": "merged",
-      "branch": "codex/T126-release-preflight-proof",
-      "blocker": null
-    },
-    {
-      "number": 338,
-      "title": "T136: add Launch Doctor CLI proof recorder",
-      "owner": "codex",
-      "tier": 1,
-      "status": "merged",
-      "branch": "codex/T136-v1-launch-doctor-cli",
-      "blocker": null,
-      "reviewer_note": "Merged under D005. Adds Launch Doctor CLI proof recorder and docs; missing flows stay not_started; launch_room can read generated proof."
-    },
-    {
-      "number": 339,
-      "title": "T137: refresh deterministic V1 smoke proof",
-      "owner": "codex",
-      "tier": 1,
-      "status": "merged",
-      "branch": "codex/T137-post-phase7b-v1-smoke-proof",
-      "blocker": null,
-      "reviewer_note": "Merged under D005 after deterministic V1 smoke pack passed on current main-derived branch; updates docs/v1-deterministic-smoke-proof.md."
-    },
-    {
-      "number": 349,
-      "title": "Phase 7c design note — talk supplier glue",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-decompose-phase7c-design",
-      "blocker": null,
-      "reviewer_note": "Merged by Codex after review. Design note only; approves the 3-factory Phase 7c implementation shape but does not pre-approve the implementation merge."
-    },
-    {
-      "number": 358,
-      "title": "Phase 6.1a: extract /outbox/*, /state, /data/* routes",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T-decompose-phase6-1a-outbox-data-state",
-      "blocker": null
-    },
-    {
-      "number": 359,
-      "title": "eval-quality repair: fix knowledge + playful routing root causes",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "support/T07-eval-quality-repair",
-      "blocker": null,
-      "reviewer_note": "Merged by Codex after GitHub evaluate and eval:gate against Postgres passed, local strict pre-flight passed, focused talk_routing_quality_guard passed 5/5, backend npm test passed 1208/0/1, and review confirmed no scorecard threshold weakening or auth/privacy/data-access change."
-    },
-    {
-      "number": 374,
-      "title": "release: integrate V1 to human-clearance boundary",
-      "owner": "codex",
-      "tier": 3,
-      "status": "merged",
-      "branch": "codex/T-v1-human-clearance",
-      "blocker": null,
-      "blocker_kind": null,
-      "reviewer_note": "Review the AppIcon and inherited Email Address privacy declaration, then complete Apple signing, live deployment, App Store, TestFlight, and physical-iPhone clearance.",
-      "expected_action": null
-    },
-    {
-      "number": 416,
-      "title": "feat(sync): live typing between devices — desktop keystrokes land on iPhone in real time",
-      "owner": "support",
-      "tier": 2,
-      "status": "merged",
-      "branch": "claude/live-draft-sync",
-      "blocker": null
-    },
-    {
-      "number": 417,
-      "title": "fix(security): rescue Day 1–3 sprint invariants onto main (craft enumeration, prompt-wire twist scoping, outbox per-user rows, timing-safe app token)",
-      "owner": "support",
-      "tier": 3,
-      "status": "merged",
-      "branch": "claude/rescue-sprint-security",
-      "blocker": null
-    },
-    {
-      "number": 418,
-      "title": "test(sync): two-device UI smoke — iPhone and Mac type into the same live page",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "claude/live-draft-two-device-smoke",
-      "blocker": null
-    },
-    {
-      "number": 419,
-      "title": "ci(quality-gate): de-flake the required iPhone writer-loop gate for slow macos runners",
-      "owner": "support",
-      "tier": 1,
-      "status": "merged",
-      "branch": "claude/quality-gate-deflake",
-      "blocker": null
-    },
-    {
-      "number": 421,
-      "title": "fix: ship resilient cross-device live drafts",
-      "owner": "codex",
-      "tier": 2,
-      "status": "merged",
-      "branch": "codex/live-cross-device-draft-sync",
-      "blocker": null
-    },
-    {
-      "number": 420,
-      "title": "ci(quality-gate): run soft-gate iOS smokes on main/dispatch, opt-in on PRs",
-      "owner": "support",
-      "tier": 2,
-      "status": "review",
-      "branch": "claude/quality-gate-pr-cost",
-      "blocker": "Draft. Workflow-cost change; human decides whether PR-time iOS smokes become opt-in.",
-      "blocker_kind": "needs_human"
+      "status": "blocked",
+      "branch": "codex/T-clementine-global-voice",
+      "blocker": "Land after #591 and rerun required checks once GitHub Actions can execute.",
+      "blocker_kind": "needs_rebase",
+      "blocker_against_pr": 591,
+      "reviewer_note": "Current-main global voice work; preserves tab selection and refreshes active realtime context.",
+      "expected_action": "Rebase after #591 and run export, Pages, all-six-tab voice, persistence, and relaunch together."
     },
     {
       "number": 422,
       "title": "Harden authenticated first-run resume",
       "owner": "codex",
       "tier": 3,
-      "status": "review",
+      "status": "blocked",
       "branch": "codex/onboarding-trust-polish",
-      "blocker": "Auth/first-run behavior change; needs human clearance per AGENTS.md.",
-      "blocker_kind": "needs_human"
+      "blocker": "The useful patch is 81 commits behind main and its integrated writer-loop gate previously failed.",
+      "blocker_kind": "needs_rebase",
+      "reviewer_note": "Reconstruct after #592; do not merge the stale branch.",
+      "expected_action": "Rebuild the unique first-run behavior on current main and reverify the complete writer loop."
     },
     {
-      "number": 423,
-      "title": "Auth index, ETag guard, unknown-commit fencing, scoped UI gate (stacked on codex keychain branch)",
-      "owner": "support",
-      "tier": 3,
-      "status": "review",
-      "branch": "claude/auth-userid-index-etag-guard",
-      "blocker": "CONFLICTING with main; carries Codex's 41 unpushed keychain commits. Narrows to 4 commits once codex/T-ios-keychain-token-migration lands.",
-      "blocker_kind": "needs_rebase"
+      "number": 596,
+      "title": "test: restore green backend baseline",
+      "owner": "codex",
+      "tier": 1,
+      "status": "blocked",
+      "branch": "codex/T-main-backend-baseline-repair",
+      "blocker": "Required hosted Quality Gate run 34272801038 is executing on exact SHA e3cb72a after the design-token repair.",
+      "blocker_kind": "needs_test_fix",
+      "reviewer_note": "Fixes three genuine backend test failures, the current-main Xcode 26 inspector compile failure, and the design-token test regression; backend, god-file, and early Quality Gate steps pass on the exact hosted candidate.",
+      "expected_action": "Merge only if the complete required hosted gate passes on SHA e3cb72a."
     },
     {
-      "number": 424,
-      "title": "backend: boot-level IAP fail-closed, ship knowledge cards in the image, MUSE_MODEL knob",
-      "owner": "support",
-      "tier": 3,
-      "status": "review",
-      "branch": "claude/launch-safety-boot-guard",
-      "blocker": "Human merge. Set APP_STORE_ISSUER_ID/KEY_ID/PRIVATE_KEY/BUNDLE_ID in Render before the next deploy or production boot refuses by design.",
-      "blocker_kind": "needs_human",
-      "expected_action": "Merge after Quality Gate; set the four APP_STORE_* values in Render; accept/reject the D001 and D011 proposals in docs/proposed-decisions.md."
+      "number": 597,
+      "title": "fix: make screenplay cue linting context-aware",
+      "owner": "codex",
+      "tier": 1,
+      "status": "blocked",
+      "branch": "codex/T-linter-cue-production",
+      "blocker": "Land after #596 and rerun required checks once GitHub Actions can execute.",
+      "blocker_kind": "needs_rebase",
+      "blocker_against_pr": 596,
+      "reviewer_note": "Supersedes closed #477; preserves Claude's useful core while honoring canonical Fountain and Unicode cue syntax.",
+      "expected_action": "Land after #596 only when both exact SHAs receive the required hosted checks."
     },
     {
-      "number": 425,
-      "title": "Fix the six V1 smoke failures: leaked draft journal on reset, phone-layout-aware tests",
+      "number": 598,
+      "title": "test: enforce backend child-process safety",
+      "owner": "codex",
+      "tier": 1,
+      "status": "blocked",
+      "branch": "codex/T-child-process-safety-guard",
+      "blocker": "Land after #596 and rerun required checks once GitHub Actions can execute.",
+      "blocker_kind": "needs_rebase",
+      "blocker_against_pr": 596,
+      "reviewer_note": "Supersedes closed #460 with recursive AST coverage and tested ESM, CommonJS, namespace, dynamic-import, and shell bypass detection.",
+      "expected_action": "Land after #596 only when both exact SHAs receive the required hosted checks."
+    },
+    {
+      "number": 599,
+      "title": "fix: make release readiness reporting fail closed",
+      "owner": "codex",
+      "tier": 1,
+      "status": "blocked",
+      "branch": "codex/T-release-preflight-truth",
+      "blocker": "Land after #596 and rerun required checks once GitHub Actions can execute.",
+      "blocker_kind": "needs_rebase",
+      "blocker_against_pr": 596,
+      "reviewer_note": "Supersedes closed #455; required and nested skips exit 2 instead of producing a successful partial run.",
+      "expected_action": "Land after #596 only when exact-SHA hosted checks execute and pass."
+    },
+    {
+      "number": 600,
+      "title": "ci: enable safe dependency update review",
+      "owner": "codex",
+      "tier": 2,
+      "status": "blocked",
+      "branch": "codex/T-dependabot-safe-updates",
+      "blocker": "Land after #596 and rerun required checks once GitHub Actions can execute.",
+      "blocker_kind": "needs_rebase",
+      "blocker_against_pr": 596,
+      "reviewer_note": "Safe reconstruction of the Dependabot slice from closed #456; uses real labels, grouped npm updates, and defers selected majors.",
+      "expected_action": "Review generated dependency proposals individually after #596 receives required hosted checks."
+    },
+    {
+      "number": 602,
+      "title": "build: migrate backend to Node 24 LTS",
+      "owner": "codex",
+      "tier": 1,
+      "status": "blocked",
+      "branch": "codex/T-node24-lts",
+      "blocker": "Land after #596 and rerun required checks once GitHub Actions can execute.",
+      "blocker_kind": "needs_rebase",
+      "blocker_against_pr": 596,
+      "reviewer_note": "Replaces end-of-life Node 20 with pinned Node 24 across workflows, package metadata, and both Docker stages; production image and graceful shutdown were verified locally.",
+      "expected_action": "Rerun exact-SHA hosted checks, then verify the pinned production image in the normal deployment lane."
+    },
+    {
+      "number": 603,
+      "title": "fix: keep FDX title metadata explicit",
+      "owner": "codex",
+      "tier": 1,
+      "status": "blocked",
+      "branch": "codex/T-fdx-export-purity",
+      "blocker": "Land after #596 and rerun required checks once GitHub Actions can execute.",
+      "blocker_kind": "needs_rebase",
+      "blocker_against_pr": 596,
+      "reviewer_note": "Supersedes closed #442; keeps serialization clock-free and emits Draft Date only from canonical writer-authored metadata.",
+      "expected_action": "Land after #596 only when the exact SHA receives required hosted checks."
+    },
+    {
+      "number": 604,
+      "title": "ci: use canonical release token in Quality Gate",
+      "owner": "codex",
+      "tier": 1,
+      "status": "blocked",
+      "branch": "codex/T-quality-gate-release-token",
+      "blocker": "Its required Quality Gate failed in the iOS unit step before #596's design-token repair; rebase after #596 and rerun the exact candidate.",
+      "blocker_kind": "needs_rebase",
+      "blocker_against_pr": 596,
+      "reviewer_note": "Maps canonical APP_TOKEN_RELEASE into the backend runtime variable APP_TOKEN and guards the contract with tests.",
+      "expected_action": "Require exact-SHA hosted checks, merge after #596, then dispatch the complete main Quality Gate."
+    },
+    {
+      "number": 605,
+      "title": "fix: stop idle outbox session churn",
+      "owner": "codex",
+      "tier": 1,
+      "status": "blocked",
+      "branch": "codex/T-outbox-idle-session-churn",
+      "blocker": "Its required Quality Gate failed in the iOS unit step before #596's design-token repair; rebase after #596 and rerun the exact candidate.",
+      "blocker_kind": "needs_rebase",
+      "blocker_against_pr": 596,
+      "reviewer_note": "Safe reconstruction of closed #481; removes only false idle notifications and preserves forced fresh reads for genuine outbox changes.",
+      "expected_action": "Verify the full signed iOS gate, then rebase behind the active app train before landing if needed."
+    },
+    {
+      "number": 606,
+      "title": "docs: archive obsolete root prompt artifacts",
+      "owner": "codex",
+      "tier": 2,
+      "status": "blocked",
+      "branch": "codex/T-archive-root-prompts",
+      "blocker": "The hosted Quality Gate is still executing on exact SHA 70ac03d; backend and god-file jobs passed.",
+      "blocker_kind": "needs_test_fix",
+      "blocker_against_pr": 596,
+      "reviewer_note": "Current reconstruction supersedes closed #466; preserves every historical blob and Git history while clearly marking archived prompts as non-operative reference material. Hosted backend and god-file jobs pass.",
+      "expected_action": "Require complete exact-SHA hosted checks and land only after #596."
+    },
+    {
+      "number": 482,
+      "title": "screenplay: project-list poll answers 304 when unchanged",
       "owner": "support",
       "tier": 2,
-      "status": "review",
-      "branch": "claude/v1-smoke-fixes",
-      "blocker": "Stacked on #423; lands after it.",
+      "status": "blocked",
+      "branch": "claude/projects-poll-etag",
+      "blocker": "The tip is stacked on the session-churn chain.",
+      "blocker_kind": "needs_scope_narrowing",
+      "blocker_against_pr": 481,
+      "reviewer_note": "Conditional polling must stay owner-scoped and invalidate correctly.",
+      "expected_action": "Port only the ETag tip after reconstructed session churn."
+    },
+    {
+      "number": 443,
+      "title": "page: next beats reach the phone via turn metadata",
+      "owner": "support",
+      "tier": 2,
+      "status": "blocked",
+      "branch": "claude/next-beats-response-field",
+      "blocker": "Preferred transport foundation is stale and cannot be enabled until identity and retry contracts are complete.",
       "blocker_kind": "needs_rebase",
-      "blocker_against_pr": 423
+      "reviewer_note": "Preferred over the rejected request-body implementation in closed #438.",
+      "expected_action": "Rebuild the additive response transport on current main, keeping request bodies immutable."
+    },
+    {
+      "number": 444,
+      "title": "studio: tappable next-beat pills",
+      "owner": "support",
+      "tier": 2,
+      "status": "blocked",
+      "branch": "claude/studio-next-beat-pills",
+      "blocker": "Suggestions lack identity, invalidation, safe retry, honest cost copy, and narrow-layout proof.",
+      "blocker_kind": "needs_test_fix",
+      "blocker_against_pr": 443,
+      "reviewer_note": "UI must follow a rebuilt #443 transport and current Studio architecture.",
+      "expected_action": "Rebuild after #443 with owner/project/version/request identity and signed iPhone tests."
     }
   ],
   "blockers": [
     {
-      "id": "v1-release-preflight-config",
-      "owner": "human",
-      "summary": "Release preflight fails until signing/configuration values in docs/v1-release-preflight-proof.md are cleared.",
-      "since": "2026-05-15"
-    },
-    {
       "id": "render-app-store-secrets",
       "owner": "human",
-      "summary": "Once #424 is on main, production boot refuses to start until APP_STORE_ISSUER_ID, APP_STORE_KEY_ID, APP_STORE_PRIVATE_KEY, and APP_STORE_BUNDLE_ID are set in the Render dashboard (render.yaml declares them sync:false).",
+      "summary": "Production correctly fails closed without APP_STORE_ISSUER_ID, APP_STORE_KEY_ID, and APP_STORE_PRIVATE_KEY. Keep the last successful deployment live until real credentials exist and the candidate SHA is verified.",
       "since": "2026-09-05"
-    }
-  ],
-  "decisionsPending": [
+    },
     {
-      "id": "d011-boot-level-fail-closed",
-      "question": "Accept or reject the two entries in docs/proposed-decisions.md: D001 domain clarification (them.io hosts are infrastructure for io.them) and D011 amendment (production boot refuses to start without App Store Server API secrets; already implemented in #424).",
-      "ownerNeeds": "human",
-      "since": "2026-09-05"
+      "id": "v1-release-preflight-config",
+      "owner": "human",
+      "summary": "Release acceptance still requires private release configuration, current domain/privacy proof, physical-device/provider checks, and human TestFlight smoke signoff.",
+      "since": "2026-05-15"
     }
   ],
-  "endpointsAwaitingIosConsumer": []
+  "decisionsPending": [],
+  "endpointsAwaitingIosConsumer": [],
+  "audit": {
+    "baseline": "60bb72d8c5e135388c7bd0553091691a5e25ed93",
+    "remoteBranchCountIncludingMain": 158,
+    "literalAncestorsOfMain": 58,
+    "nominallyAheadOfMain": 99,
+    "openPullRequestHeads": 71,
+    "orphanAheadRefs": 28,
+    "report": "docs/branch-audit-2026-09-07.md",
+    "note": "The fast queue records only the current landing train and highest-priority reconstruction work. The exhaustive disposition is in the audit report."
+  }
 }
