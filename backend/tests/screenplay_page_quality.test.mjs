@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { findSequenceForPage } from "../lib/feature_screenplay_map.js";
 
 import {
   classifyScreenplayLines,
   evaluateMomentumRescueQuality,
   evaluateScreenplayPageQuality,
+  evaluateFeatureActObligationCoverage,
   isLikelyOutlineOrCraftArtifactLine,
   isLikelyPlaceholderScreenplayLine,
   isLowSignalActionLine,
@@ -12,6 +14,16 @@ import {
   isSummaryLikeActionLine,
   minimumExpectedWordsForRequestedPages,
 } from "../lib/screenplay_page_quality.js";
+
+test("quality gate and feature map agree on every page at the chosen length", () => {
+  for (const targetPages of [60, 90, 110, 120, 150, 180]) {
+    for (let pageCount = 1; pageCount <= targetPages; pageCount += 1) {
+      const result = evaluateFeatureActObligationCoverage({ featureContext: { pageCount, targetPages } });
+      const expected = { "Act I": "act1", "Act II": "act2", "Act III": "act3" }[findSequenceForPage(pageCount, targetPages).act];
+      assert.equal(result.featureActKind, expected, `Page ${pageCount} of ${targetPages}`);
+    }
+  }
+});
 
 test("[momentum-rescue-quality] rejects vague writer-block advice without a playable next beat", () => {
   const quality = evaluateMomentumRescueQuality({
