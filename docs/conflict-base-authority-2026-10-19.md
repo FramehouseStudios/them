@@ -71,6 +71,15 @@ stops at first red. Logs /tmp/them-997-{recovery,writer,home,v1,voice}.log.
 Only owned Pro11CF5EFB-D8C3-4F19-8062-28AF37F27D93 is erased; signing stays on.
 No finished UI/macOS result is claimed from a live process.
 
+Authenticated recovery stage completed5 pass/0 fail/0 skip on exact erased
+owned Pro/iOS26.2, evaluator exit0:
+/tmp/them-997-recovery/them-save-recovery-PpKuXj/recovery-ios.xcresult.
+Actual relaunch, expired-auth refresh, stale conflict and explicit choices,
+intentional blank/delete-all and fresh Load Server paths passed. Runtime
+unchanged from0c1afb1a. Writer stage is now active on the same serial65975;
+Home/full V1/voice/macOS are not yet proven. This local result does not prove
+the original hosted26.5 failure's cause or authorize main/child promotion.
+
 This proves a concrete authority defect, not yet its causal responsibility
 for hosted39312650862. Production publisher timing and26.5 recovery still need
 fresh exact-head proof. Historical already-rebased snapshots and universal

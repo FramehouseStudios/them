@@ -32,6 +32,9 @@
   attribution unproven. Frozen runtime0c1afb1a Node20.20.2 backend2897/0/2,
   scripts231/0/0 pass. Authenticated recovery/writer/Home/V1/voice/macOS serial
   native65975 active, stops at first red. Original961 head unchanged.
+- **Recovery:** authenticated local five-story gate5/0/0 on exact erased Pro
+  /26.2, evaluator exit0; writer stage active on unchanged0c1afb1a. Hosted26.5
+  cause and full remaining workflow still unproven; no promotion yet.
 
 ### T-989 — Carry exact editor recovery into the product rehearsal
 
