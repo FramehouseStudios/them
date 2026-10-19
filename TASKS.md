@@ -56,6 +56,52 @@
   Retained environment failures corrected without app/assertion changes.
   UI pipeline and parent hosted iOS gate remain active. Manifest:
   `docs/retention-parent-forward-2026-10-19.md`.
+### T-991 — Never hide or abandon database proof cleanup failures
+
+- **Owner:** codex. **Branch:** `codex/T-991-postgres-cleanup-safety`.
+- **Status:** in-progress. **Pillar:** trustworthy persistence/release proof.
+- **Scope:** original #963 gate stops cleanup after one removal failure and
+  hides every worker-removal error. Attempt all exact owned resources,
+  preserve primary failure, aggregate incomplete cleanup, tolerate only the
+  exact already-removed worker. No production/resource discovery or deletion.
+- **Before:** focused regression6/2/0 host Node26. **After:**10/0/0, including
+  successful-worker fail-closed cleanup and exact absent-worker tolerance.
+- **Done when:** pinned full backend and actual disposable database restart
+  gate pass; D009/diff clean; preserve original #963 head until propagation
+  and exact updated-head proof. No main merge or replacement PR.
+- **Human decision:** production held until App Store credentials exist.
+- **Verified:** final pinned Node20 backend2896/0/2; actual PostgreSQL16.15
+  restart/cleanup PASS; syntax/diff pass; D009 all five deltas0 versus fetched
+  original #963. Fix is backed up, original PR head unchanged pending parent
+  propagation and combined proof. Manifest:
+  `docs/postgres-cleanup-safety-2026-10-19.md`.
+
+### T-981 — Maintained production-mode PostgreSQL writer restart gate
+
+- **Owner:** codex. **Branch:** `codex/T-981-postgres-writer-gate`.
+- **Status:** review (normal hosted execution required). **Pillar:** writer text safety and release proof.
+- **Scope:** promote the retained real-database probe into a one-command gate
+  inside the existing required Backend tests job. Use the canonical runtime
+  image, disposable disk volume/internal network and synthetic credentials;
+  never consume a host database URL or paid-provider credentials. Preserve the
+  current integration/heads, orb and Clementine; no production behavior change.
+- **Done when:** actual6,600-line/422KB exact-byte write/rewrite survives real
+  database and backend restart with new local files and duplicate replay;
+  cross-user read remains denied. CLI failures/refusal redaction are tested,
+  full pinned backend suite/D009/whitespace pass; CI is wired without bypasses.
+- **Before:** first automated canonical-image run passed real restart. New
+  refusal canary test exposed URL leakage (4 pass/1 fail); Boolean refusal
+  avoids echoing an accidentally supplied DSN. Six safety tests now pass;
+  actual final gate passed with cleanup before its PASS marker.
+- **Current proof:** actual422,201-byte restart gate passes, safety6/0/0,
+  workflow wired in existing required Backend tests job. First full pinned
+  suite2863/1/2: existing auth round-trip file SIGABRT, not an assertion.
+  Focused diagnostic36/0/0; full frozen1076a99c diagnostic2892/0/2, no native
+  report generated. Original abort remains unexplained, not claimed fixed.
+  No speculative auth change or unchanged CI retry. Normal hosted gate must
+  pass before merge. Client/runtime logic unchanged; D009 and whitespace pass.
+  Manifest/limits:
+  `docs/postgres-writer-gate-2026-10-19.md`.
 
 ### T-980 — Preserve byte-distinct live screenplay edits
 
