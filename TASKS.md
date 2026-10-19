@@ -29,8 +29,9 @@
 - **Fix:** canonical bridge-version adoption rejects active conflict and
   dirty manual/restored writer state. Full signed units865/0/0 pass on exact
   erased owned Pro/iOS26.2; D009 all five deltas0 and diff pass. Hosted causal
-  attribution unproven; authenticated UI and pinned backend proof pending.
-  Original961 head unchanged.
+  attribution unproven. Frozen runtime0c1afb1a Node20.20.2 backend2897/0/2,
+  scripts231/0/0 pass. Authenticated recovery/writer/Home/V1/voice/macOS serial
+  native65975 active, stops at first red. Original961 head unchanged.
 
 ### T-989 — Carry exact editor recovery into the product rehearsal
 

@@ -59,7 +59,17 @@ erased Pro/iOS26.2 summary verified:
 /tmp/them-997-units.log. Both new tests pass, including pending/parked restored
 writer authority, explicit unresolved conflict and positive generated-page ack.
 D009 all five deltas0 against exact fetched parent8b19d86b; whitespace pass.
-Authenticated UI/recovery, pinned backend/scripts and macOS remain pending.
+Frozen runtime0c1afb1a: pinned Node20.20.2 backend2897 pass/0 fail/2 skip,
+scripts231/0/0, native93802 exit0. /tmp/them-997-node20.log. External network
+disabled, exact locked dependencies, readonly source and disposable fixture
+writes. Expected simulated persistence-outage diagnostics are test data, not
+a production outage. Authenticated UI/recovery and macOS remain pending.
+
+Serial native65975 runs authenticated five-story recovery, writer, fixed-
+provider Home, full V1 and voice-fault/macOS against that unchanged runtime;
+stops at first red. Logs /tmp/them-997-{recovery,writer,home,v1,voice}.log.
+Only owned Pro11CF5EFB-D8C3-4F19-8062-28AF37F27D93 is erased; signing stays on.
+No finished UI/macOS result is claimed from a live process.
 
 This proves a concrete authority defect, not yet its causal responsibility
 for hosted39312650862. Production publisher timing and26.5 recovery still need
