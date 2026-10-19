@@ -16,6 +16,12 @@
   signed erased units, authenticated narrow writer/recovery UI, macOS and
   D009/diff pass. Separate parent hosted gates still required before promotion.
 - **Human hold:** production blocked until App Store credentials exist.
+- **Verified:** exact source0d4b5d5 Node20 backend2929/0/2, scripts231/0/0,
+  signed erased Pro units865/0/0, actual PostgreSQL16.15 restart/cleanup PASS;
+  D009 all five deltas0, syntax/diff clean. Small-screen pre-integration UI
+  red27/2/15 is being fixed at the demonstrated wrong-direction test helper;
+  do not call combined UI complete. Manifest:
+  `docs/integrated-writer-safety-2026-10-19.md`.
 
 ### T-992 — Remove avoidable older-iPhone install/API blockers
 
