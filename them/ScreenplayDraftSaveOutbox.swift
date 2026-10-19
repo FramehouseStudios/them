@@ -65,6 +65,7 @@ actor ScreenplayDraftSaveOutbox {
     static let shared = ScreenplayDraftSaveOutbox(storageDirectory: defaultStorageDirectory())
 
     private static let maxDraftBytes = 2 * 1024 * 1024
+    private static let maxReceipts = 256
     private static let backoffSeconds: [TimeInterval] = [2, 5, 15, 60, 300]
 
     private let storageDirectory: URL
@@ -72,6 +73,8 @@ actor ScreenplayDraftSaveOutbox {
     private let fileManager: FileManager
     private var didLoad = false
     private var entries: [ScreenplayDraftSaveOutboxEntry] = []
+    private var receipts: [ScreenplayDraftSaveReceipt] = []
+    private var receiptWaiters: [ScreenplayDraftSaveReceiptKey: [UUID: AsyncStream<ScreenplayDraftSaveReceipt>.Continuation]] = [:]
     private var networkMonitor: NWPathMonitor?
     private let networkMonitorQueue = DispatchQueue(label: "io.them.screenplay-save-outbox.network")
 
@@ -130,6 +133,19 @@ actor ScreenplayDraftSaveOutbox {
         guard entry.draft.utf8.count <= Self.maxDraftBytes else {
             throw BackendMemoryAPIError.server(status: 413, message: "screenplay_draft_too_large")
         }
+        let entryKey = receiptKey(for: entry)
+        if let completed = receipts.first(where: {
+            $0.key.ownerUserId == entryKey.ownerUserId &&
+                $0.key.projectId == entryKey.projectId &&
+                $0.key.clientRequestId == entryKey.clientRequestId
+        }) {
+            guard completed.key == entryKey else {
+                throw BackendMemoryAPIError.server(status: 409, message: "screenplay_save_id_reused")
+            }
+            let nextSnapshot = snapshotFor(entries)
+            publish(nextSnapshot)
+            return nextSnapshot
+        }
         if let index = entries.firstIndex(where: { $0.id == entry.id }) {
             guard entries[index].projectId == entry.projectId,
                   entries[index].ownerUserId == entry.ownerUserId,
@@ -140,23 +156,13 @@ actor ScreenplayDraftSaveOutbox {
             publish(nextSnapshot)
             return nextSnapshot
         }
-        if entries.contains(where: { existing in
-            existing.projectId == entry.projectId &&
-                existing.ownerUserId == entry.ownerUserId &&
-                existing.status != .parked &&
-                existing.baseVersionId == entry.baseVersionId &&
-                normalizedDraft(existing.draft) == normalizedDraft(entry.draft)
-        }) {
-            let nextSnapshot = snapshotFor(entries)
-            publish(nextSnapshot)
-            return nextSnapshot
-        }
-        entries.append(entry)
-        entries.sort { lhs, rhs in
+        var nextEntries = entries
+        nextEntries.append(entry)
+        nextEntries.sort { lhs, rhs in
             if lhs.createdAt == rhs.createdAt { return lhs.id < rhs.id }
             return lhs.createdAt < rhs.createdAt
         }
-        try persist()
+        try commit(entries: nextEntries, receipts: receipts)
         let nextSnapshot = snapshotFor(entries)
         publish(nextSnapshot)
         return nextSnapshot
@@ -173,7 +179,9 @@ actor ScreenplayDraftSaveOutbox {
         let cleanOwnerUserId = ownerUserId.trimmingCharacters(in: .whitespacesAndNewlines)
         let nowSeconds = now.timeIntervalSince1970
         guard let index = entries.firstIndex(where: {
-            $0.projectId == cleanProjectId && $0.ownerUserId == cleanOwnerUserId
+            $0.projectId == cleanProjectId &&
+                $0.ownerUserId == cleanOwnerUserId &&
+                $0.status != .parked
         }) else {
             return nil
         }
@@ -182,9 +190,10 @@ actor ScreenplayDraftSaveOutbox {
               force || entry.nextAttemptAt <= nowSeconds else {
             return nil
         }
-        entries[index].status = .inflight
-        entries[index].updatedAt = nowSeconds
-        try persist()
+        var nextEntries = entries
+        nextEntries[index].status = .inflight
+        nextEntries[index].updatedAt = nowSeconds
+        try commit(entries: nextEntries, receipts: receipts)
         publishSnapshot()
         return entries[index]
     }
@@ -203,92 +212,297 @@ actor ScreenplayDraftSaveOutbox {
     func markInflight(id: String, now: Date = Date()) throws {
         try loadIfNeeded()
         guard let index = entries.firstIndex(where: { $0.id == id }) else { return }
-        entries[index].status = .inflight
-        entries[index].updatedAt = now.timeIntervalSince1970
-        try persist()
+        var nextEntries = entries
+        nextEntries[index].status = .inflight
+        nextEntries[index].updatedAt = now.timeIntervalSince1970
+        try commit(entries: nextEntries, receipts: receipts)
         publishSnapshot()
     }
 
-    func markSucceeded(
-        id: String,
-        serverVersionId: String,
+    @discardableResult
+    func markAccepted(
+        key: ScreenplayDraftSaveReceiptKey,
+        proof: ScreenplayDraftSaveServerProof,
         now: Date = Date()
-    ) throws {
+    ) throws -> ScreenplayDraftSaveReceipt {
         try loadIfNeeded()
-        guard let index = entries.firstIndex(where: { $0.id == id }) else { return }
-        let completed = entries.remove(at: index)
-        entries.removeAll { entry in
+        if let existing = receipts.first(where: { $0.key == key }) {
+            guard existing.outcome == .accepted,
+                  existing.serverVersionId == proof.versionId,
+                  existing.serverDraftSHA256 == proof.canonicalDraftSHA256 else {
+                throw BackendMemoryAPIError.server(status: 409, message: "screenplay_save_receipt_conflict")
+            }
+            return existing
+        }
+        guard let index = entries.firstIndex(where: { receiptKey(for: $0) == key }) else {
+            throw BackendMemoryAPIError.server(status: 409, message: "screenplay_save_receipt_entry_missing")
+        }
+        var nextEntries = entries
+        let completed = nextEntries.remove(at: index)
+        let supersededEntries = nextEntries.filter { entry in
             entry.projectId == completed.projectId &&
                 entry.ownerUserId == completed.ownerUserId &&
                 entry.status == .parked &&
-                entry.createdAt <= completed.createdAt
+                entry.createdAt <= completed.createdAt &&
+                !receipts.contains(where: { $0.key == receiptKey(for: entry) })
         }
-        let nextBase = serverVersionId.trimmingCharacters(in: .whitespacesAndNewlines)
+        let supersededIDs = Set(supersededEntries.map(\.id))
+        nextEntries.removeAll { supersededIDs.contains($0.id) }
+        let nextBase = proof.versionId.trimmingCharacters(in: .whitespacesAndNewlines)
         if !nextBase.isEmpty {
-            for queuedIndex in entries.indices where
-                entries[queuedIndex].projectId == completed.projectId &&
-                entries[queuedIndex].ownerUserId == completed.ownerUserId &&
-                entries[queuedIndex].createdAt >= completed.createdAt &&
-                entries[queuedIndex].baseVersionId == completed.baseVersionId {
-                entries[queuedIndex].baseVersionId = nextBase
-                entries[queuedIndex].updatedAt = now.timeIntervalSince1970
+            for queuedIndex in nextEntries.indices where
+                nextEntries[queuedIndex].projectId == completed.projectId &&
+                nextEntries[queuedIndex].ownerUserId == completed.ownerUserId &&
+                nextEntries[queuedIndex].createdAt >= completed.createdAt &&
+                nextEntries[queuedIndex].baseVersionId == completed.baseVersionId {
+                nextEntries[queuedIndex].baseVersionId = nextBase
+                nextEntries[queuedIndex].updatedAt = now.timeIntervalSince1970
             }
         }
-        try persist()
-        publishSnapshot()
-    }
-
-    func remove(id: String) throws {
-        try loadIfNeeded()
-        entries.removeAll { $0.id == id }
-        try persist()
-        publishSnapshot()
-    }
-
-    func removeAll(projectId: String, ownerUserId: String) throws {
-        try loadIfNeeded()
-        let cleanProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
-        let cleanOwnerUserId = ownerUserId.trimmingCharacters(in: .whitespacesAndNewlines)
-        entries.removeAll { entry in
-            entry.projectId == cleanProjectId &&
-                entry.ownerUserId == cleanOwnerUserId
+        let receipt = ScreenplayDraftSaveReceipt(
+            key: key,
+            outcome: .accepted,
+            serverVersionId: nextBase,
+            serverDraftSHA256: proof.canonicalDraftSHA256,
+            reasonCode: "",
+            completedAt: now.timeIntervalSince1970
+        )
+        let supersededReceipts = supersededEntries.map { entry in
+            ScreenplayDraftSaveReceipt(
+                key: receiptKey(for: entry),
+                outcome: .superseded,
+                serverVersionId: nextBase,
+                serverDraftSHA256: proof.canonicalDraftSHA256,
+                reasonCode: "superseded_by_accepted_save",
+                completedAt: now.timeIntervalSince1970
+            )
         }
-        try persist()
+        let nextReceipts = (supersededReceipts + [receipt]).reduce(receipts) { appending($1, to: $0) }
+        try commitReceiptTransition(entries: nextEntries, receipts: nextReceipts)
+        supersededReceipts.forEach(finishWaiters)
+        finishWaiters(with: receipt)
         publishSnapshot()
+        return receipt
+    }
+
+    func markConflict(
+        activeKey: ScreenplayDraftSaveReceiptKey,
+        serverVersionId: String,
+        serverDraft: String,
+        reasonCode: String,
+        now: Date = Date()
+    ) throws -> ScreenplayDraftSaveReceipt {
+        try loadIfNeeded()
+        let cleanReason = normalizedReasonCode(reasonCode, fallback: "stale_version")
+        let cleanVersionId = serverVersionId.trimmingCharacters(in: .whitespacesAndNewlines)
+        let serverHash = serverDraft.isEmpty ? "" : ScreenplayDraftSaveCanonicalization.serverSHA256(serverDraft)
+        if let existing = receipts.first(where: { $0.key == activeKey }) {
+            guard existing.outcome == .conflict,
+                  existing.serverVersionId == cleanVersionId,
+                  existing.serverDraftSHA256 == serverHash,
+                  existing.reasonCode == cleanReason else {
+                throw BackendMemoryAPIError.server(status: 409, message: "screenplay_save_receipt_conflict")
+            }
+            return existing
+        }
+        guard let activeIndex = entries.firstIndex(where: { receiptKey(for: $0) == activeKey }) else {
+            throw BackendMemoryAPIError.server(status: 409, message: "screenplay_save_receipt_entry_missing")
+        }
+        let completedAt = now.timeIntervalSince1970
+        let receipt = ScreenplayDraftSaveReceipt(
+            key: activeKey,
+            outcome: .conflict,
+            serverVersionId: cleanVersionId,
+            serverDraftSHA256: serverHash,
+            reasonCode: cleanReason,
+            completedAt: completedAt
+        )
+        var nextEntries = entries
+        nextEntries.remove(at: activeIndex)
+        for index in nextEntries.indices where
+            nextEntries[index].projectId == activeKey.projectId &&
+            nextEntries[index].ownerUserId == activeKey.ownerUserId &&
+            !receipts.contains(where: { $0.key == receiptKey(for: nextEntries[index]) }) {
+            nextEntries[index].status = .parked
+            nextEntries[index].updatedAt = completedAt
+            nextEntries[index].nextAttemptAt = 0
+            nextEntries[index].lastError = "Blocked by an unresolved save conflict."
+        }
+        let nextReceipts = appending(receipt, to: receipts)
+        try commitReceiptTransition(entries: nextEntries, receipts: nextReceipts)
+        finishWaiters(with: receipt)
+        publishSnapshot()
+        return receipt
+    }
+
+    @discardableResult
+    func markSuperseded(
+        key: ScreenplayDraftSaveReceiptKey,
+        serverVersionId: String,
+        serverDraft: String,
+        reasonCode: String,
+        now: Date = Date()
+    ) throws -> ScreenplayDraftSaveReceipt {
+        try loadIfNeeded()
+        let nextBase = serverVersionId.trimmingCharacters(in: .whitespacesAndNewlines)
+        let serverHash = ScreenplayDraftSaveCanonicalization.serverSHA256(serverDraft)
+        let cleanReason = normalizedReasonCode(reasonCode, fallback: "already_saved_elsewhere")
+        if let existing = receipts.first(where: { $0.key == key }) {
+            guard existing.outcome == .superseded,
+                  existing.serverVersionId == nextBase,
+                  existing.serverDraftSHA256 == serverHash,
+                  existing.reasonCode == cleanReason else {
+                throw BackendMemoryAPIError.server(status: 409, message: "screenplay_save_receipt_conflict")
+            }
+            return existing
+        }
+        guard let index = entries.firstIndex(where: { receiptKey(for: $0) == key }) else {
+            throw BackendMemoryAPIError.server(status: 409, message: "screenplay_save_receipt_entry_missing")
+        }
+        var nextEntries = entries
+        let completed = nextEntries.remove(at: index)
+        for queuedIndex in nextEntries.indices where
+            nextEntries[queuedIndex].projectId == completed.projectId &&
+            nextEntries[queuedIndex].ownerUserId == completed.ownerUserId &&
+            nextEntries[queuedIndex].createdAt >= completed.createdAt &&
+            nextEntries[queuedIndex].baseVersionId == completed.baseVersionId {
+            nextEntries[queuedIndex].baseVersionId = nextBase
+            nextEntries[queuedIndex].updatedAt = now.timeIntervalSince1970
+        }
+        let receipt = ScreenplayDraftSaveReceipt(
+            key: key,
+            outcome: .superseded,
+            serverVersionId: nextBase,
+            serverDraftSHA256: serverHash,
+            reasonCode: cleanReason,
+            completedAt: now.timeIntervalSince1970
+        )
+        let nextReceipts = appending(receipt, to: receipts)
+        try commitReceiptTransition(entries: nextEntries, receipts: nextReceipts)
+        finishWaiters(with: receipt)
+        publishSnapshot()
+        return receipt
+    }
+
+    @discardableResult
+    func markRejected(
+        key: ScreenplayDraftSaveReceiptKey,
+        reasonCode: String,
+        error: String,
+        now: Date = Date()
+    ) throws -> ScreenplayDraftSaveReceipt {
+        try loadIfNeeded()
+        let cleanReason = normalizedReasonCode(reasonCode, fallback: "save_rejected")
+        if let existing = receipts.first(where: { $0.key == key }) {
+            guard existing.outcome == .rejected,
+                  existing.reasonCode == cleanReason else {
+                throw BackendMemoryAPIError.server(status: 409, message: "screenplay_save_receipt_conflict")
+            }
+            return existing
+        }
+        guard let index = entries.firstIndex(where: { receiptKey(for: $0) == key }) else {
+            throw BackendMemoryAPIError.server(status: 409, message: "screenplay_save_receipt_entry_missing")
+        }
+        var nextEntries = entries
+        nextEntries[index].status = .parked
+        nextEntries[index].updatedAt = now.timeIntervalSince1970
+        nextEntries[index].nextAttemptAt = 0
+        nextEntries[index].lastError = normalizedError(error)
+        let receipt = ScreenplayDraftSaveReceipt(
+            key: key,
+            outcome: .rejected,
+            serverVersionId: "",
+            serverDraftSHA256: "",
+            reasonCode: cleanReason,
+            completedAt: now.timeIntervalSince1970
+        )
+        let nextReceipts = appending(receipt, to: receipts)
+        try commitReceiptTransition(entries: nextEntries, receipts: nextReceipts)
+        finishWaiters(with: receipt)
+        publishSnapshot()
+        return receipt
+    }
+
+    func receipt(for key: ScreenplayDraftSaveReceiptKey) throws -> ScreenplayDraftSaveReceipt? {
+        try loadIfNeeded()
+        return receipts.first(where: { $0.key == key })
+    }
+
+    func receiptStream(for key: ScreenplayDraftSaveReceiptKey) throws -> AsyncStream<ScreenplayDraftSaveReceipt> {
+        try loadIfNeeded()
+        if let existing = receipts.first(where: { $0.key == key }) {
+            return AsyncStream { continuation in
+                continuation.yield(existing)
+                continuation.finish()
+            }
+        }
+        let waiterID = UUID()
+        let pair = AsyncStream<ScreenplayDraftSaveReceipt>.makeStream()
+        receiptWaiters[key, default: [:]][waiterID] = pair.continuation
+        pair.continuation.onTermination = { [weak self] _ in
+            Task { await self?.cancelReceiptWaiter(key: key, waiterID: waiterID) }
+        }
+        return pair.stream
     }
 
     func markRetryable(id: String, error: String, now: Date = Date()) throws {
         try loadIfNeeded()
         guard let index = entries.firstIndex(where: { $0.id == id }) else { return }
         let retryCount = entries[index].retries + 1
-        entries[index].retries = retryCount
-        entries[index].updatedAt = now.timeIntervalSince1970
-        entries[index].lastError = normalizedError(error)
+        var nextEntries = entries
+        nextEntries[index].retries = retryCount
+        nextEntries[index].updatedAt = now.timeIntervalSince1970
+        nextEntries[index].lastError = normalizedError(error)
         if retryCount > Self.backoffSeconds.count {
-            entries[index].status = .parked
-            entries[index].nextAttemptAt = 0
+            nextEntries[index].status = .parked
+            nextEntries[index].nextAttemptAt = 0
         } else {
-            entries[index].status = .pending
-            entries[index].nextAttemptAt = now.timeIntervalSince1970 + Self.backoffSeconds[retryCount - 1]
+            nextEntries[index].status = .pending
+            nextEntries[index].nextAttemptAt = now.timeIntervalSince1970 + Self.backoffSeconds[retryCount - 1]
         }
-        try persist()
+        try commit(entries: nextEntries, receipts: receipts)
         publishSnapshot()
     }
 
     func markParked(id: String, error: String, now: Date = Date()) throws {
         try loadIfNeeded()
         guard let index = entries.firstIndex(where: { $0.id == id }) else { return }
-        entries[index].status = .parked
+        var nextEntries = entries
+        nextEntries[index].status = .parked
+        nextEntries[index].updatedAt = now.timeIntervalSince1970
+        nextEntries[index].nextAttemptAt = 0
+        nextEntries[index].lastError = normalizedError(error)
+        try commit(entries: nextEntries, receipts: receipts)
+        publishSnapshot()
+    }
+
+    func recoverInflightAfterReceiptPersistenceFailure(
+        id: String,
+        error: String,
+        now: Date = Date()
+    ) {
+        guard let index = entries.firstIndex(where: { $0.id == id && $0.status == .inflight }) else {
+            return
+        }
+        entries[index].status = .pending
         entries[index].updatedAt = now.timeIntervalSince1970
-        entries[index].nextAttemptAt = 0
+        entries[index].nextAttemptAt = now.timeIntervalSince1970 + Self.backoffSeconds[0]
         entries[index].lastError = normalizedError(error)
-        try persist()
+        // The durable manifest still contains `.inflight`; load recovery already
+        // maps that state back to pending after a restart. This in-memory mirror
+        // keeps the same retry available without requiring an app restart when
+        // the filesystem becomes writable again.
         publishSnapshot()
     }
 
     func entriesForTesting() throws -> [ScreenplayDraftSaveOutboxEntry] {
         try loadIfNeeded()
         return entries
+    }
+
+    func receiptsForTesting() throws -> [ScreenplayDraftSaveReceipt] {
+        try loadIfNeeded()
+        return receipts
     }
 
     #if DEBUG
@@ -326,27 +540,69 @@ actor ScreenplayDraftSaveOutbox {
         guard !didLoad else { return }
         guard fileManager.fileExists(atPath: manifestURL.path) else {
             entries = []
+            receipts = []
             didLoad = true
             return
         }
         let data = try Data(contentsOf: manifestURL)
-        var restoredEntries = try JSONDecoder().decode([ScreenplayDraftSaveOutboxEntry].self, from: data)
+        let decoder = JSONDecoder()
+        let restoredManifest: ScreenplayDraftSaveOutboxManifest
+        if let manifest = try? decoder.decode(ScreenplayDraftSaveOutboxManifest.self, from: data) {
+            guard manifest.schemaVersion == ScreenplayDraftSaveOutboxManifest.currentSchemaVersion else {
+                throw BackendMemoryAPIError.server(status: 409, message: "screenplay_save_manifest_version_unsupported")
+            }
+            restoredManifest = manifest
+        } else {
+            restoredManifest = ScreenplayDraftSaveOutboxManifest(
+                entries: try decoder.decode([ScreenplayDraftSaveOutboxEntry].self, from: data),
+                receipts: []
+            )
+        }
+        var restoredEntries = restoredManifest.entries
         let now = Date().timeIntervalSince1970
         for index in restoredEntries.indices where restoredEntries[index].status == .inflight {
             restoredEntries[index].status = .pending
             restoredEntries[index].nextAttemptAt = min(restoredEntries[index].nextAttemptAt, now)
             restoredEntries[index].lastError = "Interrupted while saving."
         }
+        let restoredReceipts = Array(restoredManifest.receipts.suffix(Self.maxReceipts))
+        try persist(entries: restoredEntries, receipts: restoredReceipts)
         entries = restoredEntries
-        try persist()
+        receipts = restoredReceipts
         didLoad = true
     }
 
-    private func persist() throws {
+    private func commit(
+        entries nextEntries: [ScreenplayDraftSaveOutboxEntry],
+        receipts nextReceipts: [ScreenplayDraftSaveReceipt]
+    ) throws {
+        try persist(entries: nextEntries, receipts: nextReceipts)
+        entries = nextEntries
+        receipts = nextReceipts
+    }
+
+    private func commitReceiptTransition(
+        entries nextEntries: [ScreenplayDraftSaveOutboxEntry],
+        receipts nextReceipts: [ScreenplayDraftSaveReceipt]
+    ) throws {
+        do {
+            try commit(entries: nextEntries, receipts: nextReceipts)
+        } catch {
+            throw ScreenplayDraftSaveReceiptPersistenceError(message: error.localizedDescription)
+        }
+    }
+
+    private func persist(
+        entries: [ScreenplayDraftSaveOutboxEntry],
+        receipts: [ScreenplayDraftSaveReceipt]
+    ) throws {
         try fileManager.createDirectory(at: storageDirectory, withIntermediateDirectories: true)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
-        let data = try encoder.encode(entries)
+        let data = try encoder.encode(ScreenplayDraftSaveOutboxManifest(
+            entries: entries,
+            receipts: receipts
+        ))
         try data.write(to: manifestURL, options: .atomic)
         #if os(iOS)
         try? fileManager.setAttributes(
@@ -390,10 +646,7 @@ actor ScreenplayDraftSaveOutbox {
     }
 
     private func normalizedDraft(_ draft: String) -> String {
-        draft
-            .replacingOccurrences(of: "\r\n", with: "\n")
-            .replacingOccurrences(of: "\r", with: "\n")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        ScreenplayDraftSaveCanonicalization.serverDraft(draft)
     }
 
     private func normalizedError(_ error: String) -> String {
@@ -401,5 +654,47 @@ actor ScreenplayDraftSaveOutbox {
             .replacingOccurrences(of: "\n", with: " ")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return String((clean.isEmpty ? "Queued for retry." : clean).prefix(280))
+    }
+
+    private func normalizedReasonCode(_ value: String, fallback: String) -> String {
+        let clean = value
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .replacingOccurrences(of: #"[^a-z0-9_]+"#, with: "_", options: .regularExpression)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "_"))
+        return String((clean.isEmpty ? fallback : clean).prefix(80))
+    }
+
+    private func receiptKey(for entry: ScreenplayDraftSaveOutboxEntry) -> ScreenplayDraftSaveReceiptKey {
+        ScreenplayDraftSaveReceiptKey(
+            ownerUserId: entry.ownerUserId,
+            projectId: entry.projectId,
+            clientRequestId: entry.id,
+            draft: entry.draft
+        )
+    }
+
+    private func appending(
+        _ receipt: ScreenplayDraftSaveReceipt,
+        to existing: [ScreenplayDraftSaveReceipt]
+    ) -> [ScreenplayDraftSaveReceipt] {
+        var next = existing.filter { $0.key != receipt.key }
+        next.append(receipt)
+        return Array(next.suffix(Self.maxReceipts))
+    }
+
+    private func finishWaiters(with receipt: ScreenplayDraftSaveReceipt) {
+        guard let continuations = receiptWaiters.removeValue(forKey: receipt.key)?.values else { return }
+        continuations.forEach { continuation in
+            continuation.yield(receipt)
+            continuation.finish()
+        }
+    }
+
+    private func cancelReceiptWaiter(key: ScreenplayDraftSaveReceiptKey, waiterID: UUID) {
+        receiptWaiters[key]?.removeValue(forKey: waiterID)
+        if receiptWaiters[key]?.isEmpty == true {
+            receiptWaiters.removeValue(forKey: key)
+        }
     }
 }
