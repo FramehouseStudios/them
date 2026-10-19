@@ -1,4 +1,5 @@
 import { inferScreenplayTask } from "./prompt_assembly.js";
+import { asksForAdviceOrPlanning } from "./screenplay_request_guard.js";
 
 function trimToString(value = "", maxLength = 8_000) {
   return String(value ?? "").trim().slice(0, Math.max(1, Number(maxLength || 8_000)));
@@ -185,18 +186,6 @@ function hasActAwareWritingCue(lowerText = "") {
     new RegExp(`\\b${actOrSequence}\\b[\\s\\S]{0,120}\\b(?:write|draft|continue|finish|complete|rewrite|revise|polish|tighten|punch up|punch-up|make|start|open|pages?)\\b`),
     new RegExp(`\\b(?:take|move|push|carry|drive)\\b[\\s\\S]{0,100}\\b(?:into|through|toward|towards)\\b[\\s\\S]{0,100}\\b${actOrSequence}\\b`),
   ].some((pattern) => pattern.test(lowerText));
-}
-
-function asksForAdviceOrPlanning(lowerText = "") {
-  // Inspect the request, not quoted dialogue or story material after a colon.
-  const request = lowerText.split(/[:\n]/, 1)[0]
-    .replace(/^(?:hey[, ]+)?(?:clementine[, ]+)?(?:please\s+)?/, "");
-  return [
-    /^(?:how (?:do|can|should|would) (?:i|we|you)|(?:can|could|would) you (?:explain|teach|tell)|explain|teach me|tell me how)\b/,
-    /^(?:do not|don['’]t|never|i (?:do not|don['’]t) want (?:you to|to))\s+(?:write|draft|rewrite|revise|continue|generate|finish|complete|replace)\b/,
-    /^(?:(?:can|could|would) you\s+)?help me\s+(?:plan|outline|brainstorm|understand|learn)\b/,
-    /^(?:write|draft|give me|create|generate)\s+(?:(?:me\s+)?(?:an?|the)\s+)?(?:outline|plan|logline|synopsis|treatment|beat sheet|advice|notes)\b/,
-  ].some((pattern) => pattern.test(request));
 }
 
 function shouldAutoRouteTaskToPage({

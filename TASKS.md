@@ -5,6 +5,23 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-998 — Keep advice off the Page wallet meter
+
+- **Owner:** codex. **Branch:** `codex/T-998-advice-cost-lane`.
+- **Status:** in-progress. **Pillar:** trustworthy writer intent and cost.
+- **Scope:** extend the canonical request guard across destination inference
+  and cost classification; no duplicate parser, rate change or auth bypass.
+  Actual Page controls and wallet-empty enforcement must keep working.
+- **Before:** real-store regression3/9/0; advice could hold Page credit or
+  reject with wallet_empty. **Focused after:**52/0/0 including real authenticated
+  /talk advice with zero Page credits, preserved saved script and actual Page402.
+- **Next:** frozen Node20 full suite, D009/diff and scoped backup. No main,
+  original PR or production promotion from focused results. Deep/Companion
+  accounting is not certified by this Page-cost correction.
+- **Separate priority:** loopback two-account wallet probe reproduced a read
+  scope defect. Fix in T999 before any releasable claim; no production probing.
+- **Evidence:** `docs/advice-cost-lane-2026-10-19.md`.
+
 ### T-995 — Infer page-writing requests without mutating advice turns
 
 - **Owner:** codex. **Branch:** `codex/T-995-feature-request-routing`.

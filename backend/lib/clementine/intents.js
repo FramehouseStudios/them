@@ -8,6 +8,7 @@
 
 import { parseShortFilmIntent } from "./short_film_intent.js";
 import { isShortFilmBetaEnabled } from "./short_film_beta.js";
+import { asksForAdviceOrPlanning } from "../screenplay_request_guard.js";
 
 const INTENT = Object.freeze({
   GREETING: "greeting",
@@ -41,10 +42,11 @@ function normalizeText(input) {
 function classifyIntent(utterance, hints = {}) {
   const forced = String(hints?.intent || "").trim().toLowerCase();
   if (forced && INTENT_VALUES.includes(forced)) return forced;
+  const adviceOrPlanning = asksForAdviceOrPlanning(utterance);
 
   // Short-film beta — flag-gated, additive, no V1 regression when flag off.
   try {
-    if (isShortFilmBetaEnabled(process.env)) {
+    if (!adviceOrPlanning && isShortFilmBetaEnabled(process.env)) {
       const raw = String(utterance ?? "");
       if (raw.toLowerCase().includes("short film") && raw.toLowerCase().includes("pages")) {
         const parsed = parseShortFilmIntent(raw);
@@ -63,18 +65,18 @@ function classifyIntent(utterance, hints = {}) {
     return INTENT.SILENCE;
   }
 
-  // Page lane cues (sacred — must win over casual talk)
-  if (/\b(write|draft|type|insert|propose)\b.*\b(scene|beat|page|action|dialogue|line)\b/.test(text)
+  // Explicit Page controls win; advice is not permission to reserve Page work.
+  if (hints?.pageMode === true || (!adviceOrPlanning && (
+    /\b(write|draft|type|insert|propose)\b.*\b(scene|beat|page|action|dialogue|line)\b/.test(text)
     || /\b(page|scene|beat)\b.*\b(edit|change|fix|rewrite)\b/.test(text)
-    || /\b(format (this|as)|screenplay|slugline|int\.|ext\.)\b/.test(text)
-    || hints?.pageMode === true) {
+    || /\b(format (this|as)|screenplay|slugline|int\.|ext\.)\b/.test(text)))) {
     return INTENT.PAGE_EDIT;
   }
-  if (/\b(continue|keep going|next beat|next line|carry on)\b/.test(text)
-    || hints?.continuePage === true) {
+  if (hints?.continuePage === true || (!adviceOrPlanning &&
+    /\b(continue|keep going|next beat|next line|carry on)\b/.test(text))) {
     return INTENT.PAGE_CONTINUE;
   }
-  if (/\b(rewrite|tighten|sharpen|soften|shorten|punch up)\b/.test(text)) {
+  if (!adviceOrPlanning && /\b(rewrite|tighten|sharpen|soften|shorten|punch up)\b/.test(text)) {
     return INTENT.PAGE_REWRITE;
   }
 
