@@ -33,9 +33,9 @@ function pickString(...candidates) {
 
 /**
  * Mount POST /talk/page-cancel.
- * Body: { session_id?, reservation_id?, user_id?, reason? }
- * - reservation_id → cancel(id)
- * - else session_id → cancelByOwner({ sessionId, userId })
+ * Body: { session_id?, reservation_id?, reason? }; owner is verified identity.
+ * - reservation_id → ownership check, then cancel(id)
+ * - else session_id → cancelByOwner({ sessionId, authenticated userId })
  */
 function mountPageCancelRoute(app, { pageReservationStore } = {}) {
   if (!app || typeof app.post !== "function") {
@@ -50,6 +50,8 @@ function mountPageCancelRoute(app, { pageReservationStore } = {}) {
     express.json({ limit: PAGE_CANCEL_BODY_LIMIT }),
     (req, res) => {
       res.setHeader("Cache-Control", "no-store");
+      const userId = requireTrustedUserId(req, res, { stage: "talk_page_cancel" });
+      if (!userId) return;
       const body = req.body && typeof req.body === "object" ? req.body : {};
       const reservationId = pickString(
         body.reservation_id,
@@ -62,23 +64,18 @@ function mountPageCancelRoute(app, { pageReservationStore } = {}) {
         req.get?.("x-session-id"),
         req.headers?.["x-session-id"]
       );
-      const userId = pickString(
-        body.user_id,
-        body.userId,
-        req?.authUser?.id,
-        req?.user?.id
-      );
       const reason = pickString(body.reason, body.cancel_reason, body.cancelReason) || "barge_in";
 
       if (reservationId) {
-        const result = pageReservationStore.cancel(reservationId, { reason });
-        if (!result) {
+        const reservation = pageReservationStore.get(reservationId);
+        if (!reservation || reservation.userId !== userId) {
           return res.status(404).json({
             ok: false,
             error: "reservation_not_found",
             reservation_id: reservationId,
           });
         }
+        const result = pageReservationStore.cancel(reservationId, { reason });
         return res.status(200).json({
           ok: true,
           cancelled: result.cancelled === true,

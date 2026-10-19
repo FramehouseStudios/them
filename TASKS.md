@@ -5,6 +5,18 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1000 — Owner-scoped Page cancellation
+
+- **Owner:** codex. **Branch:** `codex/T-1000-page-cancel-owner`.
+- **Status:** in-progress. **Pillar:** trustworthy writer control and cost.
+- **Root:** cancellation by ID lacked ownership validation; session mode
+  trusted body user aliases, and scoped store cancellation matched unowned work.
+- **Verified:** route/store failing-first1 pass/3 fail; corrected focused29/0/0.
+- **Fix:** canonical verified identity required, foreign/unowned ID returns404,
+  exact owner match for session mode; own abort/refund/idempotency preserved.
+- **Next:** pinned Node20 full suite and independent reviewed draft PR.
+- **Evidence:** `docs/page-cancel-owner-2026-10-19.md`.
+
 ### T-999 — Bind wallet reads to verified identity
 
 - **Owner:** codex. **Branch:** `codex/T-999-wallet-owner-scope`.
