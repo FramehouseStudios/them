@@ -8,14 +8,15 @@
 ### T-1002 — Harden the real voice upload parser
 
 - **Owner:** codex. **Branch:** `codex/T-1002-voice-upload-security`.
-- **Status:** in-progress. **Pillar:** reliable voice-to-scene input.
+- **Status:** review. **Pillar:** reliable voice-to-scene input.
 - **Root:** Multer1 is affected by eleven open upstream/GitHub advisories;
   malformed inputs also surface as generic500 instead of safe upload400.
 - **Fix:** reviewed patched2.3 minor line; preserve audio fields/buffers and
   existing25MB413. Normalize known parser errors at the upload boundary.
 - **Verified:** failing-first2 pass/2 fail; extended focused20/0/0 includes
   real authenticated /talk rejection, truncation, disconnect and health.
-- **Next:** frozen offline Node20 full suite and scoped draft child PR.
+- **Verified:** frozen offline Node20 backend2759/0/2, scripts210/0/0; D009/diff pass.
+- **Next:** scoped draft child PR and combined signed writer/recovery proof.
 - **Evidence:** `docs/voice-upload-security-2026-10-19.md`.
 
 ### T-1001 — Patch HTTP trust and URI dependencies

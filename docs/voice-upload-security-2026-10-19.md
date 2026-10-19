@@ -37,7 +37,10 @@ Real backend /talk integration uses REQUIRE_USER_AUTH=1 and a synthetic JWT
 account: anonymous crafted form401, authenticated crafted/truncated400,
 oversized413 with exact existing envelope, health200. No generation/provider
 is needed for these parser rejection cases. Existing wallet/cancel and seven
-HTTP dependency security cases also pass. Full Node20 suite pending.
+HTTP dependency security cases also pass. VERIFIED frozen runtime9d018215 on
+Node20.20.2: backend2759 pass/0 fail/2 skip; scripts210 pass/0 fail/0 skip.
+/tmp/them-1002-node20.log. D009 all five deltas0, syntax/diff pass. Parent
+proof merge changes no runtime/test/script source. No new signed UI run here.
 
 ## Adversarial scope and limits
 
