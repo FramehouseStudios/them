@@ -5,6 +5,21 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1002 — Harden the real voice upload parser
+
+- **Owner:** codex. **Branch:** `codex/T-1002-voice-upload-security`.
+- **Status:** review. **Pillar:** reliable voice-to-scene input.
+- **Root:** Multer1 is affected by eleven open upstream/GitHub advisories;
+  malformed inputs also surface as generic500 instead of safe upload400.
+- **Fix:** preserve original909's2.4 baseline; preserve audio fields/buffers and
+  existing25MB413. Normalize known parser errors at the upload boundary.
+- **Verified:** failing-first2 pass/2 fail; extended focused20/0/0 includes
+  real authenticated /talk rejection, truncation, disconnect and health.
+- **Historical:**2.3 candidate Node20 backend2759/0/2, scripts210/0/0.
+- **Current:**2.4 focused20/0/0; frozen Node20 backend2759/0/2, scripts210/0/0.
+- **Next:** update existing draft evidence and combined signed writer/recovery proof.
+- **Evidence:** `docs/voice-upload-security-2026-10-19.md`.
+
 ### T-1001 — Patch HTTP trust and URI dependencies
 
 - **Owner:** codex. **Branch:** `codex/T-1001-http-dependency-patches`.
