@@ -5,6 +5,35 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-993 — Re-prove original failed-generation billing fix on current main
+
+- **Owner:** codex. **Branch:** `codex/T-993-billing-main-proof`.
+- **Status:** in-progress. **Pillar:** trustworthy voice-to-page and wallet.
+- **Root verified:** current rehearsal's actual generation stage returned
+  zero reply bytes after two injected provider calls while proposing123
+  output tokens for billing. No live provider or real wallet used.
+- **Scope:** preserve original #625 head795f14fc and current main deac1a6d
+  with a normal merge. Read all seven original files and follow-up commits;
+  asked_repeat/continue_listening release is already in the original head.
+  Do not reimplement it, create a replacement PR or move main.
+- **Done when:** original generation/supplier/real-HTTP/lifecycle regressions,
+  full Node20 suite, signed erased units, D009/diff pass; adversarial limits
+  recorded; fresh original PR/head checks and independent review still needed.
+- **Human hold:** production blocked until App Store credentials exist.
+
+### T-969 — Truthful required checks on original #906
+
+- **Owner:** codex. **Task branch:** `codex/T-969-truthful-906-gate`.
+- **Status:** review. **Pillar:** trustworthy writer/recovery proof.
+- **Landing:** original #906, not a replacement PR. Preserve #904's CI prefix
+  and its remaining later recovery/inspector work separately.
+- **Done when:** signed units/failing UI cases, canonical erased voice entry,
+  Node20 runner contracts, macOS, D009 and diff pass; fresh hosted gate required.
+- **Evidence:** signed units624 + UI2 all pass; final voice1/0/0 and macOS pass;
+  Node20 contracts11/0/0, D009 deltas0. Original hidden hosted reds retained.
+  `docs/906-required-gate-repair-2026-10-16.md`.
+- **Hold:** changed head requires fresh independent approval and real green CI.
+
 ## Branch conventions
 - `codex/<task-id>-<short-name>`
 - `support/backend-<short-name>`
