@@ -81,8 +81,8 @@ The repository treats release readiness as an engineering system, not a final ch
 | Layer | Evidence in the repository |
 | --- | --- |
 | Swift application | Unit/state tests, package tests, platform builds, accessibility identifiers, and focused UI smoke scenarios. |
-| Backend | 100 automated test modules covering routes, auth, persistence, memory, realtime behavior, exports, isolation, and failure recovery. |
-| AI/product behavior | 70+ deterministic eval and smoke runners for prompt contracts, screenplay behavior, realtime failover, restore, and visual interaction paths. |
+| Backend | 270+ automated test modules covering routes, auth, persistence, memory, realtime behavior, exports, isolation, and failure recovery. |
+| AI/product behavior | 100+ deterministic eval and smoke runners for prompt contracts, screenplay behavior, realtime failover, restore, and visual interaction paths. |
 | Data | Ordered SQL migrations plus a CI gate that applies migrations to a fresh PostgreSQL 16 service. |
 | Delivery | Quality-gate and release-preflight workflows, backend image build, secret validation, launch diagnostics, and release-candidate evidence. |
 

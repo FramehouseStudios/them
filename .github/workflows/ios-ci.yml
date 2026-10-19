@@ -1,0 +1,92 @@
+name: ios-ci
+
+# Fills the iOS CI gap: the SwiftUI client is the flagship V1 surface but no
+# workflow ran xcodebuild. Unit tests (themTests) now gate pull requests that
+# touch the Apple client, mirroring the backend quality gate.
+#
+# Scope is intentionally narrow for V1: simulator unit tests only. UI smoke
+# (scripts/run_v1_ui_smoke.sh) stays local until runner time is measured.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - "them/**"
+      - "Packages/**"
+      - "themTests/**"
+      - "themUITests/**"
+      - "them.xcodeproj/**"
+      - "them.xcworkspace/**"
+      - ".github/workflows/ios-ci.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "them/**"
+      - "Packages/**"
+      - "themTests/**"
+      - "themUITests/**"
+      - "them.xcodeproj/**"
+      - "them.xcworkspace/**"
+      - ".github/workflows/ios-ci.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: ios-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit-tests:
+    name: iOS unit tests (themTests)
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Select newest available Xcode
+        run: |
+          set -euo pipefail
+          LATEST="$(ls /Applications | grep -oE 'Xcode_[0-9.]+' | sort -V | tail -1 || true)"
+          if [ -n "${LATEST}" ]; then
+            echo "Selecting ${LATEST}"
+            sudo xcode-select -s "/Applications/${LATEST}.app/Contents/Developer"
+          fi
+          xcodebuild -version
+
+      - name: Discover newest iPhone simulator
+        id: sim
+        run: |
+          set -euo pipefail
+          DEST="$(python3 - <<'EOF'
+          import json, subprocess, re
+          data = json.loads(subprocess.check_output(
+              ['xcrun', 'simctl', 'list', 'devices', 'available', '--json'], text=True))
+          devs = data['devices']
+          def ver(k):
+              m = re.search(r'iOS-(\d+)-(\d+)', k)
+              return tuple(map(int, m.groups())) if m else (0, 0)
+          best = max(devs.keys(), key=ver)
+          cands = [d['name'] for d in devs[best]
+                   if d.get('isAvailable') and 'iPhone' in d['name']
+                   and 'Plus' not in d['name'] and 'Pro' not in d['name']]
+          if not cands:
+              cands = [d['name'] for d in devs[best]
+                       if d.get('isAvailable') and 'iPhone' in d['name']]
+          cands.sort(key=lambda n: [int(x) for x in re.findall(r'\d+', n)] or [0],
+                     reverse=True)
+          print(f"platform=iOS Simulator,OS=latest,name={cands[0]}")
+          EOF
+          )"
+          echo "Using destination: ${DEST}"
+          echo "destination=${DEST}" >> "${GITHUB_OUTPUT}"
+
+      - name: Run themTests on simulator
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project them.xcodeproj \
+            -scheme them \
+            -destination "${{ steps.sim.outputs.destination }}" \
+            -only-testing:themTests \
+            test
