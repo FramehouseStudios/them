@@ -5,6 +5,22 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1005 — Carry the green receipt parent into original exact retention
+
+- **Owner:** codex. **Branch:** `codex/T-1005-retention-current-parent`.
+- **Status:** in-progress. **Pillar:** exact writer words across relaunch.
+- **Scope:** preserving merge of original961e689 (hosted39328089782 SUCCESS)
+  into T9901924, which already preserves original962aef. No replacement PR,
+  squash, force, main merge or original child head change before proof.
+- **Product delta vs parent:** one shared byte-identity persistence condition
+  and its21-line regression; no provider/policy/format change.
+- **Done when:** fresh Node20 full scripts/backend, signed erased units,
+  recovery/writer/Home/full V1/fault/macOS, D009 and diff pass. Serialize iOS
+  behind still-live T1003 native36287; never restart or erase its device.
+- **Evidence:** `docs/retention-current-parent-2026-10-19.md`.
+- **Hold:** independent review/fresh hosted child gate and production App Store
+  credentials remain required. No physical/model/120-page completion claim.
+
 ### T-990 — Preserve exact-retention child with verified recovery parent
 
 - **Owner:** codex. **Branch:** `codex/T-990-retention-parent-forward`.
