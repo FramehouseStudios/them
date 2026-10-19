@@ -102,3 +102,19 @@ physical offline/relaunch and export opening outside THEM remain unproven.
 Next: inspect active exact test handles, fix first failure, then preserve
 the child PR only when parent and combined evidence permit it.
 Continue status: READY FOR CONTINUE.
+
+## Verified install boundary, compatibility diagnostic pending
+
+Current application/test Xcode configurations set IPHONEOS_DEPLOYMENT_TARGET
+to26.2. Both shared packages declare iOS17, but that does not make the app
+installable below26.2. Therefore the human's any-iPhone requirement is not
+proven by the current deployment configuration or one iOS26.2 simulator.
+
+Compile-only diagnostic against iOS17 is active in native session11257:
+`/tmp/them-992-ios17-compatibility.log`, separate DerivedData
+`/tmp/them-992-ios17-compatibility`, limited to two build jobs, no installation,
+erasure or source changes. The command-line minimum override is an experiment,
+not a released compatibility change. Inspect actual compiler result before
+changing configuration; older-runtime/physical-device behavior remains to
+be verified even if compilation succeeds. Do not promise every historical
+iPhone or hide unsupported hardware behind the word any.
