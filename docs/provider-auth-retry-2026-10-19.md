@@ -40,8 +40,23 @@ grow. Writer text, wallet, tokens, owner checks and server routes unchanged.
   in test code, never a real provider, secret or account.
 - Source comparison confirms extracted quota/HTTP methods unchanged.
   Actual fetched T1010 D009 all five deltas0; whitespace clean.
-- Full signed units, connected Home/writer/fault workflows and macOS build
-  pending. Do not substitute parent counts for this changed transport policy.
+- VERIFIED frozen4e24795f Node20.20.2: backend2988 pass/0 fail/2 skip,
+  scripts238/0/0, native27847 exit0; network-disabled, read-only source.
+  `/tmp/them-1011-node20.log`.
+- VERIFIED signed full units872/0/0, connected fixed-provider Home2/0/0
+  (STT1/chat4/TTS24), writer/save/native-export/relaunch1/0/0 and voice-fault
+  1/0/0. Actual completed summaries read. Native7001 completed exit0,
+  including macOS scaffold build0. `/tmp/them-1011-ui.log`, artifacts
+  `/tmp/them-1011-ui.A7cfpH`. All on erased owned Pro11CF/iOS26.2/23C54.
+  No code-signing disable, retry or weakened assertion. Existing Swift6
+  warnings remain; scaffold success is not macOS release certification.
+- Seven completed bundles retained with APFS clone copies and compared
+  byte-identical, including the invalid first attempt, actual HTTP before,
+  focused, units, Home, writer and voice. Private proof:
+  `/Users/halfmutantfilms/io.them-worktrees/_proof/T-1011-20261019.LnFKyI/`.
+  Same-computer retention is not off-device backup. No active bundle copied.
+  Full V1 and five-case recovery were NOT rerun in this local invocation;
+  do not relabel another head's counts as this head's proof.
 
 ## Adversarial scope
 
@@ -64,7 +79,8 @@ compatibility, not a claim to distinguish every old upstream error.
 
 ## Holds
 
-Original #962 hosted full gate is still in progress at last read; #963 is
+Original #962 hosted units/writer/V1 passed; V1 actual live log29/0/15,
+1,076.9s execution. Full gate is still in recovery at last read; #963 is
 held until that parent boundary clears. No main/original-head replacement,
 force push, deployment, sign-in bypass or paid call here. Local key readiness
 remains unconfirmed.120 pages is a recommendation, not a quota; real-phone
