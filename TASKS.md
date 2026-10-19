@@ -5,6 +5,25 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1003 — One combined voice-to-writer safety proof
+
+- **Owner:** codex. **Branch:** `codex/T-1003-integrated-voice-writer`.
+- **Status:** in-progress. **Pillar:** end-to-end trustworthy writer loop.
+- **Scope:** preserve T994, compact confirmation T996, durable receipt guard
+  T997, destination/advice T995/T998, owner isolation T999/T1000 and upload
+  errors/regressions T1001/T1002. No original head replacement or main merge.
+- **Merge decision:** retain original909's already-integrated Multer2.4,
+  proxy-addr2.0.8/fast-uri3.1.8 and exact lock; do not downgrade to2.3.
+  Supplemental patches provide safe upload errors and adversarial tests.
+- **Before:** T994 full narrow UI28/1/15; its red remains historical evidence.
+- **Current:** combined focused43/0/0 on host Node26; D009/diff pass.
+- **Done when:** fresh combined Node20, signed erased units, recovery/writer,
+  fixed-provider Home, full narrow UI, voice-fault/macOS and PG restart pass.
+  Physical microphone/live model120-page/export-outside-app proof is separate.
+- **Evidence:** `docs/integrated-voice-writer-2026-10-19.md`.
+- **Hold:** production blocked until App Store credentials; independent
+  approval and exact-head hosted checks remain required for main landing.
+
 ### T-996 — Reach inline clear confirmations on a compact inspector
 
 - **Owner:** codex. **Branch:** `codex/T-996-compact-clear-confirmation`.
