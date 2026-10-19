@@ -26,13 +26,20 @@ Explicit act metadata still takes precedence. Final focused checks61/0/0.
 
 VERIFIED backend focused60/0/0 on host Node26.7 after failing-first evidence
 in `/tmp/them-1007-before.log`; corrected `/tmp/them-1007-focused.log`.
-Signed Swift and pinned Node20 full results pending, not claimed here.
+VERIFIED signed full units868/0/0 on erased owned Pro11CF/iOS26.2/23C54,
+code signing enabled, native87761 exit0; completed xcresult summary read:
+`/tmp/them-1007-units/v1-ui-smoke-local-1-23147.xcresult`.
+Swift/project/test bytes unchanged after frozen5ecb5beb; later runtime
+correction is backend quality only. Existing Swift6-concurrency warnings
+remain; Debug unit success is not release certification.
 
 First frozen5ecb5beb Node20.20.2 full backend2982/0/2, scripts238/0/0 and
 offline golden OK, exit0. That result predates the quality-boundary sharing
-correction; final frozene92513db full run is separate and still pending.
-Signed full units are running with unchanged5ecb5beb Swift/project/test
-bytes; no concurrent simulator lane. D009 actual T1003 all five deltas0.
+correction. Final frozene92513db full run is separate: Node20.20.2,
+backend2983/0/2, scripts238/0/0, offline golden OK, native72392 exit0,
+`/tmp/them-1007-node20-final.log`. No provider network, no paid calls.
+D009 actual T1003 all five deltas0; diff clean. Branch is saved to GitHub,
+not main and not a replacement for an original target-setting PR.
 
 ## Preserved work and remaining scope
 

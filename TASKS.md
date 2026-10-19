@@ -8,12 +8,14 @@
 ### T-1007 — Recommend 120 pages without constraining the writer
 
 - **Owner:** codex. **Branch:** `codex/T-1007-feature-default-120`.
-- **Status:** in-progress. **Pillar:** voice-to-scene / mobile-first.
+- **Status:** review (local proof complete). **Pillar:** voice-to-scene / mobile-first.
 - **Scope:** human-accepted D017. Align existing Swift/backend defaults at120;
   preserve explicit shorter/longer targets. Fix target-scaled inclusive-range
   gaps that incorrectly map early pages to Act III. No screenplay mutation.
-- **Verified:** failing-first default110; corrected backend feature/quality
-  checks60/0/0 on host Node26.7. Signed/current full suite pending.
+- **Verified:** failing-first default110 and quality/map disagreement at
+  page14of60. Final focused61/0/0; frozen e92513db Node20 backend2983/0/2,
+  scripts238/0/0, offline golden OK; signed full units868/0/0 on erased owned
+  Pro/iOS26.2. D009 all five deltas0; whitespace clean. No live model proof.
 - **Done when:** all three acts progress without page gaps at shorter/default/
   longer lengths; signed focused Swift and Node20 broader proof recorded;
   original target controls #840/#861 retained, future defaults reconciled.
