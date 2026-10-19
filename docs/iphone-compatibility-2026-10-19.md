@@ -45,6 +45,13 @@ candidate is not shipped support until stronger runtime proof is recorded.
   `/tmp/them-992-se-{recovery,writer,home,v1,voice}.log`, sequentially stopped
   at first failure. Exact destination observed in the recovery runner.
 
+Completed narrow-device stages, actual summaries confirm the SE UDID:
+recovery5/0/0, authenticated writer/Craft/native MD+FDX export/relaunch1/0/0,
+fixed-provider Home2/0/0 (fixture STT1/chat4/TTS24). Retained three completed
+bundles privately beside the unit result and compared each byte-identical.
+Full SE V1 UI and voice/macOS remain running/pending, not passing claims.
+This is narrow-screen26.2 proof, not17-runtime or physical microphone proof.
+
 Actual-settings source frozen atec309e2 (later commits documentation only).
 The compiled app Info.plist reports MinimumOSVersion17.0. Completed unit
 bundle privately retained and compared byte-identical at
