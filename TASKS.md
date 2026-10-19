@@ -5,6 +5,20 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1007 — Recommend 120 pages without constraining the writer
+
+- **Owner:** codex. **Branch:** `codex/T-1007-feature-default-120`.
+- **Status:** in-progress. **Pillar:** voice-to-scene / mobile-first.
+- **Scope:** human-accepted D017. Align existing Swift/backend defaults at120;
+  preserve explicit shorter/longer targets. Fix target-scaled inclusive-range
+  gaps that incorrectly map early pages to Act III. No screenplay mutation.
+- **Verified:** failing-first default110; corrected backend feature/quality
+  checks60/0/0 on host Node26.7. Signed/current full suite pending.
+- **Done when:** all three acts progress without page gaps at shorter/default/
+  longer lengths; signed focused Swift and Node20 broader proof recorded;
+  original target controls #840/#861 retained, future defaults reconciled.
+- **Evidence:** `docs/feature-default-120-2026-10-19.md`.
+
 ### Preserve conflict admission through relaunch — T1485 (2026-11-17)
 
 - **Scope/history:** Jarvis execution/integration; Zora isolated repair; Einstein bounded read-only challenge. Preserve test-first10420396/e872/dfd5/61114510 over original1003@6af; no replacement, squash, force push, main merge or deployment.

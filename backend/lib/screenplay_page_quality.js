@@ -1,3 +1,5 @@
+import { DEFAULT_FEATURE_TARGET_PAGES } from "./feature_screenplay_map.js";
+
 function normalizeLineText(value = "") {
   return String(value || "")
     .replace(/[ \t]{2,}/g, " ")
@@ -1117,7 +1119,7 @@ function inferFeatureActKind(featureContext = {}) {
     featureContext.target_pages ??
     featureContext.featureTargetPages ??
     featureContext.feature_target_pages
-  ) || 110;
+  ) || DEFAULT_FEATURE_TARGET_PAGES;
   if (pageCount > 0 && pageCount >= Math.round(targetPages * (86 / 110))) return "act3";
   if (pageCount > 0 && pageCount >= Math.round(targetPages * (26 / 110))) return "act2";
   if (pageCount > 0) return "act1";

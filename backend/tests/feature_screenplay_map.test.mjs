@@ -9,6 +9,31 @@ import {
   findSequenceForPage,
 } from "../lib/feature_screenplay_map.js";
 
+test("feature recommendation is 120 pages with all three acts, not a fixed length", () => {
+  assert.equal(DEFAULT_FEATURE_TARGET_PAGES, 120);
+  const recommended = buildFeatureScreenplayMapBlock({
+    screenplayTask: { intent: "finish_feature" },
+  });
+  assert.match(recommended, /target_pages: 120/);
+  for (const act of ["Act I", "Act II", "Act III"]) assert.ok(recommended.includes(act));
+  for (const pages of [60, 90, 110, 150, 180]) {
+    const chosen = buildFeatureScreenplayMapBlock({
+      sessionContext: { targetPages: pages }, screenplayTask: { intent: "finish_feature" },
+    });
+    assert.ok(chosen.includes(`target_pages: ${pages}`));
+    assert.equal(findSequenceForPage(pages, pages).act, "Act III");
+    assert.equal(findSequenceForPage(1, pages).act, "Act I");
+    assert.equal(findSequenceForPage(Math.round(pages / 2), pages).act, "Act II");
+    let priorSequence = 0;
+    for (let page = 1; page <= pages; page += 1) {
+      const sequence = Number(findSequenceForPage(page, pages).id.replace("sequence-", ""));
+      assert.ok(sequence >= priorSequence && sequence <= priorSequence + 1,
+        `No gap or backwards jump at page ${page} of ${pages}`);
+      priorSequence = sequence;
+    }
+  }
+});
+
 test("[feature-screenplay-map] maps page position into feature sequence pressure", () => {
   const sequence = findSequenceForPage(47, DEFAULT_FEATURE_TARGET_PAGES);
   assert.equal(sequence.act, "Act II");
