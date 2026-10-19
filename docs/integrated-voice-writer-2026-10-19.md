@@ -38,16 +38,23 @@ proof does not change that. No dependency security claim from audit0 alone.
   authenticated save/rewrite/read, actual database/backend restart, durable
   identity/dedupe and exact bytes. Only new UUID-owned synthetic fixtures
   removed; no human data or production database accessed.
-- Signed combined native36287 is active, currently units/build; artifact root
-  /tmp/them-1003-ui.8gyhQl, log /tmp/them-1003-ui.log. Do not restart it or
+- Signed combined native36287 remains active; exact completed summaries on
+  erased owned Pro/iOS26.2: units867/0/0, recovery5/0/0, writer/export/relaunch
+  1/0/0, fixed-provider Home2/0/0 (STT1/chat4/TTS24). Artifact root
+  /tmp/them-1003-ui.8gyhQl, log /tmp/them-1003-ui.log. Now full narrow SE V1
+  is running; voice/macOS follow only if green. Do not restart this handle or
   claim downstream stages pass. The serial pipeline stops at the first red.
   Use only exact owned Pro11CF5EFB-D8C3-4F19-8062-28AF37F27D93 and narrow
   SE3E8998A6B-35B1-49E3-896C-861550849927/iOS26.2, erased by canonical runner.
 - Separate fixed-provider output from real speech/model quality. No paid
   calls, production deployment, phone or generated120-page proof here.
-- Original961e689 hosted backend/D009 pass; overall hosted UI still running
-  at latest read. Original625 hosted V1 has AX system-app timeout; retain red.
-  No unchanged reruns or downstream original PR promotion based on local only.
+- Original961e689 exact hosted39328089782 is now fully SUCCESS: backend2897/
+  0/2, signed units865/0/0, full V1 UI29/0/15, required writer/lost-reply,
+  signed recovery, voice-fault/macOS and D009. Actual terminal run/head and
+  logs verified; PR readiness banner updated without changing the source head.
+  Original625 hosted V1 has AX system-app timeout; retain red. Next original
+  child962 may now rehearse the new parent, but needs its own updated-tree
+  proof before head promotion. Independent review/main/production holds remain.
 
 Final upload proof/provenance branch18355484 was preserved by merge92140913;
 binary diff of backend/app/test/script/Swift/project sources against92d797de
@@ -59,10 +66,19 @@ the god-file CLI exited0 while printing counts without comparisons. Do not
 count that as a passing comparison. GitHub confirmed exact198ab3f0; fetch
 only that baseline, rerun: all five actual deltas0. Also byte-identical via
 git diff against198ab3f0. /tmp/them-1003-god-files.log. Default main comparison
-also passes with all five smaller. Separate next root fix: make the checker
-fail closed for an explicitly requested unresolved base (T1004), not silently
-skip comparisons. This new gate finding remains open, not claimed resolved
-by fetching one baseline.
+also passes with all five smaller. T1004 now fixes the root checker defect:
+failing-first1/6, corrected7/0/0, Node20 full scripts217/0/0 + backend2739/0/2.
+Draft PR969 is main-based and requires review/fresh hosted proof; not merged.
+Its preserving mergece27c383 changes only checker/test/docs, with app/backend/
+unit/UI/project/package bytes identical to frozen92d797de. Fresh combined
+Node20 final-tree proof is active at native45562, /tmp/them-1003-final-node20.log;
+scripts238/0/0 have finished; backend still running at latest read. Do not
+relabel the earlier2975 backend run as this new invocation.
+
+Four completed local signed bundles retained and compared byte-identical in
+/Users/halfmutantfilms/io.them-worktrees/_proof/T-1003-20261019.ulu2sB/
+(units/recovery/writer/Home), alongside completed backend/PG/D009/host logs.
+No active bundle copied; same-computer retention is not off-device backup.
 
 ## Completion boundary and next action
 

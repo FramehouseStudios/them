@@ -18,17 +18,20 @@
 - **Before:** T994 full narrow UI28/1/15; its red remains historical evidence.
 - **Current:** combined focused43/0/0 on host Node26; D009/diff pass.
 - **Verified:** frozen92d797de Node20 backend2975/0/2, scripts231/0/0; real
-  PostgreSQL16.15 restart PASS,422,201 exact bytes. Signed native36287 active,
-  artifact root/tmp/them-1003-ui.8gyhQl; no UI pass claim yet.
+  PostgreSQL16.15 restart PASS,422,201 exact bytes. Signed units867/0/0,
+  recovery5/0/0, writer1/0/0, fixed-provider Home2/0/0; native36287 now
+  running full SE UI, artifact root/tmp/them-1003-ui.8gyhQl. Voice/mac pending.
 - **Done when:** fresh combined Node20, signed erased units, recovery/writer,
   fixed-provider Home, full narrow UI, voice-fault/macOS and PG restart pass.
   Physical microphone/live model120-page/export-outside-app proof is separate.
 - **Evidence:** `docs/integrated-voice-writer-2026-10-19.md`.
 - **Hold:** production blocked until App Store credentials; independent
   approval and exact-head hosted checks remain required for main landing.
-- **New gate defect:** explicitly unresolved D009 base skips comparison yet
-  exits0. Actual baseline fetched/re-proven, all deltas0; T1004 must make
-  the checker fail closed. Preserve evidence, not an unchanged test retry.
+- **Gate defect:** T1004 now fail-closed, independently proven and preserved
+  by mergece27c383; all app/backend/UI bytes unchanged. Fresh final Node20
+  native45562 active, scripts238/0/0 complete; backend pending.
+- **Hosted parent:** original961e689 full39328089782 SUCCESS, no head change.
+  Next preserve/re-prove parent into original962 after current local lane.
 
 ### T-996 — Reach inline clear confirmations on a compact inspector
 
