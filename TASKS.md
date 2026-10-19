@@ -5,6 +5,21 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-982 — Re-prove original mentor core against current main
+
+- **Owner:** codex. **Branch:** `codex/T-982-mentor-core-main-proof`.
+- **Status:** in-progress. **Pillar:** living companion and reliable integration.
+- **Scope:** preserve original #638 head and merge current main without squash,
+  replacement PR or force push; prove the updated tree before publishing it.
+- **Done when:** full Node20 backend, erased signed iOS units, writer UI,
+  macOS build, D009 and whitespace checks pass on the updated source; evidence
+  is posted on the original PR. Independent approval remains human-owned.
+- **Current:** source merge `a5e02304` has both original/current-main parents,
+  no conflicts and zero D009 growth. Full backend and signed units are running,
+  not yet claimed green. Recovered the pushed T-981 checkout into independent
+  metadata after the old Desktop repository disappeared; old source untouched.
+  Manifest: `docs/mentor-core-main-proof-2026-10-19.md`.
+
 ### T-969 — Truthful required checks on original #906
 
 - **Owner:** codex. **Task branch:** `codex/T-969-truthful-906-gate`.
