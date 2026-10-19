@@ -5,6 +5,17 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-987 — Preserve and re-prove original dependency security fix
+
+- **Owner:** codex. **Branch:** `codex/T-987-security-main-proof`.
+- **Status:** in-progress. **Pillar:** trustworthy live screenplay service.
+- **Scope:** retain original #909 head788e010 and regression history; normal
+  merge current-main proof baseline54f700e, not a replacement PR.
+- **Evidence:** fresh production audit0; Node20 backend2740/0/2;
+  D009 all deltas0 and diff check pass. See
+  `docs/security-main-proof-2026-10-19.md`.
+- **Hold:** not deployed or merged; full promotion/review still required.
+
 ### T-984 — Exact, signed simulator proof on main
 
 - **Owner:** codex. **Branch:** `codex/T-984-main-simulator-proof`.
