@@ -5,6 +5,26 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-983 — Pin required iPhone proof to the exact erased simulator
+
+- **Owner:** codex. **Branch:** `codex/T-983-exact-simulator-proof`.
+- **Status:** in-progress. **Pillar:** trustworthy integration/recovery proof.
+- **Scope:** failed #961 run39285905264 erased one UDID and tested another
+  same-named device. Resolve the inventory once, honor explicit runtime/ID,
+  reject ambiguity before erasure and pass the same exact ID to Xcode.
+- **Done when:** failing-before regression passes, runner contracts/full
+  Node20 suite and owned signed lost-reply journey pass; fresh hosted proof
+  validates newest-runtime behavior before merge. No unchanged CI retry.
+- **Current:** before10/3/0; final Node20 backend2886/0/2 and canonical
+  runner/voice contracts20/0/0. Intermediate full2881/5/2 exposed stale
+  evidence-test inventories; all assertions retained, focused6/0/0 after.
+  Final sealed source adds a failing-before caller-override guard: Node20
+  backend2886/0/2, runner contracts21/0/0, signed units857/0/0. Earlier
+  lost-reply/relaunch1/0/0 and sealed unit xcresults confirm the erased UDID;
+  no Swift change. macOS compile exit0. Hosted26.5 focus failure
+  remains unproven, not papered over. App/god files unchanged. Manifest:
+  `docs/exact-simulator-proof-2026-10-19.md`.
+
 ### T-979 — Preserve ending mentorship and reject evaluator false positives
 
 - **Owner:** codex. **Branch:** `codex/T-979-mentor-ending-integration`.
