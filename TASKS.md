@@ -5,6 +5,21 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-995 — Infer page-writing requests without mutating advice turns
+
+- **Owner:** codex. **Branch:** `codex/T-995-feature-request-routing`.
+- **Status:** in-progress. **Pillar:** trustworthy voice-to-scene intent.
+- **Scope:** canonical screenplay destination inference only. Direct screenplay
+  requests must select Page without an existing draft; advice, outline and
+  negative writing instructions must not infer Page. Explicit destinations win.
+- **Verified:** original regression13 pass/5 fail; extended regression23/3;
+  corrected focused26/0/0, including the production metadata sanitizer.
+- **Done when:** frozen-source pinned Node20 full backend/scripts and D009/diff
+  pass. This does not prove raw-audio late classification, financial lane
+  agreement, live generation or a complete120-page screenplay. See
+  `docs/feature-request-routing-2026-10-19.md`.
+- **Human hold:** production blocked until App Store credentials exist.
+
 ### T-994 — Prove combined writer safety, billing and compatibility
 
 - **Owner:** codex. **Branch:** `codex/T-994-integrated-writer-safety`.

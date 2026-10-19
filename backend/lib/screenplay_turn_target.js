@@ -187,6 +187,18 @@ function hasActAwareWritingCue(lowerText = "") {
   ].some((pattern) => pattern.test(lowerText));
 }
 
+function asksForAdviceOrPlanning(lowerText = "") {
+  // Inspect the request, not quoted dialogue or story material after a colon.
+  const request = lowerText.split(/[:\n]/, 1)[0]
+    .replace(/^(?:hey[, ]+)?(?:clementine[, ]+)?(?:please\s+)?/, "");
+  return [
+    /^(?:how (?:do|can|should|would) (?:i|we|you)|(?:can|could|would) you (?:explain|teach|tell)|explain|teach me|tell me how)\b/,
+    /^(?:do not|don['’]t|never|i (?:do not|don['’]t) want (?:you to|to))\s+(?:write|draft|rewrite|revise|continue|generate|finish|complete|replace)\b/,
+    /^(?:(?:can|could|would) you\s+)?help me\s+(?:plan|outline|brainstorm|understand|learn)\b/,
+    /^(?:write|draft|give me|create|generate)\s+(?:(?:me\s+)?(?:an?|the)\s+)?(?:outline|plan|logline|synopsis|treatment|beat sheet|advice|notes)\b/,
+  ].some((pattern) => pattern.test(request));
+}
+
 function shouldAutoRouteTaskToPage({
   task,
   lowerText,
@@ -194,6 +206,8 @@ function shouldAutoRouteTaskToPage({
   hasProjectContext,
   requestedPages,
 }) {
+  if (asksForAdviceOrPlanning(lowerText)) return false;
+  if (/^(?:please\s+)?(?:write|draft|generate|compose)\s+(?:(?:me\s+)?(?:a|the)\s+)?(?:screenplay|script)\b/.test(lowerText)) return true;
   const intent = trimToString(task?.intent, 80);
   if (!intent) return false;
   if (requestedPages > 0) return true;
@@ -206,7 +220,7 @@ function shouldAutoRouteTaskToPage({
     return hasLiveContext || hasPageCue || (hasProjectContext && hasActCue);
   }
   if (intent === "finish_feature") {
-    return (
+    return hasPageCue || (
       hasLiveContext && (hasPageCue || hasFeaturePageWritingCue(lowerText) || hasActCue)
     ) || (
       hasProjectContext && (hasPageCue || hasActCue)
