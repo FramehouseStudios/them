@@ -20,14 +20,15 @@
 ### T-999 — Bind wallet reads to verified identity
 
 - **Owner:** codex. **Branch:** `codex/T-999-wallet-owner-scope`.
-- **Status:** in-progress. **Pillar:** trustworthy account/cost isolation.
+- **Status:** review. **Pillar:** trustworthy account/cost isolation.
 - **Root:** body owner aliases overrode verified identity in /talk/wallet.
 - **Verified:** two synthetic accounts reproduced the cross-account read
   with global auth on/off; failing-first2/2, corrected focused15/0/0.
 - **Fix:** reuse canonical trusted-user resolver; ignore caller ownership;
   reject anonymous/invalid/revoked identity even when global auth is off.
   Auth rejection is no-store; successful balance schema stays unchanged.
-- **Next:** frozen Node20 full regression, adversarial review and draft PR.
+- **Verified:** frozen Node20 backend2741/0/2, scripts210/0/0; D009/diff pass.
+- **Next:** draft PR with fresh hosted proof and adversarial review.
   Independent approval/fresh checks required; production remains blocked.
 - **Evidence:** `docs/wallet-owner-scope-2026-10-19.md`.
 
