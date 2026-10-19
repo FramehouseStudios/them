@@ -610,14 +610,18 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let model = ScreenplayStudioViewModel(localDraftRecoveryStore:
-            ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "recovery"), draftSaveOutbox: queue)
+            ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "recovery"), draftSaveOutbox: queue,
+            connectsToLiveWorkspace: false)
         model.selectedProjectID = "project-1"
         await model.restorePendingDraftSaveBeforeProjectHydration()
         let data = try JSONSerialization.data(withJSONObject: ["id": "project-1", "title": "Test",
             "activeVersionId": "confirmed", "versions": [["id": "confirmed", "draft": raw]]])
         let project = try JSONDecoder().decode(BackendScreenplayProjectSummary.self, from: data)
         model.hydrateDraft(from: project)
-        try? await Task.sleep(nanoseconds: 1_100_000_000)
+        let deadline = ContinuousClock.now.advanced(by: .milliseconds(1100))
+        while !(try await queue.entriesForTesting()).isEmpty, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
         XCTAssertEqual(model.fountainDraft, raw)
         XCTAssertEqual(model.latestVersionID, "confirmed")
         XCTAssertFalse(model.hasUnsavedDraftChanges)

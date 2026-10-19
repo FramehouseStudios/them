@@ -37,7 +37,7 @@
 ### T-979 — Preserve ending mentorship and reject evaluator false positives
 
 - **Owner:** codex. **Branch:** `codex/T-979-mentor-ending-integration`.
-- **Status:** review (local recovery proof passed; fresh hosted proof required). **Pillar:** living companion; trustworthy craft.
+- **Status:** review (bounded local gate repairs proven; fresh hosted proof required). **Pillar:** living companion; trustworthy craft.
 - **Scope:** preserving original #652 `ece8cf76` above T-978. Keep client/core
   parity, target-aware page ranges and semantic prompt allocation. Bound alias
   matches and require a causal marker in the ending evaluation case. Replace
@@ -56,6 +56,28 @@
   quality or physical-phone claim. Manifest:
   `docs/mentor-ending-integration-2026-10-16.md`.
 - **Next actual boundary:** original #653 `8f5f4f2f`, body and full diff read.
+- **Authoritative refresh2026-10-19:** main deac1a6d run39075059944 completed
+  green on its configured gates: backend2739/0/2, units624/0/0, writer,
+  V1 UI28/0/9, voice-fault1/0/0, macOS. Not physical/production durability
+  proof. #961 head2fcdc772 run39077888031 passed856 units and V1 UI29/0/15
+  but failed the separate required offline-save stale-conflict story before
+  queuing. #962 head783fbc99 run39078694476 failed parked-copy hydration:
+  units856 passed/1 failed. Fix this parent boundary first; no unchanged CI
+  retry or #653 advancement. Triage:
+  `docs/offline-save-hosted-triage-2026-10-19.md`.
+- **Gate repair2026-10-19:** unchanged local exact story1/0/0 and full ordered
+  five-story suite5/0/0 did not reproduce hosted red. A deterministic selected-
+  detail mismatch regression did reproduce premature fixture completion:
+  0 passed/1 failed. DEBUG hook now waits for the matching hydrated target
+  within its existing10s budget. Isolate the parked-copy unit from live workspace
+  listeners and await its real queue within the same1.1s maximum; assertions
+  unchanged. Final signed units857/0/0, required offline suite5/0/0, authenticated
+  fixed-provider writer/save/native export/relaunch1/0/0, macOS compile exit0,
+  pinned Node20 backend2886/0/2; D009 all five deltas0 and whitespace pass.
+  Source f937636a; only docs finalized afterward. Hosted causality is partial,
+  not a claim every historic red is explained. Append to #961; preserve all
+  original/child heads. Next propagate parent into #962 with a preserving merge
+  and re-prove its updated head; no original #653 advancement before green.
 - **Resume2026-10-17:** human resumed. #906 normal merged at deac1a6d after
   exact-head independent approval and all required fresh checks. Main's new
   run39075059944 is pending, not yet release proof. #961's run39010350710:
