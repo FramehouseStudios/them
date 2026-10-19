@@ -32,7 +32,14 @@ process.exit(process.env.TEST_WRITER_MODE === "failure" ? 65 : 0);
 const fs = require("node:fs");
 const args = process.argv.slice(2);
 fs.appendFileSync(process.env.TEST_CALLS_FILE, args.join(" ") + "\\n");
-if(args[0] === "simctl") process.exit(0);
+if(args[0] === "simctl") {
+ if(args.includes("--json")) console.log(JSON.stringify({devices:{
+  "com.apple.CoreSimulator.SimRuntime.iOS-26-2":[
+   {name:"Owned evidence",udid:"owned-evidence-fixture",isAvailable:true}
+  ]
+ }}));
+ process.exit(0);
+}
 if(args.includes("tests")) {
  console.log(JSON.stringify({testNodes:[{nodeType:"Failure Message",name:"Markdown artifact missing"}]}));
 } else if(process.env.TEST_WRITER_MODE === "bad-summary") {
@@ -64,6 +71,8 @@ if(args.includes("tests")) {
       const bundle = args[args.indexOf("-resultBundlePath") + 1];
       const config = args[args.indexOf("-xcconfig") + 1];
       assert.equal(args.includes("CODE_SIGNING_ALLOWED=NO"), false);
+      assert.equal(args[args.indexOf("-destination") + 1],
+        "platform=iOS Simulator,id=owned-evidence-fixture");
       assert.match(fs.readFileSync(callsFile, "utf8"), /simctl erase owned-evidence-fixture/);
       assert.equal(fs.existsSync(config), false, "only generated restore config is removed");
       assert.equal(fs.readFileSync(sentinel, "utf8"), "unrelated config");

@@ -10,6 +10,13 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
 const script = path.join(repoRoot, "scripts", "run_voice_network_fault_smokes.sh");
 
+function simulatorInventory(id) {
+  const inventory = {devices: {"com.apple.CoreSimulator.SimRuntime.iOS-26-2": [
+    {name: "Owned proof", udid: id, isAvailable: true},
+  ]}};
+  return `if [[ "$*" == 'simctl list devices available --json' ]]; then printf '%s\\n' '${JSON.stringify(inventory)}'; fi`;
+}
+
 test("[voice-network-fault-smokes] tests iPhone faults and builds the macOS scaffold", (t) => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "io-them-network-fault-smokes-"));
   t.after(() => fs.rmSync(tmp, {recursive: true, force: true}));
@@ -17,7 +24,8 @@ test("[voice-network-fault-smokes] tests iPhone faults and builds the macOS scaf
   const fakeXcodebuild = path.join(tmp, "xcodebuild");
   const simulatorLog = path.join(tmp, "simulator.calls");
   const fakeXcrun = path.join(tmp, "xcrun");
-  fs.writeFileSync(fakeXcrun, "#!/usr/bin/env bash\nprintf '%s\\n' \"$*\" >> \"$SIMULATOR_CALLS_LOG\"\n");
+  fs.writeFileSync(fakeXcrun, "#!/usr/bin/env bash\nprintf '%s\\n' \"$*\" >> \"$SIMULATOR_CALLS_LOG\"\n"
+    + simulatorInventory("deterministic-network-fault-smoke") + "\n");
   fs.chmodSync(fakeXcrun, 0o755);
   fs.writeFileSync(fakeXcodebuild, [
     "#!/usr/bin/env bash",
@@ -103,6 +111,7 @@ for (const failure of ["boot", "ios", "macos"]) {
     const fakeXcodebuild = path.join(tmp, "xcodebuild");
     fs.writeFileSync(fakeXcrun, [
       "#!/usr/bin/env bash",
+      simulatorInventory("owned-test-device"),
       'if [[ "$*" == simctl\\ bootstatus* && "$VOICE_FAILURE" == boot ]]; then exit 1; fi',
       "exit 0", "",
     ].join("\n"));
