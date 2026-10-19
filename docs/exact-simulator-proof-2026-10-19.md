@@ -94,6 +94,34 @@ frame: `/private/tmp/them-983-focus-failure.png`.
 
 ## Remaining work
 
+### Hosted contract follow-up
+
+Head980c001 run39297714806 stopped at the repository quality step, before any
+signed iPhone step: the offline-save wrapper's Apple-tool double returned only
+the old text listing. Its five-case suite had1 pass/4 failures because JSON
+selection correctly refused an empty inventory. This suite was omitted from
+the earlier selected local script checks; the gap is acknowledged, not a flake.
+
+Updated only `scripts/run_screenplay_save_network_fault_smokes.test.mjs`:
+provide an available owned simulator JSON record and assert Xcode receives its
+exact erased ID instead of the original name. All five existing cases pass;
+none removed, no runtime/Swift change. Ran every one of the35 script test files:
+first limited-tool image216/12/0 (git absent), then complete task-local Node20
+image with git/curl228/0/0. Metadata was mounted read-only, external network off.
+
+Also ran the canonical PR-shaped offline `scripts/quality_gate.sh`: PASS with
+RUN_SERVER=1, RUN_CANON=1, heuristic page craft and fresh craft completeness
+enabled; live/provider-dependent gates disabled, disposable storage and
+synthetic auth, no host .env or provider key, network off. This includes the
+offline exemplar gate, not live model quality. Logs:
+`/tmp/them-983-all-script-tests.log`,
+`/tmp/them-983-all-script-tests-tools.log`,
+`/tmp/them-983-offline-wrapper-fixed.log`,
+`/tmp/them-983-canonical-offline-quality.log`.
+Earlier sealed backend2886/0/2, signed857/0/0 and macOS evidence remain scoped
+to identical application/executable sources, not claimed rerun for this
+test-double-only correction. Fresh hosted full proof is still required.
+
 Prove the updated head through required
 hosted checks on the pinned newest runtime. If the keyboard-focus failure
 persists, investigate it on its own evidence; do not claim this independent

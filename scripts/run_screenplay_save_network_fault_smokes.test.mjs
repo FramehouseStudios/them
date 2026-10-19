@@ -38,7 +38,7 @@ function runSmoke({
     "#!/usr/bin/env bash",
     "printf 'xcrun %s\\n' \"$*\" >> \"$TEST_CALL_ORDER_LOG\"",
     "printf 'xcrun %s\\n' \"$*\" >> \"$XCRUN_CALLS_LOG\"",
-    "if [[ \"$*\" == 'simctl list devices available' ]]; then printf '    iPhone 17 Pro (B76CE387-1D78-4B37-AD14-4A9F67002B61) (Shutdown)\\n'; fi",
+    `if [[ "$*" == 'simctl list devices available --json' ]]; then printf '%s\\n' '${JSON.stringify({devices:{"com.apple.CoreSimulator.SimRuntime.iOS-26-2":[{name:"iPhone 17 Pro",udid:"B76CE387-1D78-4B37-AD14-4A9F67002B61",isAvailable:true}]}})}'; fi`,
     "exit 0",
     "",
   ].join("\n"));
@@ -82,7 +82,8 @@ test("[screenplay-save-network-fault-smokes] erases the iPhone simulator and kee
   assert.equal(calls.length, 2);
 
   const [ios, macos] = calls;
-  assert.ok(ios.includes(destination));
+  assert.equal(ios[ios.indexOf("-destination") + 1],
+    "platform=iOS Simulator,id=B76CE387-1D78-4B37-AD14-4A9F67002B61");
   assert.ok(ios.includes("them"));
   assert.ok(ios.includes("Debug"));
   assert.ok(macos.includes("platform=macOS"));

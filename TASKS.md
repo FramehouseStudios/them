@@ -24,6 +24,13 @@
   no Swift change. macOS compile exit0. Hosted26.5 focus failure
   remains unproven, not papered over. App/god files unchanged. Manifest:
   `docs/exact-simulator-proof-2026-10-19.md`.
+- **Hosted follow-up:** head980 run39297714806 failed before iPhone testing:
+  omitted offline-save wrapper doubles still returned no JSON (1/4/0).
+  Updated only that fixture and strengthened exact-ID forwarding;5/0/0.
+  Complete35-file script suite228/0/0 under Node20 (initial216/12/0 image
+  lacked git). Canonical PR-shaped offline quality gate PASS with auth,
+  disposable data and network off. No executable/app change or unchanged CI
+  retry. Append correction to original #961 and require fresh hosted proof.
 
 ### T-979 — Preserve ending mentorship and reject evaluator false positives
 
