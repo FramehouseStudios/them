@@ -48,6 +48,9 @@ nonisolated struct OfflineTalkOutboxSnapshot: Codable, Equatable {
                 ? "1 queued turn needs attention in Data Controls."
                 : "\(parkedCount) queued turns need attention in Data Controls."
         }
+        if !lastError.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return "Queued turns could not be read. Retry in Data Controls; existing files have been preserved."
+        }
         return nil
     }
 
@@ -376,28 +379,39 @@ actor OfflineTalkOutbox {
 
     private func loadIfNeeded() throws {
         guard !didLoad else { return }
-        didLoad = true
-        entries = []
-        guard fileManager.fileExists(atPath: manifestURL.path) else { return }
-
-        let data = try Data(contentsOf: manifestURL)
-        let raw = String(data: data, encoding: .utf8) ?? ""
+        let data: Data
+        do {
+            data = try Data(contentsOf: manifestURL)
+        } catch {
+            let failure = error as NSError
+            if failure.domain == NSCocoaErrorDomain && failure.code == NSFileReadNoSuchFileError {
+                didLoad = true
+                return
+            }
+            throw BackendError.stage("offline_outbox", "Queued turns could not be read. Existing files have been preserved.")
+        }
+        guard let raw = String(data: data, encoding: .utf8) else {
+            throw BackendError.stage("offline_outbox", "Queued turns could not be decoded. Existing files have been preserved.")
+        }
         let decoder = JSONDecoder()
         let now = Date().timeIntervalSince1970
-        entries = raw
-            .split(separator: "\n")
-            .compactMap { line -> OfflineTalkOutboxEntry? in
-                guard let lineData = String(line).data(using: .utf8) else { return nil }
-                guard var entry = try? decoder.decode(OfflineTalkOutboxEntry.self, from: lineData) else {
-                    return nil
-                }
-                if entry.status == .inflight {
-                    entry.status = .pending
-                    entry.nextAttemptAt = min(entry.nextAttemptAt, now)
-                    entry.lastError = "Interrupted while sending."
-                }
-                return entry
+        var restored: [OfflineTalkOutboxEntry] = []
+        for line in raw.split(separator: "\n") {
+            guard !line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
+            guard var entry = try? decoder.decode(OfflineTalkOutboxEntry.self, from: Data(line.utf8)) else {
+                throw BackendError.stage("offline_outbox", "Queued turns could not be decoded. Existing files have been preserved.")
             }
+            if entry.status == .inflight {
+                entry.status = .pending
+                entry.nextAttemptAt = min(entry.nextAttemptAt, now)
+                entry.lastError = "Interrupted while sending."
+            }
+            restored.append(entry)
+        }
+        // Commit only after the entire manifest succeeds. A failed read or
+        // decode must remain retryable and cannot authorize overwriting it.
+        entries = restored
+        didLoad = true
     }
 
     private func persist() throws {

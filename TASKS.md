@@ -5,6 +5,19 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1013 — Fail closed when queued writer input cannot be loaded
+
+- **Owner:** codex. **Branch:** `codex/T-1013-outbox-load-safety`.
+- **Status:** in-progress. **Pillar:** dependable voice-to-scene / recovery.
+- **Root:** OfflineTalkOutbox marks itself loaded before reading protected
+  storage, never retries that failed load, and silently drops malformed JSON
+  or invalid UTF-8. A subsequent enqueue can overwrite retained work.
+- **Done when:** actual-file failing-first signed tests reproduce then prove
+  retry on the same actor, no overwrite/blob loss on malformed storage,
+  safe visible error and unchanged normal replay; full signed units, recovery
+  UI, Node20 suite, D009 and diff pass. No physical-lock/model proof implied.
+- **Evidence:** `docs/outbox-load-safety-2026-10-19.md`.
+
 ### T-1011 — Distinguish provider authentication failure from app session expiry
 
 - **Owner:** codex. **Branch:** `codex/T-1011-provider-auth-retry`.

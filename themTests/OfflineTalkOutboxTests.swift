@@ -42,6 +42,74 @@ final class OfflineTalkOutboxTests: XCTestCase {
         XCTAssertEqual(snapshot.pendingCount, 1)
     }
 
+    func testFailedManifestReadRetriesOnSameActorBeforeEnqueueingMoreWords() async throws {
+        let original = OfflineTalkOutbox(storageDirectory: directory)
+        var request = URLRequest(url: URL(string: "https://them.test/talk")!)
+        request.httpMethod = "POST"
+        request.setValue("retained-first", forHTTPHeaderField: "X-Idempotency-Key")
+        let firstBody = Data("original spoken scene 🎬\r\n".utf8)
+        _ = try await original.enqueue(request: request, body: firstBody, reason: "offline")
+        let manifest = directory.appendingPathComponent("queue.jsonl")
+        let saved = directory.appendingPathComponent("queue.saved.jsonl")
+        try FileManager.default.moveItem(at: manifest, to: saved)
+        // A real Data(contentsOf:) failure, without relying on simulator chmod
+        // or pretending this reproduces physical-device file protection.
+        try FileManager.default.createDirectory(at: manifest, withIntermediateDirectories: false)
+        let relaunched = OfflineTalkOutbox(storageDirectory: directory)
+        let unavailable = await relaunched.snapshot()
+        XCTAssertFalse(unavailable.lastError.isEmpty)
+        XCTAssertEqual(unavailable.userVisibleStatus, "Queued turns could not be read. Retry in Data Controls; existing files have been preserved.")
+        try FileManager.default.removeItem(at: manifest)
+        try FileManager.default.moveItem(at: saved, to: manifest)
+        request.setValue("retained-second", forHTTPHeaderField: "X-Idempotency-Key")
+        let secondBody = Data("second spoken scene".utf8)
+        _ = try await relaunched.enqueue(request: request, body: secondBody, reason: "offline")
+        let entries = await relaunched.allEntries()
+        XCTAssertEqual(Set(entries.map(\.idempotencyKey)), ["retained-first", "retained-second"])
+        var sentBodies: [Data] = []
+        _ = await relaunched.drainDue(now: Date().addingTimeInterval(10)) { replay in
+            sentBodies.append(replay.httpBody ?? Data())
+            return OfflineTalkOutboxSendResult(statusCode: 200)
+        }
+        XCTAssertEqual(sentBodies, [firstBody, secondBody])
+    }
+
+    func testMalformedManifestNeverOverwritesRecoverableTurnsOrBlobs() async throws {
+        for suffix in [Data("{truncated-record\n".utf8), Data([0xFF, 0xFE, 0x0A])] {
+            let fixture = directory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+            let original = OfflineTalkOutbox(storageDirectory: fixture)
+            var request = URLRequest(url: URL(string: "https://them.test/talk")!)
+            request.httpMethod = "POST"
+            request.setValue("keep-original", forHTTPHeaderField: "X-Idempotency-Key")
+            let body = Data("Keep every word, including café and 🎬.\r\n".utf8)
+            let result = try await original.enqueue(request: request, body: body, reason: "offline")
+            let manifest = fixture.appendingPathComponent("queue.jsonl")
+            let valid = try Data(contentsOf: manifest)
+            let damaged = valid + suffix
+            try damaged.write(to: manifest, options: .atomic)
+            let relaunched = OfflineTalkOutbox(storageDirectory: fixture)
+            let snapshot = await relaunched.snapshot()
+            XCTAssertFalse(snapshot.lastError.isEmpty, "Corruption must not look like a successful empty load.")
+            request.setValue("new-turn", forHTTPHeaderField: "X-Idempotency-Key")
+            do {
+                _ = try await relaunched.enqueue(request: request, body: Data("new".utf8), reason: "offline")
+                XCTFail("Never overwrite unreadable queued work.")
+            } catch { }
+            do {
+                _ = try await relaunched.deleteParkedEntries()
+                XCTFail("Never rewrite unreadable storage while clearing parked turns.")
+            } catch { }
+            XCTAssertEqual(try Data(contentsOf: manifest), damaged)
+            let blob = fixture.appendingPathComponent("blobs").appendingPathComponent(result.entry.bodyRef)
+            XCTAssertEqual(try Data(contentsOf: blob), body)
+            // Repair only the synthetic manifest; the same actor must retry
+            // the read rather than keeping its failed-load empty state.
+            try valid.write(to: manifest, options: .atomic)
+            let recovered = await relaunched.allEntries()
+            XCTAssertEqual(recovered.map(\.idempotencyKey), ["keep-original"])
+        }
+    }
+
     func testDrainDueSendsPendingEntryAndRemovesItOnSuccess() async throws {
         let outbox = OfflineTalkOutbox(storageDirectory: directory)
         var request = URLRequest(url: URL(string: "https://them.test/talk")!)
