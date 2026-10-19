@@ -31,7 +31,16 @@ proof does not change that. No dependency security claim from audit0 alone.
   supported audio buffers/limits/abort, proxy and URI regression controls.
 - VERIFIED D009 all five deltas0 versus the original T994 parent; no god file
   grows versus main either. Whitespace clean; original package lock retained.
-- Full pinned Node20 and signed combined pipeline are next, not yet passing.
+- VERIFIED frozen runtime92d797de on Node20.20.2: full backend2975 pass/0
+  fail/2 skip, scripts231/0/0, exit0; /tmp/them-1003-node20.log. No retries.
+- VERIFIED real PostgreSQL16.15 restart gate PASS, exit0:
+  /tmp/them-1003-postgres.log. All12 migrations,422,201 bytes/6,600 lines,
+  authenticated save/rewrite/read, actual database/backend restart, durable
+  identity/dedupe and exact bytes. Only new UUID-owned synthetic fixtures
+  removed; no human data or production database accessed.
+- Signed combined native36287 is active, currently units/build; artifact root
+  /tmp/them-1003-ui.8gyhQl, log /tmp/them-1003-ui.log. Do not restart it or
+  claim downstream stages pass. The serial pipeline stops at the first red.
   Use only exact owned Pro11CF5EFB-D8C3-4F19-8062-28AF37F27D93 and narrow
   SE3E8998A6B-35B1-49E3-896C-861550849927/iOS26.2, erased by canonical runner.
 - Separate fixed-provider output from real speech/model quality. No paid
@@ -39,6 +48,21 @@ proof does not change that. No dependency security claim from audit0 alone.
 - Original961e689 hosted backend/D009 pass; overall hosted UI still running
   at latest read. Original625 hosted V1 has AX system-app timeout; retain red.
   No unchanged reruns or downstream original PR promotion based on local only.
+
+Final upload proof/provenance branch18355484 was preserved by merge92140913;
+binary diff of backend/app/test/script/Swift/project sources against92d797de
+is empty, including the original909 lockfile. Evidence remains scoped to that
+frozen runtime, not a new unrun runtime claim.
+
+Baseline check correction: local origin/T994 ref initially was absent, and
+the god-file CLI exited0 while printing counts without comparisons. Do not
+count that as a passing comparison. GitHub confirmed exact198ab3f0; fetch
+only that baseline, rerun: all five actual deltas0. Also byte-identical via
+git diff against198ab3f0. /tmp/them-1003-god-files.log. Default main comparison
+also passes with all five smaller. Separate next root fix: make the checker
+fail closed for an explicitly requested unresolved base (T1004), not silently
+skip comparisons. This new gate finding remains open, not claimed resolved
+by fetching one baseline.
 
 ## Completion boundary and next action
 
