@@ -8,7 +8,7 @@
 ### T-995 — Infer page-writing requests without mutating advice turns
 
 - **Owner:** codex. **Branch:** `codex/T-995-feature-request-routing`.
-- **Status:** in-progress. **Pillar:** trustworthy voice-to-scene intent.
+- **Status:** review. **Pillar:** trustworthy voice-to-scene intent.
 - **Scope:** canonical screenplay destination inference only. Direct screenplay
   requests must select Page without an existing draft; advice, outline and
   negative writing instructions must not infer Page. Explicit destinations win.
@@ -18,6 +18,10 @@
   pass. This does not prove raw-audio late classification, financial lane
   agreement, live generation or a complete120-page screenplay. See
   `docs/feature-request-routing-2026-10-19.md`.
+- **Final:** committed runtime89fce1db, Node20.20.2 backend2942/0/2,
+  scripts231/0/0, exit0; D009 and whitespace pass. Broader integration remains
+  red: parent961 hosted durable-conflict assertion; T994 SE confirmation
+  hittability. No production/main/original-head promotion from these results.
 - **Human hold:** production blocked until App Store credentials exist.
 
 ### T-994 — Prove combined writer safety, billing and compatibility

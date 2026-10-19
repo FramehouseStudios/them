@@ -36,6 +36,11 @@ follow-up cases; do not claim all spoken requests are understood.
   ran. The corrected diagnostic run began before the final extra cases/fix;
   do not use it as immutable final-head proof. A fresh frozen-source run is
   required after this commit, under Node20.20.2 with external networking off.
+- Final frozen runtime89fce1db2bab3a04e7618c779c355d139e9cca12:
+  Node20.20.2 scripts231 pass/0 fail/0 skip; backend2942 pass/0 fail/2 skip,
+  exit0. /tmp/them-995-final-node20.log. Source and Git metadata mounted
+  read-only; fixture writes isolated in tmpfs; no external network/provider.
+  Documentation added afterward does not change runtime/test source.
 - D009 gate and git diff --check pass locally; no god file changed.
 
 ## Exact files and limits
@@ -52,3 +57,15 @@ No live model call,120-page generated artifact, physical-phone journey,
 shipping backend, external-file opening or production deployment was verified.
 Production remains blocked until the human's App Store credentials clearance.
 Main, original PR heads and independent review protections remain unchanged.
+
+## Next verified failures, not hidden by this green result
+
+The separate T-994 final SE run has a Clear Thread confirmation hittability
+failure; inspect its retained screen evidence before changing product behavior.
+The parent #961 hosted run39312650862 finished red on signed recovery:
+test_screenplay_save_outbox_refreshes_auth_and_resolves_stale_conflict_once
+failed its durable-conflict assertion after relaunch (Swift line2404), followed
+by signal term. Logs /tmp/them-961-hosted-39312650862-failed.log. The snapshot
+still contains the synthetic marker but no conflict/parked state; this is not
+proof of text deletion or proof the recovery is safe. Parent promotion stays
+held. No unchanged retry or original child-head update was performed.
