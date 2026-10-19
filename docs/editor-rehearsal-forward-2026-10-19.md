@@ -78,7 +78,15 @@ credentials exist. Do not add a purchases-disabled beta startup bypass or
 change accepted D011 enforcement. The signed-in Porkbun account lists no
 domains; domain ownership remains unverified there. Old Render live process
 has presence-only readiness evidence in the T-988 document, not credential
-validity or new-deploy proof. No provider call or production change performed.
+validity or new-deploy proof. No live provider call or production change performed.
+
+Read-only Render/Postgres probe: transaction explicitly BEGIN READ ONLY,
+then ROLLBACK. All five canonical auth tables exist; canonical_state marker
+is present, initialized and supported schema1; canonical users exist. No
+user/session fields or screenplay content selected or printed. Do not set an
+empty-store initialization confirmation or replace existing auth data. This
+is auth-schema/marker evidence only, not proof all migrations, backups,
+credentials, authorization or physical sign-in are release-ready.
 
 Human-only clearance, verified against Apple's current instructions:
 sign in to App Store Connect as Account Holder/Admin; Users and Access →
