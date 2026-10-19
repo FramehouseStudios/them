@@ -17,6 +17,12 @@
   safe visible error and unchanged normal replay; full signed units, recovery
   UI, Node20 suite, D009 and diff pass. No physical-lock/model proof implied.
 - **Evidence:** `docs/outbox-load-safety-2026-10-19.md`.
+- **Verified so far:** signed before8/2/0 (real retention assertions), focused
+  corrected10/0/0, frozen89d75626 full signed units874/0/0, Node20.20.2
+  backend2988/0/2 and scripts238/0/0 (native82055 exit0). D009 all five0.
+  UI chain native48555 is still running; do not claim its recovery/writer/
+  voice/macOS gates passed yet. Original #962 hosted recovery FAILED; hold
+  #963/original mentor updates and investigate exact evidence, not rerun.
 
 ### T-1011 — Distinguish provider authentication failure from app session expiry
 
