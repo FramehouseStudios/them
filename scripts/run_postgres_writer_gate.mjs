@@ -15,6 +15,7 @@ export async function runPostgresWriterGate() {
   const postgres = process.env.THEM_POSTGRES_GATE_DATABASE_IMAGE || "postgres:16-alpine";
   const owned = new Set();
   let child;
+  let failure;
   async function docker(args, timeout = 120_000) {
     const result = await exec("docker", args, { timeout, maxBuffer: 16 * 1024 * 1024 });
     return result.stdout.trim();
@@ -76,8 +77,11 @@ export async function runPostgresWriterGate() {
     if (status !== 0 || !output.includes("THEM_POSTGRES_WRITER_CONTRACT_PASSED")) {
       throw new Error(`PostgreSQL writer contract failed (exit ${status})`);
     }
+  } catch (error) {
+    failure = error;
   } finally {
     const cleanup = [];
+    const cleanupFailures = [];
     // Only exact names created by this invocation; never inspect/remove other sessions.
     for (const kind of ["worker", "db"]) if (owned.has(kind)) cleanup.push(["rm", "--force", names[kind]]);
     if (owned.has("volume")) cleanup.push(["volume", "rm", names.volume]);
@@ -86,11 +90,21 @@ export async function runPostgresWriterGate() {
     for (const args of cleanup) {
       try { await docker(args, 30_000); }
       catch (error) {
-        // --rm worker may have already removed itself; other failures need attention.
-        if (args[2] !== names.worker) throw error;
+        // Ignore only the exact --rm worker already being absent. A daemon
+        // or permissions failure is not evidence that the worker was removed.
+        const absentWorker = args[2] === names.worker && String(error.stderr || "")
+          .trim().replace(/^Error response from daemon:\s*/, "") === `No such container: ${names.worker}`;
+        if (!absentWorker) cleanupFailures.push({ error, resource: args.at(-1) });
       }
     }
+    if (cleanupFailures.length) {
+      failure = new AggregateError(
+        [...(failure ? [failure] : []), ...cleanupFailures.map(item => item.error)],
+        `${failure ? `${failure.message}; ` : ""}Fixture cleanup incomplete: ${cleanupFailures.map(item => item.resource).join(", ")}`,
+      );
+    }
   }
+  if (failure) throw failure;
   console.log("postgres-writer-gate: PASS (actual database and backend restart; owned resources removed)");
 }
 

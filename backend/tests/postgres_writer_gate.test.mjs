@@ -76,3 +76,48 @@ test("[postgres-writer-gate] a worker success marker without a restart is reject
     assert.ok(!calls.some(args => args[0] === "image"), "Borrowed image must not be removed");
   } finally { fs.rmSync(directory, { recursive: true, force: true }); }
 });
+
+for (const failedKind of ["worker", "db"]) {
+  test(`[postgres-writer-gate] ${failedKind} cleanup failure is reported without abandoning other resources`, () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "them-gate-cleanup-test-"));
+    const log = path.join(directory, "calls.jsonl");
+    try {
+      const binary = path.join(directory, "docker");
+      fs.writeFileSync(binary, `#!${process.execPath}\nconst fs=require('fs');const args=process.argv.slice(2);fs.appendFileSync(${JSON.stringify(log)},JSON.stringify(args)+'\\n');if(args.includes('--interactive'))console.log('THEM_POSTGRES_WRITER_CONTRACT_PASSED');if(args[0]==='rm'&&args.at(-1).endsWith('-${failedKind}')){console.error('fixture removal permission denied');process.exit(42);}\n`);
+      fs.chmodSync(binary, 0o755);
+      const result = cli(gate, [], { PATH: directory, THEM_POSTGRES_GATE_BACKEND_IMAGE: "fixture:no-build" });
+      assert.notEqual(result.status, 0);
+      assert.match(result.stderr, /did not request an actual database restart/);
+      assert.match(result.stderr, /cleanup incomplete/i, failedKind);
+      assert.doesNotMatch(result.stdout, /postgres-writer-gate: PASS/);
+      const calls = fs.readFileSync(log, "utf8").trim().split("\n").map(JSON.parse);
+      const removals = calls.filter(args => args[0] === "rm" || args[1] === "rm");
+      assert.equal(removals.length, 4, "One removal failure must not prevent the other cleanup attempts");
+      assert.ok(!calls.some(args => args[0] === "image"), "Borrowed image must remain untouched");
+    } finally { fs.rmSync(directory, { recursive: true, force: true }); }
+  });
+}
+
+for (const removal of ["denied", "absent"]) {
+  test(`[postgres-writer-gate] successful worker only tolerates an exactly absent worker (${removal})`, () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "them-gate-cleanup-success-test-"));
+    const log = path.join(directory, "calls.jsonl");
+    try {
+      const binary = path.join(directory, "docker");
+      fs.writeFileSync(binary, `#!${process.execPath}\nconst fs=require('fs');const args=process.argv.slice(2);fs.appendFileSync(${JSON.stringify(log)},JSON.stringify(args)+'\\n');if(args.includes('--interactive')){console.log('THEM_POSTGRES_WRITER_RESTART_READY');process.stdin.once('data',()=>{console.log('THEM_POSTGRES_WRITER_CONTRACT_PASSED');process.exit(0);});}else if(args[0]==='rm'&&args.at(-1).endsWith('-worker')){console.error(${JSON.stringify(removal)}==='absent'?'Error response from daemon: No such container: '+args.at(-1):'fixture permission denied');process.exit(42);}\n`);
+      fs.chmodSync(binary, 0o755);
+      const result = cli(gate, [], { PATH: directory, THEM_POSTGRES_GATE_BACKEND_IMAGE: "fixture:no-build" });
+      const calls = fs.readFileSync(log, "utf8").trim().split("\n").map(JSON.parse);
+      assert.ok(calls.some(args => args[0] === "restart"), "Exercise the restart handshake before cleanup");
+      assert.equal(calls.filter(args => args[0] === "rm" || args[1] === "rm").length, 4);
+      if (removal === "absent") {
+        assert.equal(result.status, 0, result.stderr);
+        assert.match(result.stdout, /postgres-writer-gate: PASS/);
+      } else {
+        assert.notEqual(result.status, 0);
+        assert.match(result.stderr, /cleanup incomplete/i);
+        assert.doesNotMatch(result.stdout, /postgres-writer-gate: PASS/);
+      }
+    } finally { fs.rmSync(directory, { recursive: true, force: true }); }
+  });
+}

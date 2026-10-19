@@ -5,6 +5,21 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-991 — Never hide or abandon database proof cleanup failures
+
+- **Owner:** codex. **Branch:** `codex/T-991-postgres-cleanup-safety`.
+- **Status:** in-progress. **Pillar:** trustworthy persistence/release proof.
+- **Scope:** original #963 gate stops cleanup after one removal failure and
+  hides every worker-removal error. Attempt all exact owned resources,
+  preserve primary failure, aggregate incomplete cleanup, tolerate only the
+  exact already-removed worker. No production/resource discovery or deletion.
+- **Before:** focused regression6/2/0 host Node26. **After:**10/0/0, including
+  successful-worker fail-closed cleanup and exact absent-worker tolerance.
+- **Done when:** pinned full backend and actual disposable database restart
+  gate pass; D009/diff clean; preserve original #963 head until propagation
+  and exact updated-head proof. No main merge or replacement PR.
+- **Human decision:** production held until App Store credentials exist.
+
 ### T-981 — Maintained production-mode PostgreSQL writer restart gate
 
 - **Owner:** codex. **Branch:** `codex/T-981-postgres-writer-gate`.
