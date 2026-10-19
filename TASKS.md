@@ -8,7 +8,7 @@
 ### T-1003 — One combined voice-to-writer safety proof
 
 - **Owner:** codex. **Branch:** `codex/T-1003-integrated-voice-writer`.
-- **Status:** in-progress. **Pillar:** end-to-end trustworthy writer loop.
+- **Status:** review (local combined proof complete). **Pillar:** end-to-end trustworthy writer loop.
 - **Scope:** preserve T994, compact confirmation T996, durable receipt guard
   T997, destination/advice T995/T998, owner isolation T999/T1000 and upload
   errors/regressions T1001/T1002. No original head replacement or main merge.
@@ -19,8 +19,9 @@
 - **Current:** combined focused43/0/0 on host Node26; D009/diff pass.
 - **Verified:** frozen92d797de Node20 backend2975/0/2, scripts231/0/0; real
   PostgreSQL16.15 restart PASS,422,201 exact bytes. Signed units867/0/0,
-  recovery5/0/0, writer1/0/0, fixed-provider Home2/0/0; native36287 now
-  running full SE UI, artifact root/tmp/them-1003-ui.8gyhQl. Voice/mac pending.
+  recovery5/0/0, writer1/0/0, fixed-provider Home2/0/0; native36287 exit0:
+  full SE UI29/0/15, voice1/0/0, macOS build0. Six bundles retained/compared;
+  Pages/rail screenshots actually viewed. Artifact/tmp/them-1003-ui.8gyhQl.
 - **Done when:** fresh combined Node20, signed erased units, recovery/writer,
   fixed-provider Home, full narrow UI, voice-fault/macOS and PG restart pass.
   Physical microphone/live model120-page/export-outside-app proof is separate.
@@ -29,9 +30,10 @@
   approval and exact-head hosted checks remain required for main landing.
 - **Gate defect:** T1004 now fail-closed, independently proven and preserved
   by mergece27c383; all app/backend/UI bytes unchanged. Fresh final Node20
-  native45562 active, scripts238/0/0 complete; backend pending.
+  native45562 exit0: scripts238/0/0, backend2975/0/2. No paid calls.
 - **Hosted parent:** original961e689 full39328089782 SUCCESS, no head change.
-  Next preserve/re-prove parent into original962 after current local lane.
+  T1005 now preserves/re-proves parent into original962; its signed lane
+  starts only after this lane completed. Original962 head remains unchanged.
 
 ### T-996 — Reach inline clear confirmations on a compact inspector
 

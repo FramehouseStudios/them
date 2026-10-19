@@ -38,12 +38,14 @@ proof does not change that. No dependency security claim from audit0 alone.
   authenticated save/rewrite/read, actual database/backend restart, durable
   identity/dedupe and exact bytes. Only new UUID-owned synthetic fixtures
   removed; no human data or production database accessed.
-- Signed combined native36287 remains active; exact completed summaries on
+- Signed combined native36287 completed exit0; exact completed summaries on
   erased owned Pro/iOS26.2: units867/0/0, recovery5/0/0, writer/export/relaunch
   1/0/0, fixed-provider Home2/0/0 (STT1/chat4/TTS24). Artifact root
-  /tmp/them-1003-ui.8gyhQl, log /tmp/them-1003-ui.log. Now full narrow SE V1
-  is running; voice/macOS follow only if green. Do not restart this handle or
-  claim downstream stages pass. The serial pipeline stops at the first red.
+  /tmp/them-1003-ui.8gyhQl, log /tmp/them-1003-ui.log. Full narrow SE V1:
+  29 pass/0 fail/15 skip; voice-fault1/0/0; macOS scaffold build exit0. Direct
+  xcresult summaries verify counts/devices. Existing Swift6-concurrency and
+  metadata-extraction warnings remain; a successful scaffold is not macOS
+  release certification. No test retry or weakened assertion.
   Use only exact owned Pro11CF5EFB-D8C3-4F19-8062-28AF37F27D93 and narrow
   SE3E8998A6B-35B1-49E3-896C-861550849927/iOS26.2, erased by canonical runner.
 - Separate fixed-provider output from real speech/model quality. No paid
@@ -71,23 +73,33 @@ failing-first1/6, corrected7/0/0, Node20 full scripts217/0/0 + backend2739/0/2.
 Draft PR969 is main-based and requires review/fresh hosted proof; not merged.
 Its preserving mergece27c383 changes only checker/test/docs, with app/backend/
 unit/UI/project/package bytes identical to frozen92d797de. Fresh combined
-Node20 final-tree proof is active at native45562, /tmp/them-1003-final-node20.log;
-scripts238/0/0 have finished; backend still running at latest read. Do not
-relabel the earlier2975 backend run as this new invocation.
+Node20 final-tree proof at native45562 completed exit0 on frozence27c383:
+scripts238/0/0 and backend2975/0/2; /tmp/them-1003-final-node20.log. This is
+a distinct invocation, not relabeling of the first2975 backend run. Backend,
+Swift/UI/project/package bytes remain identical to92d797de; only verifier,
+its test and documentation differ. Original909 dependency baseline preserved.
 
-Four completed local signed bundles retained and compared byte-identical in
+All six completed local signed bundles retained and compared byte-identical in
 /Users/halfmutantfilms/io.them-worktrees/_proof/T-1003-20261019.ulu2sB/
-(units/recovery/writer/Home), alongside completed backend/PG/D009/host logs.
-No active bundle copied; same-computer retention is not off-device backup.
+(units/recovery/writer/Home/full-SE/voice), alongside completed backend/PG/
+D009/host logs. No active bundle copied; same-computer retention is not
+off-device backup. Actual exported Pages/companion-rail PNGs were viewed:
+the captured SE overview/card/rail text is readable with no letter-per-line
+wrapping, and the established paper/blush styling is retained. Scope: those
+captured normal-type fixture states only, not every tab/Dynamic Type/120pages.
 
 ## Completion boundary and next action
 
-Do not call the goal complete. Full backend, signed units, authenticated save/
-offline/relaunch conflict recovery, writer/export/restoration, raw audio Home,
-full narrow UI, fault/macOS and actual PG restart must prove this combined tree.
-Even all of these green would not prove the intended shipping backend, real
+Local combined proof is now complete for the gates above, not the goal.
+Full backend, signed units, authenticated save/offline/relaunch conflict
+recovery, writer/export/restoration, controlled raw-audio Home, full narrow UI,
+fault/macOS and actual PG restart pass within their stated source scopes.
+These green gates do not prove the intended shipping backend, real
 iPhone microphone, creative quality or an actual correctly formatted120-page
 script with exact external export. Human-only production/review holds remain.
+Original962's preserving new-parent candidate T1005 is backed up separately;
+its signed pipeline now runs only after native36287 completed. No replacement
+PR or original child promotion based solely on this broader rehearsal.
 
 ## Exact integration files
 
