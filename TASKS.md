@@ -5,6 +5,18 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-994 — Prove combined writer safety, billing and compatibility
+
+- **Owner:** codex. **Branch:** `codex/T-994-integrated-writer-safety`.
+- **Status:** in-progress. **Pillar:** complete trustworthy writer loop.
+- **Scope:** preserving merges of compatibility/recovery46de00f, original
+  billing78430de and PostgreSQL/cleanup1ed27b9. Preserve all task histories;
+  no replacement PR, original-head update, main merge or protection bypass.
+- **Done when:** combined Node20 suites, actual disposable PostgreSQL restart,
+  signed erased units, authenticated narrow writer/recovery UI, macOS and
+  D009/diff pass. Separate parent hosted gates still required before promotion.
+- **Human hold:** production blocked until App Store credentials exist.
+
 ### T-992 — Remove avoidable older-iPhone install/API blockers
 
 - **Owner:** codex. **Branch:** `codex/T-992-iphone-compatibility`.
@@ -956,6 +968,26 @@
   `docs/main-simulator-proof-2026-10-19.md`.
 - **Hold:** required hosted checks and independent human review before merge.
 - **GitHub:** draft #964, initial implementation `ba55565`; no main merge.
+### T-993 — Re-prove original failed-generation billing fix on current main
+
+- **Owner:** codex. **Branch:** `codex/T-993-billing-main-proof`.
+- **Status:** in-progress. **Pillar:** trustworthy voice-to-page and wallet.
+- **Root verified:** current rehearsal's actual generation stage returned
+  zero reply bytes after two injected provider calls while proposing123
+  output tokens for billing. No live provider or real wallet used.
+- **Scope:** preserve original #625 head795f14fc and current main deac1a6d
+  with a normal merge. Read all seven original files and follow-up commits;
+  asked_repeat/continue_listening release is already in the original head.
+  Do not reimplement it, create a replacement PR or move main.
+- **Done when:** original generation/supplier/real-HTTP/lifecycle regressions,
+  full Node20 suite, signed erased units, D009/diff pass; adversarial limits
+  recorded; fresh original PR/head checks and independent review still needed.
+- **Human hold:** production blocked until App Store credentials exist.
+- **Verified:** focused33/0/0 after auth enforcement; full pinned Node20
+  backend2761/0/2; signed erased units624/0/0; D009 all five deltas0 and diff
+  clean. Unit source7f6159d and backend129d22c differ only by a Node test.
+  No new writer UI/macOS/live-provider claim. Manifest:
+  `docs/billing-main-proof-2026-10-19.md`.
 
 ### T-969 — Truthful required checks on original #906
 
