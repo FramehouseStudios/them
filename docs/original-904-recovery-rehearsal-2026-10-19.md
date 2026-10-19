@@ -56,16 +56,21 @@ remains a separate required gate, not an implied successful Mac UI run.
   completeness and recovery runner contracts enabled. Provider gates off.
 - Logs: `/tmp/them-986-units.log`, `/tmp/them-986-full-node20.log`,
   `/tmp/them-986-macos.log`, `/tmp/them-986-offline-quality.log`.
-- Real authenticated iPhone-only recovery on this combined application is
-  running; do not substitute the policy/unit results for its outcome. The
+- Real authenticated iPhone-only recovery:2 pass/0 fail/0 skip. Actual retained
+  summary confirms the same erased owned UDID above. Both reconnect/relaunch
+  and auth-refresh/stale-conflict/Keep Mine cases require exact full draft
+  equality and exactly-once saved versions, not merely presence of a marker.
+  Bundle `/tmp/them-986-recovery/them-save-recovery-uHuVOM/recovery-ios.xcresult`;
+  log `/tmp/them-986-recovery.log`. This uses controlled DEBUG save failure,
+  not a physical airplane-mode typing journey. The
   local UI harness backend uses host Node26.7.0; the complete backend suite
   above independently runs on the supported Node20.20.2 container.
 - Original #961 head46a5b4e run39298823662 passed its hosted signed-unit and
   writer-loop steps; full V1 UI is still running. Overall green is unproven.
 
-Next: prove this combined tree's real authenticated iPhone queue/reconnect/
-conflict cases with zero skips, then writer/export/relaunch and remaining
-gates. Stop and fix the first real failure. Only then update original #904
+The reviewed combined executable tree is `e0477d5`; writer/export/relaunch
+then full V1 UI are running sequentially, stopping on the first failure.
+Original #904's remote head is still unchanged. Only then update original #904
 with a normal preserving fast-forward, retaining review/protection gates.
 
 Production/physical microphone, live generation, external-open export and a

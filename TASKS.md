@@ -18,7 +18,8 @@
   evidence on original #904 and retain independent review/check requirements.
 - **Evidence:** `docs/original-904-recovery-rehearsal-2026-10-19.md`.
 - **Verified now:** signed units632/0/0; Node20 backend2749/0/2,
-  scripts224/0/0; macOS and offline quality gate pass; real recovery running.
+  scripts224/0/0; macOS and offline quality gate pass; real recovery2/0/0.
+  Writer/export/relaunch then V1 UI running; original remote head unchanged.
 
 ### T-985 — Fail-closed recovery proof and preserve original #904
 
