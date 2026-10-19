@@ -36,9 +36,10 @@ Borrowed images remain untouched. No resource enumeration or broad deletion.
   UUID-owned synthetic containers, volume, network and built image removed
   before PASS. That fixture data was intentionally discarded; no human or
   production data was deleted. Not a generated120-page screenplay.
-- Full pinned backend regression is active in native session5508, external
+- Full pinned Node20.20.2 backend regression2896/0/2, exit0, external
   networking disabled, read-only source and disposable persistence:
-  `/tmp/them-991-node20.log`. Not yet a passing claim.
+  `/tmp/them-991-node20.log`. Counts include the ten cleanup safety cases;
+  this older original #963 tree is distinct from T-990's backend count.
 - Node syntax checks and whitespace pass. D009 against freshly fetched
   original #963 branch/head7459a8fa: all five deltas0. An earlier invocation
   without that fetched ref printed absolute sizes; not comparative proof.
@@ -54,8 +55,11 @@ Borrowed images remain untouched. No resource enumeration or broad deletion.
 
 ## Remaining work and limits
 
-Finish the exact active full suite; fix first red, then preserve this fix in
-original #963 only after the verified parent integration is propagated and
+Completed logs retained privately at
+`/Users/halfmutantfilms/io.them-worktrees/_proof/T-991-20261019.ZW95k5/`.
+Same-computer retention is not an off-device backup.
+
+Preserve this fix in original #963 only after the verified parent integration is propagated and
 the combined tree re-proven. No replacement PR or main merge. Existing
 original auth-file native-abort evidence remains unexplained, not fixed by
 this cleanup correction.

@@ -19,6 +19,11 @@
   gate pass; D009/diff clean; preserve original #963 head until propagation
   and exact updated-head proof. No main merge or replacement PR.
 - **Human decision:** production held until App Store credentials exist.
+- **Verified:** final pinned Node20 backend2896/0/2; actual PostgreSQL16.15
+  restart/cleanup PASS; syntax/diff pass; D009 all five deltas0 versus fetched
+  original #963. Fix is backed up, original PR head unchanged pending parent
+  propagation and combined proof. Manifest:
+  `docs/postgres-cleanup-safety-2026-10-19.md`.
 
 ### T-981 — Maintained production-mode PostgreSQL writer restart gate
 
