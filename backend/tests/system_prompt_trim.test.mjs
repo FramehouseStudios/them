@@ -610,6 +610,12 @@ test("[system-prompt-trim] a mentor turn keeps her identity whole at the mentor 
   const block = (tag) => (out.match(new RegExp(`<${tag}>[\\s\\S]*?</${tag}>`)) || [""])[0];
   // The identity survives whole, page map included.
   assert.equal(block("mentor_core").includes("\n...\n"), false);
+  assert.equal(block("mentor_core"), `<mentor_core>\n${mentorCore}\n</mentor_core>`);
+  assert.ok(block("mentor_core").includes("THEM recommends a 120-page three-act feature"));
+  assert.ok(block("mentor_core").includes("recommendation, not a quota"));
+  assert.ok(block("mentor_core").includes("shorter or longer"));
+  assert.ok(block("mentor_core").includes("writer's chosen length"));
+  assert.ok(!block("mentor_core").includes("say the page for a 110-page feature"));
   assert.ok(out.includes("the midpoint near page 55"));
   assert.ok(out.includes("the last image answers the first"));
   // The pitch rule, the output contract, the controls and the read all survive whole.

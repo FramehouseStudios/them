@@ -5,6 +5,19 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1010 — Align Clementine's actual mentor instructions with D017
+
+- **Owner:** codex. **Branch:** `codex/T-1010-mentor-target-recommendation`.
+- **Status:** in-progress. **Pillar:** living companion / voice-to-scene.
+- **Scope:** actual shared/Swift mentor identity recommends120 pages without
+  a quota; shorter/longer chosen targets and scaled map outrank110 examples.
+  No model, budget, scorer, writer data or production configuration change.
+- **Verified:** failing-first prompt tests13/1/0, corrected focused29/0/0;
+  whole mentor core and target instruction survive crowded13k actual budget.
+- **Done when:** signed mentor/parity checks, pinned backend/scripts/offline
+  golden and D009/diff pass; live/phone proof remains distinct.
+- **Evidence:** `docs/mentor-target-recommendation-2026-10-19.md`.
+
 ### T-1009 — Fail closed before and during scoped live-model proof
 
 - **Owner:** codex. **Branch:** `codex/T-1009-live-proof-fail-closed`.
