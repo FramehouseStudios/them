@@ -28,7 +28,12 @@ No new route, provider adapter, framework or god-file growth.
   fixed provider transport, actual TTS request, saved project unchanged.
   The fixture logs only boolean contract/causal-text observations. This is
   NOT a live model-quality or physical microphone claim.
-- Full pinned Node20 backend/script suite and offline golden gate pending.
+- VERIFIED frozen bc1b96ca, pinned Node20.20.2 full backend2981 pass/0
+  fail/2 skip, scripts238/0/0, offline MENTOR GOLDEN SET OK, exit0.
+  `/tmp/them-1006-node20.log`. Offline gate is exemplar/prompt evidence,
+  not generated model quality. D009 actual T1003 parent all five deltas0;
+  whitespace clean. The first local comparison lacked its remote baseline
+  and correctly failed closed; fetched the exact baseline and reran.
   No fresh signed test result is attributed to this backend-only change.
 - No paid calls or production changes. Human has said they will add a local
   key; readiness remains unconfirmed, so the secret file is not read.

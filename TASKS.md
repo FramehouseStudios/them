@@ -8,7 +8,7 @@
 ### T-1006 — Keep the mentor's causal craft advice
 
 - **Owner:** codex. **Branch:** `codex/T-1006-mentor-causal-preservation`.
-- **Status:** in-progress. **Pillar:** living companion / voice-to-scene.
+- **Status:** review (local proof complete). **Pillar:** living companion / voice-to-scene.
 - **Scope:** preserving original #653 on T1003 without advancing its remote
   head or skipping the pending #962/#963 boundaries. Keep the original
   causal mentor contract; prevent broad check-in removal from deleting advice.
@@ -18,6 +18,9 @@
 - **Done when:** frozen Node20 backend/scripts, offline golden and D009/diff
   pass; retain original history and document uncovered live/feature-length gaps.
 - **Evidence:** `docs/mentor-causal-preservation-2026-10-19.md`.
+- **Full proof:** frozen bc1b96ca Node20.20.2 backend2981/0/2,
+  scripts238/0/0, offline golden OK, actual parent D009 all deltas0, diff pass.
+  No original PR/main head changed; no paid calls.
 
 ### T-1003 — One combined voice-to-writer safety proof
 
