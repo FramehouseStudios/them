@@ -12,6 +12,7 @@
   merge; retain newer raw-byte/deferred guards and all five recovery stories.
 - **Done when:** conflicts resolved, focused/full gates re-proven on combined
   tree before updating any existing PR. No main merge or replacement PR.
+- **Evidence:** `docs/editor-rehearsal-forward-2026-10-19.md`.
 - **Human decision:** production remains blocked until App Store credentials
   exist; do not add a purchases-disabled startup bypass.
 
