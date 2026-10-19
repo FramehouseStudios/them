@@ -8,7 +8,7 @@
 ### T-997 — Keep durable writer-save authority across relaunch
 
 - **Owner:** codex. **Branch:** `codex/T-997-conflict-base-authority`.
-- **Status:** in-progress. **Pillar:** writer words and recovery choices.
+- **Status:** review (fresh hosted proof required). **Pillar:** writer words and recovery choices.
 - **Parent:** exact original961 head8b19d86b; preserve original history.
   Hosted39312650862 recovery4/1/0 on26.5 failed durable-conflict relaunch.
   Marker remains; conflict/dirty/parked state absent. No text-loss or root-cause
@@ -35,6 +35,11 @@
 - **Recovery:** authenticated local five-story gate5/0/0 on exact erased Pro
   /26.2, evaluator exit0; writer stage active on unchanged0c1afb1a. Hosted26.5
   cause and full remaining workflow still unproven; no promotion yet.
+- **Final local:** native65975 exit0: recovery5/0/0, writer1/0/0,
+  fixed-provider Home2/0/0, full V1 UI29/0/15, voice-fault1/0/0 and macOS
+  build0. Runtime0c1afb1a unchanged. All seven bundles retained/compared.
+  Ready for preserving original961 update and fresh hosted checks, not a
+  main merge. Original base/head verified ancestors; production hold remains.
 
 ### T-989 — Carry exact editor recovery into the product rehearsal
 

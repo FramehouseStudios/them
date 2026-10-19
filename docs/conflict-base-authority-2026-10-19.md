@@ -85,6 +85,55 @@ for hosted39312650862. Production publisher timing and26.5 recovery still need
 fresh exact-head proof. Historical already-rebased snapshots and universal
 late-receipt identity are not certified by this method guard.
 
+## Final local proof and adversarial review
+
+Native65975 completed exit0 on unchanged runtime0c1afb1a:
+
+- Authenticated recovery5/0/0, as above.
+- Writer/export/relaunch1/0/0:
+  /tmp/them-997-writer/them-studio-ios-writer-loop/run-F0Ua3H/writer-loop.xcresult.
+- Fixed-provider Home2/0/0, STT1/chat4/TTS24:
+  /tmp/them-home-voice-2810.xcresult. Includes raw-audio server transcription
+  and confirmed-text paths, not actual microphone or live providers.
+- Full V1 UI29 pass/0 fail/15 skip:
+  /tmp/them-997-v1/v1-ui-smoke-local-1-3429.xcresult. Fixture-dependent skips
+  remain skips; dedicated recovery/writer/Home runs above supply their own
+  contracts, not proof that every skipped scenario ran here.
+- Voice-fault1/0/0:
+  /tmp/them-997-voice/voice-network-fault-local-1-1448-ios.xcresult.
+- macOS scaffold build exit0, /tmp/them-997-voice.log. Existing warnings
+  remain; not a warning-free-build claim.
+
+Every signed result is exact owned Pro11CF5EFB/iOS26.2, erased by the
+canonical runner before its stage. All seven completed bundles, including
+the failed baseline, copied and compared identical under
+/Users/halfmutantfilms/io.them-worktrees/_proof/T-997-20261019.u7lZf7/.
+This is local same-computer retention, not off-device backup.
+
+Answered by real ViewModel/store regression: late preferred-version hints
+cannot retire pending/parked writer intent, overwrite its base or make a
+competing canonical draft silently replace its text; explicit conflict remains
+protected; ordinary generated-page acknowledgement works. Full local recovery
+also exercises actual backend auth refresh, persisted queue/relaunch and
+explicit Keep Mine/Load Server actions. Partially addressed: publisher/launch
+timing on hosted26.5 still needs a fresh exact-head run. Original failure is
+not erased or attributed solely by these local passes. Not covered: historical
+already-rebased recovery metadata, arbitrary late-receipt identity, physical
+microphone, shipping backend, generated120-page quality or external-open export.
+
+Before original PR update, actual current base85b73695 and old head8b19d86b
+are verified ancestors; normal fast-forward only, preserving the original PR,
+scope and history. No main merge, replacement PR or protection bypass.
+
+Local live-proof credential check returned only presence booleans: no key in
+the process and no backend/.env at that check. No dedicated key-provisioning
+tool is available. Human asked to enter it directly into ignored/untracked
+backend/.env, not chat or the app. Official guidance keeps API credentials
+server-side in environment/secret storage:
+https://developers.openai.com/api/reference/overview#authentication.
+No paid call made, no credential exposed, no production-secret change.
+Production remains blocked until App Store credentials exist.
+
 Exact files: them/ScreenplayStudioViewModel.swift,
 themTests/ScreenplayDraftSaveOutboxTests.swift, TASKS.md and this report.
 No provider calls, production changes, main promotion or borrowed approval.
