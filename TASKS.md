@@ -19,6 +19,12 @@
   or model claim. Original #962 fresh hosted gate is still pending.
 - **Human direction:**120 pages is the recommendation, not a quota; shorter/
   longer targets remain supported. Production stays held on App Store keys.
+- **Verified:** frozen a06cbfc4 Node20.20.2 scripts231/0/0, backend2907/0/2;
+  real PostgreSQL16.15 database/backend restart PASS after12 migrations;
+  focused safety10/0/0, D009 all five deltas0 and diff pass. Swift identical
+  to current parent; no new signed run claimed here. Parent hosted Quality
+  Gate pending, so original #963 remains unchanged. Manifest:
+  `docs/postgres-current-parent-2026-10-19.md`.
 
 ### T-991 — Never hide or abandon database proof cleanup failures
 
