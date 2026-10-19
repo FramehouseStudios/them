@@ -5,6 +5,7 @@ import ScreenplayStudio
 /// iPhone keyboard save affordance to the native screenplay editor.
 struct CursorInsertTextEditor: View {
     @Binding var text: String
+    var documentID: String = ""
     @Binding var activeScreenplayElement: ScreenplayEditorElement
     @Binding var insertionRequest: ScreenplayInsertionRequest?
     @Binding var lineJumpRequest: ScreenplayLineJumpRequest?
@@ -44,6 +45,7 @@ struct CursorInsertTextEditor: View {
 #elseif os(iOS)
         IOSCursorInsertTextEditor(
             text: $text,
+            documentID: documentID,
             activeScreenplayElement: $activeScreenplayElement,
             insertionRequest: $insertionRequest,
             lineJumpRequest: $lineJumpRequest,

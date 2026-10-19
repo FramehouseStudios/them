@@ -10718,39 +10718,9 @@ private func hollywoodScreenplayEditorUIFont() -> UIFont {
     UIFont(name: "Courier", size: 12) ?? UIFont.monospacedSystemFont(ofSize: 12, weight: .regular)
 }
 
-struct ScreenplayDeferredTextPublicationRequirement: Equatable {
-    var text: String
-    var requestID: UUID?
-}
-
-enum ScreenplayDeferredPublicationGate {
-    static func requestIsCurrent(
-        _ requestID: UUID?,
-        lastAppliedInsertionID: UUID?,
-        activeInsertionRequestID: UUID?
-    ) -> Bool {
-        guard let requestID else { return true }
-        return lastAppliedInsertionID == requestID && activeInsertionRequestID == requestID
-    }
-
-    static func acceptsTextGeneration(
-        _ generation: Int,
-        requirements: [Int: ScreenplayDeferredTextPublicationRequirement],
-        currentText: String,
-        lastAppliedInsertionID: UUID?,
-        activeInsertionRequestID: UUID?
-    ) -> Bool {
-        guard let requirement = requirements[generation] else { return true }
-        return currentText == requirement.text && requestIsCurrent(
-            requirement.requestID,
-            lastAppliedInsertionID: lastAppliedInsertionID,
-            activeInsertionRequestID: activeInsertionRequestID
-        )
-    }
-}
-
 struct IOSCursorInsertTextEditor: UIViewRepresentable {
     @Binding var text: String
+    var documentID: String = ""
     @Binding var activeScreenplayElement: ScreenplayEditorElement
     @Binding var insertionRequest: ScreenplayInsertionRequest?
     @Binding var lineJumpRequest: ScreenplayLineJumpRequest?
@@ -10838,6 +10808,8 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
         let previousPendingID = context.coordinator.parent.pendingReplacementTarget?.id
         let previousSubmittedID = context.coordinator.parent.submittedReplacementTarget?.id
         let previousInsertionID = context.coordinator.parent.insertionRequest?.id
+        let previousParentText = context.coordinator.parent.text
+        let previousDocumentID = context.coordinator.parent.documentID
         context.coordinator.parent = self
         let currentPendingID = pendingReplacementTarget?.id
         let currentSubmittedID = submittedReplacementTarget?.id
@@ -10868,7 +10840,14 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
             context.coordinator.applyActiveElementFromBinding(activeScreenplayElement)
         }
 
-        if !context.coordinator.isApplyingProgrammaticChange, uiView.text != text {
+        if !context.coordinator.isApplyingProgrammaticChange,
+           ScreenplayEditorTextBindingPolicy.shouldApplyModelText(
+               incomingText: text,
+               currentEditorText: uiView.text ?? "",
+               lastRenderedModelText: previousParentText,
+               isEditorFocused: uiView.isFirstResponder,
+               documentDidChange: previousDocumentID != documentID
+           ) {
             let previousSelection = uiView.selectedRange
             context.coordinator.isApplyingProgrammaticChange = true
             uiView.text = text

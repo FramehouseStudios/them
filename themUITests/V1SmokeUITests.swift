@@ -63,26 +63,34 @@ final class V1SmokeUITests: XCTestCase {
             let editorDeadline = Date().addingTimeInterval(8)
             editorText = editor.value as? String ?? ""
             while Date() < editorDeadline,
-                  !editorText.localizedCaseInsensitiveContains(expectedPrefix) {
+                  editorText != expectedPrefix {
                 RunLoop.current.run(until: Date().addingTimeInterval(0.1))
                 editorText = editor.value as? String ?? ""
             }
-            XCTAssertTrue(
-                editorText.localizedCaseInsensitiveContains(expectedPrefix),
-                "UIKit editor lost or redirected characters in typing chunk \(index + 1). " +
-                    "Expected prefix: \(expectedPrefix). Editor: \(editorText). " +
+            XCTAssertEqual(
+                editorText,
+                expectedPrefix,
+                "UIKit editor lost, duplicated, or redirected characters in typing chunk \(index + 1). " +
                     "Draft model: \(accessibleDraftText(in: app))"
             )
         }
-        XCTAssertTrue(
-            editorText.localizedCaseInsensitiveContains(sentence),
-            "UIKit editor lost or redirected characters. Editor: \(editorText). Draft model: \(accessibleDraftText(in: app))"
+        XCTAssertEqual(
+            editorText,
+            sentence,
+            "UIKit editor did not preserve the exact screenplay text. Draft model: \(accessibleDraftText(in: app))"
         )
 
-        XCTAssertTrue(
-            waitForDraft(in: app, containing: sentence, timeout: 8),
-            "Editor accepted direct typing, but the published draft lost or redirected characters. " +
-                "Editor: \(editorText). Draft model: \(accessibleDraftText(in: app))"
+        let draftDeadline = Date().addingTimeInterval(8)
+        var draftText = accessibleDraftText(in: app)
+        while Date() < draftDeadline, draftText != sentence {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+            draftText = accessibleDraftText(in: app)
+        }
+        XCTAssertEqual(
+            draftText,
+            sentence,
+            "Editor accepted direct typing, but the published draft did not preserve the exact text. " +
+                "Editor: \(editorText)"
         )
 #else
         throw XCTSkip("The direct page typing regression specifically covers the iPhone editor.")
