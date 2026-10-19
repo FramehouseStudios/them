@@ -5,6 +5,34 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-984 — Exact, signed simulator proof on main
+
+- **Owner:** codex. **Branch:** `codex/T-984-main-simulator-proof`.
+- **Status:** review. **Pillar:** trustworthy writer/recovery proof.
+- **Scope:** resolve one exact simulator ID before erasure and Xcode; route
+  main's existing offline-save iPhone tests through that signed canonical
+  runner. No application runtime or unfinished product-stack changes.
+- **Done when:** regressions, full Node20 scripts/backend, erased signed units,
+  authenticated writer UI, macOS, D009 and diff pass; draft PR records proof.
+- **Evidence:** scripts223/0/0, backend2739/0/2, signed units624/0/0,
+  macOS exit0, writer UI1/0/0, D009 deltas0. Offline-save UI still running. See
+  `docs/main-simulator-proof-2026-10-19.md`.
+- **Hold:** required hosted checks and independent human review before merge.
+- **GitHub:** draft #964, initial implementation `ba55565`; no main merge.
+
+### T-969 — Truthful required checks on original #906
+
+- **Owner:** codex. **Task branch:** `codex/T-969-truthful-906-gate`.
+- **Status:** review. **Pillar:** trustworthy writer/recovery proof.
+- **Landing:** original #906, not a replacement PR. Preserve #904's CI prefix
+  and its remaining later recovery/inspector work separately.
+- **Done when:** signed units/failing UI cases, canonical erased voice entry,
+  Node20 runner contracts, macOS, D009 and diff pass; fresh hosted gate required.
+- **Evidence:** signed units624 + UI2 all pass; final voice1/0/0 and macOS pass;
+  Node20 contracts11/0/0, D009 deltas0. Original hidden hosted reds retained.
+  `docs/906-required-gate-repair-2026-10-16.md`.
+- **Hold:** changed head requires fresh independent approval and real green CI.
+
 ## Branch conventions
 - `codex/<task-id>-<short-name>`
 - `support/backend-<short-name>`
