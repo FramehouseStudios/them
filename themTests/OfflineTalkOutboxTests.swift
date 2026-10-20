@@ -110,6 +110,92 @@ final class OfflineTalkOutboxTests: XCTestCase {
         }
     }
 
+    func testSuccessfulReplayKeepsReturnedPageAndResponseFileUntilOwnerCheckedDeletion() async throws {
+        let outbox = OfflineTalkOutbox(storageDirectory: directory)
+        var request = URLRequest(url: URL(string: "https://them.test/talk")!)
+        request.httpMethod = "POST"
+        request.setValue("keep-completed-result", forHTTPHeaderField: "X-Idempotency-Key")
+        let owner = OfflineTalkOutbox.currentOwnerID()
+        if !owner.isEmpty { request.setValue(owner, forHTTPHeaderField: "X-User-Id") }
+        let original = Data("My exact spoken request. café 🎬\r\n".utf8)
+        let queued = try await outbox.enqueue(request: request, body: original, reason: "offline")
+        let page = "INT. CAPSULE - NIGHT\n\nMARA\nKeep the scar.\n"
+        let output = try JSONSerialization.data(withJSONObject: ["target": "page", "format": "fountain", "source": "fixture", "text": page, "lines": []])
+        let encoded = try XCTUnwrap(String(data: output, encoding: .utf8)?.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed))
+        let responseBytes = Data("ID3-test-response-not-playback-proof".utf8)
+        let sent = await outbox.drainDue(now: Date().addingTimeInterval(10)) { _ in
+            OfflineTalkOutboxSendResult(statusCode: 200, headers: ["Content-Type": "audio/mpeg",
+                "x-screenplay-output": encoded, "x-screenplay-project-id": "capsule-project", "x-screenplay-target": "page",
+                "x-reply": "preview", "x-transcript": "My original request", "Set-Cookie": "fixture-not-for-recovery"], body: responseBytes)
+        }
+        XCTAssertFalse(sent.hasWork)
+        XCTAssertEqual(sent.recoveredCount, 1)
+        XCTAssertEqual(sent.userVisibleStatus, "Reply recovered. Review it in Data Controls.")
+        let relaunched = OfflineTalkOutbox(storageDirectory: directory)
+        let recovery = await relaunched.recoveryState()
+        let reply = try XCTUnwrap(recovery.replies.first)
+        XCTAssertEqual(reply.id, queued.entry.id)
+        XCTAssertEqual(reply.ownerID, owner)
+        XCTAssertEqual(reply.reply, page)
+        XCTAssertEqual(reply.projectID, "capsule-project")
+        XCTAssertFalse(reply.hasOnlyPagePreview)
+        XCTAssertNil(reply.headers["set-cookie"])
+        let responseFile = try await relaunched.recoveredResponseURL(id: reply.id, expectedOwnerID: owner)
+        let file = try XCTUnwrap(responseFile)
+        XCTAssertEqual(try Data(contentsOf: file), responseBytes)
+        let originalFile = directory.appendingPathComponent("blobs").appendingPathComponent(reply.requestBodyRef)
+        XCTAssertEqual(try Data(contentsOf: originalFile), original)
+        _ = await relaunched.drainDue(now: Date().addingTimeInterval(86_400)) { _ in
+            XCTFail("A completed reply cannot be sent again.")
+            return OfflineTalkOutboxSendResult(statusCode: 200)
+        }
+        do {
+            try await relaunched.deleteRecoveredReply(id: reply.id, expectedOwnerID: "wrong-owner")
+            XCTFail("Another account cannot delete this result.")
+        } catch {}
+        let retained = await relaunched.recoveryState()
+        XCTAssertEqual(retained.replies.count, 1)
+        try await relaunched.deleteRecoveredReply(id: reply.id, expectedOwnerID: owner)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: file.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: originalFile.path))
+        let deleted = await OfflineTalkOutbox(storageDirectory: directory).recoveryState()
+        XCTAssertTrue(deleted.replies.isEmpty)
+        XCTAssertEqual(deleted.snapshot.recoveredCount, 0)
+    }
+
+    func testDurableReplyReconcilesInterruptedQueueAcknowledgementWithoutAnotherSend() async throws {
+        let outbox = OfflineTalkOutbox(storageDirectory: directory)
+        var request = URLRequest(url: URL(string: "https://them.test/talk")!)
+        request.httpMethod = "POST"
+        request.setValue("acknowledged-reply", forHTTPHeaderField: "X-Idempotency-Key")
+        let owner = OfflineTalkOutbox.currentOwnerID()
+        if !owner.isEmpty { request.setValue(owner, forHTTPHeaderField: "X-User-Id") }
+        let original = Data("Retain this exact story.\r\n".utf8)
+        let queued = try await outbox.enqueue(request: request, body: original, reason: "offline")
+        let manifest = directory.appendingPathComponent("queue.jsonl")
+        let saved = directory.appendingPathComponent("fixture-inflight.jsonl")
+        let failed = await outbox.drainDue(now: Date().addingTimeInterval(10)) { _ in
+            try FileManager.default.moveItem(at: manifest, to: saved)
+            try FileManager.default.createDirectory(at: manifest, withIntermediateDirectories: false)
+            return OfflineTalkOutboxSendResult(statusCode: 200, headers: ["x-reply": "The completed reply"], body: Data("response".utf8))
+        }
+        XCTAssertEqual(failed.parkedCount, 1)
+        XCTAssertEqual(failed.recoveredCount, 1)
+        try FileManager.default.removeItem(at: manifest)
+        try FileManager.default.moveItem(at: saved, to: manifest)
+        let relaunched = OfflineTalkOutbox(storageDirectory: directory)
+        let retry = try await relaunched.retryParkedEntry(id: queued.entry.id) { _ in
+            XCTFail("Use the durable result, not a second paid generation.")
+            return OfflineTalkOutboxSendResult(statusCode: 200)
+        }
+        XCTAssertEqual(retry.activeCount, 0)
+        XCTAssertEqual(retry.parkedCount, 0)
+        XCTAssertEqual(retry.recoveredCount, 1)
+        let recovery = await relaunched.recoveryState()
+        XCTAssertEqual(recovery.replies.first?.reply, "The completed reply")
+        XCTAssertEqual(try Data(contentsOf: manifest), Data())
+    }
+
     func testDrainDueSendsPendingEntryAndRemovesItOnSuccess() async throws {
         let outbox = OfflineTalkOutbox(storageDirectory: directory)
         var request = URLRequest(url: URL(string: "https://them.test/talk")!)
@@ -596,8 +682,21 @@ final class OfflineTalkOutboxTests: XCTestCase {
         try signIn("writer-a")
         let a = try await retain("writer-a", "a")
         let b = try await retain("writer-b", "b")
+        var answered = URLRequest(url: URL(string: "https://them.test/talk")!)
+        answered.httpMethod = "POST"
+        answered.setValue("writer-a", forHTTPHeaderField: "X-User-Id")
+        answered.setValue("completed-a", forHTTPHeaderField: "X-Idempotency-Key")
+        _ = try await outbox.enqueue(request: answered, body: Data("A's spoken story".utf8), reason: "offline")
+        _ = await outbox.drainDue(now: Date().addingTimeInterval(10)) { _ in
+            OfflineTalkOutboxSendResult(statusCode: 200, headers: ["x-reply": "A's private completed reply"])
+        }
         let stateA = await outbox.recoveryState()
         XCTAssertEqual(stateA.entries.map(\.id), [a.id])
+        let completedA = try XCTUnwrap(stateA.replies.first)
+        XCTAssertEqual(completedA.reply, "A's private completed reply")
+        XCTAssertEqual(stateA.snapshot.recoveredCount, 1)
+        let noAudio = try await outbox.recoveredResponseURL(id: completedA.id, expectedOwnerID: "writer-a")
+        XCTAssertNil(noAudio, "A text-only result must not offer an empty file for sharing.")
         let visibleA = await outbox.snapshot()
         XCTAssertEqual(visibleA.parkedCount, 1)
         XCTAssertEqual(stateA.snapshot.parkedCount, 1)
@@ -610,14 +709,27 @@ final class OfflineTalkOutboxTests: XCTestCase {
         } catch { }
         let stateB = await outbox.recoveryState()
         XCTAssertEqual(stateB.entries.map(\.id), [b.id])
+        XCTAssertEqual(stateB.replies, [])
+        XCTAssertEqual(stateB.snapshot.recoveredCount, 0)
+        do {
+            _ = try await outbox.recoveredResponseURL(id: completedA.id, expectedOwnerID: "writer-a")
+            XCTFail("An old account's response file must not become accessible.")
+        } catch {}
+        do {
+            try await outbox.deleteRecoveredReply(id: completedA.id, expectedOwnerID: "writer-a")
+            XCTFail("An old account's completed reply must survive a stale deletion action.")
+        } catch {}
         let visibleB = await outbox.snapshot()
         XCTAssertEqual(visibleB.parkedCount, 1)
         try signIn(nil)
         let signedOut = await outbox.recoveryState()
         XCTAssertEqual(signedOut.entries, [])
+        XCTAssertEqual(signedOut.replies, [])
         XCTAssertFalse(signedOut.snapshot.hasWork)
         XCTAssertTrue(signedOut.snapshot.lastError.isEmpty)
         try signIn("writer-a")
+        let restoredReply = await outbox.recoveryState()
+        XCTAssertEqual(restoredReply.replies.first?.id, completedA.id)
         _ = try await outbox.deleteParkedEntries(expectedOwnerID: "writer-a", confirmedEntryIDs: [a.id, b.id])
         let restored = OfflineTalkOutbox(storageDirectory: directory)
         let survivors = await restored.allEntries()

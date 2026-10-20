@@ -5,6 +5,26 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1025 — Retain successful replay responses and expose owned review
+
+- **Owner:** codex. **Branch:** `codex/T-1025-durable-recovered-replies`.
+- **Status:** review (signed outbox checks; interactive review/phone pending).
+- **Root:** successful replay cleared its queue and discarded the returned
+  response, leaving no complete local result to review after app close.
+- **Fix:** save protected response evidence before queue acknowledgement;
+  keep original request bytes, reconcile an interrupted ack without sending
+  again, expose owner-scoped review/share/delete in existing Data Controls.
+  Share canonical response-header decoding with the foreground client.
+- **Verified:** final signed outbox suite 22/0/0 on erased owned Pro, including
+  exact result bytes/text, relaunch, owner switch/stale actions, explicit
+  deletion and interrupted-ack/no-resend. D009 all five deltas zero; diff pass.
+- **Evidence:** `docs/durable-recovered-replies-2026-10-19.md`.
+- **Limits:** no native share interaction/audio playback/page application proof;
+  a missing full screenplay header remains a marked preview, not a complete
+  recovered page. Server metadata retrieval/durable server receipts remain open.
+- **Next:** observe the review UI, capture immutable original write context and
+  fetch missing authoritative page output, then use the guarded page/save path.
+
 ### T-1024 — Retain queued turns that did not produce a completed reply
 
 - **Owner:** codex. **Branch:** `codex/T-1024-incomplete-turn-retention`.

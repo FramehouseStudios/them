@@ -1376,10 +1376,10 @@ struct RootExperienceView: View {
                 }
                 .onReceive(NotificationCenter.default.publisher(for: .themOfflineTalkOutboxUpdated)) { notification in
                     let snapshot = OfflineTalkOutboxSnapshot(notification: notification)
-                    offlineTalkOutboxSnapshot = snapshot
-                    if let status = snapshot.userVisibleStatus, snapshot.hasWork {
+                    if let status = snapshot.userVisibleStatus, snapshot.hasWork || snapshot.recoveredCount > offlineTalkOutboxSnapshot.recoveredCount {
                         showOfflineTalkOutboxBanner(status)
                     }
+                    offlineTalkOutboxSnapshot = snapshot
                 }
                 .onReceive(NotificationCenter.default.publisher(for: .themBackendIdentityPartitionChanged)) { _ in
                     offlineTalkOutboxSnapshot = .empty

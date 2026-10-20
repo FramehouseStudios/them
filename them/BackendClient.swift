@@ -6585,15 +6585,7 @@ final class BackendClient {
         _ response: HTTPURLResponse?,
         field: String
     ) -> String? {
-        guard
-            let raw = response?.value(forHTTPHeaderField: field)?
-                .removingPercentEncoding?
-                .trimmingCharacters(in: .whitespacesAndNewlines),
-            !raw.isEmpty
-        else {
-            return nil
-        }
-        return raw
+        BackendTalkResponseContent.string(response, field: field)
     }
 
     private func parseRenderContract(
@@ -6716,16 +6708,7 @@ final class BackendClient {
     }
 
     private func parseScreenplayOutput(from response: HTTPURLResponse?) -> BackendTalkScreenplayOutput? {
-        guard
-            let raw = response?.value(forHTTPHeaderField: "x-screenplay-output")?
-                .removingPercentEncoding?
-                .trimmingCharacters(in: .whitespacesAndNewlines),
-            !raw.isEmpty,
-            let data = raw.data(using: .utf8)
-        else {
-            return nil
-        }
-        return try? JSONDecoder().decode(BackendTalkScreenplayOutput.self, from: data)
+        BackendTalkResponseContent.screenplay(response)
     }
 
     private func parseScreenplayQuality(from response: HTTPURLResponse?) -> BackendTalkScreenplayQuality? {

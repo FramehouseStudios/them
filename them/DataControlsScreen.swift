@@ -114,6 +114,8 @@ struct DataControlsScreen: View {
     @State private var offlineOutboxSnapshot = OfflineTalkOutboxSnapshot.empty
     @State private var offlineOutboxEntries: [OfflineTalkOutboxEntry] = []
     @State private var offlineOutboxOwnerID = ""
+    @State private var recoveredTalkReplies: [RecoveredTalkReply] = []
+    @State private var inspectingTalkReply: RecoveredTalkReply?
     @State private var outlineRecoveryChains: [ScreenplayOutlineMutationRecoveryChain] = []
     @State private var outlineRecoveryOwnerScope: Set<String> = []
     @State private var outlineRecoveryError = ""
@@ -230,6 +232,8 @@ struct DataControlsScreen: View {
             clearOutlineRecoveryPresentation()
             offlineOutboxSnapshot = .empty
             offlineOutboxEntries = []
+            recoveredTalkReplies = []
+            inspectingTalkReply = nil
             pendingAction = nil
             Task { @MainActor in
                 await refreshOutlineRecovery(startMonitoring: false)
@@ -237,6 +241,9 @@ struct DataControlsScreen: View {
             }
         }
         .accessibilityIdentifier("data.controls.screen")
+        .sheet(item: $inspectingTalkReply) { reply in
+            RecoveredTalkReplyReview(reply: reply) { await refreshOfflineOutbox(startMonitoring: false) }
+        }
         .sheet(isPresented: $showingV1LaunchDoctor) {
             V1LaunchDoctorView {
                 showingV1LaunchDoctor = false
@@ -474,7 +481,7 @@ struct DataControlsScreen: View {
     }
 
     private var hasTalkRecoveryToShow: Bool {
-        offlineOutboxSnapshot.hasWork || !offlineOutboxSnapshot.lastError.isEmpty
+        offlineOutboxSnapshot.hasWork || !offlineOutboxSnapshot.lastError.isEmpty || !recoveredTalkReplies.isEmpty
     }
 
     private var visibleOfflineOutboxEntries: [OfflineTalkOutboxEntry] {
@@ -566,6 +573,25 @@ struct DataControlsScreen: View {
             Text(offlineOutboxSummary)
                 .font(.system(size: 14, weight: .regular, design: .default))
                 .foregroundStyle(Color.herText.opacity(0.78))
+
+            ForEach(recoveredTalkReplies) { reply in
+                Button {
+                    guard reply.ownerID == OfflineTalkOutbox.currentOwnerID() else { return }
+                    inspectingTalkReply = reply
+                } label: {
+                    Label {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Review recovered reply")
+                            Text(Date(timeIntervalSince1970: reply.receivedAt).formatted(date: .abbreviated, time: .shortened)).font(.caption)
+                        }
+                    } icon: { Image(systemName: "text.bubble") }
+                        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(Color.herText)
+                .accessibilityIdentifier("data-controls.recovered-reply.\(reply.id)")
+                .accessibilityHint("Read the saved result without sending the request again or changing your script.")
+            }
 
             if !visibleOfflineOutboxEntries.isEmpty {
                 VStack(alignment: .leading, spacing: 8) {
@@ -1029,6 +1055,7 @@ struct DataControlsScreen: View {
         offlineOutboxOwnerID = recovery.ownerID
         offlineOutboxSnapshot = recovery.snapshot
         offlineOutboxEntries = recovery.entries
+        recoveredTalkReplies = recovery.replies
     }
 
     @MainActor

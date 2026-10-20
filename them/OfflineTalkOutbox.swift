@@ -16,6 +16,7 @@ nonisolated struct OfflineTalkOutboxSnapshot: Codable, Equatable {
     var inflightCount: Int
     var parkedCount: Int
     var lastError: String
+    var recoveredCount: Int = 0
 
     static let empty = OfflineTalkOutboxSnapshot(
         pendingCount: 0,
@@ -51,6 +52,7 @@ nonisolated struct OfflineTalkOutboxSnapshot: Codable, Equatable {
         if !lastError.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return "Queued turns could not be read. Retry in Data Controls; existing files have been preserved."
         }
+        if recoveredCount > 0 { return "Reply recovered. Review it in Data Controls." }
         return nil
     }
 
@@ -60,6 +62,7 @@ nonisolated struct OfflineTalkOutboxSnapshot: Codable, Equatable {
             OfflineTalkOutbox.NotificationKey.inflightCount: inflightCount,
             OfflineTalkOutbox.NotificationKey.parkedCount: parkedCount,
             OfflineTalkOutbox.NotificationKey.lastError: lastError,
+            OfflineTalkOutbox.NotificationKey.recoveredCount: recoveredCount,
         ]
     }
 
@@ -86,6 +89,7 @@ nonisolated struct OfflineTalkOutboxSnapshot: Codable, Equatable {
         inflightCount = userInfo[OfflineTalkOutbox.NotificationKey.inflightCount] as? Int ?? 0
         parkedCount = userInfo[OfflineTalkOutbox.NotificationKey.parkedCount] as? Int ?? 0
         lastError = userInfo[OfflineTalkOutbox.NotificationKey.lastError] as? String ?? ""
+        recoveredCount = userInfo[OfflineTalkOutbox.NotificationKey.recoveredCount] as? Int ?? 0
     }
 }
 
@@ -141,6 +145,7 @@ actor OfflineTalkOutbox {
         static let parkedCount = "parkedCount"
         static let lastError = "lastError"
         static let ownerID = "ownerID"
+        static let recoveredCount = "recoveredCount"
     }
 
     typealias Transport = (URLRequest) async throws -> OfflineTalkOutboxSendResult
@@ -170,6 +175,8 @@ actor OfflineTalkOutbox {
     private let commitAPI: BackendMemoryAPI
     private var didLoad = false
     private var entries: [OfflineTalkOutboxEntry] = []
+    private var recoveredReplies: [RecoveredTalkReply] = []
+    private var didLoadRecoveredReplies = false
     private var networkMonitor: NWPathMonitor?
     private let networkMonitorQueue = DispatchQueue(label: "io.them.offline-talk-outbox.network")
 
@@ -226,13 +233,14 @@ actor OfflineTalkOutbox {
 
     /// Presentation and destructive recovery must use the current credential
     /// partition, not the device-wide manifest or a caller-supplied owner.
-    func recoveryState() -> (ownerID: String, snapshot: OfflineTalkOutboxSnapshot, entries: [OfflineTalkOutboxEntry]) {
+    func recoveryState() -> (ownerID: String, snapshot: OfflineTalkOutboxSnapshot, entries: [OfflineTalkOutboxEntry], replies: [RecoveredTalkReply]) {
         let owner = Self.currentOwnerID()
         var loadError = ""
         do { try loadIfNeeded() } catch { loadError = error.localizedDescription }
         let owned = entries.filter { entryOwnerID($0) == owner }
             .sorted { $0.createdAt < $1.createdAt }
-        return (owner, snapshotFor(owned, lastError: loadError), owned)
+        return (owner, snapshotFor(owned, lastError: loadError), owned,
+            recoveredReplies.filter { $0.ownerID == owner }.sorted { $0.receivedAt > $1.receivedAt })
     }
 
     nonisolated static func currentOwnerID() -> String {
@@ -361,6 +369,19 @@ actor OfflineTalkOutbox {
               }) {
             sentCount += 1
             let pendingEntry = entries[index]
+            if let recovered = recoveredReplies.first(where: { $0.id == pendingEntry.id && $0.ownerID == Self.currentOwnerID() && $0.requestKey == pendingEntry.idempotencyKey }) {
+                // The response was saved before an interrupted queue ack.
+                // Reconcile locally; never send the already-answered request.
+                entries.remove(at: index)
+                do { try persist() } catch {
+                    entries.insert(pendingEntry, at: min(index, entries.count))
+                    return storageFailureSnapshot(error)
+                }
+                if let response = recovered.response {
+                    await commitAPI.recordTurnCommitted(from: response, expectedOwnerUserID: recovered.ownerID)
+                }
+                continue
+            }
             entries[index].status = .inflight
             entries[index].updatedAt = nowSeconds
             do { try persist() } catch {
@@ -391,7 +412,13 @@ actor OfflineTalkOutbox {
                     handleRetryableFailure(entryID: entry.id, message: error.localizedDescription, now: now)
                 }
             }
-            do { try persist() } catch {
+            do {
+                if entry.endpoint == Self.talkEndpoint, let completedResponse,
+                   !entries.contains(where: { $0.id == entry.id }) {
+                    try retainRecoveredReply(completedResponse, entry: entry, now: now)
+                }
+                try persist()
+            } catch {
                 // A successful HTTP response is not a durable local ack.
                 // Restore only this entry: enqueue may have added other work
                 // while transport suspended the actor.
@@ -405,7 +432,9 @@ actor OfflineTalkOutbox {
                 return storageFailureSnapshot(error)
             }
             if !entries.contains(where: { $0.id == entry.id }) {
-                try? fileManager.removeItem(at: blobURL(for: entry.bodyRef))
+                if !recoveredReplies.contains(where: { $0.id == entry.id }) {
+                    try? fileManager.removeItem(at: blobURL(for: entry.bodyRef))
+                }
                 if entry.endpoint == Self.talkEndpoint, let completedResponse,
                    let url = URL(string: entry.urlString),
                    let response = HTTPURLResponse(url: url, statusCode: completedResponse.statusCode,
@@ -459,7 +488,9 @@ actor OfflineTalkOutbox {
         // must leave both the live actor and original bytes recoverable.
         do { try persist() } catch { entries = previous; throw error }
         for entry in parked {
-            try? fileManager.removeItem(at: blobURL(for: entry.bodyRef))
+            if !recoveredReplies.contains(where: { $0.id == entry.id }) {
+                try? fileManager.removeItem(at: blobURL(for: entry.bodyRef))
+            }
         }
         publishSnapshot()
         return recoveryState().snapshot
@@ -471,6 +502,90 @@ actor OfflineTalkOutbox {
         return base
             .appendingPathComponent("io.them", isDirectory: true)
             .appendingPathComponent("OfflineTalkOutbox", isDirectory: true)
+    }
+
+    private var repliesDirectory: URL { storageDirectory.appendingPathComponent("recovered", isDirectory: true) }
+    private func replyFile(_ id: String) -> URL { repliesDirectory.appendingPathComponent("reply-\(id).json") }
+
+    private func loadRecoveredRepliesIfNeeded() throws {
+        guard !didLoadRecoveredReplies else { return }
+        let files: [URL]
+        do { files = try fileManager.contentsOfDirectory(at: repliesDirectory, includingPropertiesForKeys: nil) }
+        catch {
+            let failure = error as NSError
+            if failure.domain == NSCocoaErrorDomain && failure.code == NSFileReadNoSuchFileError {
+                didLoadRecoveredReplies = true
+                return
+            }
+            throw error
+        }
+        var restored: [RecoveredTalkReply] = []
+        for file in files where file.pathExtension == "json" {
+            let reply = try JSONDecoder().decode(RecoveredTalkReply.self, from: Data(contentsOf: file))
+            guard UUID(uuidString: reply.id) != nil, file.lastPathComponent == "reply-\(reply.id).json",
+                  reply.requestBodyRef == "blob-\(reply.id).multipart",
+                  ["mp3", "wav", "bin"].contains(where: { reply.responseBodyRef == "reply-\(reply.id).\($0)" }) else {
+                throw BackendError.stage("offline_outbox", "Recovered reply could not be read. Existing files have been preserved.")
+            }
+            restored.append(reply)
+        }
+        recoveredReplies = restored
+        didLoadRecoveredReplies = true
+    }
+
+    private func retainRecoveredReply(_ result: OfflineTalkOutboxSendResult, entry: OfflineTalkOutboxEntry, now: Date) throws {
+        let headers = result.headers.reduce(into: [String: String]()) { saved, pair in
+            let key = pair.key.lowercased()
+            if RecoveredTalkReply.retainedHeaderNames.contains(key) { saved[key] = pair.value }
+        }
+        guard !result.body.isEmpty || headers["x-reply"] != nil || headers["x-screenplay-output"] != nil else { return }
+        if recoveredReplies.contains(where: { $0.id == entry.id }) { return }
+        let mime = headers["content-type"]?.lowercased() ?? ""
+        let ext = mime.contains("audio/mpeg") ? "mp3" : mime.contains("audio/wav") ? "wav" : "bin"
+        let reply = RecoveredTalkReply(id: entry.id, ownerID: entryOwnerID(entry), receivedAt: now.timeIntervalSince1970,
+            requestKey: entry.idempotencyKey, requestURL: entry.urlString, requestBodyRef: entry.bodyRef,
+            responseBodyRef: "reply-\(entry.id).\(ext)", headers: headers)
+        try fileManager.createDirectory(at: repliesDirectory, withIntermediateDirectories: true)
+        try writeProtectedData(result.body, to: blobURL(for: reply.responseBodyRef))
+        try writeProtectedData(JSONEncoder().encode(reply), to: replyFile(reply.id))
+        recoveredReplies.append(reply)
+    }
+
+    func recoveredResponseURL(id: String, expectedOwnerID: String) throws -> URL? {
+        try loadIfNeeded()
+        guard expectedOwnerID == Self.currentOwnerID(),
+              let reply = recoveredReplies.first(where: { $0.id == id && $0.ownerID == expectedOwnerID }) else {
+            throw BackendError.stage("offline_outbox", "Account changed. Review recovered replies again.")
+        }
+        let url = blobURL(for: reply.responseBodyRef)
+        guard fileManager.fileExists(atPath: url.path) else {
+            throw BackendError.stage("offline_outbox", "The recovered response file is unavailable.")
+        }
+        let attributes = try fileManager.attributesOfItem(atPath: url.path)
+        if (attributes[.size] as? NSNumber)?.intValue == 0 { return nil }
+        return url
+    }
+
+    func deleteRecoveredReply(id: String, expectedOwnerID: String) throws {
+        try loadIfNeeded()
+        guard expectedOwnerID == Self.currentOwnerID(),
+              let reply = recoveredReplies.first(where: { $0.id == id && $0.ownerID == expectedOwnerID }) else {
+            throw BackendError.stage("offline_outbox", "Account changed. Review recovered replies again.")
+        }
+        let previous = entries
+        entries.removeAll { $0.id == id && entryOwnerID($0) == expectedOwnerID && $0.idempotencyKey == reply.requestKey }
+        do { try persist() } catch { entries = previous; throw error }
+        try fileManager.removeItem(at: replyFile(id))
+        recoveredReplies.removeAll { $0.id == id && $0.ownerID == expectedOwnerID }
+        var cleanupFailed = false
+        for ref in [reply.requestBodyRef, reply.responseBodyRef] {
+            do { try fileManager.removeItem(at: blobURL(for: ref)) }
+            catch {
+                if (error as NSError).code != NSFileNoSuchFileError { cleanupFailed = true }
+            }
+        }
+        publishSnapshot()
+        if cleanupFailed { throw BackendError.stage("offline_outbox", "Reply removed from review, but some local files could not be deleted.") }
     }
 
     private static func liveTransport(_ request: URLRequest) async throws -> OfflineTalkOutboxSendResult {
@@ -488,6 +603,7 @@ actor OfflineTalkOutbox {
     }
 
     private func loadIfNeeded() throws {
+        try loadRecoveredRepliesIfNeeded()
         guard !didLoad else { return }
         let data: Data
         do {
@@ -669,7 +785,7 @@ actor OfflineTalkOutbox {
         lastError: String = ""
     ) -> OfflineTalkOutboxSnapshot {
         let latestError = lastError.trimmingCharacters(in: .whitespacesAndNewlines)
-        return OfflineTalkOutboxSnapshot(
+        var snapshot = OfflineTalkOutboxSnapshot(
             pendingCount: entries.filter { $0.status == .pending }.count,
             inflightCount: entries.filter { $0.status == .inflight }.count,
             parkedCount: entries.filter { $0.status == .parked }.count,
@@ -677,6 +793,8 @@ actor OfflineTalkOutbox {
                 ? entries.last(where: { ($0.lastError ?? "").isEmpty == false })?.lastError ?? ""
                 : latestError
         )
+        snapshot.recoveredCount = recoveredReplies.filter { $0.ownerID == Self.currentOwnerID() }.count
+        return snapshot
     }
 
     private func publishSnapshot(lastError: String? = nil) {
