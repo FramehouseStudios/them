@@ -5,6 +5,25 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1050 — BackendClient synchronous deallocation compatibility
+
+- **Owner:** codex. **Branch:** `codex/T-1050-client-deinit-compatibility`.
+- **Status:** review. **Pillar:** dependable iPhone lifecycle.
+- **Evidence:** T1049 actual-model tests crashed in BackendClient teardown,
+  swift_task_deinitOnExecutorImpl / TaskLocal::StopLookupScope / malloc.
+  Main deac1a6d has the identical client source. Async test context alone
+  does not repair the app; no runtime/model calls needed to characterize it.
+- **Success:** actual client synchronous release inside task-local scope
+  deallocates (weak reference nil), scope survives; async path still works;
+  signed erased units, writer UI/macOS/D009/diff pass. Draft PR only.
+- **Constraint:** no deployment-floor bump, leaked client, suppressed crash,
+  broad actor opt-out, credential/provider change or main push.
+- **Verified:** actual main-based direct-release before0/1/0, matching
+  invalid-free stack; explicit nonisolated deinit after full signed units
+  626/0/0 on the erased owned SE/iOS26.2. Typed writer1/0/0, macOS0,
+  D009 all five deltas0, diff clean. No paid model/real-phone claim.
+- **Evidence:** `docs/client-deinit-compatibility-2026-10-20.md`.
+
 ### T-969 — Truthful required checks on original #906
 
 - **Owner:** codex. **Task branch:** `codex/T-969-truthful-906-gate`.
