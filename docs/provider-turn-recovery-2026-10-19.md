@@ -30,7 +30,7 @@ cloned and compared in private proof directory
 The new combined loopback client test threw CancellationError; the retained
 action log confirms a real HTTP401 followed by local enqueue before that
 failure. Its cause is unresolved, not labeled a harmless flake. Runtime code
-is uncommitted. A single-case diagnostic run adds static phase markers only;
+was uncommitted at this stage. A single-case diagnostic run added static phase markers only;
 do not rerun all57 passing checks while locating the failure.
 
 The god-file checker initially correctly failed closed because the exact
@@ -95,7 +95,7 @@ Existing transport/credential storage behavior is not a new security audit.
 - TASKS.md
 - docs/provider-turn-recovery-2026-10-19.md
 
-The initial rejection will be supplied by a real test-only loopback HTTP
+The initial rejection was supplied by a real test-only loopback HTTP
 server, not OpenAI; replay transport assertions cover exact request bytes/key
 and request selection, not actual model quality. No paid model calls allowed.
 
@@ -107,6 +107,10 @@ must remain intact. Physical microphone, UI interaction/visual check and
 shipping backend are not proven by compilation or actor tests.
 
 ## Scope and integration
+
+Implementation committed and pushed as e03f605b on the scoped T1016 branch;
+no new replacement PR, original-head update or main merge. Full integration
+and UI proof remain pending, not implied by this backup.
 
 Base457c1f19 preserves the combined T1013 work. Original #962 was separately
 advanced with explicit human approval to87a62a6c and hosted39349393133 is
