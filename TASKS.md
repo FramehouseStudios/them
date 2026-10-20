@@ -5,6 +5,21 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1028 — Prepare the original database gate on the repaired save parent
+
+- **Owner:** codex. **Branch:** `codex/T-1028-postgres-parent-refresh`.
+- **Status:** in-progress; local preserving rehearsal only.
+- **Scope:** preserve original #9637459a8fa plus T991/T1008 corrections,
+  normally merge approved original #962f5e746c2; retain both task histories.
+- **Done when:** exact Swift/client/backend runtime identity to parent,
+  focused cleanup safety, canonical real database/backend restart, pinned
+  Node20 scripts/backend and D009/diff/ancestry proof pass.
+- **Hold:** original #962 hosted39367137834 is running, not green; original
+  #963 remains7459a8fa and main remainsdeac1a6d. No original child advance,
+  replacement PR, paid provider call, production change or main merge.
+- **Intent:** do useful preparation while the parent runs; no unchanged
+  signed-client rerun if its bytes are identical to proven parent runtime.
+
 ### T-1008 — Re-prove real database restart on the current retained parent
 
 - **Owner:** codex. **Branch:** `codex/T-1008-postgres-current-parent`.
@@ -72,6 +87,83 @@
   pass before merge. Client/runtime logic unchanged; D009 and whitespace pass.
   Manifest/limits:
   `docs/postgres-writer-gate-2026-10-19.md`.
+### T-1027 — Prevent duplicate passive versions after recovery
+
+- **Owner:** codex. **Branch:** `codex/T-1027-recovery-save-dedup`.
+- **Status:** review; approved normal original #962 advancement to f5e746c2
+  completed; fresh hosted39367137834 is running, not yet green.
+- **Root:** hosted39357764973 recovery4/1/0 recorded a manual version and
+  an autosave with different request IDs but byte-identical100-byte drafts.
+  Dispatch did not reject already acknowledged exact text under a new ID;
+  snapshots do not establish the exact enqueue/debounce interleaving.
+- **Fix:** recognize only note-free passive autosaves at the acknowledged
+  exact draft/version, removing only that request durably. Explicit snapshots,
+  conflict choices, notes, byte changes and other retained copies survive.
+- **Done when:** signed focused authority suite and unchanged failed recovery
+  workflow prove one server version; D009/diff pass; save scoped history.
+- **Verification:** initial new-test compilation failed on immutable fixture
+  fields; next run7/1/0 exposed snapshot-reload interference in the combined
+  fixture. Corrected signed authority suite8/0/0; unchanged five-case app
+  recovery5/0/0 against authenticated loopback backend. D009 all deltas0,
+  diff pass, actual summaries read; no model calls. Full suite not repeated.
+- **Evidence:** `docs/recovery-save-dedup-2026-10-19.md`.
+- **Integration boundary on1ffa52e3:** signed erased full units869/0/0;
+  pinned network-disabled Node20.20.2 scripts231/0/0 and backend2897/0/2.
+  Writer/save/export/relaunch1/0/0; creation-reply-loss1/0/0; voice-fault1/0/0;
+  macOS BUILD SUCCEEDED; serialized native handle terminal exit0. Actual
+  summaries read; artifacts cloned/compared. Full hosted V1/iOS26.5 still
+  required. Only proof docs changed after frozen runtime1ffa52e3.
+- **Hold:** original #963 unchanged until the parent gate passes. No main
+  merge, paid model request or production change. Original #962 history/base
+  preserved; fresh hosted proof and independent review remain required.
+
+### T-1018 — Correct the fresh-server-choice gate without discarding recovery copies
+
+- **Owner:** codex. **Branch:** `codex/T-1018-conflict-relaunch-diagnosis`.
+- **Status:** review; original #962 held at87a62a6c after hosted red.
+- **Root:** hosted recovery4/1/0; Load Server wait assumed one parked copy,
+  while recorded state showed the right conflict/local words with two copies.
+  Their distinction is unproven; preserve both rather than force coalescing.
+- **Fix:** assert actual writer outcome/project/head, no active sending, all
+  selected copies retired after Load Server/relaunch, only expected server
+  version IDs. Failure attachments exclude writer text and credentials.
+- **Verified:** exact-head single case1/0/0; changed signed full recovery5/0/0
+  on erased task-owned Pro, authenticated local backend. D009 all deltas0,
+  whitespace pass. No runtime change, paid call or new full backend/unit proof.
+- **Evidence:** `docs/conflict-relaunch-gate-2026-10-19.md`.
+- **Next:** scoped backup/review, then fresh hosted gate on an authorized
+  preserving original-head append; do not advance #963 while parent is red.
+
+### T-1014 — Prove and repair explicit saves during background queue draining
+
+- **Owner:** codex. **Branch:** `codex/T-1014-save-drain-handoff`.
+- **Status:** review (local fix proven; fresh hosted gate pending).
+- **Pillar:** exact writer recovery / integration.
+- **Boundary:** original #962ee7e27f2, hosted39336874458 terminal failure:
+  recovery3 pass/2 fail/0 skip on iOS26.5. No unchanged retry or #963 advance.
+- **Verified root:** resumeQueuedDraftSavesIfNeeded owns the
+  in-flight flag while manual/snapshot saves fill pendingDraftSaveRequest;
+  only the manual serialization path consumes that slot. Suspended real
+  transport regression reproduced one POST instead of two: signed before
+  5/1/0. Canonical dispatch handoff correction passes focused6/0/0, signing
+  enabled on the erased task-owned Pro.
+- **Connected proof:** signed local conflict/relaunch/Keep Mine1/0/0 and
+  blank-snapshot/offline/reconnect/history1/0/0; unchanged UI assertions.
+  D009 all five deltas0 and diff check pass. Hosted iOS26.5 failure is not
+  reproduced locally or declared resolved. Save scoped fix; hold original
+  PR updates until broader integration proof.
+- **Integration proof on source50d04ae5:** full signed units867/0/0;
+  Node20.20.2 scripts231/0/0, backend2897/0/2 (network disabled);
+  writer/save/export/relaunch1/0/0, voice-fault1/0/0 and macOS build0.
+  Failed container setup attempts retained separately; no app assertions
+  weakened. Append normally to original #962; preserve base/history/main.
+  Full hosted V1, all-five recovery and lost-creation-reply remain required
+  before #963 advances. No new paid calls.
+- **Done when:** failing-first signed reproduction, root fix preserving auth/
+  project/conflict authority and version base, full local proof and fresh
+  exact-head hosted gate. Investigate conflict-relaunch failure separately;
+  do not weaken assertions, add sleeps, or claim one fix covers both.
+- **Evidence:** `docs/save-drain-handoff-2026-10-19.md`.
 
 ### T-1005 — Carry the green receipt parent into original exact retention
 

@@ -258,6 +258,25 @@ actor ScreenplayDraftSaveOutbox {
         return true
     }
 
+    /// A passive duplicate needs no new server version. Remove only this exact
+    /// request; unlike a new write acknowledgement, preserve every other copy.
+    func markSatisfiedAutosave(id: String, projectId: String, ownerUserId: String,
+        confirmedDraft: String, confirmedVersion: String) throws -> Bool {
+        try loadIfNeeded()
+        guard let index = entries.firstIndex(where: { $0.id == id }) else { return true }
+        let entry = entries[index]
+        guard entry.projectId == projectId, entry.ownerUserId == ownerUserId,
+              entry.status != .parked,
+              ScreenplayDraftSaveCoalescingPolicy.isSatisfiedAutosave(draft: entry.draft,
+                source: entry.source, notes: entry.notes, baseVersion: entry.baseVersionId,
+                confirmedDraft: confirmedDraft, confirmedVersion: confirmedVersion) else { return false }
+        let previous = entries
+        entries.remove(at: index)
+        do { try persist() } catch { entries = previous; throw error }
+        publishSnapshot()
+        return true
+    }
+
     /// Actor-serialized admission cannot revive a copy explicitly discarded by Load Server.
     func enqueueConflictCopy(_ entry: ScreenplayDraftSaveOutboxEntry,
         authorityID: UUID, authorityGeneration: UInt64) throws {
