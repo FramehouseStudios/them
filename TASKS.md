@@ -5,6 +5,39 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1049 — Preserve recovered writer authority during version hints
+
+- **Owner:** codex. **Branch:** `codex/T-1049-auth-conflict-recovery`.
+- **Status:** review. **Pillar:** exact words and recovery control.
+- **Boundary:** preserve original #919 `ce04777c`, no replacement or merge
+  to main. Hosted39406648854 recovery1/1/0 on26.5 failed the auth/conflict
+  state; unchanged selected local26.2 recovery1/0/0. Not fixed by retry.
+- **Confirmed defect:** actual-model before0/2/0: a bridge version hint
+  can retire recovered text's original base/dirty state and let subsequent
+  canonical hydration replace it; unresolved conflict hints also accepted.
+- **Fix:** reuse preserved `0c1afb1` authority guard; explicit recovery uses
+  existing noteManualDraftEdit owner, not a new save/focus architecture.
+- **Done when:** signed full units (including genuine page ack), actual
+  recovery flows, macOS/D009/diff pass; normal original-PR update with fresh
+  hosted proof still required. Do not claim hosted causal proof from local.
+- **Verified:** first full after635/2/0 crashed during BackendClient sync
+  deallocation; async-context final637/0/0, unchanged recovery2/0/0, macOS0.
+  Root guard reuses0c1afb1; original #904 has the same hosted recovery red,
+  so put the two-file correction there first (T1051), then preserve-merge
+  its updated original head into #919. No main/production/paid-model claim.
+- **Evidence:** `docs/recovered-writer-authority-2026-10-20.md`.
+
+### T-1050 — BackendClient synchronous deallocation compatibility
+
+- **Owner:** codex. **Status:** ready. **Pillar:** reliable iPhone lifecycle.
+- **Observed:** T1049 synchronous model tests crash during BackendClient
+  deallocation on Xcode26.3/iOS26.2, TaskLocal::StopLookupScope invalid free.
+  Swift88036/87316 describe matching runtime behavior. Async test context
+  is not a product-runtime correction.
+- **Next:** reproduce direct client release with a retained stack, choose
+  smallest compatible ownership/deinit correction, verify synchronous and
+  async paths; separate capability branch/PR, no weakened crash assertion.
+
 ### T-988 — Preserve original focused-editor recovery
 
 - **Owner:** codex. **Branch:** `codex/T-988-editor-recovery-integration`.
