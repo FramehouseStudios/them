@@ -10951,6 +10951,7 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
         var paragraphElements: [ScreenplayEditorElement?] = []
         var lastKnownTextSnapshot: String
         var lastRenderedModelText: String
+        var pendingEditorPublications = ScreenplayEditorTextBindingPolicy.PendingPublications()
         private var representableUpdateDepth = 0
         private var representableUpdateGeneration = 0
         private var activeRepresentableUpdateGeneration: Int?
@@ -11019,7 +11020,7 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
 
         private func publishText(_ value: String, requestID: UUID? = nil) {
             guard representableUpdateDepth > 0 else {
-                parent.text = value
+                publishEditorText(value)
                 return
             }
             coalesce(&deferredText, current: parent.text, value: value, requestID: requestID)
@@ -11214,7 +11215,7 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
                 if let text,
                    self.parent.text == text.expected,
                    requestIsCurrent(text.requestID) {
-                    self.parent.text = text.value
+                    self.publishEditorText(text.value)
                 }
                 if let activeElement,
                    generationIsAccepted(activeElement.generation),

@@ -4,6 +4,12 @@ import ScreenplayStudio
 import UIKit
 
 extension IOSCursorInsertTextEditor.Coordinator {
+    func publishEditorText(_ text: String) {
+        guard parent.text != text else { return }
+        pendingEditorPublications.record(text)
+        parent.text = text
+    }
+
     func shouldApplyModelText(
         incomingText: String,
         to textView: UITextView,
@@ -12,6 +18,11 @@ extension IOSCursorInsertTextEditor.Coordinator {
         // A Binding reads today's model, even when held by yesterday's parent.
         // Keep the previous render's value independently of that live binding.
         defer { lastRenderedModelText = incomingText }
+        if documentDidChange {
+            pendingEditorPublications.reset()
+        } else if pendingEditorPublications.acknowledge(incomingText) {
+            return false
+        }
         return ScreenplayEditorTextBindingPolicy.shouldApplyModelText(
             incomingText: incomingText,
             currentEditorText: textView.text ?? "",

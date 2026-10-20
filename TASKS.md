@@ -23,7 +23,15 @@
   uninterrupted UI. Shared package XCTest5/0 + Swift Testing10/0.
   Live Action/dialogue preserve raw words/punctuation; structural lines
   retain trailing separators; completed-format API unchanged. D009 bridge-24,
-  others0. Broad integration still pending; no main/phone success claim.
+  others0. Full combined095a327: units655/0/0, UI29/2/9 (684/2/9 total),
+  both typing cases lose n in sign. To Page/navigation pass; backend2753/0/2.
+  Retain red bundle and trace native input/model counts/hashes before
+  another runtime change. No main/phone success claim or unchanged retry.
+- **Root follow-up:** diagnostic native1/1/0 captures all68 insertions;
+  stale model27 overwrites native28 and model48 overwrites native49.
+  Actual coordinator before5/2/0; canonical pending-publication guard after
+  17/0/0 (native15 + both unchanged typing UI), diagnostic hooks removed.
+  Shared package19/0. Full integration/recovery still required; not promoted.
 
 ### T-1057 — Rehearse client lifetime with exact writer recovery
 
