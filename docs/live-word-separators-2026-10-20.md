@@ -195,3 +195,16 @@ unsupported attribution to synthetic keyboard delivery; the trace received
 all68 keys. Executable instructions/assertions are unchanged. Its UI source
 again matches original #919ae88bff exactly. That original now retains its
 history/base and has fresh exact-head hosted checks pending, not a main merge.
+
+## Adversarial review before promotion
+
+| Concern | Classification and evidence |
+| --- | --- |
+| Delayed editor echo, including focus loss | Answered for the reproduced case: native before5/2, after9/0 binding cases; captured all68 input events and actual overwrites. |
+| Genuine rewrite, project switch and later undo | Answered for explicit native controls; pending receipts reset per document and retire after acknowledgement. Full unit/UI cohorts remain green. |
+| Stale/cancelled deferred writes | Existing generation, expected-text and request-ID guards remain intact; the shared publication hook runs only after those guards accept. Full units and writer/recovery controls pass. |
+| Offline/auth/conflict/relaunch | Answered for controlled local fixtures2/0/0, not physical airplane mode or real network interruption. |
+| Live multi-device ordering and identical-value external mutations | Partially addressed by unchanged project/fresh-value policy; two-device workflow is skipped here. This is not a versioned distributed reconciliation protocol. |
+| Long120-page sessions, IME composition and hardware keyboards | Not covered by this native cohort. No long-session performance or universal exact-byte safety claim. |
+| Actual microphone/model and external-open export on iPhone | Not covered. Requires the real-phone journey; no paid model calls without fresh approval. |
+| Shipping deployment and main | Not covered by local proof. Production hold and genuine independent approvals/checks remain required; do not bypass them. |
