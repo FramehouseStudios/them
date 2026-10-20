@@ -5,6 +5,23 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1026 — Observe recovery review and improve narrow share controls
+
+- **Owner:** codex. **Branch:** `codex/T-1026-recovered-reply-review`.
+- **Status:** review (signed compile + manual narrow simulator observation).
+- **Fix:** enlarge recovered-file sharing to a themed minimum44-point action;
+  share one conversation-content component without nested scrolling/navigation
+  so the entire review can scroll, including recovery context and actions.
+- **Verified:** signed SE build exit0; recovered full fixture scene persists
+  through terminate/install/relaunch; native share opens, saves to On My iPhone,
+  and Files Quick Look opens WAV outside THEM; original/export SHA256 match.
+  D009 all five deltas0; whitespace pass. No new XCTest or paid provider call.
+- **Evidence:** `docs/recovered-reply-review-2026-10-19.md`.
+- **Limits:** synthetic local fixture, not physical-phone screenplay export;
+  maximum-text body wrapping observed but full gesture reachability unproven.
+- **Next:** #962's required recovery gate is RED (4/1/0), two marker-bearing
+  server versions (manual + autosave). Investigate without relaxing exact-one.
+
 ### T-1025 — Retain successful replay responses and expose owned review
 
 - **Owner:** codex. **Branch:** `codex/T-1025-durable-recovered-replies`.

@@ -665,29 +665,38 @@ struct ConversationThreadDetailView: View {
             .ignoresSafeArea()
 
             ScrollView {
-                VStack(alignment: .leading, spacing: 24) {
-                    Text(thread.title)
-                        .font(.title2.weight(.semibold))
-                        .foregroundStyle(ConversationHistoryTheme.textPrimary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    messageSection("You", text: thread.userMessage, identifier: "history.detail.user")
-                    messageSection("Clementine", text: thread.assistantMessage, identifier: "history.detail.reply")
-                    ShareLink(item: thread.exportText, subject: Text(thread.title)) {
-                        Label("Share conversation", systemImage: "square.and.arrow.up")
-                            .font(.body.weight(.semibold))
-                            .frame(maxWidth: .infinity, minHeight: 44)
-                    }
-                    .buttonStyle(SoftPrimaryButtonStyle())
-                    .accessibilityIdentifier("history.detail.share")
-                    .accessibilityHint("Choose where to send a copy of your words and Clementine's reply.")
-                }
-                .padding(.horizontal, 24)
-                .padding(.vertical, 28)
-                .frame(maxWidth: 720, alignment: .leading)
+                ConversationThreadContent(thread: thread)
+                    .padding(.horizontal, 24)
+                    .padding(.vertical, 28)
+                    .frame(maxWidth: 720, alignment: .leading)
             }
         }
         .navigationTitle("Conversation")
         .toolbarTitleDisplayMode(.inline)
+    }
+}
+
+// Shared content, without imposing a nested scroll view or navigation title.
+struct ConversationThreadContent: View {
+    let thread: ConversationThread
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 24) {
+            Text(thread.title)
+                .font(.title2.weight(.semibold))
+                .foregroundStyle(ConversationHistoryTheme.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
+            messageSection("You", text: thread.userMessage, identifier: "history.detail.user")
+            messageSection("Clementine", text: thread.assistantMessage, identifier: "history.detail.reply")
+            ShareLink(item: thread.exportText, subject: Text(thread.title)) {
+                Label("Share conversation", systemImage: "square.and.arrow.up")
+                    .font(.body.weight(.semibold))
+                    .frame(maxWidth: .infinity, minHeight: 44)
+            }
+            .buttonStyle(SoftPrimaryButtonStyle())
+            .accessibilityIdentifier("history.detail.share")
+            .accessibilityHint("Choose where to send a copy of your words and Clementine's reply.")
+        }
     }
 
     private func messageSection(_ speaker: String, text: String, identifier: String) -> some View {

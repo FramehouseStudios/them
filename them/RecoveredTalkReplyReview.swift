@@ -10,7 +10,8 @@ struct RecoveredTalkReplyReview: View {
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 12) {
+            ScrollView {
+              VStack(alignment: .leading, spacing: 24) {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Saved on this device. Not applied to your screenplay.").font(.callout.weight(.semibold))
                     if !reply.projectID.isEmpty { Text("Project reported by service: \(reply.projectID)").font(.caption) }
@@ -21,23 +22,34 @@ struct RecoveredTalkReplyReview: View {
                 }
                 .foregroundStyle(Color.herText)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 24)
-                ConversationThreadDetailView(thread: ConversationThread(id: reply.id, turn: 0, title: "Recovered reply",
+                ConversationThreadContent(thread: ConversationThread(id: reply.id, turn: 0, title: "Recovered reply",
                     lastUpdated: Date(timeIntervalSince1970: reply.receivedAt), preview: "",
                     userMessage: reply.transcript, assistantMessage: reply.reply))
                 if let responseURL {
-                    ShareLink(item: responseURL) { Label("Share recovered response file", systemImage: "square.and.arrow.up") }
-                        .padding(.horizontal, 24)
+                    ShareLink(item: responseURL) {
+                        Label("Share recovered response file", systemImage: "square.and.arrow.up")
+                            .font(.body.weight(.semibold))
+                            .frame(maxWidth: .infinity, minHeight: 44)
+                    }
+                        .buttonStyle(SoftPrimaryButtonStyle())
+                        .foregroundStyle(Color.herText)
                         .accessibilityIdentifier("recovery.reply.share-file")
                 }
-                if !error.isEmpty { Text(error).font(.callout).foregroundStyle(Color.herText).padding(.horizontal, 24) }
+                if !error.isEmpty { Text(error).font(.callout).foregroundStyle(Color.herText) }
+              }
+              .padding(24)
+              .frame(maxWidth: 720, alignment: .leading)
             }
-            .padding(.top, 12)
-            .background(Color.herPeachMid)
+            .background(LinearGradient(colors: [.herPeachTop, .herPeachMid, .herPeachBottom], startPoint: .top, endPoint: .bottom).ignoresSafeArea())
+            .navigationTitle("Recovered reply")
+            .toolbarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }.accessibilityIdentifier("recovery.reply.done")
+                }
                 ToolbarItem(placement: .destructiveAction) {
                     Button("Delete", role: .destructive) { confirmingDelete = true }
+                        .accessibilityIdentifier("recovery.reply.delete")
                 }
             }
             .confirmationDialog("Delete this recovered reply and its original request from this device?", isPresented: $confirmingDelete, titleVisibility: .visible) {
