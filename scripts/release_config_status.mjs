@@ -10,6 +10,7 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { requiresReleaseProviderKey } from "./release_gate_policy.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
@@ -214,6 +215,7 @@ function buildStatus(opts) {
   const backendInput = valueFrom("BACKEND_URL", envFileValues, envFile);
   const tokenInput = valueFrom("APP_TOKEN_RELEASE", envFileValues, envFile);
   const openAIInput = valueFrom("OPENAI_API_KEY", envFileValues, envFile);
+  const providerKeyRequired = requiresReleaseProviderKey({ ...process.env, ...envFileValues });
 
   const xcode = opts.noXcodebuild
     ? { ok: true, skipped: true, settings: {}, error: "" }
@@ -241,7 +243,7 @@ function buildStatus(opts) {
   const checks = [];
 
   const directPrivateValuesAvailable = Boolean(
-    teamInput.value && tokenInput.value && openAIInput.value,
+    teamInput.value && tokenInput.value && (!providerKeyRequired || openAIInput.value),
   );
   checks.push(makeCheck(
     "release-env-file",
@@ -339,11 +341,13 @@ function buildStatus(opts) {
   const openAIOk = isValidPrivateSecret(openAIInput.value);
   checks.push(makeCheck(
     "openai-api-key",
-    openAIOk,
-    openAIOk
+    !providerKeyRequired || openAIOk,
+    !providerKeyRequired
+      ? "OPENAI_API_KEY not required: provider-backed release gates are explicitly disabled."
+      : openAIOk
       ? "OPENAI_API_KEY is configured for enabled release gates."
       : "OPENAI_API_KEY is missing, placeholder, too short, or contains whitespace/control characters.",
-    { secret: describeSecret(openAIInput.value, openAIInput.source) },
+    { required: providerKeyRequired, skipped: !providerKeyRequired, secret: describeSecret(openAIInput.value, openAIInput.source) },
   ));
 
   const buildSettingsUsable = Boolean(xcode.ok || xcode.skipped || xcode.fallback);
@@ -365,6 +369,9 @@ function buildStatus(opts) {
   const warnings = [
     "Signing identity and App Store Connect archive validation are not proven by this status script; run the signed archive/upload path after config preflight is green.",
   ];
+  if (!providerKeyRequired) {
+    warnings.push("Provider-backed release gates are explicitly disabled; configuration readiness is not live story-quality or release acceptance proof.");
+  }
   if (!xcode.ok && xcode.fallback) {
     warnings.push("xcodebuild -showBuildSettings was unavailable, so release config status used the checked-in project file fallback. scripts/run_release_preflight.sh still runs the real Xcode preflight.");
   }
