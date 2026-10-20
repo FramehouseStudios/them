@@ -8,13 +8,32 @@
 ### T-987 — Preserve and re-prove original dependency security fix
 
 - **Owner:** codex. **Branch:** `codex/T-987-security-main-proof`.
-- **Status:** in-progress. **Pillar:** trustworthy live screenplay service.
+- **Status:** review (local preparation). **Pillar:** trustworthy live screenplay service.
 - **Scope:** retain original #909 head788e010 and regression history; normal
   merge current-main proof baseline54f700e, not a replacement PR.
 - **Evidence:** fresh production audit0; Node20 backend2740/0/2;
   D009 all deltas0 and diff check pass. See
   `docs/security-main-proof-2026-10-19.md`.
 - **Hold:** not deployed or merged; full promotion/review still required.
+- **Promotion 2026-10-20:** current main remains deac1a6d, already preserved
+  through baseline54f700e. Registry
+  audit still reports0, but maintainer's 2026-10-19 fast-uri3.1.9 security
+  release identifies four additional normalization issues affecting3.1.8.
+- **Target:** preserve original #909 and existing Multer/proxy corrections;
+  update only the compatible locked fast-uri patch, prove actual URI behavior
+  before/after and full pinned Node20 backend, keep client/application source unchanged,
+  then normally advance the original PR. Fresh hosted checks/review remain.
+- **Before:** four dependency-level behavior regressions fail0/4/0 on
+  installed3.1.8 under Node20.20.2 with networking disabled. Not an app
+  exploitability claim. Locked patch changes only version/tarball/integrity;
+  no framework, new dependency or production option is introduced.
+- **Fresh proof:** corrected focused5/0/0; full Node20 backend2744/0/2,
+  native exit0; audit0 before/after, not an application-security claim.
+- **Promotion scope correction:** this historical proof branch also carries
+  original #964 runner work. Preserve it here, but do not put that separate
+  work into #909. T-1042 will merge actual main into original #909 and carry
+  the exact patched backend without the unrelated runner delta. See
+  `docs/security-promotion-2026-10-20.md`; no original/main push yet.
 
 ### T-984 — Exact, signed simulator proof on main
 
