@@ -5,6 +5,27 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1076 — Keep delayed draft work from retiring newer writer words
+
+- **Owner:** codex. **Branch:** `codex/T-1076-editor-queue-consistency`.
+- **Status:** in-progress. **Pillar:** exact writer text and recovery.
+- **Boundary:** preserve original #919a6262b83. Hosted39499208254 passed
+  units681/0/0 and V1 UI32/0/9, then failed recovery1/1/0 before conflict
+  setup. Snapshot has one queued save but original clean page; queue bytes
+  are not established by that snapshot. No claimed causal attribution yet.
+- **Target:** reproduce stale observer authority/recovery mutation on the
+  actual model; fence obsolete callbacks before mutation and across awaits.
+  Preserve auth/project boundaries and original UI assertions, no wait/retry
+  workaround. Investigate readiness separately if still implicated.
+- **Done when:** failing-first model proof, focused signed recovery tests
+  and unchanged authenticated recovery UI pass; retain red evidence. Broader
+  integration and fresh exact-head hosted proof required before propagation.
+- **Verified:** real observer before0/1/0; after focused31/0/0 and unchanged
+  authenticated recovery2/0/0. Full signed units pending. Five D009 deltas0;
+  diff pass. Hosted causal attribution is still unproven. Separate #964's
+  new Save Now hosted failure is retained and blocks that approved PR.
+- **Limits:** no paid calls, main/production changes or child propagation.
+
 ### T-1072 — Retain conflict words, not just active retries
 
 - **Owner:** codex. **Branch:** `codex/T-1072-durable-conflict-authority`.

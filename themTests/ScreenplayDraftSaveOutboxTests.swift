@@ -3,6 +3,39 @@ import XCTest
 
 final class ScreenplayDraftSaveOutboxTests: XCTestCase {
     @MainActor
+    func testStaleBlankObserverCannotClearQueuedWriterAuthorityOrRecovery() async throws {
+        let owner = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""
+        let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let suite = "them.stale-draft-observer.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let recovery = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "recovery")
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: recovery, draftSaveOutbox: queue)
+        model.autosaveEnabled = false
+        model.selectedProjectID = "project-1"
+        model.applyStructuralUITestDraft("", versionID: "server-v1")
+        let writer = "INT. ROOM - NIGHT\n\nThe writer's exact offline words."
+        model.fountainDraft = writer
+        model.noteManualDraftEdit()
+        try await queue.enqueue(replacingOwner(of: makeEntry(id: "writer", draft: writer), with: owner))
+
+        // A queued Combine callback can start after a newer manual edit.
+        // Exercise the production observer, not a duplicate policy/fake save.
+        await model.handleDraftDebouncedChange("")
+        XCTAssertTrue(model.hasUnsavedDraftChanges)
+        XCTAssertTrue(model.isManualDraftEditing)
+        XCTAssertEqual(recovery.payloads(ownerUserId: owner)["project-1"]?["draft"] as? String, writer)
+        let data = try JSONSerialization.data(withJSONObject: ["id": "project-1", "title": "Script",
+            "activeVersionId": "server-v1", "versions": [["id": "server-v1", "draft": ""]]])
+        model.hydrateDraft(from: try JSONDecoder().decode(BackendScreenplayProjectSummary.self, from: data))
+        XCTAssertEqual(model.fountainDraft, writer)
+        XCTAssertTrue(model.hasUnsavedDraftChanges)
+        let retained = try await queue.entriesForTesting()
+        XCTAssertEqual(retained.map(\.draft), [writer])
+        try? await Task.sleep(for: .milliseconds(1_100))
+    }
+
+    @MainActor
     func testParkedConflictRestoresChoiceWhenNewerRecoveryAlreadyNamesServerHead() async throws {
         // Adapt original #962's authority regression to this earlier model's
         // existing injected queue; no later transport framework is required.

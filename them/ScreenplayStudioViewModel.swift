@@ -5825,8 +5825,16 @@ final class ScreenplayStudioViewModel: ObservableObject {
         Task { await saveCurrentDraft(source: source) }
     }
 
-    private func handleDraftDebouncedChange(_ draft: String) async {
-        guard !isHydratingDraft else { return }
+    func handleDraftDebouncedChange(_ draft: String) async {
+        let projectID = selectedProjectID
+        let authContext = currentStudioAuthContext()
+        func isCurrentDraft() -> Bool {
+            !Task.isCancelled && !isHydratingDraft && selectedProjectID == projectID
+                && authContextIsCurrent(authContext) && fountainDraft.utf8.elementsEqual(draft.utf8)
+        }
+        // The debounce's Task may start after a newer edit, and layout calls
+        // suspend. An old snapshot must not retire or persist the writer's page.
+        guard isCurrentDraft() else { return }
         let normalized = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         let hasCoveragePresentation = coverageSimulationReport != nil ||
             !coverageSimulationErrorText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -5849,7 +5857,9 @@ final class ScreenplayStudioViewModel: ObservableObject {
         }
 
         await recomputePagination(for: draft, source: "Draft")
+        guard isCurrentDraft() else { return }
         await recomputeRevision(for: draft, source: "Draft")
+        guard isCurrentDraft() else { return }
         Task { await self.refreshFormatLint(source: "Draft") }
 
         if isStreamingDraftPreviewActive {
