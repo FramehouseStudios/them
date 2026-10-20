@@ -189,3 +189,9 @@ Original heads/main/production remain unchanged at this checkpoint;
 genuine independent reviews and real-phone proof remain required. T1061
 prepares the exact original #919 boundary without swallowing separate #972;
 T1058 still needs its queued native proof. No further paid model call.
+
+Post-proof comment-only clarification: remove the old V1 typing comment's
+unsupported attribution to synthetic keyboard delivery; the trace received
+all68 keys. Executable instructions/assertions are unchanged. Its UI source
+again matches original #919ae88bff exactly. That original now retains its
+history/base and has fresh exact-head hosted checks pending, not a main merge.

@@ -34,12 +34,10 @@ final class V1SmokeUITests: XCTestCase {
 
         let sentence = "She counts seven red lights before the motel sign finally goes dark."
         editor.tap()
-        // XCTest can deliver a long typeText string as one synthetic keyboard
-        // burst. On a loaded hosted simulator that burst once dropped a single
-        // character even though the same sentence passes locally. Send one word
-        // per event and checkpoint every exact prefix; this keeps the assertion
-        // strict without asking XCTest to synthesize an unrealistically long
-        // uninterrupted burst or retrying any input.
+        // Checkpoint each exact prefix to locate the first lost character.
+        // The separate uninterrupted case sends the same sentence in one call.
+        // Native tracing proved all keys arrived before a stale model render
+        // overwrote newer text; do not blame input synthesis or retry input.
         let chunks = [
             "She",
             " counts",
