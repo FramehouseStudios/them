@@ -52,20 +52,27 @@ nonisolated struct RecoveredTalkReply: Codable, Identifiable, Equatable {
     let responseBodyRef: String
     let headers: [String: String]
     var originalWriteContext: RecoveredTalkWriteContext? = nil
+    var retrievedScreenplayOutput: BackendTalkScreenplayOutput? = nil
 
     var response: HTTPURLResponse? {
         guard let url = URL(string: requestURL) else { return nil }
         return HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: headers)
     }
-    var screenplay: BackendTalkScreenplayOutput? { BackendTalkResponseContent.screenplay(response) }
+    var screenplay: BackendTalkScreenplayOutput? { retrievedScreenplayOutput ?? BackendTalkResponseContent.screenplay(response) }
     var projectID: String { BackendTalkResponseContent.string(response, field: "x-screenplay-project-id") ?? "" }
     var reply: String {
         if let screenplay, screenplay.writesToPage { return screenplay.text }
         return BackendTalkResponseContent.string(response, field: "x-reply") ?? ""
     }
     var transcript: String { BackendTalkResponseContent.string(response, field: "x-transcript") ?? "" }
+    var turnID: String { BackendTalkResponseContent.string(response, field: "x-turn-id") ?? "" }
+    var sessionID: String { BackendTalkResponseContent.string(response, field: "x-session-id") ?? "" }
     var hasOnlyPagePreview: Bool {
-        BackendTalkResponseContent.string(response, field: "x-screenplay-target")?.lowercased() == "page" && screenplay?.writesToPage != true
+        let targets = [originalWriteContext?.target, BackendTalkResponseContent.string(response, field: "x-screenplay-target")]
+        return targets.contains { $0?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "page" } && screenplay?.writesToPage != true
+    }
+    var canRetrieveFullPage: Bool {
+        hasOnlyPagePreview && !ownerID.isEmpty && !turnID.isEmpty && !sessionID.isEmpty
     }
 
     static let retainedHeaderNames: Set<String> = [

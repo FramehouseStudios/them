@@ -555,6 +555,31 @@ actor OfflineTalkOutbox {
         recoveredReplies.append(reply)
     }
 
+    /// Fetch and durably retain an existing page, never a second generation.
+    /// Re-check after the await: this actor can be re-entered by deletion or an
+    /// account switch while the service is answering.
+    func retrieveRecoveredPage(id: String, expectedOwnerID: String, client: BackendClient) async throws -> RecoveredTalkReply {
+        try loadIfNeeded()
+        guard expectedOwnerID == Self.currentOwnerID(), !expectedOwnerID.isEmpty,
+              let reply = recoveredReplies.first(where: { $0.id == id && $0.ownerID == expectedOwnerID }) else {
+            throw BackendError.stage("offline_outbox", "Account changed. Review recovered replies again.")
+        }
+        if reply.screenplay?.writesToPage == true { return reply }
+        let output = try await client.fetchRecoveredScreenplay(for: reply)
+        try Task.checkCancellation()
+        guard expectedOwnerID == Self.currentOwnerID(),
+              let index = recoveredReplies.firstIndex(where: { $0.id == id && $0.ownerID == expectedOwnerID }),
+              recoveredReplies[index] == reply else {
+            throw BackendError.stage("offline_outbox", "Recovered reply changed. Review it again.")
+        }
+        var updated = reply
+        updated.retrievedScreenplayOutput = output
+        try writeProtectedData(JSONEncoder().encode(updated), to: replyFile(id))
+        recoveredReplies[index] = updated
+        publishSnapshot()
+        return updated
+    }
+
     func recoveredResponseURL(id: String, expectedOwnerID: String) throws -> URL? {
         try loadIfNeeded()
         guard expectedOwnerID == Self.currentOwnerID(),

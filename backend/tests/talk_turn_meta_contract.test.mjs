@@ -31,6 +31,7 @@ const SUCCESS_KEYS = [
   "timing_source",
   "screenplay_cues",
   "screenplay_output",
+  "screenplay_output_sha256",
   "dialogue_timeline",
   "render_contract",
   "request_id",

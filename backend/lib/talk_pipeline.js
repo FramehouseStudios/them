@@ -205,6 +205,7 @@ function mountTalkPipelineRoutes(app, {
       timing_source: String(meta.timingSource || "").trim() || null,
       screenplay_cues: Array.isArray(meta.screenplayCues) ? meta.screenplayCues : [],
       screenplay_output: meta.screenplayOutput || null,
+      screenplay_output_sha256: meta.screenplayOutputSHA256 || null,
       dialogue_timeline: meta.dialogueTimeline || null,
       render_contract: meta.renderContract || {
         reply_role: "final",

@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 import ScreenplayStudio
 import os
 
@@ -633,6 +634,7 @@ struct BackendCharacterTraitCardState: Identifiable, Equatable {
 private struct BackendTalkTurnMetaPayload: Decodable {
     let turnID: String?
     let sessionID: String?
+    let userID: String?
     let stateVersion: String?
     let transcript: String?
     let reply: String?
@@ -640,6 +642,7 @@ private struct BackendTalkTurnMetaPayload: Decodable {
     let timingSource: String?
     let screenplayCues: [BackendTalkScreenplayCue]?
     let screenplayOutput: BackendTalkScreenplayOutput?
+    let screenplayOutputSHA256: String?
     let dialogueTimeline: BackendTalkDialogueTimelineRevision?
     let renderContract: BackendTalkTurnMetaRenderContractPayload?
     let knowledgeTopics: [String]?
@@ -651,6 +654,7 @@ private struct BackendTalkTurnMetaPayload: Decodable {
     enum CodingKeys: String, CodingKey {
         case turnID = "turn_id"
         case sessionID = "session_id"
+        case userID = "user_id"
         case stateVersion = "state_version"
         case transcript
         case reply
@@ -658,6 +662,7 @@ private struct BackendTalkTurnMetaPayload: Decodable {
         case timingSource = "timing_source"
         case screenplayCues = "screenplay_cues"
         case screenplayOutput = "screenplay_output"
+        case screenplayOutputSHA256 = "screenplay_output_sha256"
         case dialogueTimeline = "dialogue_timeline"
         case renderContract = "render_contract"
         case knowledgeTopics = "knowledge_topics"
@@ -1183,13 +1188,13 @@ struct BackendTalkScreenplayTrace {
     )
 }
 
-struct BackendTalkScreenplayOutputLine: Codable, Equatable {
+nonisolated struct BackendTalkScreenplayOutputLine: Codable, Equatable, Sendable {
     let index: Int
     let text: String
     let element: String
 }
 
-struct BackendTalkScreenplayQuality: Codable, Equatable {
+nonisolated struct BackendTalkScreenplayQuality: Codable, Equatable, Sendable {
     let ok: Bool
     let reason: String
     let source: String
@@ -1266,7 +1271,7 @@ struct BackendTalkScreenplayQuality: Codable, Equatable {
     }
 }
 
-struct BackendTalkScreenplayOutput: Codable, Equatable {
+nonisolated struct BackendTalkScreenplayOutput: Codable, Equatable, Sendable {
     let target: String
     let format: String
     let source: String
@@ -2283,6 +2288,15 @@ nonisolated enum BackendAPIResponseValidator {
         case "https": return 443
         default: return nil
         }
+    }
+}
+
+/// Turn-result reads must never forward session/app headers to a redirect.
+private final class BackendTurnMetadataRedirectPolicy: NSObject, URLSessionTaskDelegate {
+    nonisolated func urlSession(_ session: URLSession, task: URLSessionTask,
+        willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest,
+        completionHandler: @escaping (URLRequest?) -> Void) {
+        completionHandler(nil)
     }
 }
 
@@ -5336,11 +5350,46 @@ final class BackendClient {
         )
     }
 
+    /// Read existing output only. Never re-generates a turn or uses the current
+    /// session-local turn number in place of the retained original identity.
+    func fetchRecoveredScreenplay(for reply: RecoveredTalkReply) async throws -> BackendTalkScreenplayOutput {
+        let identity = BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: false)
+        guard !reply.ownerID.isEmpty, reply.ownerID == OfflineTalkOutbox.currentOwnerID(),
+              identity.userID == reply.ownerID else {
+            throw BackendError.stage("recovery", "Sign in to the account that owns this recovered reply.")
+        }
+        guard reply.canRetrieveFullPage, let requestURL = URL(string: reply.requestURL),
+              let originalBase = [baseURL, fallbackURL].first(where: { $0.appendingPathComponent("talk") == requestURL }) else {
+            throw BackendError.stage("recovery", "This reply cannot be retrieved from the currently configured service. The local copy is unchanged.")
+        }
+        let payload: BackendTalkTurnMetaPayload
+        do {
+            payload = try await fetchTurnMeta(baseURL: originalBase, userID: reply.ownerID,
+                clientToken: reply.sessionID, turnID: reply.turnID, requestIdentity: identity)
+        } catch BackendError.http(404, _) {
+            throw BackendError.stage("recovery", "The complete page is no longer available from the service. Your local reply and original request are still retained.")
+        }
+        try Task.checkCancellation()
+        guard BackendAuthClient.currentAuthSessionEpoch() == identity.sessionEpoch,
+              OfflineTalkOutbox.currentOwnerID() == reply.ownerID else {
+            throw BackendError.stage("recovery", "Account changed. Review recovered replies again.")
+        }
+        guard payload.turnID == reply.turnID, payload.sessionID == reply.sessionID,
+              payload.userID == reply.ownerID,
+              payload.renderContract?.authoritativePageTextAvailable == true,
+              let output = payload.screenplayOutput, output.writesToPage,
+              payload.screenplayOutputSHA256 == SHA256.hash(data: Data(output.text.utf8)).map({ String(format: "%02x", $0) }).joined() else {
+            throw BackendError.stage("recovery", "The complete original page could not be verified from this service. Your local copy is unchanged.")
+        }
+        return output
+    }
+
     private func fetchTurnMeta(
         baseURL: URL,
         userID: String,
         clientToken: String,
-        turnID: String
+        turnID: String,
+        requestIdentity: BackendAuthRequestIdentity? = nil
     ) async throws -> BackendTalkTurnMetaPayload {
         let normalizedTurnID = turnID.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedTurnID.isEmpty else {
@@ -5362,13 +5411,22 @@ final class BackendClient {
         if let token = appToken() {
             request.setValue(token, forHTTPHeaderField: "X-APP-TOKEN")
         }
-        attachAuthorizationHeader(to: &request)
+        if let requestIdentity {
+            if !requestIdentity.accessToken.isEmpty {
+                request.setValue("Bearer \(requestIdentity.accessToken)", forHTTPHeaderField: "Authorization")
+            }
+        } else {
+            attachAuthorizationHeader(to: &request)
+        }
 
         var attempt = 0
         while true {
+            if let requestIdentity, BackendAuthClient.currentAuthSessionEpoch() != requestIdentity.sessionEpoch {
+                throw BackendError.stage("recovery", "Account changed. Review recovered replies again.")
+            }
             let result: (Data, URLResponse)
             do {
-                result = try await urlSession.data(for: request)
+                result = try await urlSession.data(for: request, delegate: BackendTurnMetadataRedirectPolicy())
             } catch {
                 guard shouldRetryTalk(for: error), attempt + 1 < maxTurnMetaAttempts else {
                     throw error
@@ -5383,6 +5441,9 @@ final class BackendClient {
             let (data, response) = result
             guard let http = response as? HTTPURLResponse else {
                 throw BackendError.http(-1, "Invalid turn metadata response")
+            }
+            guard BackendAPIResponseValidator.hasMatchingOrigin(requestURL: url, responseURL: http.url) else {
+                throw BackendError.http(502, "Turn metadata came from a different service.")
             }
             if let notice = BackendTalkTurnMetaRateLimitNotice(
                 turnId: normalizedTurnID,

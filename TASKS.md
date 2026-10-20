@@ -5,6 +5,30 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1032 — Retrieve and retain complete recovered pages
+
+- **Owner:** codex. **Branch:** `codex/T-1032-recovered-page-retrieval`.
+- **Status:** review; retrieval proof complete, original save gate is red.
+- **Root:** recovery had no complete-result read path; the metadata cache
+  silently clipped page text at32k while keeping its authoritative flag.
+- **Fix:** retain whole results in the existing TTL cache with a configurable
+  serialized-byte budget; expose original UTF-8 digest additively. Connect
+  owned GET retrieval, original session/turn validation, digest verification,
+  atomic local receipt update and a real review action. No generation/insert.
+- **Done when:** complete long text survives server read and client relaunch;
+  wrong owner/session/turn, clipping, old contract, expiry and stale auth do
+  not replace the retained preview. Signed focused, Node20 and D009 pass.
+- **Verified:** final signed focused25/0/0; Node20.20.2 backend2998/0/2,
+  scripts238/0/0, offline mentor gate OK. Signed iOS and macOS builds pass.
+  Native375-point SE retrieval/relaunch/share/Files Quick Look observed;
+  original retained page and exported text38745 bytes, identical SHA256.
+- **Limits:** cache remains ephemeral/TTL-bound; full original draft identity,
+  guarded apply/save and physical-phone proof are not done. No paid calls.
+- **Evidence:** `docs/recovered-page-retrieval-2026-10-19.md`.
+- **Hold:** original #962 run39367137834 failed conflict-relaunch recovery;
+  do not advance child heads. Diagnose its durable-copy assertion next. Main,
+  original child heads and production configuration remain unchanged.
+
 ### T-1031 — Preserve original recovered-write context
 
 - **Owner:** codex. **Branch:** `codex/T-1031-recovered-write-context`.

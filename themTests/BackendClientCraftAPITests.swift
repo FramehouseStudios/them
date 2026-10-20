@@ -1,4 +1,5 @@
 import XCTest
+import CryptoKit
 import ScreenplayStudio
 @testable import them
 
@@ -15,6 +16,124 @@ private actor StudioRenderPartialCollector {
 }
 
 final class BackendClientCraftAPITests: XCTestCase {
+    @MainActor
+    func testRecoveredPageRetrievalPersistsWholeOwnedResultWithoutAnotherGeneration() async throws {
+        try await withRecoveredReplyOwner { owner in
+            let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+            defer { try? FileManager.default.removeItem(at: directory) }
+            let outbox = OfflineTalkOutbox(storageDirectory: directory)
+            let receipt = try await queuedPagePreview(in: outbox, owner: owner)
+            let originalBody = try Data(contentsOf: directory.appendingPathComponent("blobs").appendingPathComponent(receipt.requestBodyRef))
+            let page = " \r\n" + String(repeating: "INT. CAPSULE - NIGHT\r\nMARA\r\ncafé 🎬 e\u{0301}\r\n", count: 2_000) + "THE END\r\n "
+            XCTAssertGreaterThan(page.utf8.count, 32_000)
+            let payload = try recoveredPagePayload(owner: owner, text: page)
+            let recorder = CraftRequestRecorder()
+            let client = makeClient(recorder: recorder) { request in
+                XCTAssertEqual(request.httpMethod, "GET")
+                XCTAssertEqual(request.url?.path, "/talk/turn/original-recovered-turn")
+                XCTAssertEqual(request.value(forHTTPHeaderField: "X-Client-Token"), "original-recovered-session")
+                return CraftHTTPStub(status: 200, body: payload, contentType: "application/json")
+            }
+            let recovered = try await outbox.retrieveRecoveredPage(id: receipt.id, expectedOwnerID: owner, client: client)
+            XCTAssertEqual(Array(recovered.reply.utf8), Array(page.utf8))
+            XCTAssertFalse(recovered.hasOnlyPagePreview)
+            let relaunched = OfflineTalkOutbox(storageDirectory: directory)
+            let state = await relaunched.recoveryState()
+            XCTAssertEqual(state.replies.first, recovered)
+            XCTAssertTrue(state.entries.isEmpty)
+            XCTAssertEqual(try Data(contentsOf: directory.appendingPathComponent("blobs").appendingPathComponent(receipt.requestBodyRef)), originalBody)
+            _ = try await relaunched.retrieveRecoveredPage(id: receipt.id, expectedOwnerID: owner, client: client)
+            XCTAssertEqual(recorder.methodsAndPaths, ["GET /talk/turn/original-recovered-turn"], "Never POST or refetch an already retained full page.")
+            do {
+                _ = try await relaunched.retrieveRecoveredPage(id: receipt.id, expectedOwnerID: "another-writer", client: client)
+                XCTFail("Another account must not read the retained full page.")
+            } catch { }
+            XCTAssertEqual(recorder.requests.count, 1)
+        }
+    }
+
+    @MainActor
+    func testRecoveredPageRetrievalRejectsWrongIdentityClippingLegacyAndStaleResponsesWithoutLosingPreview() async throws {
+        try await withRecoveredReplyOwner { owner in
+            for failure in ["turn_id", "session_id", "user_id", "screenplay_output_sha256", "legacy", "clipped", "expired", "account-change"] {
+                let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+                defer { try? FileManager.default.removeItem(at: directory) }
+                let outbox = OfflineTalkOutbox(storageDirectory: directory)
+                let receipt = try await queuedPagePreview(in: outbox, owner: owner)
+                let original = try Data(contentsOf: directory.appendingPathComponent("recovered/reply-\(receipt.id).json"))
+                var object = try XCTUnwrap(JSONSerialization.jsonObject(with: recoveredPagePayload(owner: owner, text: "INT. CAPSULE - NIGHT\nMARA\nKeep the whole line.")) as? [String: Any])
+                if failure == "legacy" { object.removeValue(forKey: "screenplay_output_sha256") }
+                else if failure == "clipped" {
+                    var output = try XCTUnwrap(object["screenplay_output"] as? [String: Any])
+                    output["text"] = "INT. CAPSULE - NIGHT"
+                    object["screenplay_output"] = output
+                } else if !["expired", "account-change"].contains(failure) { object[failure] = "wrong-value" }
+                let body = try JSONSerialization.data(withJSONObject: object)
+                let recorder = CraftRequestRecorder()
+                let client = makeClient(recorder: recorder) { _ in
+                    if failure == "account-change" { _ = BackendAuthClient.advanceAuthSessionEpoch() }
+                    return CraftHTTPStub(status: failure == "expired" ? 404 : 200, body: body, contentType: "application/json")
+                }
+                do {
+                    _ = try await outbox.retrieveRecoveredPage(id: receipt.id, expectedOwnerID: owner, client: client)
+                    XCTFail("Never treat \(failure) as the complete original page.")
+                } catch { }
+                let retained = await OfflineTalkOutbox(storageDirectory: directory).recoveryState()
+                XCTAssertEqual(retained.replies, [receipt], failure)
+                XCTAssertEqual(try Data(contentsOf: directory.appendingPathComponent("recovered/reply-\(receipt.id).json")), original, failure)
+                XCTAssertEqual(recorder.methodsAndPaths, ["GET /talk/turn/original-recovered-turn"], failure)
+            }
+        }
+    }
+
+    @MainActor
+    private func withRecoveredReplyOwner(_ run: (String) async throws -> Void) async throws {
+        let defaults = UserDefaults.standard
+        let keys = ["auth_user_payload", "user_id", "auth_signed_in"]
+        let previous = keys.map { defaults.object(forKey: $0) }
+        let previousOwner = BackendAuthClient.sharedUserID()
+        defer {
+            for (key, value) in zip(keys, previous) {
+                if let value { defaults.set(value, forKey: key) } else { defaults.removeObject(forKey: key) }
+            }
+            if let previousOwner { _ = BackendAuthClient.persistSharedUserID(previousOwner) } else { BackendAuthClient.clearSharedUserID() }
+        }
+        let owner = "recovered-page-\(UUID().uuidString)"
+        let user = BackendAuthUser(userId: owner, email: "fixture@example.invalid", authProvider: "debug",
+            emailVerified: true, emailVerifiedAt: nil, createdAt: nil, updatedAt: nil)
+        defaults.set(try JSONEncoder().encode(user), forKey: "auth_user_payload")
+        XCTAssertTrue(BackendAuthClient.persistSharedUserID(owner))
+        defaults.set(true, forKey: "auth_signed_in")
+        XCTAssertEqual(OfflineTalkOutbox.currentOwnerID(), owner)
+        try await run(owner)
+    }
+
+    private func queuedPagePreview(in outbox: OfflineTalkOutbox, owner: String) async throws -> RecoveredTalkReply {
+        var request = URLRequest(url: URL(string: "https://craft.test/talk")!)
+        request.httpMethod = "POST"
+        request.setValue(owner, forHTTPHeaderField: "X-User-Id")
+        request.setValue(UUID().uuidString, forHTTPHeaderField: "X-Idempotency-Key")
+        _ = try await outbox.enqueue(request: request, body: Data("Exact retained request. café 🎬\r\n".utf8), reason: "offline")
+        _ = await outbox.drainDue(now: Date().addingTimeInterval(10)) { _ in
+            OfflineTalkOutboxSendResult(statusCode: 200, headers: ["x-reply": "Short preview", "x-screenplay-target": "page",
+                "x-turn-id": "original-recovered-turn", "x-session-id": "original-recovered-session"])
+        }
+        let state = await outbox.recoveryState()
+        let reply = try XCTUnwrap(state.replies.first)
+        XCTAssertTrue(reply.canRetrieveFullPage)
+        return reply
+    }
+
+    private func recoveredPagePayload(owner: String, text: String) throws -> Data {
+        try JSONSerialization.data(withJSONObject: [
+            "turn_id": "original-recovered-turn", "session_id": "original-recovered-session", "user_id": owner,
+            "screenplay_output": ["target": "page", "format": "fountain", "source": "fixture", "text": text, "lines": []],
+            "screenplay_output_sha256": SHA256.hash(data: Data(text.utf8)).map { String(format: "%02x", $0) }.joined(),
+            // Preview describes the spoken summary, not the authoritative page.
+            "render_contract": ["reply_role": "preview", "authoritative_page_text_available": true, "sync_ready": true]
+        ])
+    }
+
     func testRealtimeTurnCommitDecodesDurableCanonClarification() throws {
         let data = Data(#"""
         {

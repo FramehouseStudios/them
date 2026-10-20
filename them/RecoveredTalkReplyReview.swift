@@ -7,13 +7,16 @@ struct RecoveredTalkReplyReview: View {
     @State private var responseURL: URL?
     @State private var error = ""
     @State private var confirmingDelete = false
+    @State private var recoveredReply: RecoveredTalkReply?
+    @State private var retrievingPage = false
 
     var body: some View {
-        NavigationStack {
+        let reply = recoveredReply ?? self.reply
+        return NavigationStack {
             ScrollView {
               VStack(alignment: .leading, spacing: 24) {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Saved on this device. Not applied to your screenplay.").font(.callout.weight(.semibold))
+                    Text("Saved on this device. Reviewing this copy does not change your screenplay.").font(.callout.weight(.semibold))
                     if let context = reply.originalWriteContext {
                         Text(context.projectID.isEmpty ? "No project was selected for the original request." : "Original project: \(context.projectID)")
                             .font(.caption).accessibilityIdentifier("recovery.reply.original-project")
@@ -35,6 +38,15 @@ struct RecoveredTalkReplyReview: View {
                 ConversationThreadContent(thread: ConversationThread(id: reply.id, turn: 0, title: "Recovered reply",
                     lastUpdated: Date(timeIntervalSince1970: reply.receivedAt), preview: "",
                     userMessage: reply.transcript, assistantMessage: reply.reply))
+                if reply.canRetrieveFullPage {
+                    Button { error = ""; retrievingPage = true } label: {
+                        Label(retrievingPage ? "Retrieving complete page…" : "Retrieve complete page", systemImage: "arrow.down.doc")
+                            .font(.body.weight(.semibold)).frame(maxWidth: .infinity, minHeight: 44)
+                    }
+                    .buttonStyle(SoftPrimaryButtonStyle()).foregroundStyle(Color.herText)
+                    .disabled(retrievingPage).accessibilityIdentifier("recovery.reply.retrieve-page")
+                    .accessibilityHint("Reads the original result without generating or inserting another page.")
+                }
                 if let responseURL {
                     ShareLink(item: responseURL) {
                         Label("Share recovered response file", systemImage: "square.and.arrow.up")
@@ -54,6 +66,14 @@ struct RecoveredTalkReplyReview: View {
             .navigationTitle("Recovered reply")
             .toolbarTitleDisplayMode(.inline)
             .toolbar {
+                if let page = reply.screenplay, page.writesToPage {
+                    ToolbarItem(placement: .primaryAction) {
+                        ShareLink(item: page.text) {
+                            Label("Share recovered page", systemImage: "square.and.arrow.up").labelStyle(.iconOnly)
+                        }
+                        .accessibilityIdentifier("recovery.reply.share-page")
+                    }
+                }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }.accessibilityIdentifier("recovery.reply.done")
                 }
@@ -77,6 +97,16 @@ struct RecoveredTalkReplyReview: View {
         .task {
             do { responseURL = try await OfflineTalkOutbox.shared.recoveredResponseURL(id: reply.id, expectedOwnerID: reply.ownerID) }
             catch { self.error = error.localizedDescription }
+        }
+        .task(id: retrievingPage) {
+            guard retrievingPage else { return }
+            defer { retrievingPage = false }
+            do {
+                recoveredReply = try await OfflineTalkOutbox.shared.retrieveRecoveredPage(id: reply.id,
+                    expectedOwnerID: reply.ownerID, client: BackendClient())
+                await onDeleted() // Refresh the existing recovery list, not just this sheet.
+            } catch is CancellationError { }
+            catch { if !Task.isCancelled { self.error = error.localizedDescription } }
         }
     }
 }

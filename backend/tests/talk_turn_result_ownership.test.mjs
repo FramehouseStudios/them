@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 import { test } from "node:test";
 import express from "express";
 import { mountTalkPipelineRoutes } from "../lib/talk_pipeline.js";
@@ -97,5 +98,19 @@ test("legacy ownerless result still works for its session outside local debug by
     assert.equal((await get(id, null, sessionA, headers)).status, 200);
     assert.equal((await get(id, null, sessionB, headers)).status, 403);
     assert.equal((await get(unscopedID, null, sessionA, headers)).status, 403);
+  });
+});
+
+test("owned HTTP result preserves a whole screenplay beyond 32k and verifies its original UTF-8 digest", async () => {
+  const id = `turn-whole-${randomUUID()}`;
+  const text = " \r\n" + "INT. CAPSULE - NIGHT\r\nMARA\r\ncafé 🎬 e\u0301\r\n".repeat(2_000) + "THE END\r\n ";
+  assert.ok(text.length > 32_000);
+  save(id, "writer-a", sessionA, text);
+  await withRoute(async (get) => {
+    const result = await get(id, "a", sessionA);
+    assert.equal(result.status, 200);
+    assert.deepEqual(Buffer.from(result.body.screenplay_output.text), Buffer.from(text));
+    assert.equal(result.body.screenplay_output_sha256, createHash("sha256").update(text, "utf8").digest("hex"));
+    assert.equal((await get(id, "b", sessionA)).status, 403);
   });
 });

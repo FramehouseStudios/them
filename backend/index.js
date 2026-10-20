@@ -173,6 +173,7 @@ import {
 } from "./lib/screenplay_outline_protocol.js";
 import { mountTalkPipelineRoutes } from "./lib/talk_pipeline.js";
 import { canReadTalkTurnResult, selectTalkTurnResult } from "./lib/talk_turn_result_access.js";
+import { TalkTurnResultCache } from "./lib/talk_turn_result_cache.js";
 import { createPageReservationStore } from "./lib/clementine/page_cancel.js";
 import { createWalletStore } from "./lib/clementine/wallet.js";
 import {
@@ -375,7 +376,6 @@ const TALK_TURN_META_MAX_ENTRIES = parsePositiveInt(
   process.env.TALK_TURN_META_MAX_ENTRIES,
   4_000
 );
-const TALK_TURN_META_SCREENPLAY_MAX_CHARS = 32_000;
 const TALK_TEST_DEBUG_TRANSCRIPT_ENABLED = process.env.TALK_TEST_DEBUG_TRANSCRIPT_ENABLED == null
   ? false
   : parseBool(process.env.TALK_TEST_DEBUG_TRANSCRIPT_ENABLED);
@@ -2995,7 +2995,7 @@ const checkInCooldownByIp = new Map();
 const assistantIdentityByIp = loadAssistantIdentityStore();
 const talkSpeculativeCache = new Map();
 const talkMetricsSamples = [];
-const talkTurnMetaById = new Map();
+const talkTurnMetaById = new TalkTurnResultCache({ maxBytes: parsePositiveInt(process.env.TALK_TURN_META_MAX_BYTES, 128 * 1024 * 1024) });
 const scaleBackplane = await createScaleBackplane({
   redisUrl: SCALE_BACKPLANE_ENABLED ? SCALE_REDIS_URL : "",
   postgresUrl: SCALE_BACKPLANE_ENABLED ? SCALE_POSTGRES_URL : "",
@@ -5604,10 +5604,7 @@ function storeTalkTurnMeta({
             reason: String(screenplayOutput.target || "").trim().toLowerCase() === "page" ? "ok" : "unavailable",
             source: screenplayOutput.source,
           }),
-        text: normalizeTalkMultilineSnippet(
-          screenplayOutput.text,
-          TALK_TURN_META_SCREENPLAY_MAX_CHARS
-        ),
+        text: String(screenplayOutput.text || ""),
         lines: Array.isArray(screenplayOutput.lines)
           ? screenplayOutput.lines
             .filter((line) => line && typeof line === "object")
@@ -5660,6 +5657,7 @@ function readTalkTurnMeta(turnId = "", now = Date.now(), req = null) {
     audioDurationMs: Math.max(0, Number(entry.audioDurationMs || 0)),
     timingSource: String(entry.timingSource || "").trim(),
     screenplayCues: Array.isArray(entry.screenplayCues) ? entry.screenplayCues : [],
+    screenplayOutputSHA256: entry.screenplayOutputSHA256 ?? null,
     screenplayOutput: entry.screenplayOutput && typeof entry.screenplayOutput === "object"
       ? entry.screenplayOutput
       : null,
