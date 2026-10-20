@@ -126,6 +126,40 @@ change or treat it as merged; original pre-proof text remains in Git history.
   D009 passes against actual #904 (bridge -22, all others0). Advance this
   same original #919 by normal fast-forward; fresh hosted checks/review
   remain required. Full-suite counts above are retained historical proof.
+
+### T-1062 — Put the proven text-ownership guard on the red parent
+
+- **Owner:** codex. **Branch:** `codex/T-1062-parent-editor-echo`.
+- **Status:** review (local parent proof passed). **Pillar:** exact words.
+- **Verified red:** original #9043e96d43, hosted39439684023 V1 UI28/1/9:
+  typing chunk2 expects She counts, native editor/model contain She ounts.
+  The inspector callback now passes; do not retry or weaken the typing test.
+- **Source:** parent still unconditionally assigns differing model text into
+  UIKit; it does not contain child #919's proven canonical ownership guard.
+  Native delayed-echo overwrite is captured on the separate T1059 tree;
+  this hosted run has no input/model trace, so exact causal attribution is
+  not claimed solely from a matching symptom.
+- **Plan:** preserve parent3e96d43; port the existing #919 ownership and
+  live-line formatting owners to this lower boundary, not the entire child
+  (which would create a dependency-cycle/absorb its unrelated viewport work).
+  Keep its genuine model, project, insertion and generation contracts.
+- **Done when:** actual signed full units, exact typing/callback/recovery,
+  Node20, macOS, real-base D009/diff pass; then normally advance same #904
+  and preserve-merge its updated head back into original #919. Fresh hosted
+  checks/reviews still required; no new PR, main merge or paid call.
+- **Evidence:** `docs/parent-editor-echo-2026-10-20.md`.
+- **Checkpoint:** canonical #919 ownership/formatting sources ported, not
+  its manual caret/lifecycle work. First frozenf472135: full Node20
+  2749/0/2; signed units649/0/0, UI28/2/9. Both typing cases pass; two
+  prompt workflows fail behind the keyboard (native recordings viewed).
+  Reuse the existing two keyboard-safe-area settings; unchanged two
+  workflows after2/0/0. Final signed units649/0/0 + V1 UI30/0/9, total679/0/9.
+  Reuse #972's producer-only retention; final source7e755cd helper10/0/0,
+  Node20 backend2753/0/2. Actual writer1/0/0, recovery2/0/0, macOS native0.
+  Fresh actual base81b05e44 D009 passes. Normally advance same #904, then
+  preserving-merge into original #919; hosted/review still required.
+  No main/production change, paid model or physical-phone completion claim.
+
 ### T-1060 — Reuse the proven inspector reveal owner on original #904
 
 - **Owner:** codex. **Branch:** `codex/T-1060-inspector-reveal-owner`.
