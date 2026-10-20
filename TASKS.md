@@ -5,6 +5,24 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1065 — Reject credential-bearing cross-origin HTTP redirects
+
+- **Owner:** codex. **Branch:** `codex/T-1065-backend-redirect-boundary`.
+- **Status:** review (local correction and scoped proof passed).
+- **Pillar:** trusted sign-in and writer privacy. **Base:** original #919fd2fe9c.
+- **Verified:** native macOS URLSession.shared follows loopback302/307,
+  forwarding dummy app/client-token headers;307 forwards dummy POST body.
+  Authorization stripped. This is not evidence of a real production leak.
+- **Fix:** single pre-forward guard reuses the unchanged origin policy;
+  all71 async data/bytes and dedicated talk redirect use it. Same-origin
+  stripped auth restored only after strict origin checks; no new session owner.
+- **Verified:** host wire8 cases/zero foreign requests; signed units667/0/0,
+  authenticated writer1/0/0, recovery2/0/0, synthetic voice1/0/0, macOS0.
+  Node20 full2755/0/2 on53edcee; final strengthened lint2/0/0. D009/diff pass.
+- **Next:** distinct draft stacked on #919, fresh hosted/review; no main or
+  production mutation. Host wire is not physical-iPhone/provider proof.
+- **Evidence:** `docs/backend-redirect-boundary-2026-10-20.md`.
+
 ### T-1063 — Preserve the corrected parent in original #919
 
 - **Owner:** codex. **Branch:** `codex/T-1061-original-editor-echo`.
