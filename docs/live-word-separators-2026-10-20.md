@@ -132,6 +132,60 @@ the discovered actual path above confirms all counts. That lookup is not
 a test failure or additional execution. Full package: XCTest9/0 and Swift
 Testing10/0, native0 (`/tmp/them-1059-echo-package.log`).
 
-Broader integration/recovery remain pending. D009 against original parent
+At the focused checkpoint, broader integration/recovery remained pending.
+D009 against original parent
 3e96d43: bridge-23, other deltas0; whitespace checks pass. No original PR
 promotion, main merge, paid call or physical-phone success claim.
+
+## Full after-fix integration
+
+**VERIFIED:** exact e86af97 full signed unit/V1 UI run, erased owned
+375-point SE/iOS26.2: **692 passed /0 failed /9 skipped**, native0,
+701 total reported. Native per-bundle tree: units661/0/0 and V1 UI31/0/9.
+Both exact typing cases and the inspector navigation/callbacks pass in
+the full run, not just in the earlier focused cohort. Actual bundle:
+`/tmp/them-1059-final-full/v1-ui-smoke-local-1-74910.xcresult`;
+full private `final-full-after.xcresult` retained beside the red evidence.
+
+The nine skipped tests require separate backend/transport fixtures: the
+integrated writer, two save-recovery cases, project restore/cross-platform
+memory/canon, two-device live following and writer-block/canon rescue.
+They are not claimed passed by this default cohort. Explicit authenticated
+writer and both recovery cases were then run separately against the isolated
+dummy-provider backend (results below). No live microphone, paid model, real-phone,
+shipping-host, universal long-session safety or main completion claim.
+
+Node20 backend2753/0/2 above is on095a327. A fresh `git diff --quiet`
+confirms its entire backend tree is byte-identical to e86af97; it is not
+described as another full backend execution. No ignored environment file
+or credentials were copied into its source archive.
+
+**VERIFIED explicit writer:** signed erased same owned SE, actual native
+**1/0/0**, harness/native0. Auth-required local backend: project/create,
+formatted fixture insertion, save, Markdown export and relaunch. Actual
+bundle `/tmp/them-1059-final-writer/writer-loop-0e6122bb-5b4a-4165-939c-4e9fb3f9319b.xcresult`;
+private `final-writer-after.xcresult` retained byte-for-byte. This tests real
+UI/API/persistence with synthetic generation, not Clementine's live model
+quality or opening an export in another app on a physical iPhone.
+
+**VERIFIED explicit recovery:** signed erased same owned SE, actual native
+**2/0/0**, harness/native0; auth required, dummy provider, isolated storage.
+Both exact-text/reconnect/relaunch and expired-auth/stale-conflict cases
+execute, no skips. Actual bundle
+`/tmp/them-1059-final-recovery/them-save-recovery-NOhW0U/recovery-ios.xcresult`;
+private `final-recovery-after.xcresult` retained byte-for-byte. Controlled
+DEBUG faults do not prove physical airplane-mode/network behavior.
+Both owned backend processes stopped and the validated temporary dependency
+symlink was removed; the dependency directory itself is untouched.
+
+**VERIFIED:** macOS scaffold native build exit0, exact e86af97; log
+`/tmp/them-1059-final-macos.log`. Compile-only, not macOS interactive proof.
+Existing Swift6 concurrency/Sendable and platform-deprecation warnings remain.
+D009 against actual original-parent3e96d43 remains bridge-23, others0;
+whitespace passes. Final source/proof branch is backed up normally, not
+merged into main or substituted for an original PR.
+
+Original heads/main/production remain unchanged at this checkpoint;
+genuine independent reviews and real-phone proof remain required. T1061
+prepares the exact original #919 boundary without swallowing separate #972;
+T1058 still needs its queued native proof. No further paid model call.

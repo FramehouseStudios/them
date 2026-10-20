@@ -8,7 +8,7 @@
 ### T-1059 — Preserve live screenplay word separators
 
 - **Owner:** codex. **Branch:** `codex/T-1059-live-word-separators`.
-- **Status:** in-progress. **Pillar:** writer words are never silently lost.
+- **Status:** review (local rehearsal proved). **Pillar:** writer words are never silently lost.
 - **Boundary:** preserve red integration5391567 and its original #919/#972
   histories. No main merge, paid call or replacement PR.
 - **Observed:** full signed678/2/9 loses the space in lights before;
@@ -31,7 +31,10 @@
   stale model27 overwrites native28 and model48 overwrites native49.
   Actual coordinator before5/2/0; canonical pending-publication guard after
   17/0/0 (native15 + both unchanged typing UI), diagnostic hooks removed.
-  Shared package19/0. Full integration/recovery still required; not promoted.
+  Shared package19/0. Full exact e86af97 after692/0/9 (units661/0/0,
+  UI31/0/9), both typing cases pass. Explicit authenticated fixture writer
+  1/0/0 and offline/auth/conflict recovery2/0/0 pass; macOS native0.
+  Not promoted to an original PR or main; phone/live speech remain unproved.
 
 ### T-1057 — Rehearse client lifetime with exact writer recovery
 
