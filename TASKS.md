@@ -8,7 +8,7 @@
 ### T-1037 — Refuse stale native rewrite targets
 
 - **Owner:** codex. **Branch:** `codex/T-1037-strict-rewrite-target`.
-- **Status:** in-progress; failing-first reproduction confirmed.
+- **Status:** review; strict target correction locally proven.
 - **Root:** both native editors could fall back to an unmatched stored line
   range, a different occurrence of the text, or the current cursor. A stale
   rewrite could overwrite newer words or become an unintended insertion.
@@ -21,6 +21,16 @@
   stay byte-exact in the real UIKit coordinator, rejection feedback clears
   only the matching request, writer UI/macOS/D009 and focused checks pass.
 - **Hold:** no paid model calls, original PR/main changes or production work.
+- **Verified:** before1/2/0. Initial focused build failed on new test tuple
+  inference; corrected explicitly. Intermediate full signed911/0/0 precedes
+  partial-selection support; final focused19/0/0 covers valid partial and
+  streamed rewrites plus actual UIKit stale refusal/late-edit preservation.
+  Final writer/save/export/relaunch UI1/0/0; macOS BUILD SUCCEEDED; native
+  handles exit0, summaries read, bundles cloned/compared. Node20.20.2 gate
+  contracts7/0/0; D009 bridge-45 lines, other deltas0; diff pass.
+- **Evidence:** `docs/strict-rewrite-target-2026-10-19.md`.
+- **Next:** connect guarded recovered-page preview/application/save through
+  existing Studio request and persistence owners; no automatic legacy apply.
 
 ### T-1036 — Capture exact original draft identity for recovery
 
