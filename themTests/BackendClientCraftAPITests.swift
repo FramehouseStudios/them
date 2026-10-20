@@ -2031,7 +2031,8 @@ final class BackendClientCraftAPITests: XCTestCase {
         defer { server.stop() }
         let client = BackendClient(baseURL: url, fallbackURL: url, persistBackendBaseURL: false,
                                    attachUserIDHeader: false, offlineTalkOutbox: outbox)
-        let metadata = includeWriteContext ? BackendStudioThreadCommitMetadata(
+        let originalDraft = " \r\nINT. CAPSULE - NIGHT\r\nA cafe\u{0301} door opens.\t "
+        var metadata = includeWriteContext ? BackendStudioThreadCommitMetadata(
             screenplayProjectId: "original-capsule-project", screenplayDocumentRevisionId: "original-version-7",
             screenplayTarget: "page", screenplayPromptSource: "voice", screenplayWriteId: "original-write-9",
             screenplayAnchorLine: 25, screenplayAnchorEndLine: 28, screenplayInsertionMode: "replace_selection",
@@ -2039,6 +2040,7 @@ final class BackendClientCraftAPITests: XCTestCase {
             screenplayAnchorOutlineSceneId: "", screenplayAnchorOutlineBeatIds: [], screenplayAnchorScriptNodeId: "node-4",
             screenplayNoteTitle: "", screenplayNoteBody: "", screenplayInsertedText: "", screenplayReplacementApplied: false,
             screenplayReplacedWriteId: "", screenplayRevisedBlockText: "", screenplayResolvedAnchorExcerpt: "") : nil
+        metadata = metadata?.retainingRecoveryDraftIdentity(originalDraft)
         let expectedContext = RecoveredTalkWriteContext(metadata: metadata)
         do {
             if let metadata {
@@ -2067,6 +2069,11 @@ final class BackendClientCraftAPITests: XCTestCase {
         XCTAssertEqual(entry.status, .parked)
         XCTAssertEqual(entry.originalWriteContext, expectedContext)
         if includeWriteContext {
+            XCTAssertTrue(entry.originalWriteContext?.draftIdentity?.matches(originalDraft) == true)
+            XCTAssertFalse(entry.originalWriteContext?.draftIdentity?.matches(originalDraft + " ") == true)
+            if let identity = entry.originalWriteContext?.draftIdentity {
+                XCTAssertNil(originalBody.range(of: Data(identity.sha256.utf8)), "Local recovery identity must not leak into the provider/request payload.")
+            }
             XCTAssertEqual(entry.originalWriteContext?.projectID, "original-capsule-project")
             XCTAssertEqual(entry.originalWriteContext?.documentRevisionID, "original-version-7")
             XCTAssertEqual(entry.originalWriteContext?.anchorLine, 25)
@@ -2077,8 +2084,15 @@ final class BackendClientCraftAPITests: XCTestCase {
             duplicate.httpMethod = "POST"
             duplicate.setValue(owner, forHTTPHeaderField: "X-User-Id")
             duplicate.setValue(entry.idempotencyKey, forHTTPHeaderField: "X-Idempotency-Key")
-            let existing = try await relaunched.enqueue(request: duplicate, body: Data("must not replace original".utf8), reason: "review")
+            let changedContext = RecoveredTalkWriteContext(metadata: metadata?.retainingRecoveryDraftIdentity("A later draft"))
+            let existing = try await relaunched.enqueue(request: duplicate, body: Data("must not replace original".utf8), reason: "review",
+                originalWriteContext: changedContext)
             XCTAssertEqual(existing.entry.originalWriteContext, expectedContext)
+            var legacyContext = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(expectedContext)) as? [String: Any])
+            legacyContext.removeValue(forKey: "draftIdentity")
+            let oldContext = try JSONDecoder().decode(RecoveredTalkWriteContext.self,
+                from: JSONSerialization.data(withJSONObject: legacyContext))
+            XCTAssertNil(oldContext.draftIdentity, "A legacy revision/excerpt cannot invent the original unsaved bytes.")
             var legacy = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(entry)) as? [String: Any])
             legacy.removeValue(forKey: "originalWriteContext")
             let decoded = try JSONDecoder().decode(OfflineTalkOutboxEntry.self, from: JSONSerialization.data(withJSONObject: legacy))

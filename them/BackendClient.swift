@@ -5378,7 +5378,7 @@ final class BackendClient {
               payload.userID == reply.ownerID,
               payload.renderContract?.authoritativePageTextAvailable == true,
               let output = payload.screenplayOutput, output.writesToPage,
-              payload.screenplayOutputSHA256 == SHA256.hash(data: Data(output.text.utf8)).map({ String(format: "%02x", $0) }).joined() else {
+              payload.screenplayOutputSHA256 == ScreenplayDraftContentIdentity(draft: output.text).sha256 else {
             throw BackendError.stage("recovery", "The complete original page could not be verified from this service. Your local copy is unchanged.")
         }
         return output

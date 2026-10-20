@@ -5,6 +5,25 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1036 — Capture exact original draft identity for recovery
+
+- **Owner:** codex. **Branch:** `codex/T-1036-recovery-draft-identity`.
+- **Status:** in-progress; signed focused proof complete, macOS pending.
+- **Root:** original request context kept revision/excerpt but neither detects
+  unsaved byte changes. A recovered result cannot safely edit from those alone.
+- **Fix:** capture local SHA256/UTF8 length/UTF16 length at both original page
+  request-preparation owners, carry it through existing outbox/receipt Codable
+  context, never serialize to the request/provider. Legacy remains nil. Move
+  metadata type unchanged out of BackendMemoryAPI; reuse the typed digest for
+  owned full-page integrity rather than duplicating the text-hash expression.
+- **Verified:** signed27/0/0 on erased owned Pro26.2; pinned Node20.20.2
+  relevant Swift-source contracts12/0/0, network disabled. D009 memory facade
+  -114 lines, other protected deltas0; extraction equality/diff checks pass.
+- **Not done:** actual recovered-page preview/apply/save UI. No fake Apply
+  button, older-record identity guessing or automatic page mutation.
+- **Next:** reject unresolved/stale line-range replacement before wiring
+  guarded recovery application through existing Studio action/save owners.
+
 ### T-1035 — Restore a first-page conflict during creation retry
 
 - **Owner:** codex. **Branch:** `codex/T-1035-first-page-conflict`.

@@ -16,7 +16,8 @@ nonisolated enum BackendTalkResponseContent {
 
 /// The original typed request context, not the current Studio selection or a
 /// service-reported project. This is evidence, not permission to mutate a draft:
-/// revision IDs do not capture unsaved edits and excerpt text is not a full base.
+/// revision IDs/excerpts cannot capture unsaved bytes. New requests retain an
+/// exact local draft identity, which still is not authority to apply a result.
 nonisolated struct RecoveredTalkWriteContext: Codable, Equatable {
     let projectID: String
     let documentRevisionID: String
@@ -26,6 +27,7 @@ nonisolated struct RecoveredTalkWriteContext: Codable, Equatable {
     let anchorLine: Int?
     let anchorEndLine: Int?
     let insertionMode: String
+    var draftIdentity: ScreenplayDraftContentIdentity? = nil
 
     init?(metadata: BackendStudioThreadCommitMetadata?) {
         guard let metadata, metadata.isMeaningful else { return nil }
@@ -37,6 +39,7 @@ nonisolated struct RecoveredTalkWriteContext: Codable, Equatable {
         anchorLine = metadata.screenplayAnchorLine
         anchorEndLine = metadata.screenplayAnchorEndLine
         insertionMode = metadata.screenplayInsertionMode
+        draftIdentity = metadata.recoveryDraftIdentity
     }
 }
 

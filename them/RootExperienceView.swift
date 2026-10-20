@@ -11919,7 +11919,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
             screenplayPageCount: promptContinuity.pageCount > 0 ? promptContinuity.pageCount : nil,
             screenplayTargetPages: promptContinuity.targetPages > 0 ? promptContinuity.targetPages : nil
         )
-        return metadata.isMeaningful ? metadata : nil
+        return metadata.retainingRecoveryDraftIdentity(screenplayDraftBridge.draftText)
     }
 
     @MainActor
@@ -11998,7 +11998,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
             screenplayPageCount: promptContinuity.pageCount > 0 ? promptContinuity.pageCount : nil,
             screenplayTargetPages: promptContinuity.targetPages > 0 ? promptContinuity.targetPages : nil
         )
-        return metadata.isMeaningful ? metadata : nil
+        return metadata.retainingRecoveryDraftIdentity(screenplayDraftBridge.draftText)
     }
 
     @MainActor
