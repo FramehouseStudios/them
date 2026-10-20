@@ -2118,7 +2118,10 @@ final class ScreenplayStudioViewModel: ObservableObject {
         versionID: String,
         committedDraft: String
     ) -> Bool {
-        guard ScreenplayBridgeVersionAdoptionPolicy.shouldAdoptCommittedPageWriteBase(
+        // Reuse 0c1afb1: shared version context is not a receipt for restored
+        // writer words or an unresolved choice between local and server text.
+        guard conflictState == nil, !(hasUnsavedDraftChanges && isManualDraftEditing),
+              ScreenplayBridgeVersionAdoptionPolicy.shouldAdoptCommittedPageWriteBase(
             selectedProjectId: selectedProjectID,
             preferredProjectId: projectID,
             currentVersionId: latestVersionID,
@@ -4276,16 +4279,10 @@ final class ScreenplayStudioViewModel: ObservableObject {
             latestVersionID = candidate.baseVersionId
         }
         syncLiveDraftBridgeProjectContext()
-        hasUnsavedDraftChanges = fingerprint(for: candidate.draft) != lastSavedDraftFingerprint
+        noteManualDraftEdit()
         autosaveStatusText = "Recovered local draft"
         infoText = "Recovered your local unsaved draft."
         recoveryCandidate = nil
-        persistLocalDraftRecovery(
-            projectId: candidate.projectId,
-            draft: candidate.draft,
-            baseVersionId: latestVersionID,
-            dirty: hasUnsavedDraftChanges
-        )
         if candidate.isPreservedConflict,
            let nextConflict = localDraftRecoveryStore.nextPreservedConflict(
             ownerUserId: currentStudioAuthContext().userID,
@@ -5550,7 +5547,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         }
     }
 
-    private func hydrateDraft(from project: BackendScreenplayProjectSummary) {
+    func hydrateDraft(from project: BackendScreenplayProjectSummary) {
         let selectedVersion = ScreenplayProjectDraftRestorePolicy.preferredVersion(in: project)
         let nextDraft = (selectedVersion?.draft ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         studioWriteAnchors = (selectedVersion?.studioWriteAnchors ?? []).filter { anchor in
