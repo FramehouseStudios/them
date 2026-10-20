@@ -4,6 +4,39 @@ import ScreenplayStudio
 
 final class ScreenplaySaveConflictAuthorityTests: XCTestCase {
     @MainActor
+    func testBlankSnapshotDuringBackgroundDrainIsNotDropped() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        let transport = SaveAuthorityTransport(delayed: true)
+        defer { transport.finish() }
+        let model = fixture.model(api: transport.api())
+        let queued = ScreenplayDraftSaveOutboxEntry(
+            id: "earlier-save", projectId: "project", ownerUserId: fixture.owner,
+            draft: "Earlier queued writer words", title: "Script", phase: "draft", notes: "",
+            source: "studio_manual", studioWriteAnchors: [], screenplayBindings: [],
+            baseVersionId: "base", createdAt: 1, updatedAt: 1, status: .pending,
+            retries: 0, nextAttemptAt: 0, lastError: "")
+        try await fixture.queue.enqueue(queued)
+        let drain = Task { await model.resumeQueuedDraftSavesIfNeeded(force: true) }
+        await fulfillment(of: [transport.started], timeout: 3)
+        model.fountainDraft = ""
+        model.noteManualDraftEdit()
+        model.snapshotLabel = "Intentional blank snapshot"
+        await model.createRevisionSnapshot()
+        XCTAssertTrue(model.hasUnsavedDraftChanges)
+        transport.finish()
+        await drain.value
+        XCTAssertEqual(transport.postCount, 2, "A save submitted during background draining must not be left in an unconsumed pending slot.")
+        XCTAssertEqual(transport.lastBaseVersion, "saved-v2", "The pending snapshot must follow the acknowledged earlier version.")
+        XCTAssertEqual(model.fountainDraft, "")
+        XCTAssertFalse(model.hasUnsavedDraftChanges)
+        XCTAssertEqual(model.snapshotLabel, "")
+        let entries = try await fixture.queue.entriesForTesting()
+        XCTAssertTrue(entries.isEmpty)
+        try? await Task.sleep(nanoseconds: 1_100_000_000)
+    }
+
+    @MainActor
     func testSaveNowCannotDismissAnUnresolvedChoiceOrPostWriterWords() async throws {
         let fixture = try Fixture()
         defer { fixture.cleanup() }

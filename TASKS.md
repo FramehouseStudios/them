@@ -5,6 +5,29 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1014 — Prove and repair explicit saves during background queue draining
+
+- **Owner:** codex. **Branch:** `codex/T-1014-save-drain-handoff`.
+- **Status:** in-progress. **Pillar:** exact writer recovery / integration.
+- **Boundary:** original #962ee7e27f2, hosted39336874458 terminal failure:
+  recovery3 pass/2 fail/0 skip on iOS26.5. No unchanged retry or #963 advance.
+- **Verified root:** resumeQueuedDraftSavesIfNeeded owns the
+  in-flight flag while manual/snapshot saves fill pendingDraftSaveRequest;
+  only the manual serialization path consumes that slot. Suspended real
+  transport regression reproduced one POST instead of two: signed before
+  5/1/0. Canonical dispatch handoff correction passes focused6/0/0, signing
+  enabled on the erased task-owned Pro. Broader/UI proof remains pending.
+- **Connected proof:** signed local conflict/relaunch/Keep Mine1/0/0 and
+  blank-snapshot/offline/reconnect/history1/0/0; unchanged UI assertions.
+  D009 all five deltas0 and diff check pass. Hosted iOS26.5 failure is not
+  reproduced locally or declared resolved. Save scoped fix; hold original
+  PR updates until broader integration proof.
+- **Done when:** failing-first signed reproduction, root fix preserving auth/
+  project/conflict authority and version base, full local proof and fresh
+  exact-head hosted gate. Investigate conflict-relaunch failure separately;
+  do not weaken assertions, add sleeps, or claim one fix covers both.
+- **Evidence:** `docs/save-drain-handoff-2026-10-19.md`.
+
 ### T-1005 — Carry the green receipt parent into original exact retention
 
 - **Owner:** codex. **Branch:** `codex/T-1005-retention-current-parent`.
