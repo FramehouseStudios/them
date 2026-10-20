@@ -610,6 +610,24 @@ actor OfflineTalkOutbox {
         return reply
     }
 
+    func prepareRecoveredProject(id: String, expectedOwnerID: String,
+        creation: RecoveredPageCreation) throws -> RecoveredTalkReply {
+        var reply = try recoveredReply(id: id, expectedOwnerID: expectedOwnerID)
+        if let previous = reply.projectCreation {
+            guard previous == creation else { throw RecoveredPagePlan.failure("This recovered story already has a different project decision. Reopen its saved setup.") }
+            return reply
+        }
+        let validated = try RecoveredPageCreation.make(reply: reply, title: creation.title)
+        guard UUID(uuidString: creation.projectID) != nil, reply.pageApplication == nil, validated.title == creation.title,
+              validated.application.proposedDraftIdentity.matches(creation.draft) else {
+            throw RecoveredPagePlan.failure("The recovered screenplay changed. Review its title and complete text again.")
+        }
+        reply.projectCreation = creation
+        reply.pageApplication = creation.application
+        try updateRecoveredReply(reply)
+        return reply
+    }
+
     func acknowledgeRecoveredPage(id: String, expectedOwnerID: String,
         application: RecoveredPageApplication, savedVersionID: String) throws {
         var reply = try recoveredReply(id: id, expectedOwnerID: expectedOwnerID)

@@ -54,12 +54,14 @@ struct RecoveredTalkReplyReview: View {
                             stringValue: reply.id, secondaryStringValue: reply.ownerID)
                         onOpenStudio()
                     } label: {
-                        Label("Review placement in Studio", systemImage: "doc.text.magnifyingglass")
+                        Label(reply.originalWriteContext?.projectID == "" ? "Create screenplay in Studio" : "Review placement in Studio", systemImage: "doc.text.magnifyingglass")
                             .frame(maxWidth: .infinity, minHeight: 44)
                     }
                     .buttonStyle(SoftPrimaryButtonStyle()).foregroundStyle(Color.herText)
                     .accessibilityIdentifier("recovery.reply.open-studio")
-                    .accessibilityHint("Does not insert immediately. Studio will check the original page before offering Apply and save.")
+                    .accessibilityHint(reply.originalWriteContext?.projectID == ""
+                        ? "Opens title confirmation before creating a separate screenplay from the recovered text."
+                        : "Does not insert immediately. Studio will check the original page before offering Apply and save.")
                 }
                 if let responseURL {
                     ShareLink(item: responseURL) {

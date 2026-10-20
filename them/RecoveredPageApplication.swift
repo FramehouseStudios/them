@@ -10,6 +10,29 @@ nonisolated struct RecoveredPageApplication: Codable, Equatable {
     var savedVersionID: String? = nil
 }
 
+/// A writer-confirmed new project, retained before the first creation request.
+nonisolated struct RecoveredPageCreation: Codable, Equatable {
+    let projectID: String
+    let title: String
+    let draft: String
+
+    var application: RecoveredPageApplication {
+        .init(projectID: projectID, baseVersionID: "",
+            originalDraftIdentity: .init(draft: ""), proposedDraftIdentity: .init(draft: draft))
+    }
+
+    static func make(reply: RecoveredTalkReply, title: String) throws -> Self {
+        let title = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty, !title.contains(where: \.isNewline), title.count <= 200,
+              reply.originalWriteContext?.projectID == "", reply.originalWriteContext?.target == "page",
+              let output = reply.screenplay, output.writesToPage else {
+            throw RecoveredPagePlan.failure("Enter a single-line project title first. Only complete recovered new-project pages can create a screenplay.")
+        }
+        return .init(projectID: UUID().uuidString.lowercased(), title: title,
+            draft: FountainTitlePageCodec.renamingTitle(in: output.text, to: title))
+    }
+}
+
 nonisolated struct RecoveredPagePlan: Equatable {
     let application: RecoveredPageApplication
     let draft: String

@@ -10,6 +10,8 @@ final class RecoveredPageController: ObservableObject {
     @Published private(set) var plan: RecoveredPagePlan?
     @Published private(set) var message = ""
     @Published private(set) var busy = false
+    @Published var newProjectTitle = ""
+    @Published private(set) var offersNewProject = false
     private weak var studio: ScreenplayStudioViewModel?
     private let outbox: OfflineTalkOutbox
     private var auth: ScreenplayStudioAuthContext?
@@ -23,7 +25,7 @@ final class RecoveredPageController: ObservableObject {
         guard !busy else { return }
         busy = true
         defer { busy = false }
-        reply = nil; plan = nil; message = ""; isPresented = true
+        reply = nil; plan = nil; message = ""; newProjectTitle = ""; offersNewProject = false; isPresented = true
         let expected = ScreenplayStudioAuthContext.current()
         auth = expected
         do {
@@ -43,13 +45,46 @@ final class RecoveredPageController: ObservableObject {
                     return
                 }
                 if application.proposedDraftIdentity.matches(studio.fountainDraft) {
+                    if retained.projectCreation != nil {
+                        offersNewProject = true
+                        newProjectTitle = retained.projectCreation?.title ?? ""
+                        message = "This recovered project's setup is retained. Continue its original creation; no second project will be requested."
+                        return
+                    }
                     message = "This page is already on the screenplay. Use Save now or resolve its pending save; it will not be inserted twice."
                     return
                 }
             }
+            if retained.projectCreation != nil || (retained.originalWriteContext?.projectID == "" &&
+                retained.originalWriteContext?.target == "page" && retained.screenplay?.writesToPage == true) {
+                offersNewProject = true
+                newProjectTitle = retained.projectCreation?.title ?? ""
+                message = "What is this screenplay called? Create a new project from the recovered text, with its own title page. Other scripts will not be replaced."
+                return
+            }
             plan = try RecoveredPagePlan.make(reply: retained, draft: studio.fountainDraft,
                 projectID: studio.selectedProjectID, versionID: studio.latestVersionID)
             message = "Review the resulting screenplay below. Apply and save uses the original placement, not today's cursor."
+        } catch { message = error.localizedDescription }
+    }
+
+    func createProject() async {
+        guard !busy, offersNewProject, let reply, let auth, let studio else { return }
+        busy = true
+        defer { busy = false }
+        do {
+            let creation = try reply.projectCreation ?? RecoveredPageCreation.make(reply: reply, title: newProjectTitle)
+            let retained = try await outbox.prepareRecoveredProject(id: reply.id, expectedOwnerID: reply.ownerID, creation: creation)
+            self.reply = retained
+            newProjectTitle = creation.title
+            if let version = try await studio.createRecoveredProject(creation, replyID: reply.id, expectedAuth: auth) {
+                try await outbox.acknowledgeRecoveredPage(id: reply.id, expectedOwnerID: reply.ownerID,
+                    application: creation.application, savedVersionID: version)
+                offersNewProject = false
+                message = "New screenplay saved and confirmed by the server. Your recovered reply remains retained."
+            } else {
+                message = "Not yet confirmed by the server. The title, project identity and complete story are kept locally. Continue this same setup or use Studio's save controls."
+            }
         } catch { message = error.localizedDescription }
     }
 
@@ -97,6 +132,22 @@ private struct RecoveredPagePreview: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: IOThemSpacing.Scale.xl) {
                     Text(controller.message).font(IOThemTypography.UI.body).accessibilityIdentifier("recovery.page.status")
+                    if controller.offersNewProject {
+                        TextField("Screenplay title", text: $controller.newProjectTitle)
+                            .font(IOThemTypography.UI.body).textFieldStyle(.roundedBorder)
+                            .disabled(controller.busy || controller.reply?.projectCreation != nil)
+                            .accessibilityIdentifier("recovery.page.title")
+                        Button { Task { await controller.createProject() } } label: {
+                            Label(controller.reply?.projectCreation == nil ? "Create and save screenplay" : "Continue saved project setup", systemImage: "doc.badge.plus")
+                                .frame(maxWidth: .infinity, minHeight: 44)
+                        }
+                        .buttonStyle(SoftPrimaryButtonStyle()).disabled(controller.busy || controller.newProjectTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        .accessibilityIdentifier("recovery.page.create")
+                        if let text = controller.reply?.projectCreation?.draft ?? controller.reply?.screenplay?.text {
+                            Text(text).font(IOThemTypography.Screenplay.font(for: .action)).textSelection(.enabled)
+                                .accessibilityIdentifier("recovery.page.preview")
+                        }
+                    }
                     if let plan = controller.plan {
                         Button { Task { await controller.apply() } } label: {
                             Label("Apply and save recovered page", systemImage: "doc.badge.arrow.up")

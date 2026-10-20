@@ -90,10 +90,23 @@ final class RecoveredPageApplicationTests: XCTestCase {
         } catch { }
     }
 
-    static func reply(draft: String, mode: String = "insert_after_anchor", line: Int = 1) throws -> RecoveredTalkReply {
+    func testNewProjectRequiresExplicitValidTitleAndCompleteNewProjectContext() throws {
+        let reply = try Self.reply(draft: "", projectID: "")
+        for title in ["", "  ", "Injected\nAuthor: Other", String(repeating: "a", count: 201)] {
+            XCTAssertThrowsError(try RecoveredPageCreation.make(reply: reply, title: title))
+        }
+        XCTAssertThrowsError(try RecoveredPageCreation.make(reply: Self.reply(draft: "Original"), title: "Separate script"))
+        let creation = try RecoveredPageCreation.make(reply: reply, title: "  My screenplay  ")
+        XCTAssertEqual(creation.title, "My screenplay")
+        XCTAssertEqual(Array(creation.draft.utf8), Array("Title:\n    My screenplay\nCredit:\n    Written by\n\nMARA\nThe door is a set.".utf8))
+        XCTAssertNotNil(UUID(uuidString: creation.projectID))
+        XCTAssertTrue(creation.application.proposedDraftIdentity.matches(creation.draft))
+    }
+
+    static func reply(draft: String, mode: String = "insert_after_anchor", line: Int = 1, projectID: String = "project") throws -> RecoveredTalkReply {
         let digest = try JSONSerialization.jsonObject(with: JSONEncoder().encode(ScreenplayDraftContentIdentity(draft: draft)))
         let context = try JSONDecoder().decode(RecoveredTalkWriteContext.self, from: JSONSerialization.data(withJSONObject: [
-            "projectID": "project", "documentRevisionID": "base", "target": "page", "promptSource": "voice",
+            "projectID": projectID, "documentRevisionID": "base", "target": "page", "promptSource": "voice",
             "writeID": "original-write", "anchorLine": line, "anchorEndLine": line,
             "insertionMode": mode, "draftIdentity": digest]))
         return .init(id: UUID().uuidString, ownerID: "writer", receivedAt: 1, requestKey: "original",
