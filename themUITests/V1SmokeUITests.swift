@@ -1039,11 +1039,18 @@ final class V1SmokeUITests: XCTestCase {
             "Try this ask did not report that it loaded the live prompt."
         )
 
+        guard dismissKeyboardTypingTutorialIfPresent(in: app) else { return }
         let promptField = element(identifier: "studio.prompt.field", in: app)
-        for _ in 0..<24 where !promptField.isHittable {
-            drawer.swipeDown()
-        }
-        XCTAssertTrue(waitForHittability(of: promptField, timeout: 5))
+        XCTAssertTrue(
+            waitForHittability(of: promptField, timeout: 5),
+            "The loaded live ask did not become reachable automatically after keyboard layout. "
+                + "Field: \(promptField.frame); drawer: \(drawer.frame); "
+                + "content: \(studioDrawerContentViewport(drawer)); keyboard: \(app.keyboards.firstMatch.frame)."
+        )
+        let focusedComposer = XCTAttachment(screenshot: app.screenshot())
+        focusedComposer.name = "Loaded live ask above the keyboard"
+        focusedComposer.lifetime = .keepAlways
+        add(focusedComposer)
         XCTAssertTrue(
             waitForTextInputValue(
                 in: promptField,
@@ -1155,7 +1162,8 @@ final class V1SmokeUITests: XCTestCase {
         let toPage = app.buttons["studio.them.voice-pin.latest.to-page"]
         XCTAssertTrue(
             revealFullyInStudioDrawer(toPage, drawer: drawer, maxSwipes: 12),
-            "To Page was not fully visible in the inspector."
+            "To Page was not fully visible in the inspector. "
+                + "Target: \(toPage.frame); content viewport: \(studioDrawerContentViewport(drawer))."
         )
 #if os(macOS)
         toPage.click()
@@ -1201,7 +1209,10 @@ final class V1SmokeUITests: XCTestCase {
                 in: app.buttons.matching(NSPredicate(format: "label == %@", "Clear Thread"))
             ) ?? app.buttons["Clear Thread"]
         }
-        XCTAssertTrue(waitForHittability(of: confirmThread, timeout: 4))
+        XCTAssertTrue(
+            revealInStudioDrawer(confirmThread, drawer: drawer, scrollingUp: true, maxSwipes: 8),
+            "Clear Thread confirmation was not reachable after its inline panel expanded."
+        )
 #if os(macOS)
         confirmThread.click()
 #else
@@ -1241,7 +1252,10 @@ final class V1SmokeUITests: XCTestCase {
                 in: app.buttons.matching(NSPredicate(format: "label == %@", "Clear Memory"))
             ) ?? app.buttons["Clear Memory"]
         }
-        XCTAssertTrue(waitForHittability(of: confirmMemory, timeout: 4))
+        XCTAssertTrue(
+            revealInStudioDrawer(confirmMemory, drawer: drawer, scrollingUp: true, maxSwipes: 8),
+            "Clear Memory confirmation was not reachable after its inline panel expanded."
+        )
 #if os(macOS)
         confirmMemory.click()
 #else
@@ -3001,8 +3015,31 @@ final class V1SmokeUITests: XCTestCase {
         }
     }
 
+    private func dismissKeyboardTypingTutorialIfPresent(in app: XCUIApplication) -> Bool {
+#if os(iOS)
+        // Reuse 2fcdc772's identified system-tutorial setup, not an arbitrary
+        // Continue action or a repeated submission of a writer's prompt.
+        let tutorial = app.staticTexts.matching(NSPredicate(
+            format: "label BEGINSWITH %@", "Speed up your typing by sliding"
+        )).firstMatch
+        guard tutorial.waitForExistence(timeout: 0.5) else { return true }
+        let continueTyping = app.buttons["Continue"].firstMatch
+        guard continueTyping.exists, continueTyping.isHittable else {
+            XCTFail("The keyboard typing tutorial did not expose its Continue action.")
+            return false
+        }
+        continueTyping.tap()
+        guard waitForDisappearance(of: tutorial, timeout: 5) else {
+            XCTFail("The keyboard typing tutorial still covers the Studio controls.")
+            return false
+        }
+#endif
+        return true
+    }
+
     private func submitFocusedPrompt(in app: XCUIApplication, field: XCUIElement) {
 #if os(iOS)
+        guard dismissKeyboardTypingTutorialIfPresent(in: app) else { return }
         let toolbarSend = app.buttons["studio.prompt.keyboard-send"]
         if toolbarSend.waitForExistence(timeout: 5), toolbarSend.isHittable {
             toolbarSend.tap()
@@ -3321,35 +3358,55 @@ final class V1SmokeUITests: XCTestCase {
         _ target: XCUIElement,
         drawer: XCUIElement,
         scrollingUp: Bool,
-        maxSwipes: Int
+        maxSwipes: Int,
+        fullyVisible: Bool = false,
+        requiresHittability: Bool = true
     ) -> Bool {
-        if target.exists, target.isHittable {
-            return true
+        func isVisible() -> Bool {
+            guard target.exists else { return false }
+            if requiresHittability, !target.isHittable { return false }
+            guard fullyVisible else { return true }
+            let frame = target.frame
+            let viewport = studioDrawerContentViewport(drawer)
+            return !frame.isEmpty && frame.minY >= viewport.minY + 8
+                && frame.maxY <= viewport.maxY - 24
         }
+        if isVisible() { return true }
         for _ in 0..<maxSwipes {
-            if target.exists, target.isHittable {
-                return true
-            }
+            if isVisible() { return true }
             // Reuse T-992's bounded, target-relative gesture (6a57ff9).
             // Full-height flings can skip a control on an SE and then keep
             // scrolling away because the caller assumed a taller viewport.
             let targetFrame = target.exists ? target.frame : .zero
-            let viewport = drawer.frame
+            let viewport = studioDrawerContentViewport(drawer)
             let distance: CGFloat
-            if !targetFrame.isEmpty, targetFrame.minY < viewport.minY + 20 {
-                distance = targetFrame.minY - (viewport.minY + 20)
-            } else if !targetFrame.isEmpty, targetFrame.maxY > viewport.maxY - 20 {
-                distance = targetFrame.maxY - (viewport.maxY - 20)
+            if !targetFrame.isEmpty, targetFrame.minY < viewport.minY + 24 {
+                distance = targetFrame.minY - (viewport.minY + 24)
+            } else if !targetFrame.isEmpty, targetFrame.maxY > viewport.maxY - 24 {
+                distance = targetFrame.maxY - (viewport.maxY - 24)
             } else {
                 distance = scrollingUp ? 160 : -160
             }
             let limit = min(CGFloat(220), viewport.height * 0.4)
-            let anchor = drawer.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-            let end = anchor.withOffset(CGVector(dx: 0, dy: -min(max(distance, -limit), limit)))
+            let anchor = drawer.coordinate(withNormalizedOffset: .zero).withOffset(
+                CGVector(dx: viewport.midX - drawer.frame.minX, dy: viewport.midY - drawer.frame.minY)
+            )
+            // A sub-10-point correction can remain a press rather than pan;
+            // the failed SE recording repeated the same 9.5-point gesture.
+            let travel = min(max(abs(distance), 44), limit) * (distance < 0 ? -1 : 1)
+            let end = anchor.withOffset(CGVector(dx: 0, dy: -travel))
             anchor.press(forDuration: 0.05, thenDragTo: end, withVelocity: .slow, thenHoldForDuration: 0.12)
             RunLoop.current.run(until: Date().addingTimeInterval(0.12))
         }
-        return waitForHittability(of: target, timeout: 2)
+        return isVisible()
+    }
+
+    private func studioDrawerContentViewport(_ drawer: XCUIElement) -> CGRect {
+        let content = drawer.descendants(matching: .any)
+            .matching(identifier: "studio.sidebar.right.content-scroll").firstMatch
+        guard content.exists else { return drawer.frame }
+        let viewport = drawer.frame.intersection(content.frame)
+        return viewport.isNull || viewport.isEmpty ? drawer.frame : viewport
     }
 
     @discardableResult
@@ -3358,28 +3415,8 @@ final class V1SmokeUITests: XCTestCase {
         drawer: XCUIElement,
         maxSwipes: Int
     ) -> Bool {
-        func isFullyVisible() -> Bool {
-            target.exists &&
-                target.isHittable &&
-                target.frame.minY >= drawer.frame.minY + 8 &&
-                target.frame.maxY <= drawer.frame.maxY - 24
-        }
-
-        if isFullyVisible() {
-            return true
-        }
-        for _ in 0..<maxSwipes {
-            if target.exists, target.frame.minY < drawer.frame.minY + 8 {
-                drawer.swipeDown()
-            } else {
-                drawer.swipeUp()
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.12))
-            if isFullyVisible() {
-                return true
-            }
-        }
-        return isFullyVisible()
+        revealInStudioDrawer(target, drawer: drawer, scrollingUp: true,
+            maxSwipes: maxSwipes, fullyVisible: true)
     }
 
     @discardableResult
@@ -3388,28 +3425,8 @@ final class V1SmokeUITests: XCTestCase {
         drawer: XCUIElement,
         maxSwipes: Int
     ) -> Bool {
-        func isFullyVisible() -> Bool {
-            target.exists &&
-                !target.frame.isEmpty &&
-                target.frame.minY >= drawer.frame.minY + 8 &&
-                target.frame.maxY <= drawer.frame.maxY - 24
-        }
-
-        if isFullyVisible() {
-            return true
-        }
-        for _ in 0..<maxSwipes {
-            if target.exists, target.frame.minY < drawer.frame.minY + 8 {
-                drawer.swipeDown()
-            } else {
-                drawer.swipeUp()
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.12))
-            if isFullyVisible() {
-                return true
-            }
-        }
-        return isFullyVisible()
+        revealInStudioDrawer(target, drawer: drawer, scrollingUp: true,
+            maxSwipes: maxSwipes, fullyVisible: true, requiresHittability: false)
     }
 
     private func assertHorizontallyContained(

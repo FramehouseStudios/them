@@ -12,6 +12,7 @@ struct ScreenplayStudioPinnedInspectorTabs<Tabs: View>: ViewModifier {
                 .padding(.horizontal, 12)
                 .padding(.top, 12)
             content.id(selection)
+                .accessibilityIdentifier("studio.sidebar.right.content-scroll")
         }
     }
 }

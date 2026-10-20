@@ -5,6 +5,34 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1047 — Reach Voice Pin page actions without overshooting
+
+- **Owner:** codex. **Branch:** `codex/T-1047-partner-page-action`.
+- **Status:** review. **Pillar:** connected, reachable voice-to-page.
+- **History:** original #625 `5824f226` preserved; normal merge `37c50378`
+  also preserves original #964 `81b05e44` exact-device/signing/summary repairs.
+- **Root evidence:** hosted39398273450 UI28/1/9 at To Page; video repeatedly
+  swipes farther down after passing the action. Same callback fails0/1/0
+  on erased signed 375-point SE. No keyboard focus or tap retry implicated.
+- **Fix:** one bounded viewport-aware reveal for all three existing helpers,
+  stable scroll-content accessibility ID, minimum pan travel. First bounded
+  intermediate0/1/0 stalled at co-writer on repeated9.5-point drags; retained.
+- **Proof:** merged runner contracts26/0/0 and Node20 backend2769/0/2,
+  external network off. Minimum-pan run0/1/0 passed Page routing but exposed
+  the known offscreen inline confirmation wait. Reused T-996 `d82b3757`
+  assertions instead of duplicating its fix. Intermediate cohort3/1/0 exposed
+  keyboard tutorial and actual keyboard-safe-area suppression. Removed
+  unsuccessful keyboard-event/anchor experiments; the root product fix is
+  container-only safe-area handling in Studio and its parent. Final signed
+  erased SE cohort11/0/0; separate direct page typing1/0/0; macOS compile0;
+  D009 all five deltas0. Preserve both original heads, advance original #625
+  normally atop #964, require fresh hosted checks and independent review.
+  No main, production, paid-model or physical-phone completion claim.
+- **Done when:** same single-tap callback and affected panel/intent workflows,
+  signed narrow proof, macOS/D009/diff pass; advance original #625 normally
+  with all original history. Fresh hosted checks/review required; no main push.
+- **Evidence:** `docs/partner-page-action-2026-10-20.md`.
+
 ### T-1041 — Keep Studio inspector navigation visible while content scrolls
 
 - **Owner:** codex. **Branch:** `codex/T-1041-pinned-inspector-navigation`.
