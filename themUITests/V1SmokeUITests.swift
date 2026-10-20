@@ -34,12 +34,10 @@ final class V1SmokeUITests: XCTestCase {
 
         let sentence = "She counts seven red lights before the motel sign finally goes dark."
         editor.tap()
-        // XCTest can deliver a long typeText string as one synthetic keyboard
-        // burst. On a loaded hosted simulator that burst once dropped a single
-        // character even though the same sentence passes locally. Send one word
-        // per event and checkpoint every exact prefix; this keeps the assertion
-        // strict without asking XCTest to synthesize an unrealistically long
-        // uninterrupted burst or retrying any input.
+        // Checkpoint each exact prefix to locate the first lost character.
+        // The separate uninterrupted case sends the same sentence in one call.
+        // Native tracing proved all keys arrived before a stale model render
+        // overwrote newer text; do not blame input synthesis or retry input.
         let chunks = [
             "She",
             " counts",
@@ -63,30 +61,78 @@ final class V1SmokeUITests: XCTestCase {
             let editorDeadline = Date().addingTimeInterval(8)
             editorText = editor.value as? String ?? ""
             while Date() < editorDeadline,
-                  !editorText.localizedCaseInsensitiveContains(expectedPrefix) {
+                  editorText != expectedPrefix {
                 RunLoop.current.run(until: Date().addingTimeInterval(0.1))
                 editorText = editor.value as? String ?? ""
             }
-            XCTAssertTrue(
-                editorText.localizedCaseInsensitiveContains(expectedPrefix),
-                "UIKit editor lost or redirected characters in typing chunk \(index + 1). " +
-                    "Expected prefix: \(expectedPrefix). Editor: \(editorText). " +
+            XCTAssertEqual(
+                editorText,
+                expectedPrefix,
+                "UIKit editor lost, duplicated, or redirected characters in typing chunk \(index + 1). " +
                     "Draft model: \(accessibleDraftText(in: app))"
             )
         }
-        XCTAssertTrue(
-            editorText.localizedCaseInsensitiveContains(sentence),
-            "UIKit editor lost or redirected characters. Editor: \(editorText). Draft model: \(accessibleDraftText(in: app))"
+        XCTAssertEqual(
+            editorText,
+            sentence,
+            "UIKit editor did not preserve the exact screenplay text. Draft model: \(accessibleDraftText(in: app))"
         )
 
-        XCTAssertTrue(
-            waitForDraft(in: app, containing: sentence, timeout: 8),
-            "Editor accepted direct typing, but the published draft lost or redirected characters. " +
-                "Editor: \(editorText). Draft model: \(accessibleDraftText(in: app))"
+        let draftDeadline = Date().addingTimeInterval(8)
+        var draftText = accessibleDraftText(in: app)
+        while Date() < draftDeadline, draftText != sentence {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+            draftText = accessibleDraftText(in: app)
+        }
+        XCTAssertEqual(
+            draftText,
+            sentence,
+            "Editor accepted direct typing, but the published draft did not preserve the exact text. " +
+                "Editor: \(editorText)"
         )
 #else
         throw XCTSkip("The direct page typing regression specifically covers the iPhone editor.")
 #endif
+    }
+
+    func test_studio_page_preserves_uninterrupted_typing_while_following_caret() throws {
+#if os(iOS)
+        let app = launchApp(openStudio: true)
+        defer { app.terminate() }
+        let editor = app.textViews["studio.draft.editor"]
+        XCTAssertTrue(waitForHittability(of: editor, timeout: 8))
+        editor.tap()
+        guard dismissKeyboardTypingTutorialIfPresent(in: app) else { return }
+        let sentence = "She counts seven red lights before the motel sign finally goes dark."
+        editor.typeText(sentence)
+        XCTAssertTrue(waitForDraft(in: app, containing: sentence, timeout: 8),
+            "Uninterrupted typing lost words: \(accessibleDraftText(in: app))")
+        XCTAssertEqual(editor.value as? String, sentence)
+        XCTAssertEqual(accessibleDraftText(in: app), sentence)
+#else
+        throw XCTSkip("Native uninterrupted typing specifically covers iPhone.")
+#endif
+    }
+
+    private func dismissKeyboardTypingTutorialIfPresent(in app: XCUIApplication) -> Bool {
+#if os(iOS)
+        // Preserved 2fcdc772: identify this system tutorial, not any Continue action.
+        let tutorial = app.staticTexts.matching(NSPredicate(
+            format: "label BEGINSWITH %@", "Speed up your typing by sliding"
+        )).firstMatch
+        guard tutorial.waitForExistence(timeout: 0.5) else { return true }
+        let continueTyping = app.buttons["Continue"].firstMatch
+        guard continueTyping.exists, continueTyping.isHittable else {
+            XCTFail("The keyboard tutorial did not expose its Continue action.")
+            return false
+        }
+        continueTyping.tap()
+        guard waitForDisappearance(of: tutorial, timeout: 5) else {
+            XCTFail("The keyboard tutorial still covers the Studio controls.")
+            return false
+        }
+#endif
+        return true
     }
 
     func test_profile_exposes_local_demo_and_keychain_remember_options_separately_from_apple() {
