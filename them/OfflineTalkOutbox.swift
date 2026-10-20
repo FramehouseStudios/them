@@ -351,9 +351,13 @@ actor OfflineTalkOutbox {
                     && entryOwnerID(entry) == Self.currentOwnerID()
               }) {
             sentCount += 1
+            let pendingEntry = entries[index]
             entries[index].status = .inflight
             entries[index].updatedAt = nowSeconds
-            try? persist()
+            do { try persist() } catch {
+                entries[index] = pendingEntry
+                return storageFailureSnapshot(error)
+            }
             publishSnapshot()
 
             let entry = entries[index]
@@ -368,7 +372,22 @@ actor OfflineTalkOutbox {
                     now: now
                 )
             }
-            try? persist()
+            do { try persist() } catch {
+                // A successful HTTP response is not a durable local ack.
+                // Restore only this entry: enqueue may have added other work
+                // while transport suspended the actor.
+                if !entries.contains(where: { $0.id == entry.id }) {
+                    var retained = pendingEntry
+                    retained.status = .parked
+                    retained.nextAttemptAt = 0
+                    retained.lastError = "The service replied, but its acknowledgement could not be saved. Check your script before retrying."
+                    entries.append(retained)
+                }
+                return storageFailureSnapshot(error)
+            }
+            if !entries.contains(where: { $0.id == entry.id }) {
+                try? fileManager.removeItem(at: blobURL(for: entry.bodyRef))
+            }
             publishSnapshot()
         }
 
@@ -456,7 +475,6 @@ actor OfflineTalkOutbox {
             throw BackendError.stage("offline_outbox", "Queued turns could not be decoded. Existing files have been preserved.")
         }
         let decoder = JSONDecoder()
-        let now = Date().timeIntervalSince1970
         var restored: [OfflineTalkOutboxEntry] = []
         for line in raw.split(separator: "\n") {
             guard !line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
@@ -464,9 +482,11 @@ actor OfflineTalkOutbox {
                 throw BackendError.stage("offline_outbox", "Queued turns could not be decoded. Existing files have been preserved.")
             }
             if entry.status == .inflight {
-                entry.status = .pending
-                entry.nextAttemptAt = min(entry.nextAttemptAt, now)
-                entry.lastError = "Interrupted while sending."
+                // The server may have committed before the app closed. A
+                // short-lived server cache is not permission to replay later.
+                entry.status = .parked
+                entry.nextAttemptAt = 0
+                entry.lastError = "Sending was interrupted. The service may already have processed this turn. Check your script before retrying."
             }
             restored.append(entry)
         }
@@ -556,8 +576,7 @@ actor OfflineTalkOutbox {
         guard let index = entries.firstIndex(where: { $0.id == entryID }) else { return }
         let status = result.statusCode
         if (200...299).contains(status) {
-            let entry = entries.remove(at: index)
-            try? fileManager.removeItem(at: blobURL(for: entry.bodyRef))
+            entries.remove(at: index)
             return
         }
         if BackendProviderFailurePolicy.isQuotaExhausted(
@@ -637,6 +656,13 @@ actor OfflineTalkOutbox {
                 userInfo: userInfo
             )
         }
+    }
+
+    private func storageFailureSnapshot(_ error: Error) -> OfflineTalkOutboxSnapshot {
+        var snapshot = recoveryState().snapshot
+        snapshot.lastError = error.localizedDescription
+        publishSnapshot(lastError: error.localizedDescription)
+        return snapshot
     }
 
     private func statusSortKey(_ status: OfflineTalkOutboxStatus) -> Int {

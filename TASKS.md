@@ -5,6 +5,27 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1017 — Preserve request bytes across queue acknowledgement writes
+
+- **Owner:** codex. **Branch:** `codex/T-1017-outbox-ack-durability`.
+- **Status:** review (focused local proof; integration/phone proof pending).
+- **Pillar:** exact writer words / recoverable voice-to-scene.
+- **Root:** ignored manifest writes allowed sending before durable inflight
+  state and deleted successful payloads before durable queue removal.
+- **Fix:** require pre-send persist; persist ack removal before payload cleanup;
+  restore only the affected entry on failure. Park ambiguous acknowledged or
+  interrupted inflight work for explicit review rather than auto-replaying.
+- **Evidence:** `docs/outbox-ack-durability-2026-10-19.md`.
+- **Verified:** final signed18/0/0 on erased task-owned Pro, including real
+  pre-send/post200 filesystem failures and no auto-replay of ambiguous sends
+  after relaunch. Original bytes/key survive; explicit retry works. D009 all
+  five deltas0 after fetching exact parent; whitespace pass. No paid calls.
+- **Not covered:** physical phone, full integration and foreground replayed
+  reply/audio. Server replay defaults to a five-minute client-token scope;
+  durable owned receipts remain a duplication-risk follow-up, not solved here.
+- **Next:** finish #962's live hosted gate, then preserve the next original
+  integration boundary; do not bypass review or advance a red parent.
+
 ### T-1016 — Retain rejected spoken requests and connect explicit recovery
 
 - **Owner:** codex. **Branch:** `codex/T-1016-provider-turn-recovery`.

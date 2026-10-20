@@ -133,6 +133,63 @@ final class OfflineTalkOutboxTests: XCTestCase {
         XCTAssertEqual(entries, [])
     }
 
+    func testManifestFailureNeverSendsBeforeDurableInflightOrDeletesAcknowledgedPayload() async throws {
+        for failAfterSend in [false, true] {
+            let store = directory.appendingPathComponent(UUID().uuidString)
+            let outbox = OfflineTalkOutbox(storageDirectory: store)
+            var request = URLRequest(url: URL(string: "https://them.test/talk")!)
+            request.httpMethod = "POST"
+            request.setValue("durable-ack", forHTTPHeaderField: "X-Idempotency-Key")
+            let body = Data("Every exact word: café 🎬.\r\n".utf8)
+            let queued = try await outbox.enqueue(request: request, body: body, reason: "offline")
+            let manifest = store.appendingPathComponent("queue.jsonl")
+            let savedManifest = store.appendingPathComponent("fixture-saved-manifest.jsonl")
+            let blob = store.appendingPathComponent("blobs").appendingPathComponent(queued.entry.bodyRef)
+            func blockManifest() throws {
+                try FileManager.default.moveItem(at: manifest, to: savedManifest)
+                try FileManager.default.createDirectory(at: manifest, withIntermediateDirectories: false)
+            }
+            if !failAfterSend { try blockManifest() }
+            var calls = 0
+            let failed = await outbox.drainDue(now: Date().addingTimeInterval(10)) { replay in
+                calls += 1
+                XCTAssertEqual(replay.httpBody, body)
+                XCTAssertEqual(replay.value(forHTTPHeaderField: "X-Idempotency-Key"), "durable-ack")
+                try blockManifest()
+                return OfflineTalkOutboxSendResult(statusCode: 200)
+            }
+            XCTAssertEqual(calls, failAfterSend ? 1 : 0)
+            XCTAssertFalse(failed.lastError.isEmpty)
+            XCTAssertEqual(try Data(contentsOf: blob), body, "Never delete acknowledged bytes before manifest commit.")
+            let retained = await outbox.allEntries()
+            XCTAssertEqual(retained.map(\.id), [queued.entry.id])
+            XCTAssertEqual(retained.first?.status, failAfterSend ? .parked : .pending)
+            // Repair only the synthetic filesystem obstacle, then prove
+            // relaunch retains ambiguous sends for explicit review, while
+            // requests that provably never sent may still drain normally.
+            try FileManager.default.removeItem(at: manifest)
+            try FileManager.default.moveItem(at: savedManifest, to: manifest)
+            let relaunched = OfflineTalkOutbox(storageDirectory: store)
+            var replayCalls = 0
+            let transport: OfflineTalkOutbox.Transport = { replay in
+                replayCalls += 1
+                XCTAssertEqual(replay.httpBody, body)
+                XCTAssertEqual(replay.value(forHTTPHeaderField: "X-Idempotency-Key"), "durable-ack")
+                return OfflineTalkOutboxSendResult(statusCode: 200)
+            }
+            var recovered = await relaunched.drainDue(now: Date().addingTimeInterval(20), transport: transport)
+            if failAfterSend {
+                XCTAssertEqual(replayCalls, 0, "An ambiguous acknowledged send must not auto-replay after relaunch.")
+                XCTAssertEqual(recovered.parkedCount, 1)
+                recovered = try await relaunched.retryParkedEntry(id: queued.entry.id, transport: transport)
+            }
+            XCTAssertEqual(replayCalls, 1)
+            XCTAssertFalse(recovered.hasWork)
+            XCTAssertEqual(try Data(contentsOf: manifest), Data())
+            XCTAssertFalse(FileManager.default.fileExists(atPath: blob.path))
+        }
+    }
+
     func testQuestionResolutionSurvivesRelaunchAndSuppressesOnlyActiveQuestion() async throws {
         let outbox = OfflineTalkOutbox(storageDirectory: directory)
         var request = URLRequest(
