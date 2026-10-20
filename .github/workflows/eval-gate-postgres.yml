@@ -2,26 +2,22 @@ name: eval-gate-postgres
 
 # T07-eval-gate: runs `npm run eval:gate` against a live Postgres
 # service container so the persistence-canonical foundation is exercised
-# end-to-end. Manual + branch-pushes for now; once it's been green for
-# a few runs, integrate it as a required pre-merge check.
+# end-to-end. Manual dispatch only. This workflow calls the live model and
+# requires explicit approval for each run; never invoke it unattended.
 
 on:
   workflow_dispatch:
     inputs:
+      allow_live_model_calls:
+        description: "Confirm OpenAI credits are available and approve one live eval run"
+        required: true
+        type: boolean
+        default: false
       keep_data:
         description: "Keep migrated data after the run (for debugging)"
         required: false
         type: boolean
         default: false
-  push:
-    branches:
-      - "codex/T07*"
-      - "codex/backend-T07*"
-  schedule:
-    # Nightly at 09:00 UTC so the gate stays green even when no PR
-    # touched persistence today.
-    - cron: "0 9 * * *"
-
 permissions:
   contents: read
 
@@ -58,6 +54,15 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Confirm live model spend is approved
+        env:
+          ALLOW_LIVE_MODEL_CALLS: ${{ inputs.allow_live_model_calls }}
+        run: |
+          if [[ "${ALLOW_LIVE_MODEL_CALLS}" != "true" ]]; then
+            echo "::error::Set allow_live_model_calls only after confirming OpenAI credits and approving this run."
+            exit 1
+          fi
 
       - name: Validate required secrets
         run: |
