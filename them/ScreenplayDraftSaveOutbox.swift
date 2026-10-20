@@ -291,6 +291,17 @@ actor ScreenplayDraftSaveOutbox {
         return entries
     }
 
+    func pendingEntry(projectId: String, ownerUserId: String) throws -> ScreenplayDraftSaveOutboxEntry? {
+        try loadIfNeeded()
+        let cleanProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanOwnerUserId = ownerUserId.trimmingCharacters(in: .whitespacesAndNewlines)
+        return entries.first { entry in
+            entry.projectId == cleanProjectId
+                && entry.ownerUserId == cleanOwnerUserId
+                && (entry.status == .pending || entry.status == .inflight)
+        }
+    }
+
     #if DEBUG
     nonisolated static func resetStoredQueueForUITesting(
         fileManager: FileManager = .default

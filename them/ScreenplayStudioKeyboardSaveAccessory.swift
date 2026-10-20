@@ -1,10 +1,44 @@
 import SwiftUI
 import ScreenplayStudio
+#if os(iOS)
+import UIKit
+
+extension IOSCursorInsertTextEditor.Coordinator {
+    func publishEditorText(_ text: String) {
+        guard parent.text != text else { return }
+        pendingEditorPublications.record(text)
+        parent.text = text
+    }
+
+    func shouldApplyModelText(
+        incomingText: String,
+        to textView: UITextView,
+        documentDidChange: Bool
+    ) -> Bool {
+        // A Binding reads today's model, even when held by yesterday's parent.
+        // Keep the previous render's value independently of that live binding.
+        defer { lastRenderedModelText = incomingText }
+        if documentDidChange {
+            pendingEditorPublications.reset()
+        } else if pendingEditorPublications.acknowledge(incomingText) {
+            return false
+        }
+        return ScreenplayEditorTextBindingPolicy.shouldApplyModelText(
+            incomingText: incomingText,
+            currentEditorText: textView.text ?? "",
+            lastRenderedModelText: lastRenderedModelText,
+            isEditorFocused: textView.isFirstResponder,
+            documentDidChange: documentDidChange
+        )
+    }
+}
+#endif
 
 /// Keeps editor composition out of the live-draft bridge while forwarding the
 /// iPhone keyboard save affordance to the native screenplay editor.
 struct CursorInsertTextEditor: View {
     @Binding var text: String
+    var documentID: String = ""
     @Binding var activeScreenplayElement: ScreenplayEditorElement
     @Binding var insertionRequest: ScreenplayInsertionRequest?
     @Binding var lineJumpRequest: ScreenplayLineJumpRequest?
@@ -44,6 +78,7 @@ struct CursorInsertTextEditor: View {
 #elseif os(iOS)
         IOSCursorInsertTextEditor(
             text: $text,
+            documentID: documentID,
             activeScreenplayElement: $activeScreenplayElement,
             insertionRequest: $insertionRequest,
             lineJumpRequest: $lineJumpRequest,

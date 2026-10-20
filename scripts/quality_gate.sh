@@ -180,4 +180,7 @@ else
   echo "[quality-gate] skipping craft completeness gate (RUN_CRAFT_COMPLETENESS_GATE=${RUN_CRAFT_COMPLETENESS_GATE})"
 fi
 
+echo "[quality-gate] checking the signed screenplay-save recovery runner contract ..."
+node --test "${ROOT_DIR}/scripts/run_screenplay_save_network_fault_smokes.test.mjs"
+
 echo "[quality-gate] PASS"

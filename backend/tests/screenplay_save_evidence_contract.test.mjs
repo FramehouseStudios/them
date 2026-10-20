@@ -55,14 +55,14 @@ if(args.includes("tests")) {
   fs.chmodSync(xcode, 0o755); fs.chmodSync(xcrun, 0o755);
   return {
     artifacts,
-    run(mode, identifier = "") {
+    run(mode, identifier = "", includeMacOS = "1") {
       const result = spawnSync(process.execPath, [runner], {
         cwd: root, encoding: "utf8", timeout: 40_000,
         env: {...process.env, PATH: bin + path.delimiter + process.env.PATH,
           ARTIFACT_DIR: artifacts, XCODEBUILD: xcode, XCRUN: xcrun, CI: "",
           IOS_SIMULATOR_DESTINATION: "platform=iOS Simulator,id=owned-save-proof",
           THEM_UITEST_RESTORE_XCCONFIG_PATH: "", DATABASE_URL: "", REDIS_URL: "",
-          SCREENPLAY_SAVE_TEST_IDENTIFIER: identifier, SCREENPLAY_SAVE_INCLUDE_MACOS: "1",
+          SCREENPLAY_SAVE_TEST_IDENTIFIER: identifier, SCREENPLAY_SAVE_INCLUDE_MACOS: includeMacOS,
           SAVE_MODE: mode, SAVE_CALLS: calls},
       });
       assert.equal(result.error, undefined);
@@ -98,4 +98,16 @@ test("[save-evidence] an explicit single selection requires exactly one result p
   assert.equal(result.status, 0, result.stderr);
   assert.equal(invocations.length, 2);
   for(const args of invocations) assert.deepEqual(args.filter(x => x.startsWith("-only-testing:")), ["-only-testing:" + identifier]);
+});
+
+test("[save-evidence] the original iPhone-only gate validates its actual two-case summary", t => {
+  const {result, invocations} = fixture(t).run("pass", "", "0");
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(invocations.length, 1);
+  assert.match(result.stdout, /"targets":\s*\[\s*"iPhone"\s*\]/);
+});
+
+test("[save-evidence] hosted failure upload includes the actual retained recovery bundles", () => {
+  const workflow = fs.readFileSync(path.join(root, ".github/workflows/quality-gate.yml"), "utf8");
+  assert.ok(workflow.includes("${{ runner.temp }}/them-save-recovery-*/*.xcresult"));
 });

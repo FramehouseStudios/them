@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, unlinkSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { startBackend } from "../tests/helpers/backend_test_server.mjs";
@@ -7,6 +8,7 @@ import {
   assertSinglePassedTestSummary,
   failureOutputTail,
   xcresultFailureDetails,
+  writerLoopResultBundlePath,
 } from "./studio_ios_writer_loop_contract_helpers.mjs";
 
 const APP_TOKEN = "them-dev";
@@ -15,7 +17,7 @@ const requestedPort = configuredPort ? Number(configuredPort) : null;
 const ROOT_DIR = fileURLToPath(new URL("../..", import.meta.url));
 const WRITER_LOOP_TEST = "themUITests/V1SmokeUITests/test_integrated_iphone_writer_loop_creates_saves_exports_and_restores";
 const XCCONFIG_PATH = `/tmp/them_studio_ios_writer_loop_${process.pid}.xcconfig`;
-const RESULT_BUNDLE_PATH = `/tmp/io-them-studio-ios-writer-loop-${process.pid}.xcresult`;
+const RESULT_BUNDLE_PATH = writerLoopResultBundlePath();
 
 if (requestedPort !== null && (!Number.isInteger(requestedPort) || requestedPort < 1 || requestedPort > 65_535)) {
   throw new Error("THEM_UITEST_WRITER_LOOP_BACKEND_PORT must be an integer from 1 through 65535.");
@@ -47,6 +49,7 @@ try {
     env: {
       ...process.env,
       ONLY_TESTING: WRITER_LOOP_TEST,
+      ARTIFACT_DIR: dirname(RESULT_BUNDLE_PATH),
       THEM_UITEST_RESTORE_XCCONFIG_PATH: XCCONFIG_PATH,
     },
   });
@@ -102,6 +105,10 @@ try {
   console.log("studio-ios-writer-loop-contract-smoke: ok");
 } finally {
   if (existsSync(XCCONFIG_PATH)) unlinkSync(XCCONFIG_PATH);
-  if (existsSync(RESULT_BUNDLE_PATH)) rmSync(RESULT_BUNDLE_PATH, { recursive: true, force: true });
+  // Keep native failure recordings/hierarchy in the existing artifact owner.
+  // A bounded stdout tail is not a substitute for the actual result bundle.
+  if (existsSync(RESULT_BUNDLE_PATH)) {
+    console.log(`studio-ios-writer-loop-contract-smoke: retained ${RESULT_BUNDLE_PATH}`);
+  }
   if (server) await server.stop();
 }

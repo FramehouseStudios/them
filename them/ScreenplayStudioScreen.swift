@@ -2048,7 +2048,7 @@ Replace is best when this file should become the script you edit. Append is safe
                 .saturation(0.40)
                 .brightness(0.07)
                 .overlay(Color.black.opacity(0.03))
-                .ignoresSafeArea()
+                .ignoresSafeArea(.container)
 
                 VStack(spacing: 0) {
                     directionOneHeader(usesDrawers: usesDrawers)
@@ -2202,7 +2202,6 @@ Replace is best when this file should become the script you edit. Append is safe
         ScrollViewReader { proxy in
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 12) {
-                    directionOneRightPanelTabs
                     if let preview = liveDraftBridge.pendingStudioActionPreview {
                         pendingStudioActionPreviewCard(preview)
                     }
@@ -2213,6 +2212,7 @@ Replace is best when this file should become the script you edit. Append is safe
                 }
                 .padding(12)
             }
+            .modifier(ScreenplayStudioPinnedInspectorTabs(tabs: directionOneRightPanelTabs, selection: directionOneRightPanelTab))
             .onChange(of: beatDropTargetID) { _, _ in
                 syncInspectorDropTargetScroll(proxy: proxy)
             }
@@ -2874,7 +2874,7 @@ private var directionOneScriptEditor: some View {
                 isCommitNoticeVisible: isPageCommitNoticeVisible
             ) {
                 CursorInsertTextEditor(
-                    text: $vm.fountainDraft,
+                    text: $vm.fountainDraft, documentID: vm.selectedProjectID,
                     activeScreenplayElement: $liveDraftBridge.activeScreenplayElement,
                     insertionRequest: $liveDraftBridge.pendingInsertion,
                     lineJumpRequest: $liveDraftBridge.pendingLineJump,
@@ -4480,6 +4480,7 @@ private func refreshStudioCreativeInstincts(
                     .font(.system(size: 11, weight: .regular, design: .default))
                     .foregroundStyle(directionOneChromeSecondaryText)
                     .lineLimit(1)
+                    .accessibilityIdentifier("studio.transient.status.info")
             }
 
             Spacer(minLength: 0)
@@ -14404,6 +14405,7 @@ The door closes softly. That is worse than a slam.
         let requestedVersionID = liveDraftBridge.debugRequestedVersionID
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !requestedProjectID.isEmpty else { return false }
+        guard token <= 0 || token != studioDebugLoadProjectAckToken else { return false }
         if token > 0,
            token == lastAppliedBridgeDebugProjectLoadToken,
            isStudioDebugProjectLoadReady(
@@ -14911,14 +14913,8 @@ Look at the city.
               ) else {
             return
         }
-        didApplyUITestSaveNetworkFault = true
-        let offlineBaseURL = uiTestLaunchArgumentValue(
-            "--ui-screenplay-save-network-fault-url",
-            in: arguments
-        ) ?? "http://127.0.0.1:3999"
-        await vm.runQueuedSaveNetworkFaultUITest(
-            marker: marker,
-            offlineBaseURL: offlineBaseURL
+        didApplyUITestSaveNetworkFault = await vm.runQueuedSaveNetworkFaultUITest(
+            marker: marker
         )
         publishDebugStudioDiffState()
     }

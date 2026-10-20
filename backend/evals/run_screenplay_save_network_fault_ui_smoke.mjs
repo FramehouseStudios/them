@@ -73,7 +73,7 @@ try {
     );
   }
   const bundles = [resultBundle];
-  bundles.push(resultBundle.replace(/\.xcresult$/, "-macos.xcresult"));
+  if (process.env.SCREENPLAY_SAVE_INCLUDE_MACOS !== "0") bundles.push(resultBundle.replace(/\.xcresult$/, "-macos.xcresult"));
   for (const bundle of bundles) {
     const summary = readResult("summary", bundle);
     assert(summary.status === 0,
@@ -85,7 +85,7 @@ try {
     ok: true,
     backend: server.baseUrl,
     resultBundles: bundles,
-    targets: ["iPhone", "macOS"],
+    targets: process.env.SCREENPLAY_SAVE_INCLUDE_MACOS === "0" ? ["iPhone"] : ["iPhone", "macOS"],
     contract: process.env.SCREENPLAY_SAVE_TEST_IDENTIFIER
       ? "the selected screenplay recovery test passed"
       : "queued saves recover exactly once across reconnect, expired auth, and stale-version resolution",
