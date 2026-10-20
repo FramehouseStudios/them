@@ -8,7 +8,7 @@
 ### T-986 — Preserve and verify original #904 recovery
 
 - **Owner:** codex. **Branch:** `codex/T-986-original-904-recovery`.
-- **Status:** in-progress. **Pillar:** writer words survive recovery.
+- **Status:** review. **Pillar:** writer words survive recovery.
 - **Scope:** preserving merge of original #904, current-main proof repairs,
   reviewed post-await owner/project guard and retained actual CI artifacts.
 - **History:** merge `6f1ffa0` retains original `a27c75a`; no remote original
@@ -20,8 +20,10 @@
 - **Verified now:** signed units632/0/0; Node20 backend2749/0/2,
   scripts224/0/0; macOS and offline quality gate pass; real recovery2/0/0.
   Writer/export/relaunch1/0/0. Full V1 UI27/1/9: direct typing drops the
-  final character of chunk9 in both editor/model. Hold original remote head
-  unchanged; diagnose without relaxing assertions or retrying unchanged.
+  final character of chunk9 in both editor/model. Publish preserved original
+  #904 on #964 with this failure explicit; separate original #919 contains
+  the reproduced live-Binding correction and broader after-proof. Require
+  new hosted checks and independent review; no main merge.
 
 ### T-985 — Fail-closed recovery proof and preserve original #904
 
