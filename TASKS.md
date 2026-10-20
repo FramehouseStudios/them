@@ -8,7 +8,7 @@
 ### T-1030 — Join repaired saves with owned voice recovery
 
 - **Owner:** codex. **Branch:** `codex/T-1030-joined-writer-recovery`.
-- **Status:** in-progress; local combined candidate, original heads unchanged.
+- **Status:** review; local combined proof complete, original heads unchanged.
 - **Scope:** preserving merge of recovered-reply UI001a7d43 and repaired
   save/database/mentor parent4c99a59c. Keep both histories and D017.
 - **Merge review:** restore the quoted-dialogue regression in the existing
@@ -18,6 +18,16 @@
   offline mentor contract and D009/diff pass. Stop on first real failure.
 - **Hold:** #962 hosted39367137834 still live, no original #963/#653/main
   advance, replacement PR, production mutation or paid model request.
+- **Verified on e42c5e1d:** signed erased units893/0/0; Node20.20.2 scripts
+  238/0/0, backend2994/0/2, offline mentor gate OK; real PostgreSQL16.15
+  restart PASS. Signed recovery5/0/0, writer/export/relaunch1/0/0, creation-
+  reply-loss1/0/0, voice1/0/0; macOS BUILD SUCCEEDED, native exit0. Actual
+  summaries read and bundles cloned/compared. D009 index and memory client
+  each-16 lines, other protected deltas0; diff pass. No live-model/phone claim.
+- **Evidence:** `docs/joined-writer-recovery-2026-10-19.md`.
+- **Next:** persist original recovered-page context and use guarded project/
+  version-authoritative retrieval before offering a real apply action. Current
+  review remains explicit read-only; do not call it page application.
 
 ### T-1026 — Observe recovery review and improve narrow share controls
 
