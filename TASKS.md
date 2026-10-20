@@ -8,7 +8,7 @@
 ### T-1035 — Restore a first-page conflict during creation retry
 
 - **Owner:** codex. **Branch:** `codex/T-1035-first-page-conflict`.
-- **Status:** in-progress; reproduce through the actual create/retry entry.
+- **Status:** review; both first-page entry points corrected and locally proven.
 - **Target:** a parked initial-seed conflict must restore Keep Mine/Load
   Server using complete authoritative head detail, not silently return a
   pending-save message. Keep exact newer words and the original project ID.
@@ -17,6 +17,18 @@
   Keep Mine saves once, auth/project/creation guards remain. Signed focused
   creation/conflict/recovery, relevant UI, macOS and D009/diff proof pass.
 - **Limits:** no original PR/main advance, paid call or production change.
+- **Root:** creation retry bypassed parked-decision restoration; ordinary
+  detail refresh marked a pending first page loaded too late and left a
+  setup record blocking Keep Mine. Both now use one guarded conflict owner.
+- **Verified:** creation-retry before0/1/0; first correction129/0/0. Review
+  then reproduced detail-refresh before0/1/0. Final runtime68aaec28: signed
+  creation/conflict/draft-recovery/hydration-order136/0/0; lost-creation-reply
+  UI1/0/0, stale-conflict UI1/0/0; macOS BUILD SUCCEEDED. Native exit0,
+  actual summaries read; bundles cloned/compared. D009 all five deltas0,
+  whitespace pass. Backend/scripts/CI/DECISIONS byte-identical to T-1034.
+- **Evidence:** `docs/first-page-conflict-recovery-2026-10-19.md`.
+- **Next:** guarded original-draft application of recovered page results;
+  keep the separate original #962 approval/hosted gate boundary held.
 
 ### T-1034 — Join conflict restoration and complete voice recovery
 
