@@ -8,7 +8,8 @@
 ### T-1074 — Carry approved security main into original foundation #964
 
 - **Owner:** codex. **Branch:** `codex/T-1074-security-foundation-sync`.
-- **Status:** in-progress. **Pillar:** integrated writer trust.
+- **Status:** review (local combined proof passed; publication/CI pending).
+  **Pillar:** integrated writer trust.
 - **Boundary:** original #96481b05e44 + security main78b8c94f, preserving
   no-ff mergebb20ee71. Only task-ledger conflict; keep both histories.
   Existing original worktree remains untouched. No source conflict, rewrite,
@@ -28,6 +29,14 @@
   Leave it intact in this scoped integration. Follow-up T-1075 must prove
   any event deduplication preserves exact-head required checks, strict bases
   and independent review; no draft skip or dropped native gate.
+- **Proof:** checkpoint4f907cbf/tree31481d7c. Fresh Node20 locked install136
+  packages/audit0. Initial scripts210/13/0 lacked real Git/context; after
+  correcting only disposable tooling, scripts223/0/0. Full fresh-lock
+  backend2752/0/2; signed units624/0/0, writer1/0/0, synthetic voice1/0/0,
+  macOS build0, D009 allfive0/diff pass. Native writer bundle retained by an
+  external copy-only wrapper before unchanged producer cleanup. No app
+  recovery, native Files or live/physical claim at this boundary.
+- **Evidence:** `docs/foundation-security-propagation-2026-10-20.md`.
 
 ### T-985 — Fail-closed recovery proof and preserve original #904
 
