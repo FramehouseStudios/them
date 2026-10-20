@@ -136,3 +136,11 @@ ViewModel dcf2a95bcfc96f2a2bb8c0d5ac9e72ec69578adedcea2e183d549b9b0d7a0a40;
 tests35d6c88fc3a96e723b485f4b4d060f0efeebdcf6427c97efc06821382345930d.
 Retained logs, before/crashed/final unit bundles, final recovery bundle and
 hosted fixture recording: `/Users/halfmutantfilms/io.them-worktrees/_proof/T-1049-20261020.o9hwWy/`.
+
+VERIFIED earliest original parent #904 advanced normally to a6a36260 after
+its own independent634/0/0 signed units,2/0/0 unchanged recovery and macOS
+compile0. Preserve-merge that exact parent into this original #919 child.
+Only TASKS.md overlaps; retain both histories. All executable sources remain
+identical to the child's actual637/0/0, recovery2/0/0 and macOS0 proof.
+No unchanged rerun or borrowed parent-count claim. Fresh exact-head hosted
+checks and independent review still required for both original PRs.
