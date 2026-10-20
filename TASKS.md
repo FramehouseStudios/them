@@ -26,7 +26,7 @@
 ### T-985 — Fail-closed recovery proof and preserve original #904
 
 - **Owner:** codex. **Branch:** `codex/T-985-recovery-proof-truth`.
-- **Status:** in-progress. **Pillar:** durable writer recovery.
+- **Status:** review. **Pillar:** durable writer recovery.
 - **Scope:** reuse the original port fix and canonical async/summary proof;
   reject false-green skips. Then preserve/re-prove original #904's existing
   deterministic fault injection and queued-draft hydration protection.
@@ -35,6 +35,11 @@
 - **Done when:** the actual requested recovery tests pass without skips on
   the preserved combined head, with full gates and exact retained artifacts.
 - **Reference:** `docs/recovery-proof-truth-2026-10-19.md`.
+- **Publication checkpoint (2026-10-20):** advance original draft #964 by
+  normal fast-forward, preserving its complete original history. Current
+  focused Node20.20.2 verifier checks14/0/0; syntax, D009 and diff pass.
+  Application recovery remains explicitly red on this main-boundary tree;
+  the separate preserved #904/#919 rehearsal repairs are not included here.
 
 ### T-984 — Exact, signed simulator proof on main
 

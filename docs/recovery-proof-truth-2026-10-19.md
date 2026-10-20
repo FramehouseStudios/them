@@ -54,3 +54,34 @@ Earlier signed624 units, typed writer UI1/0/0 and macOS compile evidence on
 T-984 cover identical application source, not a rerun on this harness commit.
 Production/physical-phone speech, generation, exact-word offline recovery,
 external-open export and the120-page screenplay remain unproven.
+
+## Publication checkpoint — 2026-10-20
+
+VERIFIED: main is still `deac1a6d`; original #964 is still `54f700ea`
+before publication. The only executable changes after that PR are the
+existing T-985 harness/helper/contracts; no Swift, production backend,
+dependencies, provider routing or model prompt changed. Publish this
+descendant to the same original draft by normal fast-forward, not a
+replacement PR or a main merge. Fresh exact-head hosted checks and an
+independent review remain required. The older hosted green on #964 does
+not establish offline recovery: that workflow does not run this scenario.
+
+Fresh scoped verification: Node20.20.2, network disabled, synthetic auth,
+14 passed / 0 failed / 0 skipped. Log:
+`/tmp/them-1044-recovery-focused.log`. The first container invocation did
+not start (exit125: missing mountpoint beneath a read-only source mount).
+Created that directory in the disposable archive, then the same checks
+completed with exit0. Node syntax, shell syntax, whitespace and D009 pass;
+all five watched source files have delta0 against main.
+
+The previously recorded full backend2747/0/2 and scripts223/0/0 are
+retained historical proof of the identical executable tree, not fresh
+runs today. No fresh Xcode, live provider or physical-phone run is claimed.
+
+The existing original-PR rehearsals are also preserved: #904's combined
+recovery tree executed both cases2/0/0 but its broader typing UI was red;
+the later #919 rehearsal corrected an independently reproduced live-Binding
+snapshot defect and passed full V1 UI28/0/9 and recovery2/0/0. Those app
+changes are not silently imported into this harness-only main boundary.
+Their original remote heads still require preserving updates and fresh
+hosted proof. A truthful rejected recovery run is not a working app.
