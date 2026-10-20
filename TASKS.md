@@ -5,6 +5,29 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1077 — Run explicit saves waiting behind a background drain
+
+- **Owner:** codex. **Branch:** `codex/T-1077-save-drain-handoff`.
+- **Status:** review (focused and writer checks passed; fresh full CI pending).
+  **Pillar:** dependable acknowledged saves.
+- **Boundary:** preserve original #964ee5c83fd and its independent approval;
+  hosted39507066013 failed Save Now before any server version. Do not merge
+  or substitute its earlier local green. No production change.
+- **Fix:** provenance-port original970b84f6's single save-slot owner; adapt
+  original50d04ae5's handoff/rebase semantics. Claim before queue awaits,
+  consume pending work after drain, preserve request identity/project/auth.
+- **Verification scope:** focused preserved checks plus the unchanged
+  authenticated writer journey; leave full repeated suites to required CI.
+  No model credits, weaker assertions or retries of unchanged code.
+- **Done when:** connected writer save/relaunch passes, D009/diff pass;
+  normal original-branch update retains history/base and requires fresh
+  hosted gates and non-author review before merge.
+- **Verified:** preserved slot checks6/0/0; unchanged authenticated writer
+  UI1/0/0 with actual bundle retained. Signed/erased owned SE/iOS26.2.
+  Five D009 deltas0, diff clean; backend/security files unchanged. No new
+  full local suites or paid call. Hosted iOS26.5 failure remains unclosed.
+- **Evidence:** `docs/foundation-save-handoff-2026-10-20.md`.
+
 ### T-1074 — Carry approved security main into original foundation #964
 
 - **Owner:** codex. **Branch:** `codex/T-1074-security-foundation-sync`.
