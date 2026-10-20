@@ -46,6 +46,7 @@ public enum IOThemSpacing {
             case .dialogue: return dialogue
             case .parenthetical: return parenthetical
             case .transition: return transition
+            case .centered: return 0
             case .blank: return 0
             }
         }

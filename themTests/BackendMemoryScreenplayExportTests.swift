@@ -102,15 +102,16 @@ final class BackendMemoryScreenplayExportTests: XCTestCase {
 
         let artifact = try await api.exportScreenplayDraft(
             draft: """
-            INT. KITCHEN - NIGHT
+            .INT. KITCHEN - NIGHT
 
-            Rain bruises the window.
+            !Rain bruises the window.
+            >A TITLE CARD<
 
-            JUNE
+            @JUNE
             (quiet)
             We are still here.
 
-            CUT TO:
+            >CUT TO:
             """,
             title: "Kitchen Scene",
             format: "fdx",
@@ -136,6 +137,8 @@ final class BackendMemoryScreenplayExportTests: XCTestCase {
         let lines = try XCTUnwrap(scenes.first?["lines"] as? [[String: Any]])
         XCTAssertEqual(lines.first?["kind"] as? String, "action")
         XCTAssertEqual(lines.first?["text"] as? String, "Rain bruises the window.")
+        let centered = try XCTUnwrap(lines.first { ($0["kind"] as? String) == "centered" })
+        XCTAssertEqual(centered["text"] as? String, "A TITLE CARD")
         let character = try XCTUnwrap(lines.first { ($0["kind"] as? String) == "character" })
         XCTAssertEqual(character["name"] as? String, "JUNE")
         XCTAssertEqual(character["parenthetical"] as? String, "(quiet)")

@@ -59,8 +59,9 @@ final class ScreenplayEditorModeTests: XCTestCase {
     }
 
     func testCycleForwardAndBackwardWrapsAcrossElements() {
-        XCTAssertEqual(ScreenplayEditorElement.transition.next, .sceneHeading)
-        XCTAssertEqual(ScreenplayEditorElement.sceneHeading.previous, .transition)
+        XCTAssertEqual(ScreenplayEditorElement.transition.next, .centered)
+        XCTAssertEqual(ScreenplayEditorElement.centered.next, .sceneHeading)
+        XCTAssertEqual(ScreenplayEditorElement.sceneHeading.previous, .centered)
     }
 
     func testLineStartingWithIntPromotesToSceneHeading() {

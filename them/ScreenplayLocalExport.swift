@@ -130,17 +130,19 @@ enum ScreenplayLocalExport {
             // trailing caret. Final Draft carries that as an attribute on the
             // cue and on every paragraph of its dialogue block, so strip the
             // caret from the text and flag the block instead.
-            var text = rawLine
+            var text = ScreenplayEditorElement.renderedText(for: rawLine)
             if type == "Character" {
                 inDualBlock = ScreenplayEditorElement.isDualDialogueCue(trimmed)
                 if inDualBlock {
-                    text = ScreenplayEditorElement.characterCueName(rawLine)
+                    text = ScreenplayEditorElement.characterCueName(text)
                 }
             } else if type != "Parenthetical" && type != "Dialogue" {
                 inDualBlock = false
             }
             let attributes = inDualBlock ? " DualDialogue=\"Yes\"" : ""
-            paragraphs.append("    <Paragraph Type=\"\(type)\"\(attributes)><Text>\(escapeXML(text))</Text></Paragraph>")
+            let paragraphType = type == "Centered" ? "General" : type
+            let alignment = type == "Centered" ? " Alignment=\"Center\"" : ""
+            paragraphs.append("    <Paragraph Type=\"\(paragraphType)\"\(alignment)\(attributes)><Text>\(escapeXML(text))</Text></Paragraph>")
             previousType = type
         }
 
@@ -169,15 +171,15 @@ enum ScreenplayLocalExport {
             let type = finalDraftParagraphType(for: trimmed, element: element, previousType: previousType)
             switch type {
             case "Scene Heading":
-                output.append("## \(trimmed)")
+                output.append("## \(ScreenplayEditorElement.renderedText(for: trimmed))")
             case "Character":
-                output.append("**\(trimmed)**")
+                output.append("**\(ScreenplayEditorElement.characterCueName(trimmed))**")
             case "Parenthetical":
                 output.append("*\(trimmed)*")
             case "Transition":
-                output.append("> \(trimmed)")
+                output.append("> \(ScreenplayEditorElement.renderedText(for: trimmed))")
             default:
-                output.append(trimmed)
+                output.append(ScreenplayEditorElement.renderedText(for: trimmed))
             }
             previousType = type
         }
@@ -202,6 +204,7 @@ enum ScreenplayLocalExport {
             case .dialogue: return "Dialogue"
             case .parenthetical: return "Parenthetical"
             case .transition: return "Transition"
+            case .centered: return "Centered"
             }
         }
         if previousType == "Character" || previousType == "Parenthetical" || previousType == "Dialogue" {
@@ -286,7 +289,8 @@ enum ScreenplayLocalExport {
                 .foregroundColor: NSColor.black,
                 .paragraphStyle: paragraph,
             ]
-            let text = index < lines.count - 1 ? line + "\n" : line
+            let rendered = ScreenplayEditorElement.renderedText(for: line)
+            let text = index < lines.count - 1 ? rendered + "\n" : rendered
             result.append(NSAttributedString(string: text, attributes: attributes))
         }
 
@@ -314,6 +318,11 @@ enum ScreenplayLocalExport {
             style.headIndent = 0
             style.tailIndent = 0
         case .character:
+            style.alignment = .center
+            style.firstLineHeadIndent = 0
+            style.headIndent = 0
+            style.tailIndent = 0
+        case .centered:
             style.alignment = .center
             style.firstLineHeadIndent = 0
             style.headIndent = 0
