@@ -5,6 +5,23 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1018 — Correct the fresh-server-choice gate without discarding recovery copies
+
+- **Owner:** codex. **Branch:** `codex/T-1018-conflict-relaunch-diagnosis`.
+- **Status:** review; original #962 held at87a62a6c after hosted red.
+- **Root:** hosted recovery4/1/0; Load Server wait assumed one parked copy,
+  while recorded state showed the right conflict/local words with two copies.
+  Their distinction is unproven; preserve both rather than force coalescing.
+- **Fix:** assert actual writer outcome/project/head, no active sending, all
+  selected copies retired after Load Server/relaunch, only expected server
+  version IDs. Failure attachments exclude writer text and credentials.
+- **Verified:** exact-head single case1/0/0; changed signed full recovery5/0/0
+  on erased task-owned Pro, authenticated local backend. D009 all deltas0,
+  whitespace pass. No runtime change, paid call or new full backend/unit proof.
+- **Evidence:** `docs/conflict-relaunch-gate-2026-10-19.md`.
+- **Next:** scoped backup/review, then fresh hosted gate on an authorized
+  preserving original-head append; do not advance #963 while parent is red.
+
 ### T-1014 — Prove and repair explicit saves during background queue draining
 
 - **Owner:** codex. **Branch:** `codex/T-1014-save-drain-handoff`.

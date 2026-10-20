@@ -2243,8 +2243,12 @@ final class V1SmokeUITests: XCTestCase {
         let v2 = try await saveServer("INT. ROOM - NIGHT\n\nEarlier collaborator version.", base: fixture.versionID)
         app = launchApp(openStudio: true, resetState: false, launchEnvironment: fixture.appLaunchEnvironment)
         XCTAssertTrue(waitForRestoreSnapshot(in: app, timeout: 75) { snapshot in
-            stringValue(snapshot["conflict_server_version_id"]) == v2
-                && intValue(snapshot["parked_draft_save_count"]) == 1
+            stringValue(snapshot["selected_project_id"]) == fixture.projectID
+                && stringValue(snapshot["conflict_project_id"]) == fixture.projectID
+                && stringValue(snapshot["conflict_server_version_id"]) == v2
+                && intValue(snapshot["parked_draft_save_count"]) > 0
+                && intValue(snapshot["queued_draft_save_count"]) == 0
+                && boolValue(snapshot["has_unsaved_draft_changes"])
                 && stringValue(snapshot["draft_tail_preview"]).contains(marker)
         }, "The writer must see a real v2 conflict before choosing.")
         let freshMarker = "FRESH-SERVER-\(UUID().uuidString.uppercased())"
@@ -2270,6 +2274,8 @@ final class V1SmokeUITests: XCTestCase {
             stringValue(snapshot["latest_version_id"]) == v3
                 && stringValue(snapshot["draft_tail_preview"]).contains(freshMarker)
                 && stringValue(snapshot["conflict_project_id"]).isEmpty
+                && intValue(snapshot["parked_draft_save_count"]) == 0
+                && intValue(snapshot["queued_draft_save_count"]) == 0
                 && !boolValue(snapshot["has_unsaved_draft_changes"])
         }, "Chosen server words must restore without reviving the discarded local copy.")
         let response = try await requestJSON(baseURL: baseURL, path: "/screenplay/projects/\(fixture.projectID)",
@@ -2279,6 +2285,8 @@ final class V1SmokeUITests: XCTestCase {
         let envelope = response.payload["payload"] as? [String: Any] ?? response.payload
         let project = envelope["project"] as? [String: Any] ?? envelope
         let versions = project["versions"] as? [[String: Any]] ?? []
+        XCTAssertEqual(Set(versions.map { stringValue($0["id"]) }),
+            Set([fixture.versionID, v2, v3]), "Loading server words must not create any extra version.")
         XCTAssertEqual(stringValue(project["active_version_id"] ?? project["activeVersionId"]), v3)
         XCTAssertEqual(versions.filter { stringValue($0["draft"]).contains(marker) }.count, 0)
         XCTAssertEqual(stringValue(versions.first { stringValue($0["id"]) == v3 }?["draft"]), freshDraft)
@@ -5760,7 +5768,21 @@ final class V1SmokeUITests: XCTestCase {
         }
         if snapshot.exists,
            let decoded = decodeJSONObject(accessibilityText(of: snapshot)) {
-            return predicate(decoded)
+            if predicate(decoded) { return true }
+            // Preserve state evidence when a wait fails, without copying the
+            // screenplay, conversation, credentials or request headers.
+            let keys = ["selected_project_id", "loaded_draft_project_id", "latest_version_id",
+                "conflict_project_id", "conflict_server_version_id", "parked_draft_save_count",
+                "queued_draft_save_count", "has_unsaved_draft_changes", "is_saving",
+                "is_manual_draft_editing", "draft_fingerprint", "draft_character_count"]
+            let observed = decoded.filter { keys.contains($0.key) }
+            if let data = try? JSONSerialization.data(withJSONObject: observed, options: [.sortedKeys]),
+               let text = String(data: data, encoding: .utf8) {
+                let attachment = XCTAttachment(string: text)
+                attachment.name = "restore-wait-state"
+                attachment.lifetime = .keepAlways
+                add(attachment)
+            }
         }
         return false
     }
