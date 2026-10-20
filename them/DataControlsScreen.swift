@@ -98,6 +98,7 @@ private enum DataControlAction: Identifiable, Equatable {
 
 struct DataControlsScreen: View {
     var onDone: () -> Void = {}
+    var onOpenStudio: () -> Void = {}
 
     @AppStorage("clementine_voice_transport_mode")
     private var voiceTransportModeRaw: String = ClementineVoiceTransportMode.turnBased.rawValue
@@ -242,7 +243,10 @@ struct DataControlsScreen: View {
         }
         .accessibilityIdentifier("data.controls.screen")
         .sheet(item: $inspectingTalkReply) { reply in
-            RecoveredTalkReplyReview(reply: reply) { await refreshOfflineOutbox(startMonitoring: false) }
+            RecoveredTalkReplyReview(reply: reply, onDeleted: { await refreshOfflineOutbox(startMonitoring: false) }, onOpenStudio: {
+                inspectingTalkReply = nil
+                onOpenStudio()
+            })
         }
         .sheet(isPresented: $showingV1LaunchDoctor) {
             V1LaunchDoctorView {
@@ -1514,6 +1518,18 @@ struct DataControlsScreen: View {
         }
     }
     #endif
+}
+
+/// Ordinary dismissal may resume the conversation; opening a recovered page
+/// deliberately uses a different callback and never asks for microphone access.
+@MainActor
+enum DataControlsDismissal {
+    static func resumeConversation(needsOnboarding: @escaping () -> Bool, resume: @escaping () -> Void) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.20) {
+            guard !needsOnboarding() else { return }
+            resume()
+        }
+    }
 }
 
 #Preview {

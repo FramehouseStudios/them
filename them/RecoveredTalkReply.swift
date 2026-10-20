@@ -28,6 +28,7 @@ nonisolated struct RecoveredTalkWriteContext: Codable, Equatable {
     let anchorEndLine: Int?
     let insertionMode: String
     var draftIdentity: ScreenplayDraftContentIdentity? = nil
+    var replacementRange: RecoveredPageReplacementRange? = nil
 
     init?(metadata: BackendStudioThreadCommitMetadata?) {
         guard let metadata, metadata.isMeaningful else { return nil }
@@ -40,6 +41,7 @@ nonisolated struct RecoveredTalkWriteContext: Codable, Equatable {
         anchorEndLine = metadata.screenplayAnchorEndLine
         insertionMode = metadata.screenplayInsertionMode
         draftIdentity = metadata.recoveryDraftIdentity
+        replacementRange = metadata.recoveryReplacementRange
     }
 }
 
@@ -56,6 +58,7 @@ nonisolated struct RecoveredTalkReply: Codable, Identifiable, Equatable {
     let headers: [String: String]
     var originalWriteContext: RecoveredTalkWriteContext? = nil
     var retrievedScreenplayOutput: BackendTalkScreenplayOutput? = nil
+    var pageApplication: RecoveredPageApplication? = nil
 
     var response: HTTPURLResponse? {
         guard let url = URL(string: requestURL) else { return nil }

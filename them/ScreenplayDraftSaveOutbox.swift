@@ -37,6 +37,8 @@ nonisolated struct ScreenplayDraftSaveOutboxEntry: Identifiable, Codable, Equata
     var lastError: String
     // Optional keeps old manifests readable; missing intent never permits deletion.
     var allowEmptyDraft: Bool? = nil
+    // A recovered page may be adopted only over its exact original draft.
+    var recoveryOriginalDraftIdentity: ScreenplayDraftContentIdentity? = nil
 }
 
 nonisolated struct ScreenplayDraftSaveOutboxSnapshot: Equatable {
@@ -144,6 +146,7 @@ actor ScreenplayDraftSaveOutbox {
         if let index = entries.firstIndex(where: { $0.id == entry.id }) {
             guard entries[index].projectId == entry.projectId,
                   entries[index].ownerUserId == entry.ownerUserId,
+                  entries[index].recoveryOriginalDraftIdentity == entry.recoveryOriginalDraftIdentity,
                   (entries[index].allowEmptyDraft ?? false) == (entry.allowEmptyDraft ?? false),
                   ScreenplayDraftTextIdentity.matches(entries[index].draft, entry.draft) else {
                 throw BackendMemoryAPIError.server(status: 409, message: "screenplay_save_id_reused")
@@ -202,14 +205,16 @@ actor ScreenplayDraftSaveOutbox {
         return entries[index]
     }
 
-    func hasActiveEntries(projectId: String, ownerUserId: String) throws -> Bool {
+    func hasActiveEntries(projectId: String, ownerUserId: String, excludingID: String? = nil,
+        includeParked: Bool = false) throws -> Bool {
         try loadIfNeeded()
         let cleanProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
         let cleanOwnerUserId = ownerUserId.trimmingCharacters(in: .whitespacesAndNewlines)
         return entries.contains { entry in
             entry.projectId == cleanProjectId &&
                 entry.ownerUserId == cleanOwnerUserId &&
-                (entry.status == .pending || entry.status == .inflight)
+                entry.id != excludingID &&
+                (includeParked || entry.status == .pending || entry.status == .inflight)
         }
     }
 

@@ -724,6 +724,7 @@ struct ScreenplayStudioActionRequest: Identifiable, Equatable {
         case demoteCurrentBeat
         case acceptFocusedRewrite
         case mergeCurrentSceneForward
+        case reviewRecoveredPage
     }
 
     let id: UUID
@@ -911,23 +912,6 @@ enum ScreenplayRenderedCharacterMentionExtractor {
         }
         return false
     }
-}
-
-private func screenplayEditorPreparedInsertionCoreText(
-    _ raw: String,
-    existing: String,
-    insertionRange: NSRange,
-    replacementTarget: ScreenplayPendingReplacementTarget?
-) -> String {
-    let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !trimmed.isEmpty else { return "" }
-    return FountainFormatter.removingDuplicateLeadingSceneHeading(
-        from: trimmed,
-        existingDraft: existing,
-        insertionUTF16Location: insertionRange.location,
-        replacementText: replacementTarget?.currentText ?? ""
-    )
-    .trimmingCharacters(in: .whitespacesAndNewlines)
 }
 
 struct ScreenplayReplacementTraceEvent: Codable, Equatable {
@@ -10477,39 +10461,11 @@ struct MacCursorInsertTextEditor: NSViewRepresentable {
         }
 
         private func insertionAffixes(existing: String, selection: NSRange) -> (prefix: String, suffix: String) {
-            guard !existing.isEmpty else { return ("", "") }
-
-            let ns = existing as NSString
-            let start = selection.location
-            let end = selection.location + selection.length
-
-            let before = start > 0 ? ns.substring(with: NSRange(location: start - 1, length: 1)) : ""
-            let after = end < ns.length ? ns.substring(with: NSRange(location: end, length: 1)) : ""
-
-            let prefix: String
-            if before.isEmpty || before == "\n" {
-                prefix = before.isEmpty ? "" : "\n"
-            } else {
-                prefix = "\n\n"
-            }
-
-            let suffix: String
-            if after.isEmpty || after == "\n" {
-                suffix = after.isEmpty ? "" : "\n"
-            } else {
-                suffix = "\n\n"
-            }
-
-            return (prefix, suffix)
+            ScreenplayEditorInsertionText.affixes(existing: existing, selection: selection)
         }
 
         private func insertionText(for raw: String, existing: String, selection: NSRange) -> String {
-            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { return "" }
-            guard !existing.isEmpty else { return trimmed }
-
-            let affixes = insertionAffixes(existing: existing, selection: selection)
-            return affixes.prefix + trimmed + affixes.suffix
+            ScreenplayEditorInsertionText.text(raw, existing: existing, selection: selection)
         }
 
         private func resolvedReplacementContext(
@@ -12779,39 +12735,11 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
         }
 
         private func insertionAffixes(existing: String, selection: NSRange) -> (prefix: String, suffix: String) {
-            guard !existing.isEmpty else { return ("", "") }
-
-            let ns = existing as NSString
-            let start = selection.location
-            let end = selection.location + selection.length
-
-            let before = start > 0 ? ns.substring(with: NSRange(location: start - 1, length: 1)) : ""
-            let after = end < ns.length ? ns.substring(with: NSRange(location: end, length: 1)) : ""
-
-            let prefix: String
-            if before.isEmpty || before == "\n" {
-                prefix = before.isEmpty ? "" : "\n"
-            } else {
-                prefix = "\n\n"
-            }
-
-            let suffix: String
-            if after.isEmpty || after == "\n" {
-                suffix = after.isEmpty ? "" : "\n"
-            } else {
-                suffix = "\n\n"
-            }
-
-            return (prefix, suffix)
+            ScreenplayEditorInsertionText.affixes(existing: existing, selection: selection)
         }
 
         private func insertionText(for raw: String, existing: String, selection: NSRange) -> String {
-            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { return "" }
-            guard !existing.isEmpty else { return trimmed }
-
-            let affixes = insertionAffixes(existing: existing, selection: selection)
-            return affixes.prefix + trimmed + affixes.suffix
+            ScreenplayEditorInsertionText.text(raw, existing: existing, selection: selection)
         }
 
         private func resolvedReplacementContext(

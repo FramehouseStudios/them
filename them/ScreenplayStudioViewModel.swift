@@ -1344,6 +1344,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         let allowEmptyDraft: Bool
         let authorityGeneration: UInt64
         let createdAt: TimeInterval
+        var recoveryOriginalDraftIdentity: ScreenplayDraftContentIdentity? = nil
 
         init(
             id: String,
@@ -1395,6 +1396,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
             allowEmptyDraft = entry.allowEmptyDraft ?? false
             self.authorityGeneration = authorityGeneration
             createdAt = entry.createdAt
+            recoveryOriginalDraftIdentity = entry.recoveryOriginalDraftIdentity
         }
 
         var outboxEntry: ScreenplayDraftSaveOutboxEntry {
@@ -1417,12 +1419,13 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 retries: 0,
                 nextAttemptAt: now,
                 lastError: "",
-                allowEmptyDraft: allowEmptyDraft
+                allowEmptyDraft: allowEmptyDraft,
+                recoveryOriginalDraftIdentity: recoveryOriginalDraftIdentity
             )
         }
 
         func rebased(on serverVersionId: String) -> DraftSaveRequest {
-            DraftSaveRequest(
+            var copy = DraftSaveRequest(
                 id: id,
                 projectId: projectId,
                 ownerUserId: ownerUserId,
@@ -1439,6 +1442,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 authorityGeneration: authorityGeneration,
                 createdAt: createdAt
             )
+            copy.recoveryOriginalDraftIdentity = recoveryOriginalDraftIdentity
+            return copy
         }
     }
 
@@ -6512,6 +6517,40 @@ final class ScreenplayStudioViewModel: ObservableObject {
         await saveCurrentDraft(source: saveIntent.source, notes: saveIntent.notes)
     }
 
+    lazy var recoveredPages = RecoveredPageController(studio: self)
+
+    func confirmedRecoveredPageVersion(_ application: RecoveredPageApplication) -> String? {
+        guard selectedProjectID == application.projectID, loadedDraftProjectID == application.projectID,
+              !latestVersionID.isEmpty, application.proposedDraftIdentity.matches(lastRevisionBaseDraft) else { return nil }
+        return latestVersionID
+    }
+
+    func enqueueRecoveredPage(_ plan: RecoveredPagePlan, requestID: String,
+        expectedAuth: ScreenplayStudioAuthContext) async throws -> String? {
+        let application = plan.application
+        func isCurrent() -> Bool {
+            authContextIsCurrent(expectedAuth) && !expectedAuth.userID.isEmpty &&
+            selectedProjectID == application.projectID && selectedProject?.id == application.projectID &&
+            loadedDraftProjectID == application.projectID && latestVersionID == application.baseVersionID &&
+            application.originalDraftIdentity.matches(fountainDraft) &&
+            application.proposedDraftIdentity.matches(plan.draft) &&
+            conflictState == nil && !isDraftSaveInFlight && !isSaving && !isStreamingDraftPreviewActive &&
+            !isFollowingRemoteLiveDraft && projectCreationID == nil && storedProjectCreation == nil
+        }
+        guard isCurrent() else { throw RecoveredPagePlan.failure("The page changed or a save is still active. Nothing was replaced. Review the recovered page again.") }
+        let hasEarlierSave = try await draftSaveOutbox.hasActiveEntries(projectId: application.projectID,
+            ownerUserId: expectedAuth.userID, excludingID: requestID, includeParked: true)
+        guard !hasEarlierSave, isCurrent(),
+            var request = makeDraftSaveRequest(draft: plan.draft, source: "studio_recovered_page",
+                notes: "Recovered Clementine page", baseVersionOverride: application.baseVersionID, id: requestID) else {
+            throw RecoveredPagePlan.failure("Resolve the earlier local save before applying this page.")
+        }
+        request.recoveryOriginalDraftIdentity = application.originalDraftIdentity
+        await dispatchDraftSaveRequest(request)
+        guard authContextIsCurrent(expectedAuth) else { return nil }
+        return confirmedRecoveredPageVersion(application)
+    }
+
     private func resolvedDraftSaveIntent(for draft: String) -> ScreenplayDraftSaveIntent {
         ScreenplayDraftSaveIntentPolicy.intent(
             draft: draft,
@@ -6525,14 +6564,15 @@ final class ScreenplayStudioViewModel: ObservableObject {
         draft: String,
         source: String,
         notes: String,
-        baseVersionOverride: String?
+        baseVersionOverride: String?,
+        id: String = UUID().uuidString.lowercased()
     ) -> DraftSaveRequest? {
         guard let project = selectedProject else { return nil }
         let ownerUserId = BackendAuthClient.currentAuthSessionState().user?.userId
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let authContext = currentStudioAuthContext()
         return DraftSaveRequest(
-            id: UUID().uuidString.lowercased(),
+            id: id,
             projectId: project.id,
             ownerUserId: ownerUserId,
             draft: draft,
@@ -6639,6 +6679,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
     private func adoptQueuedDraftIntoUnchangedEditorIfNeeded(
         _ entry: ScreenplayDraftSaveOutboxEntry
     ) {
+        guard entry.recoveryOriginalDraftIdentity == nil else { return } // Applied only after durable admission below.
         guard ScreenplayDraftTextIdentity.matches(fountainDraft, lastRevisionBaseDraft),
               ScreenplayQueuedDraftAdoptionPolicy.shouldAdopt(
             selectedProjectID: selectedProjectID,
@@ -6905,6 +6946,25 @@ final class ScreenplayStudioViewModel: ObservableObject {
             guard draftSaveAuthorityIsCurrent(request) else {
                 await retainDraftSaveBehindConflict(request)
                 return false
+            }
+            if let original = request.recoveryOriginalDraftIdentity {
+                if loadedDraftProjectID == request.projectId, !latestVersionID.isEmpty,
+                   ScreenplayDraftTextIdentity.matches(lastRevisionBaseDraft, request.draft) {
+                    return try await draftSaveOutbox.markSucceeded(id: request.id, serverVersionId: latestVersionID,
+                        requireUnparkedRequest: true)
+                }
+                guard loadedDraftProjectID == request.projectId, latestVersionID == request.baseVersionId,
+                      !isStreamingDraftPreviewActive, !isFollowingRemoteLiveDraft,
+                      original.matches(fountainDraft) || ScreenplayDraftTextIdentity.matches(fountainDraft, request.draft) else {
+                    try await draftSaveOutbox.markParked(id: request.id,
+                        error: "Page changed before recovered text could be applied. Review the retained reply.")
+                    errorText = "Your newer words were kept. Review the recovered page before applying it."
+                    return false
+                }
+                if !ScreenplayDraftTextIdentity.matches(fountainDraft, request.draft) {
+                    fountainDraft = request.draft
+                    noteManualDraftEdit()
+                }
             }
 #if DEBUG
             if IOThemRuntime.isRunningUITests,

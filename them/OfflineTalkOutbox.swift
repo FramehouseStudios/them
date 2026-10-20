@@ -580,6 +580,57 @@ actor OfflineTalkOutbox {
         return updated
     }
 
+    func recoveredReply(id: String, expectedOwnerID: String) throws -> RecoveredTalkReply {
+        try loadIfNeeded()
+        guard !expectedOwnerID.isEmpty, expectedOwnerID == Self.currentOwnerID(),
+              let reply = recoveredReplies.first(where: { $0.id == id && $0.ownerID == expectedOwnerID }) else {
+            throw BackendError.stage("offline_outbox", "Account or recovered reply changed. Review it again.")
+        }
+        return reply
+    }
+
+    func prepareRecoveredPage(id: String, expectedOwnerID: String,
+        application: RecoveredPageApplication) throws -> RecoveredTalkReply {
+        var reply = try recoveredReply(id: id, expectedOwnerID: expectedOwnerID)
+        if let previous = reply.pageApplication {
+            var unchanged = previous
+            unchanged.savedVersionID = nil
+            guard unchanged == application else { throw RecoveredPagePlan.failure("This recovered page already has a different placement decision.") }
+            return reply
+        }
+        guard application.savedVersionID == nil, !application.projectID.isEmpty,
+              reply.originalWriteContext?.projectID == application.projectID,
+              reply.originalWriteContext?.documentRevisionID == application.baseVersionID,
+              reply.originalWriteContext?.draftIdentity == application.originalDraftIdentity,
+              reply.screenplay?.writesToPage == true else {
+            throw RecoveredPagePlan.failure("The original page context is incomplete. No page was changed.")
+        }
+        reply.pageApplication = application
+        try updateRecoveredReply(reply)
+        return reply
+    }
+
+    func acknowledgeRecoveredPage(id: String, expectedOwnerID: String,
+        application: RecoveredPageApplication, savedVersionID: String) throws {
+        var reply = try recoveredReply(id: id, expectedOwnerID: expectedOwnerID)
+        var previous = reply.pageApplication
+        previous?.savedVersionID = nil
+        guard previous == application, !savedVersionID.isEmpty else {
+            throw RecoveredPagePlan.failure("The recovery save confirmation no longer matches this page.")
+        }
+        reply.pageApplication?.savedVersionID = savedVersionID
+        try updateRecoveredReply(reply)
+    }
+
+    private func updateRecoveredReply(_ reply: RecoveredTalkReply) throws {
+        guard let index = recoveredReplies.firstIndex(where: { $0.id == reply.id && $0.ownerID == reply.ownerID }) else {
+            throw RecoveredPagePlan.failure("The recovered reply was removed. No new page was requested.")
+        }
+        try writeProtectedData(JSONEncoder().encode(reply), to: replyFile(reply.id))
+        recoveredReplies[index] = reply
+        publishSnapshot()
+    }
+
     func recoveredResponseURL(id: String, expectedOwnerID: String) throws -> URL? {
         try loadIfNeeded()
         guard expectedOwnerID == Self.currentOwnerID(),

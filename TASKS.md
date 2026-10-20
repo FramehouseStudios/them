@@ -5,6 +5,41 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1038 — Apply a retained page through Studio's durable save owner
+
+- **Owner:** codex. **Branch:** `codex/T-1038-recovered-page-apply`.
+- **Status:** review; existing-project recovery application locally proven.
+- **Target:** recovered full output can be reviewed at its original placement,
+  explicitly applied once and saved through the existing Studio dispatcher.
+- **Safety:** exact original project/revision/draft, captured replacement range,
+  durable immutable placement decision, stable save ID, canonical owner/auth
+  checks and queue admission before editor mutation. Legacy/stale contexts
+  remain shareable, never guessed or silently inserted at today's cursor.
+- **Done when:** actual save/late-edit/relaunch/duplicate-confirmation paths,
+  native narrow-width review/apply UI, macOS and D009/diff proof pass.
+- **Current limits:** automatic recovery into an untitled/new project is not
+  connected. This task must not claim the physical-phone/live voice journey.
+- **GitHub boundary:** human explicitly approved original #962 f5e746c2 to
+  856d7624. Normal push succeeded; exact remote/base/main verified. Fresh
+  hosted run39383769697 is active; Backend and D009 passed, Quality Gate
+  remains in progress. No main/child-head advance or paid provider request.
+- **Verification:** first compile failed before tests (missing Combine import);
+  second needed the product-module import. Corrected focused21/0/0, actual
+  fresh-model relaunch1/0/0. Native Pro apply saved one exact proposal and kept
+  the original. Observation exposed unintended microphone/speech startup;
+  split ordinary dismissal from the recovery Studio callback. Full917/1/0
+  then caught raw preview typography; corrected to canonical tokens. Corrected
+  full proof passed918/0/0; macOS compile exit0. Native freshly erased375-point
+  SE proved readable review, no microphone/speech startup, exact one saved
+  proposal, original retention and actual relaunch/no second Apply. Final
+  test-only UTF8-array assertion hardening passed5/0/0 (no runtime change).
+  Initial D009 lacked its unfetched base; fetched the exact parent and it now
+  passes: bridge-72, other protected deltas0. Whitespace passes.
+- **Evidence:** `docs/recovered-page-application-2026-10-20.md`.
+- **Next:** retain the original #962 hosted-review boundary; connect recovered
+  output to explicit new-project/title creation through the canonical creation
+  intent, without silently choosing an unrelated open project.
+
 ### T-1037 — Refuse stale native rewrite targets
 
 - **Owner:** codex. **Branch:** `codex/T-1037-strict-rewrite-target`.

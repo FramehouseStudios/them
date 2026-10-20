@@ -3,6 +3,7 @@ import SwiftUI
 struct RecoveredTalkReplyReview: View {
     let reply: RecoveredTalkReply
     var onDeleted: () async -> Void
+    var onOpenStudio: () -> Void = {}
     @Environment(\.dismiss) private var dismiss
     @State private var responseURL: URL?
     @State private var error = ""
@@ -46,6 +47,19 @@ struct RecoveredTalkReplyReview: View {
                     .buttonStyle(SoftPrimaryButtonStyle()).foregroundStyle(Color.herText)
                     .disabled(retrievingPage).accessibilityIdentifier("recovery.reply.retrieve-page")
                     .accessibilityHint("Reads the original result without generating or inserting another page.")
+                }
+                if reply.screenplay?.writesToPage == true, reply.originalWriteContext?.draftIdentity != nil {
+                    Button {
+                        ScreenplayLiveDraftBridge.shared.requestStudioAction(.reviewRecoveredPage,
+                            stringValue: reply.id, secondaryStringValue: reply.ownerID)
+                        onOpenStudio()
+                    } label: {
+                        Label("Review placement in Studio", systemImage: "doc.text.magnifyingglass")
+                            .frame(maxWidth: .infinity, minHeight: 44)
+                    }
+                    .buttonStyle(SoftPrimaryButtonStyle()).foregroundStyle(Color.herText)
+                    .accessibilityIdentifier("recovery.reply.open-studio")
+                    .accessibilityHint("Does not insert immediately. Studio will check the original page before offering Apply and save.")
                 }
                 if let responseURL {
                     ShareLink(item: responseURL) {

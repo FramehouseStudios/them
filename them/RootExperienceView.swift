@@ -3172,10 +3172,10 @@ struct RootExperienceView: View {
                 .sheet(isPresented: $showingDataControls) {
                     DataControlsScreen(onDone: {
                         showingDataControls = false
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.20) {
-                            guard !evolution.needsOnboardingName else { return }
-                            startConversationLoopIfNeeded()
-                        }
+                        DataControlsDismissal.resumeConversation(needsOnboarding: { evolution.needsOnboardingName }, resume: { startConversationLoopIfNeeded() })
+                    }, onOpenStudio: {
+                        showingDataControls = false
+                        openStudio()
                     })
                     .themDesktopSheetFrame(minWidth: 900, minHeight: 680)
                 }
@@ -11919,7 +11919,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
             screenplayPageCount: promptContinuity.pageCount > 0 ? promptContinuity.pageCount : nil,
             screenplayTargetPages: promptContinuity.targetPages > 0 ? promptContinuity.targetPages : nil
         )
-        return metadata.retainingRecoveryDraftIdentity(screenplayDraftBridge.draftText)
+        return metadata.retainingRecoveryDraftIdentity(screenplayDraftBridge.draftText, replacementTarget: screenplayDraftBridge.submittedReplacementTarget ?? screenplayDraftBridge.pendingReplacementTarget)
     }
 
     @MainActor
@@ -11998,7 +11998,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
             screenplayPageCount: promptContinuity.pageCount > 0 ? promptContinuity.pageCount : nil,
             screenplayTargetPages: promptContinuity.targetPages > 0 ? promptContinuity.targetPages : nil
         )
-        return metadata.retainingRecoveryDraftIdentity(screenplayDraftBridge.draftText)
+        return metadata.retainingRecoveryDraftIdentity(screenplayDraftBridge.draftText, replacementTarget: screenplayDraftBridge.submittedReplacementTarget ?? screenplayDraftBridge.pendingReplacementTarget)
     }
 
     @MainActor

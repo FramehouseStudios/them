@@ -541,12 +541,9 @@ Replace is best when this file should become the script you edit. Append is safe
     }
 
     private var studioPresentationBoundView: some View {
-        studioLifecycleBoundView
-            .sheet(isPresented: $showingFullStudioThread) {
-                fullStudioThreadSheet
-            }
-            .sheet(isPresented: $vm.isPagesOverviewPresented) { screenplayPagesOverviewSheet }
-            .background(studioFocusShortcutLayer)
+        studioLifecycleBoundView.modifier(StudioPresentationModifier(fullThreadPresented: $showingFullStudioThread,
+            pagesPresented: $vm.isPagesOverviewPresented, thread: { fullStudioThreadSheet },
+            pages: { screenplayPagesOverviewSheet }, focus: { studioFocusShortcutLayer }, recovery: vm.recoveredPages))
     }
 
     private var studioLifecycleBoundView: some View {
@@ -1093,6 +1090,7 @@ Replace is best when this file should become the script you edit. Append is safe
                 _ = await selectPreferredProjectIfNeeded(liveDraftBridge.preferredProjectID)
                 _ = await applyBridgeDebugProjectLoadIfNeeded(force: true)
                 await restoreStudioWorkspaceAfterProjectHydration()
+                if let request = liveDraftBridge.pendingStudioAction { await handleBridgeStudioAction(request) }
                 #if DEBUG
                 studioDebugInitialLoadSettled = true
                 publishDebugStudioDiffState()
@@ -1274,6 +1272,8 @@ Replace is best when this file should become the script you edit. Append is safe
             acceptFocusedRewrite(request)
         case .mergeCurrentSceneForward:
             await mergeCurrentSceneForward(request)
+        case .reviewRecoveredPage:
+            await vm.recoveredPages.review(id: request.stringValue ?? "", ownerID: request.secondaryStringValue ?? "")
         }
         if liveDraftBridge.pendingStudioAction?.id == request.id {
             liveDraftBridge.pendingStudioAction = nil

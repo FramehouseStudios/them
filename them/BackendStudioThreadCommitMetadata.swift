@@ -59,6 +59,7 @@ nonisolated struct BackendStudioThreadCommitMetadata: Hashable {
     var studioCapabilitiesJSON: String = ""
     /// Local recovery evidence only; never serialized into provider/request payloads.
     var recoveryDraftIdentity: ScreenplayDraftContentIdentity? = nil
+    var recoveryReplacementRange: RecoveredPageReplacementRange? = nil
 
     var isMeaningful: Bool {
         !screenplayProjectId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
@@ -118,11 +119,22 @@ nonisolated struct BackendStudioThreadCommitMetadata: Hashable {
 }
 
 extension BackendStudioThreadCommitMetadata {
-    func retainingRecoveryDraftIdentity(_ draft: String) -> Self? {
+    func retainingRecoveryDraftIdentity(_ draft: String, replacementTarget: ScreenplayPendingReplacementTarget? = nil) -> Self? {
         guard isMeaningful else { return nil }
         var captured = self
         captured.recoveryDraftIdentity = screenplayTarget.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "page"
             ? ScreenplayDraftContentIdentity(draft: draft) : nil
+        if screenplayInsertionMode == "replace_selection", let target = replacementTarget,
+           target.projectID == screenplayProjectId, target.draftIdentity.matches(draft),
+           target.matchesContext(projectID: screenplayProjectId, authContext: .current()),
+           let lines = RecoveredPagePlan.lineRange(draft, start: target.startLine, end: target.endLine) {
+            let resolved = ScreenplayReplacementResolver.resolve(existing: draft, candidateRange: lines,
+                fallbackSelection: lines, target: target, projectID: target.projectID, authContext: target.authContext)
+            if !resolved.isRejected {
+                captured.recoveryReplacementRange = .init(location: resolved.range.location, length: resolved.range.length,
+                    textIdentity: .init(draft: (draft as NSString).substring(with: resolved.range)))
+            }
+        }
         return captured
     }
 }

@@ -4,6 +4,70 @@ import ScreenplayStudio
 
 final class ScreenplaySaveConflictAuthorityTests: XCTestCase {
     @MainActor
+    func testRecoveredPageUsesDurableCanonicalSaveAndAcknowledgesExactTextOnce() async throws {
+        let identity = try RecoveryApplicationTestOwner()
+        defer { identity.restore() }
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        let transport = SaveAuthorityTransport(delayed: false)
+        let model = fixture.model(api: transport.api())
+        let original = model.fountainDraft
+        let reply = try RecoveredPageApplicationTests.reply(draft: original)
+        let plan = try RecoveredPagePlan.make(reply: reply, draft: original, projectID: "project", versionID: "base")
+        let version = try await model.enqueueRecoveredPage(plan, requestID: "recovered-once", expectedAuth: .current())
+        XCTAssertEqual(version, "saved-v2")
+        XCTAssertEqual(Array(model.fountainDraft.utf8), Array(plan.draft.utf8))
+        XCTAssertFalse(model.hasUnsavedDraftChanges)
+        XCTAssertEqual(transport.postCount, 1)
+        XCTAssertEqual(transport.lastBaseVersion, "base")
+        XCTAssertEqual(model.confirmedRecoveredPageVersion(plan.application), "saved-v2")
+        let retained = try await fixture.queue.entriesForTesting()
+        XCTAssertTrue(retained.isEmpty)
+        do {
+            _ = try await model.enqueueRecoveredPage(plan, requestID: "recovered-once", expectedAuth: .current())
+            XCTFail("Old confirmation cannot apply the page twice.")
+        } catch { }
+        XCTAssertEqual(transport.postCount, 1)
+        XCTAssertEqual(Array(model.fountainDraft.utf8), Array(plan.draft.utf8))
+    }
+
+    @MainActor
+    func testRecoveredQueuedPageRefusesLateWriterEditAcrossRelaunch() async throws {
+        let identity = try RecoveryApplicationTestOwner()
+        defer { identity.restore() }
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        let transport = SaveAuthorityTransport(delayed: false)
+        let model = fixture.model(api: transport.api())
+        let plan = try RecoveredPagePlan.make(reply: RecoveredPageApplicationTests.reply(draft: "Saved base"),
+            draft: "Saved base", projectID: "project", versionID: "base")
+        try await fixture.queue.enqueue(.init(id: "recovered-stale", projectId: "project", ownerUserId: identity.owner,
+            draft: plan.draft, title: "Script", phase: "draft", notes: "", source: "studio_recovered_page",
+            studioWriteAnchors: [], screenplayBindings: [], baseVersionId: "base", createdAt: 1, updatedAt: 1,
+            status: .pending, retries: 0, nextAttemptAt: 0, lastError: "",
+            recoveryOriginalDraftIdentity: plan.application.originalDraftIdentity))
+        model.fountainDraft = "Newer writer words, cafe\u{0301}.\r\n"
+        model.noteManualDraftEdit()
+        let relaunched = ScreenplayStudioViewModel(localDraftRecoveryStore: fixture.recovery,
+            draftSaveOutbox: ScreenplayDraftSaveOutbox(storageDirectory: fixture.directory),
+            draftSaveAPI: transport.api(), connectsToLiveWorkspace: false)
+        let head = try JSONDecoder().decode(BackendScreenplayProjectSummary.self,
+            from: Data(#"{"id":"project","title":"Script","activeVersionId":"base","versions":[{"id":"base","draft":"Saved base"}]}"#.utf8))
+        relaunched.selectedProjectID = "project"
+        relaunched.selectedProject = head
+        relaunched.fountainDraft = ""
+        _ = await relaunched.hydrateDraftRestoringQueuedSaves(from: head)
+        await relaunched.resumeQueuedDraftSavesIfNeeded(force: true)
+        XCTAssertEqual(Array(relaunched.fountainDraft.utf8), Array("Newer writer words, cafe\u{0301}.\r\n".utf8))
+        XCTAssertEqual(transport.postCount, 0)
+        let retained = try await ScreenplayDraftSaveOutbox(storageDirectory: fixture.directory).entriesForTesting()
+        XCTAssertEqual(retained.first?.status, .parked)
+        XCTAssertEqual(retained.first?.recoveryOriginalDraftIdentity, plan.application.originalDraftIdentity)
+        XCTAssertEqual(retained.first?.draft, plan.draft)
+        XCTAssertFalse(relaunched.errorText.isEmpty)
+    }
+
+    @MainActor
     func testParkedConflictRestoresChoiceWhenLocalTextOrNewerRecoveryAlreadyHasServerVersion() async throws {
         for textRestoredFirst in [false, true] {
             let fixture = try Fixture()
