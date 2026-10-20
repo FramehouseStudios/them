@@ -33,8 +33,10 @@ function pickString(...candidates) {
 /**
  * Mount POST /talk/page-cancel.
  * Body: { session_id?, reservation_id?, user_id?, reason? }
- * - reservation_id → cancel(id)
- * - else session_id → cancelByOwner({ sessionId, userId })
+ * Requires req.authUser from trusted authentication middleware; body user_id
+ * is compatibility-only and never authorizes cancellation.
+ * - reservation_id → cancel only the authenticated owner's reservation
+ * - else session_id → cancel only that owner's reservations in the session
  */
 function mountPageCancelRoute(app, { pageReservationStore } = {}) {
   if (!app || typeof app.post !== "function") {
@@ -61,16 +63,17 @@ function mountPageCancelRoute(app, { pageReservationStore } = {}) {
         req.get?.("x-session-id"),
         req.headers?.["x-session-id"]
       );
-      const userId = pickString(
-        body.user_id,
-        body.userId,
-        req?.authUser?.id,
-        req?.user?.id
-      );
+      const userId = pickString(req?.authUser?.id);
+      if (!userId) {
+        return res.status(401).json({ ok: false, error: "user_auth_required" });
+      }
       const reason = pickString(body.reason, body.cancel_reason, body.cancelReason) || "barge_in";
 
       if (reservationId) {
-        const result = pageReservationStore.cancel(reservationId, { reason });
+        const reservation = pageReservationStore.get(reservationId);
+        const result = reservation?.userId === userId
+          ? pageReservationStore.cancel(reservationId, { reason })
+          : null;
         if (!result) {
           return res.status(404).json({
             ok: false,
@@ -97,7 +100,7 @@ function mountPageCancelRoute(app, { pageReservationStore } = {}) {
       }
 
       const dropped = pageReservationStore.cancelByOwner(
-        { sessionId, userId },
+        { sessionId, userId, strictOwner: true },
         { reason }
       );
       return res.status(200).json({
@@ -115,7 +118,7 @@ function mountPageCancelRoute(app, { pageReservationStore } = {}) {
 /**
  * Mount POST /talk/wallet — read-only calm balance (no TPM fields).
  * Body/query: { owner_id? } else auth user / session fallback.
- * Same light auth posture as page-cancel (caller may wrap middleware).
+ * Caller supplies wallet-route authentication middleware.
  */
 function mountTalkWalletRoute(app, { walletStore } = {}) {
   if (!app || typeof app.post !== "function") {

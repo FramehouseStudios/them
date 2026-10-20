@@ -217,6 +217,7 @@ test("[wallet] POST /talk/page-cancel releases wallet funds", async () => {
   });
 
   const app = express();
+  app.use((req, _res, next) => { req.authUser = { id: "http" }; next(); });
   mountPageCancelRoute(app, { pageReservationStore: pages });
   const server = app.listen(0);
   await new Promise((resolve) => server.once("listening", resolve));
