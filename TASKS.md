@@ -5,6 +5,83 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1047 — Reach Voice Pin page actions without overshooting
+
+- **Owner:** codex. **Branch:** `codex/T-1047-partner-page-action`.
+- **Status:** review. **Pillar:** connected, reachable voice-to-page.
+- **History:** original #625 `5824f226` preserved; normal merge `37c50378`
+  also preserves original #964 `81b05e44` exact-device/signing/summary repairs.
+- **Root evidence:** hosted39398273450 UI28/1/9 at To Page; video repeatedly
+  swipes farther down after passing the action. Same callback fails0/1/0
+  on erased signed 375-point SE. No keyboard focus or tap retry implicated.
+- **Fix:** one bounded viewport-aware reveal for all three existing helpers,
+  stable scroll-content accessibility ID, minimum pan travel. First bounded
+  intermediate0/1/0 stalled at co-writer on repeated9.5-point drags; retained.
+- **Proof:** merged runner contracts26/0/0 and Node20 backend2769/0/2,
+  external network off. Minimum-pan run0/1/0 passed Page routing but exposed
+  the known offscreen inline confirmation wait. Reused T-996 `d82b3757`
+  assertions instead of duplicating its fix. Intermediate cohort3/1/0 exposed
+  keyboard tutorial and actual keyboard-safe-area suppression. Removed
+  unsuccessful keyboard-event/anchor experiments; the root product fix is
+  container-only safe-area handling in Studio and its parent. Final signed
+  erased SE cohort11/0/0; separate direct page typing1/0/0; macOS compile0;
+  D009 all five deltas0. Preserve both original heads, advance original #625
+  normally atop #964, require fresh hosted checks and independent review.
+  No main, production, paid-model or physical-phone completion claim.
+- **Done when:** same single-tap callback and affected panel/intent workflows,
+  signed narrow proof, macOS/D009/diff pass; advance original #625 normally
+  with all original history. Fresh hosted checks/review required; no main push.
+- **Evidence:** `docs/partner-page-action-2026-10-20.md`.
+
+### T-1041 — Keep Studio inspector navigation visible while content scrolls
+
+- **Owner:** codex. **Branch:** `codex/T-1041-pinned-inspector-navigation`.
+- **Status:** review; isolated descendant of original #625 `78430dec`.
+- **Evidence:** hosted39318515602 passed backend/units but failed the
+  six-panel inspector route at Outline tap with a system-AX timeout. Its
+  preceding activity repeatedly scrolls to recover the tab grid. Do not
+  claim a reproduced simulator-infrastructure root from those logs alone.
+- **Target:** existing tabs stay pinned while content scrolls; preserve
+  styling, selection, all six panels, scroll targets and original billing
+  history. No new product state or protected-file growth.
+- **Done when:** behavior-only pinned-navigation case reproduces before;
+  same case and original six-panel routing pass after on an erased owned
+  narrow signed simulator, focused presentation/design checks and macOS
+  compile pass, D009/diff clean. Require fresh hosted gate and review.
+- **Holds:** no paid call, production or main change. Character learning
+  from saved pages belongs to original #722/#897; preserve their work.
+- **Verified:** navigation-only before0/1/0. Inset-only1/1/0; inset/identity
+  1/1/0; structural layout with old fling helper8/1/0 (seven units passed).
+  A diagnostic-only route passed1/0/0, not accepted as a stable correction.
+  Reused the preserved T-992 bounded-gesture owner `6a57ff9`, removed the
+  sole-use tab-reopen fallback, retained all action/selection assertions.
+  Final signed erased SE9/0/0 (seven units + two UI), actual summary read;
+  macOS scaffold native exit0. Native Draft/Craft/Outline headings and all
+  six tab labels visually readable. D009 all five deltas0; diff clean.
+- **Evidence:** `docs/pinned-inspector-navigation-2026-10-20.md`. No fresh
+  full backend/unit-bundle or hosted-system-AX root-cause claim. Require
+  updated exact-head hosted checks and independent review before any merge.
+
+### T-993 — Re-prove original failed-generation billing fix on current main
+
+- **Owner:** codex. **Branch:** `codex/T-993-billing-main-proof`.
+- **Status:** in-progress. **Pillar:** trustworthy voice-to-page and wallet.
+- **Root verified:** current rehearsal's actual generation stage returned
+  zero reply bytes after two injected provider calls while proposing123
+  output tokens for billing. No live provider or real wallet used.
+- **Scope:** preserve original #625 head795f14fc and current main deac1a6d
+  with a normal merge. Read all seven original files and follow-up commits;
+  asked_repeat/continue_listening release is already in the original head.
+  Do not reimplement it, create a replacement PR or move main.
+- **Done when:** original generation/supplier/real-HTTP/lifecycle regressions,
+  full Node20 suite, signed erased units, D009/diff pass; adversarial limits
+  recorded; fresh original PR/head checks and independent review still needed.
+- **Human hold:** production blocked until App Store credentials exist.
+- **Verified:** focused33/0/0 after auth enforcement; full pinned Node20
+  backend2761/0/2; signed erased units624/0/0; D009 all five deltas0 and diff
+  clean. Unit source7f6159d and backend129d22c differ only by a Node test.
+  No new writer UI/macOS/live-provider claim. Manifest:
+  `docs/billing-main-proof-2026-10-19.md`.
 ### T-985 — Fail-closed recovery proof and preserve original #904
 
 - **Owner:** codex. **Branch:** `codex/T-985-recovery-proof-truth`.
