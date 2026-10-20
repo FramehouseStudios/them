@@ -162,7 +162,7 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
     @MainActor
     func testProjectHydrationRestoresQueuedWriterSaveBeforeRemoteDraft() async throws {
         // Adapt original #928's parked-copy regression to this earlier
-        // parent's active outbox; later conflict-retention semantics stay separate.
+        // parent's active outbox, alongside the parked-conflict regression above.
         let owner = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""
         let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
         let local = "Writer words cafe\u{0301}\n"

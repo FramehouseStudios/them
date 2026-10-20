@@ -5644,6 +5644,37 @@ final class ScreenplayStudioViewModel: ObservableObject {
         // bootstrap. Restore the durable writer copy before either hydrates.
         guard await restorePendingDraftSaveBeforeProjectHydration() else { return false }
         guard authContextIsCurrent(context), project.id == selectedProjectID else { return false }
+        let retained: ScreenplayDraftSaveOutboxEntry?
+        do {
+            retained = try await draftSaveOutbox.pendingEntry(projectId: project.id, ownerUserId: context.userID)
+        } catch {
+            guard authContextIsCurrent(context), project.id == selectedProjectID else { return false }
+            autosaveStatusText = ScreenplayDraftSaveRecoveryPresentationPolicy.unreadableQueueStatus
+            errorText = ScreenplayDraftSaveRecoveryPresentationPolicy.unreadableQueueError
+            return false
+        }
+        guard authContextIsCurrent(context), project.id == selectedProjectID else { return false }
+        if let retained, retained.status == .parked,
+           retained.lastError == ScreenplayDraftSaveOutbox.conflictReason,
+           !isDraftSaveInFlight, !isSaving, loadedDraftProjectID == project.id, hasUnsavedDraftChanges,
+           let head = ScreenplayProjectDraftRestorePolicy.preferredVersion(in: project),
+           !head.id.isEmpty, head.id != retained.baseVersionId, let serverDraft = head.draft,
+           !fountainDraft.utf8.elementsEqual(serverDraft.utf8) {
+            // Original #962's authority rule: cached metadata is not the writer
+            // choosing a side. Keep newer editor/recovery text, but recover the
+            // unresolved conflict's original base from the immutable journal.
+            let conflict = SaveConflictState(projectId: project.id,
+                baseVersionId: retained.baseVersionId, serverVersionId: head.id,
+                serverDraft: serverDraft, serverDraftExcerpt: head.draftExcerpt ?? String(serverDraft.prefix(240)),
+                serverUpdatedAt: head.updatedAt ?? head.createdAt ?? 0)
+            if conflictState != conflict {
+                await handleDraftSaveConflict(conflict, ownerUserId: context.userID, expectedContext: context)
+            }
+            guard authContextIsCurrent(context), project.id == selectedProjectID else { return false }
+            // Do not pass this unresolved copy through legacy metadata-based
+            // hydration, which would clear the choice or adopt server anchors.
+            return conflictState == conflict
+        }
         hydrateDraft(from: project)
         return true
     }
