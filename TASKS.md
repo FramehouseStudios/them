@@ -5,6 +5,25 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1053 — Keep the manually typed paper line inside its viewport
+
+- **Owner:** codex. **Branch:** `codex/T-1053-editor-caret-viewport`.
+- **Status:** in-progress. **Pillar:** readable mobile writing.
+- **Boundary:** preserve original #625 d493c515 and diagnostic80f840c.
+- **Evidence:** T1052 actual narrow focus case1/0/0 has typed bytes but
+  its retained screenshot shows no paper line above the software keyboard.
+  This is visibility evidence, not proof of text loss or its exact cause.
+- **Plan:** characterize the real UIKit coordinator/caret in a reduced
+  outer scroll viewport, including programmatic/inactive controls; fix at
+  the existing editor viewport seam only if the caret is genuinely clipped.
+- **Done when:** actual caret visible after manual edits, no programmatic
+  scroll stealing; signed focused unit/UI and visual proof, macOS/D009/diff
+  pass. No model/production/main change or original-PR replacement.
+- **Verified:** before2/1/0, actual UIKit caret y327 outside200-point
+  viewport. Non-editing controls pass; no product fix yet. Preserve this
+  diagnostic; fresh original #904 now red on Them-tab activation point,
+  so inspect/fix that first required integration failure before continuing.
+
 ### T-1052 — Keyboard Send belongs only to the focused composer
 
 - **Owner:** codex. **Branch:** `codex/T-1052-prompt-keyboard-focus`.
