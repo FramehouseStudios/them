@@ -8,15 +8,19 @@ export function failureOutputTail(value) {
 }
 
 export function assertSinglePassedTestSummary(summary) {
+  assertPassedTestSummary(summary, 1, "Integrated iPhone writer-loop test did not execute exactly once");
+}
+
+export function assertPassedTestSummary(summary, expectedCount, failureMessage) {
   const counts = {
     total: Number(summary?.totalTestCount),
     passed: Number(summary?.passedTests),
     failed: Number(summary?.failedTests),
     skipped: Number(summary?.skippedTests),
   };
-  if (counts.total !== 1 || counts.passed !== 1 || counts.failed !== 0 || counts.skipped !== 0) {
+  if (counts.total !== expectedCount || counts.passed !== expectedCount || counts.failed !== 0 || counts.skipped !== 0) {
     throw new Error(
-      `Integrated iPhone writer-loop test did not execute exactly once: ${JSON.stringify(counts)}`
+      `${failureMessage}: ${JSON.stringify(counts)}`
     );
   }
 }

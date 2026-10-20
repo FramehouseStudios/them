@@ -5,6 +5,20 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1048 — Prove Page cancellation on the simulator actually erased
+
+- **Owner:** codex. **Branch:** `codex/T-1048-cancel-proof-device`.
+- **Status:** in-progress. **Pillar:** trustworthy writer control/proof.
+- **Root:** original #966 hosted39330023996 erased B34C2F57 but its
+  actual signed unit summary tested E839A11B. UI initialization then timed
+  out; the device mismatch is not proven to have caused that AX timeout.
+- **Fix:** preserve #966 `1e86467c` and canonical #964 `81b05e44` by normal
+  merge, no parallel runner or application reimplementation. Retain both
+  task histories. No cancellation runtime change or main merge.
+- **Done when:** exact-device/signing/evidence contracts, offline backend,
+  signed task-owned UI launch and D009/diff pass; advance original draft
+  normally, with fresh required hosted checks and independent approval.
+
 ### T-1000 — Owner-scoped Page cancellation
 
 - **Owner:** codex. **Branch:** `codex/T-1000-page-cancel-owner`.
@@ -32,6 +46,38 @@
 - **Next:** draft PR with fresh hosted proof and adversarial review.
   Independent approval/fresh checks required; production remains blocked.
 - **Evidence:** `docs/wallet-owner-scope-2026-10-19.md`.
+### T-985 — Fail-closed recovery proof and preserve original #904
+
+- **Owner:** codex. **Branch:** `codex/T-985-recovery-proof-truth`.
+- **Status:** review. **Pillar:** durable writer recovery.
+- **Scope:** reuse the original port fix and canonical async/summary proof;
+  reject false-green skips. Then preserve/re-prove original #904's existing
+  deterministic fault injection and queued-draft hydration protection.
+- **Evidence:** Node20 focused14/0/0, scripts223/0/0, backend2747/0/2,
+  D009 deltas0. Real parent recovery0/2/0 during queue setup; not green.
+- **Done when:** the actual requested recovery tests pass without skips on
+  the preserved combined head, with full gates and exact retained artifacts.
+- **Reference:** `docs/recovery-proof-truth-2026-10-19.md`.
+- **Publication checkpoint (2026-10-20):** advance original draft #964 by
+  normal fast-forward, preserving its complete original history. Current
+  focused Node20.20.2 verifier checks14/0/0; syntax, D009 and diff pass.
+  Application recovery remains explicitly red on this main-boundary tree;
+  the separate preserved #904/#919 rehearsal repairs are not included here.
+
+### T-984 — Exact, signed simulator proof on main
+
+- **Owner:** codex. **Branch:** `codex/T-984-main-simulator-proof`.
+- **Status:** review. **Pillar:** trustworthy writer/recovery proof.
+- **Scope:** resolve one exact simulator ID before erasure and Xcode; route
+  main's existing offline-save iPhone tests through that signed canonical
+  runner. No application runtime or unfinished product-stack changes.
+- **Done when:** regressions, full Node20 scripts/backend, erased signed units,
+  authenticated writer UI, macOS, D009 and diff pass; draft PR records proof.
+- **Evidence:** scripts223/0/0, backend2739/0/2, signed units624/0/0,
+  macOS exit0, writer UI1/0/0, D009 deltas0. Offline-save UI still running. See
+  `docs/main-simulator-proof-2026-10-19.md`.
+- **Hold:** required hosted checks and independent human review before merge.
+- **GitHub:** draft #964, initial implementation `ba55565`; no main merge.
 
 ### T-969 — Truthful required checks on original #906
 
