@@ -950,6 +950,13 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
             bridgeDraft: "INT. MOTEL - NIGHT\n\nA different movie waits.",
             draftOriginProjectId: " "
         ))
+        XCTAssertFalse(ScreenplayBridgeDraftAdoptionPolicy.shouldAdoptLiveBridgeDraft(
+            selectedProjectId: "project-a",
+            currentDraft: "",
+            bridgeDraft: "INT. DINER - NIGHT\n\nA partial voice reveal.",
+            draftOriginProjectId: "project-a",
+            isStreamingDraftPreviewActive: true
+        ))
     }
 
     func testBridgeDraftAdoptionPolicyDoesNotReplaceExistingDraftOrAdoptEmptyBridgeDraft() {
@@ -1070,6 +1077,28 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
             hasUnsavedDraftChanges: true,
             isStreamingDraftPreviewActive: false,
             draft: "   "
+        ))
+    }
+
+    func testSyncedVoiceRevealBlocksAutosaveAndKeepsAProjectScopedRecoveryCopy() {
+        XCTAssertFalse(ScreenplayProgrammaticDraftAutosavePolicy.shouldAutosave(
+            hasSelectedProject: true,
+            autosaveEnabled: true,
+            hasUnsavedDraftChanges: true,
+            isStreamingDraftPreviewActive: true,
+            draft: "INT. ROOM - NIGHT\n\nThe unfinished line is preserved."
+        ))
+        XCTAssertTrue(ScreenplayStreamingDraftRecoveryPolicy.shouldPersist(
+            projectID: "project-a",
+            draft: "INT. ROOM - NIGHT\n\nThe unfinished line is preserved."
+        ))
+        XCTAssertFalse(ScreenplayStreamingDraftRecoveryPolicy.shouldPersist(
+            projectID: "",
+            draft: "INT. ROOM - NIGHT"
+        ))
+        XCTAssertFalse(ScreenplayStreamingDraftRecoveryPolicy.shouldPersist(
+            projectID: "project-a",
+            draft: "  \n"
         ))
     }
 

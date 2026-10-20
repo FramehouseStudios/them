@@ -3185,7 +3185,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
     private var streamTask: Task<Void, Never>?
     private var syncedVoiceInsertTask: Task<Void, Never>?
     private let streamCharDelay: TimeInterval = 0.022
-    private(set) var activeSyncedVoiceInsertPlan: ScreenplayVoiceInsertPlan?
+    private(set) var activeSyncedVoiceInsertPlan: ScreenplayVoiceInsertPlan? { didSet { isStreamingDraftPreviewActive = activeSyncedVoiceInsertPlan != nil } }
     private var activeSyncedVoiceAppliedCueCount: Int = 0
     private var activeSyncedVoiceVisibleUTF16Length: Int = 0
     private var activeSyncedVoiceActiveSegmentID: String?
