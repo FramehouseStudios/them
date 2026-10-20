@@ -208,3 +208,61 @@ history/base and has fresh exact-head hosted checks pending, not a main merge.
 | Long120-page sessions, IME composition and hardware keyboards | Not covered by this native cohort. No long-session performance or universal exact-byte safety claim. |
 | Actual microphone/model and external-open export on iPhone | Not covered. Requires the real-phone journey; no paid model calls without fresh approval. |
 | Shipping deployment and main | Not covered by local proof. Production hold and genuine independent approvals/checks remain required; do not bypass them. |
+
+## Session handoff — verified facts, not app completion
+
+Completed: reproduced live-format separator/punctuation loss and delayed
+native-echo overwrites; corrected the existing owners; retained before/after
+evidence and normally updated original #919ae88bff. Separately repaired the
+original #971 inspector test gate and normally updated it tof1533f1. Both
+original histories/bases/drafts remain; all four owned worktrees are clean.
+No main merge/push, production change, paid model call or review bypass.
+
+Latest exact-head GitHub checkpoint: #919 and #971 backend/D009 green,
+Quality Gates in progress. #96481b05e44 and #909d3b6027e checks are green,
+but both have no independent review. Main remainsdeac1a6d. #972571592e
+remains red on the separately recorded Craft-selection test.
+
+**First new red / next active task:** original #9043e96d43 hosted39439684023
+now passes its inspector callback but loses c in `She counts` (V1 UI28/1/9).
+Actual parent still has the unconditional model-to-UIKit assignment; the
+canonical correction is presently in its child, not in that parent. Do not
+promote the chain using child-local proof. T1062 local plan26feaa9 prepares
+the smallest reuse on that lower boundary, without merging the whole child
+into its parent, creating a cycle or absorbing its separate viewport work.
+No T1062 runtime correction/after-proof is claimed yet. Goal remains active;
+**READY FOR CONTINUE**, next implement/verify this parent correction.
+
+Public unauthenticated health HEAD observed2026-10-20 15:32:41UTC:
+api.them.io/healthz returns302 to introvert.com, not a THEM health response.
+No token or credential was sent. Production remains on the human's hold.
+Real microphone/model, physical-iPhone network/relaunch journey and opening
+an export outside THEM remain unproved. Human approvals/domain/production
+clearance must not be simulated; local unblocked fixes can continue.
+
+### Exact files touched or explicitly ported
+
+Root correction/rehearsal (under `codex-live-word-separators`):
+- `Packages/ScreenplayStudio/Sources/ScreenplayStudio/ScreenplayEditorTextBindingPolicy.swift`
+- `Packages/ScreenplayStudio/Tests/ScreenplayStudioTests/ScreenplayEditorTextBindingPolicyTests.swift`
+- `them/ScreenplayLiveDraftBridge.swift`
+- `them/ScreenplayStudioKeyboardSaveAccessory.swift`
+- `themTests/ScreenplayEditorBindingIntegrationTests.swift`
+- `themUITests/V1SmokeUITests.swift`
+- `TASKS.md`
+- `docs/live-word-separators-2026-10-20.md`
+
+Original-editor port (under `codex-editor-viewport-integration`) additionally
+ports the existing `FountainFormatter.swift`,
+`ScreenplayLiveLineFormattingTests.swift` (same package directories),
+`themTests/ScreenplayLiveWordSeparatorTests.swift`, parent
+`docs/inspector-reveal-owner-2026-10-20.md`, and adds
+`docs/original-editor-echo-port-2026-10-20.md`; original histories retained.
+
+Paid-talk test-only follow-up (under `codex-paid-talk-ui-gate`):
+`themUITests/V1SmokeUITests.swift`, `TASKS.md`,
+`docs/paid-talk-ui-gate-2026-10-20.md`. Its parent merge preserves the existing
+runner/evidence changes rather than rewriting their owners.
+
+Next-parent plan only (under `codex-parent-inspector-navigation`):
+`TASKS.md`, `docs/parent-editor-echo-2026-10-20.md`.
