@@ -5759,9 +5759,11 @@ final class ScreenplayStudioViewModel: ObservableObject {
         guard authContextIsCurrent(pending.authContext), selectedProjectID == pending.projectId,
               conflictState == nil || pending.source == "studio_conflict_resolve" else {
             do {
-                try await draftSaveOutbox.enqueue(pending.outboxEntry)
-                try await draftSaveOutbox.markParked(id: pending.id,
-                    error: "Save retained after the account, project, or conflict choice changed.")
+                var retained = pending.outboxEntry
+                retained.status = .parked
+                retained.nextAttemptAt = 0
+                retained.lastError = "Save retained after the account, project, or conflict choice changed."
+                try await draftSaveOutbox.enqueue(retained)
             } catch {
                 guard authContextIsCurrent(pending.authContext), selectedProjectID == pending.projectId else { return }
                 errorText = "Your local draft is preserved, but its waiting save could not be retained: \(error.localizedDescription)"

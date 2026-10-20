@@ -5,6 +5,27 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1078 — Admit held saves atomically, without active-save deduplication
+
+- **Owner:** codex. **Branch:** `codex/T-1078-atomic-held-save`.
+- **Status:** review (affected signed cohort passed; fresh hosted proof pending).
+  **Pillar:** no silent loss or unintended replay.
+- **Self-audit:** T1077 used enqueue then markParked across two actor calls;
+  a held copy was briefly runnable. Active same-text dedup could also return
+  without storing its new id, making the second markParked a silent no-op.
+- **Fix:** construct a parked entry before the canonical enqueue; admit it
+  in one actor call. Held intent is not an active-write duplicate. Existing
+  IDs can transition to parked atomically; failed writes restore memory.
+- **Scope:** existing journal, identity checks and same original #964; no
+  new store/framework. Three real queue persistence/reopen/failure cases,
+  affected outbox/slot checks only, no repeated broad/provider suite.
+- **Done when:** affected signed cohort passes, D009/diff clean; save the
+  coherent repair through the original protected PR and require fresh CI.
+- **Verified:** actual queue/slot cohort20/0/0, native exit0, erased owned
+  SE/iOS26.2. Includes persisted/reopened held records and real write failure;
+  no full local suite/provider calls. All five D009 deltas0; diff clean.
+- **Evidence:** `docs/atomic-held-save-2026-10-20.md`.
+
 ### T-1075 — Do not repeat full gates for unchanged draft readiness
 
 - **Owner:** codex. **Branch:** `codex/T-1075-ci-ready-dedup`.
