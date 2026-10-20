@@ -198,6 +198,9 @@ public enum FountainFormatter {
             guard !trimmedLines.isEmpty else { return }
 
             let blockText = trimmedLines.joined(separator: "\n")
+            // A cue followed by anything is a speech, however terse the line
+            // ("For what?" / "The ring."); never treat it as companion prose.
+            if trimmedLines.count >= 2, isCharacterCueLine(trimmedLines[0]) { return }
             guard !isStrongStudioPageWriteCandidate(blockText, allowActionOnly: true) else { return }
 
             let conversationalCount = trimmedLines.filter { isLikelyConversationalLine($0) }.count
@@ -1389,10 +1392,11 @@ public enum FountainFormatter {
         guard lines.count >= 2 else { return false }
         for index in 0..<(lines.count - 1) {
             let current = lines[index]
+            guard isCharacterCueLine(current) else { continue }
             let next = lines[index + 1]
-            if isCharacterCueLine(current), !next.hasPrefix("(") {
-                return true
-            }
+            if !next.hasPrefix("(") { return true }
+            // Cue, then a parenthetical such as (O.S.) or (beat), then dialogue.
+            if index + 2 < lines.count, !lines[index + 2].hasPrefix("(") { return true }
         }
         return false
     }
@@ -1543,6 +1547,16 @@ public enum FountainFormatter {
         return names
     }
 
+    /// Sentence starters that look like a Name followed by a verb but never
+    /// introduce a character ("He waits." must not become "HE waits.").
+    private static let nonNameSentenceStarters: Set<String> = [
+        "he", "she", "they", "it", "we", "you", "i", "one", "someone", "somebody",
+        "everyone", "everybody", "nobody", "no one", "anyone", "anybody", "each",
+        "the", "a", "an", "this", "that", "these", "those", "there", "here",
+        "then", "now", "later", "meanwhile", "suddenly", "outside", "inside",
+        "silence", "beat", "nothing", "everything", "something", "both", "all",
+    ]
+
     private static func detectActionIntroductionCandidates(in text: String) -> [String] {
         let patterns = [
             #"(^|[.!?]\s+)([A-Z][a-z'’-]+(?:\s+[A-Z][a-z'’-]+){0,2})(?=\s*,\s*\d{1,2}\b)"#,
@@ -1558,6 +1572,7 @@ public enum FountainFormatter {
                 guard let matchRange = Range(match.range(at: 2), in: text) else { continue }
                 let candidate = String(text[matchRange]).trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !candidate.isEmpty else { continue }
+                guard !nonNameSentenceStarters.contains(candidate.lowercased()) else { continue }
                 guard !isLikelyLocationLikeName(candidate) else { continue }
                 if !matches.contains(candidate) {
                     matches.append(candidate)
