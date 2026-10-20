@@ -5,6 +5,21 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1063 — Preserve the corrected parent in original #919
+
+- **Owner:** codex. **Branch:** `codex/T-1061-original-editor-echo`.
+- **Status:** review (local merged proof passed). **Pillar:** exact words.
+- **History:** no-ff49ba4df retains original childae88bff + parent89ed4c2;
+  no-ffe2cec5e then retains parent10167e3. Both task histories preserved.
+- **Verified:** first merge Swift-identical; signed17/0/0 and Node20
+  backend2753/0/2. Final merged guard/editor/typing20/0/0; all D009 deltas0.
+- **Limits:** current hosted recovery red retained; parent T1064's failing-
+  first guard reused, not a claimed complete hosted causal trace. Parent
+  full/recovery/macOS evidence is separately attributed, not rerun in child.
+- **Next:** normal same-original #919 update, fresh hosted/review; T1065
+  redirect safety next. No main/production/paid call or completion claim.
+- **Evidence:** `docs/editor-parent-merge-2026-10-20.md`.
+
 ### T-1061 — Port exact editor fixes without swallowing separate PRs
 
 - **Owner:** codex. **Branch:** `codex/T-1061-original-editor-echo`.
