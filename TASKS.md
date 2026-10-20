@@ -19,6 +19,11 @@
   replacement PR, paid provider call, production change or main merge.
 - **Intent:** do useful preparation while the parent runs; no unchanged
   signed-client rerun if its bytes are identical to proven parent runtime.
+- **Verified on d131b44d:** Node20.20.2 focused safety10/0/0, scripts231/0/0,
+  backend2907/0/2; actual canonical Node20.20.2/PostgreSQL16.15 restart PASS
+  after12 migrations, exact422,201-byte rewrite/replay/owner checks. D009
+  all five deltas0; diff/ancestry/runtime-identity pass. No new client run.
+- **Evidence:** `docs/postgres-repaired-save-parent-2026-10-19.md`.
 
 ### T-1008 — Re-prove real database restart on the current retained parent
 
