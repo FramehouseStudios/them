@@ -8,7 +8,8 @@
 ### T-1081 — Preserve billing fixes on the current security/save foundation
 
 - **Owner:** codex. **Branch:** `codex/T-1081-billing-foundation-sync`.
-- **Status:** in-progress. **Pillar:** reliable writes and truthful wallet charges.
+- **Status:** review (local integration prepared; original remote unchanged).
+  **Pillar:** reliable writes and truthful wallet charges.
 - **Boundary:** original #625 `d493c515` plus original #964 `5faa43d6`;
   preserving merge, no squash, replacement PR, force push or main change.
 - **Target:** retain the original generation/recovery billing corrections and
@@ -20,6 +21,11 @@
 - **Publication hold:** leave the original remote head unchanged until #964's
   remaining required checks pass. Updated #625 still needs fresh exact-head
   hosted checks and independent review. Production remains held; no paid call.
+- **Verified:** preserving merge `dc12f546`, both parent histories retained;
+  affected Node20.20.2 billing/security45/0/0 and CI contracts6/0/0, network
+  disabled. Canonical source byte comparisons and five D009 deltas0 pass.
+  No new full local backend, signed units, UI, macOS or provider run claimed.
+- **Evidence:** `docs/billing-foundation-sync-2026-10-20.md`.
 
 ### T-1047 — Reach Voice Pin page actions without overshooting
 
