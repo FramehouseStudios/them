@@ -474,22 +474,24 @@ struct DataControlsScreen: View {
                     .font(.system(size: 18, weight: .semibold, design: .default))
                     .foregroundStyle(Color.herText.opacity(0.92))
                 Spacer()
-                Button {
-                    Task { @MainActor in
-                        await retryOfflineOutbox()
+                if offlineOutboxSnapshot.activeCount > 0 {
+                    Button {
+                        Task { @MainActor in
+                            await retryOfflineOutbox()
+                        }
+                    } label: {
+                        if isRetryingOutbox {
+                            ProgressView()
+                                .controlSize(.small)
+                        } else {
+                            Image(systemName: "arrow.triangle.2.circlepath")
+                                .font(.system(size: 14, weight: .semibold))
+                        }
                     }
-                } label: {
-                    if isRetryingOutbox {
-                        ProgressView()
-                            .controlSize(.small)
-                    } else {
-                        Image(systemName: "arrow.triangle.2.circlepath")
-                            .font(.system(size: 14, weight: .semibold))
-                    }
+                    .buttonStyle(.plain)
+                    .disabled(isBusy || isRetryingOutbox)
+                    .accessibilityLabel("Retry queued talk turns")
                 }
-                .buttonStyle(.plain)
-                .disabled(isBusy || isRetryingOutbox)
-                .accessibilityLabel("Retry queued talk turns")
             }
 
             Text(offlineOutboxSummary)
