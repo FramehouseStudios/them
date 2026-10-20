@@ -5,6 +5,26 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1080 — Wait for the seeded page before injecting offline edits
+
+- **Owner:** codex. **Branch:** `codex/T-1080-recovery-fixture-readiness`.
+- **Status:** review (affected local stories passed; fresh hosted proof pending).
+  **Pillar:** truthful exact-word recovery proof.
+- **Boundary:** original #91998bad16f hosted39511926607 passes units682/0/0,
+  writer and V1 UI32/0/9, then recovery1/1/0. Final actual saved version
+  contains only the marker, not the seeded scene plus marker. Retain red.
+- **Fix:** reuse original #962856d7624's DEBUG loaded-project readiness and
+  cancellation guards, without its later blank-page features. Strengthen
+  both initial queued-page checks to require full expected text/count and
+  correct selected/loaded project before continuing. Final checks unchanged.
+- **Done when:** two affected authenticated signed recovery stories pass,
+  D009/diff clean; normal same-original update with fresh required CI/review.
+  No full local duplicate suites or paid call; shipping UI not changed.
+- **Verified:** stronger initial-page premise and unchanged final exact-text
+  recovery2/0/0, signed/erased owned SE/iOS26.2, native producer0. Five D009
+  deltas0/diff pass. Earlier hosted1/1/0 retained; not an unchanged retry.
+- **Evidence:** `docs/recovery-fixture-readiness-2026-10-20.md`.
+
 ### T-1076 — Keep delayed draft work from retiring newer writer words
 
 - **Owner:** codex. **Branch:** `codex/T-1076-editor-queue-consistency`.

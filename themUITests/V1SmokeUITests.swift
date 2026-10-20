@@ -1817,6 +1817,7 @@ final class V1SmokeUITests: XCTestCase {
 
         let fixture = try await seedBackendRestoreContractFixture(baseURL: baseURL)
         let marker = "SAVE-OUTBOX-\(UUID().uuidString.uppercased())"
+        let expectedQueuedDraft = "\(fixture.expectedDraft)\n\n\(marker)"
         var app = launchApp(
             openStudio: true,
             screenplaySaveNetworkFaultMarker: marker,
@@ -1832,7 +1833,9 @@ final class V1SmokeUITests: XCTestCase {
             waitForRestoreSnapshot(in: app, timeout: 60) { snapshot in
                 queuedSnapshot = snapshot
                 return stringValue(snapshot["selected_project_id"]).lowercased() == fixture.projectID.lowercased()
-                    && stringValue(snapshot["draft_tail_preview"]).contains(marker)
+                    && stringValue(snapshot["loaded_draft_project_id"]).lowercased() == fixture.projectID.lowercased()
+                    && stringValue(snapshot["draft_tail_preview"]) == String(expectedQueuedDraft.suffix(260))
+                    && intValue(snapshot["draft_character_count"]) == expectedQueuedDraft.count
                     && intValue(snapshot["queued_draft_save_count"]) == 1
                     && intValue(snapshot["parked_draft_save_count"]) == 0
                     && boolValue(snapshot["has_unsaved_draft_changes"])
@@ -1940,6 +1943,7 @@ final class V1SmokeUITests: XCTestCase {
 
         let fixture = try await seedBackendRestoreContractFixture(baseURL: baseURL)
         let marker = "SAVE-CONFLICT-\(UUID().uuidString.uppercased())"
+        let expectedQueuedDraft = "\(fixture.expectedDraft)\n\n\(marker)"
         var app = launchApp(
             openStudio: true,
             screenplaySaveNetworkFaultMarker: marker,
@@ -1954,7 +1958,10 @@ final class V1SmokeUITests: XCTestCase {
         XCTAssertTrue(
             waitForRestoreSnapshot(in: app, timeout: 60) { snapshot in
                 queuedSnapshot = snapshot
-                return stringValue(snapshot["draft_tail_preview"]).contains(marker)
+                return stringValue(snapshot["selected_project_id"]).lowercased() == fixture.projectID.lowercased()
+                    && stringValue(snapshot["loaded_draft_project_id"]).lowercased() == fixture.projectID.lowercased()
+                    && stringValue(snapshot["draft_tail_preview"]) == String(expectedQueuedDraft.suffix(260))
+                    && intValue(snapshot["draft_character_count"]) == expectedQueuedDraft.count
                     && intValue(snapshot["queued_draft_save_count"]) == 1
                     && intValue(snapshot["parked_draft_save_count"]) == 0
                     && boolValue(snapshot["has_unsaved_draft_changes"])
