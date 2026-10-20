@@ -280,6 +280,54 @@ final class OfflineTalkOutboxTests: XCTestCase {
         )
     }
 
+    func testManualRetryTargetsOnlySelectedRetainedTurnAndParksRepeatedQuota() async throws {
+        let outbox = OfflineTalkOutbox(storageDirectory: directory)
+        var request = URLRequest(url: URL(string: "https://them.test/talk")!)
+        request.httpMethod = "POST"
+        request.setValue("ordinary", forHTTPHeaderField: "X-Idempotency-Key")
+        _ = try await outbox.enqueue(request: request, body: Data("other words".utf8), reason: "offline")
+        request.setValue("retained", forHTTPHeaderField: "X-Idempotency-Key")
+        let body = Data("Exact cafe\u{0301}\r\n🎬".utf8)
+        let parked = try await outbox.enqueue(request: request, body: body, reason: "provider unavailable", requiresManualRetry: true)
+        let relaunched = OfflineTalkOutbox(storageDirectory: directory)
+        var calls = 0
+        let snapshot = try await relaunched.retryParkedEntry(id: parked.entry.id, now: Date().addingTimeInterval(10)) { replay in
+            calls += 1
+            XCTAssertEqual(replay.httpBody, body)
+            XCTAssertEqual(replay.value(forHTTPHeaderField: "X-Idempotency-Key"), "retained")
+            return OfflineTalkOutboxSendResult(statusCode: 429, body: Data(#"{"error_class":"provider_quota"}"#.utf8))
+        }
+        XCTAssertEqual(calls, 1)
+        XCTAssertEqual(snapshot.pendingCount, 1)
+        XCTAssertEqual(snapshot.parkedCount, 1)
+        let entries = await relaunched.allEntries()
+        XCTAssertEqual(entries.first { $0.idempotencyKey == "ordinary" }?.retries, 0)
+        XCTAssertEqual(entries.first { $0.idempotencyKey == "retained" }?.status, .parked)
+    }
+
+    func testManualRetryNeverReactivatesAnotherAccountsRetainedTurn() async throws {
+        let outbox = OfflineTalkOutbox(storageDirectory: directory)
+        var request = URLRequest(url: URL(string: "https://them.test/talk")!)
+        request.httpMethod = "POST"
+        request.setValue("other-account-\(UUID().uuidString)", forHTTPHeaderField: "X-User-Id")
+        request.setValue("other-owner-request", forHTTPHeaderField: "X-Idempotency-Key")
+        let retained = try await outbox.enqueue(request: request, body: Data("other owner's words".utf8),
+            reason: "provider unavailable", requiresManualRetry: true)
+        var calls = 0
+        do {
+            _ = try await outbox.retryParkedEntry(id: retained.entry.id) { _ in
+                calls += 1
+                return OfflineTalkOutboxSendResult(statusCode: 200)
+            }
+            XCTFail("Another account's request must not be reactivated.")
+        } catch BackendError.stage(let stage, _) {
+            XCTAssertEqual(stage, "offline_outbox")
+        }
+        XCTAssertEqual(calls, 0)
+        let entries = await outbox.allEntries()
+        XCTAssertEqual(entries, [retained.entry])
+    }
+
     func testProviderRateLimitStillBacksOffForQueuedTurn() async throws {
         let outbox = OfflineTalkOutbox(storageDirectory: directory)
         var request = URLRequest(url: URL(string: "https://them.test/talk")!)

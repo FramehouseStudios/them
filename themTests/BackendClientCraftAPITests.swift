@@ -1856,21 +1856,92 @@ final class BackendClientCraftAPITests: XCTestCase {
     }
 
     @MainActor
-    func testTalkProviderAuthFailureDoesNotRefreshTheWritersSession() async throws {
+    func testTalkProviderFailureRetainsRequestWithoutRefreshingWritersSession() async throws {
+        for mode in [TalkAuthHTTPFixture.Mode.providerAuth, .providerQuota] {
+            try await assertProviderRequestRetained(mode: mode)
+        }
+    }
+
+    @MainActor
+    private func assertProviderRequestRetained(mode: TalkAuthHTTPFixture.Mode) async throws {
+        print("PROVIDER-RECOVERY fixture start: \(mode)")
+        let defaults = UserDefaults.standard
+        let ownerKeys = ["auth_user_payload", "user_id", "auth_signed_in"]
+        let previousOwnerValues = ownerKeys.map { defaults.object(forKey: $0) }
+        let previousSharedOwner = BackendAuthClient.sharedUserID()
+        defer {
+            for (key, value) in zip(ownerKeys, previousOwnerValues) {
+                if let value { defaults.set(value, forKey: key) }
+                else { defaults.removeObject(forKey: key) }
+            }
+            if let previousSharedOwner { _ = BackendAuthClient.persistSharedUserID(previousSharedOwner) }
+            else { BackendAuthClient.clearSharedUserID() }
+        }
+        let owner = "provider-recovery-\(UUID().uuidString)"
+        let user = BackendAuthUser(userId: owner, email: "fixture@example.invalid", authProvider: "debug",
+            emailVerified: true, emailVerifiedAt: nil, createdAt: nil, updatedAt: nil)
+        defaults.set(try JSONEncoder().encode(user), forKey: "auth_user_payload")
+        guard BackendAuthClient.persistSharedUserID(owner), BackendAuthClient.sharedUserID() == owner else {
+            XCTFail("The synthetic owner must be installed through the canonical credential store.")
+            return
+        }
+        defaults.set(true, forKey: "auth_signed_in")
+        let restoredOwner = try XCTUnwrap(BackendAuthClient.currentAuthSessionState().user?.userId,
+            "The synthetic owner fixture must be readable before sending anything.")
+        XCTAssertEqual(restoredOwner, owner)
         BackendAuthClient.clearSharedClientToken()
         defer { BackendAuthClient.clearSharedClientToken() }
-        let server = try TalkAuthHTTPFixture(mode: .providerAuth)
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let outbox = OfflineTalkOutbox(storageDirectory: directory)
+        let server = try TalkAuthHTTPFixture(mode: mode)
         let url = try await server.start()
+        print("PROVIDER-RECOVERY fixture listening: \(mode)")
         defer { server.stop() }
-        let client = BackendClient(baseURL: url, fallbackURL: url, persistBackendBaseURL: false, attachUserIDHeader: false)
+        let client = BackendClient(baseURL: url, fallbackURL: url, persistBackendBaseURL: false,
+                                   attachUserIDHeader: false, offlineTalkOutbox: outbox)
         do {
             _ = try await client.talkText(transcript: "Write a scene about two astronauts.")
             XCTFail("Provider failure must surface, not become a successful reply.")
-        } catch let BackendError.stage(stage, _) {
-            XCTAssertEqual(stage, "talk_chat")
+        } catch let retained as BackendTalkQueuedError {
+            XCTAssertEqual(retained.snapshot.parkedCount, 1)
+            XCTAssertEqual(retained.snapshot.activeCount, 0)
         }
+        print("PROVIDER-RECOVERY first rejection retained: \(mode)")
         XCTAssertEqual(server.paths.filter { $0 == "/session" }.count, 1, "A provider key failure cannot repair a valid app session.")
         XCTAssertEqual(server.paths.filter { $0 == "/talk" }.count, 1, "Do not resend the writer's turn for an unrelated provider credential failure.")
+        let relaunched = OfflineTalkOutbox(storageDirectory: directory)
+        let entries = await relaunched.allEntries()
+        let entry = try XCTUnwrap(entries.first)
+        XCTAssertEqual(entries.count, 1)
+        XCTAssertEqual(entry.status, .parked)
+        var calls = 0
+        _ = await relaunched.drainDue(now: Date().addingTimeInterval(3600)) { _ in
+            calls += 1
+            return OfflineTalkOutboxSendResult(statusCode: 200)
+        }
+        XCTAssertEqual(calls, 0, "Quota/auth recovery is retained, never automatically retried.")
+        print("PROVIDER-RECOVERY explicit replay start: \(mode)")
+        let retried = try await relaunched.retryParkedEntry(id: entry.id) { request in
+            calls += 1
+            XCTAssertEqual(request.value(forHTTPHeaderField: "X-Idempotency-Key"), entry.idempotencyKey)
+            XCTAssertNotNil(request.httpBody?.range(of: Data("Write a scene about two astronauts.".utf8)))
+            return OfflineTalkOutboxSendResult(statusCode: 200)
+        }
+        XCTAssertEqual(calls, 1)
+        XCTAssertFalse(retried.hasWork)
+        print("PROVIDER-RECOVERY explicit replay complete: \(mode)")
+    }
+
+    func testManualTalkRecoveryDoesNotConfuseUserAuthOrRateLimitsWithProviderFailures() {
+        for body in [#"{"stage":"auth_user","error":"user_auth_required"}"#,
+                     #"{"stage":"rate_limit","error":"rate_limited"}"#, "not json"] {
+            for status in [401, 403, 429] {
+                XCTAssertFalse(BackendProviderFailurePolicy.requiresManualTalkRetry(statusCode: status, data: Data(body.utf8)))
+            }
+        }
+        XCTAssertFalse(BackendProviderFailurePolicy.requiresManualTalkRetry(statusCode: 200,
+            data: Data(#"{"error_class":"provider_quota"}"#.utf8)))
     }
 
     @MainActor

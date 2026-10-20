@@ -5,6 +5,14 @@ import Foundation
 nonisolated enum BackendProviderFailurePolicy {
     static let userMessage = "Clementine's writing service is temporarily unavailable. Your draft is safe. Please try again later."
 
+    static func requiresManualTalkRetry(statusCode: Int, data: Data) -> Bool {
+        guard !(200...299).contains(statusCode) else { return false }
+        if isQuotaExhausted(statusCode: statusCode, data: data) { return true }
+        guard statusCode == 401 || statusCode == 403,
+              let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return false }
+        return (payload["error_class"] as? String)?.lowercased() == "provider_auth"
+    }
+
     static func shouldRefreshClientSession(statusCode: Int, stage: String?) -> Bool {
         guard statusCode == 401 else { return false }
         let normalized = (stage ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()

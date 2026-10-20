@@ -2294,6 +2294,7 @@ final class BackendClient {
     private let urlSession: URLSession
     private let shouldPersistBackendBaseURL: Bool
     private let shouldAttachUserIDHeader: Bool
+    private let offlineTalkOutbox: OfflineTalkOutbox
     private let devFallbackAppToken: String? = {
 #if DEBUG
         "them-dev"
@@ -2366,13 +2367,15 @@ final class BackendClient {
         ),
         urlSession: URLSession = .shared,
         persistBackendBaseURL: Bool = true,
-        attachUserIDHeader: Bool = true
+        attachUserIDHeader: Bool = true,
+        offlineTalkOutbox: OfflineTalkOutbox = .shared
     ) {
         self.baseURL = baseURL
         self.fallbackURL = fallbackURL
         self.urlSession = urlSession
         self.shouldPersistBackendBaseURL = persistBackendBaseURL
         self.shouldAttachUserIDHeader = attachUserIDHeader
+        self.offlineTalkOutbox = offlineTalkOutbox
     }
 
     // Explicit teardown avoids the synthesized actor-deinit TaskLocal crash on
@@ -4936,11 +4939,13 @@ final class BackendClient {
                     throw BackendError.continueListening
                 }
             }
-            if shouldQueueTalkStatus(statusCode, data: data) {
+            let requiresManualRetry = BackendProviderFailurePolicy.requiresManualTalkRetry(statusCode: statusCode, data: data)
+            if requiresManualRetry || shouldQueueTalkStatus(statusCode, data: data) {
                 if let queued = await enqueueOfflineTalkRequest(
                     request,
                     body: body,
-                    reason: "HTTP \(statusCode)"
+                    reason: requiresManualRetry ? BackendProviderFailurePolicy.userMessage : "HTTP \(statusCode)",
+                    requiresManualRetry: requiresManualRetry
                 ) {
                     throw queued
                 }
@@ -6117,13 +6122,15 @@ final class BackendClient {
     private func enqueueOfflineTalkRequest(
         _ request: URLRequest,
         body: Data,
-        reason: String
+        reason: String,
+        requiresManualRetry: Bool = false
     ) async -> BackendTalkQueuedError? {
         do {
-            let result = try await OfflineTalkOutbox.shared.enqueue(
+            let result = try await offlineTalkOutbox.enqueue(
                 request: request,
                 body: body,
-                reason: reason
+                reason: reason,
+                requiresManualRetry: requiresManualRetry
             )
             print("POST /talk -> queued offline outbox entry \(result.entry.id)")
             return BackendTalkQueuedError(

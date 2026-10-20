@@ -235,7 +235,8 @@ actor OfflineTalkOutbox {
     func enqueue(
         request: URLRequest,
         body: Data,
-        reason: String
+        reason: String,
+        requiresManualRetry: Bool = false
     ) throws -> OfflineTalkOutboxEnqueueResult {
         try loadIfNeeded()
         try ensureStorageExists()
@@ -255,6 +256,10 @@ actor OfflineTalkOutbox {
         let idempotencyKey = normalizedHeader(request.value(forHTTPHeaderField: "X-Idempotency-Key"))
             ?? UUID().uuidString
         if let existingIndex = entries.firstIndex(where: { $0.idempotencyKey == idempotencyKey }) {
+            if requiresManualRetry {
+                entries[existingIndex].status = .parked
+                entries[existingIndex].nextAttemptAt = 0
+            }
             entries[existingIndex].lastError = normalizedReason(reason)
             entries[existingIndex].updatedAt = Date().timeIntervalSince1970
             try persist()
@@ -278,9 +283,9 @@ actor OfflineTalkOutbox {
             bodyByteCount: body.count,
             idempotencyKey: idempotencyKey,
             timeoutInterval: request.timeoutInterval > 0 ? request.timeoutInterval : 40,
-            status: .pending,
+            status: requiresManualRetry ? .parked : .pending,
             retries: 0,
-            nextAttemptAt: now + Self.backoffSeconds[0],
+            nextAttemptAt: requiresManualRetry ? 0 : now + Self.backoffSeconds[0],
             lastError: normalizedReason(reason)
         )
 
@@ -296,6 +301,7 @@ actor OfflineTalkOutbox {
     func drainDue(
         now: Date = Date(),
         limit: Int = 6,
+        entryID: String? = nil,
         transport: Transport? = nil
     ) async -> OfflineTalkOutboxSnapshot {
         do {
@@ -314,6 +320,7 @@ actor OfflineTalkOutbox {
         while sentCount < max(1, limit),
               let index = entries.firstIndex(where: { entry in
                   entry.status == .pending && entry.nextAttemptAt <= nowSeconds
+                    && (entryID == nil || entry.id == entryID)
               }) {
             sentCount += 1
             entries[index].status = .inflight
@@ -340,6 +347,23 @@ actor OfflineTalkOutbox {
         let nextSnapshot = snapshotFor(entries)
         publish(nextSnapshot)
         return nextSnapshot
+    }
+
+    /// Only a writer's explicit retry may reactivate a retained provider failure.
+    /// Preserve the exact body/key and never drain a different pending turn here.
+    func retryParkedEntry(id: String, now: Date = Date(), transport: Transport? = nil) async throws -> OfflineTalkOutboxSnapshot {
+        try loadIfNeeded()
+        guard let index = entries.firstIndex(where: { $0.id == id && $0.status == .parked }) else {
+            return snapshotFor(entries)
+        }
+        _ = try replayRequest(for: entries[index]) // Validate owner and readable body before changing durable state.
+        let previous = entries[index]
+        entries[index].status = .pending
+        entries[index].updatedAt = now.timeIntervalSince1970
+        entries[index].nextAttemptAt = now.timeIntervalSince1970
+        entries[index].lastError = nil
+        do { try persist() } catch { entries[index] = previous; throw error }
+        return await drainDue(now: now, limit: 1, entryID: id, transport: transport)
     }
 
     func deleteParkedEntries() throws -> OfflineTalkOutboxSnapshot {

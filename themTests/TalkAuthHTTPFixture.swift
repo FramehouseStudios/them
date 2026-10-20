@@ -4,7 +4,7 @@ import Network
 /// Test-only loopback HTTP fixture. Exercises the real delegate/URLSession
 /// transport, which does not use BackendClient's injected URLProtocol session.
 nonisolated final class TalkAuthHTTPFixture: @unchecked Sendable {
-    enum Mode { case providerAuth, expiredClient, legacyClient }
+    enum Mode { case providerAuth, providerQuota, expiredClient, legacyClient }
     private let listener: NWListener
     private let queue = DispatchQueue(label: "them.tests.talk-auth-http")
     private let lock = NSLock()
@@ -75,6 +75,8 @@ nonisolated final class TalkAuthHTTPFixture: @unchecked Sendable {
                         response = (201, #"{"client_token":"fixture-client-session","expires_in":3600}"#)
                     } else if path == "/talk", self.mode == .providerAuth {
                         response = (401, #"{"stage":"talk_chat","provider_stage":"chat","error_class":"provider_auth","error":"Talk failed during response generation (provider_auth)."}"#)
+                    } else if path == "/talk", self.mode == .providerQuota {
+                        response = (429, #"{"stage":"talk_chat","error_class":"provider_quota","error":"insufficient_quota"}"#)
                     } else if path == "/talk", talkCount == 1 {
                         response = self.mode == .legacyClient
                             ? (401, #"{"error":"unauthorized"}"#)

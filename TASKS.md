@@ -5,6 +5,35 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1016 — Retain rejected spoken requests and connect explicit recovery
+
+- **Owner:** codex. **Branch:** `codex/T-1016-provider-turn-recovery`.
+- **Status:** review (focused functional proof; UI/broader proof pending).
+- **Pillar:** exact writer words / voice-to-scene.
+- **Source finding:** BackendClient does not retain an initial explicit
+  provider-auth/quota rejection; OfflineTalkOutbox parks later failures but
+  Data Controls offers deletion only. Preserve original request bytes and
+  idempotency key without automatic provider-auth/quota retries.
+- **Change:** canonical provider policy classifies manual recovery; enqueue
+  directly parked, expose explicit per-turn retry in existing Data Controls,
+  and target only that saved request through the existing owner-checked
+  replay transport. Keep all retained entries reachable, not hidden by the
+  three-row preview limit. No new store/framework/provider call.
+- **Done when:** real loopback client rejection retains the request across
+  relaunch, no automatic retry, exact manual replay, repeated quota remains
+  parked, unrelated pending work/auth refresh behavior unchanged, focused
+  signed checks and D009/diff pass. UI/device/broader proof reported separately.
+- **Evidence:** `docs/provider-turn-recovery-2026-10-19.md`.
+- **Actual results:** initial signed focused57/1/0; diagnostic0/1/0;
+  incomplete-owner run1/1/0 (wrong-account check passed), Keychain-mismatch
+  run0/1/0; canonical-owner HTTP case1/0/0 covers both provider401 and quota429.
+  Prior failures retained. Fixture now uses canonical credential ownership,
+  not a production guard relaxation. D009 all five deltas0; diff pass.
+  No new full-suite, UI interaction, live model or physical-phone claim.
+- **Integration:** original #96287a62a6c hosted39349393133 is live; do not
+  advance #963 until it passes. This is an isolated follow-up on combined
+  T1013, not a replacement original PR or production deployment.
+
 ### T-1013 — Fail closed when queued writer input cannot be loaded
 
 - **Owner:** codex. **Branch:** `codex/T-1013-outbox-load-safety`.

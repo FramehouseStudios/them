@@ -39,7 +39,7 @@ private enum DataControlAction: Identifiable, Equatable {
         case .clearMemories:
             return "Delete All Memories"
         case .clearParkedOutbox:
-            return "Delete Parked Turns"
+            return "Delete Retained Turns"
         case .discardOutlineRecovery:
             return "Discard Parked Outline Changes"
         case .deleteAccount:
@@ -54,7 +54,7 @@ private enum DataControlAction: Identifiable, Equatable {
         case .clearMemories:
             return "This removes remembered names, themes, and continuity memory context. This cannot be undone."
         case .clearParkedOutbox:
-            return "This deletes queued talk turns that could not be retried. This cannot be undone."
+            return "This deletes retained talk requests from this device. Retry them first if you still need them. This cannot be undone."
         case .discardOutlineRecovery(_, _, let confirmedEntryIDs, _):
             let removalCount = confirmedEntryIDs.count
             let noun = removalCount == 1 ? "saved outline snapshot" : "causally linked outline snapshots"
@@ -71,7 +71,7 @@ private enum DataControlAction: Identifiable, Equatable {
         case .clearMemories:
             return "Delete Memories"
         case .clearParkedOutbox:
-            return "Delete Parked Turns"
+            return "Delete Retained Turns"
         case .discardOutlineRecovery(_, _, let confirmedEntryIDs, _):
             let removalCount = confirmedEntryIDs.count
             return removalCount == 1 ? "Discard Change" : "Discard \(removalCount) Changes"
@@ -496,7 +496,8 @@ struct DataControlsScreen: View {
                 .font(.system(size: 14, weight: .regular, design: .default))
                 .foregroundStyle(Color.herText.opacity(0.78))
 
-            let visibleEntries = offlineOutboxEntries.prefix(3)
+            let visibleEntries = offlineOutboxEntries.filter { $0.status == .parked }
+                + Array(offlineOutboxEntries.filter { $0.status != .parked }.prefix(3))
             if !visibleEntries.isEmpty {
                 VStack(alignment: .leading, spacing: 8) {
                     ForEach(Array(visibleEntries)) { entry in
@@ -514,6 +515,15 @@ struct DataControlsScreen: View {
                                         .foregroundStyle(Color.herText.opacity(0.66))
                                         .lineLimit(2)
                                 }
+                                if entry.status == .parked {
+                                    Button("Retry retained turn") {
+                                        Task { @MainActor in await retryRetainedTurn(entry.id) }
+                                    }
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .disabled(isBusy || isRetryingOutbox)
+                                    .accessibilityIdentifier("data-controls.outbox.retry.\(entry.id)")
+                                    .accessibilityHint("Retry this saved request. This may use a Clementine turn.")
+                                }
                             }
                             Spacer(minLength: 0)
                         }
@@ -527,7 +537,7 @@ struct DataControlsScreen: View {
                 } label: {
                     HStack(spacing: 8) {
                         Image(systemName: "trash")
-                        Text("Delete parked turns")
+                        Text("Delete retained turns")
                     }
                     .font(.system(size: 13, weight: .semibold, design: .default))
                     .foregroundStyle(Color.red.opacity(0.84))
@@ -909,7 +919,7 @@ struct DataControlsScreen: View {
         case .inflight:
             return "Sending now"
         case .parked:
-            return "Parked after retry failure"
+            return "Retained — needs your attention"
         }
     }
 
@@ -977,6 +987,21 @@ struct DataControlsScreen: View {
         offlineOutboxSnapshot = await OfflineTalkOutbox.shared.drainDue()
         offlineOutboxEntries = await OfflineTalkOutbox.shared.allEntries()
         statusMessage = offlineOutboxSnapshot.userVisibleStatus ?? "Queued turns are clear."
+    }
+
+    @MainActor
+    private func retryRetainedTurn(_ id: String) async {
+        guard !isRetryingOutbox else { return }
+        isRetryingOutbox = true
+        defer { isRetryingOutbox = false }
+        do {
+            offlineOutboxSnapshot = try await OfflineTalkOutbox.shared.retryParkedEntry(id: id)
+            statusMessage = offlineOutboxSnapshot.userVisibleStatus ?? "Retained turn sent."
+        } catch {
+            statusMessage = "Could not retry this retained turn. It is still on this device."
+            offlineOutboxSnapshot = await OfflineTalkOutbox.shared.snapshot()
+        }
+        offlineOutboxEntries = await OfflineTalkOutbox.shared.allEntries()
     }
 
     @MainActor
