@@ -943,59 +943,6 @@ nonisolated struct BackendActionReceiptsResponse: Decodable {
     let actionReceipts: BackendActionReceiptsPayload
 }
 
-nonisolated struct BackendTaskItem: Decodable, Hashable, Identifiable {
-    let id: String
-    let title: String
-    let status: String
-    let priority: String
-    let dueAt: TimeInterval
-    let createdAt: TimeInterval
-    let completedAt: TimeInterval
-    let source: String
-}
-
-nonisolated struct BackendTasksResponse: Decodable {
-    let source: String
-    let sourceIp: String
-    let sessionId: String?
-    let stateVersion: String?
-    let lastUpdatedAt: TimeInterval?
-    let historyUpdatedAt: TimeInterval?
-    let memoryUpdatedAt: TimeInterval?
-    let lastTurnId: String?
-    let schemaVersion: Int?
-    let backendBuild: String?
-    let backendBootId: String?
-    let statusFilter: String
-    let taskLastUpdatedAt: TimeInterval?
-    let totalCount: Int
-    let openCount: Int
-    let completedCount: Int
-    let tasks: [BackendTaskItem]
-}
-
-nonisolated struct BackendTaskUpdateResponse: Decodable {
-    let ok: Bool
-    let action: String
-    let status: String
-    let message: String?
-    let task: BackendTaskItem?
-    let removedCount: Int?
-    let sessionId: String?
-    let stateVersion: String?
-    let lastTurnId: String?
-    let lastUpdatedAt: TimeInterval?
-    let historyUpdatedAt: TimeInterval?
-    let memoryUpdatedAt: TimeInterval?
-    let taskLastUpdatedAt: TimeInterval?
-    let totalCount: Int?
-    let openCount: Int?
-    let completedCount: Int?
-    let schemaVersion: Int?
-    let backendBuild: String?
-    let backendBootId: String?
-}
-
 nonisolated struct BackendDailyRecapStats: Decodable {
     let turnsToday: Int
     let openTasks: Int
@@ -6771,6 +6718,12 @@ actor BackendMemoryAPI {
         let sync: BackendSyncState
     }
 
+    private struct ScreenplayProjectsCacheEntry {
+        let etag: String
+        let payload: BackendScreenplayProjectsResponse
+        let sync: BackendSyncState
+    }
+
     private struct MemoriesCacheEntry {
         let etag: String
         let payload: BackendMemoriesResponse
@@ -6832,6 +6785,8 @@ actor BackendMemoryAPI {
     private var nextSessionBootstrapTaskID: Int = 0
     private var syncState: BackendSyncState = .empty
     private var historyCacheByLimit: [Int: HistoryCacheEntry] = [:]
+    private var screenplayProjectsCacheByKey: [String: ScreenplayProjectsCacheEntry] = [:]
+    private var screenplayProjectsCacheGeneration = UUID()
     private var memoriesCacheByLimit: [Int: MemoriesCacheEntry] = [:]
     private var latestSeenStateVersion: String = ""
     private var latestCreativeMemoryRevision: String = ""
@@ -7719,7 +7674,7 @@ actor BackendMemoryAPI {
         includeDrafts: Bool = false
     ) async throws -> BackendReadResult<BackendScreenplayProjectsResponse> {
         _ = try? await bootstrapSession(force: false)
-        let request = try makeRequest(
+        var request = try makeRequest(
             path: "/screenplay/projects",
             limit: max(1, limit),
             extraQueryItems: [
@@ -7727,9 +7682,23 @@ actor BackendMemoryAPI {
                 URLQueryItem(name: "include_drafts", value: includeDrafts ? "1" : "0"),
             ]
         )
+        // The Studio polls this list every few seconds; an unchanged owner
+        // state comes back as 304 and the cached payload is reused.
+        let requestIdentity = requestIdentityProvider(true)
+        let cacheKey = "\(requestIdentity.sessionEpoch)|\(requestIdentity.userID)|\(max(1, limit))|\(includeVersions)|\(includeDrafts)"
+        let cacheGeneration = screenplayProjectsCacheGeneration
+        if let cached = screenplayProjectsCacheByKey[cacheKey], !cached.etag.isEmpty {
+            request.setValue(cached.etag, forHTTPHeaderField: "If-None-Match")
+        }
         let (data, response) = try await session.data(for: request)
+        guard cacheGeneration == screenplayProjectsCacheGeneration,
+              requestIdentity == requestIdentityProvider(true) else { throw CancellationError() }
         guard let http = response as? HTTPURLResponse else {
             throw BackendMemoryAPIError.invalidResponse
+        }
+        if http.statusCode == 304, let cached = screenplayProjectsCacheByKey[cacheKey] {
+            updateSyncState(mergeSyncStates(base: cached.sync, incoming: syncFromHeaders(http, fallbackStatus: "up")), emitTurnEvent: false)
+            return BackendReadResult(payload: cached.payload, sync: syncState, notModified: true)
         }
         guard (200...299).contains(http.statusCode) else {
             let message = decodeErrorMessage(from: data)
@@ -7738,6 +7707,7 @@ actor BackendMemoryAPI {
         let decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase
         let payload = try decoder.decode(BackendScreenplayProjectsResponse.self, from: data)
+        let responseEtag = http.value(forHTTPHeaderField: "ETag")?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let headerSync = syncFromHeaders(http, fallbackStatus: "up")
         let bodySync = syncFromScreenplayEnvelope(
             sessionId: payload.sessionId,
@@ -7751,6 +7721,7 @@ actor BackendMemoryAPI {
             backendBootId: payload.backendBootId
         )
         updateSyncState(mergeSyncStates(base: bodySync, incoming: headerSync), emitTurnEvent: true)
+        screenplayProjectsCacheByKey[cacheKey] = ScreenplayProjectsCacheEntry(etag: responseEtag, payload: payload, sync: syncState)
         return BackendReadResult(payload: payload, sync: syncState, notModified: false)
     }
 
@@ -10438,6 +10409,8 @@ actor BackendMemoryAPI {
         sessionBootstrapTask?.task.cancel()
         sessionBootstrapTask = nil
         historyCacheByLimit.removeAll()
+        screenplayProjectsCacheByKey.removeAll()
+        screenplayProjectsCacheGeneration = UUID()
         memoriesCacheByLimit.removeAll()
         inFlightStateVersions.removeAll()
         if clearSyncState {

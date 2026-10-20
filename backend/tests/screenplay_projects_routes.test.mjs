@@ -1778,3 +1778,31 @@ test("[screenplay-projects-routes] POST /version rejects empty draft with 400", 
     assert.equal(r.body.error, "draft_required");
   });
 });
+
+test("[screenplay-projects-routes] GET /screenplay/projects answers 304 to a matching If-None-Match and 200 otherwise", async () => {
+  const deps = {
+    ...defaultDeps(),
+    buildScreenplayReadMeta: () => ({ stateVersion: "v7", etag: "\"etag-v7\"" }),
+    applyReadStateHeaders: (res, meta) => {
+      res.setHeader("X-State-Version", meta.stateVersion);
+      if (meta.etag) res.setHeader("ETag", meta.etag);
+    },
+  };
+  await withTestServer(deps, async (baseURL) => {
+    const fresh = await fetch(`${baseURL}/screenplay/projects`, { headers: { connection: "close" } });
+    assert.equal(fresh.status, 200);
+    assert.equal(fresh.headers.get("etag"), "\"etag-v7\"");
+    const hit = await fetch(`${baseURL}/screenplay/projects`, {
+      headers: { connection: "close", "If-None-Match": "\"etag-v7\"" },
+    });
+    assert.equal(hit.status, 304);
+    assert.equal(hit.headers.get("x-state-version"), "v7");
+    assert.equal(hit.headers.get("cache-control"), "no-store");
+    assert.equal((await hit.text()).length, 0);
+    const miss = await fetch(`${baseURL}/screenplay/projects`, {
+      headers: { connection: "close", "If-None-Match": "\"etag-v6\"" },
+    });
+    assert.equal(miss.status, 200);
+    assert.equal((await miss.json()).stage, "screenplay_projects");
+  });
+});
