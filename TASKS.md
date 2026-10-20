@@ -8,7 +8,8 @@
 ### T-1014 — Prove and repair explicit saves during background queue draining
 
 - **Owner:** codex. **Branch:** `codex/T-1014-save-drain-handoff`.
-- **Status:** in-progress. **Pillar:** exact writer recovery / integration.
+- **Status:** review (local fix proven; fresh hosted gate pending).
+- **Pillar:** exact writer recovery / integration.
 - **Boundary:** original #962ee7e27f2, hosted39336874458 terminal failure:
   recovery3 pass/2 fail/0 skip on iOS26.5. No unchanged retry or #963 advance.
 - **Verified root:** resumeQueuedDraftSavesIfNeeded owns the
@@ -16,12 +17,19 @@
   only the manual serialization path consumes that slot. Suspended real
   transport regression reproduced one POST instead of two: signed before
   5/1/0. Canonical dispatch handoff correction passes focused6/0/0, signing
-  enabled on the erased task-owned Pro. Broader/UI proof remains pending.
+  enabled on the erased task-owned Pro.
 - **Connected proof:** signed local conflict/relaunch/Keep Mine1/0/0 and
   blank-snapshot/offline/reconnect/history1/0/0; unchanged UI assertions.
   D009 all five deltas0 and diff check pass. Hosted iOS26.5 failure is not
   reproduced locally or declared resolved. Save scoped fix; hold original
   PR updates until broader integration proof.
+- **Integration proof on source50d04ae5:** full signed units867/0/0;
+  Node20.20.2 scripts231/0/0, backend2897/0/2 (network disabled);
+  writer/save/export/relaunch1/0/0, voice-fault1/0/0 and macOS build0.
+  Failed container setup attempts retained separately; no app assertions
+  weakened. Append normally to original #962; preserve base/history/main.
+  Full hosted V1, all-five recovery and lost-creation-reply remain required
+  before #963 advances. No new paid calls.
 - **Done when:** failing-first signed reproduction, root fix preserving auth/
   project/conflict authority and version base, full local proof and fresh
   exact-head hosted gate. Investigate conflict-relaunch failure separately;

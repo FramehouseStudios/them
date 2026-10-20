@@ -67,7 +67,33 @@ All five D009 files have actual delta0 versus the exact original parent
 passes. Completed before/focused bundles were cloned and byte-compared in
 `/Users/halfmutantfilms/io.them-worktrees/_proof/T-1014-20261019.gowQ3i/`.
 
-## Constraints
+## Integration-boundary proof on frozen runtime50d04ae5
+
+- Signed full units completed exit0:867 pass/0 fail/0 skip on the erased
+  owned Pro/iOS26.2. Actual summary read; completed bundle cloned and compared
+  as `full-units.xcresult` in the private T1014 evidence directory.
+- Pinned Node20.20.2, network disabled, completed exit0: scripts231/0/0;
+  backend2897 pass/0 fail/2 skip. Log `/tmp/them-1014-node20-valid.log`.
+- Initial container setup failures are retained, not attributed to app code:
+  `/tmp/them-1014-node20.log` scripts227/4/0, backend not reached, because the
+  copied worktree Git pointer was inaccessible. The disposable container
+  needed its own Git snapshot to exercise HEAD/check-ignore scripts.
+  `/tmp/them-1014-node20-corrected.log` passed scripts231/0/0 but used `/deps`
+  instead of a node_modules path, breaking Express transitive resolution;
+  stopped that exact invalid container. `/tmp/them-1014-node20-final.log`
+  stopped during preflight because the require check ran at the repo root.
+  Corrected harness mounts dependencies at `/opt/node_modules` and validates
+  the direct module path. No application/test assertion was changed.
+- Connected writer/save/native-export/relaunch completed exit0:1/0/0;
+  actual summary read from `/tmp/them-1014-writer/them-studio-ios-writer-loop/run-sFMr0u/writer-loop.xcresult`,
+  then cloned and compared. Its provider reply is deterministic fixture data,
+  not a new live-model or physical-phone claim. Same serialized process71746
+  then completed exit0: voice-fault1/0/0 (actual summary read, bundle retained
+  and compared) and macOS scaffold BUILD SUCCEEDED. Existing warnings remain.
+  Voice bundle `/tmp/them-1014-voice/voice-network-fault-local-1-46218-ios.xcresult`.
+- Full V1 remains required on the new hosted head; avoid duplicating it
+  locally after the focused affected stories and signed integration checks.
+  No hosted retry was dispatched on the unchanged failing source.
 
 The affected blank-snapshot UI workflow also completed exit0:1 pass/0 fail/
 0 skip. Bundle `/tmp/them-1014-blank/them-save-recovery-zO4Yml/recovery-ios.xcresult`.
@@ -80,8 +106,10 @@ has failing-first evidence of this fix. Hosted iOS26.5 remains unproven.
 
 Runtime scope is one22-line net addition to the existing ViewModel dispatcher,
 plus one33-line regression. Full backend/unit/remaining UI/macOS gate is
-deferred to the integration boundary, not claimed by these focused results.
+not implied by the focused results; actual boundary results are listed above.
 The local dependency symlink was temporary harness setup, not product code.
+
+## Constraints and remaining work
 
 Isolated home branch directly off the failed original head. Runtime edits
 are saved as a scoped correction pending broader proof; no original-head update, main merge,
@@ -90,5 +118,17 @@ T1013 checks finished before these signed runs. Serialize Xcode/owned-device
 work. The human confirmed the local key and API access returned200 after a
 top-up; that separate evaluation was stopped on their request to reduce
 paid testing. Continue local save/conflict fixes without paid calls.
-Production remains held. Full signed/backend/UI/god-file proof and a fresh
-exact-head hosted gate are still required before advancing this boundary.
+Production remains held. Local integration proof above is complete at the
+selected scope; full hosted V1/all-five recovery/lost-creation-reply checks
+and independent review remain required. Do not advance the next original
+boundary until the updated original #962 head has a green hosted gate.
+
+## Original-head append
+
+The last re-read original #962 head was ee7e27f2, base
+`codex/T-979-mentor-ending-integration`, draft/open; its prior Quality Gate
+remains failed and retained. The correction is a descendant of that head,
+not a replacement/rebase/squash. Append by a normal non-force fast-forward
+push, preserving the original parent/base and all history. Add this newer
+evidence to the PR without deleting its historical body. No main merge or
+deployment is authorized by these results. Full hosted results pending.
