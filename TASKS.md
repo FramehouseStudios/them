@@ -8,7 +8,7 @@
 ### T-1048 — Prove Page cancellation on the simulator actually erased
 
 - **Owner:** codex. **Branch:** `codex/T-1048-cancel-proof-device`.
-- **Status:** in-progress. **Pillar:** trustworthy writer control/proof.
+- **Status:** review. **Pillar:** trustworthy writer control/proof.
 - **Root:** original #966 hosted39330023996 erased B34C2F57 but its
   actual signed unit summary tested E839A11B. UI initialization then timed
   out; the device mismatch is not proven to have caused that AX timeout.
@@ -18,6 +18,11 @@
 - **Done when:** exact-device/signing/evidence contracts, offline backend,
   signed task-owned UI launch and D009/diff pass; advance original draft
   normally, with fresh required hosted checks and independent approval.
+- **Verified:** offline Node20 runner26/0/0, cancellation/evidence26/0/0,
+  full backend2753/0/2; signed erased SE typing1/0/0, actual summary UDID
+  equals erased UDID. D009 deltas0; syntax/diff pass. No Swift/runtime
+  changes, full fresh units/macOS/hosted AX-cause or physical-phone claim.
+- **Evidence:** `docs/cancel-proof-device-2026-10-20.md`.
 
 ### T-1000 — Owner-scoped Page cancellation
 
