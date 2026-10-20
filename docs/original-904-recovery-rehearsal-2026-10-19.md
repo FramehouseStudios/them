@@ -105,3 +105,22 @@ a separately verified supported-LTS migration is still a release gap.
 Production/physical microphone, live generation, external-open export and a
 generated120-page Hollywood screenplay remain unproven. No paid call or
 production configuration/credential change was made here.
+
+## Original-PR publication — 2026-10-20
+
+VERIFIED: re-read the retained actual bundles today: signed units632/0/0,
+authenticated recovery2/0/0, and full V1 UI27/1/9. The typing failure above
+remains a failure on this boundary; do not re-label it green because the
+later editor branch passes. The executable tree is unchanged from
+`dc64849e` (and the tested source `e0477d5`). Full script224/0/0 and
+backend2749/0/2 counts were re-read from the historical Node20.20.2 log;
+these are retained proof, not fresh suite executions today.
+
+Merged the documentation-only advance of original #964 (`81b05e44`) with
+a preserving merge. D009 passes today (Studio -4, other watched files0),
+and whitespace is clean. Publish this descendant to original #904 with a
+normal fast-forward and base it on original #964's branch. This retains
+all original #904 commits and the parent runner repair; no replacement,
+squash, force push or main merge. Keep draft and require fresh hosted
+checks/review. The original #919 child owns the editor repair and will
+remain separate. No new model, physical-phone or production proof.
