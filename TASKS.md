@@ -5,6 +5,26 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1023 — Keep recovered turn results scoped to their writer/session
+
+- **Owner:** codex. **Branch:** `codex/T-1023-owned-turn-result-lookup`.
+- **Status:** review (focused HTTP and full Node 20 backend proof passed).
+- **Root:** bare session-local turn IDs overwrote other sessions' metadata;
+  repeated owner prefixes broke canonical comparison, followed by a token/IP
+  fallback that could authorize an owner mismatch.
+- **Fix:** composite owner/session/turn storage; select authorized original
+  session, reject ambiguity; retain raw owner IDs and normalize once for
+  comparison. Extract the existing access policy out of index.js and require
+  trusted ownership before any token/IP/debug convenience fallback.
+- **Verified:** focused Node 20.20.2 result 16/0/0, including real loopback
+  route + production store/access functions; god-file index -16, others zero.
+  Corrected complete backend run 2,992 passed / 0 failed / 2 skipped, exit 0;
+  external network disabled. Earlier harness/fixture failures retained.
+- **Evidence:** `docs/owned-turn-result-lookup-2026-10-19.md`.
+- **Limits:** injected verified-identity fixture is not JWT verification proof;
+  metadata remains in memory with its existing TTL, not durable receipts.
+  Original-project application, audio and physical-phone proof remain open.
+
 ### T-1022 — Show complete recovered conversations and connect sharing
 
 - **Owner:** codex. **Branch:** `codex/T-1022-readable-recovered-conversations`.
