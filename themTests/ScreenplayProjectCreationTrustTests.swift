@@ -3,6 +3,14 @@ import XCTest
 
 final class ScreenplayProjectCreationTrustTests: XCTestCase {
     @MainActor func testCreationRetryRestoresParkedFirstPageConflictWithoutResendingUntilKeepMine() async throws {
+        try await verifyParkedFirstPageConflict(restoringThroughDetail: false)
+    }
+
+    @MainActor func testPendingFirstPageDetailRestoresConflictAndAllowsKeepMineWithoutCreationRetry() async throws {
+        try await verifyParkedFirstPageConflict(restoringThroughDetail: true)
+    }
+
+    @MainActor private func verifyParkedFirstPageConflict(restoringThroughDetail: Bool) async throws {
         let suite = "them.creation-parked-choice.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -25,14 +33,16 @@ final class ScreenplayProjectCreationTrustTests: XCTestCase {
             createdAt: 1, updatedAt: 2, status: .parked, retries: 1, nextAttemptAt: 0,
             lastError: ScreenplayDraftSaveOutbox.conflictReason))
         let transport = CreationTrustTransport(holdCreate: false, holdRequests: false,
-            existingDraft: "A collaborator's first page")
+            existingDraft: "A collaborator's first page", existingProjectID: intent.projectId)
         let api = transport.api()
         let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store,
             draftSaveOutbox: ScreenplayDraftSaveOutbox(storageDirectory: directory), draftSaveAPI: api,
             projectSelectionAPI: api, connectsToLiveWorkspace: false)
         model.autosaveEnabled = false
-        await model.createProject()
-        XCTAssertEqual(transport.creationIDs, [intent.projectId], "Retry must keep the original project identity.")
+        if restoringThroughDetail { await model.refreshSelectedProjectForDebug() }
+        else { await model.createProject() }
+        XCTAssertEqual(transport.creationIDs, restoringThroughDetail ? [] : [intent.projectId],
+            "Detail refresh must not retry creation; an explicit retry must keep the original project identity.")
         XCTAssertTrue(transport.versionWrites.isEmpty, "Retry is not an explicit Keep Mine decision.")
         XCTAssertEqual(Array(model.fountainDraft.utf8), Array(raw.utf8))
         XCTAssertEqual(model.conflictState?.projectId, intent.projectId)
@@ -512,9 +522,11 @@ private final class CreationTrustTransport: @unchecked Sendable {
     var projectWrites: Int { lock.withLock { creates } }
     var versionWrites: [String] { lock.withLock { drafts } }
     var versionBases: [String] { lock.withLock { bases } }
-    init(holdCreate: Bool, holdRequests: Bool = true, existingDraft: String? = nil) {
+    init(holdCreate: Bool, holdRequests: Bool = true, existingDraft: String? = nil,
+         existingProjectID: String = "created") {
         self.holdCreate = holdCreate; self.holdRequests = holdRequests
         self.existingDraft = existingDraft
+        requestedProjectID = existingProjectID
     }
     func api() -> BackendMemoryAPI {
         CreationTrustURLProtocol.handler = { [self] stub in

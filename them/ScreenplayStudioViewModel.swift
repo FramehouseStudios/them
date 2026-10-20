@@ -6244,17 +6244,17 @@ final class ScreenplayStudioViewModel: ObservableObject {
         let retained = await restorePendingDraftSaveBeforeProjectHydration(expectedGeneration: generation)
         guard projectHydrationGeneration == generation, authContextIsCurrent(context),
               project.id == selectedProjectID else { return false }
-        if let retained, !isDraftSaveInFlight, !isSaving {
-            await restoreParkedConflictDecision(retained, from: project, context: context)
-            guard projectHydrationGeneration == generation, authContextIsCurrent(context),
-                  project.id == selectedProjectID else { return false }
-        }
         if let intent = storedProjectCreation, intent.ownerUserId == context.userID,
            intent.projectId == project.id, intent.restoreAsCurrent, intent.seedsLiveDraft,
            ScreenplayDraftTextIdentity.matches(intent.draft, fountainDraft) {
             // A confirmed detail now establishes this pending page's identity,
             // including detail refreshes that did not pass through load().
             loadedDraftProjectID = project.id
+        }
+        if let retained, !isDraftSaveInFlight, !isSaving {
+            await restoreParkedConflictDecision(retained, from: project, context: context)
+            guard projectHydrationGeneration == generation, authContextIsCurrent(context),
+                  project.id == selectedProjectID else { return false }
         }
         hydrateDraft(from: project)
         return true
@@ -6272,6 +6272,15 @@ final class ScreenplayStudioViewModel: ObservableObject {
               !ScreenplayDraftTextIdentity.matches(fountainDraft, serverDraft) else { return }
         // Original queued identity survives a newer cached base, including the
         // empty first-page base. Neither relaunch nor creation retry is Keep Mine.
+        if let intent = storedProjectCreation, intent.ownerUserId == context.userID,
+           intent.projectId == project.id {
+            guard intent.restoreAsCurrent, intent.seedsLiveDraft,
+                  ScreenplayDraftTextIdentity.matches(intent.draft, fountainDraft) else { return }
+            // The owned project now exists and the page remains in the outbox
+            // and editor recovery. Its creation record must not block Keep Mine.
+            finishProjectCreation(project.id, ownerUserId: context.userID)
+            guard storedProjectCreation?.projectId != project.id else { return }
+        }
         await handleDraftSaveConflict(SaveConflictState(projectId: project.id,
             baseVersionId: retained.baseVersionId, serverVersionId: head.id,
             serverDraft: serverDraft, serverDraftExcerpt: head.draftExcerpt ?? "",
