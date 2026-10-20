@@ -84,7 +84,7 @@ public enum InspectorUX {
     public static func buildTabState(selectedTab: String = "editor", provenance provenanceName: String = "user", history: [String] = [], studioActionType: String? = nil, studioActionTab: String? = nil) -> InspectorTabState {
         let tab = normalizeTab(selectedTab) ?? .editor
         var prov = normalizeProvenance(provenanceName)
-        if let t = studioActionType { prov = provenance(forStudioAction: t, tab: studioActionTab) }
+        if let t = studioActionType { prov = Self.provenance(forStudioAction: t, tab: studioActionTab) }
         var hist = history.map { normalizeProvenance($0) }
         // dedup consecutive
         var dedup: [ProvenanceKind] = []
