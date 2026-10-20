@@ -155,6 +155,7 @@ test("[page-cancel-e2e] talk adapter attaches reservation for pageMode body", as
   const wrapped = createPageLaneTalkAdapter({
     handleTalkRequest,
     pageReservationStore: store,
+    finishedScriptGuard: async () => ({ allowed: true }),
   });
 
   const app = express();
