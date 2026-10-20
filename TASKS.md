@@ -5,6 +5,24 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1069 — Keep iPhone export format choices on the document
+
+- **Owner:** codex. **Branch:** `codex/T-1069-inline-iphone-export`.
+- **Status:** review. **Pillar:** dependable mobile export.
+- **Boundary:** original #904baaf39e3. Prior0209a126 hosted39474084172
+  fails writer Markdown feedback after a correctly bounded recorded tap;
+  native menu remains open, previous Draft saved feedback unchanged.
+- **Target:** inline expandable iPhone chooser in existing Document controls,
+  same formats/disabled capabilities/handlers; retain native Mac menu. No
+  retries, altered export bytes, new Root/Studio state or paid calls.
+- **Proof:** native chooser containment/collapse, signed units and actual
+  authenticated writer/save/export/relaunch; final hosted proof still required.
+- **Evidence:** `docs/iphone-export-chooser-2026-10-20.md`.
+- **Verified:** full signed units654/0/0 on identical app/unit source;
+  first UI cohort1/1/0 (bad Fountain-fixture assumption retained), final
+  capability-aware chooser/stronger artifact UI2/0/0; authenticated writer
+  1/0/0, macOS0, actual-base D009/diff pass. Fresh hosted proof required.
+
 ### T-1068 — Stop hydration when local saves cannot be read
 
 - **Owner:** codex. **Branch:** `codex/T-1068-unreadable-save-queue`.

@@ -400,6 +400,35 @@ final class V1SmokeUITests: XCTestCase {
         )
     }
 
+    func test_iphone_export_choices_stay_inside_document_controls() throws {
+#if os(iOS)
+        let app = launchApp(openStudio: true, openExportTools: true, structuralSeed: true)
+        defer { app.terminate() }
+        let drawer = element(identifier: "studio.sidebar.right.drawer", in: app)
+        XCTAssertTrue(drawer.waitForExistence(timeout: 8))
+        let trigger = drawer.buttons["studio.export.menu"]
+        guard revealFullyInStudioDrawer(trigger, drawer: drawer, maxSwipes: 12) else {
+            XCTFail("The document export control must be reachable.")
+            return
+        }
+        trigger.tap()
+        let markdown = drawer.buttons["studio.export.md"]
+        guard markdown.waitForExistence(timeout: 4) else {
+            XCTFail("Export choices must remain in the Document card, not a detached popover.")
+            return
+        }
+        XCTAssertEqual(trigger.value as? String, "Expanded")
+        XCTAssertTrue(drawer.buttons["studio.export.fdx"].exists)
+        XCTAssertTrue(drawer.buttons["studio.export.pdf"].exists)
+        XCTAssertFalse(drawer.buttons["studio.export.pdf"].isEnabled)
+        trigger.tap()
+        XCTAssertTrue(waitForDisappearance(of: markdown, timeout: 3))
+        XCTAssertEqual(trigger.value as? String, "Collapsed")
+#else
+        throw XCTSkip("Inline document export choices specifically cover iPhone.")
+#endif
+    }
+
     func test_screenplay_export_returns_a_file() {
         let app = launchApp(openStudio: true, openExportTools: true, structuralSeed: true)
         XCTAssertTrue(waitForDraft(in: app, containing: "INT. DINER - NIGHT", timeout: 10))
@@ -418,7 +447,8 @@ final class V1SmokeUITests: XCTestCase {
             app.buttons.matching(NSPredicate(format: "label CONTAINS[c] %@", "Markdown")).firstMatch.tap()
         }
 
-        XCTAssertTrue(staticText(containing: "Saved", in: app).waitForExistence(timeout: 6))
+        XCTAssertTrue(staticText(containing: ".md", in: app).waitForExistence(timeout: 6),
+            "Export must report its Markdown artifact, not match an earlier saved status.")
     }
 
     @MainActor
