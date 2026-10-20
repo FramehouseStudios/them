@@ -97,6 +97,60 @@ final class V1SmokeUITests: XCTestCase {
 #endif
     }
 
+    func test_keyboard_actions_follow_page_and_prompt_focus() throws {
+#if os(iOS)
+        let app = launchApp(openStudio: true, openCommandBar: true)
+        defer { app.terminate() }
+        let prompt = element(identifier: "studio.prompt.field", in: app)
+        XCTAssertTrue(prompt.waitForExistence(timeout: 8))
+        guard dismissKeyboardTypingTutorialIfPresent(in: app) else { return }
+        let keyboardSend = app.buttons["studio.prompt.keyboard-send"]
+        XCTAssertTrue(keyboardSend.waitForExistence(timeout: 5))
+        let inspectorToggle = app.buttons["studio.sidebar.right.toggle"]
+        XCTAssertTrue(waitForHittability(of: inspectorToggle, timeout: 5))
+        inspectorToggle.tap()
+        let editor = app.textViews["studio.draft.editor"]
+        XCTAssertTrue(waitForHittability(of: editor, timeout: 5))
+        editor.tap()
+        editor.typeText("The page keeps this line.")
+        XCTAssertTrue(waitForDraft(in: app, containing: "The page keeps this line.", timeout: 5))
+        XCTAssertTrue(app.buttons["studio.draft.keyboard-save"].waitForExistence(timeout: 3))
+        let pageKeyboard = XCTAttachment(screenshot: app.screenshot())
+        pageKeyboard.name = "Typed paper line above the software keyboard"
+        pageKeyboard.lifetime = .keepAlways
+        add(pageKeyboard)
+        XCTAssertTrue(waitForDisappearance(of: keyboardSend, timeout: 3))
+        inspectorToggle.tap()
+        let drawer = element(identifier: "studio.sidebar.right.drawer", in: app)
+        XCTAssertTrue(drawer.waitForExistence(timeout: 5))
+        XCTAssertTrue(revealInStudioDrawer(prompt, drawer: drawer, scrollingUp: false, maxSwipes: 12))
+        prompt.tap()
+        XCTAssertTrue(keyboardSend.waitForExistence(timeout: 5))
+        XCTAssertTrue(waitForHittability(of: keyboardSend, timeout: 3))
+#else
+        throw XCTSkip("Keyboard focus ownership specifically covers iPhone.")
+#endif
+    }
+
+    func test_studio_page_preserves_uninterrupted_typing_while_following_caret() throws {
+#if os(iOS)
+        let app = launchApp(openStudio: true)
+        defer { app.terminate() }
+        let editor = app.textViews["studio.draft.editor"]
+        XCTAssertTrue(waitForHittability(of: editor, timeout: 8))
+        editor.tap()
+        guard dismissKeyboardTypingTutorialIfPresent(in: app) else { return }
+        let sentence = "She counts seven red lights before the motel sign finally goes dark."
+        editor.typeText(sentence)
+        XCTAssertTrue(waitForDraft(in: app, containing: sentence, timeout: 8),
+            "Uninterrupted typing lost words: \(accessibleDraftText(in: app))")
+        XCTAssertEqual(editor.value as? String, sentence)
+        XCTAssertEqual(accessibleDraftText(in: app), sentence)
+#else
+        throw XCTSkip("Native uninterrupted typing specifically covers iPhone.")
+#endif
+    }
+
     func test_profile_exposes_local_demo_and_keychain_remember_options_separately_from_apple() {
         let app = launchApp()
         defer { app.terminate() }
@@ -3071,6 +3125,27 @@ final class V1SmokeUITests: XCTestCase {
             }
             RunLoop.current.run(until: Date().addingTimeInterval(0.2))
         }
+    }
+
+    private func dismissKeyboardTypingTutorialIfPresent(in app: XCUIApplication) -> Bool {
+#if os(iOS)
+        // Preserved 2fcdc772: identify this system tutorial, not any Continue action.
+        let tutorial = app.staticTexts.matching(NSPredicate(
+            format: "label BEGINSWITH %@", "Speed up your typing by sliding"
+        )).firstMatch
+        guard tutorial.waitForExistence(timeout: 0.5) else { return true }
+        let continueTyping = app.buttons["Continue"].firstMatch
+        guard continueTyping.exists, continueTyping.isHittable else {
+            XCTFail("The keyboard tutorial did not expose its Continue action.")
+            return false
+        }
+        continueTyping.tap()
+        guard waitForDisappearance(of: tutorial, timeout: 5) else {
+            XCTFail("The keyboard tutorial still covers the Studio controls.")
+            return false
+        }
+#endif
+        return true
     }
 
     private func submitFocusedPrompt(in app: XCUIApplication, field: XCUIElement) {

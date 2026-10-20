@@ -5,6 +5,30 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1056 — Integrate visible paper with original editor text safety
+
+- **Owner:** codex. **Branch:** `codex/T-1056-editor-viewport-integration`.
+- **Status:** review. **Pillar:** exact, readable mobile writing.
+- **Boundary:** original #9191d79fc4 preserved; parent #90404a993f retained
+  by no-ff merge7deb571, documentation conflict resolved by keeping both.
+- **Evidence:** T1053 older #625-based candidate shows the typed line above
+  the keyboard but loses a space during uninterrupted typing635/1/0. Keep
+  that red experimentf7bcf33; no replacement for original #919's proven
+  binding policy5bef4dc/historical-snapshot follow-upbfbd5af.
+- **Fix:** reuse T1053 native viewport owner/manual callbacks and original
+  #625d493c515 container-only safe-area handling (two words), not billing.
+  Existing line-jump/remote-follow policy remains unchanged.
+- **Done when:** full signed units, original exact chunked typing, separate
+  uninterrupted missing-space reproduction, focus/screenshot, recovery,
+  macOS/D009/diff pass on the combined boundary. No weakened assertion,
+  main merge, paid call, force/squash or replacement PR.
+- **Evidence:** `docs/editor-viewport-integration-2026-10-20.md`.
+- **Verified:** signed erased SE full units647/0/0 + UI3/0/0 (including
+  original exact chunked and new uninterrupted sentence), viewed keyboard
+  screenshot, unchanged auth/offline/conflict recovery2/0/0. Node20 backend
+  2749/0/2, macOS native0; refreshed actual-parent D009 bridge-22/others0,
+  diff clean. Normally advance original #919; no main/production claim.
+
 ### T-1049 — Preserve recovered writer authority during version hints
 
 - **Owner:** codex. **Branch:** `codex/T-1049-auth-conflict-recovery`.

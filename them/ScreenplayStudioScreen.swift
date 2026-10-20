@@ -2048,7 +2048,7 @@ Replace is best when this file should become the script you edit. Append is safe
                 .saturation(0.40)
                 .brightness(0.07)
                 .overlay(Color.black.opacity(0.03))
-                .ignoresSafeArea()
+                .ignoresSafeArea(.container)
 
                 VStack(spacing: 0) {
                     directionOneHeader(usesDrawers: usesDrawers)
