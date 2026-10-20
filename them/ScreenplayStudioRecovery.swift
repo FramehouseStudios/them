@@ -169,6 +169,7 @@ struct ScreenplayProjectCreationIntent: Codable {
     let seedsLiveDraft: Bool
     var restoreAsCurrent: Bool
     var phase: String? = nil
+    var recoveredReplyID: String? = nil
 }
 
 struct ScreenplayLocalDraftRecoveryStore {

@@ -2,6 +2,146 @@ import XCTest
 @testable import them
 
 final class ScreenplayProjectCreationTrustTests: XCTestCase {
+    @MainActor func testRecoveredStoryKeepsAnotherOpenProjectsDirtyWordsSeparate() async throws {
+        let identity = try RecoveryApplicationTestOwner()
+        defer { identity.restore() }
+        let suite = "them.recovered-separate-project.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer {
+            defaults.removePersistentDomain(forName: suite)
+            try? FileManager.default.removeItem(at: directory)
+            CreationTrustURLProtocol.handler = nil
+        }
+        let recovery = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "recovery")
+        let transport = CreationTrustTransport(holdCreate: false, holdRequests: false)
+        let api = transport.api()
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: recovery,
+            draftSaveOutbox: ScreenplayDraftSaveOutbox(storageDirectory: directory), draftSaveAPI: api,
+            projectSelectionAPI: api, connectsToLiveWorkspace: false)
+        model.autosaveEnabled = false
+        model.selectedProjectID = "other-project"
+        model.selectedProject = try JSONDecoder().decode(BackendScreenplayProjectSummary.self,
+            from: Data(#"{"id":"other-project","title":"Other screenplay"}"#.utf8))
+        model.applyStructuralUITestDraft("Original other script", versionID: "other-base")
+        let newer = "Newer cafe\u{0301} words in the other script.\r\n"
+        model.fountainDraft = newer
+        model.noteManualDraftEdit()
+        let creation = try RecoveredPageCreation.make(reply: RecoveredPageApplicationTests.reply(draft: "", projectID: ""), title: "Separate recovered story")
+        let version = try await model.createRecoveredProject(creation, replyID: "retained-story", expectedAuth: .current())
+        XCTAssertEqual(version, "saved")
+        XCTAssertEqual(transport.creationIDs, [creation.projectID])
+        XCTAssertEqual(transport.versionWrites, [creation.draft])
+        XCTAssertEqual(Array(model.fountainDraft.utf8), Array(creation.draft.utf8))
+        let previous = try XCTUnwrap(recovery.dirtyOrdinarySnapshot(ownerUserId: identity.owner, projectId: "other-project"))
+        XCTAssertEqual(Array(previous.draft.utf8), Array(newer.utf8))
+        XCTAssertEqual(previous.baseVersionId, "other-base")
+    }
+
+    @MainActor func testRecoveredStoryCreatesTitledProjectAndAcknowledgesOnce() async throws {
+        try await verifyRecoveredCreation(failure: "none")
+    }
+
+    @MainActor func testRecoveredStoryResumesSameProjectAfterLostCreationReplyAndRelaunch() async throws {
+        try await verifyRecoveredCreation(failure: "creation")
+    }
+
+    @MainActor func testRecoveredStoryRecognizesSavedPageAfterLostVersionReplyAndRelaunch() async throws {
+        try await verifyRecoveredCreation(failure: "version")
+    }
+
+    @MainActor func testRecoveredStoryDoesNotReplaceNewerPendingWordsAfterRelaunch() async throws {
+        try await verifyRecoveredCreation(failure: "newer-edit")
+    }
+
+    @MainActor private func verifyRecoveredCreation(failure: String) async throws {
+        let identity = try RecoveryApplicationTestOwner()
+        defer { identity.restore() }
+        let suite = "them.recovered-creation.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer {
+            defaults.removePersistentDomain(forName: suite)
+            try? FileManager.default.removeItem(at: directory)
+            CreationTrustURLProtocol.handler = nil
+        }
+        let recovery = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "recovery")
+        let replyDirectory = directory.appendingPathComponent("replies")
+        let saveDirectory = directory.appendingPathComponent("saves")
+        let outbox = OfflineTalkOutbox(storageDirectory: replyDirectory)
+        let fixture = try RecoveredPageApplicationTests.reply(draft: "", projectID: "")
+        var request = URLRequest(url: URL(string: "https://creation-trust.test/talk")!)
+        request.httpMethod = "POST"
+        request.setValue(identity.owner, forHTTPHeaderField: "X-User-Id")
+        let entry = try await outbox.enqueue(request: request, body: Data("synthetic original story".utf8),
+            reason: "offline", originalWriteContext: fixture.originalWriteContext)
+        let encoded = try XCTUnwrap(String(data: JSONEncoder().encode(XCTUnwrap(fixture.screenplay)), encoding: .utf8)?.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed))
+        _ = await outbox.drainDue(now: Date().addingTimeInterval(10)) { _ in
+            .init(statusCode: 200, headers: ["x-turn-status": "responded", "x-screenplay-output": encoded], body: Data([1]))
+        }
+        let transport = CreationTrustTransport(holdCreate: false, holdRequests: false)
+        transport.dropNextCreationReply = failure == "creation" || failure == "newer-edit"
+        transport.dropNextVersionReply = failure == "version"
+        let api = transport.api()
+        func freshModel() -> ScreenplayStudioViewModel {
+            let model = ScreenplayStudioViewModel(localDraftRecoveryStore: recovery,
+                draftSaveOutbox: ScreenplayDraftSaveOutbox(storageDirectory: saveDirectory),
+                draftSaveAPI: api, projectSelectionAPI: api, connectsToLiveWorkspace: false)
+            model.autosaveEnabled = false
+            return model
+        }
+        var model = freshModel()
+        var controller = RecoveredPageController(studio: model, outbox: outbox)
+        await controller.review(id: entry.entry.id, ownerID: identity.owner)
+        XCTAssertTrue(controller.offersNewProject)
+        XCTAssertTrue(transport.creationIDs.isEmpty, "Review must not request a project before title confirmation.")
+        controller.newProjectTitle = "My recovered story"
+        await controller.createProject()
+        let retained = try await outbox.recoveredReply(id: entry.entry.id, expectedOwnerID: identity.owner)
+        let creation = try XCTUnwrap(retained.projectCreation)
+        XCTAssertEqual(transport.creationIDs, [creation.projectID])
+        XCTAssertEqual(creation.title, "My recovered story")
+        let different = RecoveredPageCreation(projectID: UUID().uuidString.lowercased(), title: creation.title, draft: creation.draft)
+        do {
+            _ = try await outbox.prepareRecoveredProject(id: entry.entry.id, expectedOwnerID: identity.owner, creation: different)
+            XCTFail("A retry cannot replace the durable project identity.")
+        } catch { }
+        if failure != "none" {
+            XCTAssertNil(retained.pageApplication?.savedVersionID)
+            if failure == "newer-edit" {
+                model.fountainDraft = creation.draft + "\n\nNewer cafe\u{0301} words.\r\n"
+                model.noteManualDraftEdit()
+            }
+            model = freshModel()
+            controller = RecoveredPageController(studio: model,
+                outbox: OfflineTalkOutbox(storageDirectory: replyDirectory))
+            await controller.review(id: entry.entry.id, ownerID: identity.owner)
+            controller.newProjectTitle = "Must not replace the retained title"
+            await controller.createProject()
+        }
+        if failure == "newer-edit" {
+            XCTAssertEqual(transport.creationIDs, [creation.projectID], "Newer pending words must prevent another request.")
+            XCTAssertTrue(transport.versionWrites.isEmpty)
+            XCTAssertEqual(Array(model.fountainDraft.utf8), Array((creation.draft + "\n\nNewer cafe\u{0301} words.\r\n").utf8))
+            XCTAssertTrue(controller.offersNewProject)
+            return
+        }
+        XCTAssertEqual(Set(transport.creationIDs), [creation.projectID], "Retry must preserve the retained project identity.")
+        XCTAssertEqual(transport.versionWrites.count, 1)
+        XCTAssertEqual(Array(transport.versionWrites[0].utf8), Array(creation.draft.utf8))
+        XCTAssertEqual(Array(model.fountainDraft.utf8), Array(creation.draft.utf8))
+        let finalReply = try await OfflineTalkOutbox(storageDirectory: replyDirectory)
+            .recoveredReply(id: entry.entry.id, expectedOwnerID: identity.owner)
+        XCTAssertEqual(finalReply.pageApplication?.savedVersionID, "saved")
+        XCTAssertNil(try recovery.pendingProjectCreation(ownerUserId: identity.owner))
+        let requestCount = transport.creationIDs.count
+        await controller.review(id: entry.entry.id, ownerID: identity.owner)
+        await controller.createProject()
+        XCTAssertFalse(controller.offersNewProject)
+        XCTAssertEqual(transport.creationIDs.count, requestCount)
+        XCTAssertEqual(transport.versionWrites.count, 1)
+    }
+
     @MainActor func testCreationRetryRestoresParkedFirstPageConflictWithoutResendingUntilKeepMine() async throws {
         try await verifyParkedFirstPageConflict(restoringThroughDetail: false)
     }
@@ -509,6 +649,7 @@ private final class CreationTrustTransport: @unchecked Sendable {
     private var creates = 0
     private var requestedProjectID = "created"
     var dropNextCreationReply = false
+    var dropNextVersionReply = false
     private var requestedIDs: [String] = []
     private var requestedPhases: [String] = []
     var creationPhases: [String] { lock.withLock { requestedPhases } }
@@ -552,6 +693,11 @@ private final class CreationTrustTransport: @unchecked Sendable {
                 lock.withLock {
                     drafts.append(payload?["draft"] as? String ?? "")
                     bases.append(payload?["base_version_id"] as? String ?? "")
+                }
+                if dropNextVersionReply {
+                    dropNextVersionReply = false
+                    stub.client?.urlProtocol(stub, didFailWithError: URLError(.timedOut))
+                    return
                 }
             }
             let shouldHold = lock.withLock { () -> Bool in

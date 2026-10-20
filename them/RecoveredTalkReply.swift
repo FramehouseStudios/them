@@ -59,6 +59,7 @@ nonisolated struct RecoveredTalkReply: Codable, Identifiable, Equatable {
     var originalWriteContext: RecoveredTalkWriteContext? = nil
     var retrievedScreenplayOutput: BackendTalkScreenplayOutput? = nil
     var pageApplication: RecoveredPageApplication? = nil
+    var projectCreation: RecoveredPageCreation? = nil
 
     var response: HTTPURLResponse? {
         guard let url = URL(string: requestURL) else { return nil }

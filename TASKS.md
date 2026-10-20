@@ -5,6 +5,35 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1039 — Create a titled screenplay from a retained new-project reply
+
+- **Owner:** codex. **Branch:** `codex/T-1039-recovered-project-creation`.
+- **Status:** review; titled recovered-project creation locally connected.
+  **Pillars:** voice→scene; mobile-first; trustworthy recovery.
+- **Root:** retained complete new-project output cannot enter the existing
+  project-creation/save flow; the existing-project apply guard correctly refuses it.
+- **Target:** explicit title confirmation, canonical title page, immutable
+  receipt/project identity before HTTP, existing creation-intent/save owner,
+  same-project retry after lost replies/relaunch, no duplicate version or
+  overwrite of newer pending words. No provider generation or new queue.
+- **Done when:** actual controller→creation→version→receipt paths pass with
+  lost create/save acknowledgements and relaunch; native narrow-width setup
+  observed; relevant signed units, macOS, D009 and diff checks pass.
+- **Holds:** original #962 remains856d7624 while its live hosted gate runs;
+  no original child/main advance, production change or paid provider calls.
+- **Verified:** initial build failed before tests (missing identity helper
+  import); corrected to the existing typed digest. Focused35/1/0: all31
+  creation checks passed, but the new title assertion assumed noncanonical
+  formatting. Corrected the assertion; full signed923/0/0 on frozen82aee3e2.
+  Added a test-only dirty-other-project check afterward:1/0/0; runtime unchanged.
+  Native erased375-point SE: explicit title, exactly one project/version,
+  exact saved draft/digest, real relaunch/Saved/no second create. Canonical
+  macOS scaffold compile exit0; D009 all five deltas0, whitespace pass.
+- **Evidence:** `docs/recovered-project-creation-2026-10-20.md`.
+- **Next:** original #962 hosted gate/review boundary, then its actual child;
+  fix reproduced character-memory ingestion/persistence and production wiring
+  without claiming the default-off beta lane already has durable live memory.
+
 ### T-1038 — Apply a retained page through Studio's durable save owner
 
 - **Owner:** codex. **Branch:** `codex/T-1038-recovered-page-apply`.

@@ -2473,6 +2473,45 @@ final class ScreenplayStudioViewModel: ObservableObject {
         }
     }
 
+    func createRecoveredProject(_ creation: RecoveredPageCreation, replyID: String,
+        expectedAuth: ScreenplayStudioAuthContext) async throws -> String? {
+        guard authContextIsCurrent(expectedAuth), !expectedAuth.userID.isEmpty else {
+            throw RecoveredPagePlan.failure("Account changed. Your recovered story was kept; no project was requested.")
+        }
+        if let confirmed = confirmedRecoveredPageVersion(creation.application) { return confirmed }
+        let pending = try localDraftRecoveryStore.pendingProjectCreation(ownerUserId: expectedAuth.userID)
+        let pendingOwnsDraft = pending?.projectId == creation.projectID && pending?.recoveredReplyID == replyID
+            && selectedProjectID == creation.projectID && ScreenplayDraftTextIdentity.matches(fountainDraft, creation.draft)
+        guard !isSaving, !isDraftSaveInFlight, !isStreamingDraftPreviewActive,
+              !isFollowingRemoteLiveDraft, projectCreationID == nil, !isHydratingDraft,
+              loadedDraftProjectID == selectedProjectID || pendingOwnsDraft else {
+            throw RecoveredPagePlan.failure("Wait for Studio's current load or save to finish before creating this screenplay.")
+        }
+        guard pending == nil || (pending?.projectId == creation.projectID && pending?.recoveredReplyID == replyID && pending?.title == creation.title),
+              pending == nil || ScreenplayDraftTextIdentity.matches(pending?.draft ?? "", creation.draft) else {
+            throw RecoveredPagePlan.failure("A pending project has newer or different work. Recover it in Studio first; this reply remains retained.")
+        }
+        if selectedProjectID.isEmpty || selectedProjectID == creation.projectID {
+            guard (selectedProjectID.isEmpty && fountainDraft.isEmpty) || ScreenplayDraftTextIdentity.matches(fountainDraft, creation.draft) else {
+                throw RecoveredPagePlan.failure("Your open draft has different words. Save or recover it before creating this screenplay.")
+            }
+        }
+        let intent = pending ?? ScreenplayProjectCreationIntent(projectId: creation.projectID,
+            ownerUserId: expectedAuth.userID, title: creation.title, draft: creation.draft,
+            seedsLiveDraft: true, restoreAsCurrent: true, phase: "scene_draft", recoveredReplyID: replyID)
+        try localDraftRecoveryStore.saveProjectCreation(intent)
+        storedProjectCreation = intent
+        if selectedProjectID.isEmpty {
+            fountainDraft = intent.draft
+            noteManualDraftEdit()
+        }
+        newProjectTitle = intent.title
+        await createProject(initialPhase: intent.phase ?? "scene_draft")
+        guard authContextIsCurrent(expectedAuth) else { return nil }
+        if !errorText.isEmpty { throw RecoveredPagePlan.failure(errorText) }
+        return confirmedRecoveredPageVersion(creation.application)
+    }
+
     // Root automatic promotion uses this same write/outbox owner without
     // attaching a second editor to the live-sync singleton.
     func createAutomaticProject(draft: String, title: String, phase: String,
