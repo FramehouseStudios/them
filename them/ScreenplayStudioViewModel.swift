@@ -1802,7 +1802,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
             preferredProjectId: bridgePreferredProjectID,
             projects: projects
         )
-        await restorePendingDraftSaveBeforeProjectHydration()
+        guard await restorePendingDraftSaveBeforeProjectHydration() else { return }
         await loadSelectedProjectOutline()
         guard authContextIsCurrent(authContext) else { return }
         await refreshPendingScreenplayQuestion()
@@ -1814,10 +1814,10 @@ final class ScreenplayStudioViewModel: ObservableObject {
         await load()
     }
 
-    private func restorePendingDraftSaveBeforeProjectHydration() async {
+    private func restorePendingDraftSaveBeforeProjectHydration() async -> Bool {
         let projectID = selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
         let authContext = currentStudioAuthContext()
-        guard !projectID.isEmpty else { return }
+        guard !projectID.isEmpty else { return true }
         let pendingEntry: ScreenplayDraftSaveOutboxEntry?
         do {
             pendingEntry = try await draftSaveOutbox.pendingEntry(
@@ -1825,7 +1825,20 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 ownerUserId: authContext.userID
             )
         } catch {
-            return
+            guard authContextIsCurrent(authContext),
+                  selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines) == projectID else {
+                return false
+            }
+            autosaveStatusText = ScreenplayDraftSaveRecoveryPresentationPolicy.unreadableQueueStatus
+            errorText = ScreenplayDraftSaveRecoveryPresentationPolicy.unreadableQueueError
+            return false
+        }
+        guard authContextIsCurrent(authContext),
+              selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines) == projectID else {
+            return false
+        }
+        if errorText == ScreenplayDraftSaveRecoveryPresentationPolicy.unreadableQueueError {
+            errorText = ""
         }
         guard let entry = pendingEntry,
               ScreenplayQueuedDraftHydrationPolicy.shouldRestoreBeforeServerHydration(
@@ -1837,7 +1850,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
                   hasUnsavedChanges: hasUnsavedDraftChanges,
                   isManualEditing: isManualDraftEditing
               ) else {
-            return
+            return true
         }
 
         let queuedDraft = entry.draft
@@ -1859,6 +1872,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
             baseVersionId: entry.baseVersionId,
             dirty: true
         )
+        return true
     }
 
     func refreshSelectedProjectForDebug() async {
@@ -5560,7 +5574,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         guard project.id == selectedProjectID else { return false }
         // Selection and detail refresh can run independently of load()'s
         // bootstrap. Restore the durable writer copy before either hydrates.
-        await restorePendingDraftSaveBeforeProjectHydration()
+        guard await restorePendingDraftSaveBeforeProjectHydration() else { return false }
         guard authContextIsCurrent(context), project.id == selectedProjectID else { return false }
         hydrateDraft(from: project)
         return true

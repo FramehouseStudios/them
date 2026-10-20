@@ -3,6 +3,51 @@ import XCTest
 
 final class ScreenplayDraftSaveOutboxTests: XCTestCase {
     @MainActor
+    func testUnreadableQueueBlocksHydrationWithoutDiscardingPageAndValidRetryRecovers() async throws {
+        try FileManager.default.createDirectory(at: storageDirectory, withIntermediateDirectories: true)
+        let manifestURL = storageDirectory.appendingPathComponent("queue.json")
+        let corruptData = Data("{not-json".utf8)
+        try corruptData.write(to: manifestURL)
+        let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let suite = "them.unreadable-hydration.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let model = ScreenplayStudioViewModel(
+            localDraftRecoveryStore: ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "recovery"),
+            draftSaveOutbox: queue
+        )
+        model.autosaveEnabled = false
+        model.selectedProjectID = "project-1"
+        let visible = "INT. ROOM - NIGHT\n\nThe visible writer words.\n"
+        model.applyStructuralUITestDraft(visible, versionID: "visible-base")
+        let data = try JSONSerialization.data(withJSONObject: ["id": "project-1", "title": "Test",
+            "activeVersionId": "remote", "versions": [["id": "remote", "draft": "Collaborator words"]]])
+        let project = try JSONDecoder().decode(BackendScreenplayProjectSummary.self, from: data)
+        for _ in 0..<2 {
+            let applied = await model.hydrateDraftRestoringQueuedSaves(from: project)
+            XCTAssertFalse(applied, "An unreadable queue is not evidence that no local saves exist.")
+            XCTAssertEqual(Array(model.fountainDraft.utf8), Array(visible.utf8))
+            XCTAssertEqual(model.latestVersionID, "visible-base")
+            XCTAssertFalse(model.errorText.isEmpty, "The writer must be told why server text was not loaded.")
+            XCTAssertEqual(try Data(contentsOf: manifestURL), corruptData)
+        }
+
+        // Only this test repairs its owned fixture. Production must never
+        // replace an unreadable manifest with an empty queue automatically.
+        try Data("[]".utf8).write(to: manifestURL, options: .atomic)
+        let recovered = await model.hydrateDraftRestoringQueuedSaves(from: project)
+        XCTAssertTrue(recovered)
+        XCTAssertEqual(model.fountainDraft, "Collaborator words")
+        XCTAssertEqual(model.latestVersionID, "remote")
+        XCTAssertTrue(model.errorText.isEmpty, "A successful retry must clear the queue-read warning.")
+        model.errorText = "Unrelated failure"
+        let repeated = await model.hydrateDraftRestoringQueuedSaves(from: project)
+        XCTAssertTrue(repeated)
+        XCTAssertEqual(model.errorText, "Unrelated failure")
+        try? await Task.sleep(nanoseconds: 1_100_000_000)
+    }
+
+    @MainActor
     func testProjectHydrationRestoresQueuedWriterSaveBeforeRemoteDraft() async throws {
         // Adapt original #928's parked-copy regression to this earlier
         // parent's active outbox; later conflict-retention semantics stay separate.

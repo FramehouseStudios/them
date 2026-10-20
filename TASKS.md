@@ -5,6 +5,23 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1068 — Stop hydration when local saves cannot be read
+
+- **Owner:** codex. **Branch:** `codex/T-1068-unreadable-save-queue`.
+- **Status:** review. **Pillar:** writer data safety and recovery.
+- **Boundary:** original #9040209a126, preserve all prior work and base.
+  Existing restoration swallows a queue read error as though no save exists;
+  its caller then hydrates remote text. Extend that canonical owner.
+- **Binary outcome:** actual corrupt-manifest model reproduces replacement
+  before; after, hydration returns false, visible raw words/base and manifest
+  bytes remain unchanged with a useful warning. A valid retry can load, and
+  clears only this warning. Normal queued recovery remains functional.
+- **Evidence:** `docs/unreadable-save-queue-2026-10-20.md`. No paid calls,
+  automatic manifest reset, new persistence layer, main or production change.
+- **Verified:** actual-model before0/1/0; after signed full units654/0/0,
+  authenticated recovery2/0/0, macOS0, actual-base D009/diff pass. Backend
+  unchanged, prior proof reused explicitly. Preserve original #904 on push.
+
 ### T-1067 — Restore queued writer authority at every parent hydration entry
 
 - **Owner:** codex. **Branch:** `codex/T-1067-parent-queued-hydration`.
