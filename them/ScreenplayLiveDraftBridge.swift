@@ -5433,14 +5433,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         rollbackDraft: Bool,
         reason: ScreenplaySyncedInsertInterruptionReason
     ) -> Bool {
-        let queuedInsertMode = pendingInsertion?.mode
-        let hadQueuedSyncedInsert = queuedInsertMode == .streamInsertProgress
-            || queuedInsertMode == .streamInsertFinalize
-            || queuedInsertMode == .streamInsertCancel
-            || queuedInsertMode == .voiceRevealPrepare
-            || queuedInsertMode == .voiceRevealUpdate
-            || queuedInsertMode == .voiceRevealFinalize
-            || queuedInsertMode == .voiceRevealCancel
+        let hadQueuedSyncedInsert = ScreenplayStreamCancellationPolicy.hasQueuedInsert(pendingInsertion?.mode)
         let wasStreaming = streamTask != nil || streamingProgress > 0 || hadQueuedSyncedInsert
         streamTask?.cancel()
         streamTask = nil
@@ -5449,22 +5442,24 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             reason: reason
         )
         streamingProgress = 0
-        if rollbackDraft, wasStreaming || cancelledSynced {
+        switch ScreenplayStreamCancellationPolicy.pendingAction(
+            rollbackDraft: rollbackDraft, wasStreaming: wasStreaming,
+            cancelledSynced: cancelledSynced, hadQueuedInsert: hadQueuedSyncedInsert
+        ) {
+        case .rollback:
             pendingInsertion = ScreenplayInsertionRequest(text: "", mode: .streamInsertCancel)
-        } else if !rollbackDraft, hadQueuedSyncedInsert {
+        case .clear:
             pendingInsertion = nil
+        case .retain: break
         }
         if autoInsertStatusText == "io.them is writing..." {
             autoInsertStatusText = ""
         }
         let didInterrupt = wasStreaming || cancelledSynced
-        switch reason {
-        case .manualTyping, .bargeIn, .cancel:
+        if ScreenplayStreamCancellationPolicy.notifiesBackend(reason) {
             // Always notify for writer-take-back reasons, even if local stream already idle
             // (backend Page generation may still be in flight).
             onPageGenerationInterrupted?(reason)
-        case .other:
-            break
         }
         return didInterrupt
     }

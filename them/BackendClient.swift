@@ -2376,10 +2376,8 @@ final class BackendClient {
 
     private let sharedBackendBaseURLDefaultsKey = "backend_base_url"
     private let personaFlowKey = "clementine"
-    /// Observed when talk responses include `x-clementine-page-reservation` (D008 Page lane).
-    var onPageReservationObserved: ((String) -> Void)?
-    /// Observed when multipart talk body targets `screenplay_target=page`.
-    var onPageTalkInFlightChanged: ((Bool) -> Void)?
+    /// Request-scoped Page start, reservation and completion observations (D008).
+    var onPageTalkLifecycleChanged: (@MainActor (PageTalkLifecycle.Event) -> Void)?
 
 
     private var cachedClientToken: String?
@@ -4287,9 +4285,8 @@ final class BackendClient {
         allowAudioValidationRetry: Bool,
         forceNoStreamAudio: Bool
     ) async throws -> BackendTalkResult {
-        defer {
-            onPageTalkInFlightChanged?(false)
-        }
+        let pageLifecycle = PageTalkLifecycle(onChange: onPageTalkLifecycleChanged)
+        defer { pageLifecycle.finish() }
 
         let boundary = "Boundary-\(UUID().uuidString)"
         let url = baseURL.appendingPathComponent("talk")
@@ -4536,7 +4533,7 @@ final class BackendClient {
                 body.appendString("\r\n")
             }
             if target == "page" {
-                onPageTalkInFlightChanged?(true)
+                pageLifecycle.begin()
             }
             let promptSource = studioMetadata.screenplayPromptSource.trimmingCharacters(in: .whitespacesAndNewlines)
             if !promptSource.isEmpty {
@@ -4733,7 +4730,7 @@ final class BackendClient {
                     field: "x-clementine-page-reservation"
                 )?.trimmingCharacters(in: .whitespacesAndNewlines),
                    !pageReservationHeader.isEmpty {
-                    self.onPageReservationObserved?(pageReservationHeader)
+                    pageLifecycle.observeReservation(pageReservationHeader)
                 }
                 let responseMetadata = BackendTalkResponseMetadata(
                     audioDurationMs: {
