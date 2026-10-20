@@ -4,7 +4,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { startBackend } from "./helpers/backend_test_server.mjs";
+import { startBackend, apiRequest } from "./helpers/backend_test_server.mjs";
 
 const THIS_DIR = dirname(fileURLToPath(import.meta.url));
 const BACKEND_DIR = resolve(THIS_DIR, "..");
@@ -166,6 +166,7 @@ let clientToken = "";
 let lastTurnId = "";
 let baseUrl = DEFAULT_BASE_URL;
 let appToken = APP_TOKEN;
+let userToken = String(process.env.TALK_TEST_USER_TOKEN || "").trim();
 
 before(async () => {
   assert.ok(existsSync(WAV_PATH), `Missing test audio fixture: ${WAV_PATH}`);
@@ -175,7 +176,7 @@ before(async () => {
   if (SPAWN_BACKEND_FOR_TESTS) {
     serverProc = await startBackend({
       env: {
-        REQUIRE_USER_AUTH: "0",
+        REQUIRE_USER_AUTH: "1",
         TALK_TEST_DEBUG_TRANSCRIPT_ENABLED: "1",
         TALK_TEST_DEBUG_FAILURE_ENABLED: "1",
         TALK_TEST_DEBUG_OFFLINE_ENABLED: "1",
@@ -184,9 +185,15 @@ before(async () => {
     });
     baseUrl = serverProc.baseUrl;
     appToken = serverProc.env.APP_TOKEN;
+    const signup = await apiRequest(serverProc, "/auth/signup", {
+      method: "POST", json: { email: "talk-integration@example.com", password: "talk-integration-fixture-password-123" },
+    });
+    assert.equal(signup.status, 201);
+    userToken = String(signup.json?.access_token || signup.json?.token || "").trim();
   }
 
   if (!SPAWN_BACKEND_FOR_TESTS) {
+    assert.ok(userToken, "External talk proof requires TALK_TEST_USER_TOKEN for an authorized test account.");
     const healthy = await waitForHealth(baseUrl, 25_000);
     assert.equal(
       healthy,
@@ -199,6 +206,7 @@ before(async () => {
     method: "POST",
     headers: {
       "X-APP-TOKEN": appToken,
+      Authorization: `Bearer ${userToken}`,
     },
   });
   assert.equal(sessionRes.status, 201, `POST /session failed: ${sessionRes.status}`);
@@ -231,6 +239,7 @@ async function postTalk(debugTranscript, options = {}) {
     method: "POST",
     headers: {
       "X-APP-TOKEN": appToken,
+      Authorization: `Bearer ${userToken}`,
       "X-Client-Token": clientToken,
       ...extraHeaders,
     },
@@ -245,6 +254,7 @@ async function getTurnMeta(turnId) {
   const response = await fetch(`${baseUrl}/talk/turn/${encodeURIComponent(String(turnId || ""))}`, {
     headers: {
       "X-APP-TOKEN": appToken,
+      Authorization: `Bearer ${userToken}`,
       "X-Client-Token": clientToken,
     },
   });
@@ -262,6 +272,7 @@ async function getState() {
   const response = await fetch(`${baseUrl}/state`, {
     headers: {
       "X-APP-TOKEN": appToken,
+      Authorization: `Bearer ${userToken}`,
       "X-Client-Token": clientToken,
     },
   });

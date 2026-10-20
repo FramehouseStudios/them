@@ -14,15 +14,20 @@ import {
 const BACKEND_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const AUDIO = fs.readFileSync(path.join(BACKEND_DIR, "test.wav"));
 
-async function createSession(server) {
-  const response = await apiRequest(server, "/session", { method: "POST" });
+async function createSession(server, email) {
+  const signup = await apiRequest(server, "/auth/signup", { method: "POST",
+    json: { email, password: "shutdown-fixture-password-123" } });
+  assert.equal(signup.status, 201);
+  const userToken = signup.json.access_token || signup.json.token;
+  const response = await apiRequest(server, "/session", { method: "POST",
+    headers: { Authorization: `Bearer ${userToken}` } });
   assert.equal(response.status, 201, response.text);
   const token = String(response.json?.client_token || "").trim();
   assert.ok(token, "session returns a client token");
-  return token;
+  return { clientToken: token, userToken };
 }
 
-async function startStreamingTalk(server, clientToken, transcript) {
+async function startStreamingTalk(server, { clientToken, userToken }, transcript) {
   const form = new FormData();
   form.append("debug_transcript", transcript);
   form.append("file", new Blob([AUDIO], { type: "audio/wav" }), "test.wav");
@@ -30,6 +35,7 @@ async function startStreamingTalk(server, clientToken, transcript) {
     method: "POST",
     headers: {
       "X-APP-TOKEN": server.env.APP_TOKEN,
+      Authorization: `Bearer ${userToken}`,
       "X-Client-Token": clientToken,
       "X-Talk-Stream": "audio",
     },
@@ -92,7 +98,7 @@ test("[shutdown-integration] SIGTERM drains two active talk streams and refuses 
 }, async () => {
   const server = await startBackend({
     env: {
-      REQUIRE_USER_AUTH: "0",
+      REQUIRE_USER_AUTH: "1",
       TALK_TEST_DEBUG_TRANSCRIPT_ENABLED: "1",
       TALK_TEST_DEBUG_OFFLINE_ENABLED: "1",
       TALK_TEST_DEBUG_STREAM_END_DELAY_MS: "300",
@@ -103,8 +109,8 @@ test("[shutdown-integration] SIGTERM drains two active talk streams and refuses 
 
   try {
     const [firstToken, secondToken] = await Promise.all([
-      createSession(server),
-      createSession(server),
+      createSession(server, "shutdown-first@example.com"),
+      createSession(server, "shutdown-second@example.com"),
     ]);
     const first = await startStreamingTalk(server, firstToken, "First active shutdown turn");
     const second = await startStreamingTalk(server, secondToken, "Second active shutdown turn");
