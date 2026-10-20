@@ -5,6 +5,20 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1015 — Verify live access without unbounded model spend
+
+- **Owner:** codex. **Branch:** `codex/T-1015-live-mentor-proof`.
+- **Status:** review (API access verified; full live quality gate interrupted).
+- **Pillar:** dependable living companion / cost transparency.
+- **Proof:** first authorized run stopped after one HTTP429. Following the
+  human's $10 top-up, 20 actual GPT-4o responses returned HTTP200; request21
+  was in flight when the human requested less paid testing. Codex stopped
+  the exact container (exit137), without retries or final quality verdict.
+- **Cost:** completed-response token estimate $0.1243325; not an invoice,
+  interrupted-request cost unknown. No automatic paid continuation.
+- **Evidence:** `docs/live-mentor-proof-2026-10-19.md`.
+- **Next:** local save/recovery root fixes; production remains held.
+
 ### T-1013 — Fail closed when queued writer input cannot be loaded
 
 - **Owner:** codex. **Branch:** `codex/T-1013-outbox-load-safety`.
