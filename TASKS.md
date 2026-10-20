@@ -5,6 +5,28 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1057 — Rehearse client lifetime with exact writer recovery
+
+- **Owner:** codex. **Branch:** `codex/T-1057-writer-lifecycle-integration`.
+- **Status:** review (integration red; not merge-ready). **Pillar:** dependable end-to-end iPhone writing.
+- **Boundary:** merge955e7f0 preserves original #919c80c073 and #972571592e
+  without changing either original head, base, review or main. Only TASKS
+  conflicted; retain current proof and mark superseded ready checkpoint.
+- **Scope:** combine proven native text/viewport/recovery behavior with
+  actual-client synchronous deinit compatibility and native writer evidence
+  retention. No new framework, provider call, release or billing decision.
+- **Done when:** full signed units/V1 UI, exact auth-required writer export/
+  relaunch and recovery, Node20 backend, macOS, D009/diff pass on this
+  combined tree; retain actual failures/skips. Rehearsal backup only, no
+  replacement PR or main merge; original independent review still required.
+- **Evidence:** `docs/writer-lifecycle-integration-2026-10-20.md`.
+- **Verified:** full signed649/0/0 units, V1 UI29/2/9, total678/2/9.
+  To Page not fully visible; uninterrupted lights before loses its space.
+  Native recording confirms the joined words. Node20 backend2753/0/2;
+  D009 bridge-22/others0 and diff pass. Do not promote from smaller passes.
+- **Next:** T1059 proves/fixes live line-normalization word separators;
+  T1058 preserves the separate #971 parent/inline-confirmation repair.
+
 ### T-1056 — Integrate visible paper with original editor text safety
 
 - **Owner:** codex. **Branch:** `codex/T-1056-editor-viewport-integration`.
