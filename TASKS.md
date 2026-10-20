@@ -5,6 +5,19 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1035 — Restore a first-page conflict during creation retry
+
+- **Owner:** codex. **Branch:** `codex/T-1035-first-page-conflict`.
+- **Status:** in-progress; reproduce through the actual create/retry entry.
+- **Target:** a parked initial-seed conflict must restore Keep Mine/Load
+  Server using complete authoritative head detail, not silently return a
+  pending-save message. Keep exact newer words and the original project ID.
+- **Done when:** failing-first regression proves the missing decision; reuse
+  the canonical restoration handler, no automatic version POST, explicit
+  Keep Mine saves once, auth/project/creation guards remain. Signed focused
+  creation/conflict/recovery, relevant UI, macOS and D009/diff proof pass.
+- **Limits:** no original PR/main advance, paid call or production change.
+
 ### T-1034 — Join conflict restoration and complete voice recovery
 
 - **Owner:** codex. **Branch:** `codex/T-1034-joined-conflict-recovery`.

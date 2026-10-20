@@ -2,6 +2,57 @@ import XCTest
 @testable import them
 
 final class ScreenplayProjectCreationTrustTests: XCTestCase {
+    @MainActor func testCreationRetryRestoresParkedFirstPageConflictWithoutResendingUntilKeepMine() async throws {
+        let suite = "them.creation-parked-choice.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer {
+            defaults.removePersistentDomain(forName: suite)
+            try? FileManager.default.removeItem(at: directory)
+            CreationTrustURLProtocol.handler = nil
+        }
+        let store = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "recovery")
+        let owner = ScreenplayStudioAuthContext.current().userID
+        let raw = " \r\nINT. FIRST ROOM - NIGHT\r\nA cafe\u{0301} door opens.\t "
+        let intent = ScreenplayProjectCreationIntent(projectId: UUID().uuidString.lowercased(),
+            ownerUserId: owner, title: "Original title", draft: raw,
+            seedsLiveDraft: true, restoreAsCurrent: true)
+        try store.saveProjectCreation(intent)
+        let queue = ScreenplayDraftSaveOutbox(storageDirectory: directory)
+        try await queue.enqueue(ScreenplayDraftSaveOutboxEntry(id: "first-page", projectId: intent.projectId,
+            ownerUserId: owner, draft: raw, title: intent.title, phase: "scene_draft", notes: "Initial Studio draft",
+            source: "studio_initial_seed", studioWriteAnchors: [], screenplayBindings: [], baseVersionId: "",
+            createdAt: 1, updatedAt: 2, status: .parked, retries: 1, nextAttemptAt: 0,
+            lastError: ScreenplayDraftSaveOutbox.conflictReason))
+        let transport = CreationTrustTransport(holdCreate: false, holdRequests: false,
+            existingDraft: "A collaborator's first page")
+        let api = transport.api()
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store,
+            draftSaveOutbox: ScreenplayDraftSaveOutbox(storageDirectory: directory), draftSaveAPI: api,
+            projectSelectionAPI: api, connectsToLiveWorkspace: false)
+        model.autosaveEnabled = false
+        await model.createProject()
+        XCTAssertEqual(transport.creationIDs, [intent.projectId], "Retry must keep the original project identity.")
+        XCTAssertTrue(transport.versionWrites.isEmpty, "Retry is not an explicit Keep Mine decision.")
+        XCTAssertEqual(Array(model.fountainDraft.utf8), Array(raw.utf8))
+        XCTAssertEqual(model.conflictState?.projectId, intent.projectId)
+        XCTAssertEqual(model.conflictState?.baseVersionId, "")
+        XCTAssertEqual(model.conflictState?.serverVersionId, "saved")
+        XCTAssertTrue(model.hasUnsavedDraftChanges)
+        let retained = try await ScreenplayDraftSaveOutbox(storageDirectory: directory).entriesForTesting()
+        XCTAssertEqual(retained.count, 1)
+        XCTAssertEqual(retained.first?.status, .parked)
+        XCTAssertEqual(retained.first?.baseVersionId, "")
+        XCTAssertEqual(Array((retained.first?.draft ?? "").utf8), Array(raw.utf8))
+        await model.keepLocalDraftAfterConflict()
+        XCTAssertEqual(transport.versionWrites.count, 1)
+        XCTAssertEqual(transport.versionBases, ["saved"], "Only the explicit choice may use the current server base.")
+        XCTAssertEqual(Array((transport.versionWrites.first ?? "").utf8), Array(raw.utf8))
+        XCTAssertNil(model.conflictState)
+        XCTAssertFalse(model.hasUnsavedDraftChanges)
+        XCTAssertNil(try store.pendingProjectCreation(ownerUserId: owner))
+    }
+
     @MainActor func testOfflineSaveFixtureWaitsForTheSelectedProjectsHydratedPage() async throws {
         let suite = "them.offline-fixture-readiness.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
@@ -440,9 +491,11 @@ private final class CreationTrustTransport: @unchecked Sendable {
     private let lock = NSLock()
     private let holdCreate: Bool
     private let holdRequests: Bool
+    private let existingDraft: String?
     private var held: CreationTrustURLProtocol?
     private var didHold = false
     private var drafts: [String] = []
+    private var bases: [String] = []
     private var creates = 0
     private var requestedProjectID = "created"
     var dropNextCreationReply = false
@@ -458,8 +511,10 @@ private final class CreationTrustTransport: @unchecked Sendable {
     }
     var projectWrites: Int { lock.withLock { creates } }
     var versionWrites: [String] { lock.withLock { drafts } }
-    init(holdCreate: Bool, holdRequests: Bool = true) {
+    var versionBases: [String] { lock.withLock { bases } }
+    init(holdCreate: Bool, holdRequests: Bool = true, existingDraft: String? = nil) {
         self.holdCreate = holdCreate; self.holdRequests = holdRequests
+        self.existingDraft = existingDraft
     }
     func api() -> BackendMemoryAPI {
         CreationTrustURLProtocol.handler = { [self] stub in
@@ -481,8 +536,11 @@ private final class CreationTrustTransport: @unchecked Sendable {
             }
             if path.hasSuffix("/version") && stub.request.httpMethod == "POST" {
                 let body = stub.body()
-                let draft = (try? JSONSerialization.jsonObject(with: body) as? [String: Any])?["draft"] as? String ?? ""
-                lock.withLock { drafts.append(draft) }
+                let payload = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any]
+                lock.withLock {
+                    drafts.append(payload?["draft"] as? String ?? "")
+                    bases.append(payload?["base_version_id"] as? String ?? "")
+                }
             }
             let shouldHold = lock.withLock { () -> Bool in
                 let isCreate = path.hasSuffix("/creation") && stub.request.httpMethod == "PUT"
@@ -504,7 +562,7 @@ private final class CreationTrustTransport: @unchecked Sendable {
         respond(stub)
     }
     private func respond(_ stub: CreationTrustURLProtocol) {
-        let latest = lock.withLock { drafts.last }
+        let latest = lock.withLock { drafts.last ?? existingDraft }
         var project: [String: Any] = ["id": createdID, "title": "Original title", "versions": []]
         var payload: [String: Any] = ["status": "ok", "outline": ["acts": [], "beats": [], "scenes": []],
             "collaborators": [], "comments": []]

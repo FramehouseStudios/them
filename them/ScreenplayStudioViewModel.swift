@@ -2599,10 +2599,16 @@ final class ScreenplayStudioViewModel: ObservableObject {
                     source: "studio_initial_seed", notes: "Initial Studio draft", baseVersionOverride: "") else {
                     throw BackendMemoryAPIError.invalidResponse
                 }
-                if queued?.status == .parked {
+                if let queued, queued.status == .parked {
                     finishProjectCreation(project.id, ownerUserId: context.userID)
+                    // This retry owns the reserved creation/save lane. Restore
+                    // its parked choice before ordinary hydration sees an empty base.
+                    await restoreParkedConflictDecision(queued, from: project, context: context)
+                    guard isCurrent() else { return }
                     hydrateDraft(from: project)
-                    infoText = "Project recovered. Your first page is kept locally; resolve its pending save."
+                    if conflictState == nil {
+                        infoText = "Project recovered. Your first page is kept locally; resolve its pending save."
+                    }
                     return
                 }
                 try await draftSaveOutbox.enqueue(request.outboxEntry)
@@ -6238,21 +6244,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
         let retained = await restorePendingDraftSaveBeforeProjectHydration(expectedGeneration: generation)
         guard projectHydrationGeneration == generation, authContextIsCurrent(context),
               project.id == selectedProjectID else { return false }
-        if let retained, retained.status == .parked,
-           retained.lastError == ScreenplayDraftSaveOutbox.conflictReason,
-           !isDraftSaveInFlight, !isSaving, conflictState == nil,
-           loadedDraftProjectID == project.id, hasUnsavedDraftChanges,
-           let head = ScreenplayServerChoicePolicy.currentHead(in: project),
-           !head.id.isEmpty, head.id != retained.baseVersionId, let serverDraft = head.draft,
-           !ScreenplayDraftTextIdentity.matches(fountainDraft, serverDraft) {
-            // Cached editor metadata/ordinary recovery can already name this
-            // server head. Only an explicit writer choice resolves the parked
-            // conflict; restore its original base without replacing newer text.
-            await handleDraftSaveConflict(SaveConflictState(projectId: project.id,
-                baseVersionId: retained.baseVersionId, serverVersionId: head.id,
-                serverDraft: serverDraft, serverDraftExcerpt: head.draftExcerpt ?? "",
-                serverUpdatedAt: head.updatedAt ?? head.createdAt ?? 0),
-                ownerUserId: context.userID, expectedContext: context)
+        if let retained, !isDraftSaveInFlight, !isSaving {
+            await restoreParkedConflictDecision(retained, from: project, context: context)
             guard projectHydrationGeneration == generation, authContextIsCurrent(context),
                   project.id == selectedProjectID else { return false }
         }
@@ -6265,6 +6258,25 @@ final class ScreenplayStudioViewModel: ObservableObject {
         }
         hydrateDraft(from: project)
         return true
+    }
+
+    private func restoreParkedConflictDecision(_ retained: ScreenplayDraftSaveOutboxEntry,
+        from project: BackendScreenplayProjectSummary, context: ScreenplayStudioAuthContext) async {
+        guard authContextIsCurrent(context), project.id == selectedProjectID,
+              retained.projectId.trimmingCharacters(in: .whitespacesAndNewlines) == project.id,
+              retained.ownerUserId.trimmingCharacters(in: .whitespacesAndNewlines) == context.userID,
+              retained.status == .parked, retained.lastError == ScreenplayDraftSaveOutbox.conflictReason,
+              conflictState == nil, loadedDraftProjectID == project.id, hasUnsavedDraftChanges,
+              let head = ScreenplayServerChoicePolicy.currentHead(in: project),
+              !head.id.isEmpty, head.id != retained.baseVersionId, let serverDraft = head.draft,
+              !ScreenplayDraftTextIdentity.matches(fountainDraft, serverDraft) else { return }
+        // Original queued identity survives a newer cached base, including the
+        // empty first-page base. Neither relaunch nor creation retry is Keep Mine.
+        await handleDraftSaveConflict(SaveConflictState(projectId: project.id,
+            baseVersionId: retained.baseVersionId, serverVersionId: head.id,
+            serverDraft: serverDraft, serverDraftExcerpt: head.draftExcerpt ?? "",
+            serverUpdatedAt: head.updatedAt ?? head.createdAt ?? 0),
+            ownerUserId: context.userID, expectedContext: context)
     }
 
     func hydrateDraft(from project: BackendScreenplayProjectSummary) {
