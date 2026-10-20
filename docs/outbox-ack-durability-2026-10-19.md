@@ -52,10 +52,22 @@ Private evidence directory:
 ## Limits and next boundary
 
 This is not a transactional filesystem or physical-device file-protection
-proof. Post-write protection-attribute failure, cleanup failure, process kill
+proof. Cleanup failure, process kill
 at every machine instruction and reentrant enqueue during a failed ack write
 are not newly fault-injected. Payload cleanup is best-effort after manifest
 commit; orphan bytes are preferable to deleting the only recovery copy.
+
+Implementation follow-up after the human requested fewer test cycles: use the
+existing outline-outbox pattern for iOS writes, Data.write with atomic and
+completeFileProtection together. Remove the separate post-write setAttributes
+call: its failure could previously report a failed commit after the manifest
+was already replaced. macOS retains atomic writes. This closes that separate
+post-write error point by construction, not by a new fault-injection claim.
+The prior18-case result applies to4dc6576a; this follow-up receives signed
+compile/diff/god-file verification only, with no new test suite or paid call.
+Build log: /tmp/them-1017-atomic-protection-build.log.
+VERIFIED follow-up signed iOS simulator build completed exit0, BUILD SUCCEEDED;
+D009 all five deltas0 and whitespace pass. No new tests were launched.
 
 Server source: index.js defaults TALK_IDEMPOTENCY_TTL_MS to five minutes;
 resolveTalkSessionKey uses client token or IP, and lib/talk_state.js combines

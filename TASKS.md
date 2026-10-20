@@ -20,6 +20,10 @@
   pre-send/post200 filesystem failures and no auto-replay of ambiguous sends
   after relaunch. Original bytes/key survive; explicit retry works. D009 all
   five deltas0 after fetching exact parent; whitespace pass. No paid calls.
+- **Implementation follow-up:** write iOS protection atomically with the data,
+  removing the separate post-commit attribute setter. User requested fewer
+  suites; prior18-case result belongs to4dc6576a, not this later edit. Signed
+  compile and static gates only for the follow-up; see the proof document.
 - **Not covered:** physical phone, full integration and foreground replayed
   reply/audio. Server replay defaults to a five-minute client-token scope;
   durable owned receipts remain a duplication-risk follow-up, not solved here.

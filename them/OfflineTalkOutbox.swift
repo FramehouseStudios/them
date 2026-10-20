@@ -525,12 +525,10 @@ actor OfflineTalkOutbox {
     }
 
     private func writeProtectedData(_ data: Data, to url: URL) throws {
-        try data.write(to: url, options: [.atomic])
         #if os(iOS)
-        try fileManager.setAttributes(
-            [.protectionKey: FileProtectionType.complete],
-            ofItemAtPath: url.path
-        )
+        try data.write(to: url, options: [.atomic, .completeFileProtection])
+        #else
+        try data.write(to: url, options: [.atomic])
         #endif
     }
 
