@@ -5,6 +5,23 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1037 — Refuse stale native rewrite targets
+
+- **Owner:** codex. **Branch:** `codex/T-1037-strict-rewrite-target`.
+- **Status:** in-progress; failing-first reproduction confirmed.
+- **Root:** both native editors could fall back to an unmatched stored line
+  range, a different occurrence of the text, or the current cursor. A stale
+  rewrite could overwrite newer words or become an unintended insertion.
+- **Before:** shared resolver wired into both native editors, preserving old
+  behavior: signed1 pass/2 fail/0 skip, actual summary read, native exit65.
+- **Fix:** exact captured draft/project/auth context and target range; no
+  search/cursor fallback. Native guard acknowledges rejected requests,
+  preserves current text (no rollback), and cancels stale streaming work.
+- **Done when:** valid rewrites/own streaming continuation work, stale edits
+  stay byte-exact in the real UIKit coordinator, rejection feedback clears
+  only the matching request, writer UI/macOS/D009 and focused checks pass.
+- **Hold:** no paid model calls, original PR/main changes or production work.
+
 ### T-1036 — Capture exact original draft identity for recovery
 
 - **Owner:** codex. **Branch:** `codex/T-1036-recovery-draft-identity`.

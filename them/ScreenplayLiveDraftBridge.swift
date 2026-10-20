@@ -336,6 +336,10 @@ struct ScreenplayInsertionRequest: Identifiable, Equatable {
         case voiceRevealUpdate
         case voiceRevealFinalize
         case voiceRevealCancel
+
+        var writesText: Bool {
+            self != .streamCancel && self != .streamInsertCancel && self != .voiceRevealCancel
+        }
     }
 
     let id: UUID
@@ -907,14 +911,6 @@ enum ScreenplayRenderedCharacterMentionExtractor {
         }
         return false
     }
-}
-
-struct ScreenplayPendingReplacementTarget: Identifiable, Equatable {
-    let id: UUID
-    let sourceWriteID: String
-    let startLine: Int
-    let endLine: Int
-    let currentText: String
 }
 
 private func screenplayEditorPreparedInsertionCoreText(
@@ -6399,7 +6395,10 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             sourceWriteID: sourceWriteID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
             startLine: safeStart,
             endLine: safeEnd,
-            currentText: cleanText
+            currentText: cleanText, draftIdentity: ScreenplayDraftContentIdentity(draft: draftText),
+            projectID: preferredProjectID, authContext: .current(),
+            originalSelectionRange: ScreenplayReplacementResolver.captureSelectionRange(draft: draftText,
+                expectedText: cleanText, startLine: safeStart, endLine: safeEnd, selection: selectedEditorSnapshot())
         )
         debugTraceReplacementTarget(
             kind: "prepare",
@@ -8736,6 +8735,7 @@ private func hollywoodScreenplayEditorFont() -> NSFont {
 
 struct MacCursorInsertTextEditor: NSViewRepresentable {
     @Binding var text: String
+    var documentID: String = ""
     @Binding var activeScreenplayElement: ScreenplayEditorElement
     @Binding var insertionRequest: ScreenplayInsertionRequest?
     @Binding var lineJumpRequest: ScreenplayLineJumpRequest?
@@ -8903,6 +8903,7 @@ struct MacCursorInsertTextEditor: NSViewRepresentable {
         var lastKnownActiveElement: ScreenplayEditorElement
         var isApplyingProgrammaticChange = false
         var lastAppliedInsertionID: UUID?
+        private var lastRewriteRenderedText: String?
         var lastAppliedLineJumpID: UUID?
         var lastAppliedLineHighlightID: UUID?
         var lastAppliedEditorFocusID: UUID?
@@ -9081,6 +9082,40 @@ struct MacCursorInsertTextEditor: NSViewRepresentable {
         }
 
         func applyInsertion(_ request: ScreenplayInsertionRequest) {
+            let target = request.replacementTarget ?? parent.pendingReplacementTarget ?? parent.submittedReplacementTarget
+            if request.mode.writesText, let target {
+                let current = textView?.string ?? ""
+                let active = streamingPreviewRange != nil || streamingInsertRange != nil
+                let ownsStream = (streamingPreviewRange != nil && streamingPreviewReplacementTarget?.id == target.id)
+                    || (streamingInsertRange != nil && streamingInsertReplacementTarget?.id == target.id)
+                let initialAllowed = !active && !ScreenplayReplacementResolver.resolve(existing: current,
+                    candidateRange: rangeForLines(startLine: target.startLine, endLine: target.endLine, in: current),
+                    fallbackSelection: NSRange(location: 0, length: 0), target: target,
+                    projectID: parent.documentID, authContext: .current()).isRejected
+                let currentIsOwned = lastRewriteRenderedText.map { ScreenplayDraftTextIdentity.matches($0, current) } == true
+                let allowed = target.matchesContext(projectID: parent.documentID, authContext: .current())
+                    && (active ? ownsStream && currentIsOwned : initialAllowed)
+                guard allowed else {
+                    // Drop stale ranges, never roll a writer's newer text back.
+                    resetStreamingPreviewState()
+                    resetStreamingInsertState()
+                    lastRewriteRenderedText = nil
+                    lastAppliedInsertionID = request.id
+                    DispatchQueue.main.async {
+                        guard self.parent.insertionRequest?.id == request.id else { return }
+                        let bridge = ScreenplayLiveDraftBridge.shared
+                        _ = bridge.cancelStreamPreservingCurrentDraft(reason: .cancel)
+                        self.parent.insertionRequest = nil
+                        if self.parent.pendingReplacementTarget?.id == target.id { self.parent.pendingReplacementTarget = nil }
+                        if self.parent.submittedReplacementTarget?.id == target.id { self.parent.submittedReplacementTarget = nil }
+                        bridge.autoInsertStatusText = "Rewrite stopped because this page changed. Your current words were kept. Select the line again."
+                    }
+                    return
+                }
+            }
+            defer {
+                if request.mode.writesText, target != nil { lastRewriteRenderedText = textView?.string ?? "" }
+            }
             switch request.mode {
             case .insert:
                 applyStandardInsertion(request)
@@ -10481,75 +10516,15 @@ struct MacCursorInsertTextEditor: NSViewRepresentable {
             existing: String,
             fallbackSelection: NSRange,
             requestReplacementTarget: ScreenplayPendingReplacementTarget? = nil
-        ) -> (range: NSRange, isReplacement: Bool) {
-            guard let target = requestReplacementTarget ?? parent.pendingReplacementTarget ?? parent.submittedReplacementTarget else {
-                ScreenplayLiveDraftBridge.shared.debugTraceReplacementTarget(
-                    kind: "resolve-miss-no-target",
-                    target: nil,
-                    detail: "No replacement target available during resolution."
-                )
-                return (fallbackSelection, false)
-            }
-
-            let ns = existing as NSString
-            let candidateRange = clampedSelection(
-                from: rangeForLines(startLine: target.startLine, endLine: target.endLine, in: existing),
-                maxLength: ns.length
-            )
-            let cleanTarget = target.currentText.trimmingCharacters(in: .whitespacesAndNewlines)
-
-            if candidateRange.length > 0 {
-                let candidateText = ns.substring(with: candidateRange).trimmingCharacters(in: .whitespacesAndNewlines)
-                if candidateText.caseInsensitiveCompare(cleanTarget) == .orderedSame {
-                    ScreenplayLiveDraftBridge.shared.debugTraceReplacementTarget(
-                        kind: "resolve-match-line-range",
-                        target: target,
-                        detail: "Matched replacement target using stored line range."
-                    )
-                    return (candidateRange, true)
-                }
-            }
-
-            if !cleanTarget.isEmpty {
-                let exactRange = ns.range(of: cleanTarget)
-                if exactRange.location != NSNotFound {
-                    ScreenplayLiveDraftBridge.shared.debugTraceReplacementTarget(
-                        kind: "resolve-match-exact",
-                        target: target,
-                        detail: "Matched replacement target using exact text."
-                    )
-                    return (exactRange, true)
-                }
-
-                let caseInsensitiveRange = ns.range(
-                    of: cleanTarget,
-                    options: [.caseInsensitive]
-                )
-                if caseInsensitiveRange.location != NSNotFound {
-                    ScreenplayLiveDraftBridge.shared.debugTraceReplacementTarget(
-                        kind: "resolve-match-case-insensitive",
-                        target: target,
-                        detail: "Matched replacement target using case-insensitive text."
-                    )
-                    return (caseInsensitiveRange, true)
-                }
-            }
-
-            if candidateRange.length > 0 {
-                ScreenplayLiveDraftBridge.shared.debugTraceReplacementTarget(
-                    kind: "resolve-fallback-line-range",
-                    target: target,
-                    detail: "Fell back to stored line range without exact text match."
-                )
-                return (candidateRange, true)
-            }
-
+        ) -> ScreenplayReplacementResolution {
+            let target = requestReplacementTarget ?? parent.pendingReplacementTarget ?? parent.submittedReplacementTarget
+            let candidate = target.map { rangeForLines(startLine: $0.startLine, endLine: $0.endLine, in: existing) }
+                ?? fallbackSelection
+            let result = ScreenplayReplacementResolver.resolve(existing: existing, candidateRange: candidate,
+                fallbackSelection: fallbackSelection, target: target, projectID: parent.documentID, authContext: .current())
             ScreenplayLiveDraftBridge.shared.debugTraceReplacementTarget(
-                kind: "resolve-fallback-selection",
-                target: target,
-                detail: "Could not resolve replacement target; falling back to editor selection."
-            )
-            return (fallbackSelection, false)
+                kind: result.traceKind, target: target, detail: "Resolved the native editor replacement target.")
+            return result
         }
 
         private func resolvedInsertionContext(
@@ -10568,6 +10543,7 @@ struct MacCursorInsertTextEditor: NSViewRepresentable {
                 fallbackSelection: fallbackSelection,
                 requestReplacementTarget: requestReplacementTarget
             )
+            guard !replacement.isRejected else { return (fallbackSelection, "", false) }
             if replacement.isReplacement {
                 let prepared = screenplayEditorPreparedInsertionCoreText(
                     trimmed,
@@ -10911,6 +10887,7 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
         var lastKnownActiveElement: ScreenplayEditorElement
         var isApplyingProgrammaticChange = false
         var lastAppliedInsertionID: UUID?
+        private var lastRewriteRenderedText: String?
         var lastAppliedLineJumpID: UUID?
         var lastAppliedLineHighlightID: UUID?
         var lastAppliedEditorFocusID: UUID?
@@ -11418,6 +11395,40 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
         }
 
         func applyInsertion(_ request: ScreenplayInsertionRequest) {
+            let target = request.replacementTarget ?? parent.pendingReplacementTarget ?? parent.submittedReplacementTarget
+            if request.mode.writesText, let target {
+                let current = textView?.text ?? ""
+                let active = streamingPreviewRange != nil || streamingInsertRange != nil
+                let ownsStream = (streamingPreviewRange != nil && streamingPreviewReplacementTarget?.id == target.id)
+                    || (streamingInsertRange != nil && streamingInsertReplacementTarget?.id == target.id)
+                let initialAllowed = !active && !ScreenplayReplacementResolver.resolve(existing: current,
+                    candidateRange: rangeForLines(startLine: target.startLine, endLine: target.endLine, in: current),
+                    fallbackSelection: NSRange(location: 0, length: 0), target: target,
+                    projectID: parent.documentID, authContext: .current()).isRejected
+                let currentIsOwned = lastRewriteRenderedText.map { ScreenplayDraftTextIdentity.matches($0, current) } == true
+                let allowed = target.matchesContext(projectID: parent.documentID, authContext: .current())
+                    && (active ? ownsStream && currentIsOwned : initialAllowed)
+                guard allowed else {
+                    // Drop stale ranges, never roll a writer's newer text back.
+                    resetStreamingPreviewState()
+                    resetStreamingInsertState()
+                    lastRewriteRenderedText = nil
+                    lastAppliedInsertionID = request.id
+                    DispatchQueue.main.async {
+                        guard self.parent.insertionRequest?.id == request.id else { return }
+                        let bridge = ScreenplayLiveDraftBridge.shared
+                        _ = bridge.cancelStreamPreservingCurrentDraft(reason: .cancel)
+                        self.parent.insertionRequest = nil
+                        if self.parent.pendingReplacementTarget?.id == target.id { self.parent.pendingReplacementTarget = nil }
+                        if self.parent.submittedReplacementTarget?.id == target.id { self.parent.submittedReplacementTarget = nil }
+                        bridge.autoInsertStatusText = "Rewrite stopped because this page changed. Your current words were kept. Select the line again."
+                    }
+                    return
+                }
+            }
+            defer {
+                if request.mode.writesText, target != nil { lastRewriteRenderedText = textView?.text ?? "" }
+            }
             switch request.mode {
             case .insert:
                 applyStandardInsertion(request)
@@ -12807,72 +12818,15 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
             existing: String,
             fallbackSelection: NSRange,
             requestReplacementTarget: ScreenplayPendingReplacementTarget? = nil
-        ) -> (range: NSRange, isReplacement: Bool) {
-            guard let target = requestReplacementTarget ?? parent.pendingReplacementTarget ?? parent.submittedReplacementTarget else {
-                traceReplacementTarget(
-                    kind: "ios-resolve-miss-no-target",
-                    target: nil,
-                    detail: "No replacement target available during resolution."
-                )
-                return (fallbackSelection, false)
-            }
-
-            let ns = existing as NSString
-            let candidateRange = clampedSelection(
-                from: rangeForLines(startLine: target.startLine, endLine: target.endLine, in: existing),
-                maxLength: ns.length
-            )
-            let cleanTarget = target.currentText.trimmingCharacters(in: .whitespacesAndNewlines)
-
-            if candidateRange.length > 0 {
-                let candidateText = ns.substring(with: candidateRange).trimmingCharacters(in: .whitespacesAndNewlines)
-                if candidateText.caseInsensitiveCompare(cleanTarget) == .orderedSame {
-                    traceReplacementTarget(
-                        kind: "ios-resolve-match-line-range",
-                        target: target,
-                        detail: "Matched replacement target using stored line range."
-                    )
-                    return (candidateRange, true)
-                }
-            }
-
-            if !cleanTarget.isEmpty {
-                let exactRange = ns.range(of: cleanTarget)
-                if exactRange.location != NSNotFound {
-                    traceReplacementTarget(
-                        kind: "ios-resolve-match-exact",
-                        target: target,
-                        detail: "Matched replacement target using exact text."
-                    )
-                    return (exactRange, true)
-                }
-
-                let caseInsensitiveRange = ns.range(of: cleanTarget, options: [.caseInsensitive])
-                if caseInsensitiveRange.location != NSNotFound {
-                    traceReplacementTarget(
-                        kind: "ios-resolve-match-case-insensitive",
-                        target: target,
-                        detail: "Matched replacement target using case-insensitive text."
-                    )
-                    return (caseInsensitiveRange, true)
-                }
-            }
-
-            if candidateRange.length > 0 {
-                ScreenplayLiveDraftBridge.shared.debugTraceReplacementTarget(
-                    kind: "ios-resolve-fallback-line-range",
-                    target: target,
-                    detail: "Fell back to stored line range without exact text match."
-                )
-                return (candidateRange, true)
-            }
-
+        ) -> ScreenplayReplacementResolution {
+            let target = requestReplacementTarget ?? parent.pendingReplacementTarget ?? parent.submittedReplacementTarget
+            let candidate = target.map { rangeForLines(startLine: $0.startLine, endLine: $0.endLine, in: existing) }
+                ?? fallbackSelection
+            let result = ScreenplayReplacementResolver.resolve(existing: existing, candidateRange: candidate,
+                fallbackSelection: fallbackSelection, target: target, projectID: parent.documentID, authContext: .current())
             ScreenplayLiveDraftBridge.shared.debugTraceReplacementTarget(
-                kind: "ios-resolve-fallback-selection",
-                target: target,
-                detail: "Could not resolve replacement target; falling back to editor selection."
-            )
-            return (fallbackSelection, false)
+                kind: "ios-\(result.traceKind)", target: target, detail: "Resolved the native editor replacement target.")
+            return result
         }
 
         private func resolvedInsertionContext(
@@ -12891,6 +12845,7 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
                 fallbackSelection: fallbackSelection,
                 requestReplacementTarget: requestReplacementTarget
             )
+            guard !replacement.isRejected else { return (fallbackSelection, "", false) }
             if replacement.isReplacement {
                 let prepared = screenplayEditorPreparedInsertionCoreText(
                     trimmed,

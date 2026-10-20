@@ -83,6 +83,7 @@ struct CursorInsertTextEditor: View {
 #if os(macOS)
         MacCursorInsertTextEditor(
             text: $text,
+            documentID: documentID,
             activeScreenplayElement: $activeScreenplayElement,
             insertionRequest: $insertionRequest,
             lineJumpRequest: $lineJumpRequest,
