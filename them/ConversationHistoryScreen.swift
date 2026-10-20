@@ -11,6 +11,10 @@ struct ConversationThread: Identifiable, Hashable {
     var preview: String
     var userMessage: String
     var assistantMessage: String
+
+    var exportText: String {
+        "\(title)\n\nYou\n\(userMessage)\n\nClementine\n\(assistantMessage)"
+    }
 }
 
 // MARK: - ViewModel
@@ -169,10 +173,6 @@ final class ConversationHistoryViewModel: ObservableObject {
         if selection?.id == thread.id {
             selection = updated.first(where: { $0.id == thread.id })
         }
-    }
-
-    func export(_ thread: ConversationThread) {
-        print("Export thread: \(thread.id)")
     }
 
     private func handleTurnCommitted(_ event: BackendTurnCommittedEvent) {
@@ -394,7 +394,6 @@ struct ConversationHistoryScreen: View {
                 items: items,
                 selection: $vm.selection,
                 onDelete: { vm.delete($0) },
-                onExport: { vm.export($0) },
                 onRename: { thread in
                     renamingThread = thread
                     renameDraft = thread.title
@@ -402,7 +401,7 @@ struct ConversationHistoryScreen: View {
                 }
             )
             .navigationDestination(item: $vm.selection) { thread in
-                ConversationThreadDetailPlaceholder(thread: thread)
+                ConversationThreadDetailView(thread: thread)
             }
         }
     }
@@ -442,7 +441,6 @@ struct HistoryList: View {
     let items: [ConversationThread]
     @Binding var selection: ConversationThread?
     var onDelete: (ConversationThread) -> Void
-    var onExport: (ConversationThread) -> Void
     var onRename: (ConversationThread) -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -468,7 +466,6 @@ struct HistoryList: View {
                                         isSelected: selection?.id == thread.id,
                                         onOpen: { selection = thread },
                                         onDelete: { onDelete(thread) },
-                                        onExport: { onExport(thread) },
                                         onRename: { onRename(thread) }
                                     )
                                 }
@@ -492,7 +489,6 @@ struct HistoryRow: View {
     let isSelected: Bool
     var onOpen: () -> Void
     var onDelete: () -> Void
-    var onExport: () -> Void
     var onRename: () -> Void
 
     @State private var isHovering = false
@@ -565,12 +561,12 @@ struct HistoryRow: View {
             Button(role: .destructive, action: onDelete) {
                 Label("Delete", systemImage: "trash")
             }
-            Button(action: onExport) {
-                Label("Export", systemImage: "square.and.arrow.up")
+            ShareLink(item: thread.exportText, subject: Text(thread.title)) {
+                Label("Share", systemImage: "square.and.arrow.up")
             }
         }
         .contextMenu {
-            Button("Export", action: onExport)
+            ShareLink("Share conversation", item: thread.exportText, subject: Text(thread.title))
             Button("Rename", action: onRename)
             Divider()
             Button(role: .destructive, action: onDelete) {
@@ -580,6 +576,7 @@ struct HistoryRow: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Conversation. \(thread.title)")
         .accessibilityHint("Opens conversation details.")
+        .accessibilityIdentifier("history.thread.\(thread.id)")
     }
 }
 
@@ -649,9 +646,9 @@ struct HistoryErrorView: View {
     }
 }
 
-// MARK: - Placeholder Detail
+// MARK: - Conversation Detail
 
-struct ConversationThreadDetailPlaceholder: View {
+struct ConversationThreadDetailView: View {
     let thread: ConversationThread
 
     var body: some View {
@@ -667,23 +664,53 @@ struct ConversationThreadDetailPlaceholder: View {
             )
             .ignoresSafeArea()
 
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Conversation")
-                    .font(.system(size: 34, weight: .semibold, design: .default))
-                    .foregroundStyle(ConversationHistoryTheme.textPrimary)
-
-                Text(thread.title)
-                    .font(.system(size: 16, weight: .regular, design: .default))
-                    .foregroundStyle(ConversationHistoryTheme.textSecondary)
-
-                Spacer()
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24) {
+                    Text(thread.title)
+                        .font(.title2.weight(.semibold))
+                        .foregroundStyle(ConversationHistoryTheme.textPrimary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    messageSection("You", text: thread.userMessage, identifier: "history.detail.user")
+                    messageSection("Clementine", text: thread.assistantMessage, identifier: "history.detail.reply")
+                    ShareLink(item: thread.exportText, subject: Text(thread.title)) {
+                        Label("Share conversation", systemImage: "square.and.arrow.up")
+                            .font(.body.weight(.semibold))
+                            .frame(maxWidth: .infinity, minHeight: 44)
+                    }
+                    .buttonStyle(SoftPrimaryButtonStyle())
+                    .accessibilityIdentifier("history.detail.share")
+                    .accessibilityHint("Choose where to send a copy of your words and Clementine's reply.")
+                }
+                .padding(.horizontal, 24)
+                .padding(.vertical, 28)
+                .frame(maxWidth: 720, alignment: .leading)
             }
-            .padding(.horizontal, 24)
-            .padding(.top, 28)
-            .frame(maxWidth: 1240, maxHeight: .infinity, alignment: .topLeading)
         }
-        .navigationTitle("")
+        .navigationTitle("Conversation")
         .toolbarTitleDisplayMode(.inline)
+    }
+
+    private func messageSection(_ speaker: String, text: String, identifier: String) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(speaker)
+                .font(.headline)
+                .foregroundStyle(ConversationHistoryTheme.textSecondary)
+                .accessibilityAddTraits(.isHeader)
+            if text.isEmpty {
+                Text("No saved message is available for this turn.")
+                    .font(.body)
+                    .foregroundStyle(ConversationHistoryTheme.textSecondary)
+                    .accessibilityIdentifier(identifier)
+            } else {
+                Text(verbatim: text)
+                    .font(.body)
+                    .foregroundStyle(ConversationHistoryTheme.textPrimary)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier(identifier)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

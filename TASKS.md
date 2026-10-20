@@ -5,6 +5,24 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1022 — Show complete recovered conversations and connect sharing
+
+- **Owner:** codex. **Branch:** `codex/T-1022-readable-recovered-conversations`.
+- **Status:** review (focused signed and rendered narrow-layout proof).
+- **Root:** History loaded both messages but its detail showed only the title;
+  its Export actions only printed a log. The recovery path was unreadable.
+- **Fix:** scrollable, selectable full messages with speaker labels and
+  explicit missing-message state; native share links from detail and rows.
+  Preserve original message text instead of substituting truncated previews.
+- **Evidence:** `docs/readable-recovered-conversations-2026-10-19.md`.
+- **Verified:** text-preservation check 1/0/0; separate native visual-render
+  check 1/0/0, both signed on erased task-owned Pro. Inspected 375-point normal
+  and maximum accessibility-size images. D009 all five deltas zero; diff pass.
+  Native share destination interaction and real-phone journey not proven.
+- **Limits:** this displays existing History data; it cannot recover screenplay
+  text absent from server history, restore audio, or safely apply old page
+  output to an arbitrary project. Full phone/editor proof remains pending.
+
 ### T-1021 — Retain ambiguous foreground requests without automatic resend
 
 - **Owner:** codex. **Branch:** `codex/T-1021-foreground-ambiguous-turn`.
