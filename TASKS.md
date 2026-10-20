@@ -8,7 +8,7 @@
 ### T-1034 — Join conflict restoration and complete voice recovery
 
 - **Owner:** codex. **Branch:** `codex/T-1034-joined-conflict-recovery`.
-- **Status:** in-progress; preserving integration, no original PR changes.
+- **Status:** review; combined local proof complete, no original PR changes.
 - **Scope:** merge T-1033 `856d7624` into T-1032 `0b3d97b9` without
   rewriting either history. Retain D017 and the original voice-recovery work.
 - **Done when:** combined signed units, writer/export/relaunch and five
@@ -16,8 +16,19 @@
   D009 and whitespace checks pass. Stop and fix the first real failure.
 - **Backend:** compare exact bytes with T-1032 before reusing its pinned
   Node20 evidence; do not relabel an earlier run as newly executed.
+- **Verified on 9cd9334d:** signed full units897/0/0, unchanged recovery UI
+  5/0/0, connected writer/export/relaunch1/0/0, macOS BUILD SUCCEEDED; all
+  native handles terminal exit0. Actual summaries read, bundles cloned and
+  compared. D009 all five deltas0; whitespace pass. Runtime stayed frozen.
+- **Reused:** byte-identical backend/scripts/CI from T-1032; its actual
+  Node20.20.2 backend2998/0/2, scripts238/0/0, offline mentor gate OK.
+  No unchanged full backend run, paid model call or real-phone claim.
+- **Evidence:** `docs/joined-conflict-recovery-2026-10-19.md`.
 - **Hold:** #962 remains at the already-approved `f5e746c2`, hosted gate red.
   No original-head advance, child/main merge, paid call or production change.
+- **Next:** investigate first-project parked-seed choice recovery. Advancing
+  original #962 to856d7624 needs separate exact-head human approval; then
+  require a fresh successful hosted gate before any next original boundary.
 
 ### T-1032 — Retrieve and retain complete recovered pages
 
