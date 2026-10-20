@@ -205,12 +205,11 @@ final class OfflineTalkOutboxTests: XCTestCase {
         }
 
         XCTAssertEqual(transportCalls, 0)
-        XCTAssertEqual(snapshot.pendingCount, 1)
+        XCTAssertEqual(snapshot.pendingCount, 0, "Another account's work is not a visible pending turn.")
         let entries = await outbox.allEntries()
-        XCTAssertEqual(entries.first?.retries, 1)
-        XCTAssertTrue(
-            entries.first?.lastError?.contains("different signed-in account") == true
-        )
+        XCTAssertEqual(entries.first?.retries, 0, "Background replay must not consume another owner's retry budget.")
+        XCTAssertEqual(entries.first?.lastError, "offline")
+        XCTAssertEqual(entries.first?.status, .pending)
     }
 
     func testRetryableFailureBacksOffThenDrainsOnLaterSuccess() async throws {
@@ -390,6 +389,8 @@ final class OfflineTalkOutboxTests: XCTestCase {
         let b = try await retain("writer-b", "b")
         let stateA = await outbox.recoveryState()
         XCTAssertEqual(stateA.entries.map(\.id), [a.id])
+        let visibleA = await outbox.snapshot()
+        XCTAssertEqual(visibleA.parkedCount, 1)
         XCTAssertEqual(stateA.snapshot.parkedCount, 1)
         XCTAssertFalse(stateA.snapshot.lastError.contains("private b"))
         let late = try await retain("writer-a", "later")
@@ -400,6 +401,8 @@ final class OfflineTalkOutboxTests: XCTestCase {
         } catch { }
         let stateB = await outbox.recoveryState()
         XCTAssertEqual(stateB.entries.map(\.id), [b.id])
+        let visibleB = await outbox.snapshot()
+        XCTAssertEqual(visibleB.parkedCount, 1)
         try signIn(nil)
         let signedOut = await outbox.recoveryState()
         XCTAssertEqual(signedOut.entries, [])
@@ -413,6 +416,61 @@ final class OfflineTalkOutboxTests: XCTestCase {
         for entry in [b, late] {
             let body = try Data(contentsOf: directory.appendingPathComponent("blobs").appendingPathComponent(entry.bodyRef))
             XCTAssertEqual(body, Data("Exact \(entry.idempotencyKey) café\r\n".utf8))
+        }
+    }
+
+    func testDelayedNotificationFromAnotherOwnerCannotBecomeVisible() {
+        let current = OfflineTalkOutbox.currentOwnerID()
+        let snapshot = OfflineTalkOutboxSnapshot(pendingCount: 2, inflightCount: 0, parkedCount: 3, lastError: "private error")
+        var info = snapshot.notificationUserInfo
+        info[OfflineTalkOutbox.NotificationKey.ownerID] = current
+        let valid = OfflineTalkOutboxSnapshot(notification: Notification(name: .themOfflineTalkOutboxUpdated, userInfo: info))
+        XCTAssertEqual(valid, snapshot)
+        info[OfflineTalkOutbox.NotificationKey.ownerID] = "another-owner-\(UUID().uuidString)"
+        let stale = OfflineTalkOutboxSnapshot(notification: Notification(name: .themOfflineTalkOutboxUpdated, userInfo: info))
+        XCTAssertEqual(stale, .empty)
+        let legacy = OfflineTalkOutboxSnapshot(notification: Notification(name: .themOfflineTalkOutboxUpdated, userInfo: snapshot.notificationUserInfo))
+        XCTAssertEqual(legacy, .empty, "Unpartitioned notifications must fail closed.")
+    }
+
+    func testScopedPublishingDoesNotHideAStorageCreationFailure() async throws {
+        let store = directory.appendingPathComponent("unavailable-store")
+        let outbox = OfflineTalkOutbox(storageDirectory: store)
+        _ = await outbox.snapshot() // Complete the initial missing-manifest read.
+        let blocker = Data("Synthetic storage blocker, not writer data.".utf8)
+        try blocker.write(to: store)
+        let notified = expectation(forNotification: .themOfflineTalkOutboxUpdated, object: nil) { notification in
+            !OfflineTalkOutboxSnapshot(notification: notification).lastError.isEmpty
+        }
+        let failed = await outbox.drainDue { _ in
+            XCTFail("Unreadable storage must not send a request.")
+            return OfflineTalkOutboxSendResult(statusCode: 200)
+        }
+        XCTAssertFalse(failed.lastError.isEmpty)
+        XCTAssertNotNil(failed.userVisibleStatus)
+        await fulfillment(of: [notified], timeout: 2)
+        XCTAssertEqual(try Data(contentsOf: store), blocker)
+    }
+
+    func testIdenticalRequestKeyDoesNotDeduplicateDifferentOwners() async throws {
+        let outbox = OfflineTalkOutbox(storageDirectory: directory)
+        var request = URLRequest(url: URL(string: "https://them.test/talk")!)
+        request.httpMethod = "POST"
+        request.setValue("same-request-key", forHTTPHeaderField: "X-Idempotency-Key")
+        var expected: [String: Data] = [:]
+        for owner in ["owner-a", "owner-b"] {
+            request.setValue(owner, forHTTPHeaderField: "X-User-Id")
+            let body = Data("Exact \(owner) story.\r\n".utf8)
+            let result = try await outbox.enqueue(request: request, body: body, reason: owner, requiresManualRetry: true)
+            expected[result.entry.id] = body
+        }
+        XCTAssertEqual(expected.count, 2)
+        let restored = OfflineTalkOutbox(storageDirectory: directory)
+        let entries = await restored.allEntries()
+        XCTAssertEqual(entries.count, 2)
+        for entry in entries {
+            let body = try Data(contentsOf: directory.appendingPathComponent("blobs").appendingPathComponent(entry.bodyRef))
+            XCTAssertEqual(body, expected[entry.id])
         }
     }
 

@@ -1381,6 +1381,11 @@ struct RootExperienceView: View {
                         showOfflineTalkOutboxBanner(status)
                     }
                 }
+                .onReceive(NotificationCenter.default.publisher(for: .themBackendIdentityPartitionChanged)) { _ in
+                    offlineTalkOutboxSnapshot = .empty
+                    transientTurnBannerText = nil
+                    startOfflineTalkOutbox()
+                }
                 .onReceive(NotificationCenter.default.publisher(for: .themOpenStudioRequested)) { _ in
                     handleWorkspaceNavigationCommand(.openStudio)
                 }
@@ -8404,18 +8409,13 @@ Write this approved story direction directly into screenplay pages now. Maintain
     private func startOfflineTalkOutbox() {
         Task { @MainActor in
             await OfflineTalkOutbox.shared.startNetworkMonitoring()
-            offlineTalkOutboxSnapshot = await OfflineTalkOutbox.shared.snapshot()
-            if offlineTalkOutboxSnapshot.activeCount > 0 {
-                _ = await OfflineTalkOutbox.shared.drainDue()
-            }
+            offlineTalkOutboxSnapshot = await OfflineTalkOutbox.shared.drainDue()
         }
     }
 
     @MainActor
     private func retryOfflineTalkOutbox() {
         Task { @MainActor in
-            offlineTalkOutboxSnapshot = await OfflineTalkOutbox.shared.snapshot()
-            guard offlineTalkOutboxSnapshot.activeCount > 0 else { return }
             offlineTalkOutboxSnapshot = await OfflineTalkOutbox.shared.drainDue()
         }
     }

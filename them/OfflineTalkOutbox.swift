@@ -77,6 +77,11 @@ nonisolated struct OfflineTalkOutboxSnapshot: Codable, Equatable {
 
     init(notification: Notification) {
         let userInfo = notification.userInfo ?? [:]
+        guard let owner = userInfo[OfflineTalkOutbox.NotificationKey.ownerID] as? String,
+              owner == OfflineTalkOutbox.currentOwnerID() else {
+            self = .empty
+            return
+        }
         pendingCount = userInfo[OfflineTalkOutbox.NotificationKey.pendingCount] as? Int ?? 0
         inflightCount = userInfo[OfflineTalkOutbox.NotificationKey.inflightCount] as? Int ?? 0
         parkedCount = userInfo[OfflineTalkOutbox.NotificationKey.parkedCount] as? Int ?? 0
@@ -135,6 +140,7 @@ actor OfflineTalkOutbox {
         static let inflightCount = "inflightCount"
         static let parkedCount = "parkedCount"
         static let lastError = "lastError"
+        static let ownerID = "ownerID"
     }
 
     typealias Transport = (URLRequest) async throws -> OfflineTalkOutboxSendResult
@@ -171,7 +177,7 @@ actor OfflineTalkOutbox {
             try loadIfNeeded()
             publishSnapshot()
         } catch {
-            publish(snapshotFor(entries, lastError: error.localizedDescription))
+            publishSnapshot(lastError: error.localizedDescription)
         }
         guard networkMonitor == nil else { return }
         let monitor = NWPathMonitor()
@@ -192,12 +198,7 @@ actor OfflineTalkOutbox {
     }
 
     func snapshot() -> OfflineTalkOutboxSnapshot {
-        do {
-            try loadIfNeeded()
-            return snapshotFor(entries)
-        } catch {
-            return snapshotFor(entries, lastError: error.localizedDescription)
-        }
+        recoveryState().snapshot
     }
 
     func allEntries() -> [OfflineTalkOutboxEntry] {
@@ -217,7 +218,7 @@ actor OfflineTalkOutbox {
     /// Presentation and destructive recovery must use the current credential
     /// partition, not the device-wide manifest or a caller-supplied owner.
     func recoveryState() -> (ownerID: String, snapshot: OfflineTalkOutboxSnapshot, entries: [OfflineTalkOutboxEntry]) {
-        let owner = currentOwnerID()
+        let owner = Self.currentOwnerID()
         var loadError = ""
         do { try loadIfNeeded() } catch { loadError = error.localizedDescription }
         let owned = entries.filter { entryOwnerID($0) == owner }
@@ -225,7 +226,7 @@ actor OfflineTalkOutbox {
         return (owner, snapshotFor(owned, lastError: loadError), owned)
     }
 
-    private func currentOwnerID() -> String {
+    nonisolated static func currentOwnerID() -> String {
         BackendAuthClient.currentAuthSessionState().user?.userId
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     }
@@ -241,7 +242,8 @@ actor OfflineTalkOutbox {
             return []
         }
         return Set(entries.compactMap { entry in
-            guard entry.endpoint == Self.screenplayQuestionResolutionEndpoint,
+            guard entryOwnerID(entry) == Self.currentOwnerID(),
+                  entry.endpoint == Self.screenplayQuestionResolutionEndpoint,
                   entry.status == .pending || entry.status == .inflight else {
                 return nil
             }
@@ -275,7 +277,11 @@ actor OfflineTalkOutbox {
 
         let idempotencyKey = normalizedHeader(request.value(forHTTPHeaderField: "X-Idempotency-Key"))
             ?? UUID().uuidString
-        if let existingIndex = entries.firstIndex(where: { $0.idempotencyKey == idempotencyKey }) {
+        let requestOwner = request.value(forHTTPHeaderField: "X-User-Id")?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if let existingIndex = entries.firstIndex(where: {
+            $0.idempotencyKey == idempotencyKey && entryOwnerID($0) == requestOwner
+        }) {
             if requiresManualRetry {
                 entries[existingIndex].status = .parked
                 entries[existingIndex].nextAttemptAt = 0
@@ -283,8 +289,8 @@ actor OfflineTalkOutbox {
             entries[existingIndex].lastError = normalizedReason(reason)
             entries[existingIndex].updatedAt = Date().timeIntervalSince1970
             try persist()
-            let nextSnapshot = snapshotFor(entries)
-            publish(nextSnapshot)
+            let nextSnapshot = recoveryState().snapshot
+            publishSnapshot()
             return OfflineTalkOutboxEnqueueResult(entry: entries[existingIndex], snapshot: nextSnapshot)
         }
 
@@ -312,8 +318,8 @@ actor OfflineTalkOutbox {
         try writeProtectedData(body, to: blobURL(for: bodyRef))
         entries.append(entry)
         try persist()
-        let nextSnapshot = snapshotFor(entries)
-        publish(nextSnapshot)
+        let nextSnapshot = recoveryState().snapshot
+        publishSnapshot()
         return OfflineTalkOutboxEnqueueResult(entry: entry, snapshot: nextSnapshot)
     }
 
@@ -328,8 +334,9 @@ actor OfflineTalkOutbox {
             try loadIfNeeded()
             try ensureStorageExists()
         } catch {
-            let failedSnapshot = snapshotFor(entries, lastError: error.localizedDescription)
-            publish(failedSnapshot)
+            var failedSnapshot = recoveryState().snapshot
+            failedSnapshot.lastError = error.localizedDescription
+            publishSnapshot(lastError: error.localizedDescription)
             return failedSnapshot
         }
 
@@ -341,6 +348,7 @@ actor OfflineTalkOutbox {
               let index = entries.firstIndex(where: { entry in
                   entry.status == .pending && entry.nextAttemptAt <= nowSeconds
                     && (entryID == nil || entry.id == entryID)
+                    && entryOwnerID(entry) == Self.currentOwnerID()
               }) {
             sentCount += 1
             entries[index].status = .inflight
@@ -364,8 +372,8 @@ actor OfflineTalkOutbox {
             publishSnapshot()
         }
 
-        let nextSnapshot = snapshotFor(entries)
-        publish(nextSnapshot)
+        let nextSnapshot = recoveryState().snapshot
+        publishSnapshot()
         return nextSnapshot
     }
 
@@ -374,7 +382,7 @@ actor OfflineTalkOutbox {
     func retryParkedEntry(id: String, now: Date = Date(), transport: Transport? = nil) async throws -> OfflineTalkOutboxSnapshot {
         try loadIfNeeded()
         guard let index = entries.firstIndex(where: { $0.id == id && $0.status == .parked }) else {
-            return snapshotFor(entries)
+            return recoveryState().snapshot
         }
         _ = try replayRequest(for: entries[index]) // Validate owner and readable body before changing durable state.
         let previous = entries[index]
@@ -388,7 +396,7 @@ actor OfflineTalkOutbox {
 
     func deleteParkedEntries(expectedOwnerID: String? = nil, confirmedEntryIDs: Set<String>? = nil) throws -> OfflineTalkOutboxSnapshot {
         try loadIfNeeded()
-        let owner = currentOwnerID()
+        let owner = Self.currentOwnerID()
         guard expectedOwnerID == nil || expectedOwnerID == owner else {
             throw BackendError.stage("offline_outbox", "Account changed. Review retained turns again before deleting.")
         }
@@ -611,16 +619,22 @@ actor OfflineTalkOutbox {
         )
     }
 
-    private func publishSnapshot() {
-        publish(snapshotFor(entries))
-    }
-
-    private func publish(_ snapshot: OfflineTalkOutboxSnapshot) {
+    private func publishSnapshot(lastError: String? = nil) {
+        // Never deliver device-wide counts/errors or a delayed previous-owner
+        // event to UI consumers after credentials change.
+        let recovery = recoveryState()
+        let owner = recovery.ownerID
+        var visibleSnapshot = recovery.snapshot
+        if let lastError { visibleSnapshot.lastError = lastError }
+        let userInfoSnapshot = visibleSnapshot.notificationUserInfo
         DispatchQueue.main.async {
+            guard owner == Self.currentOwnerID() else { return }
+            var userInfo = userInfoSnapshot
+            userInfo[NotificationKey.ownerID] = owner
             NotificationCenter.default.post(
                 name: .themOfflineTalkOutboxUpdated,
                 object: nil,
-                userInfo: snapshot.notificationUserInfo
+                userInfo: userInfo
             )
         }
     }

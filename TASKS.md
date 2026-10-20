@@ -38,8 +38,15 @@
   confirmation is refused and later/other-owner payloads survive relaunch.
   Focused signed outbox suite13/0/0 on erased task-owned Pro; actual bundle
   /tmp/them-1016-owner-isolation/v1-ui-smoke-local-1-55553.xcresult.
-  No real user deletion was exercised. Other global queue-status consumers
-  remain to audit; this is not an app-wide isolation/security claim.
+  No real user deletion was exercised. Shared queue snapshots/notifications,
+  pending question IDs and background replay now use current credentials;
+  Home resets on identity changes. Different owners sharing a request key
+  keep separate entries/bodies. Final signed focused run17/0/0 (16 outbox +
+  real-HTTP provider401/quota429 case), including storage-creation error
+  propagation; actual bundle
+  /tmp/them-1016-partition-final/v1-ui-smoke-local-1-57805.xcresult.
+  D009 all five deltas0. Home switching itself is not manually proven;
+  this is not an app-wide isolation/security claim.
 - **Integration:** original #96287a62a6c hosted39349393133 is live; do not
   advance #963 until it passes. This is an isolated follow-up on combined
   T1013, not a replacement original PR or production deployment.

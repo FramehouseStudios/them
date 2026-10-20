@@ -136,8 +136,42 @@ failure ordering is source-reviewed, not newly fault-injected in this run.
 D009 all five deltas0 and diff check pass. No new backend/full-suite/macOS/
 physical-device proof is implied. These results are separate from the earlier
 manual narrow UI journey; account switching was proven in the signed actor test.
-Device-wide operational snapshots/notifications have other consumers; their
-account-switch presentation remains a separate audit, not a covered claim.
+### Shared queue account boundary follow-up
+
+The subsequent consumer audit found Home accepted device-wide counts and
+background drain consumed retry attempts on another account's entry (sending
+was already refused). Pending-question suppression also included other owners.
+Canonical snapshot/enqueue/drain results now use the current credential scope;
+background drain skips other owners before state mutation; question IDs are
+scoped. Local deduplication includes owner as well as request key, preserving
+both bodies when two accounts use the same key.
+
+Published notifications carry their owner and scoped snapshot, reject dispatch
+after credentials change, and are rejected again on decode if stale or missing
+owner metadata. Home clears queue state/banner on identity change and resumes
+only current-owner work. RootExperienceView has zero line growth under D009.
+Self-review corrected a storage-error propagation edge: explicit filesystem
+errors must remain visible even when the current scoped queue is empty.
+
+Intermediate proof: signed outbox suite15/0/0, actual bundle
+/tmp/them-1016-queue-partition/v1-ui-smoke-local-1-56620.xcresult. An extra
+HTTP selector in that command matched zero tests and is not counted as proof.
+The correctly named real-HTTP provider-auth/quota retention case then ran
+separately1/0/0 at
+/tmp/them-1016-partition-http/v1-ui-smoke-local-1-57323.xcresult.
+VERIFIED final signed run completed exit0:17 passed/0 failed/0 skipped,
+including all16 outbox checks and the real-HTTP provider401/quota429 case.
+Actual summary read at
+/tmp/them-1016-partition-final/v1-ui-smoke-local-1-57805.xcresult.
+The filesystem case loads an empty store, places a synthetic file where the
+storage directory should be, and proves drain returns and publishes a visible
+error, never invokes transport, and preserves the blocker bytes. This is a
+real filesystem error, not physical-device file-protection proof. An initial
+result-read used the wrong filename and failed read-only; the actual emitted
+57805 bundle was subsequently read. No tests were rerun for that lookup error.
+D009 all five deltas0 and diff check pass. Backend code is unchanged; no new
+backend/full-unit/macOS/physical-phone gate is claimed. Home account switching
+itself has not been manually exercised in this follow-up.
 Existing transport/credential storage behavior is not a new security audit.
 
 ## Exact changed files
@@ -146,6 +180,7 @@ Existing transport/credential storage behavior is not a new security audit.
 - them/BackendProviderFailurePolicy.swift
 - them/OfflineTalkOutbox.swift
 - them/DataControlsScreen.swift
+- them/RootExperienceView.swift
 - themTests/BackendClientCraftAPITests.swift
 - themTests/OfflineTalkOutboxTests.swift
 - themTests/TalkAuthHTTPFixture.swift
