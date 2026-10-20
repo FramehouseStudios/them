@@ -109,6 +109,7 @@ nonisolated struct OfflineTalkOutboxEntry: Identifiable, Codable, Equatable {
     var retries: Int
     var nextAttemptAt: TimeInterval
     var lastError: String?
+    var originalWriteContext: RecoveredTalkWriteContext? = nil
 }
 
 nonisolated struct OfflineTalkOutboxSendResult {
@@ -275,7 +276,8 @@ actor OfflineTalkOutbox {
         request: URLRequest,
         body: Data,
         reason: String,
-        requiresManualRetry: Bool = false
+        requiresManualRetry: Bool = false,
+        originalWriteContext: RecoveredTalkWriteContext? = nil
     ) throws -> OfflineTalkOutboxEnqueueResult {
         try loadIfNeeded()
         try ensureStorageExists()
@@ -329,7 +331,8 @@ actor OfflineTalkOutbox {
             status: requiresManualRetry ? .parked : .pending,
             retries: 0,
             nextAttemptAt: requiresManualRetry ? 0 : now + Self.backoffSeconds[0],
-            lastError: normalizedReason(reason)
+            lastError: normalizedReason(reason),
+            originalWriteContext: originalWriteContext
         )
 
         try writeProtectedData(body, to: blobURL(for: bodyRef))
@@ -544,7 +547,8 @@ actor OfflineTalkOutbox {
         let ext = mime.contains("audio/mpeg") ? "mp3" : mime.contains("audio/wav") ? "wav" : "bin"
         let reply = RecoveredTalkReply(id: entry.id, ownerID: entryOwnerID(entry), receivedAt: now.timeIntervalSince1970,
             requestKey: entry.idempotencyKey, requestURL: entry.urlString, requestBodyRef: entry.bodyRef,
-            responseBodyRef: "reply-\(entry.id).\(ext)", headers: headers)
+            responseBodyRef: "reply-\(entry.id).\(ext)", headers: headers,
+            originalWriteContext: entry.originalWriteContext)
         try fileManager.createDirectory(at: repliesDirectory, withIntermediateDirectories: true)
         try writeProtectedData(result.body, to: blobURL(for: reply.responseBodyRef))
         try writeProtectedData(JSONEncoder().encode(reply), to: replyFile(reply.id))

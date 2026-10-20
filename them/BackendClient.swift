@@ -4792,7 +4792,8 @@ final class BackendClient {
             let requiresReview = OfflineTalkOutbox.requiresManualRetry(after: error)
             if let queued = await enqueueOfflineTalkRequest(request, body: body,
                 reason: requiresReview ? OfflineTalkOutbox.ambiguousTransportMessage : error.localizedDescription,
-                requiresManualRetry: requiresReview) {
+                requiresManualRetry: requiresReview,
+                originalWriteContext: RecoveredTalkWriteContext(metadata: studioMetadata)) {
                 throw queued
             }
             throw error
@@ -4948,7 +4949,8 @@ final class BackendClient {
                     request,
                     body: body,
                     reason: requiresManualRetry ? BackendProviderFailurePolicy.userMessage : "HTTP \(statusCode)",
-                    requiresManualRetry: requiresManualRetry
+                    requiresManualRetry: requiresManualRetry,
+                    originalWriteContext: RecoveredTalkWriteContext(metadata: studioMetadata)
                 ) {
                     throw queued
                 }
@@ -6127,14 +6129,16 @@ final class BackendClient {
         _ request: URLRequest,
         body: Data,
         reason: String,
-        requiresManualRetry: Bool = false
+        requiresManualRetry: Bool = false,
+        originalWriteContext: RecoveredTalkWriteContext? = nil
     ) async -> BackendTalkQueuedError? {
         do {
             let result = try await offlineTalkOutbox.enqueue(
                 request: request,
                 body: body,
                 reason: reason,
-                requiresManualRetry: requiresManualRetry
+                requiresManualRetry: requiresManualRetry,
+                originalWriteContext: originalWriteContext
             )
             print("POST /talk -> queued offline outbox entry \(result.entry.id)")
             return BackendTalkQueuedError(

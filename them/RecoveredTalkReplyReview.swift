@@ -14,6 +14,16 @@ struct RecoveredTalkReplyReview: View {
               VStack(alignment: .leading, spacing: 24) {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Saved on this device. Not applied to your screenplay.").font(.callout.weight(.semibold))
+                    if let context = reply.originalWriteContext {
+                        Text(context.projectID.isEmpty ? "No project was selected for the original request." : "Original project: \(context.projectID)")
+                            .font(.caption).accessibilityIdentifier("recovery.reply.original-project")
+                        if !context.documentRevisionID.isEmpty {
+                            Text("Original revision: \(context.documentRevisionID)").font(.caption)
+                        }
+                        Text("Original request context is retained. Your draft may have changed since then.").font(.caption)
+                    } else {
+                        Text("Original project and revision context was not recorded for this older request. It cannot be inferred from the open screenplay.").font(.caption)
+                    }
                     if !reply.projectID.isEmpty { Text("Project reported by service: \(reply.projectID)").font(.caption) }
                     if reply.hasOnlyPagePreview {
                         Text("Only a preview was returned here. Do not use it as the complete screenplay page.").font(.callout)

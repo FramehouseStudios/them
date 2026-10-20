@@ -1868,7 +1868,14 @@ final class BackendClientCraftAPITests: XCTestCase {
     }
 
     @MainActor
-    private func assertProviderRequestRetained(mode: TalkAuthHTTPFixture.Mode) async throws {
+    func testRejectedAndInterruptedPageRequestsKeepOriginalWriteContextAcrossRecovery() async throws {
+        for mode in [TalkAuthHTTPFixture.Mode.providerQuota, .interruptedReply] {
+            try await assertProviderRequestRetained(mode: mode, includeWriteContext: true)
+        }
+    }
+
+    @MainActor
+    private func assertProviderRequestRetained(mode: TalkAuthHTTPFixture.Mode, includeWriteContext: Bool = false) async throws {
         print("PROVIDER-RECOVERY fixture start: \(mode)")
         let defaults = UserDefaults.standard
         let ownerKeys = ["auth_user_payload", "user_id", "auth_signed_in"]
@@ -1905,8 +1912,23 @@ final class BackendClientCraftAPITests: XCTestCase {
         defer { server.stop() }
         let client = BackendClient(baseURL: url, fallbackURL: url, persistBackendBaseURL: false,
                                    attachUserIDHeader: false, offlineTalkOutbox: outbox)
+        let metadata = includeWriteContext ? BackendStudioThreadCommitMetadata(
+            screenplayProjectId: "original-capsule-project", screenplayDocumentRevisionId: "original-version-7",
+            screenplayTarget: "page", screenplayPromptSource: "voice", screenplayWriteId: "original-write-9",
+            screenplayAnchorLine: 25, screenplayAnchorEndLine: 28, screenplayInsertionMode: "replace_selection",
+            screenplayAnchorSceneLabel: "INT. CAPSULE - NIGHT", screenplayAnchorDraftSceneId: "scene-2",
+            screenplayAnchorOutlineSceneId: "", screenplayAnchorOutlineBeatIds: [], screenplayAnchorScriptNodeId: "node-4",
+            screenplayNoteTitle: "", screenplayNoteBody: "", screenplayInsertedText: "", screenplayReplacementApplied: false,
+            screenplayReplacedWriteId: "", screenplayRevisedBlockText: "", screenplayResolvedAnchorExcerpt: "") : nil
+        let expectedContext = RecoveredTalkWriteContext(metadata: metadata)
         do {
-            _ = try await client.talkText(transcript: "Write a scene about two astronauts.")
+            if let metadata {
+                _ = try await client.talk(fileURL: directory.appendingPathComponent("fixture.wav"),
+                    fileDataOverride: Data("synthetic recording, not microphone proof".utf8), studioMetadata: metadata,
+                    clientTranscriptOverride: "Write a scene about two astronauts.")
+            } else {
+                _ = try await client.talkText(transcript: "Write a scene about two astronauts.")
+            }
             XCTFail("Provider failure must surface, not become a successful reply.")
         } catch let retained as BackendTalkQueuedError {
             XCTAssertEqual(retained.snapshot.parkedCount, 1)
@@ -1921,8 +1943,28 @@ final class BackendClientCraftAPITests: XCTestCase {
         let relaunched = OfflineTalkOutbox(storageDirectory: directory)
         let entries = await relaunched.allEntries()
         let entry = try XCTUnwrap(entries.first)
+        let originalBody = try Data(contentsOf: directory.appendingPathComponent("blobs").appendingPathComponent(entry.bodyRef))
         XCTAssertEqual(entries.count, 1)
         XCTAssertEqual(entry.status, .parked)
+        XCTAssertEqual(entry.originalWriteContext, expectedContext)
+        if includeWriteContext {
+            XCTAssertEqual(entry.originalWriteContext?.projectID, "original-capsule-project")
+            XCTAssertEqual(entry.originalWriteContext?.documentRevisionID, "original-version-7")
+            XCTAssertEqual(entry.originalWriteContext?.anchorLine, 25)
+            XCTAssertEqual(entry.originalWriteContext?.insertionMode, "replace_selection")
+            // A later enqueue of the same retained identity must never erase or
+            // reinterpret its original context, even if the current caller has none.
+            var duplicate = URLRequest(url: url.appendingPathComponent("talk"))
+            duplicate.httpMethod = "POST"
+            duplicate.setValue(owner, forHTTPHeaderField: "X-User-Id")
+            duplicate.setValue(entry.idempotencyKey, forHTTPHeaderField: "X-Idempotency-Key")
+            let existing = try await relaunched.enqueue(request: duplicate, body: Data("must not replace original".utf8), reason: "review")
+            XCTAssertEqual(existing.entry.originalWriteContext, expectedContext)
+            var legacy = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(entry)) as? [String: Any])
+            legacy.removeValue(forKey: "originalWriteContext")
+            let decoded = try JSONDecoder().decode(OfflineTalkOutboxEntry.self, from: JSONSerialization.data(withJSONObject: legacy))
+            XCTAssertNil(decoded.originalWriteContext, "Pre-change requests must load without inventing a project.")
+        }
         var calls = 0
         _ = await relaunched.drainDue(now: Date().addingTimeInterval(3600)) { _ in
             calls += 1
@@ -1932,12 +1974,27 @@ final class BackendClientCraftAPITests: XCTestCase {
         print("PROVIDER-RECOVERY explicit replay start: \(mode)")
         let retried = try await relaunched.retryParkedEntry(id: entry.id) { request in
             calls += 1
+            XCTAssertEqual(request.httpBody, originalBody, "Replay must use every original byte, not a later duplicate enqueue.")
             XCTAssertEqual(request.value(forHTTPHeaderField: "X-Idempotency-Key"), entry.idempotencyKey)
             XCTAssertNotNil(request.httpBody?.range(of: Data("Write a scene about two astronauts.".utf8)))
+            if includeWriteContext {
+                XCTAssertNotNil(request.httpBody?.range(of: Data("original-capsule-project".utf8)))
+                return OfflineTalkOutboxSendResult(statusCode: 200, headers: ["x-reply": "Recovered response", "x-screenplay-project-id": "different-service-report"])
+            }
             return OfflineTalkOutboxSendResult(statusCode: 200)
         }
         XCTAssertEqual(calls, 1)
         XCTAssertFalse(retried.hasWork)
+        if includeWriteContext {
+            let recovered = await OfflineTalkOutbox(storageDirectory: directory).recoveryState()
+            let receipt = try XCTUnwrap(recovered.replies.first)
+            XCTAssertEqual(receipt.originalWriteContext, expectedContext)
+            XCTAssertEqual(receipt.projectID, "different-service-report", "A service report must not rewrite the original project.")
+            var legacy = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(receipt)) as? [String: Any])
+            legacy.removeValue(forKey: "originalWriteContext")
+            let decoded = try JSONDecoder().decode(RecoveredTalkReply.self, from: JSONSerialization.data(withJSONObject: legacy))
+            XCTAssertNil(decoded.originalWriteContext, "Legacy receipts remain reviewable without guessed context.")
+        }
         print("PROVIDER-RECOVERY explicit replay complete: \(mode)")
     }
 

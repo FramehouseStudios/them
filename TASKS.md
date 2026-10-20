@@ -5,6 +5,26 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1031 — Preserve original recovered-write context
+
+- **Owner:** codex. **Branch:** `codex/T-1031-recovered-write-context`.
+- **Status:** review; scoped context-retention proof complete.
+- **Root:** retained talk requests/results lost their typed project/revision/
+  anchor context; a returned project header is not the original write target.
+- **Fix:** carry immutable original metadata through both foreground enqueue
+  paths, durable queue and successful receipt; never replace it on dedup/retry.
+  Review distinguishes original context, service report and legacy unknowns.
+- **Done when:** real HTTP failure paths retain context across relaunch/replay;
+  legacy records load, duplicates cannot relabel work, exact bodies remain.
+- **Verified:** erased signed focused run25/0/0 (22 outbox + three client
+  checks, including both real HTTP failure scenarios); macOS BUILD SUCCEEDED;
+  D009 all five deltas0, whitespace pass. No paid calls or backend change.
+- **Evidence:** `docs/recovered-write-context-2026-10-19.md`.
+- **Limits:** no apply action: revision alone cannot detect unsaved edits;
+  full original base/authoritative output retrieval and guarded apply remain.
+- **Hold:** original #962 hosted gate still running; no original child/head,
+  main, paid provider or production change authorized by this task.
+
 ### T-1030 — Join repaired saves with owned voice recovery
 
 - **Owner:** codex. **Branch:** `codex/T-1030-joined-writer-recovery`.

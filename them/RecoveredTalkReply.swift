@@ -14,6 +14,32 @@ nonisolated enum BackendTalkResponseContent {
     }
 }
 
+/// The original typed request context, not the current Studio selection or a
+/// service-reported project. This is evidence, not permission to mutate a draft:
+/// revision IDs do not capture unsaved edits and excerpt text is not a full base.
+nonisolated struct RecoveredTalkWriteContext: Codable, Equatable {
+    let projectID: String
+    let documentRevisionID: String
+    let target: String
+    let promptSource: String
+    let writeID: String
+    let anchorLine: Int?
+    let anchorEndLine: Int?
+    let insertionMode: String
+
+    init?(metadata: BackendStudioThreadCommitMetadata?) {
+        guard let metadata, metadata.isMeaningful else { return nil }
+        projectID = metadata.screenplayProjectId
+        documentRevisionID = metadata.screenplayDocumentRevisionId
+        target = metadata.screenplayTarget
+        promptSource = metadata.screenplayPromptSource
+        writeID = metadata.screenplayWriteId
+        anchorLine = metadata.screenplayAnchorLine
+        anchorEndLine = metadata.screenplayAnchorEndLine
+        insertionMode = metadata.screenplayInsertionMode
+    }
+}
+
 /// Private on-device recovery evidence, never an authorization grant or proof
 /// that the generated text has already been inserted/saved in a screenplay.
 nonisolated struct RecoveredTalkReply: Codable, Identifiable, Equatable {
@@ -25,6 +51,7 @@ nonisolated struct RecoveredTalkReply: Codable, Identifiable, Equatable {
     let requestBodyRef: String
     let responseBodyRef: String
     let headers: [String: String]
+    var originalWriteContext: RecoveredTalkWriteContext? = nil
 
     var response: HTTPURLResponse? {
         guard let url = URL(string: requestURL) else { return nil }
