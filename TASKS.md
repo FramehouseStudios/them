@@ -8,17 +8,18 @@
 ### T-1061 — Port exact editor fixes without swallowing separate PRs
 
 - **Owner:** codex. **Branch:** `codex/T-1061-original-editor-echo`.
-- **Status:** in-progress (local preparation only). **Pillar:** exact words.
+- **Status:** review (local proof passed). **Pillar:** exact words.
 - **Boundary:** original #919c80c073 and updated original #9043e96d43
   retained in preserving mergebcde813. Original remote heads unchanged.
 - **Scope:** provenance ports of c049b15/e86af97 (cb3d54e/c83cc99), not
   the whole #972 lifecycle rehearsal. Only TASKS conflicted; executable
   editor/formatter/viewport/UI source matches the tested rehearsal exactly.
-- **Evidence:** T1059's native before5/2/0 and after17/0/0 prove its root
-  correction on the combined rehearsal, not this different client-lifetime
-  boundary. Exact-head focused proof and hosted gates remain required.
-- **Next:** finish T1059 full/recovery proof first, then verify this exact
-  original boundary and normally update the same #919 if proven. No new PR,
+- **Verified:** exact original84e164b signed units659/0/0 + two typing/
+  inspector-callback UI3/0/0, total662/0/0. Node20 full backend2749/0/2;
+  D009 bridge-23/others0 and diff pass. Rehearsal e86af97's full V1,
+  recovery/macOS proof remains separately attributed, not rerun here.
+- **Next:** normally advance the same original #919; fresh exact-head
+  hosted checks and independent review remain required. No new PR,
   main merge, paid call, squash, force push or review bypass.
 - **Evidence:** `docs/original-editor-echo-port-2026-10-20.md`.
 
