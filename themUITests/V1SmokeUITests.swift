@@ -1311,7 +1311,10 @@ final class V1SmokeUITests: XCTestCase {
                 in: app.buttons.matching(NSPredicate(format: "label == %@", "Clear Thread"))
             ) ?? app.buttons["Clear Thread"]
         }
-        XCTAssertTrue(waitForHittability(of: confirmThread, timeout: 4))
+        XCTAssertTrue(
+            revealInStudioDrawer(confirmThread, drawer: drawer, scrollingUp: true, maxSwipes: 8),
+            "Clear Thread confirmation was not reachable after its inline panel expanded."
+        )
 #if os(macOS)
         confirmThread.click()
 #else
@@ -1351,7 +1354,10 @@ final class V1SmokeUITests: XCTestCase {
                 in: app.buttons.matching(NSPredicate(format: "label == %@", "Clear Memory"))
             ) ?? app.buttons["Clear Memory"]
         }
-        XCTAssertTrue(waitForHittability(of: confirmMemory, timeout: 4))
+        XCTAssertTrue(
+            revealInStudioDrawer(confirmMemory, drawer: drawer, scrollingUp: true, maxSwipes: 8),
+            "Clear Memory confirmation was not reachable after its inline panel expanded."
+        )
 #if os(macOS)
         confirmMemory.click()
 #else
@@ -3468,22 +3474,27 @@ final class V1SmokeUITests: XCTestCase {
         _ target: XCUIElement,
         drawer: XCUIElement,
         scrollingUp: Bool,
-        maxSwipes: Int
+        maxSwipes: Int,
+        fullyVisible: Bool = false,
+        requiresHittability: Bool = true
     ) -> Bool {
-        if target.exists, target.isHittable {
-            return true
+        func isVisible() -> Bool {
+            guard target.exists else { return false }
+            if requiresHittability, !target.isHittable { return false }
+            guard fullyVisible else { return true }
+            let frame = target.frame
+            let viewport = studioDrawerContentViewport(drawer)
+            return !frame.isEmpty && frame.minY >= viewport.minY + 8
+                && frame.maxY <= viewport.maxY - 24
         }
+        if isVisible() { return true }
         for _ in 0..<maxSwipes {
-            if target.exists, target.isHittable {
-                return true
-            }
-            // Preserved #625/T-1047 owner: bounded geometry, not flings
-            // across a pinned header or repeated sub-pan-sized corrections.
-            let content = drawer.descendants(matching: .any)
-                .matching(identifier: "studio.sidebar.right.content-scroll").firstMatch
-            let intersection = content.exists ? drawer.frame.intersection(content.frame) : .null
-            let viewport = intersection.isNull || intersection.isEmpty ? drawer.frame : intersection
+            if isVisible() { return true }
+            // Reuse T-992's bounded, target-relative gesture (6a57ff9).
+            // Full-height flings can skip a control on an SE and then keep
+            // scrolling away because the caller assumed a taller viewport.
             let targetFrame = target.exists ? target.frame : .zero
+            let viewport = studioDrawerContentViewport(drawer)
             let distance: CGFloat
             if !targetFrame.isEmpty, targetFrame.minY < viewport.minY + 24 {
                 distance = targetFrame.minY - (viewport.minY + 24)
@@ -3496,13 +3507,22 @@ final class V1SmokeUITests: XCTestCase {
             let anchor = drawer.coordinate(withNormalizedOffset: .zero).withOffset(
                 CGVector(dx: viewport.midX - drawer.frame.minX, dy: viewport.midY - drawer.frame.minY)
             )
+            // A sub-10-point correction can remain a press rather than pan;
+            // the failed SE recording repeated the same 9.5-point gesture.
             let travel = min(max(abs(distance), 44), limit) * (distance < 0 ? -1 : 1)
-            anchor.press(forDuration: 0.05,
-                thenDragTo: anchor.withOffset(CGVector(dx: 0, dy: -travel)),
-                withVelocity: .slow, thenHoldForDuration: 0.12)
+            let end = anchor.withOffset(CGVector(dx: 0, dy: -travel))
+            anchor.press(forDuration: 0.05, thenDragTo: end, withVelocity: .slow, thenHoldForDuration: 0.12)
             RunLoop.current.run(until: Date().addingTimeInterval(0.12))
         }
-        return waitForHittability(of: target, timeout: 2)
+        return isVisible()
+    }
+
+    private func studioDrawerContentViewport(_ drawer: XCUIElement) -> CGRect {
+        let content = drawer.descendants(matching: .any)
+            .matching(identifier: "studio.sidebar.right.content-scroll").firstMatch
+        guard content.exists else { return drawer.frame }
+        let viewport = drawer.frame.intersection(content.frame)
+        return viewport.isNull || viewport.isEmpty ? drawer.frame : viewport
     }
 
     @discardableResult
@@ -3511,28 +3531,8 @@ final class V1SmokeUITests: XCTestCase {
         drawer: XCUIElement,
         maxSwipes: Int
     ) -> Bool {
-        func isFullyVisible() -> Bool {
-            target.exists &&
-                target.isHittable &&
-                target.frame.minY >= drawer.frame.minY + 8 &&
-                target.frame.maxY <= drawer.frame.maxY - 24
-        }
-
-        if isFullyVisible() {
-            return true
-        }
-        for _ in 0..<maxSwipes {
-            if target.exists, target.frame.minY < drawer.frame.minY + 8 {
-                drawer.swipeDown()
-            } else {
-                drawer.swipeUp()
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.12))
-            if isFullyVisible() {
-                return true
-            }
-        }
-        return isFullyVisible()
+        revealInStudioDrawer(target, drawer: drawer, scrollingUp: true,
+            maxSwipes: maxSwipes, fullyVisible: true)
     }
 
     @discardableResult
@@ -3541,28 +3541,8 @@ final class V1SmokeUITests: XCTestCase {
         drawer: XCUIElement,
         maxSwipes: Int
     ) -> Bool {
-        func isFullyVisible() -> Bool {
-            target.exists &&
-                !target.frame.isEmpty &&
-                target.frame.minY >= drawer.frame.minY + 8 &&
-                target.frame.maxY <= drawer.frame.maxY - 24
-        }
-
-        if isFullyVisible() {
-            return true
-        }
-        for _ in 0..<maxSwipes {
-            if target.exists, target.frame.minY < drawer.frame.minY + 8 {
-                drawer.swipeDown()
-            } else {
-                drawer.swipeUp()
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.12))
-            if isFullyVisible() {
-                return true
-            }
-        }
-        return isFullyVisible()
+        revealInStudioDrawer(target, drawer: drawer, scrollingUp: true,
+            maxSwipes: maxSwipes, fullyVisible: true, requiresHittability: false)
     }
 
     private func assertHorizontallyContained(
