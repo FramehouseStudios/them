@@ -4,7 +4,7 @@ import Network
 /// Test-only loopback HTTP fixture. Exercises the real delegate/URLSession
 /// transport, which does not use BackendClient's injected URLProtocol session.
 nonisolated final class TalkAuthHTTPFixture: @unchecked Sendable {
-    enum Mode { case providerAuth, providerQuota, expiredClient, legacyClient }
+    enum Mode { case providerAuth, providerQuota, expiredClient, legacyClient, interruptedReply }
     private let listener: NWListener
     private let queue = DispatchQueue(label: "them.tests.talk-auth-http")
     private let lock = NSLock()
@@ -71,6 +71,14 @@ nonisolated final class TalkAuthHTTPFixture: @unchecked Sendable {
                         return self.recordedPaths.filter { $0 == "/talk" }.count
                     }
                     let response: (Int, String)
+                    if path == "/talk", self.mode == .interruptedReply {
+                        // Accept the complete multipart request, then lose the
+                        // response mid-body. Use the actual URLSession delegate,
+                        // not a mocked classification that proves itself.
+                        let partial = Data("HTTP/1.1 200 OK\r\nContent-Type: audio/wav\r\nContent-Length: 4096\r\nConnection: close\r\n\r\nx".utf8)
+                        connection.send(content: partial, completion: .contentProcessed { _ in connection.cancel() })
+                        return
+                    }
                     if path == "/session" {
                         response = (201, #"{"client_token":"fixture-client-session","expires_in":3600}"#)
                     } else if path == "/talk", self.mode == .providerAuth {

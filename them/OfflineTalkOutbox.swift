@@ -145,6 +145,13 @@ actor OfflineTalkOutbox {
 
     typealias Transport = (URLRequest) async throws -> OfflineTalkOutboxSendResult
 
+    nonisolated static let ambiguousTransportMessage = "The connection ended before a reply was confirmed. This turn may already have been processed. Check History and your script before retrying."
+
+    nonisolated static func requiresManualRetry(after error: Error) -> Bool {
+        let code = (error as? URLError)?.code
+        return error is CancellationError || code == .timedOut || code == .networkConnectionLost || code == .cancelled
+    }
+
     static let shared = OfflineTalkOutbox(storageDirectory: defaultStorageDirectory())
 
     private static let maxBodyBytes = 25 * 1024 * 1024
@@ -370,8 +377,7 @@ actor OfflineTalkOutbox {
                 try handleSendResult(result, forEntryID: entry.id, now: now)
                 if (200...299).contains(result.statusCode) { completedResponse = result }
             } catch {
-                let code = (error as? URLError)?.code
-                if error is CancellationError || code == .timedOut || code == .networkConnectionLost || code == .cancelled {
+                if Self.requiresManualRetry(after: error) {
                     // Losing the response does not prove the server did not
                     // commit. Its short-lived cache cannot justify a later
                     // automatic replay after relaunch or credential refresh.
@@ -379,7 +385,7 @@ actor OfflineTalkOutbox {
                         entries[retainedIndex].status = .parked
                         entries[retainedIndex].updatedAt = nowSeconds
                         entries[retainedIndex].nextAttemptAt = 0
-                        entries[retainedIndex].lastError = "The connection ended before a reply was confirmed. This turn may already have been processed. Check History and your script before retrying."
+                        entries[retainedIndex].lastError = Self.ambiguousTransportMessage
                     }
                 } else {
                     handleRetryableFailure(entryID: entry.id, message: error.localizedDescription, now: now)

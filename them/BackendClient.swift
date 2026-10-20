@@ -4789,7 +4789,10 @@ final class BackendClient {
                     errorDescription: error.localizedDescription
                 )
             )
-            if let queued = await enqueueOfflineTalkRequest(request, body: body, reason: error.localizedDescription) {
+            let requiresReview = OfflineTalkOutbox.requiresManualRetry(after: error)
+            if let queued = await enqueueOfflineTalkRequest(request, body: body,
+                reason: requiresReview ? OfflineTalkOutbox.ambiguousTransportMessage : error.localizedDescription,
+                requiresManualRetry: requiresReview) {
                 throw queued
             }
             throw error
@@ -5914,7 +5917,8 @@ final class BackendClient {
                         onChunk: onChunk
                     )
                 }
-                if shouldRetryTalk(for: error), attempt + 1 < maxTalkAttempts {
+                if !OfflineTalkOutbox.requiresManualRetry(after: error),
+                   shouldRetryTalk(for: error), attempt + 1 < maxTalkAttempts {
                     attempt += 1
                     let delayNs = UInt64(300 * attempt) * 1_000_000
                     print("POST /talk -> transient network error retry \(attempt + 1)/\(maxTalkAttempts): \(error.localizedDescription)")

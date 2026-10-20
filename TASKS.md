@@ -5,6 +5,23 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1021 — Retain ambiguous foreground requests without automatic resend
+
+- **Owner:** codex. **Branch:** `codex/T-1021-foreground-ambiguous-turn`.
+- **Status:** review (focused real HTTP proof passed; integration pending).
+- **Root:** initial BackendClient timeout/connection loss could trigger an
+  immediate retry, then enqueue pending work for further automatic replay.
+- **Fix:** share the outbox ambiguity policy with the foreground client;
+  stop automatic transport retries for these outcomes and retain parked
+  original requests with the existing explicit recovery action.
+- **Evidence:** `docs/foreground-ambiguous-turn-2026-10-19.md`.
+- **Verified:** signed 2/0/0 on erased task-owned Pro: real HTTP truncated
+  response receives exactly one talk request/session, retains parked work
+  across relaunch and permits explicit retry; shared queue checks also pass.
+  D009 all five deltas zero; whitespace pass. No paid calls.
+- **Limits:** no durable server reconciliation, HTTP status policy unchanged,
+  no live model or physical-phone proof. Production hold remains unchanged.
+
 ### T-1020 — Stop automatic replay after an ambiguous transport failure
 
 - **Owner:** codex. **Branch:** `codex/T-1020-ambiguous-replay-retention`.

@@ -1863,6 +1863,11 @@ final class BackendClientCraftAPITests: XCTestCase {
     }
 
     @MainActor
+    func testInterruptedTalkReplyRetainsOriginalWithoutAutomaticForegroundOrBackgroundRetry() async throws {
+        try await assertProviderRequestRetained(mode: .interruptedReply)
+    }
+
+    @MainActor
     private func assertProviderRequestRetained(mode: TalkAuthHTTPFixture.Mode) async throws {
         print("PROVIDER-RECOVERY fixture start: \(mode)")
         let defaults = UserDefaults.standard
@@ -1906,6 +1911,9 @@ final class BackendClientCraftAPITests: XCTestCase {
         } catch let retained as BackendTalkQueuedError {
             XCTAssertEqual(retained.snapshot.parkedCount, 1)
             XCTAssertEqual(retained.snapshot.activeCount, 0)
+            if mode == .interruptedReply {
+                XCTAssertEqual(retained.reason, OfflineTalkOutbox.ambiguousTransportMessage)
+            }
         }
         print("PROVIDER-RECOVERY first rejection retained: \(mode)")
         XCTAssertEqual(server.paths.filter { $0 == "/session" }.count, 1, "A provider key failure cannot repair a valid app session.")
