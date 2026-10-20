@@ -8,7 +8,7 @@
 ### T-1016 — Retain rejected spoken requests and connect explicit recovery
 
 - **Owner:** codex. **Branch:** `codex/T-1016-provider-turn-recovery`.
-- **Status:** review (focused functional proof; UI/broader proof pending).
+- **Status:** in-progress (functional/narrow UI proof; owner-scoped deletion follow-up required).
 - **Pillar:** exact writer words / voice-to-scene.
 - **Source finding:** BackendClient does not retain an initial explicit
   provider-auth/quota rejection; OfflineTalkOutbox parks later failures but
@@ -29,7 +29,12 @@
   run0/1/0; canonical-owner HTTP case1/0/0 covers both provider401 and quota429.
   Prior failures retained. Fixture now uses canonical credential ownership,
   not a production guard relaxation. D009 all five deltas0; diff pass.
-  No new full-suite, UI interaction, live model or physical-phone claim.
+  Signed narrow simulator build passes after ViewBuilder decomposition.
+  Manual Retry retained turn sends exactly one original26-byte fixture request
+  with original key/owner, displays completion, persists an empty queue and
+  does not resend on relaunch. No paid calls. Full suite/live model/phone not
+  newly proven. Inherited owner-unscoped recovery listing/deletion must be
+  corrected before merge; no destructive action was exercised.
 - **Integration:** original #96287a62a6c hosted39349393133 is live; do not
   advance #963 until it passes. This is an isolated follow-up on combined
   T1013, not a replacement original PR or production deployment.

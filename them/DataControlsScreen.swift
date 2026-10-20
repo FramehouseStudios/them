@@ -110,6 +110,7 @@ struct DataControlsScreen: View {
     @State private var isExporting = false
     @State private var isRefreshingOutbox = false
     @State private var isRetryingOutbox = false
+    @State private var retryingRetainedTurnID: String?
     @State private var offlineOutboxSnapshot = OfflineTalkOutboxSnapshot.empty
     @State private var offlineOutboxEntries: [OfflineTalkOutboxEntry] = []
     @State private var outlineRecoveryChains: [ScreenplayOutlineMutationRecoveryChain] = []
@@ -154,8 +155,10 @@ struct DataControlsScreen: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 20) {
                         header
+                        if isExporting || !statusMessage.isEmpty || !stateVersion.isEmpty { statusRow }
+                        if hasTalkRecoveryToShow { offlineOutboxStatus }
                         storageExplanation
-                        offlineOutboxStatus
+                        if !hasTalkRecoveryToShow { offlineOutboxStatus }
                         outlineRecoveryStatus
                         memoryStatus
                         voiceTransportSettings
@@ -163,7 +166,6 @@ struct DataControlsScreen: View {
                         visualContextSettings
                         v1LaunchDoctorEntry
                         actionButtons
-                        statusRow
                     }
                     .padding(.horizontal, 24)
                     .padding(.top, 28)
@@ -467,6 +469,69 @@ struct DataControlsScreen: View {
         .interactiveDismissDisabled(isBusy)
     }
 
+    private var hasTalkRecoveryToShow: Bool {
+        offlineOutboxSnapshot.hasWork || !offlineOutboxSnapshot.lastError.isEmpty
+    }
+
+    private var visibleOfflineOutboxEntries: [OfflineTalkOutboxEntry] {
+        let retained = offlineOutboxEntries.filter { $0.status == .parked || $0.id == retryingRetainedTurnID }
+        let active = offlineOutboxEntries.filter { $0.status != .parked && $0.id != retryingRetainedTurnID }
+        return retained + Array(active.prefix(3))
+    }
+
+    private var canRetryQueuedTalkTurns: Bool {
+        retryingRetainedTurnID == nil && (offlineOutboxSnapshot.activeCount > 0
+            || (!offlineOutboxSnapshot.hasWork && !offlineOutboxSnapshot.lastError.isEmpty))
+    }
+
+    private func retryRetainedTurnButton(for entry: OfflineTalkOutboxEntry) -> some View {
+        Button {
+            Task { @MainActor in await retryRetainedTurn(entry.id) }
+        } label: {
+            HStack(spacing: 8) {
+                if retryingRetainedTurnID == entry.id {
+                    ProgressView().controlSize(.small)
+                    Text("Retrying…")
+                } else {
+                    Image(systemName: "arrow.clockwise").accessibilityHidden(true)
+                    Text("Retry retained turn")
+                }
+            }
+            .font(.callout.weight(.semibold))
+            .foregroundStyle(Color.herText.opacity(0.94))
+            .frame(maxWidth: .infinity, minHeight: 44)
+            .background(Color.white.opacity(0.22), in: Capsule())
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .disabled(isBusy || isRetryingOutbox)
+        .accessibilityIdentifier("data-controls.outbox.retry.\(entry.id)")
+        .accessibilityHint("Retry this saved request. This may use a Clementine turn.")
+    }
+
+    private func offlineOutboxRow(_ entry: OfflineTalkOutboxEntry) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Image(systemName: outboxIconName(for: entry.status))
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(outboxColor(for: entry.status))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(outboxTitle(for: entry))
+                    .font(.system(size: 13, weight: .semibold, design: .default))
+                    .foregroundStyle(Color.herText.opacity(0.86))
+                if let detail = outboxDetail(for: entry) {
+                    Text(detail)
+                        .font(.system(size: 12, weight: .regular, design: .default))
+                        .foregroundStyle(Color.herText.opacity(0.66))
+                        .lineLimit(2)
+                }
+                if entry.status == .parked || entry.id == retryingRetainedTurnID {
+                    retryRetainedTurnButton(for: entry)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+    }
+
     private var offlineOutboxStatus: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .firstTextBaseline) {
@@ -474,59 +539,34 @@ struct DataControlsScreen: View {
                     .font(.system(size: 18, weight: .semibold, design: .default))
                     .foregroundStyle(Color.herText.opacity(0.92))
                 Spacer()
-                Button {
-                    Task { @MainActor in
-                        await retryOfflineOutbox()
+                if canRetryQueuedTalkTurns {
+                    Button {
+                        Task { @MainActor in
+                            await retryOfflineOutbox()
+                        }
+                    } label: {
+                        if isRetryingOutbox {
+                            ProgressView()
+                                .controlSize(.small)
+                        } else {
+                            Image(systemName: "arrow.triangle.2.circlepath")
+                                .font(.system(size: 14, weight: .semibold))
+                        }
                     }
-                } label: {
-                    if isRetryingOutbox {
-                        ProgressView()
-                            .controlSize(.small)
-                    } else {
-                        Image(systemName: "arrow.triangle.2.circlepath")
-                            .font(.system(size: 14, weight: .semibold))
-                    }
+                    .buttonStyle(.plain)
+                    .disabled(isBusy || isRetryingOutbox)
+                    .accessibilityLabel("Retry queued talk turns")
                 }
-                .buttonStyle(.plain)
-                .disabled(isBusy || isRetryingOutbox)
-                .accessibilityLabel("Retry queued talk turns")
             }
 
             Text(offlineOutboxSummary)
                 .font(.system(size: 14, weight: .regular, design: .default))
                 .foregroundStyle(Color.herText.opacity(0.78))
 
-            let visibleEntries = offlineOutboxEntries.filter { $0.status == .parked }
-                + Array(offlineOutboxEntries.filter { $0.status != .parked }.prefix(3))
-            if !visibleEntries.isEmpty {
+            if !visibleOfflineOutboxEntries.isEmpty {
                 VStack(alignment: .leading, spacing: 8) {
-                    ForEach(Array(visibleEntries)) { entry in
-                        HStack(alignment: .firstTextBaseline, spacing: 8) {
-                            Image(systemName: outboxIconName(for: entry.status))
-                                .font(.system(size: 12, weight: .semibold))
-                                .foregroundStyle(outboxColor(for: entry.status))
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(outboxTitle(for: entry))
-                                    .font(.system(size: 13, weight: .semibold, design: .default))
-                                    .foregroundStyle(Color.herText.opacity(0.86))
-                                if let detail = outboxDetail(for: entry) {
-                                    Text(detail)
-                                        .font(.system(size: 12, weight: .regular, design: .default))
-                                        .foregroundStyle(Color.herText.opacity(0.66))
-                                        .lineLimit(2)
-                                }
-                                if entry.status == .parked {
-                                    Button("Retry retained turn") {
-                                        Task { @MainActor in await retryRetainedTurn(entry.id) }
-                                    }
-                                    .font(.system(size: 13, weight: .semibold))
-                                    .disabled(isBusy || isRetryingOutbox)
-                                    .accessibilityIdentifier("data-controls.outbox.retry.\(entry.id)")
-                                    .accessibilityHint("Retry this saved request. This may use a Clementine turn.")
-                                }
-                            }
-                            Spacer(minLength: 0)
-                        }
+                    ForEach(visibleOfflineOutboxEntries) { entry in
+                        offlineOutboxRow(entry)
                     }
                 }
             }
@@ -993,7 +1033,8 @@ struct DataControlsScreen: View {
     private func retryRetainedTurn(_ id: String) async {
         guard !isRetryingOutbox else { return }
         isRetryingOutbox = true
-        defer { isRetryingOutbox = false }
+        retryingRetainedTurnID = id
+        defer { isRetryingOutbox = false; retryingRetainedTurnID = nil }
         do {
             offlineOutboxSnapshot = try await OfflineTalkOutbox.shared.retryParkedEntry(id: id)
             statusMessage = offlineOutboxSnapshot.userVisibleStatus ?? "Retained turn sent."

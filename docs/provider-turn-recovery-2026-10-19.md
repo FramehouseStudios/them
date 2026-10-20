@@ -68,8 +68,39 @@ All completed negative bundles were cloned and compared in the private proof
 directory. Final changes after the last compile are retained-turn label/
 confirmation wording only; source-reference and diff checks cover that copy.
 No new backend files changed or backend suite was rerun for this Swift-only
-follow-up. No full signed suite, UI interaction/visual inspection, macOS build,
-real audio capture or live model quality is claimed for this candidate.
+follow-up. No full signed suite, macOS build, real audio capture or live
+model quality is claimed for this candidate. Narrow UI proof follows below.
+
+### Narrow recovery UI follow-up
+
+VERIFIED on task-owned iPhone SE3 simulator E8998A6B, iOS26.2,375x667pt:
+urgent retained work now appears above the existing Data Handling explanation,
+and completion appears near the heading. The retry button has a44pt minimum
+height, scalable callout font, explicit icon/label and selected-entry progress.
+The generic queue retry is hidden when only retained work exists because it
+cannot reactivate those entries. Privacy wording is unchanged.
+
+The first combined ViewBuilder failed compilation with a type-check complexity
+error at DataControlsScreen.swift:477. Extracting typed visible-entry filtering,
+row and retry-button helpers fixed compilation; no timeout/check weakened.
+Signed simulator build then completed exit0 and codesign verification passed.
+Log: /tmp/them-1016-recovery-decomposed-build.log; failed log:
+/tmp/them-1016-recovery-final-ui-build.log.
+
+Manual app interaction against a private loopback HTTP fixture recorded zero
+talk requests before tapping Retry retained turn, then exactly one request:
+original26 bytes, original idempotency key and expected synthetic owner all
+matched. App displayed Retained turn sent.; queue manifest was0bytes. Closing
+and relaunching without erasing showed no waiting turns and still one receipt.
+The retained fixture survived installation over the previous build before this
+action. Screenshots recovery-final-before-retry.png and
+recovery-final-after-retry.png are preserved in the private proof directory.
+Default text size was inspected: no vertical label wrapping. Larger Dynamic
+Type and in-flight spinner visibility were not manually proven.
+
+This fixture is not production multipart/model generation or actual sign-in;
+real client multipart preservation is covered by the focused HTTP case above.
+No paid call, live microphone, generated page or shipping-backend claim.
 
 ## Self-review and remaining gaps
 
@@ -80,7 +111,12 @@ targets that ID during drain. Retry preserves the stored URL, payload,
 metadata and request key; it does not silently create a new project/request.
 Successful replay handling is inherited: server-side page effects can persist,
 but this outbox does not deliver returned audio to the foreground conversation.
-UI interaction/narrow-width proof and broader integration remain pending.
+Broader integration and physical-phone proof remain pending.
+Self-review found inherited owner-unscoped allEntries/snapshot/deletion in
+OfflineTalkOutbox: retry checks owner, but Delete retained turns currently
+selects all parked accounts. No deletion was exercised. Next root task must
+scope recovery presentation/deletion and preserve another account's requests;
+this candidate is not ready to merge with that isolation gap unresolved.
 Existing transport/credential storage behavior is not a new security audit.
 
 ## Exact changed files
