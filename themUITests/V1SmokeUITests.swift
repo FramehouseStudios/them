@@ -681,6 +681,33 @@ final class V1SmokeUITests: XCTestCase {
         XCTAssertTrue(app.descendants(matching: .any)["studio.draft.page-tools"].waitForExistence(timeout: 4))
     }
 
+    func test_inspector_navigation_stays_visible_while_panel_scrolls() {
+        let app = launchApp(openStudio: true, openExportTools: true, structuralSeed: true)
+        defer { app.terminate() }
+        let drawer = element(identifier: "studio.sidebar.right.drawer", in: app)
+        let tab = app.buttons["studio.right-panel.draft"]
+        guard tab.waitForExistence(timeout: 8), tab.isHittable else {
+            XCTFail("The inspector navigation must be visible before scrolling.")
+            return
+        }
+        let before = tab.frame
+        drawer.swipeUp()
+        guard tab.exists, tab.isHittable else {
+            XCTFail("Scrolling a panel must not hide the inspector's navigation.")
+            return
+        }
+        XCTAssertEqual(tab.frame.minY, before.minY, accuracy: 1,
+            "The navigation must remain pinned while the panel content scrolls.")
+        XCTAssertEqual(tab.frame.maxY, before.maxY, accuracy: 1)
+
+        app.buttons["studio.right-panel.beats"].tap()
+        drawer.swipeUp()
+        drawer.swipeUp()
+        app.buttons["studio.right-panel.craft"].tap()
+        XCTAssertTrue(waitForHittability(of: app.staticTexts["studio.craft.panel"], timeout: 4),
+            "A newly selected panel must open at its heading, not inherit another panel's scroll offset.")
+    }
+
     func test_all_studio_inspector_tabs_route_to_real_panels_and_report_selection() {
         let app = launchApp(openStudio: true, openExportTools: true, structuralSeed: true)
         defer { app.terminate() }
@@ -697,18 +724,12 @@ final class V1SmokeUITests: XCTestCase {
 
         for route in routes {
             let tab = app.buttons["studio.right-panel.\(route.tab)"]
-            // The tab grid sits at the top of a lazy drawer. Revealing the
-            // previous panel scrolls the grid out of the accessibility
-            // hierarchy, so bring it back before tapping and check the
-            // selected state before this panel's reveal scrolls it away again.
-            XCTAssertTrue(
-                revealInspectorTab(tab, drawer: drawer, in: app),
-                "Missing \(route.tab) inspector tab"
-            )
-            XCTAssertTrue(
-                revealInStudioDrawer(tab, drawer: drawer, scrollingUp: false, maxSwipes: 16),
-                "The \(route.tab) inspector tab could not be scrolled into view"
-            )
+            // Navigation stays pinned; selecting it must not require a
+            // scroll/reopen recovery sequence.
+            guard tab.waitForExistence(timeout: 8), tab.isHittable else {
+                XCTFail("Missing pinned \(route.tab) inspector tab")
+                return
+            }
             tab.tap()
             XCTAssertTrue(
                 waitForSelection(of: tab, timeout: 3),
@@ -3024,35 +3045,28 @@ final class V1SmokeUITests: XCTestCase {
 #endif
 
     private func revealStudioPendingQuestion(in app: XCUIApplication) {
-        let card = element(identifier: "studio.pending-question", in: app)
-        let deadline = Date().addingTimeInterval(8)
-        let rightToggle = app.buttons["studio.sidebar.right.toggle"]
-        while Date() < deadline, !card.exists {
-            if rightToggle.waitForExistence(timeout: 0.5),
-               rightToggle.isHittable,
-               rightToggle.label.localizedCaseInsensitiveContains("Open") {
-                rightToggle.tap()
-            }
-            let themTab = app.buttons["io.them"]
-            if themTab.exists, themTab.isHittable, !themTab.isSelected {
-                themTab.tap()
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.2))
-        }
+        revealStudioPartnerContent(identifier: "studio.pending-question", in: app)
     }
 
     private func revealStudioAppliedMemory(in app: XCUIApplication) {
-        let memory = element(identifier: "studio.story-obligation.current", in: app)
+        revealStudioPartnerContent(identifier: "studio.story-obligation.current", in: app)
+    }
+
+    private func revealStudioPartnerContent(identifier: String, in app: XCUIApplication) {
+        let content = element(identifier: identifier, in: app)
         let deadline = Date().addingTimeInterval(8)
         let rightToggle = app.buttons["studio.sidebar.right.toggle"]
-        while Date() < deadline, !memory.exists {
+        while Date() < deadline, !content.exists {
             if rightToggle.waitForExistence(timeout: 0.5),
-               rightToggle.isHittable,
-               rightToggle.label.localizedCaseInsensitiveContains("Open") {
+               rightToggle.label.localizedCaseInsensitiveContains("Open"),
+               rightToggle.isHittable {
                 rightToggle.tap()
             }
-            let themTab = app.buttons["io.them"]
-            if themTab.exists, themTab.isHittable, !themTab.isSelected {
+            // Opening the drawer may already reveal the selected panel.
+            // Do not request an unnecessary hit point on its selected tab.
+            if content.exists { return }
+            let themTab = app.buttons["studio.right-panel.them"]
+            if themTab.exists, !themTab.isSelected, themTab.isHittable {
                 themTab.tap()
             }
             RunLoop.current.run(until: Date().addingTimeInterval(0.2))
@@ -3375,37 +3389,6 @@ final class V1SmokeUITests: XCTestCase {
         return element.exists && element.isHittable
     }
 
-    @discardableResult
-    /// The inspector tab grid sits at the top of a lazy drawer, so revealing a
-    /// panel can scroll it out of the accessibility hierarchy. Swiping down
-    /// normally brings it back; in the full scripted smoke those swipes were
-    /// once swallowed while the drawer was still settling ("Missing craft
-    /// inspector tab" after 16 swipes, 44 s instead of 34 s). Closing and
-    /// reopening the drawer puts the grid back at the top, so do that once
-    /// before giving up. Callers keep their own assertion and message.
-    private func revealInspectorTab(
-        _ tab: XCUIElement,
-        drawer: XCUIElement,
-        in app: XCUIApplication
-    ) -> Bool {
-        if tab.waitForExistence(timeout: 8)
-            || revealInStudioDrawer(tab, drawer: drawer, scrollingUp: false, maxSwipes: 16) {
-            return true
-        }
-        XCTContext.runActivity(
-            named: "Inspector tab grid did not come back after 16 swipes; reopening the drawer"
-        ) { _ in }
-        let toggle = app.buttons["studio.sidebar.right.toggle"]
-        guard waitForHittability(of: toggle, timeout: 4) else { return false }
-        toggle.tap()
-        _ = waitForDisappearance(of: drawer, timeout: 4)
-        guard waitForHittability(of: toggle, timeout: 4) else { return false }
-        toggle.tap()
-        guard drawer.waitForExistence(timeout: 5) else { return false }
-        return tab.waitForExistence(timeout: 8)
-            || revealInStudioDrawer(tab, drawer: drawer, scrollingUp: false, maxSwipes: 16)
-    }
-
     private func revealInStudioDrawer(
         _ target: XCUIElement,
         drawer: XCUIElement,
@@ -3419,11 +3402,29 @@ final class V1SmokeUITests: XCTestCase {
             if target.exists, target.isHittable {
                 return true
             }
-            if scrollingUp {
-                drawer.swipeUp()
+            // Preserved #625/T-1047 owner: bounded geometry, not flings
+            // across a pinned header or repeated sub-pan-sized corrections.
+            let content = drawer.descendants(matching: .any)
+                .matching(identifier: "studio.sidebar.right.content-scroll").firstMatch
+            let intersection = content.exists ? drawer.frame.intersection(content.frame) : .null
+            let viewport = intersection.isNull || intersection.isEmpty ? drawer.frame : intersection
+            let targetFrame = target.exists ? target.frame : .zero
+            let distance: CGFloat
+            if !targetFrame.isEmpty, targetFrame.minY < viewport.minY + 24 {
+                distance = targetFrame.minY - (viewport.minY + 24)
+            } else if !targetFrame.isEmpty, targetFrame.maxY > viewport.maxY - 24 {
+                distance = targetFrame.maxY - (viewport.maxY - 24)
             } else {
-                drawer.swipeDown()
+                distance = scrollingUp ? 160 : -160
             }
+            let limit = min(CGFloat(220), viewport.height * 0.4)
+            let anchor = drawer.coordinate(withNormalizedOffset: .zero).withOffset(
+                CGVector(dx: viewport.midX - drawer.frame.minX, dy: viewport.midY - drawer.frame.minY)
+            )
+            let travel = min(max(abs(distance), 44), limit) * (distance < 0 ? -1 : 1)
+            anchor.press(forDuration: 0.05,
+                thenDragTo: anchor.withOffset(CGVector(dx: 0, dy: -travel)),
+                withVelocity: .slow, thenHoldForDuration: 0.12)
             RunLoop.current.run(until: Date().addingTimeInterval(0.12))
         }
         return waitForHittability(of: target, timeout: 2)
