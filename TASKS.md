@@ -5,6 +5,28 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1058 — Preserve and repair original paid-talk UI gate
+
+- **Owner:** codex. **Branch:** `codex/T-1058-paid-talk-ui-gate`.
+- **Status:** review (local proof passed). **Pillar:** account/cost trust.
+- **Boundary:** original #971c670abf preserved; mergecf1b6d1 also preserves
+  now-green original #9669487cf5, no original head or main changed.
+- **Verified red:** hosted39408393871 native V1 UI27/1/9, iPhone17Pro26.5;
+  callback test fails waiting on inline Clear Thread confirmation at1183.
+  Viewed native final frame shows the expanded panel below the viewport.
+  This is not evidence of a paid-auth failure; security source unchanged.
+- **Candidate:** exact preserved d82b3757 correction from #625: reveal
+  both expanded confirmation controls, then tap once. All exact clearing
+  assertions remain. Reuse its complete bounded reveal helper (T1060),
+  replacing this branch's old full-height flings without changing budgets
+  or the frame-only/hittability policies. No production/auth change.
+- **Verified:** signed erased owned SE/iOS26.2 full units624/0/0 plus
+  callback/six-tab UI2/0/0, total626/0/0. Node20 backend2755/0/2;
+  canonical runner contracts22/0/0; all protected deltas0, diff clean.
+- **Next:** normally update original #971 with its preserved parent9487cf5;
+  fresh exact-head hosted checks and independent review remain required.
+- **Evidence:** `docs/paid-talk-ui-gate-2026-10-20.md`.
+
 ### T-1046 — Close anonymous and case-variant paid-talk access
 
 - **Owner:** codex. **Branch:** `codex/T-1046-paid-talk-auth`.
