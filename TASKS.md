@@ -5,6 +5,27 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1054 — Keep original #904 inspector navigation reachable
+
+- **Owner:** codex. **Branch:** `codex/T-1054-parent-inspector-navigation`.
+- **Status:** review. **Pillar:** mobile-first writer controls.
+- **Verified red:** original #904 `a6a36260`, hosted run39419339905,
+  Quality job118616089203: story-obligation relaunch workflow cannot resolve
+  a hittable Clementine inspector tab. Do not call this recovery-data loss
+  or infrastructure-only failure without the actual UI evidence.
+- **Plan:** reproduce hidden navigation on the erased owned 375-point SE;
+  reuse the narrow pinned-navigation correction already preserved in #625,
+  not its unrelated billing changes. Preserve original #904 history/base.
+- **Done when:** navigation stays visible while panels scroll; switching
+  panels resets their position; unchanged story-obligation/relaunch and six
+  panel workflows pass; signed units, macOS, D009 and diff checks pass.
+  Record fresh hosted checks and independent approval separately.
+- **Evidence:** `docs/parent-inspector-navigation-2026-10-20.md`.
+- **Verified:** before0/1/0; after3/0/0 UI; full signed units634/0/0,
+  erased owned SE/iOS26.2. Node20 backend2749/0/2; macOS native exit0;
+  real-base D009 Studio-4/other deltas0; diff clean. No paid calls or main
+  merge. Fresh exact-head hosted proof and independent review remain required.
+
 ### T-1051 — Repair original #904 before its editor child
 
 - **Owner:** codex. **Branch:** `codex/T-1051-parent-recovery-authority`.

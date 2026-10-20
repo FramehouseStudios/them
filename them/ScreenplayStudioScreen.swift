@@ -2202,7 +2202,6 @@ Replace is best when this file should become the script you edit. Append is safe
         ScrollViewReader { proxy in
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 12) {
-                    directionOneRightPanelTabs
                     if let preview = liveDraftBridge.pendingStudioActionPreview {
                         pendingStudioActionPreviewCard(preview)
                     }
@@ -2213,6 +2212,7 @@ Replace is best when this file should become the script you edit. Append is safe
                 }
                 .padding(12)
             }
+            .modifier(ScreenplayStudioPinnedInspectorTabs(tabs: directionOneRightPanelTabs, selection: directionOneRightPanelTab))
             .onChange(of: beatDropTargetID) { _, _ in
                 syncInspectorDropTargetScroll(proxy: proxy)
             }
