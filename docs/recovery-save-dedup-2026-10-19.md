@@ -85,6 +85,48 @@ Branch `codex/T-1027-recovery-save-dedup` preserves original527c58d6. Original
 this fix. Fresh original-head authorization/checks remain required before
 advancing the integration stack. Orb and Clementine are unchanged.
 
-Next: scoped normal branch backup; fresh required integration proof and exact
-original-head authorization before appending to #962. No original #963 update
-until its parent is green. No new replacement PR or main merge.
+Scoped normal branch backup completed at1ffa52e36a8403ad3a49fd32ae282e2d2f8da435.
+Remote original962527c58d6, original9637459a8fa, and maindeac1a6d were re-read
+unchanged. Evidence posted on original #962 in comment6282857193.
+
+## Integration boundary on frozen runtime1ffa52e3
+
+Full signed units completed869 passed/0 failed/0 skipped on erased owned
+Pro11CF5EFB/iOS26.2, signing on, exit0. Actual summary read:
+`/tmp/them-1027-full-units/v1-ui-smoke-local-1-76808.xcresult`.
+
+Pinned Node20.20.2 completed exit0: scripts231/0/0; backend2897/0/2.
+Log `/tmp/them-1027-node20-integration.log`. Skips: live Postgres prefix query
+requires DATABASE_URL; talk page-write sync headers require opt-in
+TALK_TEST_PAGE_SYNC_LIVE and provider access. Neither is counted as verified.
+Scripts/backend ran in one isolated network-disabled container. The container
+uses a tracked-source archive and its own disposable Git snapshot so scripts
+can resolve HEAD without accessing another worktree's metadata. Matching-lock
+dependencies were read-only at the canonical node_modules parent. No source
+was changed to make the container pass. Connected signed writer/create/save/
+native-export/relaunch completed1/0/0, actual summary read:
+`/tmp/them-1027-writer/them-studio-ios-writer-loop/run-SPYszR/writer-loop.xcresult`.
+This is deterministic fixture-provider/local-backend proof, not live model
+or physical-phone proof. Creation-reply-loss completed1/0/0, actual summary
+read: `/tmp/them-1027-creation-loss/them-studio-ios-writer-loop/run-48yv6F/writer-loop.xcresult`.
+Voice-network-fault completed1/0/0, actual summary read:
+`/tmp/them-1027-voice/voice-network-fault-local-1-77396-ios.xcresult`.
+macOS scaffold BUILD SUCCEEDED; the serialized writer/creation/voice/macOS
+native process completed exit0. Log `/tmp/them-1027-voice-macos.log` retained
+privately. Existing compile warnings remain, not a warning-clean claim.
+Completed full-unit/writer/creation/voice bundles were privately cloned and
+byte-compared. No runtime/test/workflow source changed after1ffa52e3; this
+follow-up changes only TASKS and this proof record. Do not repeat
+the already-passed recovery run without a new relevant change. Hosted full V1
+and iOS26.5 remain required on any authorized new original head.
+
+Fresh required integration proof and exact original-head authorization remain
+required before appending to #962. No original #963 update until its parent is
+green. No new replacement PR or main merge.
+
+Read-only current deployment check: HTTPS `api.them.io/healthz` returns302 to
+`https://introvert.com/?domain=them.io`, not an application health response.
+This does not establish who controls the domain. Shipping-backend/real-phone
+proof remains blocked on an explicitly identified and authorized intended
+host; the human's production hold until App Store credentials remains intact.
+No DNS/Render/secret change or paid provider request was made.

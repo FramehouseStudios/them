@@ -24,6 +24,12 @@
   recovery5/0/0 against authenticated loopback backend. D009 all deltas0,
   diff pass, actual summaries read; no model calls. Full suite not repeated.
 - **Evidence:** `docs/recovery-save-dedup-2026-10-19.md`.
+- **Integration boundary on1ffa52e3:** signed erased full units869/0/0;
+  pinned network-disabled Node20.20.2 scripts231/0/0 and backend2897/0/2.
+  Writer/save/export/relaunch1/0/0; creation-reply-loss1/0/0; voice-fault1/0/0;
+  macOS BUILD SUCCEEDED; serialized native handle terminal exit0. Actual
+  summaries read; artifacts cloned/compared. Full hosted V1/iOS26.5 still
+  required. Only proof docs changed after frozen runtime1ffa52e3.
 - **Hold:** no new original-head update, #963 advance, main merge, paid model
   request or production change from this task. Obtain fresh exact authority
   and required proof before another original #962 update.
