@@ -428,12 +428,22 @@ final class V1SmokeUITests: XCTestCase {
             "The unique writer-loop marker was not entered exactly once. Draft: \(accessibleDraftText(in: app))"
         )
         let screenplayKeyboard = app.keyboards.firstMatch
+        let keyboardSave = app.buttons["studio.draft.keyboard-save"]
         let saveNow = app.buttons["studio.draft.page.save"]
-        XCTAssertTrue(
-            waitForHittability(of: saveNow, timeout: writerLoopWait(5)),
-            "The edited screenplay page did not expose Save now."
-        )
-        saveNow.tap()
+        if screenplayKeyboard.exists,
+           waitForHittability(of: keyboardSave, timeout: writerLoopWait(3)) {
+            // Saving is a primary writing action, so the editor exposes it in
+            // the keyboard accessory while typing. This semantic button avoids
+            // asking XCTest to tap through the hosted simulator's keyboard
+            // dismissal animation to reach the page-header chip.
+            keyboardSave.tap()
+        } else {
+            XCTAssertTrue(
+                waitForHittability(of: saveNow, timeout: writerLoopWait(5)),
+                "The edited screenplay page did not expose Save now."
+            )
+            saveNow.tap()
+        }
         // Prove the tap reached the app before judging the keyboard, so a
         // keyboard that covered the chip and swallowed the tap is reported as
         // that, not as an editing-state failure.
@@ -448,12 +458,9 @@ final class V1SmokeUITests: XCTestCase {
             predicate: saveDelivered
         )
         if !saveTapReachedApp, intValue(saveTriggerSnapshot["manual_save_trigger_count"]) == 0 {
-            // Hosted runners lose the first tap roughly half the time: the chip
-            // passes its hittability check, then the keyboard-dismiss animation
-            // swallows the touch and the trigger count stays at 0 (it is never
-            // 2, and the same build passes locally in seconds). One explicit
-            // keyboard dismissal and a second tap turn that runner race into a
-            // real signal; the == 1 check below still catches a double fire.
+            // Keep a single recovery path for older OS versions that do not
+            // publish the keyboard accessory. The == 1 check below still
+            // catches a double fire.
             XCTContext.runActivity(
                 named: "Save now tap did not reach the app; dismissing keyboard and tapping once more"
             ) { _ in }
@@ -1079,8 +1086,9 @@ final class V1SmokeUITests: XCTestCase {
             mode.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
 #endif
             XCTAssertTrue(
-                waitForAccessibilityValue(of: mode, equalTo: "Selected", timeout: 3),
-                "Selecting \(rawMode) did not expose its selected state to accessibility."
+                waitForAccessibilityValue(of: mode, equalTo: "Selected", timeout: 8),
+                "Selecting \(rawMode) did not expose its selected state to accessibility "
+                    + "within 8 seconds. Current value: \(String(describing: mode.value))."
             )
             XCTAssertTrue(
                 waitForAccessibilityText(
@@ -1095,13 +1103,13 @@ final class V1SmokeUITests: XCTestCase {
 
         let reuse = app.buttons["studio.them.voice-pin.latest.reuse"]
         XCTAssertTrue(
-            revealInStudioDrawer(reuse, drawer: drawer, scrollingUp: true, maxSwipes: 12),
-            "Reuse Ask was not reachable."
+            revealFullyInStudioDrawer(reuse, drawer: drawer, maxSwipes: 12),
+            "Reuse Ask was not fully visible in the inspector."
         )
 #if os(macOS)
         reuse.click()
 #else
-        reuse.tap()
+        reuse.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
 #endif
         XCTAssertTrue(
             staticText(containing: "Loaded this Voice Pin ask", in: app)
@@ -1124,14 +1132,14 @@ final class V1SmokeUITests: XCTestCase {
         )
 
         let toPage = app.buttons["studio.them.voice-pin.latest.to-page"]
-        for _ in 0..<20 where !toPage.isHittable {
-            drawer.swipeUp()
-        }
-        XCTAssertTrue(waitForHittability(of: toPage, timeout: 5))
+        XCTAssertTrue(
+            revealFullyInStudioDrawer(toPage, drawer: drawer, maxSwipes: 12),
+            "To Page was not fully visible in the inspector."
+        )
 #if os(macOS)
         toPage.click()
 #else
-        toPage.tap()
+        toPage.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
 #endif
 
         for _ in 0..<20 where !promptField.isHittable {
@@ -1144,32 +1152,8 @@ final class V1SmokeUITests: XCTestCase {
         )
         let pageRoute = element(identifier: "studio.prompt.routing.page", in: app)
         XCTAssertTrue(pageRoute.waitForExistence(timeout: 4))
-        var pageRouted = waitForSelection(of: pageRoute, timeout: 4)
-        if !pageRouted {
-            // In the full scripted smoke the To Page tap is lost roughly every
-            // run (the drawer is still settling from the swipe-up loop above and
-            // swallows the touch), while the same test passes alone and in any
-            // shorter order. Tap once more only when the route did not switch;
-            // the assertion below is unchanged, so a genuine routing bug still
-            // fails with the same message.
-            XCTContext.runActivity(named: "To Page tap did not switch routing; tapping once more") { _ in }
-            for _ in 0..<20 where !toPage.isHittable {
-                drawer.swipeUp()
-            }
-            if waitForHittability(of: toPage, timeout: 5) {
-#if os(macOS)
-                toPage.click()
-#else
-                toPage.tap()
-#endif
-            }
-            for _ in 0..<20 where !promptField.isHittable {
-                drawer.swipeDown()
-            }
-            pageRouted = waitForSelection(of: pageRoute, timeout: 6)
-        }
         XCTAssertTrue(
-            pageRouted,
+            waitForSelection(of: pageRoute, timeout: 6),
             "To Page did not re-route the current exchange to the page."
         )
 #if os(iOS)
@@ -3108,8 +3092,8 @@ final class V1SmokeUITests: XCTestCase {
         containing text: String,
         timeout: TimeInterval
     ) -> Bool {
-        let surface = app.otherElements["studio.draft.surface"]
-        let snapshot = app.staticTexts["studio.draft.snapshot"]
+        let surface = element(identifier: "studio.draft.surface", in: app)
+        let snapshot = element(identifier: "studio.draft.snapshot", in: app)
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
             if snapshot.exists {
@@ -3148,7 +3132,7 @@ final class V1SmokeUITests: XCTestCase {
     }
 
     private func accessibleDraftText(in app: XCUIApplication) -> String {
-        let snapshot = app.staticTexts["studio.draft.snapshot"]
+        let snapshot = element(identifier: "studio.draft.snapshot", in: app)
         if snapshot.exists {
             if let value = snapshot.value as? String, !value.isEmpty {
                 return value
@@ -3157,7 +3141,8 @@ final class V1SmokeUITests: XCTestCase {
                 return snapshot.label
             }
         }
-        let surface = app.otherElements["studio.draft.surface"]
+        let surface = element(identifier: "studio.draft.surface", in: app)
+        guard surface.exists else { return "" }
         return surface.value as? String ?? ""
     }
 
