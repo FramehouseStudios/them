@@ -15,24 +15,6 @@ nonisolated extension Notification.Name {
     static let themScreenplayQuestionResolved = Notification.Name("io.them.them.screenplayQuestionResolved")
 }
 
-nonisolated private struct BackendNotificationPayload: @unchecked Sendable {
-    let name: Notification.Name
-    let userInfo: [AnyHashable: Any]
-}
-
-nonisolated private func postBackendNotificationOnMain(
-    name: Notification.Name,
-    userInfo: [AnyHashable: Any]
-) {
-    let payload = BackendNotificationPayload(name: name, userInfo: userInfo)
-    // Always enqueue. Several identity mutations intentionally hold a serial
-    // state lock while publishing durable Keychain/defaults state; a
-    // synchronous observer must never be able to re-enter that lock.
-    DispatchQueue.main.async {
-        NotificationCenter.default.post(name: payload.name, object: nil, userInfo: payload.userInfo)
-    }
-}
-
 nonisolated enum BackendUserDefaultsStore {
     private static let liveUIKeys: Set<String> = [
         "auth_signed_in",
@@ -9503,7 +9485,9 @@ actor BackendMemoryAPI {
         )
     }
 
-    func recordTurnCommitted(from response: HTTPURLResponse, userMessage: String? = nil, assistantMessage: String? = nil) {
+    func recordTurnCommitted(from response: HTTPURLResponse, userMessage: String? = nil, assistantMessage: String? = nil,
+        expectedOwnerUserID: String? = nil) {
+        if let expectedOwnerUserID, expectedOwnerUserID != (BackendAuthClient.currentAuthSessionState().user?.userId ?? "") { return }
         let turnId = headerValue(response, "x-turn-id").trimmingCharacters(in: .whitespacesAndNewlines)
         if turnId.isEmpty { return }
         let requestId = headerValue(response, "x-request-id").trimmingCharacters(in: .whitespacesAndNewlines)

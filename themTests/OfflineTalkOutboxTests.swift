@@ -133,6 +133,56 @@ final class OfflineTalkOutboxTests: XCTestCase {
         XCTAssertEqual(entries, [])
     }
 
+    func testSuccessfulTalkReplayRefreshesConversationOnlyAfterDurableAcknowledgement() async throws {
+        let api = BackendMemoryAPI(baseURL: URL(string: "https://them.test")!)
+        let turnID = "recovered-\(UUID().uuidString)"
+        let headers = ["x-turn-id": turnID, "x-session-id": "recovered-session",
+            "x-state-version": "recovered-state-\(UUID().uuidString)", "x-history-updated-at": "1792450000000"]
+        let response = try XCTUnwrap(HTTPURLResponse(url: URL(string: "https://them.test/talk")!,
+            statusCode: 200, httpVersion: "HTTP/1.1", headerFields: headers))
+        await api.recordTurnCommitted(from: response, expectedOwnerUserID: "wrong-owner-\(UUID().uuidString)")
+        let ignored = await api.currentSyncState()
+        XCTAssertTrue(ignored.lastTurnId.isEmpty, "Another account's replay must not change conversation state.")
+
+        let outbox = OfflineTalkOutbox(storageDirectory: directory, commitAPI: api)
+        var request = URLRequest(url: response.url!)
+        request.httpMethod = "POST"
+        request.setValue("recovered-request", forHTTPHeaderField: "X-Idempotency-Key")
+        let owner = OfflineTalkOutbox.currentOwnerID()
+        if !owner.isEmpty { request.setValue(owner, forHTTPHeaderField: "X-User-Id") }
+        let body = Data("Retain every original word.\r\n".utf8)
+        let queued = try await outbox.enqueue(request: request, body: body, reason: "offline")
+        let manifest = directory.appendingPathComponent("queue.jsonl")
+        let saved = directory.appendingPathComponent("fixture-saved-manifest.jsonl")
+        let notified = expectation(forNotification: .themTurnCommitted, object: nil) { notification in
+            guard let event = BackendTurnCommittedEvent(notification: notification), event.turnId == turnID else { return false }
+            XCTAssertEqual(event.source, "authoritative")
+            XCTAssertEqual(try? Data(contentsOf: manifest), Data(), "Refresh only after queue removal is durable.")
+            XCTAssertNil(event.userMessage, "Fetch owned authoritative history; do not inject replay text into an arbitrary project.")
+            return true
+        }
+        _ = await outbox.drainDue(now: Date().addingTimeInterval(10)) { replay in
+            XCTAssertEqual(replay.httpBody, body)
+            try FileManager.default.moveItem(at: manifest, to: saved)
+            try FileManager.default.createDirectory(at: manifest, withIntermediateDirectories: false)
+            return OfflineTalkOutboxSendResult(statusCode: 200, headers: headers)
+        }
+        let notCommitted = await api.currentSyncState()
+        XCTAssertTrue(notCommitted.lastTurnId.isEmpty, "A failed local acknowledgement must not publish a completed turn.")
+        try FileManager.default.removeItem(at: manifest)
+        try FileManager.default.moveItem(at: saved, to: manifest)
+        _ = try await outbox.retryParkedEntry(id: queued.entry.id) { replay in
+            XCTAssertEqual(replay.httpBody, body)
+            XCTAssertEqual(replay.value(forHTTPHeaderField: "X-Idempotency-Key"), "recovered-request")
+            return OfflineTalkOutboxSendResult(statusCode: 200, headers: headers)
+        }
+        await fulfillment(of: [notified], timeout: 2)
+        let committed = await api.currentSyncState()
+        XCTAssertEqual(committed.lastTurnId, turnID)
+        let entries = await outbox.allEntries()
+        XCTAssertTrue(entries.isEmpty)
+    }
+
     func testManifestFailureNeverSendsBeforeDurableInflightOrDeletesAcknowledgedPayload() async throws {
         for failAfterSend in [false, true] {
             let store = directory.appendingPathComponent(UUID().uuidString)

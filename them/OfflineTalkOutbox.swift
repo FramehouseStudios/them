@@ -160,16 +160,18 @@ actor OfflineTalkOutbox {
     private let manifestURL: URL
     private let blobsDirectory: URL
     private let fileManager: FileManager
+    private let commitAPI: BackendMemoryAPI
     private var didLoad = false
     private var entries: [OfflineTalkOutboxEntry] = []
     private var networkMonitor: NWPathMonitor?
     private let networkMonitorQueue = DispatchQueue(label: "io.them.offline-talk-outbox.network")
 
-    init(storageDirectory: URL, fileManager: FileManager = .default) {
+    init(storageDirectory: URL, fileManager: FileManager = .default, commitAPI: BackendMemoryAPI = .shared) {
         self.storageDirectory = storageDirectory
         self.manifestURL = storageDirectory.appendingPathComponent("queue.jsonl")
         self.blobsDirectory = storageDirectory.appendingPathComponent("blobs", isDirectory: true)
         self.fileManager = fileManager
+        self.commitAPI = commitAPI
     }
 
     func startNetworkMonitoring() {
@@ -361,10 +363,12 @@ actor OfflineTalkOutbox {
             publishSnapshot()
 
             let entry = entries[index]
+            var completedResponse: OfflineTalkOutboxSendResult?
             do {
                 let request = try replayRequest(for: entry)
                 let result = try await sender(request)
                 try handleSendResult(result, forEntryID: entry.id, now: now)
+                if (200...299).contains(result.statusCode) { completedResponse = result }
             } catch {
                 handleRetryableFailure(
                     entryID: entry.id,
@@ -387,6 +391,16 @@ actor OfflineTalkOutbox {
             }
             if !entries.contains(where: { $0.id == entry.id }) {
                 try? fileManager.removeItem(at: blobURL(for: entry.bodyRef))
+                if entry.endpoint == Self.talkEndpoint, let completedResponse,
+                   let url = URL(string: entry.urlString),
+                   let response = HTTPURLResponse(url: url, statusCode: completedResponse.statusCode,
+                       httpVersion: "HTTP/1.1", headerFields: completedResponse.headers) {
+                    // The authoritative history is already on the server.
+                    // Reuse its commit barrier so History refreshes; do not
+                    // insert stale page text into whichever project is open.
+                    await commitAPI.recordTurnCommitted(from: response,
+                        expectedOwnerUserID: entryOwnerID(entry))
+                }
             }
             publishSnapshot()
         }

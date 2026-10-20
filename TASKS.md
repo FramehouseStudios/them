@@ -5,6 +5,26 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1019 — Reconnect successfully replayed turns to conversation history
+
+- **Owner:** codex. **Branch:** `codex/T-1019-replay-conversation-sync`.
+- **Status:** review (focused signed proof; integration and UI proof pending).
+- **Root:** retained `/talk` requests could succeed and leave the durable queue
+  without notifying the existing authoritative conversation refresh path.
+- **Fix:** consume server commit headers through BackendMemoryAPI only after
+  acknowledgement removal is persisted; reject mismatched account ownership.
+  Share the existing asynchronous main-thread notification delivery helper.
+- **Evidence:** `docs/replay-conversation-sync-2026-10-19.md`.
+- **Verified:** one focused signed check passed, zero failures/skips, erased
+  task-owned simulator. Failed local acknowledgement emits no commit; explicit
+  recovery preserves request bytes/key and publishes after durable removal.
+  D009 passes (BackendMemoryAPI -16 lines, other god files unchanged); diff clean.
+- **Not covered:** actual History UI fetch/render, recovered audio, current
+  Studio page application, full integration, physical phone, durable server
+  idempotency beyond its existing five-minute scope. No paid model calls.
+- **Next:** inspect recovered foreground reply delivery; keep #962's hosted
+  gate separate and do not advance a red integration boundary.
+
 ### T-1017 — Preserve request bytes across queue acknowledgement writes
 
 - **Owner:** codex. **Branch:** `codex/T-1017-outbox-ack-durability`.
