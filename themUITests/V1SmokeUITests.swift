@@ -45,6 +45,44 @@ final class V1SmokeUITests: XCTestCase {
 #endif
     }
 
+    func test_keyboard_actions_follow_page_and_prompt_focus() throws {
+#if os(iOS)
+        let app = launchApp(openStudio: true, openCommandBar: true)
+        defer { app.terminate() }
+        let prompt = element(identifier: "studio.prompt.field", in: app)
+        XCTAssertTrue(prompt.waitForExistence(timeout: 8))
+        guard dismissKeyboardTypingTutorialIfPresent(in: app) else { return }
+        let keyboardSend = app.buttons["studio.prompt.keyboard-send"]
+        XCTAssertTrue(keyboardSend.waitForExistence(timeout: 5), "The focused command bar lost its Send action.")
+
+        let inspectorToggle = app.buttons["studio.sidebar.right.toggle"]
+        XCTAssertTrue(waitForHittability(of: inspectorToggle, timeout: 5))
+        inspectorToggle.tap()
+        let editor = app.textViews["studio.draft.editor"]
+        XCTAssertTrue(waitForHittability(of: editor, timeout: 5))
+        editor.tap()
+        editor.typeText("The page keeps this line.")
+        XCTAssertTrue(waitForDraft(in: app, containing: "The page keeps this line.", timeout: 5))
+        XCTAssertTrue(app.buttons["studio.draft.keyboard-save"].waitForExistence(timeout: 3))
+        let pageKeyboard = XCTAttachment(screenshot: app.screenshot())
+        pageKeyboard.name = "Page keyboard actions after closing composer"
+        pageKeyboard.lifetime = .keepAlways
+        add(pageKeyboard)
+        XCTAssertTrue(waitForDisappearance(of: keyboardSend, timeout: 3),
+            "The command bar's unrelated Send action remained while editing the screenplay page.")
+
+        inspectorToggle.tap()
+        let drawer = element(identifier: "studio.sidebar.right.drawer", in: app)
+        XCTAssertTrue(drawer.waitForExistence(timeout: 5))
+        XCTAssertTrue(revealInStudioDrawer(prompt, drawer: drawer, scrollingUp: false, maxSwipes: 12))
+        prompt.tap()
+        XCTAssertTrue(keyboardSend.waitForExistence(timeout: 5))
+        XCTAssertTrue(waitForHittability(of: keyboardSend, timeout: 3))
+#else
+        throw XCTSkip("Keyboard action focus ownership specifically covers iPhone.")
+#endif
+    }
+
     func test_profile_exposes_local_demo_and_keychain_remember_options_separately_from_apple() {
         let app = launchApp()
         defer { app.terminate() }

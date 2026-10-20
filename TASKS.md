@@ -5,6 +5,29 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1052 — Keyboard Send belongs only to the focused composer
+
+- **Owner:** codex. **Branch:** `codex/T-1052-prompt-keyboard-focus`.
+- **Status:** review (diagnostic only). **Pillar:** connected writer actions.
+- **Boundary:** original #625 d493c515 remains unchanged; scoped descendant.
+  Preserve original #899 e23511bd and its existing13fe618 focus guard.
+- **Target:** page editing has its page-save action, not the unrelated
+  command-bar Send; prompt focus retains Send and its real callback.
+- **Approach:** read original/follow-up source, reproduce actual focus
+  transitions before changing product behavior; reuse the preserved inner
+  toolbar-content guard and move the sole toolbar into existing chrome
+  owner so the Studio god file shrinks. No new state or framework.
+- **Done when:** signed narrow page/prompt focus and real answer-submit
+  flows, existing typing/design checks, macOS/D009/diff pass; scoped draft
+  child PR only. No paid model, production or main mutation.
+- **Finding:** unchanged product passes narrow focus story1/0/0. Viewed
+  screenshot has disabled page Save, no stray Send; no product change or
+  new PR justified. Preserve original #899 in its later integration stack.
+  Current1080 persistent-column threshold exceeds supported phone widths.
+  Remove unrun question-test additions; retain this diagnostic branch.
+- **Next:** screenshot has typed bytes in model but no visible paper line
+  above keyboard. T1053 measures editor/caret visibility, not text loss.
+
 ### T-1047 — Reach Voice Pin page actions without overshooting
 
 - **Owner:** codex. **Branch:** `codex/T-1047-partner-page-action`.
