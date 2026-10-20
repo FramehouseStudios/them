@@ -4,6 +4,168 @@ import ScreenplayStudio
 
 final class ScreenplaySaveConflictAuthorityTests: XCTestCase {
     @MainActor
+    func testParkedConflictRestoresChoiceWhenLocalTextOrNewerRecoveryAlreadyHasServerVersion() async throws {
+        for textRestoredFirst in [false, true] {
+            let fixture = try Fixture()
+            defer { fixture.cleanup() }
+            let transport = SaveAuthorityTransport(delayed: false)
+            let raw = "  INT. ROOM - NIGHT\r\n\ncafe\u{0301} — keep these newer local words.\t "
+            let entry = ScreenplayDraftSaveOutboxEntry(id: "retained-conflict", projectId: "project",
+                ownerUserId: fixture.owner, draft: "Earlier retained local words", title: "Script", phase: "draft",
+                notes: "", source: "studio_manual", studioWriteAnchors: [], screenplayBindings: [],
+                baseVersionId: "writer-base-v1", createdAt: 1, updatedAt: 2, status: .parked,
+                retries: 1, nextAttemptAt: 0, lastError: ScreenplayDraftSaveOutbox.conflictReason)
+            try await fixture.queue.enqueue(entry)
+            let project = try JSONDecoder().decode(BackendScreenplayProjectSummary.self,
+                from: JSONSerialization.data(withJSONObject: ["id": "project", "title": "Script",
+                    "activeVersionId": "server-v2", "versions": [["id": "server-v2",
+                        "draft": "Collaborator text", "updatedAt": 200]]]))
+            let restoredQueue = ScreenplayDraftSaveOutbox(storageDirectory: fixture.directory)
+            let model = ScreenplayStudioViewModel(localDraftRecoveryStore: fixture.recovery,
+                draftSaveOutbox: restoredQueue, draftSaveAPI: transport.api(), connectsToLiveWorkspace: false)
+            model.autosaveEnabled = false
+            model.selectedProjectID = "project"
+            model.selectedProject = project
+            model.applyStructuralUITestDraft("Collaborator text", versionID: "server-v2")
+            if textRestoredFirst {
+                model.fountainDraft = raw
+                model.noteManualDraftEdit()
+            }
+            // The structural fixture clears ordinary recovery. Install the
+            // persisted newer text after that setup, not before it.
+            fixture.recovery.save(ownerUserId: fixture.owner, projectId: "project", draft: raw,
+                baseVersionId: "server-v2", dirty: true, savedAt: 100)
+            let hydrated = await model.hydrateDraftRestoringQueuedSaves(from: project)
+            XCTAssertTrue(hydrated)
+            XCTAssertEqual(Array(model.fountainDraft.utf8), Array(raw.utf8), "Never replace newer writer text with the queued draft or server text.")
+            XCTAssertEqual(model.conflictState?.projectId, "project")
+            XCTAssertEqual(model.conflictState?.baseVersionId, "writer-base-v1")
+            XCTAssertEqual(model.conflictState?.serverVersionId, "server-v2")
+            XCTAssertTrue(model.hasUnsavedDraftChanges)
+            await model.resumeQueuedDraftSavesIfNeeded(force: true)
+            XCTAssertEqual(transport.postCount, 0, "Relaunch is not the writer's Keep Mine choice.")
+            let retained = try await ScreenplayDraftSaveOutbox(storageDirectory: fixture.directory).entriesForTesting()
+            XCTAssertEqual(retained.count, 1)
+            XCTAssertEqual(retained.first?.draft, entry.draft)
+            XCTAssertEqual(retained.first?.baseVersionId, "writer-base-v1")
+            XCTAssertEqual(retained.first?.status, .parked)
+        }
+    }
+
+    @MainActor
+    func testRecoveredManualSaveDoesNotCreateAnIdenticalAutosaveVersion() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        let transport = SaveAuthorityTransport(delayed: false)
+        let model = fixture.model(api: transport.api())
+        let raw = "  INT. CAPSULE - NIGHT\r\n\nMara waits at the cafe\u{0301}.\t \r\n"
+        try await fixture.queue.enqueue(ScreenplayDraftSaveOutboxEntry(
+            id: "recovery-manual", projectId: "project", ownerUserId: fixture.owner,
+            draft: raw, title: "Script", phase: "draft", notes: "", source: "studio_manual",
+            studioWriteAnchors: [], screenplayBindings: [], baseVersionId: "base",
+            createdAt: 1, updatedAt: 1, status: .pending,
+            retries: 0, nextAttemptAt: 0, lastError: ""))
+        await model.resumeQueuedDraftSavesIfNeeded(force: true)
+        XCTAssertEqual(transport.postCount, 1)
+        // A relaunch/debounce can enqueue another request AFTER the manual
+        // acknowledgement. Enqueue-time coalescing cannot see the removed save.
+        try await fixture.queue.enqueue(ScreenplayDraftSaveOutboxEntry(
+            id: "recovery-autosave", projectId: "project", ownerUserId: fixture.owner,
+            draft: raw, title: "Script", phase: "draft", notes: "", source: "studio_autosave",
+            studioWriteAnchors: [], screenplayBindings: [], baseVersionId: model.latestVersionID,
+            createdAt: 2, updatedAt: 2, status: .pending,
+            retries: 0, nextAttemptAt: 0, lastError: ""))
+        await model.resumeQueuedDraftSavesIfNeeded(force: true)
+        XCTAssertEqual(transport.postCount, 1, "A passive autosave of acknowledged exact bytes must not create another version.")
+        XCTAssertEqual(Array(model.fountainDraft.utf8), Array(raw.utf8))
+        XCTAssertFalse(model.hasUnsavedDraftChanges)
+        let changed = raw + "\r\n"
+        model.fountainDraft = changed
+        model.noteManualDraftEdit()
+        try await fixture.queue.enqueue(ScreenplayDraftSaveOutboxEntry(
+            id: "different-autosave", projectId: "project", ownerUserId: fixture.owner,
+            draft: changed, title: "Script", phase: "draft", notes: "", source: "studio_autosave",
+            studioWriteAnchors: [], screenplayBindings: [], baseVersionId: model.latestVersionID,
+            createdAt: 3, updatedAt: 3, status: .pending, retries: 0, nextAttemptAt: 0, lastError: ""))
+        await model.resumeQueuedDraftSavesIfNeeded(force: true)
+        XCTAssertEqual(transport.postCount, 2, "Even a byte-only whitespace change remains writer work.")
+        XCTAssertEqual(Array(model.fountainDraft.utf8), Array(changed.utf8))
+        let remaining = try await fixture.queue.entriesForTesting()
+        XCTAssertTrue(remaining.isEmpty)
+        model.snapshotLabel = "Explicit same-text checkpoint"
+        await model.createRevisionSnapshot()
+        XCTAssertEqual(transport.postCount, 3, "An explicit checkpoint must still be honored for identical text.")
+        try? await Task.sleep(nanoseconds: 1_100_000_000)
+    }
+
+    @MainActor
+    func testSatisfiedAutosaveRequiresExactBaseAndPreservesOtherRetainedCopies() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        let raw = "cafe\u{0301}\r\n"
+        for source in ["studio_manual", "studio_snapshot", "studio_conflict_resolve"] {
+            XCTAssertFalse(ScreenplayDraftSaveCoalescingPolicy.isSatisfiedAutosave(draft: raw, source: source,
+                notes: "", baseVersion: "v2", confirmedDraft: raw, confirmedVersion: "v2"))
+        }
+        for (draft, notes, base, confirmed) in [(raw + " ", "", "v2", "v2"), ("café\r\n", "", "v2", "v2"),
+            (raw, "Keep this note", "v2", "v2"), (raw, "", "v1", "v2"), (raw, "", "", "")] {
+            XCTAssertFalse(ScreenplayDraftSaveCoalescingPolicy.isSatisfiedAutosave(draft: draft, source: "studio_autosave",
+                notes: notes, baseVersion: base, confirmedDraft: raw, confirmedVersion: confirmed))
+        }
+        let duplicate = ScreenplayDraftSaveOutboxEntry(id: "passive", projectId: "project", ownerUserId: fixture.owner,
+            draft: raw, title: "Script", phase: "draft", notes: "", source: "studio_autosave", studioWriteAnchors: [],
+            screenplayBindings: [], baseVersionId: "v2", createdAt: 2, updatedAt: 2, status: .pending,
+            retries: 0, nextAttemptAt: 0, lastError: "")
+        let retained = ScreenplayDraftSaveOutboxEntry(id: "retained-choice", projectId: "project", ownerUserId: fixture.owner,
+            draft: raw, title: "Script", phase: "draft", notes: "", source: "studio_snapshot", studioWriteAnchors: [],
+            screenplayBindings: [], baseVersionId: "v2", createdAt: 1, updatedAt: 1, status: .parked,
+            retries: 0, nextAttemptAt: 0, lastError: "")
+        try await fixture.queue.enqueue(retained)
+        try await fixture.queue.enqueue(duplicate)
+        let rejected = try await fixture.queue.markSatisfiedAutosave(id: duplicate.id, projectId: "project",
+            ownerUserId: "wrong-owner", confirmedDraft: raw, confirmedVersion: "v2")
+        XCTAssertFalse(rejected)
+        let accepted = try await fixture.queue.markSatisfiedAutosave(id: duplicate.id, projectId: "project",
+            ownerUserId: fixture.owner, confirmedDraft: raw, confirmedVersion: "v2")
+        XCTAssertTrue(accepted)
+        let remaining = try await fixture.queue.entriesForTesting()
+        XCTAssertEqual(remaining, [retained], "A local duplicate acknowledgement cannot delete another retained draft.")
+    }
+
+    @MainActor
+    func testBlankSnapshotDuringBackgroundDrainIsNotDropped() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        let transport = SaveAuthorityTransport(delayed: true)
+        defer { transport.finish() }
+        let model = fixture.model(api: transport.api())
+        let queued = ScreenplayDraftSaveOutboxEntry(
+            id: "earlier-save", projectId: "project", ownerUserId: fixture.owner,
+            draft: "Earlier queued writer words", title: "Script", phase: "draft", notes: "",
+            source: "studio_manual", studioWriteAnchors: [], screenplayBindings: [],
+            baseVersionId: "base", createdAt: 1, updatedAt: 1, status: .pending,
+            retries: 0, nextAttemptAt: 0, lastError: "")
+        try await fixture.queue.enqueue(queued)
+        let drain = Task { await model.resumeQueuedDraftSavesIfNeeded(force: true) }
+        await fulfillment(of: [transport.started], timeout: 3)
+        model.fountainDraft = ""
+        model.noteManualDraftEdit()
+        model.snapshotLabel = "Intentional blank snapshot"
+        await model.createRevisionSnapshot()
+        XCTAssertTrue(model.hasUnsavedDraftChanges)
+        transport.finish()
+        await drain.value
+        XCTAssertEqual(transport.postCount, 2, "A save submitted during background draining must not be left in an unconsumed pending slot.")
+        XCTAssertEqual(transport.lastBaseVersion, "saved-v2", "The pending snapshot must follow the acknowledged earlier version.")
+        XCTAssertEqual(model.fountainDraft, "")
+        XCTAssertFalse(model.hasUnsavedDraftChanges)
+        XCTAssertEqual(model.snapshotLabel, "")
+        let entries = try await fixture.queue.entriesForTesting()
+        XCTAssertTrue(entries.isEmpty)
+        try? await Task.sleep(nanoseconds: 1_100_000_000)
+    }
+
+    @MainActor
     func testSaveNowCannotDismissAnUnresolvedChoiceOrPostWriterWords() async throws {
         let fixture = try Fixture()
         defer { fixture.cleanup() }

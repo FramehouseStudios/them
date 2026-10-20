@@ -5,6 +5,187 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1033 — Restore the parked conflict decision after relaunch
+
+- **Owner:** codex. **Branch:** `codex/T-1033-conflict-choice-restore`.
+- **Status:** local review; isolated directly from original #962f5e746c2.
+- **Verified boundary:** hosted39367137834 recovery4/1/0 on iOS26.5;
+  local writer marker and parked count1 survive, but conflict project/server
+  version are empty. This is not evidence that writer text disappeared.
+- **Target:** restore the real Keep Mine/Load Server decision from the owned
+  parked conflict plus authoritative project detail, without replacing newer
+  writer text or treating relaunch as permission to save.
+- **Hypothesis:** queued text restoration exits for an already dirty editor;
+  newer ordinary recovery can also carry the server version while the parked
+  conflict still owns its original base. Neither resolves the writer's choice.
+- **Done when:** dirty-first order reproduces before, both orders pass after; exact local
+  text and parked copy survive, no POST precedes choice, and unchanged signed
+  conflict/relaunch/Keep Mine workflow passes. Preserve auth/project guards.
+- **Verified:** before dirty-first nil-conflict assertions fail; fixture-order
+  correction retained explicitly. After: signed full units870/0/0; unchanged
+  recovery5/0/0 against auth-required local backend; Node20.20.2 backend
+  2897/0/2, scripts231/0/0, offline mentor gate OK; D009/diff pass; macOS
+  BUILD SUCCEEDED, native exit0. No live-provider/phone or hosted26.5
+  resolution claim. All completed result bundles cloned/compared privately.
+- **Evidence:** `docs/parked-conflict-choice-restore-2026-10-19.md`.
+- **Hold:** original #962/children/main unchanged; no unchanged hosted retry,
+  paid call, production change or assertion relaxation.
+
+### T-1027 — Prevent duplicate passive versions after recovery
+
+- **Owner:** codex. **Branch:** `codex/T-1027-recovery-save-dedup`.
+- **Status:** review; preserve original #962 at527c58d6, hosted red.
+- **Root:** hosted39357764973 recovery4/1/0 recorded a manual version and
+  an autosave with different request IDs but byte-identical100-byte drafts.
+  Dispatch did not reject already acknowledged exact text under a new ID;
+  snapshots do not establish the exact enqueue/debounce interleaving.
+- **Fix:** recognize only note-free passive autosaves at the acknowledged
+  exact draft/version, removing only that request durably. Explicit snapshots,
+  conflict choices, notes, byte changes and other retained copies survive.
+- **Done when:** signed focused authority suite and unchanged failed recovery
+  workflow prove one server version; D009/diff pass; save scoped history.
+- **Verification:** initial new-test compilation failed on immutable fixture
+  fields; next run7/1/0 exposed snapshot-reload interference in the combined
+  fixture. Corrected signed authority suite8/0/0; unchanged five-case app
+  recovery5/0/0 against authenticated loopback backend. D009 all deltas0,
+  diff pass, actual summaries read; no model calls. Full suite not repeated.
+- **Evidence:** `docs/recovery-save-dedup-2026-10-19.md`.
+- **Integration boundary on1ffa52e3:** signed erased full units869/0/0;
+  pinned network-disabled Node20.20.2 scripts231/0/0 and backend2897/0/2.
+  Writer/save/export/relaunch1/0/0; creation-reply-loss1/0/0; voice-fault1/0/0;
+  macOS BUILD SUCCEEDED; serialized native handle terminal exit0. Actual
+  summaries read; artifacts cloned/compared. Full hosted V1/iOS26.5 still
+  required. Only proof docs changed after frozen runtime1ffa52e3.
+- **Hold:** no new original-head update, #963 advance, main merge, paid model
+  request or production change from this task. Obtain fresh exact authority
+  and required proof before another original #962 update.
+
+### T-1018 — Correct the fresh-server-choice gate without discarding recovery copies
+
+- **Owner:** codex. **Branch:** `codex/T-1018-conflict-relaunch-diagnosis`.
+- **Status:** review; original #962 held at87a62a6c after hosted red.
+- **Root:** hosted recovery4/1/0; Load Server wait assumed one parked copy,
+  while recorded state showed the right conflict/local words with two copies.
+  Their distinction is unproven; preserve both rather than force coalescing.
+- **Fix:** assert actual writer outcome/project/head, no active sending, all
+  selected copies retired after Load Server/relaunch, only expected server
+  version IDs. Failure attachments exclude writer text and credentials.
+- **Verified:** exact-head single case1/0/0; changed signed full recovery5/0/0
+  on erased task-owned Pro, authenticated local backend. D009 all deltas0,
+  whitespace pass. No runtime change, paid call or new full backend/unit proof.
+- **Evidence:** `docs/conflict-relaunch-gate-2026-10-19.md`.
+- **Next:** scoped backup/review, then fresh hosted gate on an authorized
+  preserving original-head append; do not advance #963 while parent is red.
+
+### T-1014 — Prove and repair explicit saves during background queue draining
+
+- **Owner:** codex. **Branch:** `codex/T-1014-save-drain-handoff`.
+- **Status:** review (local fix proven; fresh hosted gate pending).
+- **Pillar:** exact writer recovery / integration.
+- **Boundary:** original #962ee7e27f2, hosted39336874458 terminal failure:
+  recovery3 pass/2 fail/0 skip on iOS26.5. No unchanged retry or #963 advance.
+- **Verified root:** resumeQueuedDraftSavesIfNeeded owns the
+  in-flight flag while manual/snapshot saves fill pendingDraftSaveRequest;
+  only the manual serialization path consumes that slot. Suspended real
+  transport regression reproduced one POST instead of two: signed before
+  5/1/0. Canonical dispatch handoff correction passes focused6/0/0, signing
+  enabled on the erased task-owned Pro.
+- **Connected proof:** signed local conflict/relaunch/Keep Mine1/0/0 and
+  blank-snapshot/offline/reconnect/history1/0/0; unchanged UI assertions.
+  D009 all five deltas0 and diff check pass. Hosted iOS26.5 failure is not
+  reproduced locally or declared resolved. Save scoped fix; hold original
+  PR updates until broader integration proof.
+- **Integration proof on source50d04ae5:** full signed units867/0/0;
+  Node20.20.2 scripts231/0/0, backend2897/0/2 (network disabled);
+  writer/save/export/relaunch1/0/0, voice-fault1/0/0 and macOS build0.
+  Failed container setup attempts retained separately; no app assertions
+  weakened. Append normally to original #962; preserve base/history/main.
+  Full hosted V1, all-five recovery and lost-creation-reply remain required
+  before #963 advances. No new paid calls.
+- **Done when:** failing-first signed reproduction, root fix preserving auth/
+  project/conflict authority and version base, full local proof and fresh
+  exact-head hosted gate. Investigate conflict-relaunch failure separately;
+  do not weaken assertions, add sleeps, or claim one fix covers both.
+- **Evidence:** `docs/save-drain-handoff-2026-10-19.md`.
+
+### T-1005 — Carry the green receipt parent into original exact retention
+
+- **Owner:** codex. **Branch:** `codex/T-1005-retention-current-parent`.
+- **Status:** in-progress. **Pillar:** exact writer words across relaunch.
+- **Scope:** preserving merge of original961e689 (hosted39328089782 SUCCESS)
+  into T9901924, which already preserves original962aef. No replacement PR,
+  squash, force, main merge or original child head change before proof.
+- **Product delta vs parent:** one shared byte-identity persistence condition
+  and its21-line regression; no provider/policy/format change.
+- **Done when:** fresh Node20 full scripts/backend, signed erased units,
+  recovery/writer/Home/full V1/fault/macOS, D009 and diff pass. Serialize iOS
+  behind still-live T1003 native36287; never restart or erase its device.
+- **Evidence:** `docs/retention-current-parent-2026-10-19.md`.
+- **Verified:** frozen0577b913 Node20 scripts231/0/0, backend2897/0/2,
+  D009 all five actual deltas0 and whitespace/ancestors pass. T1003 finished
+  exit0 before signed native2317 started; child artifact/tmp/them-1005-ui.fyQYMX,
+  currently units/build. Original962 remains aef; no signed pass count yet.
+- **Hold:** independent review/fresh hosted child gate and production App Store
+  credentials remain required. No physical/model/120-page completion claim.
+
+### T-990 — Preserve exact-retention child with verified recovery parent
+
+- **Owner:** codex. **Branch:** `codex/T-990-retention-parent-forward`.
+- **Status:** in-progress. **Pillar:** trustworthy writer persistence.
+- **Scope:** normal merge of #961 head8b19d86 into original #962 headaef3250b.
+  Keep the byte-distinct persistence correction and stored editor snapshots;
+  retain both task histories. No replacement PR, main merge or force push.
+- **Done when:** combined signed units, required writer/recovery UI, backend
+  Node20, D009/diff and macOS proof pass; parent fresh hosted result is green
+  before updating the existing child PR. Stop on the first verified failure.
+- **Human decision:** production remains blocked until App Store credentials
+  exist. No purchases-disabled bypass or paid-model completion claim.
+- **Verified:** signed erased units864/0/0; pinned Node20 backend2897/0/2,
+  scripts231/0/0; D009 all five deltas0 against fetched parent8b19d86.
+  Retained environment failures corrected without app/assertion changes.
+  Recovery5/0/0, writer1/0/0, fixed-provider Home2/0/0, V1 UI29/0/15,
+  voice-fault1/0/0 and macOS wrapper pass. All six bundles privately retained
+  and compared. Parent hosted units passed; full hosted workflow still active.
+  Original child head unchanged pending that boundary. Manifest:
+  `docs/retention-parent-forward-2026-10-19.md`.
+
+### T-980 — Preserve byte-distinct live screenplay edits
+
+- **Owner:** codex. **Branch:** `codex/T-980-exact-draft-retention`.
+- **Status:** review. **Pillar:** trustworthy voice-to-scene persistence.
+- **Scope:** characterize the bridge's canonical String-equality early return
+  after #961's persistence-owner correction. Reuse the existing shared
+  ScreenplayDraftTextIdentity if byte-distinct edits fail durable storage.
+  Do not normalize writer text or change owner/project storage boundaries.
+- **Done when:** a real bridge/UserDefaults regression fails before and passes
+  after the minimal fix; signed full units on an erased task-owned simulator,
+  native sequential-page recovery and writer/save/export/relaunch proof pass;
+  pinned backend suite, D009 and whitespace pass. Fixed-provider UI is not
+  physical microphone or generated120-page proof.
+- **Current evidence2026-10-19:** main deac1a6d configured gate is green.
+  Parent #961's repair cbb2d2fa has fresh checks in progress/queued; old run
+  39077888031 was red. Child783fbc99 run39078694476 was red on one parked-copy
+  unit. Preserving merge1c79c38a incorporates the parent without conflicts;
+  both old heads remain ancestors. No unchanged retry or #653 advancement.
+- **VERIFIED:** real durable-byte regression0/1/0 before,1/0/0 after the
+  one-line shared-identity fix. Full signed units857/0/0; native exact-once
+  sequential recovery1/0/0; authenticated fixed-provider Home2/0/0 and
+  writer/save/native export/relaunch1/0/0; macOS compile exit0. Pinned Node20
+  backend2886/0/2, no network. All five D009 deltas0; whitespace clean.
+  Frozen source tree3293a14b; only docs changed afterward. Exact manifest and
+  evidence: `docs/exact-live-draft-retention-2026-10-17.md`.
+- **Combined proof:** source1c79c38a passes signed units858/0/0; all five
+  offline/auth/conflict stories5/0/0; Home2/0/0; writer/save/native export/
+  relaunch1/0/0; macOS compile; pinned backend2886/0/2. Real PostgreSQL16.15
+  authenticated create/rewrite/exact read, database+backend restart with fresh
+  local files, prior access, sign-in, cross-user read denial and durable
+  idempotent replay passed in a disposable internal-only environment. Not the
+  shipping deployment. Manifest: `docs/exact-retention-combined-proof-2026-10-19.md`.
+- **Next:** publish/recheck the exact updated child; promote the retained
+  restart probe into a repeatable maintained gate while hosted checks run.
+  Still no generated120-page or physical-phone proof. Render login is human-owned:
+  Chrome showed sign-in; human requested a few minutes2026-10-17. No sign-in,
+  credentials, paid models or deployment mutation by Codex.
 ### T-997 — Keep durable writer-save authority across relaunch
 
 - **Owner:** codex. **Branch:** `codex/T-997-conflict-base-authority`.
