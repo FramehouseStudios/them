@@ -5,6 +5,230 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1080 — Wait for the seeded page before injecting offline edits
+
+- **Owner:** codex. **Branch:** `codex/T-1080-recovery-fixture-readiness`.
+- **Status:** review (affected local stories passed; fresh hosted proof pending).
+  **Pillar:** truthful exact-word recovery proof.
+- **Boundary:** original #91998bad16f hosted39511926607 passes units682/0/0,
+  writer and V1 UI32/0/9, then recovery1/1/0. Final actual saved version
+  contains only the marker, not the seeded scene plus marker. Retain red.
+- **Fix:** reuse original #962856d7624's DEBUG loaded-project readiness and
+  cancellation guards, without its later blank-page features. Strengthen
+  both initial queued-page checks to require full expected text/count and
+  correct selected/loaded project before continuing. Final checks unchanged.
+- **Done when:** two affected authenticated signed recovery stories pass,
+  D009/diff clean; normal same-original update with fresh required CI/review.
+  No full local duplicate suites or paid call; shipping UI not changed.
+- **Verified:** stronger initial-page premise and unchanged final exact-text
+  recovery2/0/0, signed/erased owned SE/iOS26.2, native producer0. Five D009
+  deltas0/diff pass. Earlier hosted1/1/0 retained; not an unchanged retry.
+- **Evidence:** `docs/recovery-fixture-readiness-2026-10-20.md`.
+
+### T-1076 — Keep delayed draft work from retiring newer writer words
+
+- **Owner:** codex. **Branch:** `codex/T-1076-editor-queue-consistency`.
+- **Status:** review (local proof passed; hosted causal proof remains open).
+  **Pillar:** exact writer text and recovery.
+- **Boundary:** preserve original #919a6262b83. Hosted39499208254 passed
+  units681/0/0 and V1 UI32/0/9, then failed recovery1/1/0 before conflict
+  setup. Snapshot has one queued save but original clean page; queue bytes
+  are not established by that snapshot. No claimed causal attribution yet.
+- **Target:** reproduce stale observer authority/recovery mutation on the
+  actual model; fence obsolete callbacks before mutation and across awaits.
+  Preserve auth/project boundaries and original UI assertions, no wait/retry
+  workaround. Investigate readiness separately if still implicated.
+- **Done when:** failing-first model proof, focused signed recovery tests
+  and unchanged authenticated recovery UI pass; retain red evidence. Broader
+  integration and fresh exact-head hosted proof required before propagation.
+- **Verified:** real observer before0/1/0; after focused31/0/0, unchanged
+  authenticated recovery2/0/0, full signed units682/0/0, writer1/0/0,
+  synthetic voice1/0/0, macOS build0. Node20 full backend2753/0/2;
+  five D009 deltas0/diff pass. Hosted causal attribution is still unproven. Separate #964's
+  new Save Now hosted failure is retained and blocks that approved PR.
+- **Evidence:** `docs/draft-observer-authority-2026-10-20.md`. No repeated
+  unchanged app run, new paid call or original-child propagation.
+- **Limits:** no paid calls, main/production changes or child propagation.
+
+### T-1072 — Retain conflict words, not just active retries
+
+- **Owner:** codex. **Branch:** `codex/T-1072-durable-conflict-authority`.
+- **Status:** review (final local proof passed; fresh hosted proof pending).
+  **Pillar:** no silent loss across conflict/relaunch.
+- **Boundary:** original #919bd470578, hosted recovery1/1/0 despite local
+  green. Native snapshot loses marker/choice with queue0 and dirty/manual0.
+- **Plan:** reproduce parked writer restoration on the real model before
+  change; provenance-port original #9259cc7de0e's coherent durable conflict
+  capability and #928's hydration coverage. No parallel queue/framework.
+- **Guard:** preserve current unreadable-queue Bool stop and auth checks;
+  retain originals. Adopt the original stronger parked-copy/relaunch UI
+  contract rather than merely increasing waits or rerunning the red.
+- **Done when:** exact before/after, full signed units, auth/offline/conflict
+  and writer UI, backend/D009/macOS pass; same-original scoped publication,
+  then re-prove stopped security child. No paid/main/production action.
+- **Proof:** original925 provenance-port537fc3f plus cached-head authority
+  correctionb141af83. Before parked restore0/1/0; metadata choice0/2/0.
+  After focused30/0/0, signed units681 + typing/chooser3 =684/0/0,
+  authenticated recovery2/0/0 and writer1/0/0, synthetic voice1/0/0,
+  Node20 backend2753/0/2, macOS build0, D009 all five deltas0/diff pass.
+- **Evidence:** `docs/durable-conflict-authority-2026-10-20.md`. Original
+  #919bd470578's hosted red is retained; do not substitute local green for
+  fresh hosted proof or propagate into #973 before the parent gate passes.
+
+### T-1070 — Carry corrected recovery/export parent into original editor
+
+- **Owner:** codex. **Branch:** `codex/T-1070-editor-parent-sync`.
+- **Status:** review (combined local proof passed). **Pillar:** integrated exact words and recovery.
+- **Boundary:** original #919fd2fe9cc plus original #904d36d4e64, no-ff
+  preserving both histories. Only TASKS conflicts; keep both task histories.
+- **Target:** child retains its viewport/manual-edit behavior and the exact
+  queued-hydration, unreadable-queue and inline export owners from parent.
+- **Proof:** mergedcfc25d0c; signed units664/0/0 plus both exact typing UI
+  and chooser3/0/0; authenticated writer1/0/0 and recovery2/0/0; fresh
+  Node20 backend2753/0/2; macOS compile0, real-parent D009 all deltas0/diff.
+- **Limits:** parent hosted run39481024773 remains in progress; original
+  security child #973fc759311 failed expired-auth recovery after667 units
+  and V1 UI31/0/9. Retain that red; local combined child proof does not
+  replace fresh security-child or hosted proof. Native Files export is
+  incomplete; preserve/reconcile original #590 rather than a new exporter.
+- **Evidence:** `docs/editor-recovery-export-integration-2026-10-20.md`.
+
+### T-1063 — Preserve the corrected parent in original #919
+
+- **Owner:** codex. **Branch:** `codex/T-1061-original-editor-echo`.
+- **Status:** review (local merged proof passed). **Pillar:** exact words.
+- **History:** no-ff49ba4df retains original childae88bff + parent89ed4c2;
+  no-ffe2cec5e then retains parent10167e3. Both task histories preserved.
+- **Verified:** first merge Swift-identical; signed17/0/0 and Node20
+  backend2753/0/2. Final merged guard/editor/typing20/0/0; all D009 deltas0.
+- **Limits:** current hosted recovery red retained; parent T1064's failing-
+  first guard reused, not a claimed complete hosted causal trace. Parent
+  full/recovery/macOS evidence is separately attributed, not rerun in child.
+- **Next:** normal same-original #919 update, fresh hosted/review; T1065
+  redirect safety next. No main/production/paid call or completion claim.
+- **Evidence:** `docs/editor-parent-merge-2026-10-20.md`.
+
+### T-1061 — Port exact editor fixes without swallowing separate PRs
+
+- **Owner:** codex. **Branch:** `codex/T-1061-original-editor-echo`.
+- **Status:** review (local proof passed). **Pillar:** exact words.
+- **Boundary:** original #919c80c073 and updated original #9043e96d43
+  retained in preserving mergebcde813. Original remote heads unchanged.
+- **Scope:** provenance ports of c049b15/e86af97 (cb3d54e/c83cc99), not
+  the whole #972 lifecycle rehearsal. Only TASKS conflicted; executable
+  editor/formatter/viewport/UI source matches the tested rehearsal exactly.
+- **Verified:** exact original84e164b signed units659/0/0 + two typing/
+  inspector-callback UI3/0/0, total662/0/0. Node20 full backend2749/0/2;
+  D009 bridge-23/others0 and diff pass. Rehearsal e86af97's full V1,
+  recovery/macOS proof remains separately attributed, not rerun here.
+- **Next:** normally advance the same original #919; fresh exact-head
+  hosted checks and independent review remain required. No new PR,
+  main merge, paid call, squash, force push or review bypass.
+- **Evidence:** `docs/original-editor-echo-port-2026-10-20.md`.
+
+### T-1059 — Preserve live screenplay word separators
+
+- **Owner:** codex. **Branch:** `codex/T-1059-live-word-separators`.
+- **Status:** in-progress. **Pillar:** writer words are never silently lost.
+- **Boundary:** preserve red integration5391567 and its original #919/#972
+  histories. No main merge, paid call or replacement PR.
+- **Observed:** full signed678/2/9 loses the space in lights before;
+  native video agrees. The existing live-line normalizer trims before
+  formatting. Character/scene typing and binding resync must retain a
+  just-typed word separator; do not alter completed-format semantics.
+- **Plan:** actual coordinator/binding failing-first cases, then smallest
+  shared live-format correction, exact uninterrupted UI, full integration
+  and recovery. The intermittent Action UI cause is not assumed from source.
+- **Evidence:** `docs/live-word-separators-2026-10-20.md`.
+- **Verified:** native before2/4/0, after7/0/0 including unchanged
+  uninterrupted UI. Shared package XCTest5/0 + Swift Testing10/0.
+  Live Action/dialogue preserve raw words/punctuation; structural lines
+  retain trailing separators; completed-format API unchanged. D009 bridge-24,
+  others0. Full combined095a327: units655/0/0, UI29/2/9 (684/2/9 total),
+  both typing cases lose n in sign. To Page/navigation pass; backend2753/0/2.
+  Retain red bundle and trace native input/model counts/hashes before
+  another runtime change. No main/phone success claim or unchanged retry.
+- **Root follow-up:** diagnostic native1/1/0 captures all68 insertions;
+  stale model27 overwrites native28 and model48 overwrites native49.
+  Actual coordinator before5/2/0; canonical pending-publication guard after
+  17/0/0 (native15 + both unchanged typing UI), diagnostic hooks removed.
+  Shared package19/0. Full integration/recovery still required; not promoted.
+
+### T-1056 — Integrate visible paper with original editor text safety
+
+- **Owner:** codex. **Branch:** `codex/T-1056-editor-viewport-integration`.
+- **Status:** review. **Pillar:** exact, readable mobile writing.
+- **Boundary:** original #9191d79fc4 preserved; parent #90404a993f retained
+  by no-ff merge7deb571, documentation conflict resolved by keeping both.
+- **Evidence:** T1053 older #625-based candidate shows the typed line above
+  the keyboard but loses a space during uninterrupted typing635/1/0. Keep
+  that red experimentf7bcf33; no replacement for original #919's proven
+  binding policy5bef4dc/historical-snapshot follow-upbfbd5af.
+- **Fix:** reuse T1053 native viewport owner/manual callbacks and original
+  #625d493c515 container-only safe-area handling (two words), not billing.
+  Existing line-jump/remote-follow policy remains unchanged.
+- **Done when:** full signed units, original exact chunked typing, separate
+  uninterrupted missing-space reproduction, focus/screenshot, recovery,
+  macOS/D009/diff pass on the combined boundary. No weakened assertion,
+  main merge, paid call, force/squash or replacement PR.
+- **Evidence:** `docs/editor-viewport-integration-2026-10-20.md`.
+- **Verified:** signed erased SE full units647/0/0 + UI3/0/0 (including
+  original exact chunked and new uninterrupted sentence), viewed keyboard
+  screenshot, unchanged auth/offline/conflict recovery2/0/0. Node20 backend
+  2749/0/2, macOS native0; refreshed actual-parent D009 bridge-22/others0,
+  diff clean. Normally advance original #919; no main/production claim.
+
+### T-1049 — Preserve recovered writer authority during version hints
+
+- **Owner:** codex. **Branch:** `codex/T-1049-auth-conflict-recovery`.
+- **Status:** review. **Pillar:** exact words and recovery control.
+- **Boundary:** preserve original #919 `ce04777c`, no replacement or merge
+  to main. Hosted39406648854 recovery1/1/0 on26.5 failed the auth/conflict
+  state; unchanged selected local26.2 recovery1/0/0. Not fixed by retry.
+- **Confirmed defect:** actual-model before0/2/0: a bridge version hint
+  can retire recovered text's original base/dirty state and let subsequent
+  canonical hydration replace it; unresolved conflict hints also accepted.
+- **Fix:** reuse preserved `0c1afb1` authority guard; explicit recovery uses
+  existing noteManualDraftEdit owner, not a new save/focus architecture.
+- **Done when:** signed full units (including genuine page ack), actual
+  recovery flows, macOS/D009/diff pass; normal original-PR update with fresh
+  hosted proof still required. Do not claim hosted causal proof from local.
+- **Verified:** first full after635/2/0 crashed during BackendClient sync
+  deallocation; async-context final637/0/0, unchanged recovery2/0/0, macOS0.
+  Root guard reuses0c1afb1; original #904 has the same hosted recovery red,
+  so put the two-file correction there first (T1051), then preserve-merge
+  its updated original head into #919. No main/production/paid-model claim.
+- **Evidence:** `docs/recovered-writer-authority-2026-10-20.md`.
+
+The historical T1050 ready checkpoint is superseded by original #972's
+separate proved lifecycle change. This editor port does not import that
+change or treat it as merged; original pre-proof text remains in Git history.
+
+### T-988 — Preserve original focused-editor recovery
+
+- **Owner:** codex. **Branch:** `codex/T-988-editor-recovery-integration`.
+- **Status:** review. **Pillar:** exact writer text while typing.
+- **Target:** investigate T-986's real direct-typing failure without relaxing
+  assertions; preserve original #919 rather than duplicate its existing fix.
+- **History:** normal merge `7b0d189` retains T-986 `dc64849` and original
+  #919 head `fc7a5571`, including its D009 follow-up. Original heads unchanged.
+- **Success:** exact editor/model typing, document-switch/fresh-model policy,
+  signed units and integrated recovery remain green on the combined tree;
+  full gates before promotion. Root-cause attribution requires evidence,
+  not merely a passing retry or a plausible code path.
+- **Evidence:** `docs/editor-recovery-integration-2026-10-19.md`.
+- **Verified:** original typing1/0/0; policy5/0. Real coordinator regression
+  before1/2/0, after3/0/0: store historical model value instead of a live
+  Binding read so focused fresh rewrites are not silently ignored.
+  Full combined signed units635/0/0; Node20 scripts224/0/0, backend2749/0/2;
+  macOS build passes; full V1 UI28/0/9, authenticated recovery2/0/0,
+  writer1/0/0, voice-fault1/0/0 pass. No whole-app completion claim.
+- **Publication (2026-10-20):** merged updated original #904 parent with
+  history preserved and executable source unchanged. Fresh signed real
+  coordinator regressions3/0/0 on the erased owned iOS26.2 simulator;
+  D009 passes against actual #904 (bridge -22, all others0). Advance this
+  same original #919 by normal fast-forward; fresh hosted checks/review
+  remain required. Full-suite counts above are retained historical proof.
 ### T-1069 — Keep iPhone export format choices on the document
 
 - **Owner:** codex. **Branch:** `codex/T-1069-inline-iphone-export`.
