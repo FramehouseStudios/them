@@ -19,6 +19,7 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { request } from "node:http";
 import express from "express";
 
 import {
@@ -128,21 +129,56 @@ function defaultDeps(overrides = {}) {
 async function withTestServer(deps, fn) {
   const app = express();
   mountRealtimeTurnCommitRoute(app, deps);
-  const server = app.listen(0);
-  await new Promise((r) => server.once("listening", r));
+  const server = app.listen(0, "127.0.0.1");
+  await new Promise((resolve, reject) => {
+    server.once("listening", resolve);
+    server.once("error", reject);
+  });
   const port = server.address().port;
   try { await fn(`http://127.0.0.1:${port}`); }
-  finally { await new Promise((r) => server.close(r)); }
+  finally {
+    await new Promise((resolve, reject) => {
+      server.close(error => error ? reject(error) : resolve());
+      server.closeAllConnections();
+    });
+  }
 }
 
-async function postJson(baseURL, body, headers = {}) {
-  const r = await fetch(`${baseURL}/realtime/turn_commit`, {
-    method: "POST",
-    headers: { "content-type": "application/json", ...headers },
-    body: JSON.stringify(body),
+async function postJson(baseURL, body, headers = {}, timeoutMs = 5000) {
+  // Each fixture owns a fresh ephemeral listener. Never reuse a global fetch
+  // pool socket belonging to a previously closed fixture at the same port.
+  const target = new URL("/realtime/turn_commit", baseURL);
+  assert.equal(target.hostname, "127.0.0.1", "fixture requests must stay local");
+  const response = await new Promise((resolve, reject) => {
+    const req = request(target, {
+      method: "POST", agent: false,
+      signal: AbortSignal.timeout(timeoutMs),
+      headers: { "content-type": "application/json", ...headers },
+    }, resolve);
+    req.once("error", reject);
+    req.end(JSON.stringify(body));
   });
-  return { status: r.status, headers: r.headers, body: await r.json().catch(() => null) };
+  const chunks = [];
+  for await (const chunk of response) chunks.push(chunk);
+  return {
+    status: response.statusCode,
+    headers: new Headers(response.headers),
+    body: JSON.parse(Buffer.concat(chunks).toString("utf8")),
+  };
 }
+
+test("[turn-commit harness] stalled storage aborts the request and closes its listener", async () => {
+  let release;
+  const pending = new Promise(resolve => { release = resolve; });
+  try {
+    await withTestServer(defaultDeps({
+      resolveCanonicalWritableMemoryContext: () => pending,
+    }), async baseURL => {
+      await assert.rejects(postJson(baseURL, { transcript: "x", reply: "y" }, {}, 50),
+        error => error.name === "AbortError");
+    });
+  } finally { release({ memory: null, requesterIp: "10.0.0.1", activeSession: null }); }
+});
 
 // ---------- factory + mount guards ----------
 
@@ -809,12 +845,14 @@ test("[turn-commit] queues durable project memory with accepted page text and st
 
 test("[turn-commit] returns a canon clarification only after its durable memory write resolves", async () => {
   let releaseMemoryWrite;
+  let signalMemoryWrite;
+  const memoryWriteStarted = new Promise(resolve => { signalMemoryWrite = resolve; });
+  const memoryWritePending = new Promise(resolve => { releaseMemoryWrite = resolve; });
   const deps = defaultDeps({
     recordCreativeMemoryTriggersForRequest: async (_req, args) => {
       deps._calls.recordCreativeMemoryTriggersForRequest.push(args);
-      await new Promise((resolve) => {
-        releaseMemoryWrite = resolve;
-      });
+      signalMemoryWrite();
+      await memoryWritePending;
       return {
         canonCorrectionAmbiguity: {
           id: "canon_ambiguity_realtime_1",
@@ -842,13 +880,18 @@ test("[turn-commit] returns a canon clarification only after its durable memory 
       return response;
     });
 
-    while (typeof releaseMemoryWrite !== "function") {
-      await new Promise((resolve) => setTimeout(resolve, 1));
+    try {
+      // A rejected/early response must fail this wait, not strand a polling loop.
+      await Promise.race([memoryWriteStarted, responsePromise.then(() => {
+        throw new Error("response arrived before the memory write started");
+      })]);
+      await new Promise(resolve => setTimeout(resolve, 5));
+      assert.equal(settled, false, "response must wait for the durable ambiguity receipt");
+    } finally {
+      releaseMemoryWrite();
+      // Observe rejection even when the assertion above fails.
+      await responsePromise.catch(() => {});
     }
-    await new Promise((resolve) => setTimeout(resolve, 5));
-    assert.equal(settled, false, "response must wait for the durable ambiguity receipt");
-
-    releaseMemoryWrite();
     const response = await responsePromise;
     assert.equal(response.status, 201);
     assert.deepEqual(response.body.canon_clarification, {
