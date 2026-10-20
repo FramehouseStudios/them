@@ -8,7 +8,8 @@
 ### T-1073 — Preserve original native Files export in the writer candidate
 
 - **Owner:** codex. **Branch:** `codex/T-1073-native-files-export`.
-- **Status:** in-progress. **Pillar:** real, writer-owned exported pages.
+- **Status:** review (local proof complete; foundation propagation pending).
+  **Pillar:** real, writer-owned exported pages.
 - **Boundary:** original #590fd239bd3 and corrected #919a6262b83 are both
   preserved by local no-ff merge915f0ee0. Original PR heads/bases untouched.
   Only the duplicate provenance-name correction conflicts; keep the current
@@ -27,8 +28,11 @@
   bytes independently checked35/SHA2568f75a14d. The old bare V1 smoke no
   longer claims its DEBUG-made artifact proves a file; it now verifies a
   real connection failure preserves words and leaves retry available. Actual
-  success remains required in the writer producer. Final frozen writer and
-  macOS proof pending. No full V1 or physical-phone claim.
+  success remains required in the writer producer. Final frozenb00d78d4
+  writer1/0/0 and macOS build0; final actual exported35 bytes retained and
+  opened externally in Files, SHA256fd8dd0eb. D009 Studio-6/others0; diff
+  pass. Evidence: `docs/native-files-export-integration-2026-10-20.md`.
+  No full V1, new backend run or physical-phone claim. Original #590 unchanged.
 - **Main receipt (separate):** independently approved #909d3b6027e merged
   normally as78b8c94f, exact tree6e6e1b1c. Fresh hosted backend2744/0/2,
   units624, V1 UI28/0/9, writer/voice/macOS green. Registry audit0;
