@@ -106,10 +106,13 @@ Native screenshots were inspected in CUA; no screenshot file is asserted.
 
 Original #962 `f5e746c2`, hosted run39367137834: Backend/D009 successful;
 Quality Gate failed at conflict-relaunch recovery, assertion line2412.
-The log reports the unresolved conflict's durable writer copy was absent in
-the inspected state after relaunch. Do not relabel this a pass or assume a
-test flake from the earlier local5/0/0. Original child heads/main have not
-advanced; next action is artifact-led diagnosis of that exact failed head.
+The assertion says the unresolved conflict lost its durable writer copy, but
+the actual snapshot has the exact marker-bearing draft and parked save count1.
+The missing fields are conflict project/server version; this is evidence of
+missing conflict restoration/controls, not proof that writer text disappeared.
+Do not relabel it a pass or assume a test flake from earlier local5/0/0.
+Original child heads/main have not advanced; next action is artifact-led
+diagnosis of that exact failed head, preserving the Keep Mine requirement.
 
 Not complete: durable server results after TTL/restart/cache eviction; original
 full draft/anchor identity and explicit guarded apply/save; native iPhone
