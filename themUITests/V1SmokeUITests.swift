@@ -629,6 +629,33 @@ final class V1SmokeUITests: XCTestCase {
         XCTAssertTrue(app.descendants(matching: .any)["studio.draft.page-tools"].waitForExistence(timeout: 4))
     }
 
+    func test_inspector_navigation_stays_visible_while_panel_scrolls() {
+        let app = launchApp(openStudio: true, openExportTools: true, structuralSeed: true)
+        defer { app.terminate() }
+        let drawer = element(identifier: "studio.sidebar.right.drawer", in: app)
+        let tab = app.buttons["studio.right-panel.draft"]
+        guard tab.waitForExistence(timeout: 8), tab.isHittable else {
+            XCTFail("The inspector navigation must be visible before scrolling.")
+            return
+        }
+        let before = tab.frame
+        drawer.swipeUp()
+        guard tab.exists, tab.isHittable else {
+            XCTFail("Scrolling a panel must not hide the inspector's navigation.")
+            return
+        }
+        XCTAssertEqual(tab.frame.minY, before.minY, accuracy: 1,
+            "The navigation must remain pinned while the panel content scrolls.")
+        XCTAssertEqual(tab.frame.maxY, before.maxY, accuracy: 1)
+
+        app.buttons["studio.right-panel.beats"].tap()
+        drawer.swipeUp()
+        drawer.swipeUp()
+        app.buttons["studio.right-panel.craft"].tap()
+        XCTAssertTrue(waitForHittability(of: app.staticTexts["studio.craft.panel"], timeout: 4),
+            "A newly selected panel must open at its heading, not inherit another panel's scroll offset.")
+    }
+
     func test_all_studio_inspector_tabs_route_to_real_panels_and_report_selection() {
         let app = launchApp(openStudio: true, openExportTools: true, structuralSeed: true)
         defer { app.terminate() }
@@ -645,18 +672,12 @@ final class V1SmokeUITests: XCTestCase {
 
         for route in routes {
             let tab = app.buttons["studio.right-panel.\(route.tab)"]
-            // The tab grid sits at the top of a lazy drawer. Revealing the
-            // previous panel scrolls the grid out of the accessibility
-            // hierarchy, so bring it back before tapping and check the
-            // selected state before this panel's reveal scrolls it away again.
-            XCTAssertTrue(
-                revealInspectorTab(tab, drawer: drawer, in: app),
-                "Missing \(route.tab) inspector tab"
-            )
-            XCTAssertTrue(
-                revealInStudioDrawer(tab, drawer: drawer, scrollingUp: false, maxSwipes: 16),
-                "The \(route.tab) inspector tab could not be scrolled into view"
-            )
+            // Navigation stays pinned while each working panel scrolls.
+            // Check selection separately from the panel's actual controls.
+            guard tab.waitForExistence(timeout: 8), tab.isHittable else {
+                XCTFail("Missing pinned \(route.tab) inspector tab")
+                return
+            }
             tab.tap()
             XCTAssertTrue(
                 waitForSelection(of: tab, timeout: 3),
@@ -665,7 +686,7 @@ final class V1SmokeUITests: XCTestCase {
             let panel = element(identifier: route.panel, in: app)
             XCTAssertTrue(
                 revealInStudioDrawer(panel, drawer: drawer, scrollingUp: true, maxSwipes: 16),
-                "The \(route.tab) tab did not reveal its working panel"
+                "The \(route.tab) tab did not reveal its working panel. Drawer: \(drawer.frame); scroll views: \(drawer.scrollViews.allElementsBoundByIndex.map { $0.frame }); target: \(panel.frame); window: \(app.frame)"
             )
 
             if route.tab == "outline" {
@@ -3296,37 +3317,6 @@ final class V1SmokeUITests: XCTestCase {
         return element.exists && element.isHittable
     }
 
-    @discardableResult
-    /// The inspector tab grid sits at the top of a lazy drawer, so revealing a
-    /// panel can scroll it out of the accessibility hierarchy. Swiping down
-    /// normally brings it back; in the full scripted smoke those swipes were
-    /// once swallowed while the drawer was still settling ("Missing craft
-    /// inspector tab" after 16 swipes, 44 s instead of 34 s). Closing and
-    /// reopening the drawer puts the grid back at the top, so do that once
-    /// before giving up. Callers keep their own assertion and message.
-    private func revealInspectorTab(
-        _ tab: XCUIElement,
-        drawer: XCUIElement,
-        in app: XCUIApplication
-    ) -> Bool {
-        if tab.waitForExistence(timeout: 8)
-            || revealInStudioDrawer(tab, drawer: drawer, scrollingUp: false, maxSwipes: 16) {
-            return true
-        }
-        XCTContext.runActivity(
-            named: "Inspector tab grid did not come back after 16 swipes; reopening the drawer"
-        ) { _ in }
-        let toggle = app.buttons["studio.sidebar.right.toggle"]
-        guard waitForHittability(of: toggle, timeout: 4) else { return false }
-        toggle.tap()
-        _ = waitForDisappearance(of: drawer, timeout: 4)
-        guard waitForHittability(of: toggle, timeout: 4) else { return false }
-        toggle.tap()
-        guard drawer.waitForExistence(timeout: 5) else { return false }
-        return tab.waitForExistence(timeout: 8)
-            || revealInStudioDrawer(tab, drawer: drawer, scrollingUp: false, maxSwipes: 16)
-    }
-
     private func revealInStudioDrawer(
         _ target: XCUIElement,
         drawer: XCUIElement,
@@ -3340,11 +3330,23 @@ final class V1SmokeUITests: XCTestCase {
             if target.exists, target.isHittable {
                 return true
             }
-            if scrollingUp {
-                drawer.swipeUp()
+            // Reuse T-992's bounded, target-relative gesture (6a57ff9).
+            // Full-height flings can skip a control on an SE and then keep
+            // scrolling away because the caller assumed a taller viewport.
+            let targetFrame = target.exists ? target.frame : .zero
+            let viewport = drawer.frame
+            let distance: CGFloat
+            if !targetFrame.isEmpty, targetFrame.minY < viewport.minY + 20 {
+                distance = targetFrame.minY - (viewport.minY + 20)
+            } else if !targetFrame.isEmpty, targetFrame.maxY > viewport.maxY - 20 {
+                distance = targetFrame.maxY - (viewport.maxY - 20)
             } else {
-                drawer.swipeDown()
+                distance = scrollingUp ? 160 : -160
             }
+            let limit = min(CGFloat(220), viewport.height * 0.4)
+            let anchor = drawer.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            let end = anchor.withOffset(CGVector(dx: 0, dy: -min(max(distance, -limit), limit)))
+            anchor.press(forDuration: 0.05, thenDragTo: end, withVelocity: .slow, thenHoldForDuration: 0.12)
             RunLoop.current.run(until: Date().addingTimeInterval(0.12))
         }
         return waitForHittability(of: target, timeout: 2)

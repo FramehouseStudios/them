@@ -1,6 +1,21 @@
 import SwiftUI
 import ScreenplayStudio
 
+/// Navigation belongs to the drawer viewport, not the scrolling panel body.
+struct ScreenplayStudioPinnedInspectorTabs<Tabs: View>: ViewModifier {
+    let tabs: Tabs
+    let selection: ScreenplayStudioScreen.DirectionOneRightPanelTab
+
+    func body(content: Content) -> some View {
+        VStack(spacing: 0) {
+            tabs
+                .padding(.horizontal, 12)
+                .padding(.top, 12)
+            content.id(selection)
+        }
+    }
+}
+
 struct ScreenplayStudioRightPanelTabs: View {
     @Binding var selection: ScreenplayStudioScreen.DirectionOneRightPanelTab
     let textColor: Color

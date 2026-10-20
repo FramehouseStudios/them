@@ -5,6 +5,35 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1041 — Keep Studio inspector navigation visible while content scrolls
+
+- **Owner:** codex. **Branch:** `codex/T-1041-pinned-inspector-navigation`.
+- **Status:** review; isolated descendant of original #625 `78430dec`.
+- **Evidence:** hosted39318515602 passed backend/units but failed the
+  six-panel inspector route at Outline tap with a system-AX timeout. Its
+  preceding activity repeatedly scrolls to recover the tab grid. Do not
+  claim a reproduced simulator-infrastructure root from those logs alone.
+- **Target:** existing tabs stay pinned while content scrolls; preserve
+  styling, selection, all six panels, scroll targets and original billing
+  history. No new product state or protected-file growth.
+- **Done when:** behavior-only pinned-navigation case reproduces before;
+  same case and original six-panel routing pass after on an erased owned
+  narrow signed simulator, focused presentation/design checks and macOS
+  compile pass, D009/diff clean. Require fresh hosted gate and review.
+- **Holds:** no paid call, production or main change. Character learning
+  from saved pages belongs to original #722/#897; preserve their work.
+- **Verified:** navigation-only before0/1/0. Inset-only1/1/0; inset/identity
+  1/1/0; structural layout with old fling helper8/1/0 (seven units passed).
+  A diagnostic-only route passed1/0/0, not accepted as a stable correction.
+  Reused the preserved T-992 bounded-gesture owner `6a57ff9`, removed the
+  sole-use tab-reopen fallback, retained all action/selection assertions.
+  Final signed erased SE9/0/0 (seven units + two UI), actual summary read;
+  macOS scaffold native exit0. Native Draft/Craft/Outline headings and all
+  six tab labels visually readable. D009 all five deltas0; diff clean.
+- **Evidence:** `docs/pinned-inspector-navigation-2026-10-20.md`. No fresh
+  full backend/unit-bundle or hosted-system-AX root-cause claim. Require
+  updated exact-head hosted checks and independent review before any merge.
+
 ### T-993 — Re-prove original failed-generation billing fix on current main
 
 - **Owner:** codex. **Branch:** `codex/T-993-billing-main-proof`.
