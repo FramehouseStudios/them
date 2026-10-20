@@ -68,7 +68,6 @@ struct ScreenplayStudioScreen: View {
     }
 
     @StateObject private var vm = ScreenplayStudioViewModel()
-    @StateObject private var exportCoordinator = ScreenplayStudioExportCoordinator()
     @StateObject private var creativeInstincts = StudioCreativeInstinctsModel()
     @AppStorage("studio_debug_overlay_enabled") private var studioDebugOverlayEnabled = false
     @State private var navigatorRootURL: URL?
@@ -497,7 +496,6 @@ struct ScreenplayStudioScreen: View {
 
     private var studioConfiguredView: some View {
         studioPresentationBoundView
-            .modifier(ScreenplayStudioExportPresentation(coordinator: exportCoordinator))
             .confirmationDialog(
                 "Import Draft",
                 isPresented: $showingDraftImportChoice,
@@ -847,7 +845,6 @@ Replace is best when this file should become the script you edit. Append is safe
     private var studioInspectorWorkspaceBoundView: some View {
         studioProjectStateBoundView
             .onChange(of: vm.selectedProjectID) { _, _ in
-                exportCoordinator.invalidateIfContextChanged()
                 restoreInspectorWorkspaceState()
                 publishDebugStudioDiffState()
                 creativeInstincts.activate(
@@ -4472,6 +4469,7 @@ private func refreshStudioCreativeInstincts(
                     .font(.system(size: 11, weight: .medium, design: .default))
                     .foregroundStyle(Color.red.opacity(0.82))
                     .lineLimit(1)
+                    .accessibilityIdentifier("studio.transient.status.error")
             } else if voiceFeedbackOpacity > 0.01 && !lastVoiceFeedback.isEmpty {
                 Text(lastVoiceFeedback)
                     .font(.system(size: 11, weight: .regular, design: .default))
@@ -5182,8 +5180,9 @@ private var projectsSidebarContent: some View {
             onImport: {
                 importDraftDocument()
             },
-            onExport: { format in
-                Task { await exportCurrentDraft(format: format) }
+            exportProjectID: vm.selectedProjectID,
+            onExport: { format, coordinator in
+                Task { await exportCurrentDraft(format: format, coordinator: coordinator) }
             },
             onRefreshExportFormats: {
                 Task { await vm.refreshScreenplayExportFormats() }
@@ -17308,7 +17307,6 @@ Look at the city.
 
     @MainActor
     private func studioExportDependencies() -> ScreenplayStudioExportSupport.Dependencies {
-        let projectID = vm.selectedProjectID
         return ScreenplayStudioExportSupport.Dependencies(
             draft: vm.fountainDraft,
             projectTitle: vm.selectedProject?.title,
@@ -17322,15 +17320,15 @@ Look at the city.
                 navigatorCurrentURL = directoryURL
                 refreshNavigatorEntries()
             },
-            isCurrentContext: { vm.selectedProjectID == projectID },
+            isCurrentContext: vm.makeStudioExportContextGuard(),
             copyToClipboard: { ScreenplayStudioExportSupport.copyDraftToClipboard($0) },
             openURL: { openURL($0, completion: $1) }
         )
     }
 
     @MainActor
-    private func exportCurrentDraft(format: String) async {
-        await exportCoordinator.export(
+    private func exportCurrentDraft(format: String, coordinator: ScreenplayStudioExportCoordinator) async {
+        await coordinator.export(
             format: format,
             deps: studioExportDependencies()
         )

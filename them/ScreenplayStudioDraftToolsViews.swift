@@ -126,7 +126,8 @@ struct ScreenplayStudioDraftIntegrityActions {
 struct ScreenplayStudioDraftToolsActions {
     let onSaveNow: () -> Void
     let onImport: () -> Void
-    let onExport: (String) -> Void
+    let exportProjectID: String
+    let onExport: (String, ScreenplayStudioExportCoordinator) -> Void
     let onRefreshExportFormats: () -> Void
     let onOpenGoogleDocs: () -> Void
     let onRefreshFormatLint: () -> Void
@@ -340,6 +341,7 @@ struct ScreenplayStudioDraftToolsCard: View {
 
 private struct ScreenplayStudioDraftDocumentControls: View {
     @Binding var autosaveEnabled: Bool
+    @StateObject private var exportCoordinator = ScreenplayStudioExportCoordinator()
     let presentation: ScreenplayStudioDraftDocumentPresentation
     let actions: ScreenplayStudioDraftToolsActions
 #if os(iOS)
@@ -439,6 +441,10 @@ private struct ScreenplayStudioDraftDocumentControls: View {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .stroke(Color.herShellStroke.opacity(0.24), lineWidth: 1)
         )
+        .modifier(ScreenplayStudioExportPresentation(coordinator: exportCoordinator))
+        .onChange(of: actions.exportProjectID) { _, _ in
+            exportCoordinator.invalidateIfContextChanged()
+        }
     }
 
     private var documentActions: some View {
@@ -500,7 +506,7 @@ private struct ScreenplayStudioDraftDocumentControls: View {
                 ForEach(presentation.exportItems) { item in
                     Button {
                         isExportExpanded = false
-                        actions.onExport(item.format)
+                        actions.onExport(item.format, exportCoordinator)
                     } label: {
                         Text(item.title)
                             .font(IOThemTypography.UI.calloutStrong)
@@ -534,7 +540,7 @@ private struct ScreenplayStudioDraftDocumentControls: View {
         Menu {
             ForEach(presentation.exportItems) { item in
                 Button(item.title) {
-                    actions.onExport(item.format)
+                    actions.onExport(item.format, exportCoordinator)
                 }
                 .accessibilityIdentifier("studio.export.\(item.format.lowercased())")
                 .disabled(!item.isEnabled)

@@ -1,5 +1,10 @@
 # Spec: T-ios-xcuitest-v1-smoke
 
+> Historical scaffold proposal. Current gates are required, signed and run on
+> an erased simulator. Actual Files success belongs to the authenticated writer
+> workflow, not a DEBUG-made artifact. Automation does not replace the required
+> physical-phone/live-provider journey; follow current AGENTS and task proof.
+
 **Status**: ready-for-codex.
 **Owner**: codex (iOS / Xcode scope).
 **V1 pillar**: ios
@@ -25,7 +30,11 @@ In:
 - One XCUITest case per V1 manual smoke item, kept thin (~50 lines each):
   1. `test_first_run_onboarding_unlocks_companion`
   2. `test_record_voice_turn_round_trips_to_screenplay`
-  3. `test_screenplay_export_returns_a_file`
+  3. Export success: required authenticated integrated writer workflow,
+     including real Files Cancel/retry/Save. Bare V1 failure coverage:
+     `test_screenplay_export_failure_preserves_draft_without_claiming_a_file`.
+     The former `returns_a_file` smoke accepted a DEBUG-made artifact without
+     a real backend; that shortcut is removed by original #590 integration.
   4. `test_memory_recall_includes_a_mentioned_character`
   5. `test_realtime_fallback_does_not_crash_companion`
 - A `MockBackendClient` switch (compile-time flag) that lets UI tests

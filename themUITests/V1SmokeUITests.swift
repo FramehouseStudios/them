@@ -443,9 +443,16 @@ final class V1SmokeUITests: XCTestCase {
 #endif
     }
 
-    func test_screenplay_export_returns_a_file() {
-        let app = launchApp(openStudio: true, openExportTools: true, structuralSeed: true)
+    func test_screenplay_export_failure_preserves_draft_without_claiming_a_file() {
+        // This bare V1 fixture has no authenticated backend. The required
+        // integrated writer workflow separately proves real Files Cancel,
+        // retry and Save; do not restore a DEBUG-made fake file here.
+        let app = launchApp(openStudio: true, openExportTools: true, structuralSeed: true,
+            launchEnvironment: ["THEM_UITEST_BACKEND_BASE_URL": "http://127.0.0.1:1"])
+        defer { app.terminate() }
         XCTAssertTrue(waitForDraft(in: app, containing: "INT. DINER - NIGHT", timeout: 10))
+        let before = accessibleDraftText(in: app)
+        XCTAssertFalse(before.isEmpty)
 
         let exportMenu = app.buttons["studio.export.menu"]
         if !exportMenu.waitForExistence(timeout: 4) {
@@ -461,8 +468,16 @@ final class V1SmokeUITests: XCTestCase {
             app.buttons.matching(NSPredicate(format: "label CONTAINS[c] %@", "Markdown")).firstMatch.tap()
         }
 
-        XCTAssertTrue(staticText(containing: ".md", in: app).waitForExistence(timeout: 6),
-            "Export must report its Markdown artifact, not match an earlier saved status.")
+        let error = element(identifier: "studio.transient.status.error", in: app)
+        XCTAssertTrue(error.waitForExistence(timeout: 8), "A failed export must show the actual error.")
+        XCTAssertFalse(error.label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        XCTAssertEqual(Array(accessibleDraftText(in: app).utf8), Array(before.utf8))
+        XCTAssertFalse(app.textFields["DOCPicker.filenameTextField"].exists)
+        XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH[c] %@", "Saved ")).firstMatch.exists,
+            "A failed export must not claim that Files saved it.")
+        exportMenu.tap()
+        XCTAssertTrue(markdownItem.waitForExistence(timeout: 3))
+        XCTAssertTrue(markdownItem.isEnabled, "A failed request must leave export available for retry.")
     }
 
     @MainActor

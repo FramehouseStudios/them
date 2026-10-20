@@ -5,6 +5,38 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1073 — Preserve original native Files export in the writer candidate
+
+- **Owner:** codex. **Branch:** `codex/T-1073-native-files-export`.
+- **Status:** in-progress. **Pillar:** real, writer-owned exported pages.
+- **Boundary:** original #590fd239bd3 and corrected #919a6262b83 are both
+  preserved by local no-ff merge915f0ee0. Original PR heads/bases untouched.
+  Only the duplicate provenance-name correction conflicts; keep the current
+  spelling and explicit Self dispatch. No replacement exporter or PR.
+- **Target:** original Files Cancel/retry/Save path uses actual backend bytes;
+  existing Document controls child owns its coordinator, not a new god-view
+  StateObject. Late callbacks must respect canonical auth generation as well
+  as project identity. Keep native macOS Save and exact clipboard handoff.
+- **Done when:** focused auth/lifecycle/byte tests and native Files workflow
+  pass, exported file is independently inspected, D009/diff and integrated
+  boundary gates pass. Record deterministic versus physical/live scope.
+  Fresh parent CI is still running; no remote/base/main/production changes.
+- **Current proof:** focused18/0/0; signed full units692 + exact typing,
+  inline chooser and real-failure preservation UI4 =696/0/0. Actual local
+  authenticated writer/Files Cancel/retry/Save1/0/0; file opened in Files,
+  bytes independently checked35/SHA2568f75a14d. The old bare V1 smoke no
+  longer claims its DEBUG-made artifact proves a file; it now verifies a
+  real connection failure preserves words and leaves retry available. Actual
+  success remains required in the writer producer. Final frozen writer and
+  macOS proof pending. No full V1 or physical-phone claim.
+- **Main receipt (separate):** independently approved #909d3b6027e merged
+  normally as78b8c94f, exact tree6e6e1b1c. Fresh hosted backend2744/0/2,
+  units624, V1 UI28/0/9, writer/voice/macOS green. Registry audit0;
+  GitHub open alerts0. Render auto-deploy Off, production hold unchanged;
+  main push gate39502261480 pending. This local export candidate still has
+  its older parent lockfile; propagate security through actual foundation
+  #964 → #904 → #919 before promotion. Do not call the candidate hardened.
+
 ### T-1072 — Retain conflict words, not just active retries
 
 - **Owner:** codex. **Branch:** `codex/T-1072-durable-conflict-authority`.

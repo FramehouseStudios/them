@@ -160,6 +160,77 @@ final class ScreenplayStudioExportSupportTests: XCTestCase {
     }
 
 #if !os(macOS)
+    func testNativeExportIgnoresCompletionAfterNewAuthenticationIntentForSameProject() async throws {
+        let model = ScreenplayStudioViewModel()
+        model.autosaveEnabled = false
+        model.selectedProjectID = "export-project"
+        let recorder = ExportRecorder()
+        var dependencies = exportDependencies(recorder)
+        dependencies.isCurrentContext = model.makeStudioExportContextGuard()
+        let coordinator = ScreenplayStudioExportCoordinator()
+        await coordinator.export(format: "md", deps: dependencies)
+        let oldID = try XCTUnwrap(coordinator.requestID)
+        XCTAssertTrue(coordinator.isPresented)
+        XCTAssertTrue(dependencies.isCurrentContext())
+
+        // The same project/owner may remain selected during a new sign-in.
+        // Exercise the real canonical generation, not a mock "isCurrent" flag.
+        _ = BackendAuthClient.reserveAuthSessionIntent()
+        XCTAssertEqual(model.selectedProjectID, "export-project")
+        XCTAssertFalse(dependencies.isCurrentContext())
+        coordinator.invalidateIfContextChanged()
+        coordinator.complete(.success(URL(fileURLWithPath: "/stale/complete-scene.md")), requestID: oldID)
+
+        XCTAssertNil(coordinator.requestID)
+        XCTAssertNil(coordinator.document)
+        XCTAssertFalse(coordinator.isPresented)
+        XCTAssertFalse(recorder.info.contains { $0.hasPrefix("Saved ") })
+    }
+
+    func testNativeExportDropsPreparedArtifactAfterAuthenticationIntentChanges() async {
+        let model = ScreenplayStudioViewModel()
+        model.autosaveEnabled = false
+        model.selectedProjectID = "export-project"
+        let recorder = ExportRecorder()
+        var dependencies = exportDependencies(recorder)
+        dependencies.isCurrentContext = model.makeStudioExportContextGuard()
+        let artifact = exportArtifact
+        dependencies.exportFromBackend = { _ in
+            _ = BackendAuthClient.reserveAuthSessionIntent()
+            await Task.yield()
+            return artifact
+        }
+        let coordinator = ScreenplayStudioExportCoordinator()
+        await coordinator.export(format: "md", deps: dependencies)
+
+        XCTAssertNil(coordinator.requestID)
+        XCTAssertNil(coordinator.document)
+        XCTAssertFalse(coordinator.isPresented)
+        XCTAssertFalse(recorder.info.contains { $0.hasPrefix("Saved ") || $0.hasPrefix("Choose where") })
+    }
+
+    func testNativeExportDropsPreparedArtifactAfterProjectChanges() async {
+        let model = ScreenplayStudioViewModel()
+        model.autosaveEnabled = false
+        model.selectedProjectID = "export-project"
+        let recorder = ExportRecorder()
+        var dependencies = exportDependencies(recorder)
+        dependencies.isCurrentContext = model.makeStudioExportContextGuard()
+        let artifact = exportArtifact
+        dependencies.exportFromBackend = { _ in
+            model.selectedProjectID = "another-project"
+            await Task.yield()
+            return artifact
+        }
+        let coordinator = ScreenplayStudioExportCoordinator()
+        await coordinator.export(format: "md", deps: dependencies)
+
+        XCTAssertNil(coordinator.requestID)
+        XCTAssertNil(coordinator.document)
+        XCTAssertFalse(coordinator.isPresented)
+        XCTAssertFalse(recorder.info.contains { $0.hasPrefix("Saved ") || $0.hasPrefix("Choose where") })
+    }
+
     func testIPhoneExportPresentsExactBackendArtifactBeforeClaimingSave() async throws {
         let recorder = ExportRecorder()
         let coordinator = ScreenplayStudioExportCoordinator()

@@ -6914,6 +6914,15 @@ final class ScreenplayStudioViewModel: ObservableObject {
         localDraftRecoveryStore.payloads(ownerUserId: currentStudioAuthContext().userID)
     }
 
+    func makeStudioExportContextGuard() -> () -> Bool {
+        let projectID = selectedProjectID
+        let context = currentStudioAuthContext()
+        return { [weak self] in
+            guard let self else { return false }
+            return self.selectedProjectID == projectID && self.authContextIsCurrent(context)
+        }
+    }
+
     private func currentStudioAuthContext() -> ScreenplayStudioAuthContext {
         ScreenplayStudioAuthContext(
             userID: BackendAuthClient.currentAuthSessionState().user?.userId
