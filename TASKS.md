@@ -5,6 +5,26 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1059 — Preserve live screenplay word separators
+
+- **Owner:** codex. **Branch:** `codex/T-1059-live-word-separators`.
+- **Status:** in-progress. **Pillar:** writer words are never silently lost.
+- **Boundary:** preserve red integration5391567 and its original #919/#972
+  histories. No main merge, paid call or replacement PR.
+- **Observed:** full signed678/2/9 loses the space in lights before;
+  native video agrees. The existing live-line normalizer trims before
+  formatting. Character/scene typing and binding resync must retain a
+  just-typed word separator; do not alter completed-format semantics.
+- **Plan:** actual coordinator/binding failing-first cases, then smallest
+  shared live-format correction, exact uninterrupted UI, full integration
+  and recovery. The intermittent Action UI cause is not assumed from source.
+- **Evidence:** `docs/live-word-separators-2026-10-20.md`.
+- **Verified:** native before2/4/0, after7/0/0 including unchanged
+  uninterrupted UI. Shared package XCTest5/0 + Swift Testing10/0.
+  Live Action/dialogue preserve raw words/punctuation; structural lines
+  retain trailing separators; completed-format API unchanged. D009 bridge-24,
+  others0. Broad integration still pending; no main/phone success claim.
+
 ### T-1057 — Rehearse client lifetime with exact writer recovery
 
 - **Owner:** codex. **Branch:** `codex/T-1057-writer-lifecycle-integration`.
