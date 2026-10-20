@@ -8,7 +8,7 @@ import AppKit
 private enum DataControlAction: Identifiable, Equatable {
     case clearHistory
     case clearMemories
-    case clearParkedOutbox
+    case clearParkedOutbox(ownerID: String, confirmedEntryIDs: Set<String>)
     case discardOutlineRecovery(
         headID: String,
         projectId: String,
@@ -113,6 +113,7 @@ struct DataControlsScreen: View {
     @State private var retryingRetainedTurnID: String?
     @State private var offlineOutboxSnapshot = OfflineTalkOutboxSnapshot.empty
     @State private var offlineOutboxEntries: [OfflineTalkOutboxEntry] = []
+    @State private var offlineOutboxOwnerID = ""
     @State private var outlineRecoveryChains: [ScreenplayOutlineMutationRecoveryChain] = []
     @State private var outlineRecoveryOwnerScope: Set<String> = []
     @State private var outlineRecoveryError = ""
@@ -211,8 +212,7 @@ struct DataControlsScreen: View {
             await refreshOfflineOutbox(startMonitoring: true)
             await refreshMemoryStats(force: false)
         }
-        .onReceive(NotificationCenter.default.publisher(for: .themOfflineTalkOutboxUpdated)) { notification in
-            offlineOutboxSnapshot = OfflineTalkOutboxSnapshot(notification: notification)
+        .onReceive(NotificationCenter.default.publisher(for: .themOfflineTalkOutboxUpdated)) { _ in
             Task { @MainActor in
                 await refreshOfflineOutbox(startMonitoring: false)
             }
@@ -228,8 +228,12 @@ struct DataControlsScreen: View {
             NotificationCenter.default.publisher(for: .themBackendIdentityPartitionChanged)
         ) { _ in
             clearOutlineRecoveryPresentation()
+            offlineOutboxSnapshot = .empty
+            offlineOutboxEntries = []
+            pendingAction = nil
             Task { @MainActor in
                 await refreshOutlineRecovery(startMonitoring: false)
+                await refreshOfflineOutbox(startMonitoring: false)
             }
         }
         .accessibilityIdentifier("data.controls.screen")
@@ -573,7 +577,10 @@ struct DataControlsScreen: View {
 
             if offlineOutboxSnapshot.parkedCount > 0 {
                 Button {
-                    pendingAction = .clearParkedOutbox
+                    pendingAction = .clearParkedOutbox(
+                        ownerID: offlineOutboxOwnerID,
+                        confirmedEntryIDs: Set(offlineOutboxEntries.filter { $0.status == .parked }.map(\.id))
+                    )
                 } label: {
                     HStack(spacing: 8) {
                         Image(systemName: "trash")
@@ -1015,8 +1022,13 @@ struct DataControlsScreen: View {
         if startMonitoring {
             await OfflineTalkOutbox.shared.startNetworkMonitoring()
         }
-        offlineOutboxSnapshot = await OfflineTalkOutbox.shared.snapshot()
-        offlineOutboxEntries = await OfflineTalkOutbox.shared.allEntries()
+        let recovery = await OfflineTalkOutbox.shared.recoveryState()
+        let currentOwner = BackendAuthClient.currentAuthSessionState().user?.userId
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard recovery.ownerID == currentOwner else { return }
+        offlineOutboxOwnerID = recovery.ownerID
+        offlineOutboxSnapshot = recovery.snapshot
+        offlineOutboxEntries = recovery.entries
     }
 
     @MainActor
@@ -1024,8 +1036,8 @@ struct DataControlsScreen: View {
         if isRetryingOutbox { return }
         isRetryingOutbox = true
         defer { isRetryingOutbox = false }
-        offlineOutboxSnapshot = await OfflineTalkOutbox.shared.drainDue()
-        offlineOutboxEntries = await OfflineTalkOutbox.shared.allEntries()
+        _ = await OfflineTalkOutbox.shared.drainDue()
+        await refreshOfflineOutbox(startMonitoring: false)
         statusMessage = offlineOutboxSnapshot.userVisibleStatus ?? "Queued turns are clear."
     }
 
@@ -1036,13 +1048,13 @@ struct DataControlsScreen: View {
         retryingRetainedTurnID = id
         defer { isRetryingOutbox = false; retryingRetainedTurnID = nil }
         do {
-            offlineOutboxSnapshot = try await OfflineTalkOutbox.shared.retryParkedEntry(id: id)
+            _ = try await OfflineTalkOutbox.shared.retryParkedEntry(id: id)
+            await refreshOfflineOutbox(startMonitoring: false)
             statusMessage = offlineOutboxSnapshot.userVisibleStatus ?? "Retained turn sent."
         } catch {
             statusMessage = "Could not retry this retained turn. It is still on this device."
-            offlineOutboxSnapshot = await OfflineTalkOutbox.shared.snapshot()
+            await refreshOfflineOutbox(startMonitoring: false)
         }
-        offlineOutboxEntries = await OfflineTalkOutbox.shared.allEntries()
     }
 
     @MainActor
@@ -1293,10 +1305,12 @@ struct DataControlsScreen: View {
                     memoryStats = nil
                     memoryStatsError = ""
                     await refreshOutlineRecovery(startMonitoring: false)
-                case .clearParkedOutbox:
-                    offlineOutboxSnapshot = try await OfflineTalkOutbox.shared.deleteParkedEntries()
-                    offlineOutboxEntries = await OfflineTalkOutbox.shared.allEntries()
-                    statusMessage = "Parked queued turns deleted."
+                case .clearParkedOutbox(let ownerID, let confirmedEntryIDs):
+                    _ = try await OfflineTalkOutbox.shared.deleteParkedEntries(
+                        expectedOwnerID: ownerID, confirmedEntryIDs: confirmedEntryIDs
+                    )
+                    await refreshOfflineOutbox(startMonitoring: false)
+                    statusMessage = "Selected retained turns deleted."
                 case .discardOutlineRecovery(
                     let headID,
                     let projectId,

@@ -348,6 +348,74 @@ final class OfflineTalkOutboxTests: XCTestCase {
         XCTAssertEqual(entries.first?.status, .pending)
     }
 
+    @MainActor
+    func testRecoveryPresentationAndConfirmedDeletionStayWithCredentialOwner() async throws {
+        let defaults = UserDefaults.standard
+        let keys = ["auth_user_payload", "user_id", "auth_signed_in"]
+        let saved = keys.map { defaults.object(forKey: $0) }
+        let sharedOwner = BackendAuthClient.sharedUserID()
+        defer {
+            for (key, value) in zip(keys, saved) {
+                if let value { defaults.set(value, forKey: key) }
+                else { defaults.removeObject(forKey: key) }
+            }
+            if let sharedOwner { _ = BackendAuthClient.persistSharedUserID(sharedOwner) }
+            else { BackendAuthClient.clearSharedUserID() }
+        }
+        func signIn(_ owner: String?) throws {
+            guard let owner else {
+                defaults.removeObject(forKey: "auth_user_payload")
+                defaults.set(false, forKey: "auth_signed_in")
+                BackendAuthClient.clearSharedUserID()
+                return
+            }
+            let user = BackendAuthUser(userId: owner, email: "fixture@example.invalid", authProvider: "debug",
+                emailVerified: true, emailVerifiedAt: nil, createdAt: nil, updatedAt: nil)
+            defaults.set(try JSONEncoder().encode(user), forKey: "auth_user_payload")
+            XCTAssertTrue(BackendAuthClient.persistSharedUserID(owner))
+            defaults.set(true, forKey: "auth_signed_in")
+            XCTAssertEqual(BackendAuthClient.currentAuthSessionState().user?.userId, owner)
+        }
+        let outbox = OfflineTalkOutbox(storageDirectory: directory)
+        func retain(_ owner: String, _ key: String) async throws -> OfflineTalkOutboxEntry {
+            var request = URLRequest(url: URL(string: "https://them.test/talk")!)
+            request.httpMethod = "POST"
+            request.setValue(owner, forHTTPHeaderField: "x-user-id")
+            request.setValue(key, forHTTPHeaderField: "X-Idempotency-Key")
+            return try await outbox.enqueue(request: request, body: Data("Exact \(key) café\r\n".utf8),
+                reason: "private \(key)", requiresManualRetry: true).entry
+        }
+        try signIn("writer-a")
+        let a = try await retain("writer-a", "a")
+        let b = try await retain("writer-b", "b")
+        let stateA = await outbox.recoveryState()
+        XCTAssertEqual(stateA.entries.map(\.id), [a.id])
+        XCTAssertEqual(stateA.snapshot.parkedCount, 1)
+        XCTAssertFalse(stateA.snapshot.lastError.contains("private b"))
+        let late = try await retain("writer-a", "later")
+        try signIn("writer-b")
+        do {
+            _ = try await outbox.deleteParkedEntries(expectedOwnerID: stateA.ownerID, confirmedEntryIDs: [a.id])
+            XCTFail("A confirmation from the previous account must be rejected.")
+        } catch { }
+        let stateB = await outbox.recoveryState()
+        XCTAssertEqual(stateB.entries.map(\.id), [b.id])
+        try signIn(nil)
+        let signedOut = await outbox.recoveryState()
+        XCTAssertEqual(signedOut.entries, [])
+        XCTAssertFalse(signedOut.snapshot.hasWork)
+        XCTAssertTrue(signedOut.snapshot.lastError.isEmpty)
+        try signIn("writer-a")
+        _ = try await outbox.deleteParkedEntries(expectedOwnerID: "writer-a", confirmedEntryIDs: [a.id, b.id])
+        let restored = OfflineTalkOutbox(storageDirectory: directory)
+        let survivors = await restored.allEntries()
+        XCTAssertEqual(Set(survivors.map(\.id)), [b.id, late.id], "Preserve other owners and requests created after confirmation.")
+        for entry in [b, late] {
+            let body = try Data(contentsOf: directory.appendingPathComponent("blobs").appendingPathComponent(entry.bodyRef))
+            XCTAssertEqual(body, Data("Exact \(entry.idempotencyKey) café\r\n".utf8))
+        }
+    }
+
     func testNonRetryableClientErrorParksAndCanBeDeleted() async throws {
         let outbox = OfflineTalkOutbox(storageDirectory: directory)
         var request = URLRequest(url: URL(string: "https://them.test/talk")!)

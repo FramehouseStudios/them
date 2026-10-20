@@ -214,6 +214,26 @@ actor OfflineTalkOutbox {
         }
     }
 
+    /// Presentation and destructive recovery must use the current credential
+    /// partition, not the device-wide manifest or a caller-supplied owner.
+    func recoveryState() -> (ownerID: String, snapshot: OfflineTalkOutboxSnapshot, entries: [OfflineTalkOutboxEntry]) {
+        let owner = currentOwnerID()
+        var loadError = ""
+        do { try loadIfNeeded() } catch { loadError = error.localizedDescription }
+        let owned = entries.filter { entryOwnerID($0) == owner }
+            .sorted { $0.createdAt < $1.createdAt }
+        return (owner, snapshotFor(owned, lastError: loadError), owned)
+    }
+
+    private func currentOwnerID() -> String {
+        BackendAuthClient.currentAuthSessionState().user?.userId
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    }
+
+    private func entryOwnerID(_ entry: OfflineTalkOutboxEntry) -> String {
+        headerValue(named: "X-User-Id", in: entry.headers) ?? ""
+    }
+
     func pendingScreenplayQuestionResolutionIDs() -> Set<String> {
         do {
             try loadIfNeeded()
@@ -366,17 +386,27 @@ actor OfflineTalkOutbox {
         return await drainDue(now: now, limit: 1, entryID: id, transport: transport)
     }
 
-    func deleteParkedEntries() throws -> OfflineTalkOutboxSnapshot {
+    func deleteParkedEntries(expectedOwnerID: String? = nil, confirmedEntryIDs: Set<String>? = nil) throws -> OfflineTalkOutboxSnapshot {
         try loadIfNeeded()
-        let parked = entries.filter { $0.status == .parked }
-        entries.removeAll { $0.status == .parked }
+        let owner = currentOwnerID()
+        guard expectedOwnerID == nil || expectedOwnerID == owner else {
+            throw BackendError.stage("offline_outbox", "Account changed. Review retained turns again before deleting.")
+        }
+        let parked = entries.filter {
+            $0.status == .parked && entryOwnerID($0) == owner
+                && (confirmedEntryIDs?.contains($0.id) ?? true)
+        }
+        let removedIDs = Set(parked.map(\.id))
+        let previous = entries
+        entries.removeAll { removedIDs.contains($0.id) }
+        // Persist removal before deleting payloads; a failed manifest write
+        // must leave both the live actor and original bytes recoverable.
+        do { try persist() } catch { entries = previous; throw error }
         for entry in parked {
             try? fileManager.removeItem(at: blobURL(for: entry.bodyRef))
         }
-        try persist()
-        let nextSnapshot = snapshotFor(entries)
-        publish(nextSnapshot)
-        return nextSnapshot
+        publishSnapshot()
+        return recoveryState().snapshot
     }
 
     private static func defaultStorageDirectory() -> URL {

@@ -8,7 +8,7 @@
 ### T-1016 — Retain rejected spoken requests and connect explicit recovery
 
 - **Owner:** codex. **Branch:** `codex/T-1016-provider-turn-recovery`.
-- **Status:** in-progress (functional/narrow UI proof; owner-scoped deletion follow-up required).
+- **Status:** review (functional/narrow UI proof and scoped recovery checks; integration pending).
 - **Pillar:** exact writer words / voice-to-scene.
 - **Source finding:** BackendClient does not retain an initial explicit
   provider-auth/quota rejection; OfflineTalkOutbox parks later failures but
@@ -33,8 +33,13 @@
   Manual Retry retained turn sends exactly one original26-byte fixture request
   with original key/owner, displays completion, persists an empty queue and
   does not resend on relaunch. No paid calls. Full suite/live model/phone not
-  newly proven. Inherited owner-unscoped recovery listing/deletion must be
-  corrected before merge; no destructive action was exercised.
+  newly proven. Owner-scoped Data Controls rows/counts/deletion now use
+  canonical credentials and captured confirmation IDs; stale-account
+  confirmation is refused and later/other-owner payloads survive relaunch.
+  Focused signed outbox suite13/0/0 on erased task-owned Pro; actual bundle
+  /tmp/them-1016-owner-isolation/v1-ui-smoke-local-1-55553.xcresult.
+  No real user deletion was exercised. Other global queue-status consumers
+  remain to audit; this is not an app-wide isolation/security claim.
 - **Integration:** original #96287a62a6c hosted39349393133 is live; do not
   advance #963 until it passes. This is an isolated follow-up on combined
   T1013, not a replacement original PR or production deployment.

@@ -113,10 +113,31 @@ Successful replay handling is inherited: server-side page effects can persist,
 but this outbox does not deliver returned audio to the foreground conversation.
 Broader integration and physical-phone proof remain pending.
 Self-review found inherited owner-unscoped allEntries/snapshot/deletion in
-OfflineTalkOutbox: retry checks owner, but Delete retained turns currently
-selects all parked accounts. No deletion was exercised. Next root task must
-scope recovery presentation/deletion and preserve another account's requests;
-this candidate is not ready to merge with that isolation gap unresolved.
+OfflineTalkOutbox. Recovery presentation now uses one actor read filtered by
+canonical current credentials, including counts/error details. Data Controls
+reloads scoped state rather than installing the global notification snapshot,
+and rejects delayed reads after an account switch. Identity notifications
+clear rows and pending confirmations before loading the new owner.
+
+Delete retained turns captures the visible owner and exact parked IDs. The
+actor checks the current credential owner again, intersects IDs with that
+owner, and preserves requests arriving after confirmation. Manifest removal
+must persist before payload deletion; a write failure restores actor entries.
+No real user deletion was exercised. VERIFIED focused signed outbox suite:
+13 passed /0 failed /0 skipped, erased task-owned Pro11CF5EFB, signing on,
+exit0. Actual result bundle read:
+/tmp/them-1016-owner-isolation/v1-ui-smoke-local-1-55553.xcresult.
+The new test installs canonical synthetic account A/B credentials, proves
+owner-only rows/counts/error text, rejects A's confirmation while B is signed
+in, hides signed-in requests after sign-out, and deletes only A's confirmed
+IDs after returning to A. Another account's request and A's later request
+survive actor relaunch with exact UTF8/CRLF payload bytes. Manifest write
+failure ordering is source-reviewed, not newly fault-injected in this run.
+D009 all five deltas0 and diff check pass. No new backend/full-suite/macOS/
+physical-device proof is implied. These results are separate from the earlier
+manual narrow UI journey; account switching was proven in the signed actor test.
+Device-wide operational snapshots/notifications have other consumers; their
+account-switch presentation remains a separate audit, not a covered claim.
 Existing transport/credential storage behavior is not a new security audit.
 
 ## Exact changed files
@@ -144,9 +165,11 @@ shipping backend are not proven by compilation or actor tests.
 
 ## Scope and integration
 
-Implementation committed and pushed as e03f605b on the scoped T1016 branch;
+Implementation committed and pushed as e03f605b, then narrow UI2dd3de37,
+on the scoped T1016 branch;
 no new replacement PR, original-head update or main merge. Full integration
-and UI proof remain pending, not implied by this backup.
+remains pending, not implied by this backup. The manual loopback UI journey
+above does not establish live voice or physical-phone proof.
 
 Base457c1f19 preserves the combined T1013 work. Original #962 was separately
 advanced with explicit human approval to87a62a6c and hosted39349393133 is
