@@ -41,7 +41,22 @@ because contract, intact quoted line in response and TTS input, and unchanged
 saved project. Provider transport is synthetic; no microphone, audible output
 or live-model claim. Straight/curly/single/multiline/colon/question quotes and
 Unicode text are covered. Logs `/tmp/them-1029-quote-before.log` and
-`/tmp/them-1029-quote-after.log`; full backend/offline golden proof pending.
+`/tmp/them-1029-quote-after.log`.
+
+Frozen correctionf20482c5: Node20.20.2 scripts231/0/0; offline mentor gate OK,
+all40 golden/weak exemplar pairs separated and all six prompt-path checks
+true. This is offline fixture validation, not live model quality. Actual JSON
+summary read from the retained private report. Full backend2915 passed/0
+failed/2 skipped (2917 checks,47 suites), terminal exit0. Skips remain ordinary
+live-Postgres-prefix and opt-in live-model page-sync cases, not claimed green.
+No --live flag or external network access. Log `/tmp/them-1029-node20.log`.
+Only this record/TASKS change after frozen runtimef20482c5.
+
+Initial local base-ref lookup refused a missing remote-tracking ref. Fetch
+the exact prepared parent1ff16763, then D009 passes with all five deltas0.
+Syntax/whitespace pass. No allow-growth bypass or source change to the gate.
+The quote-mask boundary is deliberately conservative about unfinished quoted
+material; it does not try to infer missing dialogue or repair model content.
 
 Private evidence: `/Users/halfmutantfilms/io.them-worktrees/_proof/T-1029-20261019.I3w24X/`.
 Client identity uses new parent1ff16763, whose runtime is identical to #962f5e746c2

@@ -8,7 +8,7 @@
 ### T-1029 — Refresh preserved mentor work on the repaired writer parent
 
 - **Owner:** codex. **Branch:** `codex/T-1029-mentor-parent-refresh`.
-- **Status:** in-progress; local rehearsal, original heads unchanged.
+- **Status:** review; local mentor fix proven, original heads unchanged.
 - **Scope:** preserving T1012/original #6538f5f4f2f and updated database
   candidate1ff16763. Only TASKS conflicts; retain both task histories.
 - **Actual bases:** original #653 still targets claude/mentor-last-image;
@@ -23,7 +23,10 @@
   Pinned Node20 before4/3/0, including authenticated /talk reply failure.
 - **Fix:** reuse canonical same-length quote masking for opener boundaries;
   preserve original text indices and unfinished quotes. Focused shape/
-  persona/authenticated TTS+unchanged-page checks30/0/0. Full backend pending.
+  persona/authenticated TTS+unchanged-page checks30/0/0. Frozen correction
+  f20482c5 Node20.20.2 backend2915/0/2, scripts231/0/0, offline golden40
+  exemplar pairs separated/all prompt checks true. D009/diff/syntax pass;
+  client byte-identical to parent, no new signed run or live-model claim.
 - **Evidence:** `docs/mentor-repaired-save-parent-2026-10-19.md`.
 
 ### T-1012 — Preserve the mentor because contract on the current database parent
