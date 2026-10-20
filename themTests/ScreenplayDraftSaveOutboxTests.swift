@@ -3,6 +3,35 @@ import XCTest
 
 final class ScreenplayDraftSaveOutboxTests: XCTestCase {
     @MainActor
+    func testProjectHydrationRestoresParkedWriterSaveBeforeRemoteDraft() async throws {
+        // Original #928's real-model regression, seeded through the existing
+        // parked-entry API so it also executes before #925 is ported here.
+        let owner = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""
+        let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let local = "  Writer words cafe\u{0301}\r\n"
+        try await queue.enqueue(replacingOwner(of: makeEntry(id: "parked", draft: local), with: owner))
+        try await queue.markParked(id: "parked", error: "Server draft changed. Choose Keep Mine or Load Server.")
+        let suite = "them.parked-project-hydration.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore:
+            ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "recovery"), draftSaveOutbox: queue)
+        model.autosaveEnabled = false
+        model.selectedProjectID = "project-1"
+        model.applyStructuralUITestDraft("Collaborator words", versionID: "remote")
+        let data = try JSONSerialization.data(withJSONObject: ["id": "project-1", "title": "Test",
+            "activeVersionId": "remote", "versions": [["id": "remote", "draft": "Collaborator words"]]])
+        await model.hydrateDraftRestoringQueuedSaves(from:
+            try JSONDecoder().decode(BackendScreenplayProjectSummary.self, from: data))
+        XCTAssertEqual(Array(model.fountainDraft.utf8), Array(local.utf8))
+        XCTAssertTrue(model.hasUnsavedDraftChanges)
+        XCTAssertNotNil(model.conflictState)
+        let copies = try await queue.entriesForTesting()
+        XCTAssertEqual(copies.map(\.draft), [local])
+        try? await Task.sleep(nanoseconds: 1_100_000_000)
+    }
+
+    @MainActor
     func testUnreadableQueueBlocksHydrationWithoutDiscardingPageAndValidRetryRecovers() async throws {
         try FileManager.default.createDirectory(at: storageDirectory, withIntermediateDirectories: true)
         let manifestURL = storageDirectory.appendingPathComponent("queue.json")

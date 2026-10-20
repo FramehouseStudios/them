@@ -5,6 +5,22 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1072 — Retain conflict words, not just active retries
+
+- **Owner:** codex. **Branch:** `codex/T-1072-durable-conflict-authority`.
+- **Status:** in-progress. **Pillar:** no silent loss across conflict/relaunch.
+- **Boundary:** original #919bd470578, hosted recovery1/1/0 despite local
+  green. Native snapshot loses marker/choice with queue0 and dirty/manual0.
+- **Plan:** reproduce parked writer restoration on the real model before
+  change; provenance-port original #9259cc7de0e's coherent durable conflict
+  capability and #928's hydration coverage. No parallel queue/framework.
+- **Guard:** preserve current unreadable-queue Bool stop and auth checks;
+  retain originals. Adopt the original stronger parked-copy/relaunch UI
+  contract rather than merely increasing waits or rerunning the red.
+- **Done when:** exact before/after, full signed units, auth/offline/conflict
+  and writer UI, backend/D009/macOS pass; same-original scoped publication,
+  then re-prove stopped security child. No paid/main/production action.
+
 ### T-1070 — Carry corrected recovery/export parent into original editor
 
 - **Owner:** codex. **Branch:** `codex/T-1070-editor-parent-sync`.
