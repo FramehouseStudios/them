@@ -5,6 +5,22 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1024 — Retain queued turns that did not produce a completed reply
+
+- **Owner:** codex. **Branch:** `codex/T-1024-incomplete-turn-retention`.
+- **Status:** review (focused final signed proof passed).
+- **Root:** any 2xx replay removed the request, including 204 listen-again,
+  200 asked-repeat and error-recovered responses that did not finish writing.
+- **Fix:** park these explicit incomplete talk outcomes, keep original bytes
+  and key for review, show the full reason in Data Controls. Preserve separate
+  question-resolution acknowledgement behavior and legacy successful talk.
+- **Evidence:** `docs/incomplete-turn-retention-2026-10-19.md`.
+- **Verified:** final signed 1/0/0 on erased task-owned Pro; six incomplete
+  talk forms plus question-resolution control, exact explicit retry after
+  relaunch. D009 all five deltas zero; whitespace check passes. No paid calls.
+- **Limits:** this does not apply a recovered screenplay or play audio; normal
+  200 result recovery and durable server reconciliation remain unfinished.
+
 ### T-1023 — Keep recovered turn results scoped to their writer/session
 
 - **Owner:** codex. **Branch:** `codex/T-1023-owned-turn-result-lookup`.

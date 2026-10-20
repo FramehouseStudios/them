@@ -526,7 +526,7 @@ struct DataControlsScreen: View {
                     Text(detail)
                         .font(.system(size: 12, weight: .regular, design: .default))
                         .foregroundStyle(Color.herText.opacity(0.66))
-                        .lineLimit(2)
+                        .lineLimit(entry.status == .parked ? nil : 2)
                 }
                 if entry.status == .parked || entry.id == retryingRetainedTurnID {
                     retryRetainedTurnButton(for: entry)

@@ -603,6 +603,20 @@ actor OfflineTalkOutbox {
         guard let index = entries.firstIndex(where: { $0.id == entryID }) else { return }
         let status = result.statusCode
         if (200...299).contains(status) {
+            if entries[index].endpoint == Self.talkEndpoint {
+                let turnStatus = headerValue(named: "x-turn-status", in: result.headers)?.lowercased() ?? ""
+                let needsMore = headerValue(named: "x-continue-listening", in: result.headers)?.lowercased() ?? ""
+                if status == 204 || ["asked_repeat", "continue_listening", "error_recovered"].contains(turnStatus)
+                    || needsMore == "1" || needsMore == "true" {
+                    entries[index].status = .parked
+                    entries[index].updatedAt = now.timeIntervalSince1970
+                    entries[index].nextAttemptAt = 0
+                    entries[index].lastError = turnStatus == "error_recovered"
+                        ? "Clementine could not complete this turn. Your original request is retained. Review History before retrying."
+                        : "No completed reply was confirmed. Your original request is retained. Speak the complete request again, or review History before retrying."
+                    return
+                }
+            }
             entries.remove(at: index)
             return
         }

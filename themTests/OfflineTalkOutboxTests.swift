@@ -361,6 +361,66 @@ final class OfflineTalkOutboxTests: XCTestCase {
         }
     }
 
+    func testIncompleteSuccessfulTalkResponseRetainsOriginalAndNeverAutomaticallyReplaysIt() async throws {
+        let incomplete: [(Int, [String: String])] = [
+            (204, ["x-turn-status": "continue_listening"]),
+            (200, ["x-turn-status": "asked_repeat"]),
+            (200, ["X-Turn-Status": " ERROR_RECOVERED "]),
+            (200, ["X-Continue-Listening": "TRUE"]),
+            (200, ["x-continue-listening": "1"]),
+            (204, [:]),
+        ]
+        for (index, response) in incomplete.enumerated() {
+            let store = directory.appendingPathComponent("incomplete-\(index)")
+            let outbox = OfflineTalkOutbox(storageDirectory: store)
+            var request = URLRequest(url: URL(string: "https://them.test/talk")!)
+            request.httpMethod = "POST"
+            let key = "retain-incomplete-\(index)"
+            request.setValue(key, forHTTPHeaderField: "X-Idempotency-Key")
+            let owner = OfflineTalkOutbox.currentOwnerID()
+            if !owner.isEmpty { request.setValue(owner, forHTTPHeaderField: "X-User-Id") }
+            let body = Data("Original spoken story, including café and 🎬.\r\n".utf8)
+            let queued = try await outbox.enqueue(request: request, body: body, reason: "offline")
+            let snapshot = await outbox.drainDue(now: Date().addingTimeInterval(10)) { replay in
+                XCTAssertEqual(replay.httpBody, body)
+                return OfflineTalkOutboxSendResult(statusCode: response.0, headers: response.1)
+            }
+            XCTAssertEqual(snapshot.parkedCount, 1)
+            XCTAssertEqual(snapshot.activeCount, 0)
+            let relaunched = OfflineTalkOutbox(storageDirectory: store)
+            var sends = 0
+            _ = await relaunched.drainDue(now: Date().addingTimeInterval(86_400)) { _ in
+                sends += 1
+                return OfflineTalkOutboxSendResult(statusCode: 200)
+            }
+            XCTAssertEqual(sends, 0)
+            let retained = await relaunched.allEntries()
+            XCTAssertEqual(retained.first?.id, queued.entry.id)
+            XCTAssertTrue(retained.first?.lastError?.contains("original request is retained") == true)
+            let retry = try await relaunched.retryParkedEntry(id: queued.entry.id) { replay in
+                sends += 1
+                XCTAssertEqual(replay.httpBody, body)
+                XCTAssertEqual(replay.value(forHTTPHeaderField: "X-Idempotency-Key"), key)
+                return OfflineTalkOutboxSendResult(statusCode: 200, headers: ["x-turn-status": "responded"])
+            }
+            XCTAssertEqual(sends, 1)
+            XCTAssertFalse(retry.hasWork)
+        }
+        // An empty success for the separate question-resolution endpoint is
+        // still its normal acknowledgement, not an incomplete spoken turn.
+        let questions = OfflineTalkOutbox(storageDirectory: directory.appendingPathComponent("questions"))
+        var request = URLRequest(url: URL(string: "https://them.test/memory/screenplay-question/resolve")!)
+        request.httpMethod = "POST"
+        request.setValue("question-resolution", forHTTPHeaderField: "X-Idempotency-Key")
+        let owner = OfflineTalkOutbox.currentOwnerID()
+        if !owner.isEmpty { request.setValue(owner, forHTTPHeaderField: "X-User-Id") }
+        _ = try await questions.enqueue(request: request, body: Data("{}".utf8), reason: "offline")
+        let resolved = await questions.drainDue(now: Date().addingTimeInterval(10)) { _ in
+            OfflineTalkOutboxSendResult(statusCode: 204)
+        }
+        XCTAssertFalse(resolved.hasWork)
+    }
+
     func testRetryableFailureBacksOffThenDrainsOnLaterSuccess() async throws {
         let outbox = OfflineTalkOutbox(storageDirectory: directory)
         var request = URLRequest(url: URL(string: "https://them.test/talk")!)
