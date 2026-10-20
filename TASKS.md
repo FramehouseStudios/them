@@ -8,7 +8,8 @@
 ### T-1013 — Fail closed when queued writer input cannot be loaded
 
 - **Owner:** codex. **Branch:** `codex/T-1013-outbox-load-safety`.
-- **Status:** in-progress. **Pillar:** dependable voice-to-scene / recovery.
+- **Status:** review (required local proofs complete; extra macOS UI initialization failed).
+- **Pillar:** dependable voice-to-scene / recovery.
 - **Root:** OfflineTalkOutbox marks itself loaded before reading protected
   storage, never retries that failed load, and silently drops malformed JSON
   or invalid UTF-8. A subsequent enqueue can overwrite retained work.
@@ -20,9 +21,12 @@
 - **Verified so far:** signed before8/2/0 (real retention assertions), focused
   corrected10/0/0, frozen89d75626 full signed units874/0/0, Node20.20.2
   backend2988/0/2 and scripts238/0/0 (native82055 exit0). D009 all five0.
-  UI chain native48555 is still running; do not claim its recovery/writer/
-  voice/macOS gates passed yet. Original #962 hosted recovery FAILED; hold
-  #963/original mentor updates and investigate exact evidence, not rerun.
+  Signed recovery5/0/0, writer1/0/0, voice1/0/0 and macOS scaffold build0.
+  Extra macOS UI could not initialize automation (no recovery body reached);
+  original chain48555 exit1 retained, never retried. Never-reached required
+  writer/voice/compile checks separately completed native13186 exit0.
+  Original #962 hosted recovery FAILED; hold #963/original mentor updates
+  and investigate exact evidence, not rerun. All seven completed bundles retained.
 
 ### T-1011 — Distinguish provider authentication failure from app session expiry
 

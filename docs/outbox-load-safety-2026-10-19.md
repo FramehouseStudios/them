@@ -49,13 +49,28 @@ Actual completed summaries read. Node20.20.2/no external network backend
 `/tmp/them-1013-node20.log`. Actual fetched T1011 parent6e9776ce:
 all five god-file deltas0, diff clean; `/tmp/them-1013-god-files.log`.
 
-UI chain native48555 is still running: recovery bundle
-`/tmp/them-1013-ui.tCkJkP/recovery/them-save-recovery-GAGxiF/recovery-ios.xcresult`
-is ACTIVE and must not be copied or claimed passed. Writer/voice/macOS steps
-are subsequent, not yet verified. Full V1/Home/live-model/phone not claimed.
-Do not restart on an observation timeout.
+Signed iPhone recovery5/0/0, completed bundle
+`/tmp/them-1013-ui.tCkJkP/recovery/them-save-recovery-GAGxiF/recovery-ios.xcresult`.
+The initial chain48555 terminated1 because my `INCLUDE_MACOS=0` variable
+was ignored; canonical option is `SCREENPLAY_SAVE_INCLUDE_MACOS=0`.
+It additionally attempted macOS recovery UI, which failed to initialize
+automation mode (75.284s observer diagnostic). Completed summary reports
+0 pass/1 runner failure, no recovery test body reached. Retain the failure;
+do not call macOS recovery green or presume a product cause. No security/
+automation permissions changed and no unchanged failed test was retried.
 
-Three COMPLETED before/focused/full-unit bundles cloned and compared identical
+Only the previously unreached required checks were then run:
+native13186 terminal0, `/tmp/them-1013-remaining-ui.log`:
+writer1/0/0 at
+`/tmp/them-1013-ui.tCkJkP/writer/them-studio-ios-writer-loop/run-7HtaiW/writer-loop.xcresult`;
+voice1/0/0 at
+`/tmp/them-1013-ui.tCkJkP/voice/voice-network-fault-local-1-39410-ios.xcresult`;
+macOS scaffold BUILD SUCCEEDED. Actual completed summaries read. These run
+on07e02bbb, whose app/backend/test bytes match frozen89d75626 (docs only).
+No fresh full V1/Home/live-model/phone or release certification claimed.
+
+Seven COMPLETED before/focused/full-unit/recovery-iOS/recovery-macOS-failed/
+writer/voice bundles cloned and compared identical
 under `/Users/halfmutantfilms/io.them-worktrees/_proof/T-1013-20261019.rNeXzn/`,
 with completed logs. Same computer is not an off-device backup. Initial
 xcresult read accidentally used an unobserved filename and failed64; corrected
@@ -72,8 +87,9 @@ FAILURE: blank-snapshot not queued, unresolved conflict metadata/queue missing
 after relaunch, and a terminated test process. The marker text was present
 in the conflict snapshot; do not overclaim total writer-text loss or call it
 a harmless flake. Raw completed log at `/tmp/them-962-hosted-failure.log`.
-Artifact download native43407 to `/tmp/them-962-hosted.lipI85` remains active;
-do not duplicate it. Hold original #963 and mentor-head advancement. A local
+Artifact download native43407 to `/tmp/them-962-hosted.lipI85` completed0;
+actual hosted bundle summary3/2/0 on iOS26.5(23F77), distinct from local26.2.
+Hold original #963 and mentor-head advancement. A local
 pass is not a root fix for this hosted failure. No original head/main or
 production setting changed. Production hold remains in force.
 
@@ -84,5 +100,6 @@ production setting changed. Production hold remains in force.
 - TASKS.md — task, scope, proof and remaining gates.
 - docs/outbox-load-safety-2026-10-19.md — this report.
 
-READY FOR CONTINUE: finish the existing UI/download handles, retain their
-terminal evidence, then investigate the first red integration boundary.
+READY FOR CONTINUE: T1014's deterministic save-drain characterization is
+running directly on the failed original head, after T1013's Xcode chains
+became terminal. Investigate both hosted failures before advancing the stack.
