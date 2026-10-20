@@ -5,6 +5,35 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1043 — Preserve original Node 24 migration on the security boundary
+
+- **Owner:** codex. **Branch:** `codex/T-1043-node24-current-boundary`.
+- **Status:** review; refreshed integrated runtime locally proven.
+  **Pillar:** trustworthy screenplay service.
+- **Scope:** retain original #602 `6be04ea0` and #909 `d3b6027`; normal
+  merge `7921da3b`. The old #596 baseline corrections are already on main;
+  no new client/product changes appear versus the security parent.
+- **Decision:** stack #602 on #909 so current dependency fixes remain in the
+  runtime proof and land first; never bundle a replacement security patch.
+- **Root:** main's Node20 is upstream EOL. Refresh the preserved migration
+  from24.20.0 to current24.22.0 LTS, verify/pin its official multi-arch digest,
+  and derive Docker expectations from the existing canonical version file.
+- **Done when:** complete offline Node24 backend and relevant script/workflow
+  contracts, built shipping image runtime/non-root/HTTP/clean shutdown,
+  expected fail-closed production bootstrap, D009/diff and fresh hosted gates.
+- **Holds:** production still blocked pending human credentials; no provider
+  call, personal-device change, protection bypass or direct main push.
+- **Verified:** full offline Node24.22 backend2746/0/2; initial script container
+  197/13/0 lacked Git/real history, retained red. Official SHA-verified native
+  Node24.22 actual-worktree scripts210/0/0. Built image is arm64/non-root/tini,
+  has no dev parsers or baked `.env`; isolated development HTTP200/200 and
+  protected-project401, clean SIGTERMexit0. Production without credentials
+  refuses startup/exit1 as required. Six YAML parses, D009 all five deltas0,
+  syntax/whitespace pass; no changed client or script sources versus #909.
+- **Evidence:** `docs/node24-current-boundary-2026-10-20.md`. Original #602
+  will be draft/stacked on #909, retain all original history, and require
+  fresh exact-head hosted checks/review. Parent lands first; no side-branch merge.
+
 ### T-1042 — Promote the minimal original dependency-security correction
 
 - **Owner:** codex. **Branch:** `codex/T-1042-dependency-boundary-refresh`.

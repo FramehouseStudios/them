@@ -19,7 +19,7 @@ test("[runtime-version] Node 24 LTS is the single configured backend runtime", (
   const dockerfile = fs.readFileSync(path.join(backendRoot, "Dockerfile"), "utf8");
   const images = [...dockerfile.matchAll(/^FROM node:([^@\s]+)@sha256:([a-f0-9]{64})/gm)];
   assert.equal(images.length, 2, "both Docker stages must use a digest-pinned Node image");
-  assert.deepEqual(images.map((match) => match[1]), ["24.20.0-alpine", "24.20.0-alpine"]);
+  assert.deepEqual(images.map((match) => match[1]), Array(2).fill(`${runtimeVersion}-alpine`));
   assert.equal(images[0][2], images[1][2], "both Docker stages must use the same reviewed image digest");
 });
 

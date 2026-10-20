@@ -12,7 +12,7 @@
 # them/Release.local.env.
 
 # ----- Stage 1: install production dependencies in isolation -----
-FROM node:24.20.0-alpine@sha256:e67514e5d0f6c46656005e1b693b2ec9d52e80b641307de684d4a015ba7a4eaf AS deps
+FROM node:24.22.0-alpine@sha256:44fce696f38ba8c987c4db89954051000bbd05ffd8d8659ba15ed4a8602e937f AS deps
 WORKDIR /app
 
 # Copy only manifest first so Docker can cache `npm ci` across source changes.
@@ -23,7 +23,7 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 
 # ----- Stage 2: runtime image -----
-FROM node:24.20.0-alpine@sha256:e67514e5d0f6c46656005e1b693b2ec9d52e80b641307de684d4a015ba7a4eaf AS runtime
+FROM node:24.22.0-alpine@sha256:44fce696f38ba8c987c4db89954051000bbd05ffd8d8659ba15ed4a8602e937f AS runtime
 
 # Minimal hardening: run as a non-root user and pick up tini for clean
 # signal handling (so SIGTERM from the orchestrator reaches Node, which
