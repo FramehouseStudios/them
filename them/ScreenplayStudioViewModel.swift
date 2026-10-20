@@ -2045,15 +2045,16 @@ final class ScreenplayStudioViewModel: ObservableObject {
         await load()
     }
 
+    @discardableResult
     func restorePendingDraftSaveBeforeProjectHydration(
         expectedGeneration: UInt64? = nil,
         lookup: ((String, String) async throws -> ScreenplayDraftSaveOutboxEntry?)? = nil
-    ) async {
+    ) async -> ScreenplayDraftSaveOutboxEntry? {
         let generation = expectedGeneration ?? projectHydrationGeneration
         let projectID = selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
         let authContext = currentStudioAuthContext()
         let ownerUserID = authContext.userID
-        guard !projectID.isEmpty else { return }
+        guard !projectID.isEmpty else { return nil }
         let pendingEntry: ScreenplayDraftSaveOutboxEntry?
         do {
             if let lookup {
@@ -2062,14 +2063,15 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 pendingEntry = try await draftSaveOutbox.pendingEntry(projectId: projectID, ownerUserId: ownerUserID)
             }
         } catch {
-            return
+            return nil
         }
         guard projectHydrationGeneration == generation,
               authContextIsCurrent(authContext),
               selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines) == projectID,
               let entry = pendingEntry,
               entry.ownerUserId.trimmingCharacters(in: .whitespacesAndNewlines) == ownerUserID,
-              ScreenplayQueuedDraftHydrationPolicy.shouldRestoreBeforeServerHydration(
+              entry.projectId.trimmingCharacters(in: .whitespacesAndNewlines) == projectID else { return nil }
+        guard ScreenplayQueuedDraftHydrationPolicy.shouldRestoreBeforeServerHydration(
                   expectedAuthContext: authContext,
                   currentAuthContext: currentStudioAuthContext(),
                   selectedProjectID: selectedProjectID,
@@ -2079,7 +2081,9 @@ final class ScreenplayStudioViewModel: ObservableObject {
                   isManualEditing: isManualDraftEditing,
                   allowEmptyDraft: entry.allowEmptyDraft ?? false
               ) else {
-            return
+            // Existing dirty text may already be newer than this request.
+            // Keep it, but do not lose the durable unresolved-conflict identity.
+            return entry
         }
 
         let ordinary = localDraftRecoveryStore.dirtyOrdinarySnapshot(ownerUserId: ownerUserID, projectId: projectID)
@@ -2105,6 +2109,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
             baseVersionId: restoredBase,
             dirty: true
         )
+        return entry
     }
 
     func refreshSelectedProjectForDebug() async {
@@ -6230,9 +6235,27 @@ final class ScreenplayStudioViewModel: ObservableObject {
         guard projectHydrationGeneration == generation, project.id == selectedProjectID else { return false }
         // Selection and detail refresh can run independently of load()'s
         // bootstrap. Restore the durable writer copy before either hydrates.
-        await restorePendingDraftSaveBeforeProjectHydration(expectedGeneration: generation)
+        let retained = await restorePendingDraftSaveBeforeProjectHydration(expectedGeneration: generation)
         guard projectHydrationGeneration == generation, authContextIsCurrent(context),
               project.id == selectedProjectID else { return false }
+        if let retained, retained.status == .parked,
+           retained.lastError == ScreenplayDraftSaveOutbox.conflictReason,
+           !isDraftSaveInFlight, !isSaving, conflictState == nil,
+           loadedDraftProjectID == project.id, hasUnsavedDraftChanges,
+           let head = ScreenplayServerChoicePolicy.currentHead(in: project),
+           !head.id.isEmpty, head.id != retained.baseVersionId, let serverDraft = head.draft,
+           !ScreenplayDraftTextIdentity.matches(fountainDraft, serverDraft) {
+            // Cached editor metadata/ordinary recovery can already name this
+            // server head. Only an explicit writer choice resolves the parked
+            // conflict; restore its original base without replacing newer text.
+            await handleDraftSaveConflict(SaveConflictState(projectId: project.id,
+                baseVersionId: retained.baseVersionId, serverVersionId: head.id,
+                serverDraft: serverDraft, serverDraftExcerpt: head.draftExcerpt ?? "",
+                serverUpdatedAt: head.updatedAt ?? head.createdAt ?? 0),
+                ownerUserId: context.userID, expectedContext: context)
+            guard projectHydrationGeneration == generation, authContextIsCurrent(context),
+                  project.id == selectedProjectID else { return false }
+        }
         if let intent = storedProjectCreation, intent.ownerUserId == context.userID,
            intent.projectId == project.id, intent.restoreAsCurrent, intent.seedsLiveDraft,
            ScreenplayDraftTextIdentity.matches(intent.draft, fountainDraft) {

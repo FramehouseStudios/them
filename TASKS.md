@@ -5,6 +5,20 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1034 — Join conflict restoration and complete voice recovery
+
+- **Owner:** codex. **Branch:** `codex/T-1034-joined-conflict-recovery`.
+- **Status:** in-progress; preserving integration, no original PR changes.
+- **Scope:** merge T-1033 `856d7624` into T-1032 `0b3d97b9` without
+  rewriting either history. Retain D017 and the original voice-recovery work.
+- **Done when:** combined signed units, writer/export/relaunch and five
+  save-recovery UI workflows pass on an erased task-owned simulator; macOS,
+  D009 and whitespace checks pass. Stop and fix the first real failure.
+- **Backend:** compare exact bytes with T-1032 before reusing its pinned
+  Node20 evidence; do not relabel an earlier run as newly executed.
+- **Hold:** #962 remains at the already-approved `f5e746c2`, hosted gate red.
+  No original-head advance, child/main merge, paid call or production change.
+
 ### T-1032 — Retrieve and retain complete recovered pages
 
 - **Owner:** codex. **Branch:** `codex/T-1032-recovered-page-retrieval`.
@@ -655,6 +669,32 @@
   pass before merge. Client/runtime logic unchanged; D009 and whitespace pass.
   Manifest/limits:
   `docs/postgres-writer-gate-2026-10-19.md`.
+### T-1033 — Restore the parked conflict decision after relaunch
+
+- **Owner:** codex. **Branch:** `codex/T-1033-conflict-choice-restore`.
+- **Status:** local review; isolated directly from original #962f5e746c2.
+- **Verified boundary:** hosted39367137834 recovery4/1/0 on iOS26.5;
+  local writer marker and parked count1 survive, but conflict project/server
+  version are empty. This is not evidence that writer text disappeared.
+- **Target:** restore the real Keep Mine/Load Server decision from the owned
+  parked conflict plus authoritative project detail, without replacing newer
+  writer text or treating relaunch as permission to save.
+- **Hypothesis:** queued text restoration exits for an already dirty editor;
+  newer ordinary recovery can also carry the server version while the parked
+  conflict still owns its original base. Neither resolves the writer's choice.
+- **Done when:** dirty-first order reproduces before, both orders pass after; exact local
+  text and parked copy survive, no POST precedes choice, and unchanged signed
+  conflict/relaunch/Keep Mine workflow passes. Preserve auth/project guards.
+- **Verified:** before dirty-first nil-conflict assertions fail; fixture-order
+  correction retained explicitly. After: signed full units870/0/0; unchanged
+  recovery5/0/0 against auth-required local backend; Node20.20.2 backend
+  2897/0/2, scripts231/0/0, offline mentor gate OK; D009/diff pass; macOS
+  BUILD SUCCEEDED, native exit0. No live-provider/phone or hosted26.5
+  resolution claim. All completed result bundles cloned/compared privately.
+- **Evidence:** `docs/parked-conflict-choice-restore-2026-10-19.md`.
+- **Hold:** original #962/children/main unchanged; no unchanged hosted retry,
+  paid call, production change or assertion relaxation.
+
 ### T-1027 — Prevent duplicate passive versions after recovery
 
 - **Owner:** codex. **Branch:** `codex/T-1027-recovery-save-dedup`.
