@@ -5,6 +5,23 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1061 — Port exact editor fixes without swallowing separate PRs
+
+- **Owner:** codex. **Branch:** `codex/T-1061-original-editor-echo`.
+- **Status:** in-progress (local preparation only). **Pillar:** exact words.
+- **Boundary:** original #919c80c073 and updated original #9043e96d43
+  retained in preserving mergebcde813. Original remote heads unchanged.
+- **Scope:** provenance ports of c049b15/e86af97 (cb3d54e/c83cc99), not
+  the whole #972 lifecycle rehearsal. Only TASKS conflicted; executable
+  editor/formatter/viewport/UI source matches the tested rehearsal exactly.
+- **Evidence:** T1059's native before5/2/0 and after17/0/0 prove its root
+  correction on the combined rehearsal, not this different client-lifetime
+  boundary. Exact-head focused proof and hosted gates remain required.
+- **Next:** finish T1059 full/recovery proof first, then verify this exact
+  original boundary and normally update the same #919 if proven. No new PR,
+  main merge, paid call, squash, force push or review bypass.
+- **Evidence:** `docs/original-editor-echo-port-2026-10-20.md`.
+
 ### T-1059 — Preserve live screenplay word separators
 
 - **Owner:** codex. **Branch:** `codex/T-1059-live-word-separators`.
@@ -79,16 +96,9 @@
   its updated original head into #919. No main/production/paid-model claim.
 - **Evidence:** `docs/recovered-writer-authority-2026-10-20.md`.
 
-### T-1050 — BackendClient synchronous deallocation compatibility
-
-- **Owner:** codex. **Status:** ready. **Pillar:** reliable iPhone lifecycle.
-- **Observed:** T1049 synchronous model tests crash during BackendClient
-  deallocation on Xcode26.3/iOS26.2, TaskLocal::StopLookupScope invalid free.
-  Swift88036/87316 describe matching runtime behavior. Async test context
-  is not a product-runtime correction.
-- **Next:** reproduce direct client release with a retained stack, choose
-  smallest compatible ownership/deinit correction, verify synchronous and
-  async paths; separate capability branch/PR, no weakened crash assertion.
+The historical T1050 ready checkpoint is superseded by original #972's
+separate proved lifecycle change. This editor port does not import that
+change or treat it as merged; original pre-proof text remains in Git history.
 
 ### T-988 — Preserve original focused-editor recovery
 
