@@ -45,11 +45,12 @@ const USER_PROTECTED_PATTERNS = [
   /^\/visual\/context(?:\/|$)/,
 ];
 
-// Day 1 Backend Exposure Lock: cost-attached or identity-sensitive realtime
-// + visual endpoints must require authenticated identity *regardless* of the global
+// Cost-attached talk, craft, realtime and visual endpoints require verified
+// identity *regardless* of the global
 // REQUIRE_USER_AUTH flag. /realtime/health and /realtime/bridge are
 // intentionally excluded — they are unauth health/proxy surfaces.
 const PAID_PROVIDER_PATTERNS = [
+  /^\/talk\/?$/,
   /^\/craft\/analyze(?:\/|$)/,
   /^\/craft\/logline\/distill(?:\/|$)/,
   /^\/realtime\/client_secret(?:\/|$)/,
@@ -359,12 +360,14 @@ function createUserAuthSubsystem(options = {}) {
   }
 
   function isProtectedRoute(pathname) {
-    const path = String(pathname || "").trim();
+    const path = String(pathname || "").trim().toLowerCase();
     return USER_PROTECTED_PATTERNS.some((pattern) => pattern.test(path));
   }
 
   function isPaidProviderRoute(pathname) {
-    const path = String(pathname || "").trim();
+    // Express's default route matching is case-insensitive. The auth wall
+    // must cover the same paths without changing resource IDs downstream.
+    const path = String(pathname || "").trim().toLowerCase();
     return PAID_PROVIDER_PATTERNS.some((pattern) => pattern.test(path));
   }
 
@@ -387,6 +390,7 @@ function createUserAuthSubsystem(options = {}) {
   // unauthenticated clients.
   function protectPaidProviderRoutes(req, res, next) {
     if (!isPaidProviderRoute(req.path)) return next();
+    res.setHeader("Cache-Control", "no-store");
     if (!authConfigured) return authMisconfigured(res, "auth_user");
     if (req.authUser) return next();
     return res.status(401).json({

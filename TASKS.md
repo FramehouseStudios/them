@@ -5,6 +5,29 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1046 — Close anonymous and case-variant paid-talk access
+
+- **Owner:** codex. **Branch:** `codex/T-1046-paid-talk-auth`.
+- **Status:** review. **Pillar:** verified writer/account/cost isolation.
+- **Base:** original #966 `1e86467c`, preserving #965 wallet isolation.
+- **Root:** /talk was absent from the unconditional paid-route guard;
+  case-sensitive auth matching disagreed with Express routing. Actual local
+  anonymous requests reached HTTP200 and real Page reservations with global
+  auth both off and on (mixed-case path bypass with auth on).
+- **Fix:** canonical paid-route guard covers /talk and trailing slash;
+  both auth matchers lowercase only their comparison path. Reuse existing
+  verified identity, no-store and error envelope; never normalize resource IDs.
+- **Proof:** Node20.20.2, external network off, before6/4/0, focused after30/0/0.
+  Actual JWT/signup/revocation/restart and authenticated offline audio included;
+  not a live-model or physical-phone claim. Corrected full backend2747/0/2.
+- **Failures retained:** first full2624/10/2: nine read-only proof archive
+  persistence failures; one now-unauthenticated shutdown fixture. Corrected
+  disposable storage and signed-in fixture writers; assertions preserved.
+- **Evidence:** `docs/paid-talk-auth-2026-10-20.md`.
+- **Done when:** full backend, D009/diff and scoped adversarial review pass;
+  preserve the change in a scoped draft; parent #966's hosted failure must
+  be diagnosed and fixed before integrating this chain. No main merge.
+
 ### T-1000 — Owner-scoped Page cancellation
 
 - **Owner:** codex. **Branch:** `codex/T-1000-page-cancel-owner`.

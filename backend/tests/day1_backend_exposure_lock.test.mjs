@@ -120,6 +120,8 @@ test("[day1-lock] strip happens regardless of auth configuration (defense in dep
 // --- B. protectUserRoutes gates the cost-attached provider paths -----
 
 const COST_PATHS = [
+  "/talk",
+  "/TaLk/",
   "/craft/analyze",
   "/realtime/call",
   "/realtime/client_secret",
@@ -127,6 +129,7 @@ const COST_PATHS = [
   "/realtime/studio_render",
   "/realtime/studio_render_stream",
   "/visual/context",
+  "/REALTIME/CLIENT_SECRET",
 ];
 const PREEXISTING_PROTECTED = ["/talk", "/state", "/screenplay", "/memories"];
 const PUBLIC_PROBES = ["/realtime/health", "/realtime/bridge"];
