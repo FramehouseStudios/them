@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { isValidPresence, buildPresencePayload, getSamanthaPresence, DEFAULT_PRESENCE } from "../lib/clementine/samantha_presence.js";
+import { isValidPresence, buildPresencePayload, getClementinePresence, DEFAULT_PRESENCE } from "../lib/clementine/clementine_presence.js";
 
-describe("samantha_presence alias", () => {
+describe("Clementine presence", () => {
   it("normalize/valid", () => {
     assert.equal(isValidPresence("present"), true);
     assert.equal(isValidPresence("bogus"), false);
@@ -12,7 +12,7 @@ describe("samantha_presence alias", () => {
     const p = buildPresencePayload({ presence: "present", characterContexts: [{ name: "John", voice: "v", memory: [1,2] }] });
     assert.equal(p.presence, "present");
     assert.equal(p.isPresent, true);
-    const g = getSamanthaPresence({ samanthaPresence: { state: "present", history: ["idle","present"] } });
+    const g = getClementinePresence({ samanthaPresence: { state: "present", history: ["idle","present"] } });
     assert.deepEqual(g.history, ["idle","present"]);
   });
 });
