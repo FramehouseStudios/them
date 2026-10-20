@@ -8,7 +8,8 @@
 ### T-1076 — Keep delayed draft work from retiring newer writer words
 
 - **Owner:** codex. **Branch:** `codex/T-1076-editor-queue-consistency`.
-- **Status:** in-progress. **Pillar:** exact writer text and recovery.
+- **Status:** review (local proof passed; hosted causal proof remains open).
+  **Pillar:** exact writer text and recovery.
 - **Boundary:** preserve original #919a6262b83. Hosted39499208254 passed
   units681/0/0 and V1 UI32/0/9, then failed recovery1/1/0 before conflict
   setup. Snapshot has one queued save but original clean page; queue bytes
@@ -20,10 +21,13 @@
 - **Done when:** failing-first model proof, focused signed recovery tests
   and unchanged authenticated recovery UI pass; retain red evidence. Broader
   integration and fresh exact-head hosted proof required before propagation.
-- **Verified:** real observer before0/1/0; after focused31/0/0 and unchanged
-  authenticated recovery2/0/0. Full signed units pending. Five D009 deltas0;
-  diff pass. Hosted causal attribution is still unproven. Separate #964's
+- **Verified:** real observer before0/1/0; after focused31/0/0, unchanged
+  authenticated recovery2/0/0, full signed units682/0/0, writer1/0/0,
+  synthetic voice1/0/0, macOS build0. Node20 full backend2753/0/2;
+  five D009 deltas0/diff pass. Hosted causal attribution is still unproven. Separate #964's
   new Save Now hosted failure is retained and blocks that approved PR.
+- **Evidence:** `docs/draft-observer-authority-2026-10-20.md`. No repeated
+  unchanged app run, new paid call or original-child propagation.
 - **Limits:** no paid calls, main/production changes or child propagation.
 
 ### T-1072 — Retain conflict words, not just active retries
