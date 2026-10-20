@@ -5,6 +5,28 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1075 — Do not repeat full gates for unchanged draft readiness
+
+- **Owner:** codex. **Branch:** `codex/T-1075-ci-ready-dedup`.
+- **Status:** review (static proof passed; platform readiness observation pending).
+  **Pillar:** safer, faster verified integration.
+- **Evidence:** #909d3b6027e has successful quality runs39400830397 and
+  39491129919 on the same head. Second starts20:20:28Z, four seconds after
+  its ready_for_review event. Run metadata no longer exposes base SHAs;
+  do not claim exact virtual merge-tree equality from these records.
+- **Fix:** remove only ready_for_review from quality-gate's event list;
+  retain opened/synchronize/reopened, all draft execution, main pushes,
+  job bodies, manual entry, strict checks/review/admin protections.
+- **Proof:** fast focused contract checks and byte-equal job definitions;
+  no new simulator/provider run. Fresh hosted checks and review remain
+  required on the updated original #964; actual ready-state non-duplication
+  must be observed before claiming platform behavior verified.
+- **Verified:** pinned Node20.20.2 checks6/0/0; independent byte comparison
+  proves the only workflow change is the readiness trigger and explanatory
+  comment. All jobs, steps, permissions and timeouts unchanged. No runtime
+  or dependency source change from tested save-fix parentfeb5f372.
+- **Reference:** `docs/ci-ready-dedup-2026-10-20.md`.
+
 ### T-1077 — Run explicit saves waiting behind a background drain
 
 - **Owner:** codex. **Branch:** `codex/T-1077-save-drain-handoff`.
