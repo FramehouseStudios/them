@@ -8,7 +8,7 @@
 ### T-1036 — Capture exact original draft identity for recovery
 
 - **Owner:** codex. **Branch:** `codex/T-1036-recovery-draft-identity`.
-- **Status:** in-progress; signed focused proof complete, macOS pending.
+- **Status:** review; exact identity retention locally proven, apply still open.
 - **Root:** original request context kept revision/excerpt but neither detects
   unsaved byte changes. A recovered result cannot safely edit from those alone.
 - **Fix:** capture local SHA256/UTF8 length/UTF16 length at both original page
@@ -19,6 +19,9 @@
 - **Verified:** signed27/0/0 on erased owned Pro26.2; pinned Node20.20.2
   relevant Swift-source contracts12/0/0, network disabled. D009 memory facade
   -114 lines, other protected deltas0; extraction equality/diff checks pass.
+  Final macOS BUILD SUCCEEDED, native exit0; runtime stayed frozen. Actual
+  signed summary read, completed bundle cloned/compared privately.
+- **Evidence:** `docs/recovery-draft-identity-2026-10-19.md`.
 - **Not done:** actual recovered-page preview/apply/save UI. No fake Apply
   button, older-record identity guessing or automatic page mutation.
 - **Next:** reject unresolved/stale line-range replacement before wiring
