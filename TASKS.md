@@ -5,6 +5,29 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1027 — Prevent duplicate passive versions after recovery
+
+- **Owner:** codex. **Branch:** `codex/T-1027-recovery-save-dedup`.
+- **Status:** review; preserve original #962 at527c58d6, hosted red.
+- **Root:** hosted39357764973 recovery4/1/0 recorded a manual version and
+  an autosave with different request IDs but byte-identical100-byte drafts.
+  Dispatch did not reject already acknowledged exact text under a new ID;
+  snapshots do not establish the exact enqueue/debounce interleaving.
+- **Fix:** recognize only note-free passive autosaves at the acknowledged
+  exact draft/version, removing only that request durably. Explicit snapshots,
+  conflict choices, notes, byte changes and other retained copies survive.
+- **Done when:** signed focused authority suite and unchanged failed recovery
+  workflow prove one server version; D009/diff pass; save scoped history.
+- **Verification:** initial new-test compilation failed on immutable fixture
+  fields; next run7/1/0 exposed snapshot-reload interference in the combined
+  fixture. Corrected signed authority suite8/0/0; unchanged five-case app
+  recovery5/0/0 against authenticated loopback backend. D009 all deltas0,
+  diff pass, actual summaries read; no model calls. Full suite not repeated.
+- **Evidence:** `docs/recovery-save-dedup-2026-10-19.md`.
+- **Hold:** no new original-head update, #963 advance, main merge, paid model
+  request or production change from this task. Obtain fresh exact authority
+  and required proof before another original #962 update.
+
 ### T-1018 — Correct the fresh-server-choice gate without discarding recovery copies
 
 - **Owner:** codex. **Branch:** `codex/T-1018-conflict-relaunch-diagnosis`.

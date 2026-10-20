@@ -6868,6 +6868,15 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 throw URLError(.notConnectedToInternet)
             }
 #endif
+            if loadedDraftProjectID == request.projectId,
+               ScreenplayDraftSaveCoalescingPolicy.isSatisfiedAutosave(draft: request.draft,
+                   source: request.source, notes: request.notes, baseVersion: request.baseVersionId,
+                   confirmedDraft: lastRevisionBaseDraft, confirmedVersion: latestVersionID) {
+                let acknowledged = try await draftSaveOutbox.markSatisfiedAutosave(id: request.id,
+                    projectId: request.projectId, ownerUserId: request.ownerUserId,
+                    confirmedDraft: lastRevisionBaseDraft, confirmedVersion: latestVersionID)
+                return acknowledged && draftSaveAuthorityIsCurrent(request)
+            }
             switch try await emptyBaseDraftSavePreflight(for: request) {
             case .notRequired, .versionlessProject:
                 break
