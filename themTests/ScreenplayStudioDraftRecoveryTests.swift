@@ -2,6 +2,67 @@ import XCTest
 @testable import them
 
 final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
+    @MainActor
+    func testBridgeVersionHintCannotRetireRestoredWriterTextBeforeCompetingHydration() async throws {
+        // Reuse 0c1afb1's actual-model authority regression at this earlier
+        // boundary, without importing the later retention/product stack.
+        let projectID = "project-restored-authority"
+        let owner = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""
+        let writerDraft = "INT. ROOM - NIGHT\n\nThe writer's exact recovered words."
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store)
+        model.autosaveEnabled = false
+        model.selectedProjectID = projectID
+        model.applyStructuralUITestDraft("Earlier saved page", versionID: "server-v1")
+        store.save(ownerUserId: owner, projectId: projectID, draft: writerDraft,
+                   baseVersionId: "server-v1", dirty: true, savedAt: 100)
+        model.recoveryCandidate = .init(projectId: projectID, draft: writerDraft,
+            baseVersionId: "server-v1", savedAt: 100, isPreservedConflict: false)
+        model.restoreDraftFromRecovery()
+        XCTAssertEqual(model.fountainDraft, writerDraft)
+        XCTAssertTrue(model.hasUnsavedDraftChanges)
+        XCTAssertTrue(model.isManualDraftEditing, "The writer's recovery choice must retain manual-edit authority.")
+
+        XCTAssertFalse(model.adoptSavedPageWriteVersionIfNeeded(projectID: projectID,
+            versionID: "collaborator-version", committedDraft: writerDraft),
+            "A preferred-version hint is not a receipt for restored writer words.")
+        XCTAssertEqual(model.latestVersionID, "server-v1")
+        XCTAssertTrue(model.hasUnsavedDraftChanges)
+        XCTAssertEqual(store.payloads(ownerUserId: owner)[projectID]?["baseVersionId"] as? String, "server-v1")
+
+        let data = try JSONSerialization.data(withJSONObject: ["id": projectID, "title": "Script",
+            "activeVersionId": "collaborator-version", "versions": [["id": "collaborator-version",
+                "draft": "Other device words", "updatedAt": 300]]])
+        model.hydrateDraft(from: try JSONDecoder().decode(BackendScreenplayProjectSummary.self, from: data))
+        XCTAssertEqual(model.fountainDraft, writerDraft)
+        XCTAssertEqual(model.conflictState?.serverVersionId, "collaborator-version")
+        XCTAssertTrue(model.hasUnsavedDraftChanges)
+    }
+
+    @MainActor
+    func testBridgeVersionHintRequiresUncontestedGeneratedPage() async {
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store)
+        model.autosaveEnabled = false
+        model.selectedProjectID = "project-page-ack"
+        model.applyStructuralUITestDraft("Earlier saved page", versionID: "base")
+        model.fountainDraft = "Generated page"
+        model.hasUnsavedDraftChanges = true
+        XCTAssertTrue(model.adoptSavedPageWriteVersionIfNeeded(projectID: "project-page-ack",
+            versionID: "confirmed-page", committedDraft: "Generated page"))
+        XCTAssertEqual(model.latestVersionID, "confirmed-page")
+        XCTAssertFalse(model.hasUnsavedDraftChanges)
+
+        let conflict = ScreenplayStudioViewModel.SaveConflictState(projectId: "project-page-ack",
+            baseVersionId: "confirmed-page", serverVersionId: "other-device",
+            serverDraft: "Other device words", serverDraftExcerpt: "Other device words", serverUpdatedAt: 300)
+        model.conflictState = conflict
+        model.hasUnsavedDraftChanges = true
+        XCTAssertFalse(model.adoptSavedPageWriteVersionIfNeeded(projectID: "project-page-ack",
+            versionID: "late-hint", committedDraft: "Generated page"))
+        XCTAssertEqual(model.latestVersionID, "confirmed-page")
+        XCTAssertEqual(model.conflictState, conflict)
+        XCTAssertTrue(model.hasUnsavedDraftChanges)
+    }
+
     func test_queuedDraftHydratesBeforeServerAndOnlyForItsOwnCleanProject() {
         let auth = ScreenplayStudioAuthContext(userID: "user-recovery", sessionIntentGeneration: 7)
         XCTAssertTrue(ScreenplayQueuedDraftHydrationPolicy.shouldRestoreBeforeServerHydration(
