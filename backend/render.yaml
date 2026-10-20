@@ -21,6 +21,8 @@ services:
     # the explicitly confirmed first empty production database.
     preDeployCommand: node /app/ops/render_predeploy.mjs
     healthCheckPath: /healthz
+    domains:
+      - api.them.io
     autoDeploy: false  # require explicit promotion; CI runs the quality gate
     # V1 auth writes serialize in-process; horizontal scale is not safe yet.
     numInstances: 1

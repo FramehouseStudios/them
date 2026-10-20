@@ -180,4 +180,9 @@ the new backend.
 For the production custom domain, `https://api.them.io/healthz` must return
 the JSON readiness envelope directly. A redirect to a parked them.io page or
 Render `x-render-routing: no-server` means DNS/custom-domain attachment still
-needs operator work before TestFlight or desktop release.
+needs operator work before TestFlight or desktop release. The Render blueprint
+declares `api.them.io` on `them-backend`; after syncing that configuration, set
+the DNS record to the exact target Render displays for the domain. Do not use a
+parked-domain target or guess a Render IP/CNAME. Until the custom domain passes
+this gate, use the verified `https://them-backend.onrender.com` host for the
+release build.
