@@ -5,6 +5,26 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1060 — Reuse the proven inspector reveal owner on original #904
+
+- **Owner:** codex. **Branch:** `codex/T-1060-inspector-reveal-owner`.
+- **Status:** review. **Pillar:** real reachable writer controls.
+- **Verified red:** original #90404a993f, hosted39427452552 fails To Page
+  full visibility. Combined signed rehearsal955e7f0 reproduces that exact
+  failure (V1 UI29/2/9); its separate text-loss failure remains T1059.
+- **Fix:** copy original #625d493c515 canonical bounded/viewport-aware
+  reveal owner, including minimum pan and all three wrappers. Reuse original
+  d82b3757 inline clear-confirmation reveals. No app/auth/billing change,
+  repeated tap, new timeout or weakened expected side effect.
+- **Done when:** signed full units plus callback/all-six-tab/pinned-header
+  UI pass on the erased owned narrow SE; D009/diff; preserve/advance same
+  original #904 with fresh hosted gates/review, no replacement or main merge.
+- **Evidence:** `docs/inspector-reveal-owner-2026-10-20.md`.
+- **Verified:** signed erased owned SE/iOS26.2 full units634/0/0 +
+  callback/six-panel/pinned UI3/0/0, total637/0/0, native0. D009 Studio-4,
+  other deltas0, diff clean. Test-only change; fresh hosted/review still
+  required. Normally advance original #904; no main merge or data claim.
+
 ### T-1054 — Keep original #904 inspector navigation reachable
 
 - **Owner:** codex. **Branch:** `codex/T-1054-parent-inspector-navigation`.
