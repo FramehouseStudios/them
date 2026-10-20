@@ -38,9 +38,11 @@ const SYMPATHY_OPENER = new RegExp(
 );
 
 function splitFirstSentence(text) {
-  const m = /^(.*?[.!?:])(\s+|$)/s.exec(text);
+  // Same-length canonical masking keeps dialogue punctuation from truncating
+  // a verdict before its outside-the-quote reason. Unclosed quotes stay whole.
+  const m = /^(.*?[.!?:])(\s+|$)/s.exec(maskQuotedSpeech(text));
   if (!m) return null;
-  const first = m[1].trim();
+  const first = text.slice(0, m[1].length).trim();
   const rest = text.slice(m[0].length).trim();
   return { first, rest };
 }

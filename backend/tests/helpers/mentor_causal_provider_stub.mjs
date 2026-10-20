@@ -2,12 +2,14 @@
 // reply shaper, TTS request and project persistence remain production code.
 import fs from "node:fs";
 const audio = fs.readFileSync(new URL("../../response.mp3", import.meta.url));
-const reply = "The setup is strong because John's lie forces the chase. Make John choose before midnight. Who gets the key?";
+const quotedLine = '"Do not leave. Stay here."';
+const reply = `I love this line ${quotedLine} because John's lie forces the chase. Make John choose before midnight. Who gets the key?`;
 globalThis.fetch = async (input, init) => {
   const url = String(input?.url || input);
   if (url === "https://api.openai.com/v1/audio/speech") {
     const body = JSON.parse(init?.body || "{}");
     console.log("[mentor-test] tts_causal_advice=" + String(body.input || "").includes("because John's lie forces the chase"));
+    console.log("[mentor-test] tts_complete_quoted_dialogue=" + String(body.input || "").includes(quotedLine));
     return new Response(audio, { headers: { "content-type": "audio/mpeg" } });
   }
   if (["https://api.openai.com/v1/chat/completions", "https://api.openai.com/v1/responses"].includes(url)) {

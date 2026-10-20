@@ -18,6 +18,13 @@
   checks pass without paid calls; investigate any real shaping failure.
 - **Hold:** original #962 hosted39367137834 still running; original #963,
   original #653 and main unchanged. No production or live-model claim.
+- **Root reproduced:** quoted multi-sentence dialogue is truncated by the
+  opener's raw punctuation splitter before an external because reason.
+  Pinned Node20 before4/3/0, including authenticated /talk reply failure.
+- **Fix:** reuse canonical same-length quote masking for opener boundaries;
+  preserve original text indices and unfinished quotes. Focused shape/
+  persona/authenticated TTS+unchanged-page checks30/0/0. Full backend pending.
+- **Evidence:** `docs/mentor-repaired-save-parent-2026-10-19.md`.
 
 ### T-1012 — Preserve the mentor because contract on the current database parent
 

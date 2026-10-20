@@ -49,10 +49,12 @@ test("real mentor response keeps its reason through speech without changing the 
     assert.equal(result.status, 200);
     assert.notEqual(result.headers.get("x-turn-status"), "error_recovered");
     assert.ok(decodeURIComponent(result.headers.get("x-reply") || "").includes("because John's lie forces the chase"));
+    assert.ok(decodeURIComponent(result.headers.get("x-reply") || "").includes('"Do not leave. Stay here."'));
     const trace = server.stdout.join("");
     assert.ok(trace.includes("[mentor-test] mentor_contract=true"));
     assert.ok(trace.includes("[mentor-test] because_contract=true"));
     assert.ok(trace.includes("[mentor-test] tts_causal_advice=true"));
+    assert.ok(trace.includes("[mentor-test] tts_complete_quoted_dialogue=true"));
     const after = await apiRequest(server, `/screenplay/projects/${id}?include_drafts=1`, { headers });
     assert.deepEqual(after.json.project, before.json.project);
   } finally {
