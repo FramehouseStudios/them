@@ -8,16 +8,19 @@
 ### T-1070 — Carry corrected recovery/export parent into original editor
 
 - **Owner:** codex. **Branch:** `codex/T-1070-editor-parent-sync`.
-- **Status:** in-progress. **Pillar:** integrated exact words and recovery.
+- **Status:** review (combined local proof passed). **Pillar:** integrated exact words and recovery.
 - **Boundary:** original #919fd2fe9cc plus original #904d36d4e64, no-ff
   preserving both histories. Only TASKS conflicts; keep both task histories.
 - **Target:** child retains its viewport/manual-edit behavior and the exact
   queued-hydration, unreadable-queue and inline export owners from parent.
-- **Proof:** fresh signed full units/exact typing/chooser, authenticated
-  writer and recovery, Node20 backend, macOS/D009/diff at the combined tree.
+- **Proof:** mergedcfc25d0c; signed units664/0/0 plus both exact typing UI
+  and chooser3/0/0; authenticated writer1/0/0 and recovery2/0/0; fresh
+  Node20 backend2753/0/2; macOS compile0, real-parent D009 all deltas0/diff.
 - **Limits:** parent hosted run39481024773 remains in progress; original
   security child #973fc759311 failed expired-auth recovery after667 units
-  and V1 UI31/0/9. Retain that red; not cleared by a plausible parent port.
+  and V1 UI31/0/9. Retain that red; local combined child proof does not
+  replace fresh security-child or hosted proof. Native Files export is
+  incomplete; preserve/reconcile original #590 rather than a new exporter.
 - **Evidence:** `docs/editor-recovery-export-integration-2026-10-20.md`.
 
 ### T-1063 — Preserve the corrected parent in original #919
