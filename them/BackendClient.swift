@@ -2426,6 +2426,11 @@ final class BackendClient {
         self.shouldAttachUserIDHeader = attachUserIDHeader
     }
 
+    // Explicit ARC-only teardown avoids the synthesized isolated-deinit
+    // runtime crash on our iOS 26.2 floor (swiftlang/swift#88036).
+    // Do not invalidate the caller's/shared URLSession here.
+    nonisolated deinit {}
+
     func health() async throws -> Bool {
         if await isHealthy(baseURL) {
             persistSharedBackendBaseURL(baseURL)
