@@ -5,6 +5,29 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1040 — Refresh original database gate on its green save parent
+
+- **Owner:** codex. **Branch:** `codex/T-1040-postgres-boundary-refresh`.
+- **Status:** review; local preserving integration and database proof complete.
+- **Scope:** original #963 plus proven T991 cleanup/T1028 history, merged
+  with exact #962856d7624 after hosted39383769697 completed all three
+  required jobs successfully. Keep both task histories and original heads.
+- **Done when:** client/runtime identity to the green parent, focused gate
+  safety, frozen pinned backend/scripts, actual owned PostgreSQL restart,
+  D009/diff/ancestry checks pass; then append the original child normally
+  only within granted authority and require fresh hosted checks/review.
+- **Hold:** #963 remains7459a8fa, #962 remains856d7624, main deac1a6d.
+  No production or paid calls. The newer writer candidate remains preserved
+  separately at T1039/#970; this tooling boundary must not replace it.
+- **Verified on frozen5f0042e3:** actual Node20.20.2/PostgreSQL16.15
+  restart PASS,12 migrations/422201 bytes; pinned backend2907/0/2, focused
+  safety10/0/0. Initial dependency-mount harness failed, stopped exact owned
+  container; corrected full backend passed. Scripts227/4/0 then affected
+  file13/0/0 after diagnosing noexec tmpfs EACCES; offline mentor gate OK.
+  Runtime/client exactly matches green #962 (hosted signed870/0), no new
+  unchanged client run. D009 all deltas0; diff clean. No original push yet.
+- **Evidence:** `docs/postgres-green-parent-2026-10-20.md`.
+
 ### T-1028 — Prepare the original database gate on the repaired save parent
 
 - **Owner:** codex. **Branch:** `codex/T-1028-postgres-parent-refresh`.
@@ -92,6 +115,32 @@
   pass before merge. Client/runtime logic unchanged; D009 and whitespace pass.
   Manifest/limits:
   `docs/postgres-writer-gate-2026-10-19.md`.
+### T-1033 — Restore the parked conflict decision after relaunch
+
+- **Owner:** codex. **Branch:** `codex/T-1033-conflict-choice-restore`.
+- **Status:** local review; isolated directly from original #962f5e746c2.
+- **Verified boundary:** hosted39367137834 recovery4/1/0 on iOS26.5;
+  local writer marker and parked count1 survive, but conflict project/server
+  version are empty. This is not evidence that writer text disappeared.
+- **Target:** restore the real Keep Mine/Load Server decision from the owned
+  parked conflict plus authoritative project detail, without replacing newer
+  writer text or treating relaunch as permission to save.
+- **Hypothesis:** queued text restoration exits for an already dirty editor;
+  newer ordinary recovery can also carry the server version while the parked
+  conflict still owns its original base. Neither resolves the writer's choice.
+- **Done when:** dirty-first order reproduces before, both orders pass after; exact local
+  text and parked copy survive, no POST precedes choice, and unchanged signed
+  conflict/relaunch/Keep Mine workflow passes. Preserve auth/project guards.
+- **Verified:** before dirty-first nil-conflict assertions fail; fixture-order
+  correction retained explicitly. After: signed full units870/0/0; unchanged
+  recovery5/0/0 against auth-required local backend; Node20.20.2 backend
+  2897/0/2, scripts231/0/0, offline mentor gate OK; D009/diff pass; macOS
+  BUILD SUCCEEDED, native exit0. No live-provider/phone or hosted26.5
+  resolution claim. All completed result bundles cloned/compared privately.
+- **Evidence:** `docs/parked-conflict-choice-restore-2026-10-19.md`.
+- **Hold:** original #962/children/main unchanged; no unchanged hosted retry,
+  paid call, production change or assertion relaxation.
+
 ### T-1027 — Prevent duplicate passive versions after recovery
 
 - **Owner:** codex. **Branch:** `codex/T-1027-recovery-save-dedup`.

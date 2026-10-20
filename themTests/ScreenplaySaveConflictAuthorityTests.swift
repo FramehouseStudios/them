@@ -4,6 +4,55 @@ import ScreenplayStudio
 
 final class ScreenplaySaveConflictAuthorityTests: XCTestCase {
     @MainActor
+    func testParkedConflictRestoresChoiceWhenLocalTextOrNewerRecoveryAlreadyHasServerVersion() async throws {
+        for textRestoredFirst in [false, true] {
+            let fixture = try Fixture()
+            defer { fixture.cleanup() }
+            let transport = SaveAuthorityTransport(delayed: false)
+            let raw = "  INT. ROOM - NIGHT\r\n\ncafe\u{0301} — keep these newer local words.\t "
+            let entry = ScreenplayDraftSaveOutboxEntry(id: "retained-conflict", projectId: "project",
+                ownerUserId: fixture.owner, draft: "Earlier retained local words", title: "Script", phase: "draft",
+                notes: "", source: "studio_manual", studioWriteAnchors: [], screenplayBindings: [],
+                baseVersionId: "writer-base-v1", createdAt: 1, updatedAt: 2, status: .parked,
+                retries: 1, nextAttemptAt: 0, lastError: ScreenplayDraftSaveOutbox.conflictReason)
+            try await fixture.queue.enqueue(entry)
+            let project = try JSONDecoder().decode(BackendScreenplayProjectSummary.self,
+                from: JSONSerialization.data(withJSONObject: ["id": "project", "title": "Script",
+                    "activeVersionId": "server-v2", "versions": [["id": "server-v2",
+                        "draft": "Collaborator text", "updatedAt": 200]]]))
+            let restoredQueue = ScreenplayDraftSaveOutbox(storageDirectory: fixture.directory)
+            let model = ScreenplayStudioViewModel(localDraftRecoveryStore: fixture.recovery,
+                draftSaveOutbox: restoredQueue, draftSaveAPI: transport.api(), connectsToLiveWorkspace: false)
+            model.autosaveEnabled = false
+            model.selectedProjectID = "project"
+            model.selectedProject = project
+            model.applyStructuralUITestDraft("Collaborator text", versionID: "server-v2")
+            if textRestoredFirst {
+                model.fountainDraft = raw
+                model.noteManualDraftEdit()
+            }
+            // The structural fixture clears ordinary recovery. Install the
+            // persisted newer text after that setup, not before it.
+            fixture.recovery.save(ownerUserId: fixture.owner, projectId: "project", draft: raw,
+                baseVersionId: "server-v2", dirty: true, savedAt: 100)
+            let hydrated = await model.hydrateDraftRestoringQueuedSaves(from: project)
+            XCTAssertTrue(hydrated)
+            XCTAssertEqual(Array(model.fountainDraft.utf8), Array(raw.utf8), "Never replace newer writer text with the queued draft or server text.")
+            XCTAssertEqual(model.conflictState?.projectId, "project")
+            XCTAssertEqual(model.conflictState?.baseVersionId, "writer-base-v1")
+            XCTAssertEqual(model.conflictState?.serverVersionId, "server-v2")
+            XCTAssertTrue(model.hasUnsavedDraftChanges)
+            await model.resumeQueuedDraftSavesIfNeeded(force: true)
+            XCTAssertEqual(transport.postCount, 0, "Relaunch is not the writer's Keep Mine choice.")
+            let retained = try await ScreenplayDraftSaveOutbox(storageDirectory: fixture.directory).entriesForTesting()
+            XCTAssertEqual(retained.count, 1)
+            XCTAssertEqual(retained.first?.draft, entry.draft)
+            XCTAssertEqual(retained.first?.baseVersionId, "writer-base-v1")
+            XCTAssertEqual(retained.first?.status, .parked)
+        }
+    }
+
+    @MainActor
     func testRecoveredManualSaveDoesNotCreateAnIdenticalAutosaveVersion() async throws {
         let fixture = try Fixture()
         defer { fixture.cleanup() }
