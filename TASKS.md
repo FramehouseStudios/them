@@ -8,7 +8,7 @@
 ### T-988 — Preserve original focused-editor recovery
 
 - **Owner:** codex. **Branch:** `codex/T-988-editor-recovery-integration`.
-- **Status:** in-progress. **Pillar:** exact writer text while typing.
+- **Status:** review. **Pillar:** exact writer text while typing.
 - **Target:** investigate T-986's real direct-typing failure without relaxing
   assertions; preserve original #919 rather than duplicate its existing fix.
 - **History:** normal merge `7b0d189` retains T-986 `dc64849` and original
@@ -24,6 +24,12 @@
   Full combined signed units635/0/0; Node20 scripts224/0/0, backend2749/0/2;
   macOS build passes; full V1 UI28/0/9, authenticated recovery2/0/0,
   writer1/0/0, voice-fault1/0/0 pass. No whole-app completion claim.
+- **Publication (2026-10-20):** merged updated original #904 parent with
+  history preserved and executable source unchanged. Fresh signed real
+  coordinator regressions3/0/0 on the erased owned iOS26.2 simulator;
+  D009 passes against actual #904 (bridge -22, all others0). Advance this
+  same original #919 by normal fast-forward; fresh hosted checks/review
+  remain required. Full-suite counts above are retained historical proof.
 
 ### T-986 — Preserve and verify original #904 recovery
 

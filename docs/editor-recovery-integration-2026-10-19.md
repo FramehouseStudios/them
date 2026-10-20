@@ -109,3 +109,38 @@ in comment6274956110 (audit0; backend2740/0/2), not merged or deployed.
 Production microphone/model, physical phone, shipping backend, external-open
 export and generated120-page screenplay remain unproven. No provider call,
 credential/DNS change or production deployment was made.
+
+## Original-PR publication — 2026-10-20
+
+VERIFIED: preserving merge `61096b5f` brings updated original #904
+`2a10365f` into this child. Original #919 `fc7a5571` and every original
+parent commit remain ancestors. Executable source is identical to tested
+`bfbd5af`; no new app behavior was introduced by this publication merge.
+Advance this same original #919 normally, retain its #904 base and draft
+status, and require fresh exact-head hosted checks plus independent review.
+No replacement PR, squash, force push, main merge or production deployment.
+
+Fresh signed focused proof on the erased task-owned simulator
+`11CF5EFB-D8C3-4F19-8062-28AF37F27D93`, iOS26.2/23C54: real coordinator
+integration tests3 passed / 0 failed / 0 skipped, Xcode exit0. Actual bundle:
+`/tmp/them-1045-editor-binding/v1-ui-smoke-local-1-36103.xcresult`;
+log `/tmp/them-1045-editor-binding.log`. An initial summary-read command
+used a nonexistent bundle path (exit64); reading the discovered actual
+bundle above confirms the counts and device. That inspection error was
+not a test execution failure. Existing PrintScreenplayIntent and
+ElevenLabsTtsClient Swift6/deprecation warnings remain; not fixed here.
+
+Re-read retained actual before/after bundles: coordinator before1/2/0,
+after3/0/0; full units635/0/0; full V1 UI28/0/9; recovery2/0/0. Re-read
+historical Node20.20.2 log: scripts224/0/0 and backend2749/0/2. These broad
+counts are historical proof of unchanged executable source, not fresh
+runs today. D009 freshly passes against the actual updated #904 base:
+bridge -22, all four other watched files0. Whitespace clean.
+
+Adversarial review: historical snapshot is independent of the live Binding;
+same-document unchanged echoes preserve focused text; genuinely changed
+model values remain applicable; explicit project switches and unfocused
+updates retain the original canonical policy. This proves the reproduced
+fresh-rewrite Binding defect, not that every earlier intermittent keyboard
+failure has the same cause. Hosted iOS26.5, real physical microphone/model,
+production readiness and the complete customer journey remain unproven.
