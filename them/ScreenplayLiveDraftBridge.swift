@@ -9403,10 +9403,9 @@ struct MacCursorInsertTextEditor: NSViewRepresentable {
                 ? .parenthetical
                 : currentElement
 
-            return FountainFormatter.normalizeEditorLine(
-                trimmed,
-                as: effectiveElement,
-                existingDraft: parent.text
+            return FountainFormatter.normalizeLiveEditorLine(
+                lineText,
+                as: effectiveElement
             )
         }
 
@@ -11759,10 +11758,9 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
                 ? .parenthetical
                 : currentElement
 
-            return FountainFormatter.normalizeEditorLine(
-                trimmed,
-                as: effectiveElement,
-                existingDraft: parent.text
+            return FountainFormatter.normalizeLiveEditorLine(
+                lineText,
+                as: effectiveElement
             )
         }
 
