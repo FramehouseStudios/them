@@ -5,6 +5,26 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1055 — Preserve the actual writer-loop failure evidence
+
+- **Owner:** codex. **Branch:** `codex/T-1055-writer-failure-artifacts`.
+- **Status:** review. **Pillar:** trustworthy end-to-end writing.
+- **Verified:** original #972 `53b4d6d`, run39421358172, fails at the real
+  Markdown-export button hit point. Downloaded artifact includes units only;
+  the canonical writer harness deletes its own result bundle in `finally`,
+  even after UI failure. Do not infer an app export fix from stdout alone.
+- **Fix:** retain uniquely named native bundles under the existing V1
+  artifact directory/upload glob, still remove the temporary port config
+  and stop the owned backend. Do not retry or weaken the writer assertions.
+- **Done when:** path/uniqueness/summary tests, syntax and D009/diff pass;
+  actual local writer run retains its readable bundle; original #972 history
+  preserved and fresh hosted proof requested. No main/production change.
+- **Evidence:** `docs/writer-failure-artifacts-2026-10-20.md`.
+- **Verified:** Node20 focused10/0/0, backend2743/0/2; actual signed erased
+  SE writer1/0/0 with readable native bundle retained after successful
+  cleanup, port config removed and owned backend stopped. D009 all deltas0,
+  syntax/diff pass. Hosted export error remains unproven; no paid calls.
+
 ### T-1050 — BackendClient synchronous deallocation compatibility
 
 - **Owner:** codex. **Branch:** `codex/T-1050-client-deinit-compatibility`.
