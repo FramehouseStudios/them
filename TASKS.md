@@ -5,6 +5,26 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1067 — Restore queued writer authority at every parent hydration entry
+
+- **Owner:** codex. **Branch:** `codex/T-1067-parent-queued-hydration`.
+- **Status:** review. **Pillar:** dependable offline writing/recovery.
+- **Boundary:** original #90410167e3, preserve every commit and original base.
+  Hosted39461247037: units652/0/0, V1 UI30/0/9, recovery1/1/0.
+  The failed auth/conflict case shows collaborator text, clean state, queue0.
+- **Fix target:** reuse original #928's single guarded queued-hydration owner
+  on both independent detail/outline entry points; #925's injection seam
+  only as needed to prove actual-model behavior. Preserve later durable
+  conflict/parked-copy semantics rather than importing their whole PRs.
+- **Binary proof:** actual queued model red before restoration, unchanged
+  assertion green after; signed units plus authenticated native recovery,
+  actual-base D009/diff. No paid model, production or main change.
+- **Evidence:** `docs/parent-queued-hydration-2026-10-20.md`.
+- **Verified:** actual-model before0/1/0, after signed units653/0/0,
+  authenticated recovery2/0/0 and writer/export/relaunch1/0/0; macOS0,
+  actual-base D009/diff pass. Backend unchanged; prior Node20 proof reused
+  explicitly. Update original #904 normally; fresh hosted/review required.
+
 ### T-1064 — Preserve unresolved writer choice at the original parent
 
 - **Owner:** codex. **Branch:** `codex/T-1064-conflict-choice-parent`.
