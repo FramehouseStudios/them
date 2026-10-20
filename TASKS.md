@@ -5,6 +5,116 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1040 — Refresh original database gate on its green save parent
+
+- **Owner:** codex. **Branch:** `codex/T-1040-postgres-boundary-refresh`.
+- **Status:** review; local preserving integration and database proof complete.
+- **Scope:** original #963 plus proven T991 cleanup/T1028 history, merged
+  with exact #962856d7624 after hosted39383769697 completed all three
+  required jobs successfully. Keep both task histories and original heads.
+- **Done when:** client/runtime identity to the green parent, focused gate
+  safety, frozen pinned backend/scripts, actual owned PostgreSQL restart,
+  D009/diff/ancestry checks pass; then append the original child normally
+  only within granted authority and require fresh hosted checks/review.
+- **Hold:** #963 remains7459a8fa, #962 remains856d7624, main deac1a6d.
+  No production or paid calls. The newer writer candidate remains preserved
+  separately at T1039/#970; this tooling boundary must not replace it.
+- **Verified on frozen5f0042e3:** actual Node20.20.2/PostgreSQL16.15
+  restart PASS,12 migrations/422201 bytes; pinned backend2907/0/2, focused
+  safety10/0/0. Initial dependency-mount harness failed, stopped exact owned
+  container; corrected full backend passed. Scripts227/4/0 then affected
+  file13/0/0 after diagnosing noexec tmpfs EACCES; offline mentor gate OK.
+  Runtime/client exactly matches green #962 (hosted signed870/0), no new
+  unchanged client run. D009 all deltas0; diff clean. No original push yet.
+- **Evidence:** `docs/postgres-green-parent-2026-10-20.md`.
+
+### T-1028 — Prepare the original database gate on the repaired save parent
+
+- **Owner:** codex. **Branch:** `codex/T-1028-postgres-parent-refresh`.
+- **Status:** in-progress; local preserving rehearsal only.
+- **Scope:** preserve original #9637459a8fa plus T991/T1008 corrections,
+  normally merge approved original #962f5e746c2; retain both task histories.
+- **Done when:** exact Swift/client/backend runtime identity to parent,
+  focused cleanup safety, canonical real database/backend restart, pinned
+  Node20 scripts/backend and D009/diff/ancestry proof pass.
+- **Hold:** original #962 hosted39367137834 is running, not green; original
+  #963 remains7459a8fa and main remainsdeac1a6d. No original child advance,
+  replacement PR, paid provider call, production change or main merge.
+- **Intent:** do useful preparation while the parent runs; no unchanged
+  signed-client rerun if its bytes are identical to proven parent runtime.
+- **Verified on d131b44d:** Node20.20.2 focused safety10/0/0, scripts231/0/0,
+  backend2907/0/2; actual canonical Node20.20.2/PostgreSQL16.15 restart PASS
+  after12 migrations, exact422,201-byte rewrite/replay/owner checks. D009
+  all five deltas0; diff/ancestry/runtime-identity pass. No new client run.
+- **Evidence:** `docs/postgres-repaired-save-parent-2026-10-19.md`.
+
+### T-1008 — Re-prove real database restart on the current retained parent
+
+- **Owner:** codex. **Branch:** `codex/T-1008-postgres-current-parent`.
+- **Status:** in-progress. **Pillar:** exact writer recovery / release proof.
+- **Scope:** preserve original #9637459a8fa, T991 cleanup correction and
+  verified current #962ee7e27f2 with a normal merge. Keep both task histories.
+- **Done when:** focused cleanup10/0/0, actual canonical-image PostgreSQL
+  restart gate and frozen Node20 backend/scripts pass; D009/diff/ancestry
+  verified; retain original head until proof and required parent boundary.
+- **Client scope:** byte-identical to current #962, whose signed units866,
+  recovery5, writer1, Home2, V1 UI29/0/15, voice1/macOS pass. No new phone
+  or model claim. Original #962 fresh hosted gate is still pending.
+- **Human direction:**120 pages is the recommendation, not a quota; shorter/
+  longer targets remain supported. Production stays held on App Store keys.
+- **Verified:** frozen a06cbfc4 Node20.20.2 scripts231/0/0, backend2907/0/2;
+  real PostgreSQL16.15 database/backend restart PASS after12 migrations;
+  focused safety10/0/0, D009 all five deltas0 and diff pass. Swift identical
+  to current parent; no new signed run claimed here. Parent hosted Quality
+  Gate pending, so original #963 remains unchanged. Manifest:
+  `docs/postgres-current-parent-2026-10-19.md`.
+
+### T-991 — Never hide or abandon database proof cleanup failures
+
+- **Owner:** codex. **Branch:** `codex/T-991-postgres-cleanup-safety`.
+- **Status:** in-progress. **Pillar:** trustworthy persistence/release proof.
+- **Scope:** original #963 gate stops cleanup after one removal failure and
+  hides every worker-removal error. Attempt all exact owned resources,
+  preserve primary failure, aggregate incomplete cleanup, tolerate only the
+  exact already-removed worker. No production/resource discovery or deletion.
+- **Before:** focused regression6/2/0 host Node26. **After:**10/0/0, including
+  successful-worker fail-closed cleanup and exact absent-worker tolerance.
+- **Done when:** pinned full backend and actual disposable database restart
+  gate pass; D009/diff clean; preserve original #963 head until propagation
+  and exact updated-head proof. No main merge or replacement PR.
+- **Human decision:** production held until App Store credentials exist.
+- **Verified:** final pinned Node20 backend2896/0/2; actual PostgreSQL16.15
+  restart/cleanup PASS; syntax/diff pass; D009 all five deltas0 versus fetched
+  original #963. Fix is backed up, original PR head unchanged pending parent
+  propagation and combined proof. Manifest:
+  `docs/postgres-cleanup-safety-2026-10-19.md`.
+
+### T-981 — Maintained production-mode PostgreSQL writer restart gate
+
+- **Owner:** codex. **Branch:** `codex/T-981-postgres-writer-gate`.
+- **Status:** review (normal hosted execution required). **Pillar:** writer text safety and release proof.
+- **Scope:** promote the retained real-database probe into a one-command gate
+  inside the existing required Backend tests job. Use the canonical runtime
+  image, disposable disk volume/internal network and synthetic credentials;
+  never consume a host database URL or paid-provider credentials. Preserve the
+  current integration/heads, orb and Clementine; no production behavior change.
+- **Done when:** actual6,600-line/422KB exact-byte write/rewrite survives real
+  database and backend restart with new local files and duplicate replay;
+  cross-user read remains denied. CLI failures/refusal redaction are tested,
+  full pinned backend suite/D009/whitespace pass; CI is wired without bypasses.
+- **Before:** first automated canonical-image run passed real restart. New
+  refusal canary test exposed URL leakage (4 pass/1 fail); Boolean refusal
+  avoids echoing an accidentally supplied DSN. Six safety tests now pass;
+  actual final gate passed with cleanup before its PASS marker.
+- **Current proof:** actual422,201-byte restart gate passes, safety6/0/0,
+  workflow wired in existing required Backend tests job. First full pinned
+  suite2863/1/2: existing auth round-trip file SIGABRT, not an assertion.
+  Focused diagnostic36/0/0; full frozen1076a99c diagnostic2892/0/2, no native
+  report generated. Original abort remains unexplained, not claimed fixed.
+  No speculative auth change or unchanged CI retry. Normal hosted gate must
+  pass before merge. Client/runtime logic unchanged; D009 and whitespace pass.
+  Manifest/limits:
+  `docs/postgres-writer-gate-2026-10-19.md`.
 ### T-1033 — Restore the parked conflict decision after relaunch
 
 - **Owner:** codex. **Branch:** `codex/T-1033-conflict-choice-restore`.
@@ -34,7 +144,8 @@
 ### T-1027 — Prevent duplicate passive versions after recovery
 
 - **Owner:** codex. **Branch:** `codex/T-1027-recovery-save-dedup`.
-- **Status:** review; preserve original #962 at527c58d6, hosted red.
+- **Status:** review; approved normal original #962 advancement to f5e746c2
+  completed; fresh hosted39367137834 is running, not yet green.
 - **Root:** hosted39357764973 recovery4/1/0 recorded a manual version and
   an autosave with different request IDs but byte-identical100-byte drafts.
   Dispatch did not reject already acknowledged exact text under a new ID;
@@ -56,9 +167,9 @@
   macOS BUILD SUCCEEDED; serialized native handle terminal exit0. Actual
   summaries read; artifacts cloned/compared. Full hosted V1/iOS26.5 still
   required. Only proof docs changed after frozen runtime1ffa52e3.
-- **Hold:** no new original-head update, #963 advance, main merge, paid model
-  request or production change from this task. Obtain fresh exact authority
-  and required proof before another original #962 update.
+- **Hold:** original #963 unchanged until the parent gate passes. No main
+  merge, paid model request or production change. Original #962 history/base
+  preserved; fresh hosted proof and independent review remain required.
 
 ### T-1018 — Correct the fresh-server-choice gate without discarding recovery copies
 
