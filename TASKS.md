@@ -8,7 +8,8 @@
 ### T-1072 — Retain conflict words, not just active retries
 
 - **Owner:** codex. **Branch:** `codex/T-1072-durable-conflict-authority`.
-- **Status:** in-progress. **Pillar:** no silent loss across conflict/relaunch.
+- **Status:** review (final local proof passed; fresh hosted proof pending).
+  **Pillar:** no silent loss across conflict/relaunch.
 - **Boundary:** original #919bd470578, hosted recovery1/1/0 despite local
   green. Native snapshot loses marker/choice with queue0 and dirty/manual0.
 - **Plan:** reproduce parked writer restoration on the real model before
@@ -20,6 +21,14 @@
 - **Done when:** exact before/after, full signed units, auth/offline/conflict
   and writer UI, backend/D009/macOS pass; same-original scoped publication,
   then re-prove stopped security child. No paid/main/production action.
+- **Proof:** original925 provenance-port537fc3f plus cached-head authority
+  correctionb141af83. Before parked restore0/1/0; metadata choice0/2/0.
+  After focused30/0/0, signed units681 + typing/chooser3 =684/0/0,
+  authenticated recovery2/0/0 and writer1/0/0, synthetic voice1/0/0,
+  Node20 backend2753/0/2, macOS build0, D009 all five deltas0/diff pass.
+- **Evidence:** `docs/durable-conflict-authority-2026-10-20.md`. Original
+  #919bd470578's hosted red is retained; do not substitute local green for
+  fresh hosted proof or propagate into #973 before the parent gate passes.
 
 ### T-1070 — Carry corrected recovery/export parent into original editor
 
