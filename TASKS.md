@@ -5,6 +5,30 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1074 — Carry approved security main into original foundation #964
+
+- **Owner:** codex. **Branch:** `codex/T-1074-security-foundation-sync`.
+- **Status:** in-progress. **Pillar:** integrated writer trust.
+- **Boundary:** original #96481b05e44 + security main78b8c94f, preserving
+  no-ff mergebb20ee71. Only task-ledger conflict; keep both histories.
+  Existing original worktree remains untouched. No source conflict, rewrite,
+  new PR, base change, direct-main push or production action.
+- **Target:** future foundation updates retain current Multer2.4.0,
+  fast-uri3.1.9 and proxy-addr2.0.8 rather than restoring the old lockfile.
+  Keep exact signed/erased simulator and fail-closed evidence contracts.
+- **Done when:** fresh locked Node20 install/audit, full scripts/backend,
+  signed units, writer/voice/macOS, D009/diff pass on the merged source;
+  advance original #964 normally and require fresh CI/independent review.
+- **Limits:** foundation application recovery was previously red; actual
+  client repairs remain in preserved #904/#919, not silently imported here.
+  Do not claim this test-infrastructure boundary proves recovered writer
+  text or native Files. Production and real-phone proof remain held.
+- **CI observation:** ready_for_review duplicates a full gate on an unchanged
+  head, but the existing merge-safety contract explicitly pins that event.
+  Leave it intact in this scoped integration. Follow-up T-1075 must prove
+  any event deduplication preserves exact-head required checks, strict bases
+  and independent review; no draft skip or dropped native gate.
+
 ### T-985 — Fail-closed recovery proof and preserve original #904
 
 - **Owner:** codex. **Branch:** `codex/T-985-recovery-proof-truth`.
