@@ -5,6 +5,23 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1071 — Preserve corrected recovery under the redirect boundary
+
+- **Owner:** codex. **Branch:** `codex/T-1071-security-parent-sync`.
+- **Status:** in-progress. **Pillar:** exact words and credential safety.
+- **Boundary:** preserve original #973fc759311 and parent #919bd470578
+  with a no-ff merge; only the task ledger conflicts, keep both histories.
+- **Target:** same canonical queued/unreadable recovery and inline chooser,
+  with the original strict redirect guard, injected sessions and cancellation.
+- **Done when:** full signed units/typing/chooser, authenticated writer and
+  expired-auth/offline recovery, synthetic voice/macOS, actual host wire,
+  Node20 backend, actual-parent D009/diff pass before same-original PR update.
+- **Limits:** retained original hosted recovery1/1/0 is not cleared by the
+  parent's local proof. #904d36d4e64 now hosted green; #919bd470578's gate
+  remains live. #909 genuinely approved; its ready event queued fresh checks,
+  normal merge blocked correctly. Production remains held, Auto-Deploy Off.
+- **Evidence:** `docs/security-recovery-parent-integration-2026-10-20.md`.
+
 ### T-1065 — Reject credential-bearing cross-origin HTTP redirects
 
 - **Owner:** codex. **Branch:** `codex/T-1065-backend-redirect-boundary`.
@@ -22,6 +39,24 @@
 - **Next:** distinct draft stacked on #919, fresh hosted/review; no main or
   production mutation. Host wire is not physical-iPhone/provider proof.
 - **Evidence:** `docs/backend-redirect-boundary-2026-10-20.md`.
+
+### T-1070 — Carry corrected recovery/export parent into original editor
+
+- **Owner:** codex. **Branch:** `codex/T-1070-editor-parent-sync`.
+- **Status:** review (combined local proof passed). **Pillar:** integrated exact words and recovery.
+- **Boundary:** original #919fd2fe9cc plus original #904d36d4e64, no-ff
+  preserving both histories. Only TASKS conflicts; keep both task histories.
+- **Target:** child retains its viewport/manual-edit behavior and the exact
+  queued-hydration, unreadable-queue and inline export owners from parent.
+- **Proof:** mergedcfc25d0c; signed units664/0/0 plus both exact typing UI
+  and chooser3/0/0; authenticated writer1/0/0 and recovery2/0/0; fresh
+  Node20 backend2753/0/2; macOS compile0, real-parent D009 all deltas0/diff.
+- **Limits:** parent hosted run39481024773 remains in progress; original
+  security child #973fc759311 failed expired-auth recovery after667 units
+  and V1 UI31/0/9. Retain that red; local combined child proof does not
+  replace fresh security-child or hosted proof. Native Files export is
+  incomplete; preserve/reconcile original #590 rather than a new exporter.
+- **Evidence:** `docs/editor-recovery-export-integration-2026-10-20.md`.
 
 ### T-1063 — Preserve the corrected parent in original #919
 
@@ -159,6 +194,60 @@ change or treat it as merged; original pre-proof text remains in Git history.
   D009 passes against actual #904 (bridge -22, all others0). Advance this
   same original #919 by normal fast-forward; fresh hosted checks/review
   remain required. Full-suite counts above are retained historical proof.
+### T-1069 — Keep iPhone export format choices on the document
+
+- **Owner:** codex. **Branch:** `codex/T-1069-inline-iphone-export`.
+- **Status:** review. **Pillar:** dependable mobile export.
+- **Boundary:** original #904baaf39e3. Prior0209a126 hosted39474084172
+  fails writer Markdown feedback after a correctly bounded recorded tap;
+  native menu remains open, previous Draft saved feedback unchanged.
+- **Target:** inline expandable iPhone chooser in existing Document controls,
+  same formats/disabled capabilities/handlers; retain native Mac menu. No
+  retries, altered export bytes, new Root/Studio state or paid calls.
+- **Proof:** native chooser containment/collapse, signed units and actual
+  authenticated writer/save/export/relaunch; final hosted proof still required.
+- **Evidence:** `docs/iphone-export-chooser-2026-10-20.md`.
+- **Verified:** full signed units654/0/0 on identical app/unit source;
+  first UI cohort1/1/0 (bad Fountain-fixture assumption retained), final
+  capability-aware chooser/stronger artifact UI2/0/0; authenticated writer
+  1/0/0, macOS0, actual-base D009/diff pass. Fresh hosted proof required.
+
+### T-1068 — Stop hydration when local saves cannot be read
+
+- **Owner:** codex. **Branch:** `codex/T-1068-unreadable-save-queue`.
+- **Status:** review. **Pillar:** writer data safety and recovery.
+- **Boundary:** original #9040209a126, preserve all prior work and base.
+  Existing restoration swallows a queue read error as though no save exists;
+  its caller then hydrates remote text. Extend that canonical owner.
+- **Binary outcome:** actual corrupt-manifest model reproduces replacement
+  before; after, hydration returns false, visible raw words/base and manifest
+  bytes remain unchanged with a useful warning. A valid retry can load, and
+  clears only this warning. Normal queued recovery remains functional.
+- **Evidence:** `docs/unreadable-save-queue-2026-10-20.md`. No paid calls,
+  automatic manifest reset, new persistence layer, main or production change.
+- **Verified:** actual-model before0/1/0; after signed full units654/0/0,
+  authenticated recovery2/0/0, macOS0, actual-base D009/diff pass. Backend
+  unchanged, prior proof reused explicitly. Preserve original #904 on push.
+
+### T-1067 — Restore queued writer authority at every parent hydration entry
+
+- **Owner:** codex. **Branch:** `codex/T-1067-parent-queued-hydration`.
+- **Status:** review. **Pillar:** dependable offline writing/recovery.
+- **Boundary:** original #90410167e3, preserve every commit and original base.
+  Hosted39461247037: units652/0/0, V1 UI30/0/9, recovery1/1/0.
+  The failed auth/conflict case shows collaborator text, clean state, queue0.
+- **Fix target:** reuse original #928's single guarded queued-hydration owner
+  on both independent detail/outline entry points; #925's injection seam
+  only as needed to prove actual-model behavior. Preserve later durable
+  conflict/parked-copy semantics rather than importing their whole PRs.
+- **Binary proof:** actual queued model red before restoration, unchanged
+  assertion green after; signed units plus authenticated native recovery,
+  actual-base D009/diff. No paid model, production or main change.
+- **Evidence:** `docs/parent-queued-hydration-2026-10-20.md`.
+- **Verified:** actual-model before0/1/0, after signed units653/0/0,
+  authenticated recovery2/0/0 and writer/export/relaunch1/0/0; macOS0,
+  actual-base D009/diff pass. Backend unchanged; prior Node20 proof reused
+  explicitly. Update original #904 normally; fresh hosted/review required.
 
 ### T-1064 — Preserve unresolved writer choice at the original parent
 
