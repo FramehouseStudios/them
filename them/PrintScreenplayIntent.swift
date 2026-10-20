@@ -70,7 +70,7 @@ struct PrintScreenplayIntent: AppIntent, ForegroundContinuableIntent {
         // The printer picker needs a window. From Siri or Shortcuts the app may be in the
         // background; ask to continue in the foreground instead of failing silently.
         if UIApplication.shared.applicationState != .active {
-            try await requestToContinueInForeground(IntentDialog("Choose a printer in io.them."))
+            try await requestToContinueInForeground(IntentDialog("Choose a printer in THEM."))
         }
         guard let picked = await ScreenplayPrintUI.pickPrinter() else { throw PrintErrorIntent.cancelled }
         guard await ScreenplayPrintUI.printSilently(pdfData: pdf, jobName: title, printerURL: picked.0) else {

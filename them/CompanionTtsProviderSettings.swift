@@ -12,7 +12,7 @@ enum CompanionTtsProvider: String, CaseIterable, Identifiable, Sendable {
 
     var displayName: String {
         switch self {
-        case .default: return "io.them default"
+        case .default: return "THEM default"
         case .elevenlabs: return "ElevenLabs (your key)"
         }
     }

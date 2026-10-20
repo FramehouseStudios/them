@@ -40,7 +40,7 @@ struct CompanionTtsVoiceSettingsSection: View {
 
             Text(
                 provider == .elevenlabs
-                    ? "Audio is synthesized with your ElevenLabs account (BYOK). io.them does not store your key on the server."
+                    ? "Audio is synthesized with your ElevenLabs account (BYOK). THEM does not store your key on the server."
                     : "Uses the built-in companion voice path. Platform TTS may use OpenAI or platform ElevenLabs on the server."
             )
             .font(IOThemTypography.UI.labelRegular)
