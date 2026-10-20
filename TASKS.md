@@ -8,7 +8,7 @@
 ### T-1053 — Keep the manually typed paper line inside its viewport
 
 - **Owner:** codex. **Branch:** `codex/T-1053-editor-caret-viewport`.
-- **Status:** in-progress. **Pillar:** readable mobile writing.
+- **Status:** review (experiment; not merge-ready). **Pillar:** readable mobile writing.
 - **Boundary:** preserve original #625 d493c515 and diagnostic80f840c.
 - **Evidence:** T1052 actual narrow focus case1/0/0 has typed bytes but
   its retained screenshot shows no paper line above the software keyboard.
@@ -19,10 +19,13 @@
 - **Done when:** actual caret visible after manual edits, no programmatic
   scroll stealing; signed focused unit/UI and visual proof, macOS/D009/diff
   pass. No model/production/main change or original-PR replacement.
-- **Verified:** before2/1/0, actual UIKit caret y327 outside200-point
-  viewport. Non-editing controls pass; no product fix yet. Preserve this
-  diagnostic; fresh original #904 now red on Them-tab activation point,
-  so inspect/fix that first required integration failure before continuing.
+- **Verified:** before2/1/0, caret y327 outside200-point viewport. First
+  native after8/0/0; subsequent full units634/0/0 plus focus UI1/0/0,
+  but exact direct typing0/1/0 loses a space. Total635/1/0 is not green.
+  Viewed software-keyboard screenshot now shows the typed paper line.
+- **Next:** T1056 integrates this capability on original #919's proven
+  historical-binding guard, preserving that original and updated #904.
+  Do not duplicate the existing text-safety owner or ship this older tree.
 
 ### T-1052 — Keyboard Send belongs only to the focused composer
 

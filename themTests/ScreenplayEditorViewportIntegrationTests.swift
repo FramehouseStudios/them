@@ -41,6 +41,80 @@ final class ScreenplayEditorViewportIntegrationTests: XCTestCase {
         XCTAssertEqual(scroll.contentOffset, .zero)
     }
 
+    func testManualReturnRevealsItsNewLineWithoutChangingTheWords() async {
+        let (scroll, textView, coordinator) = fixture()
+        XCTAssertFalse(coordinator.textView(textView,
+            shouldChangeTextIn: textView.selectedRange, replacementText: "\n"))
+        XCTAssertTrue(scroll.bounds.contains(
+            textView.convert(textView.caretRect(for: textView.selectedTextRange!.end), to: scroll)))
+        XCTAssertEqual(textView.text, "The page keeps this line.\n")
+    }
+
+    func testAlreadyVisibleCaretDoesNotMoveThePaper() async {
+        let (scroll, textView, coordinator) = fixture()
+        textView.frame.origin.y = 20
+        let selection = textView.selectedRange
+        coordinator.textViewDidChange(textView)
+        XCTAssertEqual(scroll.contentOffset, .zero)
+        XCTAssertEqual(textView.selectedRange, selection)
+    }
+
+    func testFollowingDoesNotChangeHorizontalPaperPosition() async {
+        let (scroll, textView, coordinator) = fixture()
+        scroll.contentSize.width = 800
+        scroll.contentOffset.x = 120
+        coordinator.textViewDidChange(textView)
+        XCTAssertEqual(scroll.contentOffset.x, 120)
+        XCTAssertTrue(scroll.bounds.contains(
+            textView.convert(textView.caretRect(for: textView.selectedTextRange!.end), to: scroll)))
+    }
+
+    func testTypingRevealsCaretThroughNestedScrollViewports() async {
+        let (inner, textView, coordinator) = fixture()
+        let outer = UIScrollView(frame: CGRect(x: 0, y: 0, width: 375, height: 180))
+        outer.contentInsetAdjustmentBehavior = .never
+        outer.contentSize = CGSize(width: 375, height: 1_500)
+        inner.frame.origin.y = 400
+        outer.addSubview(inner)
+        coordinator.textViewDidChange(textView)
+        let caret = textView.caretRect(for: textView.selectedTextRange!.end)
+        XCTAssertTrue(inner.bounds.contains(textView.convert(caret, to: inner)))
+        XCTAssertTrue(outer.bounds.contains(textView.convert(caret, to: outer)))
+        XCTAssertGreaterThan(inner.contentOffset.y, 0)
+        XCTAssertGreaterThan(outer.contentOffset.y, 0)
+    }
+
+    func testExistingLineJumpDoesNotTakeFocusOrHijackOuterPaperPosition() async {
+        let (scroll, textView, coordinator) = fixture()
+        textView.editing = false
+        coordinator.applyLineJump(.init(id: UUID(), line: 1))
+        XCTAssertEqual(textView.selectedRange, NSRange(location: 0, length: 0))
+        XCTAssertFalse(textView.isFirstResponder)
+        XCTAssertEqual(scroll.contentOffset, .zero)
+        XCTAssertEqual(textView.text, "The page keeps this line.")
+    }
+
+    func testGeneratedInsertionDoesNotStealPaperWhileTheEditorRemainsFocused() async {
+        let (scroll, textView, coordinator) = fixture()
+        coordinator.applyInsertion(.init(text: "She watches the doorway."))
+        await Task.yield()
+        XCTAssertTrue(textView.isFirstResponder)
+        XCTAssertEqual(scroll.contentOffset, .zero)
+        XCTAssertTrue(textView.text.hasPrefix("The page keeps this line."))
+        XCTAssertTrue(textView.text.contains("She watches the doorway."))
+        XCTAssertEqual(coordinator.lastAppliedInsertionID != nil, true)
+    }
+
+    func testFocusRequestRevealsAnAlreadyEditingCaretWithoutChangingSelection() async {
+        let (scroll, textView, coordinator) = fixture()
+        let selection = textView.selectedRange
+        coordinator.applyEditorFocus(.init(id: UUID()))
+        XCTAssertEqual(textView.selectedRange, selection)
+        XCTAssertTrue(scroll.bounds.contains(
+            textView.convert(textView.caretRect(for: textView.selectedTextRange!.end), to: scroll)))
+        XCTAssertEqual(textView.text, "The page keeps this line.")
+    }
+
     private func fixture() -> (UIScrollView, EditingTextView, IOSCursorInsertTextEditor.Coordinator) {
         let scroll = UIScrollView(frame: CGRect(x: 0, y: 0, width: 375, height: 200))
         scroll.contentInsetAdjustmentBehavior = .never

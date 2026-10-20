@@ -48,3 +48,45 @@ Keep non-editing/manual page browsing while Clementine writes intact.
 Actual software-keyboard after screenshot and focused UI are still required;
 unit geometry alone is not sufficient. No paid model calls, physical-phone,
 production or whole-app completion claim. Existing orb/aesthetic preserved.
+
+## Experiment and integration boundary
+
+Original #904's navigation repair is now preserved at04a993f, fresh hosted
+proof pending. Its child original #9191d79fc4 has completed hosted Quality
+Gate successfully and already owns the historical-model binding guard.
+Resume this caret experiment without claiming either is merged to main.
+
+New native viewport owner reveals the real caret through ancestor scroll
+views after manual typing/Return and explicit focus. It does not guess a
+keyboard height. First native after8/0/0 passed, but adversarial source
+review found that remote-device edits also call line-jump requests. The
+final candidate keeps existing line-jump behavior unchanged; it must not
+add a new remote-follow policy. Added real generated-insertion and focused
+caret controls, not just a synthetic programmatic-change flag.
+
+**VERIFIED:** broader candidate on erased signed owned SE/iOS26.2:
+**635 passed / 1 failed / 0 skipped**, native65. Full units634/0/0 and
+keyboard-focus UI1/0/0 passed; exact direct-typing UI0/1/0 lost the space in
+`lights before`. Bundle
+`/tmp/them-1053-final/v1-ui-smoke-local-1-63335.xcresult`, log
+`/tmp/them-1053-final.log`. Do not retry unchanged, weaken the exact words,
+or call this a successful writer fix. Root cause is not proven solely by
+this observation; the older tree has unconditional model-to-editor writes.
+
+Viewed retained software-keyboard screenshot
+`/tmp/them-1053-focus-final-visual/9083AB8D-C277-445A-8EE9-F3C4C55EDED1.png`:
+the full typed marker and caret are visible above the keyboard, where the
+unchanged baseline showed no paper text. Visual success does not override
+the separate missing-space failure. The failing native recording is retained.
+
+**DECIDED:** keep this experimental branch as evidence, not a new merge-ready
+PR. T1056 moves the capability onto the existing original #919 editor-repair
+boundary (preserving history/updated parent), which already owns policy
+5bef4dc plus historical-snapshot follow-upbfbd5af. Reuse rather than clone
+its data-safety implementation onto this older sibling. Original #625's
+two-word keyboard-safe-area repair can be ported without its billing work.
+
+API basis: Apple's [caret geometry](https://developer.apple.com/documentation/uikit/uitextinput/caretrect(for:))
+and [scrollRectToVisible](https://developer.apple.com/documentation/uikit/uiscrollview/scrollrecttovisible(_:animated:))
+contracts. The latter accepts a rect in the scroll view's coordinates; the
+candidate converts real caret geometry separately for each ancestor.

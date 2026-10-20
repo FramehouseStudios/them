@@ -11390,6 +11390,7 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
             publishUserEdit(expectedText: next)
             updateCurrentCursorLine()
             refreshAnchoredTextRectSnapshot()
+            ScreenplayEditorViewport.followEditingCaret(in: textView)
         }
 
         private func interruptStreamingInsertForUserEditIfNeeded() {
@@ -11495,8 +11496,7 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
             let targetLine = max(1, request.line)
             let content = textView.text ?? ""
             let targetRange = rangeForLine(targetLine, in: content)
-            textView.selectedRange = NSRange(location: targetRange.location, length: 0)
-            textView.scrollRangeToVisible(targetRange)
+            ScreenplayEditorViewport.jump(to: targetRange, in: textView)
             publishCurrentCursorLine(targetLine)
             refreshAnchoredTextRectSnapshot()
             lastAppliedLineJumpID = request.id
@@ -11540,8 +11540,7 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
 
         func applyEditorFocus(_ request: ScreenplayEditorFocusRequest) {
             guard let textView else { return }
-            textView.becomeFirstResponder()
-            textView.scrollRangeToVisible(textView.selectedRange)
+            ScreenplayEditorViewport.focus(textView)
             updateCurrentCursorLine()
             refreshAnchoredTextRectSnapshot()
             lastAppliedEditorFocusID = request.id
@@ -11659,6 +11658,7 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
             publishUserEdit(expectedText: nextText)
             updateCurrentCursorLine()
             refreshAnchoredTextRectSnapshot()
+            ScreenplayEditorViewport.followEditingCaret(in: textView)
         }
 
         private func syncActiveElementFromSelection() {
