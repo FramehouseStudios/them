@@ -5,6 +5,24 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1051 — Repair original #904 before its editor child
+
+- **Owner:** codex. **Branch:** `codex/T-1051-parent-recovery-authority`.
+- **Status:** review. **Pillar:** exact words and recovery control.
+- **Verified red:** original #904 `2a10365f`, hosted39406112568, same
+  expired-auth/stale-conflict recovery failure as #919. Do not merge the
+  child over this red parent or replace either original PR.
+- **Fix:** exact two-file T1049 correction, source90ba102 (port4abd517):
+  reuse preserved0c1afb1 guard, manual-edit authority on explicit recovery.
+  ViewModel/recovery-test sources were identical across both old heads.
+- **Done when:** signed parent units/recovery, macOS/D009/diff pass; normal
+  original #904 push, preserving original head. Then merge updated parent
+  into original #919 with all histories retained; require hosted/review.
+- **Evidence:** `docs/parent-recovery-authority-2026-10-20.md`.
+- **Verified:** independent signed parent units634/0/0 and recovery2/0/0,
+  same erased owned SE/iOS26.2. macOS native exit0; real-base D009 Studio
+  -4, others0; diff clean. Hosted26.5 cause/fix still requires fresh proof.
+
 ### T-986 — Preserve and verify original #904 recovery
 
 - **Owner:** codex. **Branch:** `codex/T-986-original-904-recovery`.
