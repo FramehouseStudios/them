@@ -68,3 +68,26 @@ Original #590's already implemented Files handoff remains to reconcile,
 along with later original durable-retention branches. Orb, Clementine and
 the established appearance remain. No main merge, production or App Store
 readiness is claimed. Full goal remains active.
+
+## Stop at newly terminal parent red
+
+Frozen local merge7128151/treec35a5c982705a23ffbe1947cf525331962170608:
+Node20 backend2755/0/2, signed units669 plus targeted UI3 =672/0/0,
+authenticated recovery2/0/0, host wire8 cases/0 foreign requests, D009/diff
+passed. Writer/voice/macOS were deliberately not started after the parent
+became red. No claim of complete combined proof or publication.
+
+Original #919bd470578 run39484555186/job118841471036 failed recovery1/1/0
+on iOS26.5: warning says choose local/server, but local marker absent,
+conflict IDs empty, unsaved/manual flags0, active/parked queue counts0,
+status Loaded latest draft. Units664 and V1 UI32/0/9 passed; do not label
+the whole gate green. Full new native red and completed local source/logs/
+bundles retained under `_proof/T-1071-20261020.D8Cebo/`.
+
+Stop publication of original #973; its remote head remainsfc759311.
+Earliest failing original #919 must receive the coherent original #925
+durable-conflict capability and original #928 hydration regression, rather
+than another retry of the insufficient active-entry-only guard. Inspect
+original #962 follow-ups and preserve the existing unreadable-queue stop.
+Originals remain intact. Re-prove the corrected parent before propagating
+it into this stopped local rehearsal. No main/production/paid action.
