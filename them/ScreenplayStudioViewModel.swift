@@ -6549,8 +6549,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
         let ownerUserId = BackendAuthClient.currentAuthSessionState().user?.userId
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
 
+        let drainingGeneration = draftSaveAuthorityGeneration
         isDraftSaveInFlight = true
-        defer { isDraftSaveInFlight = false }
         var completedCount = 0
         while completedCount < 4 {
             let entry: ScreenplayDraftSaveOutboxEntry?
@@ -6576,6 +6576,20 @@ final class ScreenplayStudioViewModel: ObservableObject {
             completedCount += 1
         }
         await refreshDraftSaveOutboxStatus()
+        let pending = pendingDraftSaveRequest
+        pendingDraftSaveRequest = nil
+        isDraftSaveInFlight = false
+        guard let pending else { return }
+        guard draftSaveAuthorityIsCurrent(pending) else {
+            await retainDraftSaveBehindConflict(pending)
+            return
+        }
+        // An ordinary pending save follows versions acknowledged by this
+        // drain. A newer authority/project retains its explicitly captured
+        // base (in particular, the writer's Keep Mine choice).
+        let followsDrain = completedCount > 0 && pending.projectId == projectId
+            && pending.authorityGeneration == drainingGeneration
+        await dispatchDraftSaveRequest(followsDrain ? pending.rebased(on: latestVersionID) : pending)
     }
 
     private func adoptQueuedDraftIntoUnchangedEditorIfNeeded(
@@ -6656,6 +6670,12 @@ final class ScreenplayStudioViewModel: ObservableObject {
             errorText = "Select a project first."
             return
         }
+        await dispatchDraftSaveRequest(request)
+    }
+
+    // Both a new explicit save and a save handed back by background draining
+    // use the same ordering, auth/conflict authority, and serialization owner.
+    private func dispatchDraftSaveRequest(_ request: DraftSaveRequest) async {
         let normalized = request.draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalized.isEmpty || request.allowEmptyDraft else {
             autosaveStatusText = "Draft empty"
@@ -6667,7 +6687,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
             return
         }
 
-        if source != "studio_conflict_resolve", !isDraftSaveInFlight,
+        if request.source != "studio_conflict_resolve", !isDraftSaveInFlight,
            (try? await draftSaveOutbox.hasActiveEntries(
                projectId: request.projectId,
                ownerUserId: request.ownerUserId
@@ -6848,6 +6868,15 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 throw URLError(.notConnectedToInternet)
             }
 #endif
+            if loadedDraftProjectID == request.projectId,
+               ScreenplayDraftSaveCoalescingPolicy.isSatisfiedAutosave(draft: request.draft,
+                   source: request.source, notes: request.notes, baseVersion: request.baseVersionId,
+                   confirmedDraft: lastRevisionBaseDraft, confirmedVersion: latestVersionID) {
+                let acknowledged = try await draftSaveOutbox.markSatisfiedAutosave(id: request.id,
+                    projectId: request.projectId, ownerUserId: request.ownerUserId,
+                    confirmedDraft: lastRevisionBaseDraft, confirmedVersion: latestVersionID)
+                return acknowledged && draftSaveAuthorityIsCurrent(request)
+            }
             switch try await emptyBaseDraftSavePreflight(for: request) {
             case .notRequired, .versionlessProject:
                 break

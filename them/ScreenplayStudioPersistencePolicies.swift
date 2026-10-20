@@ -277,6 +277,16 @@ struct ScreenplayDraftIntegrityFingerprint {
 }
 
 struct ScreenplayDraftSaveCoalescingPolicy {
+    /// Background housekeeping is already satisfied by an acknowledged exact
+    /// draft at the same base. Explicit checkpoints/notes are never discarded.
+    static func isSatisfiedAutosave(draft: String, source: String, notes: String,
+        baseVersion: String, confirmedDraft: String, confirmedVersion: String) -> Bool {
+        let confirmed = confirmedVersion.trimmingCharacters(in: .whitespacesAndNewlines)
+        return source == "studio_autosave" && notes.isEmpty && !confirmed.isEmpty &&
+            baseVersion.trimmingCharacters(in: .whitespacesAndNewlines) == confirmed &&
+            ScreenplayDraftTextIdentity.matches(draft, confirmedDraft)
+    }
+
     static func shouldCoalesce(
         activeDraft: String,
         activeSource: String,
