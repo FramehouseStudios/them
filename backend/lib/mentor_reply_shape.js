@@ -38,9 +38,11 @@ const SYMPATHY_OPENER = new RegExp(
 );
 
 function splitFirstSentence(text) {
-  const m = /^(.*?[.!?:])(\s+|$)/s.exec(text);
+  // Same-length canonical masking keeps dialogue punctuation from truncating
+  // a verdict before its outside-the-quote reason. Unclosed quotes stay whole.
+  const m = /^(.*?[.!?:])(\s+|$)/s.exec(maskQuotedSpeech(text));
   if (!m) return null;
-  const first = m[1].trim();
+  const first = text.slice(0, m[1].length).trim();
   const rest = text.slice(m[0].length).trim();
   return { first, rest };
 }
@@ -49,8 +51,8 @@ export function isPraiseOpener(sentence) {
   const s = String(sentence || "").trim();
   if (!s) return false;
   if (s.split(/\s+/).length > OPENER_MAX_WORDS) return false;
-  // A verdict can also contain the actual craft reason or criticism. Keep
-  // that meaning, even when its opening words resemble disposable praise.
+  // Preserve the actual reason or criticism, not just its opening words.
+  // Quoted dialogue cannot make a bland check-in count as a craft reason.
   if (/\b(?:because|therefore|but|however|although|unless|yet|except)\b/i.test(maskQuotedSpeech(s))) return false;
   return PRAISE_OPENER.test(s) || SYMPATHY_OPENER.test(s);
 }

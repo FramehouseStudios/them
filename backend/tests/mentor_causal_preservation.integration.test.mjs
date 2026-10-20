@@ -18,8 +18,9 @@ test("real mentor response carries its reason through speech without changing th
     CLEMENTINE_MUSE_ENABLED: "0", CLEMENTINE_PROVIDER: "openai", BILLING_TEST_REPLY: "mentor",
     KNOWLEDGE_RAG_EMBEDDINGS_ENABLED: "0",
   } };
-  let server = await startBackend(options);
+  let server;
   try {
+    server = await startBackend(options);
     const signup = await apiRequest(server, "/auth/signup", { method: "POST", json: {
       email: "mentor-fixture@example.com", password: "mentor-fixture-password-123",
     } });
@@ -49,10 +50,16 @@ test("real mentor response carries its reason through speech without changing th
     assert.equal(result.status, 200);
     assert.notEqual(result.headers.get("x-turn-status"), "error_recovered");
     assert.ok(decodeURIComponent(result.headers.get("x-reply") || "").includes("because John's lie forces the chase"));
+    assert.ok(decodeURIComponent(result.headers.get("x-reply") || "").includes('"Do not leave. Stay here."'));
     const trace = server.stdout.join("");
     assert.ok(trace.includes("[mentor-test] mentor_contract=true"));
+    assert.ok(trace.includes("[mentor-test] because_contract=true"));
     assert.ok(trace.includes("[mentor-test] tts_causal_advice=true"));
+    assert.ok(trace.includes("[mentor-test] tts_complete_quoted_dialogue=true"));
     const after = await apiRequest(server, `/screenplay/projects/${id}?include_drafts=1`, { headers });
     assert.deepEqual(after.json.project, before.json.project);
-  } finally { await server.stop(); }
+  } finally {
+    await server?.stop();
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
 });

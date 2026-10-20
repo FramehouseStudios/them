@@ -23,6 +23,26 @@ test("mentor verdict carrying its because or criticism is never discarded", () =
   }
 });
 
+test("quoted punctuation cannot split off the mentor's external causal reason", () => {
+  for (const line of [
+    '"Do not leave. Stay here."',
+    "'Do not leave. Stay here.'",
+    '“Why now? Stay here.”',
+    '‘Do not leave. Stay here.’',
+    '"MARA: Do not leave. Stay here."',
+    '"Do not leave.\nStay at the cafe\u0301."',
+  ]) {
+    const reply = `I love this line ${line} because John must choose. Keep the door locked.`;
+    assert.deepEqual(stripPraiseOpener(reply), { text: reply, stripped: "" }, line);
+    assert.equal(shapeMentorReply(reply, { mentorTurn: true }).text, reply, line);
+  }
+});
+
+test("an unfinished quoted fragment cannot be excised as premise praise", () => {
+  const reply = 'I love this line "Do not leave. Stay here';
+  assert.deepEqual(stripPraiseOpener(reply), { text: reply, stripped: "" });
+});
+
 test("two bland check-ins can go without removing the causal craft note", () => {
   const reply = "Sounds like a rough spot. First, let's take a breath and remember: John must choose because the door locks at midnight. Who does he trust?";
   assert.deepEqual(stripPraiseOpener(reply), {

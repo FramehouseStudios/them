@@ -5,6 +5,20 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1030 — Join repaired saves with owned voice recovery
+
+- **Owner:** codex. **Branch:** `codex/T-1030-joined-writer-recovery`.
+- **Status:** in-progress; local combined candidate, original heads unchanged.
+- **Scope:** preserving merge of recovered-reply UI001a7d43 and repaired
+  save/database/mentor parent4c99a59c. Keep both histories and D017.
+- **Merge review:** restore the quoted-dialogue regression in the existing
+  shared provider fixture; do not recreate a parallel test transport. Keep
+  canonical quote masking, because contract, and response-to-TTS assertions.
+- **Done when:** combined signed units and writer/recovery UI, pinned backend,
+  offline mentor contract and D009/diff pass. Stop on first real failure.
+- **Hold:** #962 hosted39367137834 still live, no original #963/#653/main
+  advance, replacement PR, production mutation or paid model request.
+
 ### T-1026 — Observe recovery review and improve narrow share controls
 
 - **Owner:** codex. **Branch:** `codex/T-1026-recovered-reply-review`.
@@ -456,26 +470,91 @@
   active; no old-runtime support claim. Manifest:
   `docs/iphone-compatibility-2026-10-19.md`. Production hold remains.
 
-### T-990 — Preserve exact-retention child with verified recovery parent
+### T-1029 — Refresh preserved mentor work on the repaired writer parent
 
-- **Owner:** codex. **Branch:** `codex/T-990-retention-parent-forward`.
-- **Status:** in-progress. **Pillar:** trustworthy writer persistence.
-- **Scope:** normal merge of #961 head8b19d86 into original #962 headaef3250b.
-  Keep the byte-distinct persistence correction and stored editor snapshots;
-  retain both task histories. No replacement PR, main merge or force push.
-- **Done when:** combined signed units, required writer/recovery UI, backend
-  Node20, D009/diff and macOS proof pass; parent fresh hosted result is green
-  before updating the existing child PR. Stop on the first verified failure.
-- **Human decision:** production remains blocked until App Store credentials
-  exist. No purchases-disabled bypass or paid-model completion claim.
-- **Verified:** signed erased units864/0/0; pinned Node20 backend2897/0/2,
-  scripts231/0/0; D009 all five deltas0 against fetched parent8b19d86.
-  Retained environment failures corrected without app/assertion changes.
-  Recovery5/0/0, writer1/0/0, fixed-provider Home2/0/0, V1 UI29/0/15,
-  voice-fault1/0/0 and macOS wrapper pass. All six bundles privately retained
-  and compared. Parent hosted units passed; full hosted workflow still active.
-  Original child head unchanged pending that boundary. Manifest:
-  `docs/retention-parent-forward-2026-10-19.md`.
+- **Owner:** codex. **Branch:** `codex/T-1029-mentor-parent-refresh`.
+- **Status:** review; local mentor fix proven, original heads unchanged.
+- **Scope:** preserving T1012/original #6538f5f4f2f and updated database
+  candidate1ff16763. Only TASKS conflicts; retain both task histories.
+- **Actual bases:** original #653 still targets claude/mentor-last-image;
+  no open PR targets original #963. Its original parent is already an
+  ancestor of this rehearsal. No silent original retarget or replacement.
+- **Done when:** provenance/runtime identity and focused connected mentor
+  checks pass without paid calls; investigate any real shaping failure.
+- **Hold:** original #962 hosted39367137834 still running; original #963,
+  original #653 and main unchanged. No production or live-model claim.
+- **Root reproduced:** quoted multi-sentence dialogue is truncated by the
+  opener's raw punctuation splitter before an external because reason.
+  Pinned Node20 before4/3/0, including authenticated /talk reply failure.
+- **Fix:** reuse canonical same-length quote masking for opener boundaries;
+  preserve original text indices and unfinished quotes. Focused shape/
+  persona/authenticated TTS+unchanged-page checks30/0/0. Frozen correction
+  f20482c5 Node20.20.2 backend2915/0/2, scripts231/0/0, offline golden40
+  exemplar pairs separated/all prompt checks true. D009/diff/syntax pass;
+  client byte-identical to parent, no new signed run or live-model claim.
+- **Evidence:** `docs/mentor-repaired-save-parent-2026-10-19.md`.
+
+### T-1012 — Preserve the mentor because contract on the current database parent
+
+- **Owner:** codex. **Branch:** `codex/T-1012-mentor-current-parent`.
+- **Status:** review (local proof complete). **Pillar:** trustworthy living companion / integration.
+- **Scope:** preserving original #653 at8f5f4f2f onto proven T1008 at728df63e,
+  without unrelated later changes or updating original heads before their gates.
+- **Root reproduced:** original broad opener matching discards concrete advice;
+  focused before21 pass/3 fail/0 skip, corrected24/0/0 (host Node24.19.0).
+- **Correction:** retain original because contract/two-check-in bound; narrow
+  bland patterns and protect unquoted causal/critical advice. Dedicated
+  provider transport fixture verifies actual auth/talk/TTS/persistence path.
+- **Done when:** pinned Node20 full backend/scripts, offline golden, connected
+  mentor response, actual-parent D009 and clean diff pass; preserve original
+  histories and report parent-only Swift proof separately from a new run.
+- **Evidence:** `docs/mentor-current-parent-2026-10-19.md`.
+- **Proof:** frozen fb7c77f0, Node20.20.2/no external network:
+  backend2913 pass/0 fail/2 skip, scripts231/0/0, offline golden OK;
+  real authenticated talk/contract/shaping/TTS/project test passed.
+  Native69043 exit0. Actual fetched-parent D009 all five deltas0; diff and
+  syntax pass. No new signed or live-model/physical-phone result claimed.
+### T-1028 — Prepare the original database gate on the repaired save parent
+
+- **Owner:** codex. **Branch:** `codex/T-1028-postgres-parent-refresh`.
+- **Status:** in-progress; local preserving rehearsal only.
+- **Scope:** preserve original #9637459a8fa plus T991/T1008 corrections,
+  normally merge approved original #962f5e746c2; retain both task histories.
+- **Done when:** exact Swift/client/backend runtime identity to parent,
+  focused cleanup safety, canonical real database/backend restart, pinned
+  Node20 scripts/backend and D009/diff/ancestry proof pass.
+- **Hold:** original #962 hosted39367137834 is running, not green; original
+  #963 remains7459a8fa and main remainsdeac1a6d. No original child advance,
+  replacement PR, paid provider call, production change or main merge.
+- **Intent:** do useful preparation while the parent runs; no unchanged
+  signed-client rerun if its bytes are identical to proven parent runtime.
+- **Verified on d131b44d:** Node20.20.2 focused safety10/0/0, scripts231/0/0,
+  backend2907/0/2; actual canonical Node20.20.2/PostgreSQL16.15 restart PASS
+  after12 migrations, exact422,201-byte rewrite/replay/owner checks. D009
+  all five deltas0; diff/ancestry/runtime-identity pass. No new client run.
+- **Evidence:** `docs/postgres-repaired-save-parent-2026-10-19.md`.
+
+### T-1008 — Re-prove real database restart on the current retained parent
+
+- **Owner:** codex. **Branch:** `codex/T-1008-postgres-current-parent`.
+- **Status:** in-progress. **Pillar:** exact writer recovery / release proof.
+- **Scope:** preserve original #9637459a8fa, T991 cleanup correction and
+  verified current #962ee7e27f2 with a normal merge. Keep both task histories.
+- **Done when:** focused cleanup10/0/0, actual canonical-image PostgreSQL
+  restart gate and frozen Node20 backend/scripts pass; D009/diff/ancestry
+  verified; retain original head until proof and required parent boundary.
+- **Client scope:** byte-identical to current #962, whose signed units866,
+  recovery5, writer1, Home2, V1 UI29/0/15, voice1/macOS pass. No new phone
+  or model claim. Original #962 fresh hosted gate is still pending.
+- **Human direction:**120 pages is the recommendation, not a quota; shorter/
+  longer targets remain supported. Production stays held on App Store keys.
+- **Verified:** frozen a06cbfc4 Node20.20.2 scripts231/0/0, backend2907/0/2;
+  real PostgreSQL16.15 database/backend restart PASS after12 migrations;
+  focused safety10/0/0, D009 all five deltas0 and diff pass. Swift identical
+  to current parent; no new signed run claimed here. Parent hosted Quality
+  Gate pending, so original #963 remains unchanged. Manifest:
+  `docs/postgres-current-parent-2026-10-19.md`.
+
 ### T-991 — Never hide or abandon database proof cleanup failures
 
 - **Owner:** codex. **Branch:** `codex/T-991-postgres-cleanup-safety`.
@@ -522,6 +601,124 @@
   pass before merge. Client/runtime logic unchanged; D009 and whitespace pass.
   Manifest/limits:
   `docs/postgres-writer-gate-2026-10-19.md`.
+### T-1027 — Prevent duplicate passive versions after recovery
+
+- **Owner:** codex. **Branch:** `codex/T-1027-recovery-save-dedup`.
+- **Status:** review; approved normal original #962 advancement to f5e746c2
+  completed; fresh hosted39367137834 is running, not yet green.
+- **Root:** hosted39357764973 recovery4/1/0 recorded a manual version and
+  an autosave with different request IDs but byte-identical100-byte drafts.
+  Dispatch did not reject already acknowledged exact text under a new ID;
+  snapshots do not establish the exact enqueue/debounce interleaving.
+- **Fix:** recognize only note-free passive autosaves at the acknowledged
+  exact draft/version, removing only that request durably. Explicit snapshots,
+  conflict choices, notes, byte changes and other retained copies survive.
+- **Done when:** signed focused authority suite and unchanged failed recovery
+  workflow prove one server version; D009/diff pass; save scoped history.
+- **Verification:** initial new-test compilation failed on immutable fixture
+  fields; next run7/1/0 exposed snapshot-reload interference in the combined
+  fixture. Corrected signed authority suite8/0/0; unchanged five-case app
+  recovery5/0/0 against authenticated loopback backend. D009 all deltas0,
+  diff pass, actual summaries read; no model calls. Full suite not repeated.
+- **Evidence:** `docs/recovery-save-dedup-2026-10-19.md`.
+- **Integration boundary on1ffa52e3:** signed erased full units869/0/0;
+  pinned network-disabled Node20.20.2 scripts231/0/0 and backend2897/0/2.
+  Writer/save/export/relaunch1/0/0; creation-reply-loss1/0/0; voice-fault1/0/0;
+  macOS BUILD SUCCEEDED; serialized native handle terminal exit0. Actual
+  summaries read; artifacts cloned/compared. Full hosted V1/iOS26.5 still
+  required. Only proof docs changed after frozen runtime1ffa52e3.
+- **Hold:** original #963 unchanged until the parent gate passes. No main
+  merge, paid model request or production change. Original #962 history/base
+  preserved; fresh hosted proof and independent review remain required.
+
+### T-1018 — Correct the fresh-server-choice gate without discarding recovery copies
+
+- **Owner:** codex. **Branch:** `codex/T-1018-conflict-relaunch-diagnosis`.
+- **Status:** review; original #962 held at87a62a6c after hosted red.
+- **Root:** hosted recovery4/1/0; Load Server wait assumed one parked copy,
+  while recorded state showed the right conflict/local words with two copies.
+  Their distinction is unproven; preserve both rather than force coalescing.
+- **Fix:** assert actual writer outcome/project/head, no active sending, all
+  selected copies retired after Load Server/relaunch, only expected server
+  version IDs. Failure attachments exclude writer text and credentials.
+- **Verified:** exact-head single case1/0/0; changed signed full recovery5/0/0
+  on erased task-owned Pro, authenticated local backend. D009 all deltas0,
+  whitespace pass. No runtime change, paid call or new full backend/unit proof.
+- **Evidence:** `docs/conflict-relaunch-gate-2026-10-19.md`.
+- **Next:** scoped backup/review, then fresh hosted gate on an authorized
+  preserving original-head append; do not advance #963 while parent is red.
+
+### T-1014 — Prove and repair explicit saves during background queue draining
+
+- **Owner:** codex. **Branch:** `codex/T-1014-save-drain-handoff`.
+- **Status:** review (local fix proven; fresh hosted gate pending).
+- **Pillar:** exact writer recovery / integration.
+- **Boundary:** original #962ee7e27f2, hosted39336874458 terminal failure:
+  recovery3 pass/2 fail/0 skip on iOS26.5. No unchanged retry or #963 advance.
+- **Verified root:** resumeQueuedDraftSavesIfNeeded owns the
+  in-flight flag while manual/snapshot saves fill pendingDraftSaveRequest;
+  only the manual serialization path consumes that slot. Suspended real
+  transport regression reproduced one POST instead of two: signed before
+  5/1/0. Canonical dispatch handoff correction passes focused6/0/0, signing
+  enabled on the erased task-owned Pro.
+- **Connected proof:** signed local conflict/relaunch/Keep Mine1/0/0 and
+  blank-snapshot/offline/reconnect/history1/0/0; unchanged UI assertions.
+  D009 all five deltas0 and diff check pass. Hosted iOS26.5 failure is not
+  reproduced locally or declared resolved. Save scoped fix; hold original
+  PR updates until broader integration proof.
+- **Integration proof on source50d04ae5:** full signed units867/0/0;
+  Node20.20.2 scripts231/0/0, backend2897/0/2 (network disabled);
+  writer/save/export/relaunch1/0/0, voice-fault1/0/0 and macOS build0.
+  Failed container setup attempts retained separately; no app assertions
+  weakened. Append normally to original #962; preserve base/history/main.
+  Full hosted V1, all-five recovery and lost-creation-reply remain required
+  before #963 advances. No new paid calls.
+- **Done when:** failing-first signed reproduction, root fix preserving auth/
+  project/conflict authority and version base, full local proof and fresh
+  exact-head hosted gate. Investigate conflict-relaunch failure separately;
+  do not weaken assertions, add sleeps, or claim one fix covers both.
+- **Evidence:** `docs/save-drain-handoff-2026-10-19.md`.
+
+### T-1005 — Carry the green receipt parent into original exact retention
+
+- **Owner:** codex. **Branch:** `codex/T-1005-retention-current-parent`.
+- **Status:** in-progress. **Pillar:** exact writer words across relaunch.
+- **Scope:** preserving merge of original961e689 (hosted39328089782 SUCCESS)
+  into T9901924, which already preserves original962aef. No replacement PR,
+  squash, force, main merge or original child head change before proof.
+- **Product delta vs parent:** one shared byte-identity persistence condition
+  and its21-line regression; no provider/policy/format change.
+- **Done when:** fresh Node20 full scripts/backend, signed erased units,
+  recovery/writer/Home/full V1/fault/macOS, D009 and diff pass. Serialize iOS
+  behind still-live T1003 native36287; never restart or erase its device.
+- **Evidence:** `docs/retention-current-parent-2026-10-19.md`.
+- **Verified:** frozen0577b913 Node20 scripts231/0/0, backend2897/0/2,
+  D009 all five actual deltas0 and whitespace/ancestors pass. T1003 finished
+  exit0 before signed native2317 started; child artifact/tmp/them-1005-ui.fyQYMX,
+  currently units/build. Original962 remains aef; no signed pass count yet.
+- **Hold:** independent review/fresh hosted child gate and production App Store
+  credentials remain required. No physical/model/120-page completion claim.
+
+### T-990 — Preserve exact-retention child with verified recovery parent
+
+- **Owner:** codex. **Branch:** `codex/T-990-retention-parent-forward`.
+- **Status:** in-progress. **Pillar:** trustworthy writer persistence.
+- **Scope:** normal merge of #961 head8b19d86 into original #962 headaef3250b.
+  Keep the byte-distinct persistence correction and stored editor snapshots;
+  retain both task histories. No replacement PR, main merge or force push.
+- **Done when:** combined signed units, required writer/recovery UI, backend
+  Node20, D009/diff and macOS proof pass; parent fresh hosted result is green
+  before updating the existing child PR. Stop on the first verified failure.
+- **Human decision:** production remains blocked until App Store credentials
+  exist. No purchases-disabled bypass or paid-model completion claim.
+- **Verified:** signed erased units864/0/0; pinned Node20 backend2897/0/2,
+  scripts231/0/0; D009 all five deltas0 against fetched parent8b19d86.
+  Retained environment failures corrected without app/assertion changes.
+  Recovery5/0/0, writer1/0/0, fixed-provider Home2/0/0, V1 UI29/0/15,
+  voice-fault1/0/0 and macOS wrapper pass. All six bundles privately retained
+  and compared. Parent hosted units passed; full hosted workflow still active.
+  Original child head unchanged pending that boundary. Manifest:
+  `docs/retention-parent-forward-2026-10-19.md`.
 
 ### T-980 — Preserve byte-distinct live screenplay edits
 
