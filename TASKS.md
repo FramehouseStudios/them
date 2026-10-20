@@ -5,6 +5,24 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1064 — Preserve unresolved writer choice at the original parent
+
+- **Owner:** codex. **Branch:** `codex/T-1064-conflict-choice-parent`.
+- **Status:** review (local proof passed). **Pillar:** exact words and writer control.
+- **Boundary:** #90489ed4c2; preserve original #924cead667 source/provenance.
+- **Target:** reject live text/version adoption during an unresolved same-
+  project conflict, then allow following after an explicit Load Server.
+- **Proof:** existing actual-model regressions before/after, signed units,
+  actual authenticated recovery, D009/diff; no unchanged hosted retry.
+- **Limits:** hosted cause not fully traced; later durable-retention fixes,
+  production and real-phone journey remain separate unfinished work.
+- **Evidence:** `docs/conflict-choice-parent-2026-10-20.md`.
+- **Verified:** actual-model before1/2/0; final signed full units652/0/0,
+  unchanged authenticated recovery2/0/0, Node20 backend2753/0/2, macOS0.
+  D009/diff pass. Reuse exact #924 five-line guard, not later retention work.
+  Normally advance original parent then preserve-merge child; hosted/review
+  and real-phone proof remain required. No main or production change.
+
 ### T-1062 — Put the proven text-ownership guard on the red parent
 
 - **Owner:** codex. **Branch:** `codex/T-1062-parent-editor-echo`.

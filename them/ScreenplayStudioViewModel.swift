@@ -1952,6 +1952,10 @@ final class ScreenplayStudioViewModel: ObservableObject {
         guard ScreenplayProjectScopedState.matches(projectID, selectedProjectId: selectedProjectID) else {
             return false
         }
+        // A remote update is not the writer's Keep Mine / Load Server decision.
+        guard !ScreenplayProjectScopedState.matches(conflictState?.projectId, selectedProjectId: projectID) else {
+            return false
+        }
         isFollowingRemoteLiveDraft = true
         isManualDraftEditing = false
         lastManualDraftEditAt = .distantPast
@@ -2040,6 +2044,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         let cleanVersionID = versionID.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanVersionID.isEmpty,
               ScreenplayProjectScopedState.matches(projectID, selectedProjectId: selectedProjectID),
+              !ScreenplayProjectScopedState.matches(conflictState?.projectId, selectedProjectId: projectID),
               LiveDraftText.checksum(fountainDraft) == draftChecksum else {
             return
         }
