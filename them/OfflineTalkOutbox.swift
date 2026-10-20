@@ -370,11 +370,20 @@ actor OfflineTalkOutbox {
                 try handleSendResult(result, forEntryID: entry.id, now: now)
                 if (200...299).contains(result.statusCode) { completedResponse = result }
             } catch {
-                handleRetryableFailure(
-                    entryID: entry.id,
-                    message: error.localizedDescription,
-                    now: now
-                )
+                let code = (error as? URLError)?.code
+                if error is CancellationError || code == .timedOut || code == .networkConnectionLost || code == .cancelled {
+                    // Losing the response does not prove the server did not
+                    // commit. Its short-lived cache cannot justify a later
+                    // automatic replay after relaunch or credential refresh.
+                    if let retainedIndex = entries.firstIndex(where: { $0.id == entry.id }) {
+                        entries[retainedIndex].status = .parked
+                        entries[retainedIndex].updatedAt = nowSeconds
+                        entries[retainedIndex].nextAttemptAt = 0
+                        entries[retainedIndex].lastError = "The connection ended before a reply was confirmed. This turn may already have been processed. Check History and your script before retrying."
+                    }
+                } else {
+                    handleRetryableFailure(entryID: entry.id, message: error.localizedDescription, now: now)
+                }
             }
             do { try persist() } catch {
                 // A successful HTTP response is not a durable local ack.

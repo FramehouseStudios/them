@@ -5,6 +5,21 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1020 — Stop automatic replay after an ambiguous transport failure
+
+- **Owner:** codex. **Branch:** `codex/T-1020-ambiguous-replay-retention`.
+- **Status:** review (focused signed proof; integration/phone proof pending).
+- **Root:** outbox timeout, connection loss and cancellation were treated as
+  proof that resending was safe, even though the server might have committed.
+- **Fix:** retain these outcomes as parked work for explicit review/retry;
+  preserve the original bytes/key and normal offline retry behavior.
+- **Evidence:** `docs/ambiguous-replay-retention-2026-10-19.md`.
+- **Verified:** signed 1/0/0, five error scenarios, erased task-owned Pro;
+  D009 all five deltas zero and whitespace check passes. No paid calls.
+- **Limits:** this changes outbox transport failure handling, not initial
+  BackendClient attempts/enqueue or HTTP status retry policy. Durable owned
+  server receipts and actual phone proof remain outstanding.
+
 ### T-1019 — Reconnect successfully replayed turns to conversation history
 
 - **Owner:** codex. **Branch:** `codex/T-1019-replay-conversation-sync`.

@@ -319,6 +319,48 @@ final class OfflineTalkOutboxTests: XCTestCase {
         XCTAssertEqual(entries.first?.status, .pending)
     }
 
+    func testAmbiguousTransportRetainsOriginalWithoutAutomaticReplayAfterRelaunch() async throws {
+        let failures: [Error] = [URLError(.timedOut), URLError(.networkConnectionLost), URLError(.cancelled), CancellationError(), URLError(.notConnectedToInternet)]
+        for (index, failure) in failures.enumerated() {
+            let store = directory.appendingPathComponent("transport-\(index)")
+            let outbox = OfflineTalkOutbox(storageDirectory: store)
+            var request = URLRequest(url: URL(string: "https://them.test/talk")!)
+            request.httpMethod = "POST"
+            let key = "ambiguous-\(index)"
+            request.setValue(key, forHTTPHeaderField: "X-Idempotency-Key")
+            let owner = OfflineTalkOutbox.currentOwnerID()
+            if !owner.isEmpty { request.setValue(owner, forHTTPHeaderField: "X-User-Id") }
+            let body = Data("Do not duplicate my scene. 🎬\r\n".utf8)
+            let queued = try await outbox.enqueue(request: request, body: body, reason: "offline")
+            let first = await outbox.drainDue(now: Date().addingTimeInterval(10)) { replay in
+                XCTAssertEqual(replay.httpBody, body)
+                throw failure
+            }
+            let isAmbiguous = index < 4
+            XCTAssertEqual(first.parkedCount, isAmbiguous ? 1 : 0)
+            XCTAssertEqual(first.pendingCount, isAmbiguous ? 0 : 1)
+            let relaunched = OfflineTalkOutbox(storageDirectory: store)
+            var sends = 0
+            let transport: OfflineTalkOutbox.Transport = { replay in
+                sends += 1
+                XCTAssertEqual(replay.httpBody, body)
+                XCTAssertEqual(replay.value(forHTTPHeaderField: "X-Idempotency-Key"), key)
+                return OfflineTalkOutboxSendResult(statusCode: 200)
+            }
+            _ = await relaunched.drainDue(now: Date().addingTimeInterval(86_400), transport: transport)
+            XCTAssertEqual(sends, isAmbiguous ? 0 : 1)
+            if isAmbiguous {
+                let retained = await relaunched.allEntries()
+                XCTAssertEqual(retained.first?.id, queued.entry.id)
+                XCTAssertTrue(retained.first?.lastError?.contains("may already have been processed") == true)
+                _ = try await relaunched.retryParkedEntry(id: queued.entry.id, transport: transport)
+            }
+            XCTAssertEqual(sends, 1)
+            let remaining = await relaunched.allEntries()
+            XCTAssertTrue(remaining.isEmpty)
+        }
+    }
+
     func testRetryableFailureBacksOffThenDrainsOnLaterSuccess() async throws {
         let outbox = OfflineTalkOutbox(storageDirectory: directory)
         var request = URLRequest(url: URL(string: "https://them.test/talk")!)
