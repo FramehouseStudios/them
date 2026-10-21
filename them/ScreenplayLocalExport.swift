@@ -251,8 +251,6 @@ enum ScreenplayLocalExport {
             context.beginPDFPage(nil)
             context.saveGState()
             context.textMatrix = .identity
-            context.translateBy(x: 0, y: pageRect.height)
-            context.scaleBy(x: 1, y: -1)
             drawTitlePage(titlePage, in: context, pageRect: pageRect)
             context.restoreGState()
             context.endPDFPage()
@@ -265,10 +263,7 @@ enum ScreenplayLocalExport {
             context.beginPDFPage(nil)
             context.saveGState()
             context.textMatrix = .identity
-            context.translateBy(x: 0, y: pageRect.height)
-            context.scaleBy(x: 1, y: -1)
-
-            drawPageNumber(pageNumber, in: context)
+            drawPageNumber(pageNumber, in: context, pageHeight: pageRect.height)
 
             let path = CGPath(rect: contentRect, transform: nil)
             let frame = CTFramesetterCreateFrame(framesetter, currentRange, path, nil)
@@ -315,13 +310,13 @@ enum ScreenplayLocalExport {
                 .paragraphStyle: centered,
             ]))
         }
-        draw(titleBlock, in: CGRect(x: 72, y: 220, width: pageRect.width - 144, height: 240), context: context)
+        draw(titleBlock, in: ScreenplayPDFGeometry.fromTop(CGRect(x: 72, y: 220, width: pageRect.width - 144, height: 240), pageHeight: pageRect.height), context: context)
 
         if let contact = nonempty(titlePage.contact) {
             draw(NSAttributedString(string: contact, attributes: [
                 .font: bodyFont,
                 .foregroundColor: NSColor.black,
-            ]), in: CGRect(x: 72, y: 640, width: 230, height: 90), context: context)
+            ]), in: ScreenplayPDFGeometry.fromTop(CGRect(x: 72, y: pageRect.height - 152, width: 230, height: 90), pageHeight: pageRect.height), context: context)
         }
         if let draftDate = nonempty(titlePage.draftDate) {
             let right = NSMutableParagraphStyle()
@@ -330,11 +325,11 @@ enum ScreenplayLocalExport {
                 .font: bodyFont,
                 .foregroundColor: NSColor.black,
                 .paragraphStyle: right,
-            ]), in: CGRect(x: 310, y: 640, width: 230, height: 90), context: context)
+            ]), in: ScreenplayPDFGeometry.fromTop(CGRect(x: pageRect.width - 302, y: pageRect.height - 152, width: 230, height: 90), pageHeight: pageRect.height), context: context)
         }
     }
 
-    private static func drawPageNumber(_ page: Int, in context: CGContext) {
+    private static func drawPageNumber(_ page: Int, in context: CGContext, pageHeight: CGFloat) {
         let right = NSMutableParagraphStyle()
         right.alignment = .right
         let text = NSAttributedString(string: "\(page).", attributes: [
@@ -342,7 +337,7 @@ enum ScreenplayLocalExport {
             .foregroundColor: NSColor.black.withAlphaComponent(0.7),
             .paragraphStyle: right,
         ])
-        draw(text, in: CGRect(x: 108, y: 36, width: 400, height: 20), context: context)
+        draw(text, in: ScreenplayPDFGeometry.fromTop(CGRect(x: 108, y: 36, width: 400, height: 20), pageHeight: pageHeight), context: context)
     }
 
     private static func draw(_ text: NSAttributedString, in rect: CGRect, context: CGContext) {

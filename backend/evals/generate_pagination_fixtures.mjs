@@ -11,6 +11,9 @@ const out = path.resolve(__dirname, "..", "..", "docs", "pagination", "fixtures.
 
 const longSpeech = Array.from({ length: 9 }, (_, i) => `Sentence ${i + 1} of a speech that keeps going past the foot of the page because he cannot stop.`).join(" ");
 const drafts = {
+  title_only: { linesPerPage: 54, draft: "Title: ASHES\nAuthor: Zoë Chen\n\n" },
+  title_body_crlf: { linesPerPage: 54, draft: "Title: ASHES\r\nAuthor: Zoë Chen\r\n    \r\nTIME: Midnight.\r\n\r\nINT. CAFÉ - DAY\r\n\r\nZoë waits. 👩🏽‍🚀\r\n" },
+  title_body_nested_title: { linesPerPage: 54, draft: "Title: ASHES\n\nTitle: This is a sign in the scene.\n\nThe camera keeps moving." },
   raw_lines_120_at_55: { linesPerPage: 55, draft: Array.from({ length: 120 }, (_, i) => `line ${i + 1}`).join("\n") },
   kitchen_at_24: {
     linesPerPage: 24,

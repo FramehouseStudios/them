@@ -2,6 +2,27 @@ import Foundation
 import Testing
 @testable import ScreenplayStudio
 
+@Test func singleCRLFPrefixNeverDropsFirstSceneCharacter() throws {
+    let scene = "\r\nINT. CAFÉ - DAY\r\n\r\nZoë waits. 👩🏽‍🚀\r\n"
+    let result = try FountainTitlePageCodec.appendingFirstScene(scene, to: "Title: ASHES")
+    #expect(FountainTitlePageCodec.parse(result).scriptPageText == String(scene.dropFirst()))
+}
+
+@Test func whitespaceSeparatorEndsTitleBeforeColonBearingBody() {
+    for newline in ["\n", "\r\n", "\r"] {
+        let body = ["TIME: Midnight.", "", "Zoë waits. 👩🏽‍🚀", ""].joined(separator: newline)
+        let source = ["Title: ASHES", "    ", body].joined(separator: newline)
+        let parts = FountainTitlePageCodec.parse(source)
+        #expect(parts.scriptPageText == body)
+        #expect(parts.screenplayBodyStartLine == 3)
+        #expect(parts.titlePage?.additionalFields.isEmpty == true)
+        let sequence = ScreenplayEditorElement.inferredDocumentSequence(for: source)
+        #expect(sequence.count == 6)
+        #expect(sequence[0] == nil && sequence[1] == nil)
+        #expect(sequence[2] == .action)
+    }
+}
+
 @Test func parsesStandardLeadingFountainTitleMetadata() {
     let document = """
     Title:

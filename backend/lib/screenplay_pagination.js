@@ -20,6 +20,8 @@
 //     dialogue lines remain on both sides.
 //   - Long action blocks overflow line by line.
 
+import { splitFountainDocument } from "./fountain_import.js";
+
 export const LINES_PER_PAGE = 54;
 export const MIN_LINES_PER_PAGE = 24;
 export const MAX_LINES_PER_PAGE = 120;
@@ -146,28 +148,30 @@ function buildBlocks(lines, kinds, sourceOffset = 0) {
 
 export function paginateScreenplay(draft, { linesPerPage: requested } = {}) {
   const linesPerPage = clampLinesPerPage(requested);
-  const source = normalizeDraft(draft);
+  const document = splitFountainDocument(draft);
+  const source = normalizeDraft(document.scriptText);
   const normalized = source.trim();
   if (!normalized) {
     return { linesPerPage, lineCount: 0, renderedLineCount: 0, pages: [] };
   }
   const lines = normalized.split("\n");
   const kinds = classifyLines(lines);
-  const sourceOffset = source.match(/^\s*/u)[0].split("\n").length - 1;
+  const sourceOffset = document.documentLineOffset + source.match(/^\s*/u)[0].split("\n").length - 1;
   const blocks = buildBlocks(lines, kinds, sourceOffset);
 
   const pages = [];
-  let current = { number: 1, lines: [], sourceLines: [] };
+  let current = { number: 1, lines: [], sourceLines: [], sourceLineMap: [] };
   const count = () => current.lines.length;
   const closePage = () => {
     pages.push(current);
-    current = { number: pages.length + 1, lines: [], sourceLines: [] };
+    current = { number: pages.length + 1, lines: [], sourceLines: [], sourceLineMap: [] };
   };
   const place = (piece) => {
     current.lines.push(piece.text);
+    current.sourceLineMap.push(piece.sourceLine || null);
     if (piece.sourceLine) current.sourceLines.push(piece.sourceLine);
   };
-  const placeBlanks = (n) => { for (let i = 0; i < n; i += 1) current.lines.push(""); };
+  const placeBlanks = (n) => { for (let i = 0; i < n; i += 1) { current.lines.push(""); current.sourceLineMap.push(null); } };
   const blockNeed = (block, atTop) => (atTop ? 0 : SPACE_BEFORE[block.kind] || 0) + block.pieces.length;
 
   for (let b = 0; b < blocks.length; b += 1) {
@@ -192,6 +196,7 @@ export function paginateScreenplay(draft, { linesPerPage: requested } = {}) {
         const take = Math.min(linesPerPage - count() - 1, pieces.length - 2);
         for (const piece of pieces.slice(0, take)) place(piece);
         current.lines.push("(MORE)");
+        current.sourceLineMap.push(null);
         pieces = pieces.slice(take);
         closePage();
         place({ text: `${block.cue} (CONT'D)`, sourceLine: block.pieces[0].sourceLine });
@@ -243,6 +248,7 @@ export function paginateScreenplay(draft, { linesPerPage: requested } = {}) {
     endLine: page.sourceLines.length ? Math.max(...page.sourceLines) : 0,
     lineCount: page.lines.length,
     lines: page.lines,
+    sourceLineMap: page.sourceLineMap,
   }));
   return {
     linesPerPage,

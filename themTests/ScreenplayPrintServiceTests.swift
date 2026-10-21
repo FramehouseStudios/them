@@ -59,6 +59,10 @@ final class ScreenplayPrintServiceTests: XCTestCase {
         let pdf = try ScreenplayPrintService.makePDF(draft: draft, title: "Ashes")
         let document = try XCTUnwrap(PDFDocument(data: pdf))
         let titlePage = document.page(at: 0)?.string ?? ""
+        let sample = XCTAttachment(data: pdf, uniformTypeIdentifier: "com.adobe.pdf")
+        sample.name = "title-only-native"
+        sample.lifetime = .keepAlways
+        add(sample)
 
         XCTAssertEqual(document.pageCount, 1)
         XCTAssertTrue(titlePage.contains("ASHES"))
@@ -87,6 +91,10 @@ final class ScreenplayPrintServiceTests: XCTestCase {
         let document = try XCTUnwrap(PDFDocument(data: pdf))
         let titlePage = document.page(at: 0)?.string ?? ""
         let firstScriptPage = document.page(at: 1)?.string ?? ""
+        let sample = XCTAttachment(data: pdf, uniformTypeIdentifier: "com.adobe.pdf")
+        sample.name = "title-and-body-native"
+        sample.lifetime = .keepAlways
+        add(sample)
 
         XCTAssertEqual(document.pageCount, 2)
         XCTAssertTrue(titlePage.contains("ASHES"))

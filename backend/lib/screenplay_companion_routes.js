@@ -219,16 +219,6 @@ function mountScreenplayCompanionRoutes(app, deps = {}) {
       preview: buildDraftExcerpt(page.lines.join(" "), 140),
       est_minutes: paginationEstimatedMinutes(page.lineCount, paginated.linesPerPage),
     }));
-    if (pages.length === 0) {
-      pages.push({
-        page: 1,
-        start_line: 1,
-        end_line: 1,
-        line_count: 0,
-        preview: "",
-        est_minutes: 0,
-      });
-    }
     const lengthProfile = pages.length <= 2 ? "short" : (pages.length <= 6 ? "standard" : "long");
     return res.status(200).json({
       stage: "screenplay_paginate",
