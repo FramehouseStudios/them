@@ -8799,7 +8799,7 @@ actor BackendMemoryAPI {
             "title": title,
         ]
         request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await session.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
         guard let http = response as? HTTPURLResponse else {
             throw BackendMemoryAPIError.invalidResponse
         }
