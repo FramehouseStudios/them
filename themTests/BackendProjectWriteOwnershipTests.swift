@@ -151,6 +151,29 @@ final class BackendProjectWriteOwnershipTests: XCTestCase {
         XCTAssertEqual(state.requests().filter { $0.url?.path.hasSuffix("/version") == true }.count, 1)
     }
 
+    func testAccountDeletionCannotClearANewLoginDuringItsMainActorHop() async {
+        let state = ProjectWriteOwnershipState()
+        let owner = state.identity()
+        state.changeAfterNextSnapshot()
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [ProjectWriteOwnershipProtocol.self]
+        ProjectWriteOwnershipProtocol.handler = { request in
+            state.record(request)
+            return .json(#"{"ok":true}"#)
+        }
+        let api = BackendMemoryAPI(session: URLSession(configuration: configuration),
+            baseURL: URL(string: "https://project-write-ownership.test")!,
+            accountDeletionSessionHooks: .init(clearLocalSession: {
+                XCTFail("Superseded deletion cleared the new account's local session.")
+                return nil
+            }, clearAfterSuccessfulDeletion: { _ in false }),
+            requestIdentityProvider: { _ in state.identity() })
+        await assertSuperseded {
+            _ = try await api.requestAccountDeletion(proof: .password("fixture-only"), initiatingIdentity: owner)
+        }
+        XCTAssertTrue(state.requests().isEmpty, "A stale deletion must not reach transport.")
+    }
+
     func testVersionRetryUsesRefreshedTokenOnlyForTheSameLoginIntent() async throws {
         try await assertRefreshBoundary(changedOwner: false)
     }

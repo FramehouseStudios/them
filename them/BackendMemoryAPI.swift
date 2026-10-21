@@ -1823,98 +1823,6 @@ nonisolated struct BackendAuthUser: Codable, Hashable, Sendable {
     let updatedAt: TimeInterval?
 }
 
-nonisolated enum BackendAuthDebugSessionPolicy {
-    struct AutomationSessionOverride: Equatable, Sendable {
-        let userID: String
-        let clientToken: String
-        let accessToken: String
-
-        var user: BackendAuthUser {
-            BackendAuthUser(
-                userId: userID,
-                email: "",
-                authProvider: "debug",
-                emailVerified: true,
-                emailVerifiedAt: nil,
-                createdAt: nil,
-                updatedAt: nil
-            )
-        }
-
-        var sessionState: BackendAuthSessionState {
-            BackendAuthSessionState(
-                user: user,
-                accessTokenPresent: true,
-                refreshTokenPresent: false,
-                accessExpiresAt: 0,
-                refreshExpiresAt: 0,
-                currentSessionId: "",
-                currentFamilyId: "",
-                tokenType: "Bearer",
-                pendingEmailVerification: false,
-                verificationRequired: false
-            )
-        }
-    }
-
-    static func automationSessionOverride(
-        arguments: [String],
-        environment: [String: String]
-    ) -> AutomationSessionOverride? {
-        guard IOThemRuntime.isStudioAutomationArguments(arguments),
-              environmentFlagIsEnabled(environment["THEM_UITEST_AUTH_SIGNED_IN"]),
-              environmentFlagIsEnabled(environment["THEM_UITEST_AUTH_DEBUG_ACCESS_TOKEN_ENABLED"]) else {
-            return nil
-        }
-        let accessToken = normalizedEnvironmentValue(
-            environment["THEM_UITEST_AUTH_DEBUG_ACCESS_TOKEN"]
-        )
-        let userID = normalizedEnvironmentValue(environment["THEM_UITEST_USER_ID"])
-        let clientToken = normalizedEnvironmentValue(environment["THEM_UITEST_CLIENT_TOKEN"])
-        guard !accessToken.isEmpty, !userID.isEmpty, !clientToken.isEmpty else { return nil }
-        return AutomationSessionOverride(
-            userID: userID,
-            clientToken: clientToken,
-            accessToken: accessToken
-        )
-    }
-
-    static func shouldPersistSessionBootstrapIdentity(
-        arguments: [String],
-        environment: [String: String]
-    ) -> Bool {
-        automationSessionOverride(arguments: arguments, environment: environment) == nil
-    }
-
-    static func syntheticUser(
-        signedIn: Bool,
-        accessToken: String,
-        userID: String,
-        email: String
-    ) -> BackendAuthUser? {
-        let cleanToken = accessToken.trimmingCharacters(in: .whitespacesAndNewlines)
-        let cleanUserID = userID.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard signedIn, !cleanToken.isEmpty, !cleanUserID.isEmpty else { return nil }
-        let cleanEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
-        return BackendAuthUser(
-            userId: cleanUserID,
-            email: cleanEmail,
-            authProvider: "debug",
-            emailVerified: true,
-            emailVerifiedAt: nil,
-            createdAt: nil,
-            updatedAt: nil
-        )
-    }
-
-    private static func normalizedEnvironmentValue(_ raw: String?) -> String {
-        (raw ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private static func environmentFlagIsEnabled(_ raw: String?) -> Bool {
-        ["1", "true", "yes", "on"].contains(normalizedEnvironmentValue(raw).lowercased())
-    }
-}
 
 nonisolated struct BackendRememberedLoginCredentials: Codable, Equatable, Sendable {
     let email: String
@@ -4620,7 +4528,7 @@ nonisolated enum BackendAuthClient {
     }
 #endif
 
-    static func signUp(
+    @MainActor static func signUp(
         email: String,
         password: String,
         intent: BackendAuthOperationIntent,
@@ -4655,7 +4563,7 @@ nonisolated enum BackendAuthClient {
         }
     }
 
-    static func login(
+    @MainActor static func login(
         email: String,
         password: String,
         intent: BackendAuthOperationIntent,
@@ -4690,7 +4598,7 @@ nonisolated enum BackendAuthClient {
         }
     }
 
-    static func signInWithApple(
+    @MainActor static func signInWithApple(
         identityToken: String,
         authorizationCode: String? = nil,
         userIdentifier: String,
@@ -4791,7 +4699,10 @@ nonisolated enum BackendAuthClient {
         }
     }
 
-    private static func performRefreshAuthSession(
+    // Defaults mutations synchronously notify SwiftUI/KVO. Commit on the main
+    // actor, never with the auth queue held on a worker waiting for SwiftUI's
+    // graph lock while a view holds that lock and reads the auth queue.
+    @MainActor private static func performRefreshAuthSession(
         lease: BackendAuthSessionLease
     ) async throws -> BackendAuthSessionState {
         try await prepareVerifiedBackendForAuth()
@@ -4872,7 +4783,7 @@ nonisolated enum BackendAuthClient {
         }
     }
 
-    static func restorePersistedAuthSessionIfNeeded() async throws -> BackendAuthSessionState {
+    @MainActor static func restorePersistedAuthSessionIfNeeded() async throws -> BackendAuthSessionState {
         if authSessionTokenDeletionIsPending() {
             _ = retryPendingAuthSessionTokenDeletion()
             return currentAuthSessionState()
@@ -4883,7 +4794,7 @@ nonisolated enum BackendAuthClient {
         return try await refreshAuthSession(force: true)
     }
 
-    static func logout() async throws -> Bool {
+    @MainActor static func logout() async throws -> Bool {
         let local = authSessionStateQueue.sync { () -> (access: String, refresh: String, deleted: Bool) in
             let access = accessTokenLocked(defaults: .standard) ?? ""
             let refresh = refreshTokenLocked(defaults: .standard) ?? ""
@@ -5007,7 +4918,7 @@ nonisolated enum BackendAuthClient {
         return try await run(request, as: BackendAuthEnvelope.self)
     }
 
-    static func resetPassword(
+    @MainActor static func resetPassword(
         token: String,
         newPassword: String
     ) async throws -> BackendPasswordResetResult {
@@ -5117,7 +5028,7 @@ nonisolated enum BackendAuthClient {
             sessionStorageIsReadable
     }
 
-    static func requestEmailVerification(email: String? = nil) async throws -> BackendAuthEnvelope {
+    @MainActor static func requestEmailVerification(email: String? = nil) async throws -> BackendAuthEnvelope {
         let lease = captureAuthSessionLease()
         try await prepareVerifiedBackendForAuth()
         var request = try makeAuthWriteRequest(path: "/auth/request_email_verification")
@@ -5134,7 +5045,7 @@ nonisolated enum BackendAuthClient {
         return payload
     }
 
-    static func verifyEmail(token: String) async throws -> BackendAuthSessionState {
+    @MainActor static func verifyEmail(token: String) async throws -> BackendAuthSessionState {
         let lease = captureAuthSessionLease()
         try await prepareVerifiedBackendForAuth()
         var request = try makeAuthWriteRequest(path: "/auth/verify_email")
@@ -6123,6 +6034,12 @@ nonisolated enum BackendAuthClient {
     }
 
     #if DEBUG
+    static func seedStoredAuthUserForUITesting(_ user: BackendAuthUser) -> Bool {
+        guard BackendAuthDebugSessionPolicy.usesStoredCredentials(arguments: ProcessInfo.processInfo.arguments,
+            environment: ProcessInfo.processInfo.environment) else { return false }
+        return authSessionStateQueue.sync { persistAuthUser(user) }
+    }
+
     @discardableResult
     static func persistSharedAppTokenForUITesting(_ token: String) -> Bool {
         BackendCredentialMigration.writeString(
@@ -6780,7 +6697,9 @@ actor BackendMemoryAPI {
     private var latestCreativeMemoryRevision: String = ""
     private var inFlightStateVersions: Set<String> = []
     private var lastForcedSessionRefreshAt: Date?
-    private var didInjectExpiredScreenplaySaveAuthForUITest = false
+#if DEBUG
+    private var screenplaySaveAuthFault = ScreenplaySaveAuthFaultInjection()
+#endif
     private let forcedSessionRefreshCooldown: TimeInterval = 8
     private let sessionCacheTTL: TimeInterval = 90
     private let storedSessionRefreshSkew: TimeInterval = 30
@@ -7580,10 +7499,12 @@ actor BackendMemoryAPI {
 
     func requestAccountDeletion(
         reason: String = "",
-        proof: BackendAccountDeletionProof
+        proof: BackendAccountDeletionProof,
+        initiatingIdentity owner: BackendAuthRequestIdentity = BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: true)
     ) async throws -> BackendAccountDeletionResponse {
         let proofFields = try proof.requestFields()
-        var request = try makeWriteRequest(path: "/account")
+        try owner.requireCurrentOwner(requestIdentityProvider(false))
+        var request = try makeWriteRequest(path: "/account", identity: owner)
         request.httpMethod = "DELETE"
         let normalizedReason = reason.trimmingCharacters(in: .whitespacesAndNewlines)
         var body = proofFields
@@ -7592,11 +7513,15 @@ actor BackendMemoryAPI {
         // The fully authenticated request is captured first. Local secrets and
         // remembered credentials are then revoked before transport so a crash
         // or ambiguous network result cannot leave the account signed in.
-        let deletedUser = accountDeletionSessionHooks.clearLocalSession()
+        let hooks = accountDeletionSessionHooks, identityProvider = requestIdentityProvider
+        let deletedUser = try await MainActor.run {
+            try owner.requireCurrentOwner(identityProvider(false))
+            return hooks.clearLocalSession()
+        }
         invalidateReadCaches(clearSyncState: true)
         lastForcedSessionRefreshAt = nil
         let payload = try await run(request, as: BackendAccountDeletionResponse.self)
-        if accountDeletionSessionHooks.clearAfterSuccessfulDeletion(deletedUser) {
+        if await MainActor.run(body: { hooks.clearAfterSuccessfulDeletion(deletedUser) }) {
             invalidateReadCaches(clearSyncState: true)
             lastForcedSessionRefreshAt = nil
         }
@@ -8528,19 +8453,6 @@ actor BackendMemoryAPI {
         }
         let requestBody = try JSONSerialization.data(withJSONObject: payload, options: [])
 
-#if DEBUG
-        if IOThemRuntime.isRunningUITests,
-           ProcessInfo.processInfo.arguments.contains("--ui-screenplay-save-expire-auth-once"),
-           !didInjectExpiredScreenplaySaveAuthForUITest {
-            didInjectExpiredScreenplaySaveAuthForUITest = true
-            BackendUserDefaultsStore.set(
-                "expired-screenplay-save-access-token",
-                forKey: "auth_debug_access_token"
-            )
-            BackendUserDefaultsStore.set(true, forKey: "auth_debug_access_token_enabled")
-        }
-#endif
-
         var data = Data()
         var http: HTTPURLResponse?
         var didAttemptAuthRefresh = false
@@ -8555,6 +8467,9 @@ actor BackendMemoryAPI {
                 clientTokenOverride: clientTokenOverride
             )
             request.httpBody = requestBody
+#if DEBUG
+            screenplaySaveAuthFault.apply(to: &request)
+#endif
             let responsePair = try await session.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
             try owner.requireCurrentOwner(requestIdentityProvider(false))
             guard let response = responsePair.1 as? HTTPURLResponse else {

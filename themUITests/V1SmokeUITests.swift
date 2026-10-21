@@ -2470,6 +2470,16 @@ final class V1SmokeUITests: XCTestCase {
 
     @MainActor
     func test_screenplay_save_outbox_survives_relaunch_and_reconnects_once() async throws {
+        try await assertQueuedSaveRecoveryWithRealAuthRefresh(false)
+    }
+
+    @MainActor
+    func test_screenplay_save_outbox_refreshes_real_auth_and_restores_exact_words() async throws {
+        try await assertQueuedSaveRecoveryWithRealAuthRefresh(true)
+    }
+
+    @MainActor
+    private func assertQueuedSaveRecoveryWithRealAuthRefresh(_ expireAuth: Bool) async throws {
         let configuredPort = Int(
             ProcessInfo.processInfo.environment["THEM_UITEST_SCREENPLAY_SAVE_BACKEND_PORT"] ?? ""
         ) ?? 31337
@@ -2478,7 +2488,16 @@ final class V1SmokeUITests: XCTestCase {
             throw XCTSkip("Screenplay save recovery server is not running on \(baseURL.absoluteString).")
         }
 
-        let fixture = try await seedBackendRestoreContractFixture(baseURL: baseURL)
+        let fixture = try await seedBackendRestoreContractFixture(baseURL: baseURL, independentReader: expireAuth)
+        var refreshBaseline: [String: Any] = [:]
+        if expireAuth {
+            let baseline = try await requestJSON(baseURL: baseURL, path: "/__test/save-auth-refresh-stats",
+                method: "GET", headers: ["X-APP-TOKEN": fixture.appLaunchEnvironment["THEM_UITEST_APP_TOKEN"] ?? "them-dev"], body: nil)
+            try assertHTTP(baseline, context: "auth-refresh baseline")
+            refreshBaseline = baseline.payload
+        }
+        var recoveryEnvironment = fixture.appLaunchEnvironment
+        if expireAuth { recoveryEnvironment["THEM_UITEST_USE_STORED_AUTH_SESSION"] = "1" }
         let marker = "SAVE-OUTBOX-\(UUID().uuidString.uppercased())"
         let expectedQueuedDraft = "\(fixture.expectedDraft)\n\n\(marker)"
         var app = launchApp(
@@ -2487,7 +2506,7 @@ final class V1SmokeUITests: XCTestCase {
             restoreProjectID: fixture.projectID,
             restoreVersionID: fixture.versionID,
             restoreLoadToken: fixture.loadToken,
-            launchEnvironment: fixture.appLaunchEnvironment
+            launchEnvironment: recoveryEnvironment
         )
 
         XCTAssertTrue(app.otherElements["studio.surface"].waitForExistence(timeout: 12))
@@ -2512,8 +2531,9 @@ final class V1SmokeUITests: XCTestCase {
 
         app = launchApp(
             openStudio: true,
+            screenplaySaveExpireAuthOnce: expireAuth,
             resetState: false,
-            launchEnvironment: fixture.appLaunchEnvironment
+            launchEnvironment: recoveryEnvironment
         )
         defer { app.terminate() }
 
@@ -2538,7 +2558,7 @@ final class V1SmokeUITests: XCTestCase {
             headers: [
                 "X-APP-TOKEN": fixture.appLaunchEnvironment["THEM_UITEST_APP_TOKEN"] ?? "them-dev",
                 "X-Client-Token": fixture.appLaunchEnvironment["THEM_UITEST_CLIENT_TOKEN"] ?? "",
-                "Authorization": "Bearer \(fixture.appLaunchEnvironment["THEM_UITEST_AUTH_DEBUG_ACCESS_TOKEN"] ?? "")",
+                "Authorization": "Bearer \(fixture.readerAccessToken ?? fixture.appLaunchEnvironment["THEM_UITEST_AUTH_DEBUG_ACCESS_TOKEN"] ?? "")",
             ],
             body: nil,
             queryItems: [
@@ -2592,10 +2612,26 @@ final class V1SmokeUITests: XCTestCase {
             stringValue(recoveredVersion["client_request_id"] ?? recoveredVersion["clientRequestId"]).isEmpty,
             "The recovered version must retain its idempotency key."
         )
+        if expireAuth {
+            XCTAssertEqual(Data(((recoveredVersion["draft"] as? String) ?? "").utf8), Data(expectedRecoveredDraft.utf8))
+            app.terminate()
+            app = launchApp(openStudio: true, resetState: false, launchEnvironment: recoveryEnvironment)
+            XCTAssertTrue(waitForRestoreSnapshot(in: app, timeout: 25) { snapshot in
+                stringValue(snapshot["selected_project_id"]) == fixture.projectID
+                    && stringValue(snapshot["latest_version_id"]) == recoveredVersionID
+            })
+            XCTAssertEqual(Data(accessibleDraftText(in: app).utf8), Data(expectedRecoveredDraft.utf8))
+            let observed = try await requestJSON(baseURL: baseURL, path: "/__test/save-auth-refresh-stats",
+                method: "GET", headers: ["X-APP-TOKEN": fixture.appLaunchEnvironment["THEM_UITEST_APP_TOKEN"] ?? "them-dev"], body: nil)
+            try assertHTTP(observed, context: "real auth-refresh observation")
+            XCTAssertEqual(intValue(observed.payload["version401"]) - intValue(refreshBaseline["version401"]), 1, "Must observe the real rejected save, not a masked fixture.")
+            XCTAssertEqual(intValue(observed.payload["refresh200"]) - intValue(refreshBaseline["refresh200"]), 1, "Must observe a real successful auth refresh.")
+            XCTAssertEqual(intValue(observed.payload["freshBearerVersion201"]) - intValue(refreshBaseline["freshBearerVersion201"]), 1, "Exactly one save must use the bearer returned by real refresh.")
+        }
     }
 
     @MainActor
-    func test_screenplay_save_outbox_refreshes_auth_and_resolves_stale_conflict_once() async throws {
+    func test_screenplay_save_outbox_restores_conflict_choice_and_resolves_once() async throws {
         let configuredPort = Int(
             ProcessInfo.processInfo.environment["THEM_UITEST_SCREENPLAY_SAVE_BACKEND_PORT"] ?? ""
         ) ?? 31337
@@ -2664,7 +2700,6 @@ final class V1SmokeUITests: XCTestCase {
 
         app = launchApp(
             openStudio: true,
-            screenplaySaveExpireAuthOnce: true,
             resetState: false,
             launchEnvironment: fixture.appLaunchEnvironment
         )
@@ -2684,7 +2719,7 @@ final class V1SmokeUITests: XCTestCase {
                     && boolValue(snapshot["has_unsaved_draft_changes"])
                     && stringValue(snapshot["error_text"]).isEmpty
             },
-            "Expired auth was not refreshed into a clean stale-version decision. Snapshot: \(conflictSnapshot)"
+            "Queued draft did not restore a clean stale-version decision. Snapshot: \(conflictSnapshot)"
         )
 
         let preResolutionProject = try await requestJSON(
@@ -5291,6 +5326,7 @@ final class V1SmokeUITests: XCTestCase {
         let expectedCanonCorrectionText: String
         let expectedRetiredCanonFacts: [String]
         let appLaunchEnvironment: [String: String]
+        var readerAccessToken: String? = nil
     }
 
     /// Live typing between devices: this simulator and the macOS scaffold
@@ -5688,7 +5724,7 @@ final class V1SmokeUITests: XCTestCase {
         )
     }
 
-    private func seedBackendRestoreContractFixture(baseURL: URL) async throws -> RestoreContractFixture {
+    private func seedBackendRestoreContractFixture(baseURL: URL, independentReader: Bool = false) async throws -> RestoreContractFixture {
         let appToken = "them-dev"
         let stamp = "\(Int(Date().timeIntervalSince1970 * 1000))-\(UUID().uuidString.prefix(6).lowercased())"
         let projectID = "studio-ios-restore-\(stamp)"
@@ -5762,6 +5798,17 @@ final class V1SmokeUITests: XCTestCase {
             signup.payload["refreshToken"],
             message: "Signup did not return a refresh token."
         )
+        var readerAccessToken: String?
+        if independentReader {
+            // Rotation revokes the original session. Verify server bytes through
+            // a separate real session, never a test-only authorization bypass.
+            let reader = try await requestJSON(baseURL: baseURL, path: "/auth/login", method: "POST",
+                headers: ["X-APP-TOKEN": appToken], body: [
+                    "email": "studio-ios-restore-\(stamp)@example.test", "password": "ThemRestore-\(stamp)-aA1!",
+                ])
+            try assertHTTP(reader, context: "independent recovery reader")
+            readerAccessToken = try firstNonEmptyString(reader.payload["access_token"], reader.payload["accessToken"], message: "Reader needs a real access token")
+        }
         let userID = try firstNonEmptyString(
             user["id"],
             user["user_id"],
@@ -5932,7 +5979,7 @@ final class V1SmokeUITests: XCTestCase {
                 "THEM_UITEST_STUDIO_ASK_NOTE_HISTORY_JSON": askHistoryJSON,
                 "THEM_UITEST_STUDIO_DIFF_ACKNOWLEDGED_JSON": acknowledgedJSON,
                 "THEM_UITEST_STUDIO_DIFF_ACKNOWLEDGED_WRITEIDS_JSON": acknowledgedWriteIDsJSON,
-            ]
+            ], readerAccessToken: readerAccessToken
         )
     }
 
