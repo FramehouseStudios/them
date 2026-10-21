@@ -5100,7 +5100,7 @@ private var projectsSidebarContent: some View {
             ),
             pages: ScreenplayStudioDraftPagesPresentation(
                 isRefreshing: vm.isPaginationRefreshing,
-                isDraftEmpty: isDraftEmpty,
+                isDraftEmpty: vm.localPaginationPages.isEmpty,
                 errorText: vm.paginationErrorText,
                 pages: draftPaginationPagePresentations
             ),
@@ -5122,7 +5122,7 @@ private var projectsSidebarContent: some View {
             let page = layoutPage.backendPage(linesPerPage: vm.linesPerPage)
             return ScreenplayStudioPaginationPagePresentation(
                 page: page,
-                thumbnailLines: ScreenplayStudioDraftToolsPresentationPlanner.paginationThumbnailLines(
+                thumbnailLines: ScreenplayStudioDraftToolsPresentationPlanner.paginationPreviewLines(
                     for: page,
                     draft: vm.fountainDraft
                 ),

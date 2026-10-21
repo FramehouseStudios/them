@@ -72,3 +72,21 @@ globalThis.fetch = async (input, options = {}) => {
   }
   throw new Error(`External network blocked by deterministic proof fixture: ${u.hostname}${u.pathname}`);
 };
+
+// Test-only observation of the real stateless pagination route. No screenplay,
+// identity or credentials are logged; this is not a mocked pagination response.
+if (process.env.THEM_PAGE_NAVIGATOR_PROOF === '1') {
+  const { app } = await import('../app.js');
+  let requests = 0;
+  let successes = 0;
+  app.get('/__test/page-navigator-stats', (_req, res) => res.json({ requests, successes }));
+  app.use((req, res, next) => {
+    if (req.method === 'POST' && req.path === '/screenplay/paginate') {
+      requests += 1;
+      res.once('finish', () => {
+        if (res.statusCode === 200) { successes += 1; process.stdout.write('[proof-provider] observed_pagination_200\n'); }
+      });
+    }
+    next();
+  });
+}

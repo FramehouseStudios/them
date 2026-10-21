@@ -16,6 +16,20 @@ import {
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const fixturesPath = path.resolve(__dirname, "..", "..", "docs", "pagination", "fixtures.json");
 
+test("[pagination] a heading cannot be stranded by an oversized following action paragraph", () => {
+  for (const density of [24, 54]) {
+    for (const count of [density, density + 11, density * 3]) {
+      const action = Array.from({ length: count }, (_, i) => `Action${i + 1}.`);
+      const result = paginateScreenplay("Title: ASHES\n\nINT. A - DAY\n\n" + action.join("\n"), { linesPerPage: density });
+      assert.equal(result.pages[0].lines[0], "INT. A - DAY");
+      assert.ok(result.pages[0].lines.includes("Action1."));
+      assert.ok(result.pages.every(page => page.lines.length <= density));
+      assert.deepEqual(result.pages.flatMap(page => page.lines).filter(line => line.startsWith("Action")), action);
+      assert.ok(result.pages.every(page => !page.lines.at(-1)?.startsWith("INT.")));
+    }
+  }
+});
+
 test("[pagination] page model constants follow the Letter/Final Draft rules", () => {
   assert.equal(LINES_PER_PAGE, 54);
   assert.deepEqual(CHARS_PER_LINE, { sceneHeading: 62, action: 62, character: 41, dialogue: 36, parenthetical: 26, transition: 21, blank: 62 });

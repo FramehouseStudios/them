@@ -172,7 +172,9 @@ struct ScreenplayPageLayout {
             let sb = atTop ? 0 : spaceBefore(block.kind)
             var need = sb + block.pieces.count
             if block.kind == .sceneHeading, b + 1 < blocks.count {
-                need += blockNeed(blocks[b + 1], atTop: false)
+                let next = blocks[b + 1]
+                let nextNeed = blockNeed(next, atTop: false)
+                need += nextNeed <= linesPerPage - block.pieces.count ? nextNeed : min(nextNeed, next.kind == .character ? 5 : 3)
             }
             let remaining = linesPerPage - currentLines.count
 
@@ -194,18 +196,25 @@ struct ScreenplayPageLayout {
                 continue
             }
 
-            if !atTop, need > remaining {
+            let followsHeading = b > 0 && blocks[b - 1].kind == .sceneHeading && !currentLines.isEmpty
+            if !atTop, need > remaining, !followsHeading {
                 closePage()
             }
 
             var pieces = block.pieces
-            if currentLines.isEmpty, pieces.count > linesPerPage {
-                while pieces.count > linesPerPage {
-                    for piece in pieces.prefix(linesPerPage) { place(piece) }
-                    closePage()
-                    pieces = Array(pieces.dropFirst(linesPerPage))
+            if (currentLines.isEmpty && pieces.count > linesPerPage) || (followsHeading && need > remaining) {
+                if !currentLines.isEmpty {
+                    let spacing = spaceBefore(block.kind)
+                    if spacing >= linesPerPage - currentLines.count { closePage() }
+                    else { placeBlanks(spacing) }
                 }
-                for piece in pieces { place(piece) }
+                while !pieces.isEmpty {
+                    let take = min(linesPerPage - currentLines.count, pieces.count)
+                    if take == 0 { closePage(); continue }
+                    for piece in pieces.prefix(take) { place(piece) }
+                    pieces = Array(pieces.dropFirst(take))
+                    if !pieces.isEmpty { closePage() }
+                }
                 continue
             }
             if !currentLines.isEmpty {

@@ -45,6 +45,131 @@ final class V1SmokeUITests: XCTestCase {
 #endif
     }
 
+    @MainActor
+    func test_pages_navigator_controls_jump_and_preserve_source() async throws {
+#if os(iOS)
+        continueAfterFailure = false
+        guard let port = Int(ProcessInfo.processInfo.environment["THEM_UITEST_WRITER_LOOP_BACKEND_PORT"] ?? ""), (1...65_535).contains(port) else {
+            throw XCTSkip("Dedicated Pages HTTP producer required; strict local runner rejects skips.")
+        }
+        let base = try XCTUnwrap(URL(string: "http://127.0.0.1:\(port)"))
+        let probe = try await requestJSON(baseURL: base, path: "/__test/page-navigator-stats", method: "GET", headers: ["X-APP-TOKEN": "them-dev"], body: nil)
+        guard probe.status == 200 else { throw XCTSkip("Pages observation fixture is not configured; strict producer requires a real route pass.") }
+        let fixture = try await createWriterLoopAuthenticationFixture(baseURL: base)
+        let projectID = "pages-ui-\(UUID().uuidString.lowercased())"
+        let created = try await requestJSON(baseURL: base, path: "/screenplay/projects", method: "POST", headers: fixture.authorizedHeaders, body: ["project_id": projectID, "title": "Pages navigator proof", "activate": true])
+        try assertHTTP(created, context: "Pages project")
+        let draft = (["Title: NIGHT SIGNAL", "Author: Zoë Chen", "", "INT. OBSERVATORY - NIGHT", ""] + (1...65).map { "Action\($0)." }).joined(separator: "\n")
+        let saved = try await requestJSON(baseURL: base, path: "/screenplay/projects/\(projectID)/version", method: "POST", headers: fixture.authorizedHeaders, body: ["draft": draft, "phase": "scene_draft", "base_version_id": ""])
+        try assertHTTP(saved, context: "Pages saved source")
+        let versionID = try firstNonEmptyString(saved.payload["version_id"], saved.payload["server_version_id"], message: "Pages version missing")
+        let app = launchApp(openStudio: true, restoreProjectID: projectID, restoreVersionID: versionID, restoreLoadToken: Int(Date().timeIntervalSince1970), launchEnvironment: fixture.appLaunchEnvironment)
+        defer { app.terminate() }
+        guard waitForDraft(in: app, containing: "Action65.", timeout: 20) else {
+            XCTFail("Restored Pages source must be readable before opening the inspector.")
+            return
+        }
+        guard dismissKeyboardTypingTutorialIfPresent(in: app) else { return }
+        XCTAssertEqual(Array(accessibleDraftText(in: app).utf8), Array(draft.utf8), "Restored source must be exact before any page action")
+        let inspectorToggle = app.buttons["studio.sidebar.right.toggle"]
+        XCTAssertTrue(waitForHittability(of: inspectorToggle, timeout: 5), "Pages inspector toggle must be reachable")
+        inspectorToggle.tap()
+        let drawer = element(identifier: "studio.sidebar.right.drawer", in: app)
+        XCTAssertTrue(drawer.waitForExistence(timeout: 8))
+        let draftTab = app.buttons["studio.right-panel.draft"]
+        XCTAssertTrue(waitForHittability(of: draftTab, timeout: 5), "Select the actual Draft inspector")
+        draftTab.tap()
+        let pagesTab = app.buttons["studio.draft.tools.pages"]
+        XCTAssertTrue(revealInStudioDrawer(pagesTab, drawer: drawer, scrollingUp: true, maxSwipes: 8, fullyVisible: true), "Draft must reveal the Pages tab")
+        pagesTab.tap()
+        let summary = app.staticTexts["studio.draft.pages.summary"]
+        XCTAssertTrue(revealInStudioDrawer(summary, drawer: drawer, scrollingUp: true, maxSwipes: 8, fullyVisible: true), "Pages summary must be visible after Draft → Pages")
+        XCTAssertTrue(app.staticTexts["studio.draft.pages.runtime"].label.contains("Estimated screenplay time"))
+        let previous = app.buttons["studio.draft.pages.previous"]
+        let next = app.buttons["studio.draft.pages.next"]
+        if previous.isEnabled {
+            XCTAssertTrue(revealInStudioDrawer(previous, drawer: drawer, scrollingUp: true, maxSwipes: 4, fullyVisible: true), "Initial previous control")
+            previous.tap()
+            guard dismissKeyboardTypingTutorialIfPresent(in: app) else { return }
+        }
+        XCTAssertEqual(summary.label, "Page 1 of 2")
+        let summaryImage = XCTAttachment(screenshot: app.screenshot())
+        summaryImage.name = "Pages summary and navigation"
+        summaryImage.lifetime = .keepAlways
+        add(summaryImage)
+        XCTAssertFalse(previous.isEnabled)
+        XCTAssertTrue(revealInStudioDrawer(next, drawer: drawer, scrollingUp: true, maxSwipes: 4, fullyVisible: true))
+        next.tap()
+        guard dismissKeyboardTypingTutorialIfPresent(in: app) else { return }
+        XCTAssertEqual(summary.label, "Page 2 of 2")
+        XCTAssertFalse(next.isEnabled)
+        XCTAssertTrue(revealInStudioDrawer(previous, drawer: drawer, scrollingUp: false, maxSwipes: 4, fullyVisible: true))
+        previous.tap()
+        guard dismissKeyboardTypingTutorialIfPresent(in: app) else { return }
+        XCTAssertEqual(summary.label, "Page 1 of 2")
+        let decrease = app.buttons["studio.draft.pages.density.decrease"]
+        let increase = app.buttons["studio.draft.pages.density.increase"]
+        let standard = app.buttons["studio.draft.pages.density.standard"]
+        let density = app.staticTexts["studio.draft.pages.density.value"]
+        XCTAssertTrue(revealInStudioDrawer(decrease, drawer: drawer, scrollingUp: true, maxSwipes: 5, fullyVisible: true))
+        decrease.tap()
+        XCTAssertEqual(density.label, "53 lines per page")
+        XCTAssertTrue(revealInStudioDrawer(increase, drawer: drawer, scrollingUp: true, maxSwipes: 3, fullyVisible: true))
+        increase.tap()
+        XCTAssertEqual(density.label, "54 lines per page")
+        decrease.tap()
+        XCTAssertTrue(revealInStudioDrawer(standard, drawer: drawer, scrollingUp: true, maxSwipes: 3, fullyVisible: true))
+        standard.tap()
+        XCTAssertEqual(density.label, "54 lines per page")
+        let controlsImage = XCTAttachment(screenshot: app.screenshot())
+        controlsImage.name = "Pages readable controls"
+        controlsImage.lifetime = .keepAlways
+        add(controlsImage)
+        let recalculate = app.buttons["studio.draft.pages.recalculate"]
+        XCTAssertTrue(revealInStudioDrawer(recalculate, drawer: drawer, scrollingUp: true, maxSwipes: 4, fullyVisible: true))
+        var before = try await requestJSON(baseURL: base, path: "/__test/page-navigator-stats", method: "GET", headers: fixture.authorizedHeaders, body: nil)
+        for _ in 0..<10 {
+            try await Task.sleep(for: .milliseconds(200))
+            let stable = try await requestJSON(baseURL: base, path: "/__test/page-navigator-stats", method: "GET", headers: fixture.authorizedHeaders, body: nil)
+            if intValue(stable.payload["requests"]) == intValue(before.payload["requests"]) { before = stable; break }
+            before = stable
+        }
+        recalculate.tap()
+        var after = before
+        let deadline = Date().addingTimeInterval(8)
+        while Date() < deadline {
+            after = try await requestJSON(baseURL: base, path: "/__test/page-navigator-stats", method: "GET", headers: fixture.authorizedHeaders, body: nil)
+            if intValue(after.payload["successes"]) > intValue(before.payload["successes"]) { break }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        XCTAssertEqual(intValue(after.payload["requests"]), intValue(before.payload["requests"]) + 1, "One press must deliver one actual pagination request")
+        XCTAssertEqual(intValue(after.payload["successes"]), intValue(before.payload["successes"]) + 1, "Real pagination must return200")
+        XCTAssertFalse(element(identifier: "studio.draft.pages.error", in: app).exists)
+        let second = app.buttons["studio.draft.page.2"]
+        XCTAssertTrue(revealInStudioDrawer(second, drawer: drawer, scrollingUp: true, maxSwipes: 10, fullyVisible: true))
+        XCTAssertGreaterThan(second.frame.width, 180)
+        let cardImage = XCTAttachment(screenshot: app.screenshot())
+        cardImage.name = "Pages full-width cards"
+        cardImage.lifetime = .keepAlways
+        add(cardImage)
+        second.tap()
+        guard dismissKeyboardTypingTutorialIfPresent(in: app) else { return }
+        XCTAssertTrue(second.isSelected)
+        XCTAssertTrue(revealInStudioDrawer(summary, drawer: drawer, scrollingUp: false, maxSwipes: 10, fullyVisible: true))
+        XCTAssertEqual(summary.label, "Page 2 of 2")
+        app.buttons["studio.sidebar.right.toggle"].tap()
+        XCTAssertEqual(Array(accessibleDraftText(in: app).utf8), Array(draft.utf8), "Navigation/density/recalculate cannot alter writer text")
+        let restored = try await requestJSON(baseURL: base, path: "/screenplay/projects/\(projectID)", method: "GET", headers: fixture.authorizedHeaders, body: nil, queryItems: [URLQueryItem(name: "include_drafts", value: "1")])
+        try assertHTTP(restored, context: "Pages retained source")
+        let project = restored.payload["project"] as? [String: Any] ?? [:]
+        let versions = project["versions"] as? [[String: Any]] ?? []
+        XCTAssertEqual(versions.count, 1, "Read-only page controls must not save another version")
+        XCTAssertEqual(stringValue(versions.first?["draft"]), draft)
+#else
+        throw XCTSkip("Dedicated narrow iPhone navigator proof")
+#endif
+    }
+
     func test_studio_home_counts_printed_pages_and_opens_numbered_page_overview() throws {
 #if os(iOS)
         let app = launchApp(openStudio: true)
