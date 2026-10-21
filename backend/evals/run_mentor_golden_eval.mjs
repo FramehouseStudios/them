@@ -36,7 +36,8 @@ const mentorCore = fs.readFileSync(MENTOR_CORE_PATH, "utf8").trim();
 // Mirrors HerVoiceSpec.scenePitchBlock for the fresh-session case. The Swift
 // literal is the app's source; keep the intent identical.
 const SCENE_PITCH_FRESH = `SCENE PITCH (standing collaborator rule):
-- This is the first exchange of the session. Before anything else, pitch one scene unprompted, even if the user only said hello or asked you to talk. This outranks CASUAL CONVERSATION MODE for this turn.
+- This is the first exchange of the session. If the user only greets you, asks you to talk, or asks what to write, offer one concrete scene pitch. This outranks CASUAL CONVERSATION MODE for those open invitations only.
+- A specific request comes first: answer a craft question, discuss the writer's scene, or follow their editing instruction directly. Never interrupt that request with an unsolicited scene pitch or require permission to begin work they already asked for.
 - A pitch is concrete: a specific place and time of day, two named characters, what one of them wants right now, and the one thing in the way. Two or three spoken sentences, like a collaborator across the table, not a logline generator.
 - End the pitch with one question that hands them the wheel: which part they want to build, or what they were already carrying in.
 - When the user brings a scene idea of their own, build on theirs. Keep their premise, setting, and characters as the spine and add one concrete beat, complication, image, or line that makes it more playable. Never swap in your pitch over their idea or restart from a blank page.
@@ -100,6 +101,10 @@ function writeReport(report) {
 }
 
 const cases = only ? CASES.filter((c) => c.id === only || c.category === only) : CASES;
+if (!cases.length) {
+  console.error("MENTOR GOLDEN BLOCKED: --only must match a case id or category.");
+  process.exit(2);
+}
 let ok = true;
 
 if (!live) {
@@ -125,6 +130,8 @@ if (!live) {
     ["no check-in order", !prompt.includes("start line 1 with a short day/feeling check-in question")],
     ["no 2–3 line cap", !prompt.includes("Target 2–3 short lines")],
     ["scene pitch on fresh sessions", prompt.includes("SCENE PITCH (standing collaborator rule)")],
+    ["specific requests outrank pitches", prompt.includes("A specific request comes first")],
+    ["flexible 120-page recommendation", prompt.includes("Recommend a 120-page three-act feature") && prompt.includes("never pad or truncate")],
   ];
   for (const [label, pass] of checks) {
     if (!pass) ok = false;
@@ -137,6 +144,10 @@ if (!live) {
 }
 
 // ---- live mode ----
+if (process.env.MENTOR_GOLDEN_LIVE_APPROVED !== "1") {
+  console.error("MENTOR GOLDEN LIVE BLOCKED: obtain fresh human approval for this scope, then set MENTOR_GOLDEN_LIVE_APPROVED=1 for that invocation only.");
+  process.exit(2);
+}
 const apiKey = String(process.env.OPENAI_API_KEY || "").trim();
 if (!apiKey) {
   console.error("MENTOR GOLDEN LIVE BLOCKED: OPENAI_API_KEY is required.");
@@ -169,11 +180,15 @@ for (const testCase of cases) {
     console.log(`      reply: ${reply.replace(/\s+/g, " ").slice(0, 320)}`);
   }
   results.push({ id: testCase.id, category: testCase.category, reply, error, ...scored });
+  if (error || !reply.trim()) {
+    console.error("MENTOR GOLDEN LIVE STOPPED: provider failed or returned empty output; remaining cases were not called.");
+    break;
+  }
 }
-const summary = { mode: "live", model: "rich", ...summarize(results) };
+const summary = { mode: "live", model: "rich", requestedCases: cases.length, ...summarize(results) };
 const REGISTER_FLOOR = 3.5;
 const registerFloor = results.every((r) => (r.dimensions?.register?.score ?? 0) >= REGISTER_FLOOR);
-const gate = summary.passRate >= 0.8 && summary.fail === 0 && registerFloor;
+const gate = results.length === cases.length && summary.passRate >= 0.8 && summary.fail === 0 && registerFloor;
 writeReport({ generatedAt: new Date().toISOString(), thresholds: THRESHOLDS, gate: { passRateMin: 0.8, failMax: 0, registerMin: REGISTER_FLOOR, ok: gate }, summary, results });
 console.log(`live: ${summary.pass}/${summary.total} PASS (${Math.round(summary.passRate * 100)}%), ${summary.fail} FAIL, register floor ${registerFloor ? "met" : "MISSED"}`);
 console.log(JSON.stringify(summary.byCategory));

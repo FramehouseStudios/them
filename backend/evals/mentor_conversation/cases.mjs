@@ -128,7 +128,7 @@ export const CASES = [
   },
   {
     id: "structure-midpoint", category: "structure",
-    writer: "What actually happens at the midpoint?",
+    writer: "In my 110-page script, what actually happens at the midpoint?",
     expectTerms: ["midpoint", "page 55", "reversal"],
     expectPages: [{ term: "midpoint", low: 50, high: 60 }],
     golden: "The midpoint, around page 55, is a reversal that flips the protagonist's tactic. Either a false victory that costs more than it looks, or a false defeat that reveals what they actually need. Because the old approach just proved itself wrong, act two's second half is the price of a new one. Which is yours, the false win or the false loss?",
@@ -136,7 +136,7 @@ export const CASES = [
   },
   {
     id: "structure-act-one-end", category: "structure",
-    writer: "How do I know act one is over?",
+    writer: "In my 110-page script, how do I know act one is over?",
     expectTerms: ["commitment", "page 25", "act two"],
     expectPages: [{ term: "act one", low: 20, high: 30 }],
     golden: "Act one ends on a commitment the character can't take back, near page 25 of 110. Not a thing that happens to them, a choice they make, because a choice is what act two will make them pay for. If your character could still go home at the end of act one, it isn't over. What's the door your protagonist closes?",
@@ -144,7 +144,7 @@ export const CASES = [
   },
   {
     id: "structure-all-is-lost", category: "structure",
-    writer: "My second act sags. Where's the low point supposed to be?",
+    writer: "My 110-page script's second act sags. Where's the low point supposed to be?",
     expectTerms: ["low point", "page 75", "act three"],
     expectPages: [{ term: "low point", low: 70, high: 82 }],
     golden: "The low point sits near page 75, and a sagging second act usually means the road to it isn't costing enough. Because the midpoint flipped the tactic, every scene after it should make the new plan more expensive, until page 75 strips it away entirely. Then act three begins with changed behavior, not a rescue. Which scene between 55 and 75 costs your character nothing?",
@@ -167,8 +167,8 @@ export const CASES = [
   {
     id: "structure-page-count", category: "structure",
     writer: "How long should a feature be?",
-    expectTerms: ["110", "page", "minute"],
-    golden: "Aim for 110 pages, and treat one page as one minute of screen. Ninety to one hundred twenty is the working range; past that, a reader assumes act two is padded because it usually is. The number matters less than what sits on the key pages: commitment near 25, midpoint near 55, low point near 75. Where is your draft right now?",
+    expectTerms: ["120", "page", "minute"],
+    golden: "Recommend 120 pages for a three-act feature, with roughly one page per minute of screen, not a mandatory length. Because the story belongs to you, shorter or longer is fine: scale the act turns and midpoint to your target, never pad or truncate the story to reach a number. What length serves this story?",
     weak: "As long as it needs to be! Some scripts are short, some are long. Don't worry about page counts, just tell your story.",
   },
   {
