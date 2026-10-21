@@ -40,9 +40,9 @@
 ### T-1097 — Finish source-preserving page-contract reconciliation
 
 - **Owner:** codex. **Branch:** `codex/T-1097-source-page-contract`.
-- **Status:** in-progress (source/title/export checkpoint proven, not landed).
+- **Status:** review (source/consumer reconciliation locally proven, not landed).
   **Pillar:** durable writer words / pages.
-- **Observed:** original #613 `4143d9c3` remains open and absent here; title
+- **Initial finding at75632c3:** original #613 `4143d9c3` was absent here; title
   metadata can still count as screenplay. Production live-paper imports the
   legacy scene-splitting page_flip helper. Its edit consumer reconstructs draft
   text from page strings, so a blind swap to rendered pages risks source loss.
@@ -66,11 +66,20 @@
   UI1/0/0. macOS/D009/diff pass. Prior failed assertions and upside-down PDFs
   retained. No fresh full themTests, paid-model, physical-phone or main claim.
 - **Evidence:** `docs/title-source-pages-2026-10-21.md`.
-- **Still active:** derived collaboration cursor still uses raw55; live-paper
-  attachment is duplicated in the debug talk branch and receives metadata,
-  not an authoritative complete draft. Swift's two live-paper views have no
-  actual header consumer. Do not call those features connected. Resolve the
-  remaining consumer contract before claiming T-1097 finished; T-1098 follows.
+- **Consumer follow-up:** `e32ade0` replaces raw55-derived cursors with canonical
+  layout hints, rejects invalid coordinates, and labels their non-authoritative
+  source. Removed duplicate debug metadata emitter and unused post-serialization
+  embedding; metadata explicitly declares pagination unavailable. The existing
+  editor remains the sole live document owner, not the unmounted legacy views.
+  Voice-profile lookup reuses the handler's canonical trusted identity, never a
+  caller body ownerKey. This is not a claim of a new collaboration feature.
+- **Import follow-up:** actual CRLF print regression red0/1 -> focused12/0/0.
+  Normalize the derived print copy once for all CoreText ranges/scans, never
+  stored words. All120 markers survive once; LF/CRLF/CR have identical text AND
+  all9 page PNGs. Node20 full2861/0/2; D009/diff pass. Exact follow-up evidence
+  and limitations: `docs/page-consumer-reconciliation-2026-10-21.md`.
+- **Next:** T-1098 narrow Pages inspector, then original #643. Main/production/
+  physical-phone gates remain; no parallel writer or new state framework.
 
 ### T-1098 — Readable narrow Pages navigator
 
