@@ -8,10 +8,11 @@
 ### T-1084 — Preserve redirect security on the corrected save/editor foundation
 
 - **Owner:** codex. **Branch:** `codex/T-1084-security-foundation-sync`.
-- **Status:** in-progress. **Pillar:** trusted sign-in and durable writer words.
+- **Status:** review (local scoped proof passed; original remote unchanged).
+  **Pillar:** trusted sign-in and durable writer words.
 - **Boundary:** preserve original #973 `fc759311` and its stopped local
   rehearsal `9f54c297`, then merge corrected editor preparation `4806f4e9`.
-  Keep both task histories and all original implementation; no remote change.
+  Keep both task histories and all original implementation; no original PR head change.
 - **Target:** unchanged strict pre-forward redirect guard and all canonical
   call sites with current security dependencies, save slot, atomic held saves,
   loaded-page/stale-observer/conflict recovery and the original editor.
@@ -21,6 +22,17 @@
 - **Hold:** original #973's older hosted recovery red is retained. Fresh
   landing-head CI/review required after protected lower parents land; no
   replacement PR, force push, squash, main or production action.
+- **Verified:** preserving merge `405cbc0b`; guard/call sites/fixtures match
+  original973 exactly; model/editor/queue/security dependencies match corrected
+  parent exactly. Host wire8/zero foreign requests, Node20 coverage2/0/0,
+  signed native redirect5/0/0 and selected authenticated recovery1/0/0.
+  Five actual-parent D009 deltas0/diff pass. No full local suite or paid call.
+- **Next:** reconcile the already-preserved original #625 billing fix with
+  this prepared foundation while the protected merge awaits human review.
+- **Evidence:** `docs/redirect-foundation-sync-2026-10-20.md`.
+- **Backup scope:** publish this prepared task branch only, without a replacement
+  PR or original-head update. Existing workflow push filters do not schedule
+  the full required/live release suites for this non-main, non-tag branch.
 
 ### T-1071 — Preserve corrected recovery under the redirect boundary
 
