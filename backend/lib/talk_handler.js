@@ -3170,7 +3170,8 @@ function createTalkHandler(deps) {
           res.setHeader("x-screenplay-output", encodeURIComponent(screenplayOutputJson));
         }
       }
-      // Studio Live Paper — D009 strangler: project.logline/synopsis/beats/characterContexts via pure helper
+      // Legacy debug metadata only. The canonical editor owns live text;
+      // this response has no authoritative complete draft to paginate.
       try {
         const _livePaperSource = (() => {
           // Prefer merged studioMeta + memory project if available
@@ -3186,55 +3187,20 @@ function createTalkHandler(deps) {
           };
         })();
         const _livePaper = buildLivePaperPayload(_livePaperSource);
-        // Embed into output for Bridge fallback (non-breaking)
-        if (talkScreenplayOutput && typeof talkScreenplayOutput === "object" && !_livePaper.__embedded) {
-          talkScreenplayOutput.livePaper = _livePaper;
-        }
         const _livePaperJson = JSON.stringify(_livePaper);
         if (_livePaperJson.length <= 8000) {
           res.setHeader("x-live-paper", encodeURIComponent(_livePaperJson));
-          // Also keep per-field headers for lightweight clients (Bridge can use either)
+          // Preserve legacy metadata headers, not a second editor/state owner.
           if (_livePaper.logline) res.setHeader("x-live-paper-logline", encodeURIComponent(_livePaper.logline.slice(0, 500)));
           if (_livePaper.synopsis) res.setHeader("x-live-paper-synopsis", encodeURIComponent(_livePaper.synopsis.slice(0, 2000)));
           if (_livePaper.beats40) try { res.setHeader("x-live-paper-beats40", encodeURIComponent(JSON.stringify(_livePaper.beats40).slice(0, 4000))); } catch {}
           if (_livePaper.beatCount) res.setHeader("x-live-paper-beat-count", String(_livePaper.beatCount));
         }
         res.setHeader("x-live-paper-available", "1");
+        res.setHeader("x-live-paper-pagination-available", _livePaper.paginationAvailable ? "1" : "0");
       } catch (_) {
         try { res.setHeader("x-live-paper-available", "0"); } catch (_) {}
-      }
-      // Studio Live Paper — D009 strangler: project.logline/synopsis/beats/characterContexts via pure helper
-      try {
-        const _livePaperSource = (() => {
-          // Prefer merged studioMeta + memory project if available
-          const base = typeof studioMeta === "object" && studioMeta ? studioMeta : {};
-          const mem = (typeof memoryProject !== "undefined" && memoryProject && typeof memoryProject === "object") ? memoryProject : {};
-          // Also check creativeMemoryTrace project memory
-          const traceMem = (typeof creativeMemoryTrace !== "undefined" && creativeMemoryTrace?.screenplay_project_memory) ? creativeMemoryTrace.screenplay_project_memory : {};
-          return {
-            logline: base.screenplayLogline ?? base.logline ?? mem.logline ?? traceMem.logline ?? "",
-            synopsis: base.screenplaySynopsis ?? base.synopsis ?? mem.synopsis ?? traceMem.synopsis ?? "",
-            beats: base.screenplayBeatSequence ?? base.beats ?? mem.beats ?? mem.beatSequence ?? traceMem.beats ?? [],
-            characterContexts: base.screenplayCharacterContexts ?? base.characterContexts ?? mem.characterContexts ?? traceMem.characterContexts ?? base.character_contexts ?? {},
-          };
-        })();
-        const _livePaper = buildLivePaperPayload(_livePaperSource);
-        // Embed into output for Bridge fallback (non-breaking)
-        if (talkScreenplayOutput && typeof talkScreenplayOutput === "object" && !_livePaper.__embedded) {
-          talkScreenplayOutput.livePaper = _livePaper;
-        }
-        const _livePaperJson = JSON.stringify(_livePaper);
-        if (_livePaperJson.length <= 8000) {
-          res.setHeader("x-live-paper", encodeURIComponent(_livePaperJson));
-          // Also keep per-field headers for lightweight clients (Bridge can use either)
-          if (_livePaper.logline) res.setHeader("x-live-paper-logline", encodeURIComponent(_livePaper.logline.slice(0, 500)));
-          if (_livePaper.synopsis) res.setHeader("x-live-paper-synopsis", encodeURIComponent(_livePaper.synopsis.slice(0, 2000)));
-          if (_livePaper.beats40) try { res.setHeader("x-live-paper-beats40", encodeURIComponent(JSON.stringify(_livePaper.beats40).slice(0, 4000))); } catch {}
-          if (_livePaper.beatCount) res.setHeader("x-live-paper-beat-count", String(_livePaper.beatCount));
-        }
-        res.setHeader("x-live-paper-available", "1");
-      } catch (_) {
-        try { res.setHeader("x-live-paper-available", "0"); } catch (_) {}
+        try { res.setHeader("x-live-paper-pagination-available", "0"); } catch (_) {}
       }
       if (Array.isArray(talkScreenplayCues) && talkScreenplayCues.length) {
         const screenplayCuesJson = JSON.stringify(talkScreenplayCues);
@@ -3255,8 +3221,7 @@ function createTalkHandler(deps) {
         const _clemParsed = (typeof shortFilmParsed !== "undefined" ? shortFilmParsed : null) || null;
         const _clemQuality = talkScreenplayOutput?.quality || null;
         const _clemCursor = req.body?.collabCursor ?? req.body?.collab_cursor ?? null;
-        const _clemOwnerKey = String(req.authUser?.id || req.userId || req.body?.ownerKey || "") || (typeof ownerKey !== "undefined" ? String(ownerKey) : "");
-        applyClementineTalkHeaders(res, { project: _clemProject, draft: _clemDraft, parsed: _clemParsed, quality: _clemQuality, collabCursor: _clemCursor, ownerKey: _clemOwnerKey });
+        applyClementineTalkHeaders(res, { project: _clemProject, draft: _clemDraft, parsed: _clemParsed, quality: _clemQuality, collabCursor: _clemCursor, ownerKey: trustedUserId });
       } catch (_) {}
       commitTalkIdempotencySuccess(req, {
         statusCode: 200,
@@ -5094,8 +5059,7 @@ ${directorOutputRule}
       const _clemParsed2 = (typeof shortFilmParsed !== "undefined" ? shortFilmParsed : null) || null;
       const _clemQuality2 = talkScreenplayOutput?.quality || null;
       const _clemCursor2 = req.body?.collabCursor ?? req.body?.collab_cursor ?? null;
-      const _clemOwnerKey2 = String(req.authUser?.id || req.userId || req.body?.ownerKey || "") || (typeof ownerKey !== "undefined" ? String(ownerKey) : "");
-      applyClementineTalkHeaders(res, { project: _clemProject2, draft: _clemDraft2, parsed: _clemParsed2, quality: _clemQuality2, collabCursor: _clemCursor2, ownerKey: _clemOwnerKey2 });
+      applyClementineTalkHeaders(res, { project: _clemProject2, draft: _clemDraft2, parsed: _clemParsed2, quality: _clemQuality2, collabCursor: _clemCursor2, ownerKey: trustedUserId });
     } catch (_) {}
     res.setHeader("x-reply-repaired", replyRepaired ? "1" : "0");
     res.setHeader("x-tts-provider", encodeURIComponent(ttsProviderUsed));
