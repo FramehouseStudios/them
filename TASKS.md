@@ -223,7 +223,8 @@
 ### T-1107 — Keep project writes with the initiating account across bootstrap/retry
 
 - **Owner:** codex. **Branch:** `codex/T-1107-project-write-owner`.
-- **Status:** review checkpoint / real-refresh evidence gap remains T-1110.
+- **Status:** review checkpoint / real-refresh evidence gap closed by T-1110;
+  remaining mutation transport remains T-1109.
 - **Checkpoint:** `8fba5bbdccd1946c084fc9a8690293379d5347a0`.
 - **Evidence:** `docs/project-write-owner-2026-10-21.md`; home worktrees
   `_proof/T-1107-20261021.alybK1/`.
@@ -242,8 +243,9 @@
   final focused13/0/0 and macOS builds pass. Default evaluation before actor
   admission checked with installed Swift5. Actual authenticated promotion/raw
   save/relaunch UI1/0/0, outbox/conflict/relaunch/resolve UI1/0/0. No final full858
-  claim. Recovery test's immutable DEBUG credentials mask its expiry injection:
-  do NOT count it as real401/refresh proof; T-1110 must repair that gap. Retry
+  claim. That historical recovery test's immutable DEBUG credentials masked its
+  expiry injection; its old run is still NOT real401/refresh proof. T-1110 adds
+  the corrected actual chain and fixes the deadlock it reveals. Retry
   tests use an injected refresher, explicitly not real auth HTTP. Backend runtime
   unchanged; no paid calls or production changes.
 - **Done when:** hold actual bootstrap/401 refresh, change login intent, inspect
@@ -252,13 +254,34 @@
   must still work. Extract a capability only if needed for D009; no second auth
   framework, logging of credentials, or security claim from pure policy tests.
 
-### T-1110 — Make expired-auth recovery exercise real refresh, not fixed credentials
+### T-1110 — Real expired-auth recovery and production auth/SwiftUI lock-order fix
 
-- **Owner:** codex. **Status:** next, BEFORE T-1109/T-1108/#648.
+- **Owner:** codex. **Branch:** `codex/T-1110-real-refresh-recovery`.
+- **Status:** review. **Checkpoint:** `26f6a0739a498cd5045298f875e59018349e9999`.
 - **VERIFIED source:** the save-expire DEBUG hook changes a defaults token, but
   requestIdentitySnapshot prefers currentAutomationSessionOverride's immutable
   environment token. Thus the named recovery test can pass without producing
   the intended401. Automation session state also reports no refresh token.
+- **Reproduced:** stronger actual UI0/1/0 exposed zero rejected saves. Fixed
+  explicit DEBUG request fault and local stored-session fixture. This then
+  observed real401/refresh200 but no retry, with a frozen app. Stack sample:
+  main holds SwiftUI graph lock waiting for auth queue; refresh worker holds
+  auth queue while defaults/KVO waits for graph lock. Interrupted only that
+  identity-verified owned proof after sampling; partial bundle retained.
+- **Fixed:** main-actor auth mutation facades and refresh commit remove this
+  observed inversion without a second locking/auth framework. Account-clear
+  callbacks now also run on main, with pinned caller/request ownership rechecked
+  before the new hop can clear a different login. Existing account checks stay.
+- **Proof:** final production runtime full signed861/0/0, macOS build/D009/diff
+  pass. Final required iPhone recovery gate3/0/0: offline outbox, conflict choice,
+  actual rejected save -> refresh -> changed-bearer save -> exact words restored
+  after another relaunch, one new local version. New observer/runner Node20
+  checks8/0/0; no full unchanged backend repeat or paid model call. First helper
+  isolation error compiled0 tests, then fixed without suppressions; earlier
+  focused24/0/0 and actual lock-fix UI1/0/0 retained. Final CI changes after861
+  only update UI/runner proof, not production; final trailing-blank cleanup only.
+- **Evidence:** `docs/auth-refresh-lock-order-2026-10-21.md`; home worktrees
+  `_proof/T-1110-20261021.9K6CYU/`. No production/phone/App Store completion claim.
 - **Done when:** repair only the existing explicit test/credential seam and
   observe/assert real version401 -> auth/refresh200 -> changed bearer retry and
   exact saved/conflict/relaunch outcome. No test-only server acceptance, no
@@ -267,7 +290,7 @@
 
 ### T-1109 — Extend canonical transport ownership to remaining mutation routes
 
-- **Owner:** codex. **Status:** after T-1110, BEFORE T-1108 and #648.
+- **Owner:** codex. **Status:** next, BEFORE T-1108 and #648.
 - **VERIFIED source boundary:** T-1107 covers metadata/version upsert only.
   Activation, outline/scene/beat/transition, collaborator/comment and companion
   mutation methods still await bootstrap then build current headers. A stale
