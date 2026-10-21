@@ -957,6 +957,71 @@ final class V1SmokeUITests: XCTestCase {
     }
 
     @MainActor
+    func test_delayed_project_creation_cannot_save_or_bind_a_changed_page() async throws {
+#if os(iOS)
+        guard let port = Int(ProcessInfo.processInfo.environment["THEM_UITEST_WRITER_LOOP_BACKEND_PORT"] ?? ""),
+              let baseURL = URL(string: "http://127.0.0.1:\(port)") else {
+            throw XCTSkip("A dedicated held-response local backend is required.")
+        }
+        let fixture = try await createWriterLoopAuthenticationFixture(baseURL: baseURL)
+        let original = "INT. ROOM - NIGHT\n\nA writer waits."
+        let app = launchApp(openStudio: true, restoreUnboundDraft: original, launchEnvironment: fixture.appLaunchEnvironment)
+        defer { app.terminate() }
+        let phase = app.staticTexts["studio.promotion.phase"]
+        XCTAssertTrue(phase.waitForExistence(timeout: 10))
+        let deadline = Date().addingTimeInterval(15)
+        var pending = 0
+        var heldProjectID = ""
+        repeat {
+            let response = try await requestJSON(baseURL: baseURL, path: "/__them-proof/promotion", method: "GET", headers: [:], body: nil)
+            try assertHTTP(response, context: "held project response")
+            pending = intValue(response.payload["pending_creates"])
+            heldProjectID = stringValue(response.payload["held_project_id"])
+            if pending == 1 { break }
+            try await Task.sleep(nanoseconds: 100_000_000)
+        } while Date() < deadline
+        XCTAssertEqual(pending, 1, "The real backend must commit a project before its reply is held.")
+        XCTAssertFalse(heldProjectID.isEmpty)
+        XCTAssertEqual(phase.label, "creating")
+        let editor = app.textViews["studio.draft.editor"]
+        XCTAssertTrue(waitForHittability(of: editor, timeout: 5))
+        editor.tap()
+        editor.typeText("CHANGED ")
+        let changed = accessibleDraftText(in: app)
+        XCTAssertNotEqual(Data(changed.utf8), Data(original.utf8))
+        let inspector = app.buttons["studio.sidebar.right.toggle"]
+        inspector.tap()
+        XCTAssertTrue(waitForDisappearance(of: app.keyboards.firstMatch, timeout: 5))
+        XCTAssertTrue(waitForRestoreSnapshot(in: app, timeout: 5) { snapshot in boolValue(snapshot["has_unsaved_draft_changes"]) })
+        let released = try await requestJSON(baseURL: baseURL, path: "/__them-proof/promotion/release", method: "POST", headers: [:], body: nil)
+        try assertHTTP(released, context: "release actual project reply")
+        let completion = XCTNSPredicateExpectation(predicate: NSPredicate { object, _ in
+            (object as? XCUIElement)?.label == "idle"
+        }, object: phase)
+        await fulfillment(of: [completion], timeout: 15)
+        let settled = try await requestJSON(baseURL: baseURL, path: "/__them-proof/promotion", method: "GET", headers: [:], body: nil)
+        try assertHTTP(settled, context: "settled project reply")
+        XCTAssertGreaterThanOrEqual(intValue(settled.payload["delivered_creates"]), 1)
+        XCTAssertEqual(intValue(settled.payload["stale_root_version_requests"]), 0, "A stale create reply must not save its earlier page.")
+        XCTAssertEqual(Data(accessibleDraftText(in: app).utf8), Data(changed.utf8))
+        // The existing manual autosave may legitimately bind/save the edited
+        // page while the Root reply is held. Judge its actual saved bytes, not
+        // an assumption that the page must remain unbound after an edit.
+        var selectedProjectID = ""
+        XCTAssertTrue(waitForRestoreSnapshot(in: app, timeout: 5) { snapshot in
+            selectedProjectID = stringValue(snapshot["selected_project_id"])
+            return true
+        })
+        if !selectedProjectID.isEmpty {
+            _ = try await waitForWriterLoopSavedVersion(projectID: selectedProjectID, draft: changed,
+                fixture: fixture, app: app, timeout: 15)
+        }
+#else
+        throw XCTSkip("The held-response workflow specifically covers iPhone.")
+#endif
+    }
+
+    @MainActor
     private func runIntegratedWriterLoop(coverageFreshnessOnly: Bool) async throws {
 #if os(iOS)
         let portRaw = (ProcessInfo.processInfo.environment["THEM_UITEST_WRITER_LOOP_BACKEND_PORT"] ?? "")

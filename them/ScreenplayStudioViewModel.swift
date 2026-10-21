@@ -5556,7 +5556,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
             outlineRevisionProjectID = ""
             reconcileSceneSessionState(with: outline)
             resetCraftReportForProjectChange()
-            applyServerDraft("", versionId: "", allowOverwriteDirtyLocalDraft: true)
+            clearBoundDraftForEmptyProjectSelection()
             collaborators = []
             approvedEmails = []
             comments = []
@@ -5901,6 +5901,15 @@ final class ScreenplayStudioViewModel: ObservableObject {
         }
         hydrateDraft(from: project)
         return true
+    }
+
+    /// No selected server project is not an empty server draft. In particular,
+    /// initial list hydration must leave the restored, unbound writer page alone.
+    /// A page actually loaded from a previous project must still be detached.
+    func clearBoundDraftForEmptyProjectSelection() {
+        guard selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              !loadedDraftProjectID.isEmpty else { return }
+        applyServerDraft("", versionId: "", allowOverwriteDirtyLocalDraft: true)
     }
 
     func hydrateDraft(from project: BackendScreenplayProjectSummary) {

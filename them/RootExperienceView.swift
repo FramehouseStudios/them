@@ -722,24 +722,6 @@ enum ClementineVisualContextCapture {
 }
 #endif
 
-struct ScreenplayRestoredLiveDraftProjectPromotionPolicy {
-    static func shouldCreateProject(
-        isStudioSurfaceActive: Bool,
-        draft: String,
-        existingProjectID: String,
-        isAutoCreatingProject: Bool,
-        createKey: String,
-        lastCreateKey: String
-    ) -> Bool {
-        guard isStudioSurfaceActive else { return false }
-        guard !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
-        guard existingProjectID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
-        guard !isAutoCreatingProject else { return false }
-        guard !createKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
-        return createKey != lastCreateKey
-    }
-}
-
 struct RootExperienceView: View {
     @Environment(\.openURL) private var openURL
     @Environment(\.scenePhase) private var scenePhase
@@ -1301,6 +1283,7 @@ struct RootExperienceView: View {
     private var bodyWithObservedChanges: AnyView {
         AnyView(
             rootBodyView
+                .overlay(alignment: .topLeading) { ScreenplayProjectPromotionDiagnostics(isCreating: isAutoCreatingStudioProject) }
                 .onChange(of: studioDebugOpenToken) { _, _ in
                     DispatchQueue.main.async {
                         handleStudioDebugOpenChange()
@@ -5952,14 +5935,29 @@ Write this approved story direction directly into screenplay pages now. Maintain
             return
         }
 
+        let creationContext = StudioActionDocumentContext.current(bridge: screenplayDraftBridge)
+        func creationIsCurrent() -> Bool {
+            ScreenplayRestoredLiveDraftProjectPromotionPolicy.canContinue(initiating: creationContext,
+                current: .current(bridge: screenplayDraftBridge), isStudioActive: isStudioSurfaceActive, isCancelled: Task.isCancelled)
+        }
+        guard creationContext.draft.utf8.elementsEqual(draft.utf8), creationIsCurrent() else { return }
         isAutoCreatingStudioProject = true
-        let creatingOwnerID = BackendAuthClient.currentAuthSessionState().user?.userId
-        screenplayDraftBridge.autoInsertStatusText = "Creating a Studio project for this script..."
+        let creatingStatus = "Creating a Studio project for this script..."
+        screenplayDraftBridge.autoInsertStatusText = creatingStatus
 
         Task { @MainActor in
-            defer { isAutoCreatingStudioProject = false }
+            defer {
+                isAutoCreatingStudioProject = false
+                let current = StudioActionDocumentContext.current(bridge: screenplayDraftBridge)
+                if screenplayDraftBridge.autoInsertStatusText == creatingStatus,
+                   ScreenplayStudioAuthContextPolicy.matches(expected: creationContext.auth, current: current.auth) {
+                    screenplayDraftBridge.autoInsertStatusText = current.projectID.isEmpty
+                        ? "Project setup changed; your draft is kept on this device." : ""
+                }
+            }
 
             do {
+                guard creationIsCurrent() else { return }
                 let title = autoCreatedStudioProjectTitle(for: draft, pack: pack)
                 let normalizedPhase = phase.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                     ? "scene_draft"
@@ -5969,6 +5967,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
                     title: title,
                     phase: normalizedPhase
                 )
+                guard creationIsCurrent() else { return }
                 guard let createdProject = projectResult.payload.project else {
                     throw NSError(
                         domain: "StudioAutoCreate",
@@ -5991,8 +5990,11 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 let resolvedProject = versionResult.payload.project ?? createdProject
                 let resolvedVersionID = (versionResult.payload.versionId ?? versionResult.payload.version?.id ?? "")
                     .trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !resolvedVersionID.isEmpty else {
+                    throw BackendMemoryAPIError.invalidResponse
+                }
 
-                guard BackendAuthClient.currentAuthSessionState().user?.userId == creatingOwnerID, screenplayDraftBridge.preferredProjectID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+                guard creationIsCurrent() else { return }
                 screenplayDraftBridge.preferredProjectID = resolvedProject.id
                 screenplayDraftBridge.preferredVersionID = resolvedVersionID
 
@@ -6001,6 +6003,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 lastAutoCreatedStudioProjectKey = createKey
                 screenplayDraftBridge.autoInsertStatusText = "Saved to Studio project: \(resolvedProject.title)"
             } catch {
+                guard creationIsCurrent() else { return }
                 screenplayDraftBridge.autoInsertStatusText = "Studio project save failed: \(error.localizedDescription)"
             }
         }
@@ -6872,11 +6875,6 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 return
             }
             didStartSyncedVoiceInsert = true
-            autoCreateStudioProjectIfNeeded(
-                draft: mergedStudioDraft(existing: screenplayDraftBridge.previewFormattingBaseDraft, insertion: cleanText),
-                pack: screenplayDraftBridge.latestPack, phase: screenplayDraftBridge.latestPhase,
-                existingProjectID: screenplayDraftBridge.preferredProjectID
-            )
 #if DEBUG || os(macOS)
             debugInsertedPreview = String(cleanText.prefix(220))
             if let debugVoiceTurnToken {
