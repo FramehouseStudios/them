@@ -34,12 +34,29 @@
 
 ### T-1094 — Respect refused Page commands within active Studio
 
-- **Owner:** codex. **Status:** ready. **Pillar:** writer control / safe voice.
+- **Owner:** codex. **Branch:** `codex/T-1094-studio-write-refusal`.
+- **Status:** review (scoped local proof; protected landing pending).
+  **Pillar:** writer control / safe voice.
 - **Source finding:** T-1093 filters refused Home-opening verbs, but Studio
   force/explicit-page signals still inspect the older unfiltered text.
 - **Done when:** actual active-Studio routing with a refused command cannot
   insert/replace pages; a separate affirmative command remains usable. Check
   server/task/explicit-target boundaries, not only the Home classifier.
+- **Root:** current refusal now outranks explicit Page/forced intent/stale
+  generation hints in client and server. Post-ASR refusal cancels the existing
+  Page hold through its owner, releases accounting and clears stale Reflex
+  classification; original words still reach discussion, not page mutation.
+- **Verified:** runtime `6ccee798`; Node20 focused61/0/0 including real authenticated
+  current/raw-ASR/unhinted-ASR requests, exact saved project and Page balance;
+  signed Swift15/0/0 on erased owned Pro; actual composer/Page-selection UI1/0/0
+  with deliberately screenplay-shaped provider output kept off the saved page.
+  First UI0/1/0 used the wrong test transport alias; retained and corrected to
+  the supported live-backend mode, not fixed by relaxing assertions. macOS,
+  D009 and diff pass. No paid calls or fresh full-suite/real-phone claim.
+- **Evidence:** `docs/studio-write-refusal-2026-10-20.md` and retained exact
+  manifest/source/results. Root shrank8 lines versus task parent.
+- **Next:** original #642 Pages reconciliation; required original-head approval,
+  integrated-main/phone proof and production hold remain unchanged.
 
 ### T-1095 — Preview cleanup must not cancel an unrelated write
 
