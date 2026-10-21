@@ -48,7 +48,10 @@ if(args.includes("tests")) {
 } else {
  const mode = process.env.SAVE_MODE;
  const skip = mode === "skipped" || (mode === "mac-skipped" && bundle.includes("macos"));
- const total = mode === "zero" ? 0 : (process.env.SCREENPLAY_SAVE_TEST_IDENTIFIER ? 1 : 2);
+ const calls = fs.readFileSync(process.env.SAVE_CALLS,"utf8").trim().split("\\n").map(line=>JSON.parse(line));
+ const invocation = calls.find(call=>call[call.indexOf("-resultBundlePath")+1] === bundle);
+ const requested = invocation.filter(arg=>arg.startsWith("-only-testing:")).length;
+ const total = mode === "zero" ? 0 : requested;
  console.log(JSON.stringify({totalTestCount:total,passedTests:skip?0:total,failedTests:0,skippedTests:skip?total:0}));
 }
 `);
@@ -80,6 +83,11 @@ for (const mode of ["pass", "skipped", "mac-skipped", "zero", "malformed", "miss
     assert.equal(result.status === 0, mode === "pass", result.stdout + result.stderr);
     if(mode !== "pass") assert.doesNotMatch(result.stdout, /screenplay-save-network-fault-ui-smoke: ok/);
     const ios = invocations[0];
+    if (mode === "pass") assert.deepEqual(ios.filter(x=>x.startsWith("-only-testing:")), [
+      "-only-testing:themUITests/V1SmokeUITests/test_screenplay_save_outbox_survives_relaunch_and_reconnects_once",
+      "-only-testing:themUITests/V1SmokeUITests/test_screenplay_save_outbox_restores_conflict_choice_and_resolves_once",
+      "-only-testing:themUITests/V1SmokeUITests/test_screenplay_save_outbox_refreshes_real_auth_and_restores_exact_words",
+    ]);
     assert.equal(ios.includes("CODE_SIGNING_ALLOWED=NO"), false);
     assert.equal(ios[ios.indexOf("-destination") + 1], "platform=iOS Simulator,id=owned-save-proof");
     if(mode !== "missing") {
@@ -100,7 +108,7 @@ test("[save-evidence] an explicit single selection requires exactly one result p
   for(const args of invocations) assert.deepEqual(args.filter(x => x.startsWith("-only-testing:")), ["-only-testing:" + identifier]);
 });
 
-test("[save-evidence] the original iPhone-only gate validates its actual two-case summary", t => {
+test("[save-evidence] the iPhone-only gate validates its actual three-case summary", t => {
   const {result, invocations} = fixture(t).run("pass", "", "0");
   assert.equal(result.status, 0, result.stderr);
   assert.equal(invocations.length, 1);
