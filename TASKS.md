@@ -8,7 +8,8 @@
 ### T-1086 — Native Files export on the corrected billing/security writer
 
 - **Owner:** codex. **Branch:** `codex/T-1086-native-export-writer-sync`.
-- **Status:** in-progress. **Pillar:** writer-owned saved/exported pages.
+- **Status:** in-progress (save/byte proof passed; external-open observation
+  awaits manual Mac unlock). **Pillar:** writer-owned saved/exported pages.
 - **Boundary:** preserve original #590 through prepared `45a1ed96`, merge
   current integration `f0b5fb5e`; keep all original heads/history unchanged.
 - **Target:** existing FileDocument/coordinator and Document child, exact
@@ -19,6 +20,17 @@
   actual-base D009/diff. No repeated full backend/unit/V1 or paid calls.
 - **Publication:** normal existing integration-backup advance only after
   proof; no replacement PR, original-head update, force, main or deployment.
+- **Verified:** preserving merge `38183eab`; export support18 + failure UI1
+  =19/0/0; authenticated writer/native Files Cancel/retry/Save/relaunch1/0/0.
+  Signed/erased owned SE/iOS26.2; actual summaries read. Saved provider file35
+  bytes equals independent expected Markdown; SHA256304997ef. No Save-retap
+  activity found. Actual-main D009 Studio-10/bridge-23/other deltas0; diff clean.
+- **Human observation:** CUA reports Mac locked. Requested manual unlock;
+  do not bypass it or claim fresh external opening from old T1073 evidence.
+  Preserve E8998A6B's state/file; no erasing this simulator until observed.
+- **Evidence:** `docs/native-files-writer-sync-2026-10-20.md`.
+- **Next:** after unlock open this same file in Files; meanwhile continue
+  non-interactive integration work without erasing the held simulator.
 
 ### T-1073 — Preserve original native Files export in the writer candidate
 
