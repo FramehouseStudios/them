@@ -45,8 +45,9 @@ The classifier output is intentionally a **partial** — `analyzeScreenplay` mer
 
 Two surgical edits:
 
-1. New helper `appendCraftContextToSystem(systemPrompt, { req })` — defaults to the `save-the-cat` framework when the request body does not specify a `craft_framework_id`. Returns `${systemPrompt}\n\n${craftBlock}` when a block is produced; returns the prompt unchanged for unknown frameworks.
-2. The existing T08 chain at line ~30826 now flows `systemBaseRaw → wrapSystemPromptWithCreativeMemory → appendCraftContextToSystem (only when isScreenplayPageWriteTurn) → systemBase`. Non-page-write turns are untouched.
+1. `appendCraftContextToSystem(systemPrompt, { req })` imports `DEFAULT_FRAMEWORK_ID` from `craft_frameworks.js` (three-act). Prompt routes and logline distillation use the same owner. Framework discovery lists that default first; Swift mirrors its wire ID and preserves explicit selections even with legacy server ordering.
+2. Page-write and mentor turns can receive craft context. The latency fitter protects `<craft>` at the rich 6,200-character budget; ordinary screenplay vocabulary does not change conversational intent to knowledge-answer.
+3. DECIDED (T-945): omit generic `<craft>` if `<feature_film_map>` already exists. The feature map owns target-scaled page boundaries, including late Act II and Break Into Three. A second fixed 110-page framework would contradict that map. This applies to both talk and prompt-builder paths; mentor turns without a feature map retain craft guidance.
 
 ### Eval — `backend/evals/run_craft_classification_eval.mjs`
 

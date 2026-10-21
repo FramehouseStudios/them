@@ -1,3 +1,4 @@
+import { enforceCraftContextPrecedence } from "./craft_prompts.js";
 // Centralized prompt assembly (T08).
 //
 // The single function that produces every model-bound prompt the
@@ -2086,7 +2087,7 @@ function buildModelPrompt({
   const inputText = trimToString(userInput);
   if (inputText) parts.push(inputText);
 
-  return parts.join("\n\n");
+  return enforceCraftContextPrecedence(parts.join("\n\n"));
 }
 
 // For tests and diagnostics — lets callers inspect what would have

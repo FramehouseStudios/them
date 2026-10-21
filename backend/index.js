@@ -5,6 +5,7 @@ import { execFile } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { app, talkUpload } from "./app.js";
+import { deriveKnowledgeTopicWeights } from "./lib/knowledge_topic_weights.js";
 import {
   API_SCHEMA_VERSION,
   APP_TOKEN,
@@ -230,7 +231,8 @@ import { configureLoglineDistiller, _defaultClassifier as defaultLoglineClassifi
 import { configureAcceptedTwistLog, getAcceptedTwistsForProject, acceptedTwistLogDeps } from "./lib/accepted_twist_log.js";
 import { configureFirstPageTelemetry } from "./lib/first_page_telemetry.js";
 import { mountFirstPageTelemetryRoute } from "./lib/first_page_telemetry_route.js";
-import { buildCraftContextBlock, CRAFT_BLOCK_OPEN } from "./lib/craft_prompts.js";
+import { buildCraftContextBlock, shouldAppendCraftContext } from "./lib/craft_prompts.js";
+import { DEFAULT_FRAMEWORK_ID } from "./lib/craft_frameworks.js";
 import {
   configureUserStore,
   deleteUserById,
@@ -3063,17 +3065,15 @@ const creativeMemoryStore = createCreativeMemoryStore({
 // memory if any is present. No-op for cold users - the memory block is
 // omitted rather than serialized as null/empty (see prompt_assembly.js).
 // T21: append a craft-context block to the system prompt for
-// screenplay page-write turns. Defaults to the "save-the-cat" framework
+// screenplay page-write and mentor turns. Defaults to the "three-act" framework
 // when the request does not specify a preference; production wiring of
 // per-project framework selection lives in T22's stored reports +
 // Codex-side BackendClient (T19).
 function appendCraftContextToSystem(systemPrompt, { req } = {}) {
-  if (String(systemPrompt || "").includes(CRAFT_BLOCK_OPEN)) return systemPrompt;
+  if (!shouldAppendCraftContext(systemPrompt)) return systemPrompt;
   const requested = String(req?.body?.craft_framework_id || "").trim();
-  const frameworkId = requested || "save-the-cat";
-  const block = buildCraftContextBlock({ framework: frameworkId });
-  if (!block) return systemPrompt;
-  return `${systemPrompt}\n\n${block}`;
+  const block = buildCraftContextBlock({ framework: requested || DEFAULT_FRAMEWORK_ID });
+  return block ? `${systemPrompt}\n\n${block}` : systemPrompt;
 }
 
 // T08w-triggers: persist creative-memory writes from a completed turn.
@@ -20976,22 +20976,6 @@ const KNOWLEDGE_STOPWORDS = new Set([
   "into", "than", "also", "still", "been", "being", "get", "got", "use", "using",
 ]);
 
-const KNOWLEDGE_TOPIC_KEYWORDS = Object.freeze({
-  movies: ["movie", "movies", "film", "cinema", "director", "screenplay", "editing", "scene"],
-  art_history: ["art", "artist", "painting", "museum", "renaissance", "baroque", "modernism", "sculpture"],
-  philosophy: ["philosophy", "ethics", "existential", "stoic", "meaning", "truth", "consciousness", "virtue"],
-  learning: ["learn", "learning", "study", "practice", "memory", "habit", "skill", "improve", "growth"],
-  compatibility: ["compatibility", "values", "attachment", "fit", "alignment", "red flags", "green flags"],
-  heartbreak: [
-    "heartbreak", "heartbroken", "breakup", "break up", "broke up", "my ex", "ex partner",
-    "ex-partner", "ex boyfriend", "ex girlfriend", "no contact", "closure",
-  ],
-  friendship: ["friend", "friendship", "best friend", "support", "trust", "loyal", "repair"],
-  betrayal: ["betrayal", "betrayed", "lie", "liar", "cheat", "disrespect", "trust broken", "deception"],
-  empathy: ["empathy", "compassion", "attunement", "validation", "listening", "emotional safety"],
-  human_connection: ["connection", "intimacy", "belonging", "lonely", "closeness", "bond", "relational"],
-});
-
 const KNOWLEDGE_RELATIONAL_TOPICS = new Set([
   "compatibility",
   "heartbreak",
@@ -21149,35 +21133,6 @@ function tokenizeKnowledgeQuery(text) {
     .split(/\s+/)
     .map((x) => x.trim())
     .filter((x) => x.length >= 3 && !KNOWLEDGE_STOPWORDS.has(x));
-}
-
-function countKeywordHits(text, keywords) {
-  const t = String(text || "");
-  return keywords.reduce((count, keyword) => (
-    keyword && t.includes(keyword) ? count + 1 : count
-  ), 0);
-}
-
-function deriveKnowledgeTopicWeights(queryText) {
-  const text = String(queryText || "").toLowerCase();
-  const weights = {};
-  for (const [topic, keywords] of Object.entries(KNOWLEDGE_TOPIC_KEYWORDS)) {
-    const hits = countKeywordHits(text, keywords);
-    if (hits <= 0) continue;
-    weights[topic] = Math.min(1, 0.28 + (hits * 0.18));
-  }
-  if (textContainsAny(text, ["relationship", "dating", "partner", "breakup"])) {
-    weights.compatibility = Math.max(weights.compatibility || 0, 0.42);
-    weights.human_connection = Math.max(weights.human_connection || 0, 0.38);
-  }
-  if (textContainsAny(text, ["hurt", "betrayed", "liar", "lied"])) {
-    weights.betrayal = Math.max(weights.betrayal || 0, 0.50);
-    weights.empathy = Math.max(weights.empathy || 0, 0.32);
-  }
-  if (textContainsAny(text, ["friend", "friendship", "best friend"])) {
-    weights.friendship = Math.max(weights.friendship || 0, 0.48);
-  }
-  return weights;
 }
 
 function deriveKnowledgeQueryProfile(query, { flags, turnPlanner } = {}) {

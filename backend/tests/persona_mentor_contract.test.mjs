@@ -2,6 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createPersonaRuntime } from "../lib/persona.js";
 import { fitSystemPromptForTurnLatency } from "../lib/system_prompt_trim.js";
+import fs from "node:fs";
+import { buildCraftContextBlock } from "../lib/craft_prompts.js";
+import { DEFAULT_FRAMEWORK_ID } from "../lib/craft_frameworks.js";
 
 function runtime() {
   return createPersonaRuntime({
@@ -20,6 +23,25 @@ function runtime() {
     MAX_SYSTEM_PROMPT_CHARS: 12000,
   });
 }
+
+test("[640-mentor] actual persona, mentor core and craft ranges survive rich trimming together", () => {
+  const r = runtime();
+  const mentorCore = fs.readFileSync(new URL("../../docs/persona/mentor-core.txt", import.meta.url), "utf8");
+  const filler = "Context that must yield to the mentor contract. ".repeat(300);
+  const base = r.appendDirectorAddendum(`You are Clementine, the writer's mentor.\n${mentorCore}\n${filler}`, r.PERSONA_ENFORCEMENT_ADDENDUM);
+  // Production order: persona/core, output contract, then craft append.
+  const prompt = `${r.withOutputContract(base, { mentorTurn: true })}\n${buildCraftContextBlock({ framework: DEFAULT_FRAMEWORK_ID })}\n${filler}`;
+  const trimmed = fitSystemPromptForTurnLatency(prompt, { chatModelPlan: { tier: "rich" }, richMaxChars: 6200 });
+  assert.ok(prompt.length > 6200);
+  assert.ok(trimmed.length <= 6200);
+  assert.match(trimmed, /<mentor_output>[\s\S]*<\/mentor_output>/);
+  assert.match(trimmed, /<craft>[\s\S]*<\/craft>/);
+  for (const tag of ["clementine_core", "mentor_output"]) {
+    const block = (text) => text.match(new RegExp(`<${tag}>[\\s\\S]*?<\\/${tag}>`))[0].replace(/\s+/g, " ");
+    assert.equal(block(trimmed), block(prompt), `${tag} CONTENT survives, not just its delimiters`);
+  }
+  for (const range of ["p8-15", "p20-30", "p50-60", "p70-82", "p95-105"]) assert.ok(trimmed.includes(range), range);
+});
 
 test("[persona-mentor] the mentor contract replaces the check-in contract on mentor turns only", () => {
   const r = runtime();
