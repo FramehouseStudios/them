@@ -23,13 +23,15 @@ nonisolated func postBackendNotificationOnMain(
     initiatingIdentity owner: BackendAuthRequestIdentity? = nil,
     identityProvider: @escaping @Sendable (Bool) -> BackendAuthRequestIdentity = {
         BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: $0)
-    }
+    },
+    deliveryCondition: @escaping @Sendable () -> Bool = { true }
 ) {
     let payload = BackendNotificationPayload(name: name, userInfo: userInfo)
     // Always enqueue: observers must not re-enter a serial auth mutation lock.
     // A request can finish while its UI delivery is still queued. Check again
     // at delivery, not just when the network response was accepted.
     DispatchQueue.main.async {
+        guard deliveryCondition() else { return }
         if let owner {
             do { try owner.requireCurrentOwner(identityProvider(false)) }
             catch { return }

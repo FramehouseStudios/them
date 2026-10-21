@@ -16,6 +16,8 @@ nonisolated struct OfflineTalkOutboxSnapshot: Codable, Equatable {
     var inflightCount: Int
     var parkedCount: Int
     var lastError: String
+    var recoveryScope: OfflineTalkRecoveryScope? = nil
+    private enum CodingKeys: String, CodingKey { case pendingCount, inflightCount, parkedCount, lastError }
 
     static let empty = OfflineTalkOutboxSnapshot(
         pendingCount: 0,
@@ -64,15 +66,19 @@ nonisolated struct OfflineTalkOutboxSnapshot: Codable, Equatable {
         pendingCount: Int,
         inflightCount: Int,
         parkedCount: Int,
-        lastError: String
+        lastError: String,
+        recoveryScope: OfflineTalkRecoveryScope? = nil
     ) {
         self.pendingCount = pendingCount
         self.inflightCount = inflightCount
         self.parkedCount = parkedCount
         self.lastError = lastError
+        self.recoveryScope = recoveryScope
     }
 
-    init(notification: Notification) {
+    init?(notification: Notification) {
+        guard let scope = OfflineTalkRecoveryScope(notification: notification), scope.isCurrent else { return nil }
+        recoveryScope = scope
         let userInfo = notification.userInfo ?? [:]
         pendingCount = userInfo[OfflineTalkOutbox.NotificationKey.pendingCount] as? Int ?? 0
         inflightCount = userInfo[OfflineTalkOutbox.NotificationKey.inflightCount] as? Int ?? 0
@@ -152,6 +158,9 @@ actor OfflineTalkOutbox {
     private let blobsDirectory: URL
     private let fileManager: FileManager
     private let requestIdentityProvider: @Sendable (Bool) -> BackendAuthRequestIdentity
+    private let backendURLProvider: @Sendable () -> URL
+    private let authRefresher: @Sendable (ScreenplayStudioAuthContext) async throws -> BackendAuthSessionState
+    private var drainingScope: OfflineTalkRecoveryScope?
     private var didLoad = false
     private var entries: [OfflineTalkOutboxEntry] = []
     private var networkMonitor: NWPathMonitor?
@@ -160,12 +169,17 @@ actor OfflineTalkOutbox {
     init(storageDirectory: URL, fileManager: FileManager = .default,
          requestIdentityProvider: @escaping @Sendable (Bool) -> BackendAuthRequestIdentity = {
              BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: $0)
+         }, backendURLProvider: @escaping @Sendable () -> URL = { BackendAuthClient.resolvedBackendBaseURL() },
+         authRefresher: @escaping @Sendable (ScreenplayStudioAuthContext) async throws -> BackendAuthSessionState = {
+             try await BackendAuthClient.refreshAuthSession(force: true, expectedOwner: $0)
          }) {
         self.storageDirectory = storageDirectory
         self.manifestURL = storageDirectory.appendingPathComponent("queue.jsonl")
         self.blobsDirectory = storageDirectory.appendingPathComponent("blobs", isDirectory: true)
         self.fileManager = fileManager
         self.requestIdentityProvider = requestIdentityProvider
+        self.backendURLProvider = backendURLProvider
+        self.authRefresher = authRefresher
     }
 
     func startNetworkMonitoring() {
@@ -193,6 +207,26 @@ actor OfflineTalkOutbox {
         networkMonitor = nil
     }
 
+    #if DEBUG
+    func installRecoveryUITestFixture() throws {
+        guard IOThemRuntime.isRunningUITests,
+              ProcessInfo.processInfo.arguments.contains("--ui-talk-recovery-fixture") else { return }
+        try loadIfNeeded()
+        guard entries.isEmpty else { return }
+        let identity = requestIdentityProvider(true)
+        guard !identity.userID.isEmpty else { return }
+        for (id, user) in [("ui-owned-talk", identity.userID), ("ui-foreign-talk", "fixture-other-owner"), ("ui-legacy-talk", "")] {
+            var request = URLRequest(url: backendURLProvider().appendingPathComponent("talk"))
+            request.httpMethod = "POST"
+            if !user.isEmpty { request.setValue(user, forHTTPHeaderField: "X-User-Id") }
+            request.setValue("text/plain; charset=utf-8", forHTTPHeaderField: "Content-Type")
+            _ = try persistNewEntry(request: request, body: Data("Recovery \(id)\r\n \t ".utf8),
+                idempotencyKey: id, status: .parked, reason: "UI recovery fixture: \(id)")
+        }
+        publishSnapshot()
+    }
+    #endif
+
     func snapshot() -> OfflineTalkOutboxSnapshot {
         do {
             try loadIfNeeded()
@@ -206,14 +240,27 @@ actor OfflineTalkOutbox {
         do {
             try loadIfNeeded()
         } catch {
-            return entries
+            return []
         }
-        return entries.sorted { lhs, rhs in
+        return visibleEntries(scope: currentScope()).sorted { lhs, rhs in
             if lhs.status != rhs.status {
                 return statusSortKey(lhs.status) < statusSortKey(rhs.status)
             }
             return lhs.createdAt < rhs.createdAt
         }
+    }
+
+    func recoveryState(
+        initiatingIdentity owner: BackendAuthRequestIdentity,
+        backendURL: URL
+    ) throws -> OfflineTalkRecoveryState {
+        try requireScope(owner, backendURL: backendURL)
+        try loadIfNeeded()
+        let scope = OfflineTalkRecoveryScope(identity: owner, backendURL: backendURL)
+        let visible = visibleEntries(scope: scope)
+        try requireScope(owner, backendURL: backendURL)
+        return .init(scope: scope, snapshot: snapshotFor(visible, scope: scope), entries: visible,
+                     hasUnassignedEntries: entries.contains { headerValue(named: "X-User-Id", in: $0.headers) == nil })
     }
 
     func pendingScreenplayQuestionResolutionIDs() -> Set<String> {
@@ -222,14 +269,11 @@ actor OfflineTalkOutbox {
         } catch {
             return []
         }
-        let currentOwner = requestIdentityProvider(false).userID
-        return Set(entries.compactMap { entry in
+        return Set(visibleEntries(scope: currentScope()).compactMap { entry in
             guard entry.endpoint == Self.screenplayQuestionResolutionEndpoint,
                   entry.status == .pending || entry.status == .inflight else {
                 return nil
             }
-            let queuedOwner = headerValue(named: "X-User-Id", in: entry.headers) ?? ""
-            guard queuedOwner == currentOwner else { return nil }
             return headerValue(
                 named: "X-Screenplay-Question-ID",
                 in: entry.headers
@@ -269,6 +313,18 @@ actor OfflineTalkOutbox {
         if let existingIndex = entries.firstIndex(where: {
             $0.idempotencyKey == idempotencyKey && sameRequestScope($0, request: request)
         }) {
+            let existingBody = try Data(contentsOf: blobURL(for: entries[existingIndex].bodyRef))
+            if existingBody != body {
+                if let kept = entries.first(where: { entry in
+                    entry.status == .parked && entry.idempotencyKey == idempotencyKey && sameRequestScope(entry, request: request)
+                        && (try? Data(contentsOf: blobURL(for: entry.bodyRef))) == body
+                }) { throw OfflineTalkPayloadConflictError(entryID: kept.id) }
+                let kept = try persistNewEntry(request: request, body: body, idempotencyKey: idempotencyKey,
+                    status: .parked, reason: "Different payload reused a request ID. This copy was kept and was not sent. Export before deleting.")
+                publishSnapshot()
+                throw OfflineTalkPayloadConflictError(entryID: kept.id)
+            }
+            guard belongs(entries[existingIndex], scope: currentScope()) else { throw OfflineTalkPreviousOwnerError() }
             entries[existingIndex].lastError = normalizedReason(reason)
             entries[existingIndex].updatedAt = Date().timeIntervalSince1970
             try persist()
@@ -277,6 +333,15 @@ actor OfflineTalkOutbox {
             return OfflineTalkOutboxEnqueueResult(entry: entries[existingIndex], snapshot: nextSnapshot)
         }
 
+        let entry = try persistNewEntry(request: request, body: body, idempotencyKey: idempotencyKey, status: .pending, reason: reason)
+        let nextSnapshot = snapshotFor(entries)
+        publish(nextSnapshot)
+        if !belongs(entry, scope: currentScope()) { throw OfflineTalkPreviousOwnerError() }
+        return OfflineTalkOutboxEnqueueResult(entry: entry, snapshot: nextSnapshot)
+    }
+
+    private func persistNewEntry(request: URLRequest, body: Data, idempotencyKey: String,
+                                 status: OfflineTalkOutboxStatus, reason: String) throws -> OfflineTalkOutboxEntry {
         let id = UUID().uuidString.lowercased()
         let bodyRef = "blob-\(id).multipart"
         let now = Date().timeIntervalSince1970
@@ -284,34 +349,40 @@ actor OfflineTalkOutbox {
             id: id,
             createdAt: now,
             updatedAt: now,
-            endpoint: endpoint,
+            endpoint: request.url!.path,
             method: "POST",
-            urlString: urlString,
+            urlString: request.url!.absoluteString,
             headers: normalizedHeaders(request.allHTTPHeaderFields ?? [:], idempotencyKey: idempotencyKey),
             bodyRef: bodyRef,
             bodyByteCount: body.count,
             idempotencyKey: idempotencyKey,
             timeoutInterval: request.timeoutInterval > 0 ? request.timeoutInterval : 40,
-            status: .pending,
+            status: status,
             retries: 0,
-            nextAttemptAt: now + Self.backoffSeconds[0],
+            nextAttemptAt: status == .pending ? now + Self.backoffSeconds[0] : 0,
             lastError: normalizedReason(reason)
         )
 
         try writeProtectedData(body, to: blobURL(for: bodyRef))
-        entries.append(entry)
-        try persist()
-        let nextSnapshot = snapshotFor(entries)
-        publish(nextSnapshot)
-        return OfflineTalkOutboxEnqueueResult(entry: entry, snapshot: nextSnapshot)
+        let next = entries + [entry]
+        try persist(next)
+        entries = next
+        return entry
     }
 
     @discardableResult
     func drainDue(
         now: Date = Date(),
         limit: Int = 6,
+        initiatingIdentity owner: BackendAuthRequestIdentity = BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: true),
+        backendURL: URL = BackendAuthClient.resolvedBackendBaseURL(),
         transport: Transport? = nil
     ) async -> OfflineTalkOutboxSnapshot {
+        let scope = OfflineTalkRecoveryScope(identity: owner, backendURL: backendURL)
+        guard (try? requireScope(owner, backendURL: backendURL)) != nil else { return .empty }
+        guard drainingScope == nil else { return snapshotFor(entries) }
+        drainingScope = scope
+        defer { drainingScope = nil }
         do {
             try loadIfNeeded()
             try ensureStorageExists()
@@ -326,21 +397,42 @@ actor OfflineTalkOutbox {
         var sentCount = 0
 
         while sentCount < max(1, limit),
+              scope.matches(identity: requestIdentityProvider(false), backendURL: backendURLProvider()),
+              !requestIdentityProvider(false).accessToken.isEmpty,
               let index = entries.firstIndex(where: { entry in
-                  entry.status == .pending && entry.nextAttemptAt <= nowSeconds
+                  entry.status == .pending && entry.nextAttemptAt <= nowSeconds && belongs(entry, scope: scope)
               }) {
             sentCount += 1
             entries[index].status = .inflight
             entries[index].updatedAt = nowSeconds
-            try? persist()
+            do { try persist() }
+            catch {
+                entries[index].status = .pending
+                let failed = snapshotFor(entries, lastError: "Queued work could not be saved for sending. Its files were kept.")
+                publish(failed)
+                return failed
+            }
             publishSnapshot()
 
             let entry = entries[index]
             do {
-                let request = try replayRequest(for: entry)
-                let result = try await sender(request)
+                let request = try replayRequest(for: entry, owner: owner, backendURL: backendURL)
+                var result = try await sender(request)
+                if result.statusCode == 401 {
+                    try requireScope(owner, backendURL: backendURL)
+                    let refreshed = try await authRefresher(owner.ownerContext)
+                    try requireScope(owner, backendURL: backendURL)
+                    if refreshed.isAuthenticated {
+                        result = try await sender(replayRequest(for: entry, owner: owner, backendURL: backendURL))
+                    }
+                }
                 try handleSendResult(result, forEntryID: entry.id, now: now)
             } catch {
+                if !scope.matches(identity: requestIdentityProvider(false), backendURL: backendURLProvider()) {
+                    if let retained = entries.firstIndex(where: { $0.id == entry.id }) { entries[retained].status = .pending }
+                    try? persist()
+                    break
+                }
                 handleRetryableFailure(
                     entryID: entry.id,
                     message: error.localizedDescription,
@@ -356,14 +448,23 @@ actor OfflineTalkOutbox {
         return nextSnapshot
     }
 
-    func deleteParkedEntries() throws -> OfflineTalkOutboxSnapshot {
+    func deleteParkedEntries(confirmedEntryIDs: Set<String>, initiatingIdentity owner: BackendAuthRequestIdentity,
+                             backendURL: URL) throws -> OfflineTalkOutboxSnapshot {
+        try requireScope(owner, backendURL: backendURL)
         try loadIfNeeded()
-        let parked = entries.filter { $0.status == .parked }
-        entries.removeAll { $0.status == .parked }
+        let scope = OfflineTalkRecoveryScope(identity: owner, backendURL: backendURL)
+        let eligible = Set(visibleEntries(scope: scope).filter { $0.status == .parked }.map(\.id))
+        guard !confirmedEntryIDs.isEmpty, confirmedEntryIDs.isSubset(of: eligible) else {
+            throw BackendError.stage("offline_outbox", "Queued recovery changed. Review the current entries before deleting.")
+        }
+        let parked = entries.filter { confirmedEntryIDs.contains($0.id) }
+        let remaining = entries.filter { !confirmedEntryIDs.contains($0.id) }
+        try requireScope(owner, backendURL: backendURL)
+        try persist(remaining)
+        entries = remaining
         for entry in parked {
             try? fileManager.removeItem(at: blobURL(for: entry.bodyRef))
         }
-        try persist()
         let nextSnapshot = snapshotFor(entries)
         publish(nextSnapshot)
         return nextSnapshot
@@ -393,20 +494,24 @@ actor OfflineTalkOutbox {
 
     private func loadIfNeeded() throws {
         guard !didLoad else { return }
-        didLoad = true
-        entries = []
-        guard fileManager.fileExists(atPath: manifestURL.path) else { return }
+        guard fileManager.fileExists(atPath: manifestURL.path) else { entries = []; didLoad = true; return }
 
         let data = try Data(contentsOf: manifestURL)
-        let raw = String(data: data, encoding: .utf8) ?? ""
+        guard let raw = String(data: data, encoding: .utf8) else {
+            throw BackendError.stage("offline_outbox", "Recovery files could not be read. They were kept unchanged.")
+        }
         let decoder = JSONDecoder()
         let now = Date().timeIntervalSince1970
-        entries = raw
+        let loaded = try raw
             .split(separator: "\n")
-            .compactMap { line -> OfflineTalkOutboxEntry? in
-                guard let lineData = String(line).data(using: .utf8) else { return nil }
-                guard var entry = try? decoder.decode(OfflineTalkOutboxEntry.self, from: lineData) else {
-                    return nil
+            .map { line -> OfflineTalkOutboxEntry in
+                guard let lineData = String(line).data(using: .utf8),
+                      var entry = try? decoder.decode(OfflineTalkOutboxEntry.self, from: lineData),
+                      entry.method == "POST", Self.supportedEndpoints.contains(entry.endpoint),
+                      let url = URL(string: entry.urlString), url.path == entry.endpoint,
+                      entry.bodyRef.hasPrefix("blob-"), entry.bodyRef.hasSuffix(".multipart"),
+                      !entry.bodyRef.contains("/"), !entry.bodyRef.contains("\\"), !entry.bodyRef.contains("..") else {
+                    throw BackendError.stage("offline_outbox", "Recovery files need repair. They were kept unchanged.")
                 }
                 if entry.status == .inflight {
                     entry.status = .pending
@@ -415,14 +520,19 @@ actor OfflineTalkOutbox {
                 }
                 return entry
             }
+        guard Set(loaded.map(\.id)).count == loaded.count, Set(loaded.map(\.bodyRef)).count == loaded.count else {
+            throw BackendError.stage("offline_outbox", "Recovery identifiers need repair. All files were kept unchanged.")
+        }
+        entries = loaded
+        didLoad = true
     }
 
-    private func persist() throws {
+    private func persist(_ nextEntries: [OfflineTalkOutboxEntry]? = nil) throws {
         try ensureStorageExists()
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         var data = Data()
-        for entry in entries {
+        for entry in nextEntries ?? entries {
             let encoded = try encoder.encode(entry)
             data.append(encoded)
             data.append(0x0A)
@@ -459,7 +569,14 @@ actor OfflineTalkOutbox {
         blobsDirectory.appendingPathComponent(bodyRef)
     }
 
-    private func replayRequest(for entry: OfflineTalkOutboxEntry) throws -> URLRequest {
+    private func replayRequest(for entry: OfflineTalkOutboxEntry, owner: BackendAuthRequestIdentity,
+                               backendURL: URL) throws -> URLRequest {
+        try requireScope(owner, backendURL: backendURL)
+        let identity = requestIdentityProvider(false)
+        try owner.requireCurrentOwner(identity)
+        guard belongs(entry, scope: .init(identity: identity, backendURL: backendURL)), !identity.accessToken.isEmpty else {
+            throw BackendError.stage("offline_outbox", "Sign in to the account and backend that owns this queued turn.")
+        }
         guard let url = URL(string: entry.urlString) else {
             throw BackendError.stage("offline_outbox", "Queued talk request URL is invalid.")
         }
@@ -470,23 +587,31 @@ actor OfflineTalkOutbox {
         for (key, value) in entry.headers {
             request.setValue(value, forHTTPHeaderField: key)
         }
-        let queuedUserID = headerValue(named: "X-User-Id", in: entry.headers) ?? ""
-        let currentAuth = BackendAuthClient.currentAuthSessionState()
-        let currentUserID = currentAuth.user?.userId
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if !queuedUserID.isEmpty {
-            guard !currentUserID.isEmpty, queuedUserID == currentUserID else {
-                throw BackendError.stage(
-                    "offline_outbox",
-                    "Queued action belongs to a different signed-in account."
-                )
-            }
-            if let authorization = BackendAuthClient.authorizationHeaderValue() {
-                request.setValue(authorization, forHTTPHeaderField: "Authorization")
-            }
-        }
+        request.setValue(entry.idempotencyKey, forHTTPHeaderField: "X-Idempotency-Key")
+        request.setValue(identity.userID, forHTTPHeaderField: "X-User-Id")
+        request.setValue("Bearer \(identity.accessToken)", forHTTPHeaderField: "Authorization")
+        request.setValue(identity.clientToken.isEmpty ? nil : identity.clientToken, forHTTPHeaderField: "X-Client-Token")
         request.httpBody = body
+        try requireScope(owner, backendURL: backendURL)
         return request
+    }
+
+    func exportRecoveryEntry(_ id: String, initiatingIdentity owner: BackendAuthRequestIdentity,
+                             backendURL: URL) throws -> OfflineTalkRecoveryArtifact {
+        try requireScope(owner, backendURL: backendURL)
+        try loadIfNeeded()
+        guard let entry = entries.first(where: { $0.id == id && belongs($0, scope: .init(identity: owner, backendURL: backendURL)) }) else {
+            throw BackendError.stage("offline_outbox", "This queued turn is not available in the current account and backend.")
+        }
+        let body = try Data(contentsOf: blobURL(for: entry.bodyRef))
+        let data = try JSONSerialization.data(withJSONObject: [
+            "format": "them-queued-turn-recovery", "version": 1, "entry_id": entry.id,
+            "endpoint": entry.endpoint, "created_at": entry.createdAt, "status": entry.status.rawValue,
+            "content_type": headerValue(named: "Content-Type", in: entry.headers) ?? "application/octet-stream",
+            "body_base64": body.base64EncodedString()
+        ], options: [.sortedKeys, .prettyPrinted])
+        try requireScope(owner, backendURL: backendURL)
+        return .init(filename: "them-queued-turn-\(UUID().uuidString.lowercased()).json", data: data)
     }
 
     private func handleSendResult(
@@ -497,7 +622,10 @@ actor OfflineTalkOutbox {
         guard let index = entries.firstIndex(where: { $0.id == entryID }) else { return }
         let status = result.statusCode
         if (200...299).contains(status) {
-            let entry = entries.remove(at: index)
+            let entry = entries[index]
+            let remaining = entries.filter { $0.id != entryID }
+            try persist(remaining)
+            entries = remaining
             try? fileManager.removeItem(at: blobURL(for: entry.bodyRef))
             return
         }
@@ -547,16 +675,20 @@ actor OfflineTalkOutbox {
 
     private func snapshotFor(
         _ entries: [OfflineTalkOutboxEntry],
+        scope explicitScope: OfflineTalkRecoveryScope? = nil,
         lastError: String = ""
     ) -> OfflineTalkOutboxSnapshot {
+        let scope = explicitScope ?? currentScope()
+        let visible = entries.filter { belongs($0, scope: scope) }
         let latestError = lastError.trimmingCharacters(in: .whitespacesAndNewlines)
         return OfflineTalkOutboxSnapshot(
-            pendingCount: entries.filter { $0.status == .pending }.count,
-            inflightCount: entries.filter { $0.status == .inflight }.count,
-            parkedCount: entries.filter { $0.status == .parked }.count,
+            pendingCount: visible.filter { $0.status == .pending }.count,
+            inflightCount: visible.filter { $0.status == .inflight }.count,
+            parkedCount: visible.filter { $0.status == .parked }.count,
             lastError: latestError.isEmpty
-                ? entries.last(where: { ($0.lastError ?? "").isEmpty == false })?.lastError ?? ""
-                : latestError
+                ? visible.last(where: { ($0.lastError ?? "").isEmpty == false })?.lastError ?? ""
+                : latestError,
+            recoveryScope: scope
         )
     }
 
@@ -565,12 +697,34 @@ actor OfflineTalkOutbox {
     }
 
     private func publish(_ snapshot: OfflineTalkOutboxSnapshot) {
-        DispatchQueue.main.async {
-            NotificationCenter.default.post(
-                name: .themOfflineTalkOutboxUpdated,
-                object: nil,
-                userInfo: snapshot.notificationUserInfo
-            )
+        let identityProvider = requestIdentityProvider, urlProvider = backendURLProvider
+        let identity = identityProvider(false)
+        let scope = snapshot.recoveryScope ?? currentScope()
+        guard scope.matches(identity: identity, backendURL: urlProvider()) else { return }
+        let fields = snapshot.notificationUserInfo.merging(scope.notificationFields) { _, new in new }
+        postBackendNotificationOnMain(name: .themOfflineTalkOutboxUpdated, userInfo: fields,
+            initiatingIdentity: identity.userID.isEmpty ? nil : identity, identityProvider: identityProvider,
+            deliveryCondition: { scope.matches(identity: identityProvider(false), backendURL: urlProvider()) })
+    }
+
+    private func currentScope() -> OfflineTalkRecoveryScope {
+        .init(identity: requestIdentityProvider(false), backendURL: backendURLProvider())
+    }
+
+    private func belongs(_ entry: OfflineTalkOutboxEntry, scope: OfflineTalkRecoveryScope) -> Bool {
+        guard !scope.owner.userID.isEmpty, headerValue(named: "X-User-Id", in: entry.headers) == scope.owner.userID,
+              let url = URL(string: entry.urlString) else { return false }
+        return OfflineTalkRecoveryScope.sameBackend(url, scope.backendURL)
+    }
+
+    private func visibleEntries(scope: OfflineTalkRecoveryScope) -> [OfflineTalkOutboxEntry] {
+        entries.filter { belongs($0, scope: scope) }
+    }
+
+    private func requireScope(_ owner: BackendAuthRequestIdentity, backendURL: URL) throws {
+        try owner.requireCurrentOwner(requestIdentityProvider(false))
+        guard OfflineTalkRecoveryScope.sameBackend(backendURL, backendURLProvider()) else {
+            throw BackendMemoryAPIError.server(status: 409, message: "auth_request_superseded")
         }
     }
 

@@ -3,6 +3,53 @@ import XCTest
 @testable import them
 
 final class BackendProjectWriteOwnershipTests: XCTestCase {
+    func testDataControlsCannotSendToABackendOtherThanTheConfirmedOrigin() async {
+        for kind in 0..<3 {
+            let state = ProjectWriteOwnershipState()
+            ProjectWriteOwnershipProtocol.handler = { request in
+                state.record(request)
+                return .json(#"{"error":"unavailable"}"#, status: 503)
+            }
+            let api = makeAPI(state), owner = state.identity(), confirmed = URL(string: "https://original-backend.test")!
+            await assertSuperseded {
+                switch kind {
+                case 0: _ = try await api.clearHistory(initiatingIdentity: owner, backendURL: confirmed)
+                case 1: _ = try await api.clearMemories(initiatingIdentity: owner, backendURL: confirmed)
+                default: _ = try await api.exportAccountData(initiatingIdentity: owner, backendURL: confirmed)
+                }
+            }
+            XCTAssertTrue(state.requests().allSatisfy { $0.url?.path == "/session" })
+        }
+    }
+
+    func testDataControlsCannotAdoptAccountChangedDuringBootstrapOrResponse() async {
+        for kind in 0..<3 {
+            for duringBootstrap in [true, false] {
+                let state = ProjectWriteOwnershipState()
+                ProjectWriteOwnershipProtocol.handler = { request in
+                    state.record(request)
+                    if request.url?.path == "/session" {
+                        if duringBootstrap { state.changeOwner() }
+                        return .json(#"{"error":"unavailable"}"#, status: 503)
+                    }
+                    state.changeOwner()
+                    return .json(#"{"ok":true,"state_version":"stale-owner-state"}"#)
+                }
+                let api = makeAPI(state), owner = state.identity()
+                await assertSuperseded {
+                    switch kind {
+                    case 0: _ = try await api.clearHistory(initiatingIdentity: owner)
+                    case 1: _ = try await api.clearMemories(initiatingIdentity: owner)
+                    default: _ = try await api.exportAccountData(initiatingIdentity: owner)
+                    }
+                }
+                let requests = state.requests().filter { $0.url?.path != "/session" }
+                XCTAssertEqual(requests.count, duringBootstrap ? 0 : 1)
+                XCTAssertTrue(requests.allSatisfy { $0.value(forHTTPHeaderField: "X-User-Id") == "writer-a" })
+            }
+        }
+    }
+
     override func tearDown() {
         ProjectWriteOwnershipProtocol.handler = nil
         super.tearDown()

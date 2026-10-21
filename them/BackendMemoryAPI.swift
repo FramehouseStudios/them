@@ -7444,22 +7444,21 @@ actor BackendMemoryAPI {
         return BackendReadResult(payload: payload, sync: syncState, notModified: false)
     }
 
-    func clearHistory() async throws -> BackendReadResult<BackendDataControlResponse> {
-        try await runDataControl(path: "/data/history/clear")
+    func clearHistory(initiatingIdentity owner: BackendAuthRequestIdentity = BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: true), backendURL: URL? = nil) async throws -> BackendReadResult<BackendDataControlResponse> {
+        try await runDataControl(path: "/data/history/clear", owner: owner, backendURL: backendURL)
     }
 
-    func clearMemories() async throws -> BackendReadResult<BackendDataControlResponse> {
-        try await runDataControl(path: "/data/memories/clear")
+    func clearMemories(initiatingIdentity owner: BackendAuthRequestIdentity = BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: true), backendURL: URL? = nil) async throws -> BackendReadResult<BackendDataControlResponse> {
+        try await runDataControl(path: "/data/memories/clear", owner: owner, backendURL: backendURL)
     }
 
-    func exportAccountData() async throws -> BackendAccountExportArtifact {
-        _ = try? await bootstrapSession(force: false)
-        var request = try makeRequest(path: "/account/export")
+    func exportAccountData(initiatingIdentity owner: BackendAuthRequestIdentity = BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: true), backendURL: URL? = nil) async throws -> BackendAccountExportArtifact {
+        let identity = try await screenplayRequestIdentity(owner)
+        var request = try makeWriteRequest(path: "/account/export", identity: identity)
+        request.httpMethod = "GET"
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        let (data, response) = try await session.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
-        guard let http = response as? HTTPURLResponse else {
-            throw BackendMemoryAPIError.invalidResponse
-        }
+        try validateDataControlOrigin(request, expected: backendURL)
+        let (data, http) = try await screenplayHTTPResponse(for: request, owner: owner)
         guard (200...299).contains(http.statusCode) else {
             let message = decodeErrorMessage(from: data)
             throw BackendMemoryAPIError.server(status: http.statusCode, message: message)
@@ -9213,14 +9212,16 @@ actor BackendMemoryAPI {
         return BackendReadResult(payload: parsed, sync: syncState, notModified: false)
     }
 
-    private func runDataControl(path: String) async throws -> BackendReadResult<BackendDataControlResponse> {
-        _ = try? await bootstrapSession(force: false)
-        var request = try makeWriteRequest(path: path)
+    private func validateDataControlOrigin(_ request: URLRequest, expected: URL?) throws {
+        guard let expected else { return }
+        guard let actual = request.url, OfflineTalkRecoveryScope.sameBackend(actual, expected) else { throw BackendMemoryAPIError.server(status: 409, message: "auth_request_superseded") }
+    }
+    private func runDataControl(path: String, owner: BackendAuthRequestIdentity, backendURL: URL?) async throws -> BackendReadResult<BackendDataControlResponse> {
+        let identity = try await screenplayRequestIdentity(owner)
+        var request = try makeWriteRequest(path: path, identity: identity)
         request.httpBody = Data("{}".utf8)
-        let (data, response) = try await session.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
-        guard let http = response as? HTTPURLResponse else {
-            throw BackendMemoryAPIError.invalidResponse
-        }
+        try validateDataControlOrigin(request, expected: backendURL)
+        let (data, http) = try await screenplayHTTPResponse(for: request, owner: owner)
         guard (200...299).contains(http.statusCode) else {
             let message = decodeErrorMessage(from: data)
             throw BackendMemoryAPIError.server(status: http.statusCode, message: message)
@@ -9230,8 +9231,7 @@ actor BackendMemoryAPI {
         let payload = try decoder.decode(BackendDataControlResponse.self, from: data)
         let headerSync = syncFromHeaders(http, fallbackStatus: "up")
         let bodySync = syncFromDataControlPayload(payload)
-        let incoming = mergeSyncStates(base: bodySync, incoming: headerSync)
-        updateSyncState(incoming, emitTurnEvent: false)
+        updateSyncState(mergeSyncStates(base: bodySync, incoming: headerSync), emitTurnEvent: false, initiatingIdentity: owner)
         historyCacheByLimit.removeAll()
         memoriesCacheByLimit.removeAll()
         return BackendReadResult(payload: payload, sync: syncState, notModified: false)

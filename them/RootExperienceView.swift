@@ -1358,12 +1358,13 @@ struct RootExperienceView: View {
                     }
                 }
                 .onReceive(NotificationCenter.default.publisher(for: .themOfflineTalkOutboxUpdated)) { notification in
-                    let snapshot = OfflineTalkOutboxSnapshot(notification: notification)
+                    guard let snapshot = OfflineTalkOutboxSnapshot(notification: notification) else { return }
                     offlineTalkOutboxSnapshot = snapshot
                     if let status = snapshot.userVisibleStatus, snapshot.hasWork {
                         showOfflineTalkOutboxBanner(status)
                     }
                 }
+                .onReceive(NotificationCenter.default.publisher(for: .themBackendIdentityPartitionChanged)) { _ in offlineTalkOutboxSnapshot = .empty; startOfflineTalkOutbox() }
                 .onReceive(NotificationCenter.default.publisher(for: .themOpenStudioRequested)) { _ in
                     handleWorkspaceNavigationCommand(.openStudio)
                 }
@@ -7665,7 +7666,9 @@ Write this approved story direction directly into screenplay pages now. Maintain
 #if DEBUG || os(macOS)
             finalizeDebugVoiceTurn(status: "error", error: "Talk request cancelled.")
 #endif
+        } catch is OfflineTalkPreviousOwnerError { return
         } catch let queued as BackendTalkQueuedError {
+            guard queued.snapshot.recoveryScope?.isCurrent == true else { return }
             backendConnectionState = .reconnecting
             backendFailureCount = max(backendFailureCount, 1)
             offlineTalkOutboxSnapshot = queued.snapshot
@@ -8412,19 +8415,16 @@ Write this approved story direction directly into screenplay pages now. Maintain
     private func startOfflineTalkOutbox() {
         Task { @MainActor in
             await OfflineTalkOutbox.shared.startNetworkMonitoring()
-            offlineTalkOutboxSnapshot = await OfflineTalkOutbox.shared.snapshot()
-            if offlineTalkOutboxSnapshot.activeCount > 0 {
-                _ = await OfflineTalkOutbox.shared.drainDue()
-            }
+            _ = await OfflineTalkOutbox.shared.drainDue()
         }
     }
 
     @MainActor
     private func retryOfflineTalkOutbox() {
+        let owner = BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: true)
+        let backendURL = BackendAuthClient.resolvedBackendBaseURL()
         Task { @MainActor in
-            offlineTalkOutboxSnapshot = await OfflineTalkOutbox.shared.snapshot()
-            guard offlineTalkOutboxSnapshot.activeCount > 0 else { return }
-            offlineTalkOutboxSnapshot = await OfflineTalkOutbox.shared.drainDue()
+            _ = await OfflineTalkOutbox.shared.drainDue(initiatingIdentity: owner, backendURL: backendURL)
         }
     }
 
@@ -8444,7 +8444,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 if supportDiagnosticsEnabled {
                     await refreshTalkDiagnostics(force: false)
                 }
-                offlineTalkOutboxSnapshot = await OfflineTalkOutbox.shared.drainDue()
+                _ = await OfflineTalkOutbox.shared.drainDue()
                 return
             }
 

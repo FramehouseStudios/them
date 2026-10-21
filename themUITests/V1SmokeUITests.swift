@@ -2094,6 +2094,44 @@ final class V1SmokeUITests: XCTestCase {
         XCTAssertTrue(staticText(containing: "deterministic stub path", in: app).waitForExistence(timeout: 5))
     }
 
+    func test_talk_recovery_exports_current_owner_and_confirms_exact_deletion() {
+        let app = launchApp(openDataControls: true, showTalkRecovery: true)
+        defer { app.terminate() }
+        XCTAssertTrue(app.otherElements["data.controls.screen"].waitForExistence(timeout: 8))
+        let export = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "data.controls.talk.export.")).firstMatch
+        for _ in 0..<8 where !export.isHittable { app.swipeUp() }
+        XCTAssertTrue(export.waitForExistence(timeout: 5))
+        XCTAssertEqual(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "data.controls.talk.export.")).count, 1)
+        XCTAssertFalse(staticText(containing: "UI recovery fixture: ui-foreign-talk", in: app).exists)
+        XCTAssertTrue(staticText(containing: "Older unassigned queued work", in: app).exists)
+        export.tap()
+        let filename = app.textFields["DOCPicker.filenameTextField"]
+        XCTAssertTrue(filename.waitForExistence(timeout: 5), "Recovery export did not open the native file exporter.")
+        XCTAssertTrue(dismissNativeFilesExporter(in: app, filenameField: filename))
+        let delete = app.buttons["data.controls.talk.delete-parked"]
+        XCTAssertTrue(delete.waitForExistence(timeout: 5))
+        delete.tap()
+        let alert = app.alerts.firstMatch
+        XCTAssertTrue(alert.waitForExistence(timeout: 5))
+        XCTAssertTrue(alert.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "1 confirmed parked turn")).firstMatch.exists)
+        alert.buttons["Cancel"].tap()
+        XCTAssertTrue(export.exists, "Cancel deleted the queued turn.")
+        export.tap()
+        XCTAssertTrue(filename.waitForExistence(timeout: 5))
+        app.buttons["Save"].tap()
+        XCTAssertTrue(waitForDisappearance(of: filename, timeout: 8))
+        XCTAssertTrue(staticText(containing: "Queued turn recovery export saved", in: app).waitForExistence(timeout: 5))
+        let saved = XCTAttachment(screenshot: app.screenshot())
+        saved.name = "talk-recovery-after-real-files-save.png"
+        saved.lifetime = .keepAlways
+        add(saved)
+        delete.tap()
+        app.alerts.firstMatch.buttons["Delete Parked Turns"].tap()
+        XCTAssertTrue(staticText(containing: "Deleted 1 confirmed parked", in: app).waitForExistence(timeout: 5))
+        XCTAssertFalse(export.exists)
+        XCTAssertTrue(staticText(containing: "Older unassigned queued work", in: app).exists)
+    }
+
     func test_outline_recovery_exposes_stale_chain_without_unsafe_retry() {
         let app = launchApp(openDataControls: true, showOutlineRecovery: true)
 
@@ -3684,6 +3722,7 @@ final class V1SmokeUITests: XCTestCase {
         showCanonClarification: Bool = false,
         showDraftConflict: Bool = false,
         showOutlineRecovery: Bool = false,
+        showTalkRecovery: Bool = false,
         conflictSaveSuccess: Bool = false,
         liveMemory: Bool = false,
         showPendingScreenplayQuestion: Bool = false,
@@ -3758,6 +3797,9 @@ final class V1SmokeUITests: XCTestCase {
         }
         if showOutlineRecovery {
             arguments.append("--ui-outline-recovery-fixture")
+        }
+        if showTalkRecovery {
+            arguments.append("--ui-talk-recovery-fixture")
         }
         if conflictSaveSuccess {
             arguments.append("--ui-conflict-save-success")
@@ -4203,11 +4245,11 @@ final class V1SmokeUITests: XCTestCase {
         // A picker can reopen inside a concrete folder. Return to Browse first;
         // the root-level close glyph is then always in the leading 44-point slot.
         let backToBrowse = app.buttons["BackButton"]
-        if backToBrowse.exists,
+        if backToBrowse.waitForExistence(timeout: writerLoopWait(3)),
            backToBrowse.isHittable,
            backToBrowse.frame.midX < app.frame.midX {
             backToBrowse.tap()
-            _ = filenameField.waitForExistence(timeout: writerLoopWait(3))
+            guard waitForDisappearance(of: backToBrowse, timeout: writerLoopWait(3)) else { return false }
         }
 
         // On hosted iOS 26 runners the visible X has no stable accessibility

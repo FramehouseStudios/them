@@ -6121,7 +6121,7 @@ final class BackendClient {
         _ request: URLRequest,
         body: Data,
         reason: String
-    ) async -> BackendTalkQueuedError? {
+    ) async -> Error? {
         do {
             let result = try await OfflineTalkOutbox.shared.enqueue(
                 request: request,
@@ -6135,6 +6135,7 @@ final class BackendClient {
                 reason: reason
             )
         } catch {
+            if error is OfflineTalkPayloadConflictError || error is OfflineTalkPreviousOwnerError { return error }
             print("POST /talk -> offline outbox enqueue failed: \(error.localizedDescription)")
             return nil
         }
