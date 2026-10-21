@@ -10,7 +10,7 @@ nonisolated struct ScreenplayCoverageContext: Equatable {
 
     static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.auth == rhs.auth && lhs.projectID == rhs.projectID &&
-            ScreenplayDraftTextIdentity.matches(lhs.draft, rhs.draft)
+            lhs.draft.utf8.elementsEqual(rhs.draft.utf8)
     }
 
     func hasSameOwner(as other: Self) -> Bool {

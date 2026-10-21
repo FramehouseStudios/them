@@ -1619,7 +1619,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         didSet {
             if !fountainDraft.contains(where: { !$0.isWhitespace }) {
                 invalidateCoverage()
-            } else if let active = activeCoverageContext, !ScreenplayDraftTextIdentity.matches(active.draft, fountainDraft) {
+            } else if let active = activeCoverageContext, !active.draft.utf8.elementsEqual(fountainDraft.utf8) {
                 activeCoverageRequestID = nil
                 activeCoverageContext = nil
                 if isCoverageRefreshing { isCoverageRefreshing = false }
