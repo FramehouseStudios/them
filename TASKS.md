@@ -149,8 +149,9 @@
 
 ### T-1104 — Preserve raw version text and audit first-project promotion
 
-- **Owner:** codex. **Branch:** `codex/T-1104-raw-version-retention` (next).
-- **Status:** ready / highest next data-safety priority, before #648.
+- **Owner:** codex. **Branch:** `codex/T-1104-raw-version-retention`.
+- **Status:** review (raw-save/happy-relaunch proof; lifecycle audit continues
+  in T-1105 before #648). **Checkpoint:** `2c401de`.
 - **VERIFIED source:** current Root autoCreateStudioProjectIfNeeded sends
   cleanDraft to the version API. Active backend screenplay_projects_routes.js
   POST /projects/:id/version normalizes CRLF and trims the draft, then compares
@@ -169,6 +170,48 @@
   and fix the actual lifecycle, not a competing writer/auth/persistence system.
 - **Boundary:** keep original heads, orb and Clementine. No paid model call,
   deployment, secret change or protected-main bypass. Full goal remains active.
+- **Fixed:** server version storage/replay now compare original text; trimming
+  only validates emptiness. Root promotion sends/hashes original draft bytes.
+  The existing store normalizer and response already preserve their input.
+- **Proof:** authenticated actual Node20 handler red0/2/0 -> focused2/0/0;
+  full backend2900/0/2, full signed units840/0/0, macOS/D009/diff pass.
+  Later DEBUG-only fixture correction verified3/0/0, macOS rebuilt, and actual
+  authenticated native promotion/save/title/relaunch UI1/0/0 with one project,
+  one version and exact UTF-8 (CRLF/trailing space/decomposed accent). First UI
+  run0/1/0 exposed launch-argument seed truncation, not a production save failure;
+  fixed via typed existing owner store, not an alternate writer/persistence path.
+- **Limits:** full840 snapshot precedes only later DEBUG fixture/test changes;
+  no subsequent production runtime delta. No paid/provider/microphone/physical
+  phone, real Postgres or interrupted-project-creation proof. Retained both reds.
+- **Evidence:** `docs/raw-version-retention-2026-10-21.md` and home worktrees
+  `_proof/T-1104-20261021.9GQF6d/`.
+
+### T-1105 — Keep asynchronous first-project promotion with its initiating page
+
+- **Owner:** codex. **Branch:** `codex/T-1105-promotion-commit-ownership` (next).
+- **Status:** ready / next data-safety priority BEFORE original #648.
+- **Source risks, not yet runtime reproductions:** Root still calls promotion
+  on a planned merge at synced playback start as well as the committed-write
+  observer. It saves a version before checking owner; its final guard compares
+  user ID and empty project only, not session generation or current draft bytes.
+- **Done when:** delayed project creation plus actual page edits/cancel/account
+  generation changes cannot save/bind a stale draft or overwrite the current
+  page/status. Preserve real restored-unbound promotion and retry/relaunch
+  behavior. Reuse canonical StudioActionDocumentContext/committed-write/auth
+  owners. Reproduce the first actual failure, then smallest coherent root fix.
+- **Not covered by T-1104:** crash between project and version creation, partial
+  project/orphan reconciliation or idempotent project creation. Do not call the
+  happy-path one-project UI check proof of these adversarial cases.
+
+### T-1106 — Reconcile title-page/editor presentation without rewriting source
+
+- **Owner:** codex. **Status:** ready / below data-safety and core-loop fixes.
+- **Observed:** T-1104's actual screenshot retains readable source, but shows
+  literal Fountain title metadata on the editor paper and Last saved “in 0 sec.”
+- **Done when:** trace intended source-edit versus title-page presentation and
+  relative-date basis; improve copy/presentation without changing raw writer
+  bytes or inventing a second formatter. Reconcile original #80's still-open
+  editor/export element-authority decision; do not silently decide that policy.
 
 ### T-967 — Preserve coverage and context-isolation repairs (historical; current T-1100)
 
