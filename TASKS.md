@@ -42,6 +42,33 @@
   associated native/fixture tests/runner and handoff. No broader backup merge,
   parallel STT service, production or paid-provider work.
 
+### Historical T-1093 — Confirmed Home writer checkpoint (not current proof)
+
+- **Owner:** codex. **Branch:** `codex/T-1093-confirmed-home-writer-sync`.
+- **Status:** review (current-parent local proof; protected landing pending).
+  **Pillar:** voice-to-scene / durable writer text.
+- **Scope:** reuse isolated T-949 `6e7138b1` above `fc873384`, not its older
+  cumulative rehearsal. Reconcile its editor gate into the existing package
+  owner, preserving current typing/echo/document-switch safeguards.
+- **Root:** confirmed words open authenticated Studio before preparation;
+  no stale/partial Home instruction, duplicate document writer or partial
+  first-save snapshot. Refused commands no longer count as Home open consent.
+- **Current proof:** signed focused67/0/0; Node20 fixture3/0/0; authenticated
+  running-app Home pair2/0/0 with exact complete saved/relaunched editor text;
+  macOS scaffold pass. Synthetic providers, no microphone/model/phone claim.
+- **Evidence:** `docs/confirmed-home-writer-sync-2026-10-20.md`.
+- **Reopened:** short Home2/0/0 did not settle narration: long raw0/1/0, then
+  instrumented0/1/0. Exact call stack identifies bargeIn from microphone frames.
+  Reused original #623's native simulator policy/tests verbatim; its backend
+  changes remain preserved/deferred, not silently absorbed or dismissed.
+- **Final:** signed focused71/0/0; unchanged failing long-audio workflow1/0/0
+  after the native root fix; final macOS scaffold passes. Both long failures
+  retained, no assertion/timeout relaxation. D009 passes; no paid provider calls.
+- **Next:** saved at `f9235d54`; address T-1095 preview-cleanup ownership
+  and T-1094 active-Studio refusals, then continue original #642.
+  #807 remains the canonical later transcribe-first boundary. Main/production
+  holds and independent review requirements remain.
+
 ### T-1139 — Preserve original640 with proven craft/routing corrections
 
 - **Owner:** codex (Jarvis). **Branch:** `codex/T-1139-original-640-craft`.
@@ -103,6 +130,26 @@
   fresh hosted execution pending. No paid/live workflow is introduced.
 - **Evidence:** `docs/god-baseline-authority-2026-10-25.md`. Preserve original
   #640 history; fresh hosted checks/review still required before landing.
+
+### Historical T-1095 — Preview cancellation checkpoint (not current proof)
+
+- **Owner:** codex. **Branch:** `codex/T-1095-preview-cancel-ownership`.
+- **Status:** review (scoped current-parent proof; protected landing pending).
+  **Pillar:** durable voice-to-scene / explicit writer control.
+- **Source finding:** cancelStreamingVoiceTurnPreview cancels a stream before
+  checking preview activity. This was NOT T-1093's traced bargeIn caller.
+- **Done when:** inactive preview cleanup leaves a normal stream alone, active
+  preview cancellation still restores its baseline, and explicit Stop/barge-in
+  still interrupts the actual page owner. Prove the real bridge behavior.
+- **Root:** bridge red0/1/0 -> guard fix14/0/0 focused signed/native checks;
+  longer-audio Home/save/relaunch1/0/0. Actual iPhone-simulator Stop button then
+  exposed duplicate handler resuming capture: UI red0/1/0 -> unchanged1/0/0
+  after routing to existing full-stop owner and deleting the duplicate.
+- **Verified:** final macOS scaffold/D009/diff pass; Root shrank24 lines versus
+  parent. Both red runs retained. No paid providers or physical-phone claim.
+- **Evidence:** `docs/preview-cancellation-2026-10-20.md`.
+- **Next:** T-1094 active-Studio refusals, then original #642; original-head
+  review, integrated-main/phone proof and production hold remain.
 
 ### T-1138 — Preserve original golden-set PR639 with explicit spend approval
 
