@@ -21,6 +21,9 @@ Object.assign(process.env, {
 delete process.env.DATABASE_URL;
 const realFetch = globalThis.fetch;
 const systems = [];
+const mentorCore = fs.readFileSync(new URL("../../docs/persona/mentor-core.txt", import.meta.url), "utf8").trim();
+const nativePrompt = process.env.THEM_MENTOR_NATIVE_PROMPT_FILE
+  ? fs.readFileSync(process.env.THEM_MENTOR_NATIVE_PROMPT_FILE, "utf8") : "";
 globalThis.fetch = async (url, options = {}) => {
   if (String(url).startsWith("http://127.0.0.1:")) return realFetch(url, options);
   if (String(url) === "https://api.openai.com/v1/chat/completions") {
@@ -46,13 +49,25 @@ test("[640-talk] real talk path carries mentor craft and suppresses it for a fea
       const before = systems.length;
       const form = new FormData();
       form.append("debug_transcript", "Help me strengthen the ferry captain's choice.");
-      form.append("system_prompt", "SCENE PITCH (standing collaborator rule)\n" + (feature ? "<feature_film_map>target_pages: 90; All Is Lost in Act II.</feature_film_map>" : ""));
+      const map = feature ? "<feature_film_map>target_pages: 90; All Is Lost in Act II.</feature_film_map>" : "";
+      const source = nativePrompt
+        ? nativePrompt.replace("</mentor_core>", `</mentor_core>\n${map}`)
+        : `<mentor_core>\n${mentorCore}\n</mentor_core>\n<scene_pitch>SCENE PITCH (standing collaborator rule)\nKeep the writer's premise.</scene_pitch>\n${map}`;
+      form.append("system_prompt", source + "\nDisposable continuity detail. ".repeat(600));
       form.append("file", new Blob([Buffer.alloc(64)], { type: "audio/wav" }), "test.wav");
       const response = await realFetch(`${base}/talk`, { method: "POST", headers: { "X-APP-TOKEN": "mentor-talk-test", "X-Client-Token": client_token }, body: form });
       await response.arrayBuffer();
       assert.equal(response.status, 200);
       const prompt = systems.slice(before).find((value) => value.includes("<mentor_output>"));
       assert.ok(prompt, "real handler must reach provider with mentor contract");
+      const deliveredCore = prompt.match(/<mentor_core>([\s\S]*?)<\/mentor_core>/)?.[1];
+      assert.equal(deliveredCore?.replace(/\s+/g, " ").trim(), mentorCore.replace(/\s+/g, " ").trim(), "The actual provider must receive the complete shared mentor identity, not just a header");
+      const deliveredPitch = prompt.match(/<scene_pitch>([\s\S]*?)<\/scene_pitch>/)?.[1];
+      const expectedPitch = source.match(/<scene_pitch>([\s\S]*?)<\/scene_pitch>/)?.[1];
+      assert.ok(expectedPitch, "The source must contain the actual pitch contract");
+      assert.equal(deliveredPitch?.replace(/\s+/g, " ").trim(), expectedPitch.replace(/\s+/g, " ").trim(), "The entire pitch contract survives, including its writer-intent boundaries");
+      console.log("[mentor-delivery] " + JSON.stringify({ clientChars: source.length, providerChars: prompt.length, coreWhole: true, pitchWhole: true, featureMap: feature }));
+      if (!nativePrompt) assert.match(prompt, /Keep the writer's premise/);
       if (feature) { assert.match(prompt, /<feature_film_map>/); assert.doesNotMatch(prompt, /<craft>/); }
       else assert.match(prompt, /<craft>[\s\S]*three-act[\s\S]*<\/craft>/);
     }

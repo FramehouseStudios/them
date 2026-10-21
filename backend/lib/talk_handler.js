@@ -80,7 +80,7 @@ import { isShortFilmBetaEnabled } from "./clementine/short_film_beta.js";
 import { parseShortFilmIntent } from "./clementine/short_film_intent.js";
 import { buildLivePaperPayload } from "./clementine/studio_live_paper.js";
 import { applyClementineTalkHeaders } from "./clementine/talk_clementine_headers.js";
-import { isMentorTurn, elevateChatModelPlanForMentorTurn } from "./mentor_turn.js";
+import { isMentorTurn, elevateChatModelPlanForMentorTurn, mentorSystemPromptMaxChars } from "./mentor_turn.js";
 import {
   parseStudioCapabilities,
   buildStudioControlsBlock,
@@ -3943,11 +3943,12 @@ ${directorOutputRule}
       routingLane,
       chatModelPlan,
       addenda: companionArcs.addenda,
+      richMaxChars: mentorTurn ? mentorSystemPromptMaxChars() : undefined,
     });
     if (process.env.NODE_ENV !== "production" && rawSystem.length !== system.length) {
       logger.log(
         `[${rid}] system_trim chars=${rawSystem.length}->${system.length} ` +
-        `budget_fast=${FAST_TURN_SYSTEM_PROMPT_MAX_CHARS} budget_rich=${RICH_TURN_SYSTEM_PROMPT_MAX_CHARS} tier=${chatModelPlan.tier}`
+        `budget_fast=${FAST_TURN_SYSTEM_PROMPT_MAX_CHARS} budget_rich=${mentorTurn ? mentorSystemPromptMaxChars() : RICH_TURN_SYSTEM_PROMPT_MAX_CHARS} tier=${chatModelPlan.tier} mentor=${mentorTurn ? 1 : 0}`
       );
     }
     const screenplayRequestedPages = isScreenplayPageWriteTurn

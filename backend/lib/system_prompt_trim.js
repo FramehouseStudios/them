@@ -13,6 +13,10 @@ const DEFAULT_PROTECTED_TAGS = Object.freeze([
   "mentor_output",
   "craft",
   "block_signal",
+  // Original #649 identity-delivery fix; Studio-controls protection stays
+  // with #648. Dialogue notes remain owned by screenplay_task, not a new overlay.
+  "mentor_core",
+  "scene_pitch",
 ]);
 
 function normalizePromptText(value) {
@@ -466,9 +470,13 @@ function buildProtectedSection(blocks, budget) {
   if (!Array.isArray(blocks) || blocks.length === 0) return "";
   const totalBudget = Math.max(0, Math.floor(Number(budget || 0)));
   if (totalBudget < 160) return "";
+  const hasMentorCore = blocks.some(entry => String(entry?.tag || "").toLowerCase() === "mentor_core");
   const blockWeight = (tag) => {
     switch (String(tag || "").toLowerCase()) {
-      case "clementine_core": return 2.4;
+      case "clementine_core": return hasMentorCore ? 0.5 : 2.4;
+      case "mentor_core": return 2.6;
+      case "mentor_output": return hasMentorCore ? 1.6 : 1;
+      case "scene_pitch": return 1.6;
       case "clementine_safety_contract": return 1.8;
       case "creative_memory": return 2.5;
       case "writer_block_memory": return 2.4;
@@ -484,6 +492,14 @@ function buildProtectedSection(blocks, budget) {
   const allocations = entries.map(() => 0);
   let remaining = totalBudget - Math.max(0, entries.length - 1) * 2;
   let active = entries.map((_, i) => i);
+  // Preserve #649's whole-identity reservation while retaining the current
+  // capped allocation and semantic-slack recovery for every other block.
+  for (const i of [...active]) {
+    if (entries[i].tag !== "mentor_core" || full[i].length > remaining * 0.5) continue;
+    allocations[i] = full[i].length;
+    remaining -= allocations[i];
+    active = active.filter(index => index !== i);
+  }
   // Capped weighted allocation: short blocks return their unused share before
   // long blocks are compacted. This is independent of production block order.
   while (active.length) {
