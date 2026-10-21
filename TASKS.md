@@ -298,9 +298,23 @@
   Shared existing-envelope decoding removes duplicate sync paths; no second
   HTTP/auth framework. First signed ownership/outline gate28/0/0; final proof
   ledger: `docs/studio-request-ownership-2026-10-21.md`.
-- **Next:** question resolution/outbox, character-memory batch, realtime/history,
-  telemetry and derived/export requests; audit deferred notifications and cache
-  scope. Do not call this checkpoint complete app-wide isolation or all mutations.
+- **Follow-through:** question resolution/enqueue, character-memory batch,
+  realtime/history/telemetry, derived/import/export requests, deferred delivery
+  and bootstrap-cache ownership are now implemented. Four additional signed
+  reproductions red0/4/0; final full signed884/0/0, macOS and local-backend
+  recovery UI3/0/0 pass. MemoryAPI shrank39 more lines versus587f589c.
+  `docs/studio-recovery-ownership-2026-10-21.md` records scope and limitations.
+- **Follow-through checkpoint:** `ac817187c119fd3c3df58b42e59e86b467e41de2`.
+  Ownership source matches the independently proven884/0/0 and recovery3 tree.
+  Additional voice UI exposed a missed promotion trigger, now fixed in the
+  T-1108 seam below; final combined signed887/0/0/macOS pass. Preserve both
+  failed voice runs and exact proof scope; never relabel fixtures as live models.
+- **Final connected checkpoint:** voice promotion `7b6b29896eaec20051f47e26824631abede4ef5b`;
+  exact-source signed887/0/0, voice -> one project/save/relaunch UI1/0/0,
+  held-create + edited-page UI1/0/0, macOS/D009/diff pass. Provider calls are
+  intercepted, not paid/live. Root-2 and bridge-62 additional lines versus587f589c.
+- **Next:** T-1111 owner-scoped outbox presentation/destructive recovery,
+  before T-1108 and #648. Do not call these checkpoints app-wide isolation.
 - **Initial source boundary:** T-1107 covered metadata/version upsert only.
   Activation, outline/scene/beat, collaborator/comment and companion
   mutation methods awaited bootstrap then built current headers. A stale
@@ -318,9 +332,39 @@
   line ranges or a parallel network/auth system. Never claim T-1107 establishes
   app-wide account isolation.
 
+### T-1111 — Owner-scoped offline talk recovery and safe duplicate intent
+
+- **Owner:** codex. **Status:** NEXT, before T-1108 and original #648.
+- **VERIFIED source:** OfflineTalkOutbox's current allEntries/summary and
+  deleteParkedEntries are device-wide. Replay rejects a different signed-in
+  user but does not protect Data Controls from showing or deleting old-owner
+  entries. Same-scope same-key deduplication also ignores changed body bytes.
+- **Done when:** current-account presentation, replay and destructive actions
+  are scoped at actor admission/completion; other owners and legacy unknown
+  records remain recoverable. A -> B -> A keeps exact queued words, B cannot
+  delete A's parked work, ordinary retries deduplicate, and changed-payload key
+  reuse is never falsely acknowledged. Audit origin binding and late UI events.
+  Extend the existing queue/ownership capability; no second outbox or migration
+  that silently deletes/reassigns historical work. Scope inherited legacy proof
+  honestly, and do not claim a phone or production journey from fixtures.
+
 ### T-1108 — Recover interrupted initial project creation without losing source
 
-- **Owner:** codex. **Status:** queued after transport ownership.
+- **Owner:** codex. **Status:** voice-binding fix at checkpoint; crash-safe
+  creation remains queued after T-1111 owner-scoped recovery cleanup.
+- **VERIFIED voice failure:** raw-audio page appeared but stayed unbound;
+  two actual UI0/1/0 results. Read-only lifecycle counters show1,064 characters
+  in committed/editor text, raw UTF8 match=true and streaming idle. Root's UUID-only
+  callback missed binding settlement. Fix rechecks committed value/editor
+  publication, pins the committed write's login, rejects placeholders/bound
+  writes, and preserves raw UTF8 identity. First green1/0/0; stronger one-project
+  voice1/0/0 and held-create/changed-page1/0/0. Final exact-source proof ledger:
+  `docs/studio-recovery-ownership-2026-10-21.md` (combined signed887/0/0/macOS).
+- **Final exact source:** `7b6b29896eaec20051f47e26824631abede4ef5b`,
+  `/tmp/them-1109-published-source.q2pAzZ/source`: signed887/0/0, voice saved/
+  one-project/relaunch1/0/0, real held-create/edited-page1/0/0, macOS/D009/diff.
+  No latency padding, weakened assertions or paid provider calls. The two-step
+  crash/orphan boundary below remains open; do not call all T-1108 complete.
 - **Known boundary:** separate metadata-create and initial-version requests are
   not crash-atomic; dropping a stale create response can leave metadata without
   a version. Current happy-path one-project proof does not cover crash/retry
