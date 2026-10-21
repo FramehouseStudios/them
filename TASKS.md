@@ -111,6 +111,37 @@
   cue-linter repair for the false title/action warnings seen in Pages proof.
   No main merge or production deployment; #964 still requires independent review.
 
+### T-1099 — Original Studio actions on the current writer foundation
+
+- **Owner:** codex. **Branch:** `codex/T-1099-studio-actions-current-writer`.
+- **Status:** review (scoped integration proven; not full live voice-action proof).
+  **Pillar:** voice-to-scene / writer control / durable words.
+- **Scope:** preserve original #643 `86cc5b24` and #879 `eaed4e61`, reuse
+  previous document/duplicate-response and synchronous undo/save repairs, then
+  fix reproduced unsafe inference without replacing the original work.
+- **Checkpoint:** original preserving merges `f87ac15` and `2a0c391`; safety
+  replays `1292c61` and `378d77b`; new refusal/offer/quote fix `ebcaaa0`;
+  counts-only diagnostic privacy correction `04bc973`.
+- **Root:** a negated save, conditional rewrite offer and quoted fictional
+  dialogue all dispatched actions. Reused preserved rehearsal quote/negation
+  checks and conservatively reject offers/questions/quoted tags, including
+  contradictory tags following a refusal. A later affirmative remains usable.
+  No saved-success claim before acknowledgement; undo retains project/exact-byte
+  checks. Action logs no longer expose scene/beat labels or raw rejection text.
+- **Proof so far:** regression red13/1/0 -> focused25/0/0; Node20 full2876/0/2
+  at `ebcaaa0` (before the sole counts-only log-line correction). Signed focused
+  native19/0/0; macOS builds. Final-runtime authenticated synthetic Home/write/
+  save/relaunch UI1/0/0, no microphone/model claim. No repeated full native suite.
+- **Final:** actual inspector destination/selection UI1/0/0 (all six panels),
+  D009/diff pass; retained source, failures and corrected bundles. Studio−21,
+  MemoryAPI−19 against T-1098; Root unchanged. This scoped integration is NOT
+  full live voice-action proof: original
+  #648 prompt/reply and writer-authority repairs must follow at their boundary.
+- **Evidence:** `docs/studio-actions-current-writer-2026-10-21.md`.
+- **Next:** original #644 is actually based on #643. Retain #597 for observed
+  false cue warnings, and reconcile #648 with the preserved authority safeguards
+  before claiming spoken promises reliably execute. Main/production holds stay.
+
 ### T-1093 — Current confirmed Home voice-to-page handoff
 
 - **Owner:** codex. **Branch:** `codex/T-1093-confirmed-home-writer-sync`.
