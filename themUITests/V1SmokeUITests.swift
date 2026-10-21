@@ -1817,6 +1817,7 @@ final class V1SmokeUITests: XCTestCase {
 
         let fixture = try await seedBackendRestoreContractFixture(baseURL: baseURL)
         let marker = "SAVE-OUTBOX-\(UUID().uuidString.uppercased())"
+        let expectedQueuedDraft = "\(fixture.expectedDraft)\n\n\(marker)"
         var app = launchApp(
             openStudio: true,
             screenplaySaveNetworkFaultMarker: marker,
@@ -1832,7 +1833,9 @@ final class V1SmokeUITests: XCTestCase {
             waitForRestoreSnapshot(in: app, timeout: 60) { snapshot in
                 queuedSnapshot = snapshot
                 return stringValue(snapshot["selected_project_id"]).lowercased() == fixture.projectID.lowercased()
-                    && stringValue(snapshot["draft_tail_preview"]).contains(marker)
+                    && stringValue(snapshot["loaded_draft_project_id"]).lowercased() == fixture.projectID.lowercased()
+                    && stringValue(snapshot["draft_tail_preview"]) == String(expectedQueuedDraft.suffix(260))
+                    && intValue(snapshot["draft_character_count"]) == expectedQueuedDraft.count
                     && intValue(snapshot["queued_draft_save_count"]) == 1
                     && intValue(snapshot["parked_draft_save_count"]) == 0
                     && boolValue(snapshot["has_unsaved_draft_changes"])
@@ -1940,6 +1943,7 @@ final class V1SmokeUITests: XCTestCase {
 
         let fixture = try await seedBackendRestoreContractFixture(baseURL: baseURL)
         let marker = "SAVE-CONFLICT-\(UUID().uuidString.uppercased())"
+        let expectedQueuedDraft = "\(fixture.expectedDraft)\n\n\(marker)"
         var app = launchApp(
             openStudio: true,
             screenplaySaveNetworkFaultMarker: marker,
@@ -1954,7 +1958,10 @@ final class V1SmokeUITests: XCTestCase {
         XCTAssertTrue(
             waitForRestoreSnapshot(in: app, timeout: 60) { snapshot in
                 queuedSnapshot = snapshot
-                return stringValue(snapshot["draft_tail_preview"]).contains(marker)
+                return stringValue(snapshot["selected_project_id"]).lowercased() == fixture.projectID.lowercased()
+                    && stringValue(snapshot["loaded_draft_project_id"]).lowercased() == fixture.projectID.lowercased()
+                    && stringValue(snapshot["draft_tail_preview"]) == String(expectedQueuedDraft.suffix(260))
+                    && intValue(snapshot["draft_character_count"]) == expectedQueuedDraft.count
                     && intValue(snapshot["queued_draft_save_count"]) == 1
                     && intValue(snapshot["parked_draft_save_count"]) == 0
                     && boolValue(snapshot["has_unsaved_draft_changes"])
@@ -2010,7 +2017,7 @@ final class V1SmokeUITests: XCTestCase {
                     && stringValue(snapshot["conflict_server_version_id"]).lowercased() == competingVersionID.lowercased()
                     && stringValue(snapshot["draft_tail_preview"]).contains(marker)
                     && intValue(snapshot["queued_draft_save_count"]) == 0
-                    && intValue(snapshot["parked_draft_save_count"]) == 0
+                    && intValue(snapshot["parked_draft_save_count"]) == 1
                     && boolValue(snapshot["has_unsaved_draft_changes"])
                     && stringValue(snapshot["error_text"]).isEmpty
             },
@@ -2039,6 +2046,22 @@ final class V1SmokeUITests: XCTestCase {
             0,
             "A stale queued save must not commit before the writer chooses a resolution."
         )
+
+        app.terminate()
+        app = launchApp(openStudio: true, resetState: false,
+                        launchEnvironment: fixture.appLaunchEnvironment)
+        XCTAssertTrue(app.otherElements["studio.surface"].waitForExistence(timeout: 12))
+        var relaunchedConflict: [String: Any] = [:]
+        XCTAssertTrue(waitForRestoreSnapshot(in: app, timeout: 75) { snapshot in
+            relaunchedConflict = snapshot
+            return stringValue(snapshot["conflict_project_id"]).lowercased() == fixture.projectID.lowercased()
+                && stringValue(snapshot["conflict_server_version_id"]).lowercased() == competingVersionID.lowercased()
+                && stringValue(snapshot["draft_tail_preview"]).contains(marker)
+                && intValue(snapshot["queued_draft_save_count"]) == 0
+                && intValue(snapshot["parked_draft_save_count"]) == 1
+                && boolValue(snapshot["has_unsaved_draft_changes"])
+                && stringValue(snapshot["error_text"]).isEmpty
+        }, "Unresolved conflict lost its durable writer copy after relaunch: \(relaunchedConflict)")
 
         let keepMine = app.buttons["studio.conflict.keep-mine"]
         if !keepMine.isHittable { app.swipeUp() }
