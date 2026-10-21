@@ -5960,7 +5960,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
             defer { isAutoCreatingStudioProject = false }
 
             do {
-                let title = autoCreatedStudioProjectTitle(for: cleanDraft, pack: pack)
+                let title = autoCreatedStudioProjectTitle(for: draft, pack: pack)
                 let normalizedPhase = phase.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                     ? "scene_draft"
                     : phase.trimmingCharacters(in: .whitespacesAndNewlines)
