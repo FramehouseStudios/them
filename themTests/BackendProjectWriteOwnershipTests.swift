@@ -16,6 +16,172 @@ final class BackendProjectWriteOwnershipTests: XCTestCase {
         try await assertBootstrapSwitchIsRejected(version: true)
     }
 
+    func testQuestionResolutionCannotFollowAccountChangedDuringBootstrap() async {
+        await assertConversationBootstrapSwitch(question: true)
+    }
+
+    func testRealtimeCommitCannotFollowAccountChangedDuringBootstrap() async {
+        await assertConversationBootstrapSwitch(question: false)
+    }
+
+    private func assertConversationBootstrapSwitch(question: Bool) async {
+        let state = ProjectWriteOwnershipState()
+        ProjectWriteOwnershipProtocol.handler = { request in
+            state.record(request)
+            if request.url?.path == "/session" {
+                state.changeOwner()
+                return .json(#"{"error":"unavailable"}"#, status: 503)
+            }
+            return .json(#"{"ok":true,"action":"saved","status":"saved","question_id":"question-a","response_status":"answered","state_version":"stale-owner-state"}"#)
+        }
+        let api = makeAPI(state)
+        await assertSuperseded {
+            if question {
+                _ = try await api.resolvePendingScreenplayQuestion(Self.pendingQuestion, responseStatus: "answered", answer: "Exact answer", initiatingIdentity: state.identity())
+            } else {
+                _ = try await api.commitRealtimeTurn(userMessage: "My story", assistantMessage: "A scene", requestId: "request-a", initiatingIdentity: state.identity())
+            }
+        }
+        XCTAssertEqual(state.requests().filter { $0.url?.path == "/session" }.count, 1)
+        XCTAssertEqual(state.requests().filter { $0.url?.path != "/session" }.count, 0)
+    }
+
+    func testCharacterMemoryBatchDoesNotMoveRemainingMentionsToNewAccount() async {
+        let state = ProjectWriteOwnershipState()
+        ProjectWriteOwnershipProtocol.handler = { request in
+            state.record(request)
+            if request.url?.path == "/session" { return .json(#"{"error":"unavailable"}"#, status: 503) }
+            state.changeOwner()
+            return .json(#"{"ok":true,"character_name":"JOHN"}"#)
+        }
+        let api = makeAPI(state)
+        await assertSuperseded {
+            try await api.recordCharacterMentionsFromScreenplayReply([
+                .init(characterName: "JOHN", line: 1, tags: []), .init(characterName: "SAM", line: 3, tags: [])
+            ], writeID: "write-a", projectID: "project-a", initiatingIdentity: state.identity())
+        }
+        XCTAssertEqual(state.requests().filter { $0.url?.path == "/memory/record-character-mention" }.count, 1)
+    }
+
+    private static let pendingQuestion = BackendPendingScreenplayQuestion(id: "question-a", projectId: "project-a",
+        projectTitle: "A", targetField: "theme", targetLabel: "Theme", question: "What is it about?",
+        provisionalOptions: nil, askedAt: nil)
+
+    func testSupersededOfflineQuestionIsNotEnqueued() async {
+        let state = ProjectWriteOwnershipState()
+        let before = await OfflineTalkOutbox.shared.allEntries().map(\.id)
+        ProjectWriteOwnershipProtocol.handler = { request in
+            state.record(request)
+            if request.url?.path == "/session" { return .json(#"{"error":"unavailable"}"#, status: 503) }
+            state.changeOwner()
+            throw URLError(.notConnectedToInternet)
+        }
+        await assertSuperseded {
+            _ = try await makeAPI(state).resolvePendingScreenplayQuestion(Self.pendingQuestion,
+                responseStatus: "answered", answer: "Keep my words", initiatingIdentity: state.identity())
+        }
+        let after = await OfflineTalkOutbox.shared.allEntries().map(\.id)
+        XCTAssertEqual(after, before)
+        XCTAssertEqual(state.requests().filter { $0.url?.path != "/session" }.count, 1)
+    }
+
+    func testReadSyncCacheClearsOnNewOwnerButNotTokenRotation() async throws {
+        for changedOwner in [true, false] {
+            let state = ProjectWriteOwnershipState()
+            ProjectWriteOwnershipProtocol.handler = { request in
+                state.record(request)
+                if request.url?.path == "/session" { return .json(#"{"error":"unavailable"}"#, status: 503) }
+                return .json(#"{"screenplay_projects":[],"state_version":"first-owner-state"}"#)
+            }
+            let api = makeAPI(state)
+            _ = try await api.fetchScreenplayProjects(initiatingIdentity: state.identity())
+            if changedOwner { state.changeOwner() } else { state.rotateToken() }
+            ProjectWriteOwnershipProtocol.handler = { _ in .json(#"{"error":"unavailable"}"#, status: 503) }
+            do {
+                _ = try await api.fetchScreenplayProjects(initiatingIdentity: state.identity())
+                XCTFail("Expected the controlled backend outage.")
+            } catch BackendMemoryAPIError.server(let status, _) { XCTAssertEqual(status, 503) }
+            let sync = await api.currentSyncState()
+            XCTAssertEqual(sync.stateVersion, changedOwner ? "" : "first-owner-state")
+        }
+    }
+
+    func testConversationWritesAcceptSameOwnerTokenRotation() async throws {
+        for kind in 0..<3 {
+            let state = ProjectWriteOwnershipState()
+            let owner = state.identity()
+            ProjectWriteOwnershipProtocol.handler = { request in
+                state.record(request)
+                if request.url?.path == "/session" {
+                    state.rotateToken()
+                    return .json(#"{"error":"unavailable"}"#, status: 503)
+                }
+                return .json(#"{"ok":true,"action":"saved","status":"saved","question_id":"question-a","response_status":"answered","state_version":"valid-owner-state"}"#)
+            }
+            let api = makeAPI(state)
+            switch kind {
+            case 0:
+                _ = try await api.resolvePendingScreenplayQuestion(Self.pendingQuestion,
+                    responseStatus: "answered", answer: "Exact answer", initiatingIdentity: owner)
+            case 1:
+                _ = try await api.commitRealtimeTurn(userMessage: "My story", assistantMessage: "A scene", initiatingIdentity: owner)
+            default:
+                try await api.recordCharacterMentionsFromScreenplayReply([
+                    .init(characterName: "JOHN", line: 1, tags: []), .init(characterName: "SAM", line: 3, tags: [])
+                ], writeID: "write-a", projectID: "project-a", initiatingIdentity: owner)
+            }
+            let writes = state.requests().filter { $0.url?.path != "/session" }
+            XCTAssertEqual(writes.count, kind == 2 ? 2 : 1)
+            XCTAssertTrue(writes.allSatisfy { $0.value(forHTTPHeaderField: "X-User-Id") == "writer-a" })
+            XCTAssertTrue(writes.allSatisfy { $0.value(forHTTPHeaderField: "Authorization") == "Bearer fixture-rotated" })
+        }
+    }
+
+    func testDerivedScreenplayRequestsCannotAdoptAccountDuringBootstrap() async {
+        await assertDerivedRequestBoundary(late: false)
+    }
+
+    func testDerivedScreenplayRequestsRejectLateResponsesFromPreviousLogin() async {
+        await assertDerivedRequestBoundary(late: true)
+    }
+
+    private func assertDerivedRequestBoundary(late: Bool) async {
+        for kind in 0..<10 {
+            let state = ProjectWriteOwnershipState()
+            let owner = state.identity()
+            ProjectWriteOwnershipProtocol.handler = { request in
+                state.record(request)
+                if request.url?.path == "/session" {
+                    if !late { state.changeOwner() }
+                    return .json(#"{"error":"unavailable"}"#, status: 503)
+                }
+                state.changeOwner()
+                return .json(#"{"ok":true,"action":"saved"}"#)
+            }
+            let api = makeAPI(state)
+            await assertSuperseded {
+                switch kind {
+                case 0: _ = try await api.paginateScreenplayDraft(draft: "INT. ROOM - NIGHT\n\nExact words", initiatingIdentity: owner)
+                case 1: _ = try await api.fetchScreenplayRevisionColors(baseDraft: "A", draft: "B", initiatingIdentity: owner)
+                case 2: _ = try await api.fetchScreenplayCoverage(draft: "Exact draft", initiatingIdentity: owner)
+                case 3: _ = try await api.exportScreenplayDraft(draft: "Exact draft", format: "fountain", initiatingIdentity: owner)
+                case 4: _ = try await api.exportScreenplayDraft(draft: "Exact draft", format: "fdx", initiatingIdentity: owner)
+                case 5: _ = try await api.fetchScreenplayExportFormats(initiatingIdentity: owner)
+                case 6: _ = try await api.importFountainDraft(text: "Exact draft", initiatingIdentity: owner)
+                case 7: _ = try await api.recordFirstPageWritten(occurredAt: Date(timeIntervalSince1970: 0), source: "fixture", projectId: "project-a", versionId: "version-a", initiatingIdentity: owner)
+                case 8: _ = try await api.commitRealtimeTurn(userMessage: "Exact story", assistantMessage: "A scene", initiatingIdentity: owner)
+                default: _ = try await api.resolvePendingScreenplayQuestion(Self.pendingQuestion, responseStatus: "answered", answer: "Exact answer", initiatingIdentity: owner)
+                }
+            }
+            XCTAssertEqual(state.requests().filter { $0.url?.path == "/session" }.count, 1, "route \(kind)")
+            let scoped = state.requests().filter { $0.url?.path != "/session" }
+            XCTAssertEqual(scoped.count, late ? 1 : 0, "route \(kind)")
+            XCTAssertTrue(scoped.allSatisfy { $0.value(forHTTPHeaderField: "X-User-Id") == "writer-a" })
+            let sync = await api.currentSyncState()
+            XCTAssertNotEqual(sync.stateVersion, "stale-owner-state")
+        }
+    }
+
     func testActivationCannotFollowAnAccountChangeDuringBootstrap() async {
         await assertRemainingMutationBootstrapSwitch(outline: false)
     }

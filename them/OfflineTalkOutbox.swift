@@ -151,16 +151,21 @@ actor OfflineTalkOutbox {
     private let manifestURL: URL
     private let blobsDirectory: URL
     private let fileManager: FileManager
+    private let requestIdentityProvider: @Sendable (Bool) -> BackendAuthRequestIdentity
     private var didLoad = false
     private var entries: [OfflineTalkOutboxEntry] = []
     private var networkMonitor: NWPathMonitor?
     private let networkMonitorQueue = DispatchQueue(label: "io.them.offline-talk-outbox.network")
 
-    init(storageDirectory: URL, fileManager: FileManager = .default) {
+    init(storageDirectory: URL, fileManager: FileManager = .default,
+         requestIdentityProvider: @escaping @Sendable (Bool) -> BackendAuthRequestIdentity = {
+             BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: $0)
+         }) {
         self.storageDirectory = storageDirectory
         self.manifestURL = storageDirectory.appendingPathComponent("queue.jsonl")
         self.blobsDirectory = storageDirectory.appendingPathComponent("blobs", isDirectory: true)
         self.fileManager = fileManager
+        self.requestIdentityProvider = requestIdentityProvider
     }
 
     func startNetworkMonitoring() {
@@ -217,11 +222,14 @@ actor OfflineTalkOutbox {
         } catch {
             return []
         }
+        let currentOwner = requestIdentityProvider(false).userID
         return Set(entries.compactMap { entry in
             guard entry.endpoint == Self.screenplayQuestionResolutionEndpoint,
                   entry.status == .pending || entry.status == .inflight else {
                 return nil
             }
+            let queuedOwner = headerValue(named: "X-User-Id", in: entry.headers) ?? ""
+            guard queuedOwner == currentOwner else { return nil }
             return headerValue(
                 named: "X-Screenplay-Question-ID",
                 in: entry.headers
@@ -232,8 +240,15 @@ actor OfflineTalkOutbox {
     func enqueue(
         request: URLRequest,
         body: Data,
-        reason: String
+        reason: String,
+        initiatingIdentity owner: BackendAuthRequestIdentity? = nil
     ) throws -> OfflineTalkOutboxEnqueueResult {
+        if let owner {
+            try owner.requireCurrentOwner(requestIdentityProvider(false))
+            guard normalizedHeader(request.value(forHTTPHeaderField: "X-User-Id")) == owner.userID else {
+                throw BackendMemoryAPIError.server(status: 409, message: "auth_request_superseded")
+            }
+        }
         try loadIfNeeded()
         try ensureStorageExists()
 
@@ -251,7 +266,9 @@ actor OfflineTalkOutbox {
 
         let idempotencyKey = normalizedHeader(request.value(forHTTPHeaderField: "X-Idempotency-Key"))
             ?? UUID().uuidString
-        if let existingIndex = entries.firstIndex(where: { $0.idempotencyKey == idempotencyKey }) {
+        if let existingIndex = entries.firstIndex(where: {
+            $0.idempotencyKey == idempotencyKey && sameRequestScope($0, request: request)
+        }) {
             entries[existingIndex].lastError = normalizedReason(reason)
             entries[existingIndex].updatedAt = Date().timeIntervalSince1970
             try persist()
@@ -584,6 +601,17 @@ actor OfflineTalkOutbox {
             .replacingOccurrences(of: "\n", with: " ")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return String((clean.isEmpty ? "Queued for retry." : clean).prefix(280))
+    }
+
+    private func sameRequestScope(_ entry: OfflineTalkOutboxEntry, request: URLRequest) -> Bool {
+        let incoming = request.allHTTPHeaderFields ?? [:]
+        guard entry.urlString == request.url?.absoluteString,
+              entry.method == request.httpMethod?.uppercased(),
+              headerValue(named: "X-User-Id", in: entry.headers) == headerValue(named: "X-User-Id", in: incoming) else { return false }
+        if headerValue(named: "X-User-Id", in: incoming) != nil { return true }
+        let client = headerValue(named: "X-Client-Token", in: incoming)
+        return client == headerValue(named: "X-Client-Token", in: entry.headers) &&
+            (client != nil || headerValue(named: "Authorization", in: incoming) == headerValue(named: "Authorization", in: entry.headers))
     }
 
     private func headerValue(named name: String, in headers: [String: String]) -> String? {

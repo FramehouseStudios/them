@@ -1972,6 +1972,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
 
     func refreshPendingScreenplayQuestion() async {
         guard !IOThemRuntime.isRunningTests else { return }
+        let owner = currentStudioAuthContext()
         let selectedID = selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !selectedID.isEmpty else {
             pendingScreenplayQuestion = nil
@@ -1979,10 +1980,12 @@ final class ScreenplayStudioViewModel: ObservableObject {
         }
         do {
             let session = try await BackendMemoryAPI.shared.bootstrapSession(force: true)
+            guard authContextIsCurrent(owner), selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines) == selectedID else { return }
             let pending = session.pendingScreenplayQuestion
             let pendingProjectID = pending?.projectId.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             let queuedQuestionIDs = await OfflineTalkOutbox.shared
                 .pendingScreenplayQuestionResolutionIDs()
+            guard authContextIsCurrent(owner), selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines) == selectedID else { return }
             let isQueuedForResolution = pending.map { queuedQuestionIDs.contains($0.id) } ?? false
             pendingScreenplayQuestion = pendingProjectID == selectedID && !isQueuedForResolution
                 ? pending

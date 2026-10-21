@@ -65,8 +65,29 @@ final class OfflineTalkOutboxTests: XCTestCase {
         XCTAssertEqual(entries, [])
     }
 
-    func testQuestionResolutionSurvivesRelaunchAndSuppressesOnlyActiveQuestion() async throws {
+    func testSameIdempotencyKeyDoesNotCollapseDifferentAccountsOrDestinations() async throws {
         let outbox = OfflineTalkOutbox(storageDirectory: directory)
+        let bodies = [Data("writer-a".utf8), Data("writer-b".utf8), Data("other-backend".utf8)]
+        var ids: [String] = []
+        for (index, body) in bodies.enumerated() {
+            let host = index == 2 ? "https://other.them.test/talk" : "https://them.test/talk"
+            var request = URLRequest(url: URL(string: host)!)
+            request.httpMethod = "POST"
+            request.setValue(index == 1 ? "writer-b" : "writer-a", forHTTPHeaderField: "X-User-Id")
+            request.setValue("same-request-key", forHTTPHeaderField: "X-Idempotency-Key")
+            let result = try await outbox.enqueue(request: request, body: body, reason: "offline")
+            ids.append(result.entry.id)
+        }
+        XCTAssertEqual(Set(ids).count, 3, "An unrelated account/destination must retain its own queued bytes.")
+        let entries = await OfflineTalkOutbox(storageDirectory: directory).allEntries()
+        XCTAssertEqual(entries.count, 3)
+        let restored = try entries.map { try Data(contentsOf: directory.appendingPathComponent("blobs").appendingPathComponent($0.bodyRef)) }
+        XCTAssertEqual(Set(restored), Set(bodies))
+    }
+
+    func testQuestionResolutionSurvivesRelaunchAndSuppressesOnlyActiveQuestion() async throws {
+        let anonymous = BackendAuthRequestIdentity(sessionEpoch: 0, userID: "", clientToken: "", accessToken: "")
+        let outbox = OfflineTalkOutbox(storageDirectory: directory, requestIdentityProvider: { _ in anonymous })
         var request = URLRequest(
             url: URL(string: "https://them.test/memory/screenplay-question/resolve")!
         )
@@ -90,7 +111,7 @@ final class OfflineTalkOutboxTests: XCTestCase {
 
         _ = try await outbox.enqueue(request: request, body: body, reason: "offline")
 
-        let relaunched = OfflineTalkOutbox(storageDirectory: directory)
+        let relaunched = OfflineTalkOutbox(storageDirectory: directory, requestIdentityProvider: { _ in anonymous })
         let queuedIDs = await relaunched.pendingScreenplayQuestionResolutionIDs()
         XCTAssertEqual(queuedIDs, Set(["screenplay-learning-4-project.theme_argument"]))
 
@@ -143,6 +164,59 @@ final class OfflineTalkOutboxTests: XCTestCase {
         XCTAssertTrue(
             entries.first?.lastError?.contains("different signed-in account") == true
         )
+    }
+
+    func testQueuedQuestionIDsAreScopedToTheirOwnerAfterRelaunch() async throws {
+        let outbox = OfflineTalkOutbox(storageDirectory: directory)
+        for user in ["writer-a", "writer-b"] {
+            var request = URLRequest(url: URL(string: "https://them.test/memory/screenplay-question/resolve")!)
+            request.httpMethod = "POST"
+            request.setValue(user, forHTTPHeaderField: "X-User-Id")
+            request.setValue("question-\(user)", forHTTPHeaderField: "X-Screenplay-Question-ID")
+            request.setValue("same-question-key", forHTTPHeaderField: "X-Idempotency-Key")
+            _ = try await outbox.enqueue(request: request, body: Data(user.utf8), reason: "offline")
+        }
+        for user in ["writer-a", "writer-b"] {
+            let identity = BackendAuthRequestIdentity(sessionEpoch: 1, userID: user, clientToken: "client", accessToken: "access")
+            let restored = OfflineTalkOutbox(storageDirectory: directory, requestIdentityProvider: { _ in identity })
+            let ids = await restored.pendingScreenplayQuestionResolutionIDs()
+            XCTAssertEqual(ids, ["question-\(user)"])
+            let entries = await restored.allEntries()
+            XCTAssertEqual(entries.count, 2, "Filtering must not delete another owner's durable bytes.")
+        }
+    }
+
+    func testOwnedEnqueueRejectsSupersededLoginAtActorAdmission() async throws {
+        let old = BackendAuthRequestIdentity(sessionEpoch: 1, userID: "writer-a", clientToken: "client", accessToken: "access", sessionIntentGeneration: 1)
+        let current = BackendAuthRequestIdentity(sessionEpoch: 2, userID: "writer-a", clientToken: "client", accessToken: "access", sessionIntentGeneration: 2)
+        let outbox = OfflineTalkOutbox(storageDirectory: directory, requestIdentityProvider: { _ in current })
+        var request = URLRequest(url: URL(string: "https://them.test/memory/screenplay-question/resolve")!)
+        request.httpMethod = "POST"
+        request.setValue("writer-a", forHTTPHeaderField: "X-User-Id")
+        do {
+            _ = try await outbox.enqueue(request: request, body: Data("exact answer".utf8), reason: "offline", initiatingIdentity: old)
+            XCTFail("Superseded operation entered the durable queue.")
+        } catch BackendMemoryAPIError.server(let code, let message) {
+            XCTAssertEqual(code, 409)
+            XCTAssertEqual(message, "auth_request_superseded")
+        }
+        let entries = await outbox.allEntries()
+        XCTAssertTrue(entries.isEmpty)
+    }
+
+    func testSameOwnerRetryDeduplicatesAcrossAccessTokenRotation() async throws {
+        let outbox = OfflineTalkOutbox(storageDirectory: directory)
+        var request = URLRequest(url: URL(string: "https://them.test/talk")!)
+        request.httpMethod = "POST"
+        request.setValue("writer-a", forHTTPHeaderField: "X-User-Id")
+        request.setValue("request-a", forHTTPHeaderField: "X-Idempotency-Key")
+        request.setValue("Bearer old-fixture", forHTTPHeaderField: "Authorization")
+        let first = try await outbox.enqueue(request: request, body: Data("exact words".utf8), reason: "offline")
+        request.setValue("Bearer fresh-fixture", forHTTPHeaderField: "Authorization")
+        let retry = try await outbox.enqueue(request: request, body: Data("exact words".utf8), reason: "offline")
+        XCTAssertEqual(retry.entry.id, first.entry.id)
+        let entries = await outbox.allEntries()
+        XCTAssertEqual(entries.count, 1)
     }
 
     func testRetryableFailureBacksOffThenDrainsOnLaterSuccess() async throws {
