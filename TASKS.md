@@ -222,17 +222,63 @@
 
 ### T-1107 — Keep project writes with the initiating account across bootstrap/retry
 
-- **Owner:** codex. **Status:** next data-safety boundary after T-1105.
-- **VERIFIED source risk, not a reproduced cross-account write:** both project
-  upsert and version upsert await swallowed bootstrap before constructing their
-  requests from current identity. Version retry can refresh and rebuild headers;
-  response sync updates happen before Root's callback checks. Those callback
-  checks do not prove transport ownership across these awaits.
+- **Owner:** codex. **Branch:** `codex/T-1107-project-write-owner`.
+- **Status:** review checkpoint / real-refresh evidence gap remains T-1110.
+- **Checkpoint:** `8fba5bbdccd1946c084fc9a8690293379d5347a0`.
+- **Evidence:** `docs/project-write-owner-2026-10-21.md`; home worktrees
+  `_proof/T-1107-20261021.alybK1/`.
+- **VERIFIED:** original production client red0/4/0 on signed erased simulator:
+  metadata/version requests continue after identity changes during bootstrap;
+  late metadata or409 version replies can publish stale sync state. This is
+  intercepted URLSession transport, not an observed production-account leak.
+- **Fix:** canonical request identity now carries login-intent generation,
+  captured atomically with identity credentials. Project/version mutations
+  capture it at the caller before actor admission, verify before/after awaits,
+  and pin request headers to the checked snapshot. Token/epoch rotation within
+  one login remains valid; changed user/login intent and cancellation do not.
+  Existing auth_request_superseded409 and real version-conflict envelopes stay
+  distinct. Extracted existing ownership value types; no second auth framework.
+- **Proof:** full signed856/0/0 before only final caller-capture refinement;
+  final focused13/0/0 and macOS builds pass. Default evaluation before actor
+  admission checked with installed Swift5. Actual authenticated promotion/raw
+  save/relaunch UI1/0/0, outbox/conflict/relaunch/resolve UI1/0/0. No final full858
+  claim. Recovery test's immutable DEBUG credentials mask its expiry injection:
+  do NOT count it as real401/refresh proof; T-1110 must repair that gap. Retry
+  tests use an injected refresher, explicitly not real auth HTTP. Backend runtime
+  unchanged; no paid calls or production changes.
 - **Done when:** hold actual bootstrap/401 refresh, change login intent, inspect
   actual outgoing scope and sync application; prevent stale identity work using
   canonical auth intent/lease owners. Legitimate same-account refresh/bootstrap
   must still work. Extract a capability only if needed for D009; no second auth
   framework, logging of credentials, or security claim from pure policy tests.
+
+### T-1110 — Make expired-auth recovery exercise real refresh, not fixed credentials
+
+- **Owner:** codex. **Status:** next, BEFORE T-1109/T-1108/#648.
+- **VERIFIED source:** the save-expire DEBUG hook changes a defaults token, but
+  requestIdentitySnapshot prefers currentAutomationSessionOverride's immutable
+  environment token. Thus the named recovery test can pass without producing
+  the intended401. Automation session state also reports no refresh token.
+- **Done when:** repair only the existing explicit test/credential seam and
+  observe/assert real version401 -> auth/refresh200 -> changed bearer retry and
+  exact saved/conflict/relaunch outcome. No test-only server acceptance, no
+  production bypass, no credential logging, no weakening stale-owner guards.
+  Fix any real production refresh failure this stronger journey reveals.
+
+### T-1109 — Extend canonical transport ownership to remaining mutation routes
+
+- **Owner:** codex. **Status:** after T-1110, BEFORE T-1108 and #648.
+- **VERIFIED source boundary:** T-1107 covers metadata/version upsert only.
+  Activation, outline/scene/beat/transition, collaborator/comment and companion
+  mutation methods still await bootstrap then build current headers. A stale
+  operation could be retargeted even where server authorization rejects foreign
+  projects; shared-project attribution and stale sync still need protection.
+- **Done when:** reproduce the first remaining actual client failure, reuse the
+  canonical captured ownership/header rule across mutations (and audit related
+  read/cache sync application), preserve same-owner success and conflict paths.
+  Extract the screenplay transport capability if needed for D009, not arbitrary
+  line ranges or a parallel network/auth system. Never claim T-1107 establishes
+  app-wide account isolation.
 
 ### T-1108 — Recover interrupted initial project creation without losing source
 
