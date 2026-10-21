@@ -8,7 +8,8 @@
 ### T-1082 — Keep recovery protection on the current save/security foundation
 
 - **Owner:** codex. **Branch:** `codex/T-1082-recovery-foundation-sync`.
-- **Status:** in-progress. **Pillar:** exact writer recovery and acknowledged saves.
+- **Status:** review (local proof passed; original remote unchanged).
+  **Pillar:** exact writer recovery and acknowledged saves.
 - **Boundary:** original #904 `d36d4e64` and original #964 `5faa43d6`,
   preserving both histories. Keep corrupt-queue fail-closed behavior, guarded
   hydration, explicit writer conflict choice and the inline export chooser.
@@ -23,6 +24,15 @@
   D009/diff and source-owner comparisons pass. No duplicate full local suite.
 - **Hold:** local preparation only until #964 clears required CI. No main,
   original remote, production or paid-provider change; fresh review/CI required.
+- **Verified:** merge `0a321edf`; affected signed units98/0/0 and selected
+  authenticated expired-auth/conflict/relaunch UI1/0/0, erased owned SE/iOS26.2.
+  Both task/test histories retained; security lockfile and source owners
+  compared; actual-parent D009 passes (Studio-4, bridge-23, other deltas0).
+  No full backend/unit/V1/macOS or live provider run in this task.
+- **Next:** after protected #964 lands, merge that actual main into this
+  preparation, then publish the same original #904 normally with fresh CI
+  and independent review. Avoid a redundant pre-landing full hosted run.
+- **Evidence:** `docs/recovery-foundation-sync-2026-10-20.md`.
 
 ### T-1069 — Keep iPhone export format choices on the document
 
