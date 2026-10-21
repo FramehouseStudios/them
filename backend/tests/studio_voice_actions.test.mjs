@@ -112,6 +112,34 @@ test("[studio-actions] unambiguous spoken commitments are inferred when the tag 
   assert.deepEqual(tagged.actions, [{ type: "save_revision", color: "blue", source: "tag" }], "an explicit tag wins over the spoken inference for the same type");
 });
 
+test("[studio-actions] refusal, offers, questions and quoted dialogue are not commitments", () => {
+  for (const reply of [
+    "I will not save the draft.", "I won't save the draft.",
+    "Do not open the craft tab.", "Never save a revision in pink.",
+    "If you want, I can start a rewrite.", "I can start a rewrite.",
+    "Perhaps I'll start a rewrite.", "Should I save the draft?",
+    "Perhaps I'll pull up the Midpoint beat.",
+    "Your character says: “I will start a rewrite.”",
+    'She says: "Saving a revision in pink."',
+    "For example: `[[studio: save_draft]]`",
+    "If you want [[studio: save_draft]]",
+    "I will not save the draft. [[studio: save_draft]]",
+    "If you want, I can start a rewrite. [[studio: start_rewrite]]",
+  ]) {
+    assert.deepEqual(extractStudioActions(reply, caps).actions, [], reply);
+  }
+});
+
+test("[studio-actions] a later affirmative commitment can follow a refusal or quote", () => {
+  for (const reply of [
+    "I won't save the draft. I'll save the draft now.",
+    'She says "save the draft." I will save the draft now.',
+  ]) {
+    assert.deepEqual(extractStudioActions(reply, caps).actions, [{type: "save_draft", source: "spoken"}], reply);
+  }
+  assert.deepEqual(extractStudioActions("I'll start a rewrite now.", caps).actions, [{type: "start_rewrite", scope: "scene", source: "spoken"}]);
+});
+
 test("[studio-actions] limits, dedupe, and disabled capabilities", () => {
   const many = Array.from({ length: 6 }, () => "[[studio: open_tab tab=beats]] [[studio: open_tab tab=craft]] [[studio: open_tab tab=saved]]").join(" ");
   const r = extractStudioActions(many, caps);

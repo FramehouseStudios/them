@@ -201,11 +201,32 @@ const SPOKEN_PATTERNS = [
   { type: "save_draft", re: /\b(?:sav(?:e|ing))\s+(?:the |this |your )?draft\b/i, args: () => ({}) },
 ];
 
+// Reuse the preserved T-952/#648 rehearsal's quote/negation boundaries. These
+// are conservative syntax checks, not a claim to understand every utterance.
+function isQuotedAt(text, index) {
+  return [...text.matchAll(/"[^"]*(?:"|$)|“[^”]*(?:”|$)|`[^`]*(?:`|$)|‘[^’]*(?:’|$)|(?:^|[\s(:])'[^']*(?:'(?=[\s.,!?;)]|$)|$)/g)]
+    .some(match => index >= match.index && index < match.index + match[0].length);
+}
+
+function isNegatedAt(text, index) {
+  return /\b(?:not|never|won't|don't|cannot|can't|will not|do not)\b[^.!?;]{0,60}$/i
+    .test(text.slice(0, index).replace(/’/g, "'"));
+}
+
+function isOfferAt(text, match) {
+  const prefix = text.slice(0, match.index).split(/[.!?;\n]/).at(-1);
+  return /\b(?:if|unless|perhaps|maybe|might|should|could|would|can)\b/i.test(prefix) || /^i['’]?\s*can\b/i.test(match[0]);
+}
+
 export function inferSpokenActions(text) {
+  const source = String(text || "");
   const found = [];
   for (const spec of SPOKEN_PATTERNS) {
     if (found.some((f) => f.type === spec.type)) continue;
-    const m = spec.re.exec(String(text || ""));
+    // A rejected first match must not hide a later affirmative commitment.
+    const m = [...source.matchAll(new RegExp(spec.re.source, "ig"))].find(match =>
+      !isQuotedAt(source, match.index) && !isNegatedAt(source, match.index) &&
+      !isOfferAt(source, match));
     if (m) found.push({ type: spec.type, args: spec.args(m), inferred: true });
   }
   return found;
@@ -225,17 +246,28 @@ export function extractStudioActions(reply, caps, { allowActions = true } = {}) 
   let m;
   TAG_RE.lastIndex = 0;
   while ((m = TAG_RE.exec(text))) {
+    if (isQuotedAt(text, m.index) || isNegatedAt(text, m.index) || isOfferAt(text, m)) continue;
     candidates.push({ type: m[1].toLowerCase(), args: parseArgs(m[2]), inferred: false });
   }
   const spoken = text.replace(TAG_RE, "").replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
   result.stripped = spoken !== text;
   result.spokenText = spoken;
   const tagged = new Set(candidates.map((c) => c.type));
-  for (const inferred of inferSpokenActions(spoken)) {
+  const inferredActions = inferSpokenActions(spoken);
+  const affirmedTypes = new Set(inferredActions.map(action => action.type));
+  const nonExecutingTypes = new Set(SPOKEN_PATTERNS.filter(spec =>
+    !affirmedTypes.has(spec.type) && [...spoken.matchAll(new RegExp(spec.re.source, "ig"))].some(match =>
+      isQuotedAt(spoken, match.index) || isNegatedAt(spoken, match.index) || isOfferAt(spoken, match)))
+    .map(spec => spec.type));
+  for (const inferred of inferredActions) {
     if (!tagged.has(inferred.type)) candidates.push(inferred);
   }
   const seen = new Set();
   for (const candidate of candidates) {
+    if (nonExecutingTypes.has(candidate.type)) {
+      result.rejected.push({ type: candidate.type, reason: "not_a_commitment" });
+      continue;
+    }
     const verdict = validate(candidate.type, candidate.args, caps);
     if (!verdict.ok) { result.rejected.push({ type: candidate.type, reason: verdict.reason, inferred: candidate.inferred }); continue; }
     const key = JSON.stringify(verdict.action);
