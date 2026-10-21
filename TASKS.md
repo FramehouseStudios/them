@@ -93,7 +93,9 @@
 
 ### T-1101 — Mark and scope earlier same-project coverage snapshots
 
-- **Owner:** codex. **Status:** ready. **Pillar:** trustworthy companion.
+- **Owner:** codex. **Branch:** `codex/T-1101-coverage-snapshot-freshness`.
+- **Status:** review (scoped local proof; protected landing pending).
+  **Pillar:** trustworthy companion.
 - **Observed source:** #881 correctly fences foreign/stale in-flight results,
   but a completed same-project card and shared conversation summary can remain
   after the text changes, without an explicit earlier-snapshot label.
@@ -103,6 +105,27 @@
   and #774 quiet announcements; no new poll/AI-cost loop or voice owner.
 - **Boundary:** no claim of full speech/playback isolation or reliable voice
   controls until their actual request/receipt and physical-phone paths are proven.
+- **Implementation:** original #646 preserved by `9fcae90`; current registry
+  requires exact raw draft bytes, and the Craft card retains useful earlier
+  notes with an earlier-snapshot label and spoken warning. Imported line endings
+  and title-only shape checks reuse the existing Fountain pagination source.
+  Ported #774's quiet announcement seam without its cumulative ancestry.
+  Automatic errors get one attempt per page/scene shape and owner; explicit
+  Read again still retries, without a new timer, paid call or document writer.
+- **Checkpoint:** `5f71ec5` retains the original #646 preserving merge plus
+  exact-byte conversation freshness, labeled earlier notes, quiet/bounded reads.
+- **Proof:** signed focused red19/2/0 -> green25/0/0 on erased owned
+  7F1A14C1-B379-4417-AFE9-331810CD9CD3; macOS/D009/diff pass. Dedicated
+  authenticated UI1/0/0 proves UI-created project/save/read/edit/earlier label/
+  Read again. First incorrect caret/dismissal expansion was stopped0/1/0;
+  second helper failed0/1/0 on a main-thread launch assertion. Corrected the
+  test interactions and annotated its helper MainActor, preserving the original
+  export/relaunch assertions. Red artifacts retained, not counted as passes.
+  Production backend remains T-1102's Node20 2898/0/2 snapshot; only the UI
+  runner gains an allowlisted case. No unchanged full backend/native rerun.
+- **Evidence:** `docs/coverage-snapshot-freshness-2026-10-21.md`.
+- **Next actual boundary:** #647 `848e59d0`, based on #646. Preserve original
+  auto-title work and all current recovery/source-ownership safeguards.
 
 ### T-967 — Preserve coverage and context-isolation repairs (historical; current T-1100)
 
