@@ -878,7 +878,7 @@ final class V1SmokeUITests: XCTestCase {
             let panel = element(identifier: route.panel, in: app)
             XCTAssertTrue(
                 revealInStudioDrawer(panel, drawer: drawer, scrollingUp: true, maxSwipes: 16),
-                "The \(route.tab) tab did not reveal its working panel"
+                "The \(route.tab) tab did not reveal its working panel. Drawer: \(drawer.frame); scroll views: \(drawer.scrollViews.allElementsBoundByIndex.map { $0.frame }); target: \(panel.frame); window: \(app.frame)"
             )
 
             if route.tab == "outline" {
@@ -1235,11 +1235,18 @@ final class V1SmokeUITests: XCTestCase {
             "Try this ask did not report that it loaded the live prompt."
         )
 
+        guard dismissKeyboardTypingTutorialIfPresent(in: app) else { return }
         let promptField = element(identifier: "studio.prompt.field", in: app)
-        for _ in 0..<24 where !promptField.isHittable {
-            drawer.swipeDown()
-        }
-        XCTAssertTrue(waitForHittability(of: promptField, timeout: 5))
+        XCTAssertTrue(
+            waitForHittability(of: promptField, timeout: 5),
+            "The loaded live ask did not become reachable automatically after keyboard layout. "
+                + "Field: \(promptField.frame); drawer: \(drawer.frame); "
+                + "content: \(studioDrawerContentViewport(drawer)); keyboard: \(app.keyboards.firstMatch.frame)."
+        )
+        let focusedComposer = XCTAttachment(screenshot: app.screenshot())
+        focusedComposer.name = "Loaded live ask above the keyboard"
+        focusedComposer.lifetime = .keepAlways
+        add(focusedComposer)
         XCTAssertTrue(
             waitForTextInputValue(
                 in: promptField,
@@ -1351,7 +1358,8 @@ final class V1SmokeUITests: XCTestCase {
         let toPage = app.buttons["studio.them.voice-pin.latest.to-page"]
         XCTAssertTrue(
             revealFullyInStudioDrawer(toPage, drawer: drawer, maxSwipes: 12),
-            "To Page was not fully visible in the inspector."
+            "To Page was not fully visible in the inspector. "
+                + "Target: \(toPage.frame); content viewport: \(studioDrawerContentViewport(drawer))."
         )
 #if os(macOS)
         toPage.click()
@@ -1875,6 +1883,7 @@ final class V1SmokeUITests: XCTestCase {
 
         let fixture = try await seedBackendRestoreContractFixture(baseURL: baseURL)
         let marker = "SAVE-OUTBOX-\(UUID().uuidString.uppercased())"
+        let expectedQueuedDraft = "\(fixture.expectedDraft)\n\n\(marker)"
         var app = launchApp(
             openStudio: true,
             screenplaySaveNetworkFaultMarker: marker,
@@ -1890,7 +1899,9 @@ final class V1SmokeUITests: XCTestCase {
             waitForRestoreSnapshot(in: app, timeout: 60) { snapshot in
                 queuedSnapshot = snapshot
                 return stringValue(snapshot["selected_project_id"]).lowercased() == fixture.projectID.lowercased()
-                    && stringValue(snapshot["draft_tail_preview"]).contains(marker)
+                    && stringValue(snapshot["loaded_draft_project_id"]).lowercased() == fixture.projectID.lowercased()
+                    && stringValue(snapshot["draft_tail_preview"]) == String(expectedQueuedDraft.suffix(260))
+                    && intValue(snapshot["draft_character_count"]) == expectedQueuedDraft.count
                     && intValue(snapshot["queued_draft_save_count"]) == 1
                     && intValue(snapshot["parked_draft_save_count"]) == 0
                     && boolValue(snapshot["has_unsaved_draft_changes"])
@@ -1998,6 +2009,7 @@ final class V1SmokeUITests: XCTestCase {
 
         let fixture = try await seedBackendRestoreContractFixture(baseURL: baseURL)
         let marker = "SAVE-CONFLICT-\(UUID().uuidString.uppercased())"
+        let expectedQueuedDraft = "\(fixture.expectedDraft)\n\n\(marker)"
         var app = launchApp(
             openStudio: true,
             screenplaySaveNetworkFaultMarker: marker,
@@ -2012,7 +2024,10 @@ final class V1SmokeUITests: XCTestCase {
         XCTAssertTrue(
             waitForRestoreSnapshot(in: app, timeout: 60) { snapshot in
                 queuedSnapshot = snapshot
-                return stringValue(snapshot["draft_tail_preview"]).contains(marker)
+                return stringValue(snapshot["selected_project_id"]).lowercased() == fixture.projectID.lowercased()
+                    && stringValue(snapshot["loaded_draft_project_id"]).lowercased() == fixture.projectID.lowercased()
+                    && stringValue(snapshot["draft_tail_preview"]) == String(expectedQueuedDraft.suffix(260))
+                    && intValue(snapshot["draft_character_count"]) == expectedQueuedDraft.count
                     && intValue(snapshot["queued_draft_save_count"]) == 1
                     && intValue(snapshot["parked_draft_save_count"]) == 0
                     && boolValue(snapshot["has_unsaved_draft_changes"])
@@ -3258,6 +3273,7 @@ final class V1SmokeUITests: XCTestCase {
 
     private func submitFocusedPrompt(in app: XCUIApplication, field: XCUIElement) {
 #if os(iOS)
+        guard dismissKeyboardTypingTutorialIfPresent(in: app) else { return }
         let toolbarSend = app.buttons["studio.prompt.keyboard-send"]
         if toolbarSend.waitForExistence(timeout: 5), toolbarSend.isHittable {
             toolbarSend.tap()

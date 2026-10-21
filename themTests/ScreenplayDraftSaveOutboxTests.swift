@@ -3,6 +3,39 @@ import XCTest
 
 final class ScreenplayDraftSaveOutboxTests: XCTestCase {
     @MainActor
+    func testStaleBlankObserverCannotClearQueuedWriterAuthorityOrRecovery() async throws {
+        let owner = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""
+        let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let suite = "them.stale-draft-observer.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let recovery = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "recovery")
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: recovery, draftSaveOutbox: queue)
+        model.autosaveEnabled = false
+        model.selectedProjectID = "project-1"
+        model.applyStructuralUITestDraft("", versionID: "server-v1")
+        let writer = "INT. ROOM - NIGHT\n\nThe writer's exact offline words."
+        model.fountainDraft = writer
+        model.noteManualDraftEdit()
+        try await queue.enqueue(replacingOwner(of: makeEntry(id: "writer", draft: writer), with: owner))
+
+        // A queued Combine callback can start after a newer manual edit.
+        // Exercise the production observer, not a duplicate policy/fake save.
+        await model.handleDraftDebouncedChange("")
+        XCTAssertTrue(model.hasUnsavedDraftChanges)
+        XCTAssertTrue(model.isManualDraftEditing)
+        XCTAssertEqual(recovery.payloads(ownerUserId: owner)["project-1"]?["draft"] as? String, writer)
+        let data = try JSONSerialization.data(withJSONObject: ["id": "project-1", "title": "Script",
+            "activeVersionId": "server-v1", "versions": [["id": "server-v1", "draft": ""]]])
+        model.hydrateDraft(from: try JSONDecoder().decode(BackendScreenplayProjectSummary.self, from: data))
+        XCTAssertEqual(model.fountainDraft, writer)
+        XCTAssertTrue(model.hasUnsavedDraftChanges)
+        let retained = try await queue.entriesForTesting()
+        XCTAssertEqual(retained.map(\.draft), [writer])
+        try? await Task.sleep(for: .milliseconds(1_100))
+    }
+
+    @MainActor
     func testParkedConflictRestoresChoiceWhenNewerRecoveryAlreadyNamesServerHead() async throws {
         // Adapt original #962's authority regression to this earlier model's
         // existing injected queue; no later transport framework is required.
@@ -533,6 +566,59 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
         try await store.discardConflicts(projectId: "project-1", ownerUserId: "user-1", through: 150)
         let after = try await store.entriesForTesting()
         XCTAssertEqual(Set(after.map(\.id)), ["private", "later"])
+    }
+
+    func testHeldSaveIsPersistedSeparatelyFromAnIdenticalRunnableSave() async throws {
+        let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let active = makeEntry(id: "active", draft: "Exact writer words", createdAt: 100)
+        var held = makeEntry(id: "held", draft: active.draft, createdAt: 101)
+        held.status = .parked
+        held.nextAttemptAt = 0
+        held.lastError = "Writer choice required"
+        try await queue.enqueue(active)
+        try await queue.enqueue(held)
+
+        let reopened = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let stored = try await reopened.entriesForTesting()
+        XCTAssertEqual(stored, [active, held], "Same text is not permission to drop a separate held intent.")
+        let next = try await reopened.beginNext(projectId: active.projectId, ownerUserId: active.ownerUserId, force: true)
+        XCTAssertEqual(next?.id, active.id)
+        try await reopened.remove(id: active.id)
+        let replay = try await reopened.beginNext(projectId: held.projectId, ownerUserId: held.ownerUserId, force: true)
+        XCTAssertNil(replay, "Even force-reconnect must not automatically submit held writer words.")
+    }
+
+    func testExistingIdentifierCanBeHeldInOneDurableWrite() async throws {
+        let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        var held = makeEntry(id: "existing")
+        try await queue.enqueue(held)
+        held.status = .parked
+        held.nextAttemptAt = 0
+        held.lastError = "Writer choice required"
+        try await queue.enqueue(held)
+        let reopened = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let stored = try await reopened.entriesForTesting()
+        XCTAssertEqual(stored, [held])
+        let replay = try await reopened.beginNext(projectId: held.projectId, ownerUserId: held.ownerUserId, force: true)
+        XCTAssertNil(replay)
+    }
+
+    func testFailedHeldWriteDoesNotLeaveAnInMemorySaveThatWasNeverPersisted() async throws {
+        let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let active = makeEntry(id: "active")
+        try await queue.enqueue(active)
+        let manifest = storageDirectory.appendingPathComponent("queue.json")
+        // Break only this test's owned destination; exercise a real write failure.
+        try FileManager.default.removeItem(at: manifest)
+        try FileManager.default.createDirectory(at: manifest, withIntermediateDirectories: false)
+        var held = makeEntry(id: "held", draft: "Held writer words")
+        held.status = .parked
+        do {
+            try await queue.enqueue(held)
+            XCTFail("A failed disk write must not report durable retention.")
+        } catch {}
+        let stored = try await queue.entriesForTesting()
+        XCTAssertEqual(stored, [active], "Memory must roll back when durable admission fails.")
     }
 
     private var storageDirectory: URL!

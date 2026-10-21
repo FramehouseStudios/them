@@ -137,11 +137,20 @@ actor ScreenplayDraftSaveOutbox {
                   normalizedDraft(entries[index].draft) == normalizedDraft(entry.draft) else {
                 throw BackendMemoryAPIError.server(status: 409, message: "screenplay_save_id_reused")
             }
+            if entry.status == .parked {
+                // A held intent must never have a runnable intermediate state.
+                let previous = entries
+                entries[index].status = .parked
+                entries[index].updatedAt = entry.updatedAt
+                entries[index].nextAttemptAt = 0
+                entries[index].lastError = normalizedError(entry.lastError)
+                do { try persist() } catch { entries = previous; throw error }
+            }
             let nextSnapshot = snapshotFor(entries)
             publish(nextSnapshot)
             return nextSnapshot
         }
-        if entries.contains(where: { existing in
+        if entry.status != .parked, entries.contains(where: { existing in
             existing.projectId == entry.projectId &&
                 existing.ownerUserId == entry.ownerUserId &&
                 existing.status != .parked &&
@@ -152,12 +161,13 @@ actor ScreenplayDraftSaveOutbox {
             publish(nextSnapshot)
             return nextSnapshot
         }
+        let previous = entries
         entries.append(entry)
         entries.sort { lhs, rhs in
             if lhs.createdAt == rhs.createdAt { return lhs.id < rhs.id }
             return lhs.createdAt < rhs.createdAt
         }
-        try persist()
+        do { try persist() } catch { entries = previous; throw error }
         let nextSnapshot = snapshotFor(entries)
         publish(nextSnapshot)
         return nextSnapshot

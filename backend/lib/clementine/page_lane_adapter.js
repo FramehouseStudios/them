@@ -325,6 +325,27 @@ function createPageLaneTalkAdapter({
       lane = resolveTalkLane(utterance, hints);
     }
 
+    // Generation only proposes usage. Settle after the handler's quality and
+    // response stages; an HTTP 200 recovery reply is still a failed write.
+    let pendingOutputTokens = null;
+    let walletSettled = false;
+    const settleWallet = (delivered) => {
+      if (walletSettled || !walletReservation?.reservationId || !walletStore) return;
+      walletSettled = true;
+      const turnStatus = String(res.getHeader?.('x-turn-status') || '');
+      const failed = !delivered || res.statusCode >= 400 ||
+        turnStatus.startsWith('error') || turnStatus === 'asked_repeat' ||
+        turnStatus === 'continue_listening';
+      if (failed || pendingOutputTokens === null) {
+        walletStore.release(walletReservation.reservationId);
+      } else {
+        walletStore.commit(walletReservation.reservationId, pendingOutputTokens);
+      }
+    };
+    if (walletReservation?.reservationId && walletStore) {
+      res.once('finish', () => settleWallet(true));
+      res.once('close', () => settleWallet(false));
+    }
     const pageMultipass = isPageMultipassEnabled();
     req.clementine = {
       intent: lane.intent,
@@ -337,15 +358,13 @@ function createPageLaneTalkAdapter({
       walletReservationId: walletReservation?.reservationId || null,
       walletReservation,
       /**
-       * STUB — call after successful Muse generation with actual output tokens:
-       *   req.clementine.commitWallet?.(actualOutputTokens)
-       * No clear success hook in this adapter without rewriting talk_handler;
-       * wire commit in talk_handler (or muse_client completion) when usage lands.
+       * Record generation usage; the response lifecycle settles the reservation.
        */
       commitWallet:
         walletReservation?.reservationId && walletStore
-          ? (actualOutputTokens) =>
-              walletStore.commit(walletReservation.reservationId, actualOutputTokens)
+          ? (actualOutputTokens) => {
+              pendingOutputTokens = Math.max(0, Number(actualOutputTokens) || 0);
+            }
           : null,
       abortSignal: reservation?.id
         ? pageReservationStore.getAbortSignal(reservation.id)
@@ -368,7 +387,12 @@ function createPageLaneTalkAdapter({
       }
     }
 
-    return handleTalkRequest(req, res);
+    try {
+      return await handleTalkRequest(req, res);
+    } catch (error) {
+      settleWallet(false);
+      throw error;
+    }
   };
 }
 

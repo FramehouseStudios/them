@@ -5,6 +5,21 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1086 — Native Files export on the corrected billing/security writer
+
+- **Owner:** codex. **Branch:** `codex/T-1086-native-export-writer-sync`.
+- **Status:** in-progress. **Pillar:** writer-owned saved/exported pages.
+- **Boundary:** preserve original #590 through prepared `45a1ed96`, merge
+  current integration `f0b5fb5e`; keep all original heads/history unchanged.
+- **Target:** existing FileDocument/coordinator and Document child, exact
+  backend bytes, truthful Cancel/retry/Save, auth-generation/project fences.
+  Preserve current save slot, queue, redirect guard and billing owners.
+- **Success:** focused export support and authenticated native writer/Files
+  workflow; independently inspect actual saved bytes and open outside THEM;
+  actual-base D009/diff. No repeated full backend/unit/V1 or paid calls.
+- **Publication:** normal existing integration-backup advance only after
+  proof; no replacement PR, original-head update, force, main or deployment.
+
 ### T-1073 — Preserve original native Files export in the writer candidate
 
 - **Owner:** codex. **Branch:** `codex/T-1073-native-files-export`.
@@ -40,6 +55,267 @@
   main push gate39502261480 pending. This local export candidate still has
   its older parent lockfile; propagate security through actual foundation
   #964 → #904 → #919 before promotion. Do not call the candidate hardened.
+### T-1085 — Combine original failed-generation billing with the corrected writer
+
+- **Owner:** codex. **Branch:** `codex/T-1085-billing-writer-integration`.
+- **Status:** review (focused handler proof passed; original PR heads unchanged).
+  **Pillar:** writer text and truthful usage charging.
+- **Boundary:** preserve original #625 and its prepared `9191af6c`, then
+  merge backed-up security/save/editor candidate `c6630d00`. Keep both
+  histories, original PR heads and protected main unchanged.
+- **Target:** original generation validation and response-lifecycle wallet
+  settlement, including asked_repeat/continue_listening; no second billing
+  owner. Keep the canonical tutorial helper once and preserve the original
+  pre-submit tutorial guard and stricter automatically reachable loaded-ask
+  assertions/diagnostics. No weaker UI assertion or product UI change.
+- **Success:** original billing owners and candidate iPhone source match;
+  focused offline Node20 authenticated billing/preservation tests and actual
+  base D009/diff pass. Reuse unchanged native app proof explicitly, no full
+  local backend/iOS repeat or paid call. Fresh landing-head CI still required.
+- **Publication:** a scoped backup only, no replacement PR, original-head
+  update, force push, squash, main merge or production deployment.
+- **Verified:** preserving merge `fe99f0a9`; shipping Swift/package/project
+  source matches candidate `c6630d00`, billing owners match original #625.
+  Pinned offline Node20 real handler/persistence/lifecycle10/0/0; three JS
+  syntax checks and UI-test syntax parse pass. No native suite repeated;
+  stronger merged UI expectations still require fresh landing-head execution.
+  D009 passes (Studio-4/bridge-23/others0 versus real #964); diff clean.
+- **Backup:** normally advance the existing task-owned integration backup,
+  preserving `c6630d00`, rather than creating another remote branch or PR.
+- **Next:** reconcile preserved native Files export with this combined source.
+- **Evidence:** `docs/billing-writer-integration-2026-10-20.md`.
+
+### T-1081 — Preserve billing fixes on the current security/save foundation
+
+- **Owner:** codex. **Branch:** `codex/T-1081-billing-foundation-sync`.
+- **Status:** review (local integration prepared; original remote unchanged).
+  **Pillar:** reliable writes and truthful wallet charges.
+- **Boundary:** original #625 `d493c515` plus original #964 `5faa43d6`;
+  preserving merge, no squash, replacement PR, force push or main change.
+- **Target:** retain the original generation/recovery billing corrections and
+  narrow inspector/keyboard fixes while inheriting current locked security
+  dependencies, save-slot handoff, atomic held saves and CI ready-event fix.
+- **Success:** both histories are ancestors; source owners match their original
+  parent exactly; relevant offline Node20 billing/security/runner contracts and
+  D009/diff pass. No duplicate full local iOS/backend/provider runs.
+- **Publication hold:** leave the original remote head unchanged until #964's
+  remaining required checks pass. Updated #625 still needs fresh exact-head
+  hosted checks and independent review. Production remains held; no paid call.
+- **Verified:** preserving merge `dc12f546`, both parent histories retained;
+  affected Node20.20.2 billing/security45/0/0 and CI contracts6/0/0, network
+  disabled. Canonical source byte comparisons and five D009 deltas0 pass.
+  No new full local backend, signed units, UI, macOS or provider run claimed.
+- **Evidence:** `docs/billing-foundation-sync-2026-10-20.md`.
+
+### T-1047 — Reach Voice Pin page actions without overshooting
+
+- **Owner:** codex. **Branch:** `codex/T-1047-partner-page-action`.
+- **Status:** review. **Pillar:** connected, reachable voice-to-page.
+- **History:** original #625 `5824f226` preserved; normal merge `37c50378`
+  also preserves original #964 `81b05e44` exact-device/signing/summary repairs.
+- **Root evidence:** hosted39398273450 UI28/1/9 at To Page; video repeatedly
+  swipes farther down after passing the action. Same callback fails0/1/0
+  on erased signed 375-point SE. No keyboard focus or tap retry implicated.
+- **Fix:** one bounded viewport-aware reveal for all three existing helpers,
+  stable scroll-content accessibility ID, minimum pan travel. First bounded
+  intermediate0/1/0 stalled at co-writer on repeated9.5-point drags; retained.
+- **Proof:** merged runner contracts26/0/0 and Node20 backend2769/0/2,
+  external network off. Minimum-pan run0/1/0 passed Page routing but exposed
+  the known offscreen inline confirmation wait. Reused T-996 `d82b3757`
+  assertions instead of duplicating its fix. Intermediate cohort3/1/0 exposed
+  keyboard tutorial and actual keyboard-safe-area suppression. Removed
+  unsuccessful keyboard-event/anchor experiments; the root product fix is
+  container-only safe-area handling in Studio and its parent. Final signed
+  erased SE cohort11/0/0; separate direct page typing1/0/0; macOS compile0;
+  D009 all five deltas0. Preserve both original heads, advance original #625
+  normally atop #964, require fresh hosted checks and independent review.
+  No main, production, paid-model or physical-phone completion claim.
+- **Done when:** same single-tap callback and affected panel/intent workflows,
+  signed narrow proof, macOS/D009/diff pass; advance original #625 normally
+  with all original history. Fresh hosted checks/review required; no main push.
+- **Evidence:** `docs/partner-page-action-2026-10-20.md`.
+
+### T-1041 — Keep Studio inspector navigation visible while content scrolls
+
+- **Owner:** codex. **Branch:** `codex/T-1041-pinned-inspector-navigation`.
+- **Status:** review; isolated descendant of original #625 `78430dec`.
+- **Evidence:** hosted39318515602 passed backend/units but failed the
+  six-panel inspector route at Outline tap with a system-AX timeout. Its
+  preceding activity repeatedly scrolls to recover the tab grid. Do not
+  claim a reproduced simulator-infrastructure root from those logs alone.
+- **Target:** existing tabs stay pinned while content scrolls; preserve
+  styling, selection, all six panels, scroll targets and original billing
+  history. No new product state or protected-file growth.
+- **Done when:** behavior-only pinned-navigation case reproduces before;
+  same case and original six-panel routing pass after on an erased owned
+  narrow signed simulator, focused presentation/design checks and macOS
+  compile pass, D009/diff clean. Require fresh hosted gate and review.
+- **Holds:** no paid call, production or main change. Character learning
+  from saved pages belongs to original #722/#897; preserve their work.
+- **Verified:** navigation-only before0/1/0. Inset-only1/1/0; inset/identity
+  1/1/0; structural layout with old fling helper8/1/0 (seven units passed).
+  A diagnostic-only route passed1/0/0, not accepted as a stable correction.
+  Reused the preserved T-992 bounded-gesture owner `6a57ff9`, removed the
+  sole-use tab-reopen fallback, retained all action/selection assertions.
+  Final signed erased SE9/0/0 (seven units + two UI), actual summary read;
+  macOS scaffold native exit0. Native Draft/Craft/Outline headings and all
+  six tab labels visually readable. D009 all five deltas0; diff clean.
+- **Evidence:** `docs/pinned-inspector-navigation-2026-10-20.md`. No fresh
+  full backend/unit-bundle or hosted-system-AX root-cause claim. Require
+  updated exact-head hosted checks and independent review before any merge.
+
+### T-993 — Re-prove original failed-generation billing fix on current main
+
+- **Owner:** codex. **Branch:** `codex/T-993-billing-main-proof`.
+- **Status:** in-progress. **Pillar:** trustworthy voice-to-page and wallet.
+- **Root verified:** current rehearsal's actual generation stage returned
+  zero reply bytes after two injected provider calls while proposing123
+  output tokens for billing. No live provider or real wallet used.
+- **Scope:** preserve original #625 head795f14fc and current main deac1a6d
+  with a normal merge. Read all seven original files and follow-up commits;
+  asked_repeat/continue_listening release is already in the original head.
+  Do not reimplement it, create a replacement PR or move main.
+- **Done when:** original generation/supplier/real-HTTP/lifecycle regressions,
+  full Node20 suite, signed erased units, D009/diff pass; adversarial limits
+  recorded; fresh original PR/head checks and independent review still needed.
+- **Human hold:** production blocked until App Store credentials exist.
+- **Verified:** focused33/0/0 after auth enforcement; full pinned Node20
+  backend2761/0/2; signed erased units624/0/0; D009 all five deltas0 and diff
+  clean. Unit source7f6159d and backend129d22c differ only by a Node test.
+  No new writer UI/macOS/live-provider claim. Manifest:
+  `docs/billing-main-proof-2026-10-19.md`.
+### T-1084 — Preserve redirect security on the corrected save/editor foundation
+
+- **Owner:** codex. **Branch:** `codex/T-1084-security-foundation-sync`.
+- **Status:** review (local scoped proof passed; original remote unchanged).
+  **Pillar:** trusted sign-in and durable writer words.
+- **Boundary:** preserve original #973 `fc759311` and its stopped local
+  rehearsal `9f54c297`, then merge corrected editor preparation `4806f4e9`.
+  Keep both task histories and all original implementation; no original PR head change.
+- **Target:** unchanged strict pre-forward redirect guard and all canonical
+  call sites with current security dependencies, save slot, atomic held saves,
+  loaded-page/stale-observer/conflict recovery and the original editor.
+- **Success:** source-owner/ancestry/D009 comparisons; native redirect5,
+  actual host loopback wire8 and recursive coverage2; selected authenticated
+  conflict/relaunch path. No full local backend/unit/V1 repeat or paid call.
+- **Hold:** original #973's older hosted recovery red is retained. Fresh
+  landing-head CI/review required after protected lower parents land; no
+  replacement PR, force push, squash, main or production action.
+- **Verified:** preserving merge `405cbc0b`; guard/call sites/fixtures match
+  original973 exactly; model/editor/queue/security dependencies match corrected
+  parent exactly. Host wire8/zero foreign requests, Node20 coverage2/0/0,
+  signed native redirect5/0/0 and selected authenticated recovery1/0/0.
+  Five actual-parent D009 deltas0/diff pass. No full local suite or paid call.
+- **Next:** reconcile the already-preserved original #625 billing fix with
+  this prepared foundation while the protected merge awaits human review.
+- **Evidence:** `docs/redirect-foundation-sync-2026-10-20.md`.
+- **Backup scope:** publish this prepared task branch only, without a replacement
+  PR or original-head update. Existing workflow push filters do not schedule
+  the full required/live release suites for this non-main, non-tag branch.
+
+### T-1071 — Preserve corrected recovery under the redirect boundary
+
+- **Owner:** codex. **Branch:** `codex/T-1071-security-parent-sync`.
+- **Status:** in-progress. **Pillar:** exact words and credential safety.
+- **Boundary:** preserve original #973fc759311 and parent #919bd470578
+  with a no-ff merge; only the task ledger conflicts, keep both histories.
+- **Target:** same canonical queued/unreadable recovery and inline chooser,
+  with the original strict redirect guard, injected sessions and cancellation.
+- **Done when:** full signed units/typing/chooser, authenticated writer and
+  expired-auth/offline recovery, synthetic voice/macOS, actual host wire,
+  Node20 backend, actual-parent D009/diff pass before same-original PR update.
+- **Limits:** retained original hosted recovery1/1/0 is not cleared by the
+  parent's local proof. #904d36d4e64 now hosted green; #919bd470578's gate
+  remains live. #909 genuinely approved; its ready event queued fresh checks,
+  normal merge blocked correctly. Production remains held, Auto-Deploy Off.
+- **Evidence:** `docs/security-recovery-parent-integration-2026-10-20.md`.
+
+### T-1065 — Reject credential-bearing cross-origin HTTP redirects
+
+- **Owner:** codex. **Branch:** `codex/T-1065-backend-redirect-boundary`.
+- **Status:** review (local correction and scoped proof passed).
+- **Pillar:** trusted sign-in and writer privacy. **Base:** original #919fd2fe9c.
+- **Verified:** native macOS URLSession.shared follows loopback302/307,
+  forwarding dummy app/client-token headers;307 forwards dummy POST body.
+  Authorization stripped. This is not evidence of a real production leak.
+- **Fix:** single pre-forward guard reuses the unchanged origin policy;
+  all71 async data/bytes and dedicated talk redirect use it. Same-origin
+  stripped auth restored only after strict origin checks; no new session owner.
+- **Verified:** host wire8 cases/zero foreign requests; signed units667/0/0,
+  authenticated writer1/0/0, recovery2/0/0, synthetic voice1/0/0, macOS0.
+  Node20 full2755/0/2 on53edcee; final strengthened lint2/0/0. D009/diff pass.
+- **Next:** distinct draft stacked on #919, fresh hosted/review; no main or
+  production mutation. Host wire is not physical-iPhone/provider proof.
+- **Evidence:** `docs/backend-redirect-boundary-2026-10-20.md`.
+### T-1083 — Integrate green editor recovery with the current save/security parent
+
+- **Owner:** codex. **Branch:** `codex/T-1083-editor-foundation-sync`.
+- **Status:** review (local affected proof passed; original remote unchanged).
+  **Pillar:** exact typing and acknowledged recovery.
+- **Boundary:** original #919 `39ca7c3b`, now hosted-green, plus preserved
+  #904 preparation `97ce2453`. Retain both histories; no remote/main change.
+- **Target:** combine the single save-slot/atomic held-save/security fixes
+  with the original stale-observer, viewport and durable-conflict capability.
+  Keep explicit Keep Mine's existing bypass of older active queue entries;
+  adapt it to the already-claimed slot, not to a removed Bool.
+- **Success:** source-owner/ancestry/D009 checks, affected save/model cases,
+  exact typing UI and selected authenticated conflict/relaunch pass. No full
+  local backend/unit/V1 repeat or paid call; fresh landing-head CI still needed.
+- **Publication:** wait for protected lower parents and genuine review;
+  advance original PRs normally, no replacement, force push or squash.
+- **Verified:** preserving merge `a69ad159`; signed selected save/model16
+  plus exact typing UI2 =18/0/0, authenticated conflict/relaunch UI1/0/0.
+  Erased owned SE/iOS26.2; native summaries inspected. Five D009 deltas0
+  versus real remote #904; protected editor/typing and parent security/save
+  owners compared byte-identical. No full local suite or paid call.
+- **Next:** preserve-prepare original security #973 on this source; publish
+  original children only after lower protected parents land and fresh checks.
+- **Evidence:** `docs/editor-foundation-sync-2026-10-20.md`.
+
+### T-1080 — Wait for the seeded page before injecting offline edits
+
+- **Owner:** codex. **Branch:** `codex/T-1080-recovery-fixture-readiness`.
+- **Status:** review (affected local stories passed; fresh hosted proof pending).
+  **Pillar:** truthful exact-word recovery proof.
+- **Boundary:** original #91998bad16f hosted39511926607 passes units682/0/0,
+  writer and V1 UI32/0/9, then recovery1/1/0. Final actual saved version
+  contains only the marker, not the seeded scene plus marker. Retain red.
+- **Fix:** reuse original #962856d7624's DEBUG loaded-project readiness and
+  cancellation guards, without its later blank-page features. Strengthen
+  both initial queued-page checks to require full expected text/count and
+  correct selected/loaded project before continuing. Final checks unchanged.
+- **Done when:** two affected authenticated signed recovery stories pass,
+  D009/diff clean; normal same-original update with fresh required CI/review.
+  No full local duplicate suites or paid call; shipping UI not changed.
+- **Verified:** stronger initial-page premise and unchanged final exact-text
+  recovery2/0/0, signed/erased owned SE/iOS26.2, native producer0. Five D009
+  deltas0/diff pass. Earlier hosted1/1/0 retained; not an unchanged retry.
+- **Evidence:** `docs/recovery-fixture-readiness-2026-10-20.md`.
+
+### T-1076 — Keep delayed draft work from retiring newer writer words
+
+- **Owner:** codex. **Branch:** `codex/T-1076-editor-queue-consistency`.
+- **Status:** review (local proof passed; hosted causal proof remains open).
+  **Pillar:** exact writer text and recovery.
+- **Boundary:** preserve original #919a6262b83. Hosted39499208254 passed
+  units681/0/0 and V1 UI32/0/9, then failed recovery1/1/0 before conflict
+  setup. Snapshot has one queued save but original clean page; queue bytes
+  are not established by that snapshot. No claimed causal attribution yet.
+- **Target:** reproduce stale observer authority/recovery mutation on the
+  actual model; fence obsolete callbacks before mutation and across awaits.
+  Preserve auth/project boundaries and original UI assertions, no wait/retry
+  workaround. Investigate readiness separately if still implicated.
+- **Done when:** failing-first model proof, focused signed recovery tests
+  and unchanged authenticated recovery UI pass; retain red evidence. Broader
+  integration and fresh exact-head hosted proof required before propagation.
+- **Verified:** real observer before0/1/0; after focused31/0/0, unchanged
+  authenticated recovery2/0/0, full signed units682/0/0, writer1/0/0,
+  synthetic voice1/0/0, macOS build0. Node20 full backend2753/0/2;
+  five D009 deltas0/diff pass. Hosted causal attribution is still unproven. Separate #964's
+  new Save Now hosted failure is retained and blocks that approved PR.
+- **Evidence:** `docs/draft-observer-authority-2026-10-20.md`. No repeated
+  unchanged app run, new paid call or original-child propagation.
+- **Limits:** no paid calls, main/production changes or child propagation.
 
 ### T-1072 — Retain conflict words, not just active retries
 
@@ -220,6 +496,40 @@ change or treat it as merged; original pre-proof text remains in Git history.
   D009 passes against actual #904 (bridge -22, all others0). Advance this
   same original #919 by normal fast-forward; fresh hosted checks/review
   remain required. Full-suite counts above are retained historical proof.
+### T-1082 — Keep recovery protection on the current save/security foundation
+
+- **Owner:** codex. **Branch:** `codex/T-1082-recovery-foundation-sync`.
+- **Status:** review (local proof passed; original remote unchanged).
+  **Pillar:** exact writer recovery and acknowledged saves.
+- **Boundary:** original #904 `d36d4e64` and original #964 `5faa43d6`,
+  preserving both histories. Keep corrupt-queue fail-closed behavior, guarded
+  hydration, explicit writer conflict choice and the inline export chooser.
+- **Target:** inherit the locked security fixes, single save-slot handoff,
+  atomic held-save admission and ready-event dedup without replacing any
+  original capability. Resolve overlapping test insertions by keeping all.
+- **Integration repair:** the child's DEBUG helper still names the removed
+  save Bool. Reuse #919 `39ca7c3b` / original #962 `856d7624`'s loaded-page
+  readiness and stronger initial proof, adapted to the single save-slot owner.
+  No changed production behavior beyond the preserved parent fixes.
+- **Success:** affected signed recovery/outbox/slot checks pass; actual-parent
+  D009/diff and source-owner comparisons pass. No duplicate full local suite.
+- **Hold:** local preparation only until #964 clears required CI. No main,
+  original remote, production or paid-provider change; fresh review/CI required.
+- **Verified:** merge `0a321edf`; affected signed units98/0/0 and selected
+  authenticated expired-auth/conflict/relaunch UI1/0/0, erased owned SE/iOS26.2.
+  Both task/test histories retained; security lockfile and source owners
+  compared; actual-parent D009 passes (Studio-4, bridge-23, other deltas0).
+  No full backend/unit/V1/macOS or live provider run in this task.
+- **Next:** after protected #964 lands, merge that actual main into this
+  preparation, then publish the same original #904 normally with fresh CI
+  and independent review. Avoid a redundant pre-landing full hosted run.
+- **Evidence:** `docs/recovery-foundation-sync-2026-10-20.md`.
+- **Later hosted state (separate heads):** #964 `5faa43d6` and #919
+  `39ca7c3b` now have all three required checks SUCCESS. #964 is ready for
+  the human's genuine review; old approval remains dismissed. No remote source
+  change or main merge here. The new combined local tree still needs its own
+  fresh landing-head checks after the protected parent lands.
+
 ### T-1069 — Keep iPhone export format choices on the document
 
 - **Owner:** codex. **Branch:** `codex/T-1069-inline-iphone-export`.
@@ -404,6 +714,104 @@ change or treat it as merged; original pre-proof text remains in Git history.
   #904 on #964 with this failure explicit; separate original #919 contains
   the reproduced live-Binding correction and broader after-proof. Require
   new hosted checks and independent review; no main merge.
+### T-1078 — Admit held saves atomically, without active-save deduplication
+
+- **Owner:** codex. **Branch:** `codex/T-1078-atomic-held-save`.
+- **Status:** review (affected signed cohort passed; fresh hosted proof pending).
+  **Pillar:** no silent loss or unintended replay.
+- **Self-audit:** T1077 used enqueue then markParked across two actor calls;
+  a held copy was briefly runnable. Active same-text dedup could also return
+  without storing its new id, making the second markParked a silent no-op.
+- **Fix:** construct a parked entry before the canonical enqueue; admit it
+  in one actor call. Held intent is not an active-write duplicate. Existing
+  IDs can transition to parked atomically; failed writes restore memory.
+- **Scope:** existing journal, identity checks and same original #964; no
+  new store/framework. Three real queue persistence/reopen/failure cases,
+  affected outbox/slot checks only, no repeated broad/provider suite.
+- **Done when:** affected signed cohort passes, D009/diff clean; save the
+  coherent repair through the original protected PR and require fresh CI.
+- **Verified:** actual queue/slot cohort20/0/0, native exit0, erased owned
+  SE/iOS26.2. Includes persisted/reopened held records and real write failure;
+  no full local suite/provider calls. All five D009 deltas0; diff clean.
+- **Evidence:** `docs/atomic-held-save-2026-10-20.md`.
+
+### T-1075 — Do not repeat full gates for unchanged draft readiness
+
+- **Owner:** codex. **Branch:** `codex/T-1075-ci-ready-dedup`.
+- **Status:** review (static proof passed; platform readiness observation pending).
+  **Pillar:** safer, faster verified integration.
+- **Evidence:** #909d3b6027e has successful quality runs39400830397 and
+  39491129919 on the same head. Second starts20:20:28Z, four seconds after
+  its ready_for_review event. Run metadata no longer exposes base SHAs;
+  do not claim exact virtual merge-tree equality from these records.
+- **Fix:** remove only ready_for_review from quality-gate's event list;
+  retain opened/synchronize/reopened, all draft execution, main pushes,
+  job bodies, manual entry, strict checks/review/admin protections.
+- **Proof:** fast focused contract checks and byte-equal job definitions;
+  no new simulator/provider run. Fresh hosted checks and review remain
+  required on the updated original #964; actual ready-state non-duplication
+  must be observed before claiming platform behavior verified.
+- **Verified:** pinned Node20.20.2 checks6/0/0; independent byte comparison
+  proves the only workflow change is the readiness trigger and explanatory
+  comment. All jobs, steps, permissions and timeouts unchanged. No runtime
+  or dependency source change from tested save-fix parentfeb5f372.
+- **Reference:** `docs/ci-ready-dedup-2026-10-20.md`.
+
+### T-1077 — Run explicit saves waiting behind a background drain
+
+- **Owner:** codex. **Branch:** `codex/T-1077-save-drain-handoff`.
+- **Status:** review (focused and writer checks passed; fresh full CI pending).
+  **Pillar:** dependable acknowledged saves.
+- **Boundary:** preserve original #964ee5c83fd and its independent approval;
+  hosted39507066013 failed Save Now before any server version. Do not merge
+  or substitute its earlier local green. No production change.
+- **Fix:** provenance-port original970b84f6's single save-slot owner; adapt
+  original50d04ae5's handoff/rebase semantics. Claim before queue awaits,
+  consume pending work after drain, preserve request identity/project/auth.
+- **Verification scope:** focused preserved checks plus the unchanged
+  authenticated writer journey; leave full repeated suites to required CI.
+  No model credits, weaker assertions or retries of unchanged code.
+- **Done when:** connected writer save/relaunch passes, D009/diff pass;
+  normal original-branch update retains history/base and requires fresh
+  hosted gates and non-author review before merge.
+- **Verified:** preserved slot checks6/0/0; unchanged authenticated writer
+  UI1/0/0 with actual bundle retained. Signed/erased owned SE/iOS26.2.
+  Five D009 deltas0, diff clean; backend/security files unchanged. No new
+  full local suites or paid call. Hosted iOS26.5 failure remains unclosed.
+- **Evidence:** `docs/foundation-save-handoff-2026-10-20.md`.
+
+### T-1074 — Carry approved security main into original foundation #964
+
+- **Owner:** codex. **Branch:** `codex/T-1074-security-foundation-sync`.
+- **Status:** review (local combined proof passed; publication/CI pending).
+  **Pillar:** integrated writer trust.
+- **Boundary:** original #96481b05e44 + security main78b8c94f, preserving
+  no-ff mergebb20ee71. Only task-ledger conflict; keep both histories.
+  Existing original worktree remains untouched. No source conflict, rewrite,
+  new PR, base change, direct-main push or production action.
+- **Target:** future foundation updates retain current Multer2.4.0,
+  fast-uri3.1.9 and proxy-addr2.0.8 rather than restoring the old lockfile.
+  Keep exact signed/erased simulator and fail-closed evidence contracts.
+- **Done when:** fresh locked Node20 install/audit, full scripts/backend,
+  signed units, writer/voice/macOS, D009/diff pass on the merged source;
+  advance original #964 normally and require fresh CI/independent review.
+- **Limits:** foundation application recovery was previously red; actual
+  client repairs remain in preserved #904/#919, not silently imported here.
+  Do not claim this test-infrastructure boundary proves recovered writer
+  text or native Files. Production and real-phone proof remain held.
+- **CI observation:** ready_for_review duplicates a full gate on an unchanged
+  head, but the existing merge-safety contract explicitly pins that event.
+  Leave it intact in this scoped integration. Follow-up T-1075 must prove
+  any event deduplication preserves exact-head required checks, strict bases
+  and independent review; no draft skip or dropped native gate.
+- **Proof:** checkpoint4f907cbf/tree31481d7c. Fresh Node20 locked install136
+  packages/audit0. Initial scripts210/13/0 lacked real Git/context; after
+  correcting only disposable tooling, scripts223/0/0. Full fresh-lock
+  backend2752/0/2; signed units624/0/0, writer1/0/0, synthetic voice1/0/0,
+  macOS build0, D009 allfive0/diff pass. Native writer bundle retained by an
+  external copy-only wrapper before unchanged producer cleanup. No app
+  recovery, native Files or live/physical claim at this boundary.
+- **Evidence:** `docs/foundation-security-propagation-2026-10-20.md`.
 
 ### T-985 — Fail-closed recovery proof and preserve original #904
 
@@ -437,6 +845,29 @@ change or treat it as merged; original pre-proof text remains in Git history.
   `docs/main-simulator-proof-2026-10-19.md`.
 - **Hold:** required hosted checks and independent human review before merge.
 - **GitHub:** draft #964, initial implementation `ba55565`; no main merge.
+
+### T-1042 — Promote the minimal original dependency-security correction
+
+- **Owner:** codex. **Branch:** `codex/T-1042-dependency-boundary-refresh`.
+- **Status:** review; minimal current-main integration locally proven.
+  **Pillar:** trustworthy screenplay service.
+- **Scope:** original #909 `788e0107` + actual main `deac1a6d`, preserving
+  merge `c111f711`; no unrelated #964 runner work from the older proof branch.
+- **Root:** yesterday's zero registry audit missed four freshly disclosed
+  URI normalization defects. Preserve existing Multer/proxy fixes and update
+  only the compatible locked fast-uri patch to3.1.9. Exact tested backend
+  comes from preserved preparation `a0abd56`; no copied product/UI changes.
+- **Done when:** scoped before/after regressions, exact integrated-tree pinned
+  Node20 full backend, locked install/audit, D009 and diff pass; advance only
+  original #909 normally with fresh hosted checks and independent review.
+- **Holds:** no production/main change, paid call or personal-device action.
+  This is not live exploitability, whole-app security or writer-loop proof.
+- **Verified:** corrected before0/4/0, patched focused5/0/0; exact minimal
+  integrated-tree full Node20 backend2744/0/2, native exit0. Registry scans0
+  are bounded metadata, not security certification. All five D009 deltas0,
+  whitespace/syntax pass; no client, script or workflow delta versus main.
+- **Evidence:** `docs/dependency-boundary-refresh-2026-10-20.md`. Original
+  #909 requires fresh exact-head hosted checks and independent review.
 
 ### T-969 — Truthful required checks on original #906
 
