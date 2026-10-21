@@ -129,6 +129,27 @@ final class StudioCraftReportSelectionTests: XCTestCase {
         XCTAssertTrue(model.craftErrorText.contains("doesn't match"))
     }
 
+    func testPublicFrameworkDiscoveryCanFinishBeforeProtectedReportContextIsCaptured() async throws {
+        for transition in ["version", "auth"] {
+            var model: ScreenplayStudioViewModel!
+            model = try makeModel { stub in
+                if stub.request.url?.path == "/craft/frameworks" {
+                    if transition == "version" { model.latestVersionID = "v2" }
+                    else { _ = BackendAuthClient.reserveAuthSessionIntent() }
+                    self.respondNormally(stub)
+                } else if stub.request.url?.path.contains("/craft/reports/") == true {
+                    let expectedVersion = transition == "version" ? "v2" : "v1"
+                    XCTAssertTrue(stub.request.url!.path.hasSuffix("/\(expectedVersion)"))
+                    stub.respond(self.report(versionID: expectedVersion))
+                } else { self.respondNormally(stub) }
+            }
+            await model.loadCraftReport()
+            XCTAssertEqual(model.selectedCraftFrameworkID, "save-the-cat", transition)
+            XCTAssertEqual(model.craftReport?.versionId, transition == "version" ? "v2" : "v1")
+            XCTAssertFalse(model.isCraftLoading)
+        }
+    }
+
     private func makeModel(handler: @escaping @MainActor (CraftReportURLProtocol) -> Void) throws -> ScreenplayStudioViewModel {
         CraftReportURLProtocol.handler = handler
         let configuration = URLSessionConfiguration.ephemeral
@@ -161,9 +182,9 @@ final class StudioCraftReportSelectionTests: XCTestCase {
         }
     }
 
-    private func report(projectID: String = "craft-project") -> String {
+    private func report(projectID: String = "craft-project", versionID: String = "v1") -> String {
         """
-        {"id":"report-1","schemaVersion":1,"projectId":"\(projectID)","versionId":"v1",
+        {"id":"report-1","schemaVersion":1,"projectId":"\(projectID)","versionId":"\(versionID)",
         "framework":{"id":"save-the-cat","title":"Save the Cat"},
         "coverage":{"requiredMajorTurnCount":0,"detectedMajorTurnCount":0,"overriddenMajorTurnCount":0,"missingMajorTurnCount":0,"complete":true},
         "beatSheet":{"id":"beats-1","frameworkId":"save-the-cat","title":"Craft fixture","beats":[]},

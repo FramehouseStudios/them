@@ -481,6 +481,110 @@ final class V1SmokeUITests: XCTestCase {
     }
 
     @MainActor
+    func test_craft_restored_report_selection_and_override_use_real_backend() async throws {
+#if os(iOS)
+        guard let port = Int(ProcessInfo.processInfo.environment["THEM_UITEST_WRITER_LOOP_BACKEND_PORT"] ?? ""),
+              (1...65_535).contains(port) else {
+            throw XCTSkip("Dedicated authenticated Craft backend not configured; strict local producer requires one pass, zero skips.")
+        }
+        let baseURL = try XCTUnwrap(URL(string: "http://127.0.0.1:\(port)"))
+        let fixture = try await createWriterLoopAuthenticationFixture(baseURL: baseURL)
+        let projectID = "craft-ui-\(UUID().uuidString.lowercased())"
+        let project = try await requestJSON(baseURL: baseURL, path: "/screenplay/projects", method: "POST",
+            headers: fixture.authorizedHeaders, body: ["project_id": projectID, "title": "Craft report recovery", "activate": true])
+        try assertHTTP(project, context: "craft UI project")
+        let draft = "INT. FERRY OFFICE - NIGHT\n\nMara sets a key on the desk.\n"
+        let version = try await requestJSON(baseURL: baseURL, path: "/screenplay/projects/\(projectID)/version", method: "POST",
+            headers: fixture.authorizedHeaders, body: ["draft": draft, "phase": "scene_draft", "base_version_id": ""])
+        try assertHTTP(version, context: "craft UI saved version")
+        let versionID = try firstNonEmptyString(version.payload["version_id"], version.payload["server_version_id"],
+            message: "Craft fixture did not return a saved version")
+        let analysisBody: [String: Any] = ["projectId": projectID, "versionId": versionID,
+            "frameworkId": "save-the-cat", "screenplay": ["title": "Craft report recovery", "text": draft, "pageCount": 120]]
+        let analysis = try await requestJSON(baseURL: baseURL, path: "/craft/analyze", method: "POST",
+            headers: fixture.authorizedHeaders, body: analysisBody)
+        try assertHTTP(analysis, context: "craft UI stored report")
+        XCTAssertEqual((analysis.payload["framework"] as? [String: Any])?["id"] as? String, "save-the-cat")
+        let app = launchApp(openStudio: true, restoreProjectID: projectID, restoreVersionID: versionID,
+            restoreLoadToken: Int(Date().timeIntervalSince1970), launchEnvironment: fixture.appLaunchEnvironment)
+        defer { app.terminate() }
+        XCTAssertTrue(waitForDraft(in: app, containing: "Mara sets a key", timeout: 20))
+        let toggle = app.buttons["studio.sidebar.right.toggle"]
+        XCTAssertTrue(waitForHittability(of: toggle, timeout: 8))
+        toggle.tap()
+        let drawer = element(identifier: "studio.sidebar.right.drawer", in: app)
+        XCTAssertTrue(drawer.waitForExistence(timeout: 5))
+        app.buttons["studio.right-panel.craft"].tap()
+        let selected = app.buttons["studio.craft.framework.save-the-cat"]
+        XCTAssertTrue(revealInStudioDrawer(selected, drawer: drawer, scrollingUp: false, maxSwipes: 5))
+        guard waitForSelection(of: selected, timeout: 12) else {
+            XCTFail("Stored report must replace automatic Three-Act")
+            return
+        }
+        let restoredImage = XCTAttachment(screenshot: app.screenshot())
+        restoredImage.name = "Stored report selects Save the Cat"
+        restoredImage.lifetime = .keepAlways
+        add(restoredImage)
+        let override = app.buttons["studio.craft.override.catalyst"]
+        guard revealInStudioDrawer(override, drawer: drawer, scrollingUp: true, maxSwipes: 14) else {
+            XCTFail("Catalyst override was not reachable in the inspector")
+            return
+        }
+        override.tap()
+        let page = app.textFields["studio.craft.override.page"]
+        guard revealInStudioDrawer(page, drawer: drawer, scrollingUp: true, maxSwipes: 5) else {
+            XCTFail("Expanded override Page field was not reachable")
+            return
+        }
+        page.tap()
+        page.typeText("12")
+        let save = app.buttons["studio.craft.override.save"]
+        guard revealInStudioDrawer(save, drawer: drawer, scrollingUp: true, maxSwipes: 4) else {
+            XCTFail("Save Override was not reachable above the keyboard")
+            return
+        }
+        save.tap()
+        XCTAssertTrue(waitForDisappearance(of: app.buttons["studio.craft.override.save"], timeout: 10))
+        let acknowledgement = app.staticTexts["studio.craft.status"]
+        guard revealInStudioDrawer(acknowledgement, drawer: drawer, scrollingUp: false, maxSwipes: 14) else {
+            XCTFail("Save Override must receive the backend acknowledgement before checking persistence")
+            return
+        }
+        XCTAssertTrue(acknowledgement.label.contains("Override saved for"))
+        let persisted = try await requestJSON(baseURL: baseURL, path: "/craft/analyze", method: "POST",
+            headers: fixture.authorizedHeaders, body: analysisBody)
+        try assertHTTP(persisted, context: "craft UI persisted override")
+        let turns = persisted.payload["majorTurns"] as? [[String: Any]] ?? []
+        let catalyst = try XCTUnwrap(turns.first { self.stringValue($0["turnId"]) == "catalyst" })
+        XCTAssertEqual(catalyst["status"] as? String, "manually_present")
+        let storedOverride = try XCTUnwrap(catalyst["override"] as? [String: Any])
+        XCTAssertEqual(storedOverride["frameworkId"] as? String, "save-the-cat")
+        XCTAssertEqual(storedOverride["projectId"] as? String, projectID)
+        XCTAssertEqual(storedOverride["versionId"] as? String, versionID)
+        let savedImage = XCTAttachment(screenshot: app.screenshot())
+        savedImage.name = "Craft override acknowledged and persisted"
+        savedImage.lifetime = .keepAlways
+        add(savedImage)
+        let explicit = app.buttons["studio.craft.framework.three-act"]
+        XCTAssertTrue(revealInStudioDrawer(explicit, drawer: drawer, scrollingUp: false, maxSwipes: 14))
+        explicit.tap()
+        XCTAssertTrue(explicit.isSelected)
+        let refresh = app.buttons["studio.craft.refresh"]
+        XCTAssertTrue(revealInStudioDrawer(refresh, drawer: drawer, scrollingUp: false, maxSwipes: 3))
+        refresh.tap()
+        XCTAssertTrue(waitForHittability(of: explicit, timeout: 10))
+        XCTAssertTrue(waitForSelection(of: explicit, timeout: 10))
+        XCTAssertTrue(staticText(containing: "Analyze with the selected framework", in: app).exists)
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "Craft explicit choice survives stored report refresh"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+#else
+        throw XCTSkip("iPhone Craft workflow")
+#endif
+    }
+
+    @MainActor
     func test_integrated_iphone_writer_loop_creates_saves_exports_and_restores() async throws {
 #if os(iOS)
         let portRaw = (ProcessInfo.processInfo.environment["THEM_UITEST_WRITER_LOOP_BACKEND_PORT"] ?? "")

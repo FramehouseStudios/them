@@ -4621,8 +4621,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
         guard selectedProjectID == project.id else { return }
 
         let requestID = UUID()
-        let contextIsCurrent = makeCraftContextGuard()
-        let versionID = activeCraftVersionID
+        var contextIsCurrent = makeCraftContextGuard()
+        var versionID = activeCraftVersionID
         activeCraftReportRequestID = requestID
         isCraftLoading = true
         defer {
@@ -4635,8 +4635,14 @@ final class ScreenplayStudioViewModel: ObservableObject {
         let source = force ? "Manual check" : "Craft rail"
         let hadExistingReport = craftReport != nil
         do {
+            // Framework discovery is public metadata, not a versioned report.
+            // Bind the protected read only after startup metadata converges.
+            try await ensureCraftFrameworksLoaded()
+            guard activeCraftReportRequestID == requestID, selectedProjectID == project.id else { return }
+            versionID = activeCraftVersionID
+            contextIsCurrent = makeCraftContextGuard()
             let report = try await StudioCraftResilience.run(source: source) {
-                try await ensureCraftFrameworksLoaded()
+                guard contextIsCurrent() else { throw CancellationError() }
                 return try await craftClient.fetchCraftReport(
                     projectId: project.id,
                     versionId: versionID
@@ -5251,10 +5257,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
     }
 
     private func ensureCraftFrameworksLoaded() async throws {
-        let contextIsCurrent = makeCraftContextGuard()
         if craftFrameworks.isEmpty {
             let response = try await craftClient.fetchCraftFrameworks()
-            guard contextIsCurrent() else { throw CancellationError() }
             craftFrameworks = response.frameworks
         }
         let cleanSelected = selectedCraftFrameworkID.trimmingCharacters(in: .whitespacesAndNewlines)
