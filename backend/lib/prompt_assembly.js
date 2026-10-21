@@ -21,6 +21,7 @@ import { enforceCraftContextPrecedence } from "./craft_prompts.js";
 
 import { buildTraitsBlockForPrompt } from "./trait_library.js";
 import { asksForDialogueNotes, isScreenplayRevisionRequest, DIALOGUE_NOTES_CONTRACT } from "./dialogue_notes.js";
+import { analyzeScreenplayWriteInstruction } from "./screenplay_write_instruction.js";
 import { buildAcceptedTwistsBlockForPrompt } from "./accepted_twist_log.js";
 import {
   FEATURE_MAP_BLOCK_OPEN,
@@ -490,7 +491,12 @@ function inferStoryMomentumDiagnostic(userInput = "", task = {}) {
 }
 
 function inferScreenplayTask(userInput = "") {
-  const text = trimToString(userInput);
+  const instruction = analyzeScreenplayWriteInstruction(userInput);
+  if (instruction.refusesPageWrite) return {
+    intent: "story_discussion", label: "Story Discussion",
+    output: "The writer refused page changes. Answer their current question in spoken prose; do not write, continue, replace or revise screenplay text. Discuss the story without changing the draft.",
+  };
+  const text = trimToString(instruction.routingText);
   const lower = text.toLowerCase();
   if (!lower) return null;
   const featureMetadata = inferFeatureRequestMetadata(lower);

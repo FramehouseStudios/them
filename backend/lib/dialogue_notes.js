@@ -1,5 +1,6 @@
 // Canonical server-owned notes policy. Clients send the writer's words, not an
 // independently inferred output contract that can contradict this task.
+import { analyzeScreenplayWriteInstruction, maskQuotedScreenplayText } from "./screenplay_write_instruction.js";
 const DIALOGUE_NOTES_CONTRACT = Object.freeze([
   "shape: one sentence naming what the line is doing (on the nose, a label, exposition, or a tactic that already works), then exactly one rewritten line in quotes that carries the same feeling through behavior or tactic, then stop.",
   "register: spoken prose in Clementine's voice; no Fountain block, no list, no headers; keep the writer's character names and the scene's facts.",
@@ -11,7 +12,9 @@ const DIALOGUE_NOTES_TRIM_CONTRACT = "mode_contract: name the line's tactic or w
 // Shared by task selection and the lane classifier. Revision directions after
 // supplied dialogue must not be swallowed by the notes contract.
 function isScreenplayRevisionRequest(text) {
-  const lower = String(text || "").toLowerCase();
+  const instruction = analyzeScreenplayWriteInstruction(text);
+  if (instruction.refusesPageWrite) return false;
+  const lower = instruction.routingText.toLowerCase();
   return /\b(rewrite|revise|polish|replace|tighten|soften|shorten|swap out|another pass|do another pass|make it better|elevate|professionalize|pro pass|expert pass)\b/.test(lower)
     || /\b(make (?:this|it|this script|the script|this screenplay|the screenplay|this passage|this scene|the scene|this line|the line|this exchange|the exchange) (?:shorter|tighter|sharper|cleaner|faster|smarter|more expert|more professional|more cinematic|more emotional|more sophisticated|more filmic|less on[- ]the[- ]nose))\b/.test(lower);
 }
@@ -20,7 +23,7 @@ function notesInstructionText(text) {
   // Dialogue is content, not an instruction. Keep directions after a balanced
   // quote so "Notes on this line: 'Stay.' Now rewrite it" is still a rewrite.
   const quotedLine = "\u0000";
-  const masked = text.replace(/"[^"\n]*"|“[^”\n]*”|‘(?:[^’\n]|(?<=\w)’(?=\w))*?’(?!\w)|(?<!\w)'(?:[^'\n]|(?<=\w)'(?=\w))*?'(?!\w)/gu, quotedLine);
+  const masked = maskQuotedScreenplayText(text, quotedLine);
   const colon = masked.indexOf(":");
   if (colon < 0) return masked;
   const introduction = masked.slice(0, colon);

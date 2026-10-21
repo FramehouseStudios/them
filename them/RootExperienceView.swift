@@ -5208,7 +5208,7 @@ You're okay. Let's slow it down for one beat and get our footing back. Pick the 
     }
 
     private func confirmedStudioPageWriteContext(for userText: String) -> String? {
-        guard isStudioPageWriteConfirmationCue(userText) else { return nil }
+        guard let routingText = ScreenplayIntentClassifier.permittedPageRoutingText(userText), isStudioPageWriteConfirmationCue(routingText) else { return nil }
         let context = latestStudioCopilotContext()?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard !context.isEmpty else { return nil }
         return context
@@ -5245,6 +5245,7 @@ You're okay. Let's slow it down for one beat and get our footing back. Pick the 
         preferredTarget: ScreenplayStudioScreen.PromptRoutingMode = .automatic
     ) -> String {
         let cleanUser = userMessage.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard ScreenplayIntentClassifier.permittedPageRoutingText(cleanUser) != nil else { return cleanUser }
         let cleanContext = studioApprovedStoryDirection(
             from: confirmedContext?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         )
@@ -5345,17 +5346,12 @@ Write this approved story direction directly into screenplay pages now. Maintain
     }
 
     private func shouldForceStudioPageWrite(for userText: String) -> Bool {
-        let normalized = ScreenplayIntentClassifier.normalize(userText)
-        if isSynopsisDevelopmentPrompt(userText) && !isExplicitStudioPageDestinationCue(userText) {
+        guard let routingText = ScreenplayIntentClassifier.permittedPageRoutingText(userText) else { return false }
+        let normalized = ScreenplayIntentClassifier.normalize(routingText)
+        if isSynopsisDevelopmentPrompt(routingText) && !isExplicitStudioPageDestinationCue(routingText) {
             return false
         }
-        let directPageWritePatterns = [
-            #"\bwrite\b.*\b(?:screenplay\s+)?action\s+line(?:s)?\b"#,
-            #"\bwrite\b.*\b(?:screenplay\s+)?dialogue\s+line(?:s)?\b"#
-        ]
-        if directPageWritePatterns.contains(where: {
-            normalized.range(of: $0, options: .regularExpression) != nil
-        }) {
+        if ScreenplayIntentClassifier.directPageWriteLinesCue(in: normalized) {
             return true
         }
         let cues = [
@@ -5430,14 +5426,9 @@ Write this approved story direction directly into screenplay pages now. Maintain
     }
 
     private func isExplicitStudioPageWritePrompt(_ userText: String) -> Bool {
-        let normalized = ScreenplayIntentClassifier.normalize(userText)
-        let directPageWritePatterns = [
-            #"\bwrite\b.*\b(?:screenplay\s+)?action\s+line(?:s)?\b"#,
-            #"\bwrite\b.*\b(?:screenplay\s+)?dialogue\s+line(?:s)?\b"#
-        ]
-        if directPageWritePatterns.contains(where: {
-            normalized.range(of: $0, options: .regularExpression) != nil
-        }) {
+        guard let routingText = ScreenplayIntentClassifier.permittedPageRoutingText(userText) else { return false }
+        let normalized = ScreenplayIntentClassifier.normalize(routingText)
+        if ScreenplayIntentClassifier.directPageWriteLinesCue(in: normalized) {
             return true
         }
         let cues = [
@@ -9029,7 +9020,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
 
         guard let textToInsert = resolvedStudioScreenplayInsertionText(
             reply: rawReply,
-            userMessage: "",
+            userMessage: userTranscript,
             existingDraft: screenplayDraftBridge.previewFormattingBaseDraft,
             forceWriteToPage: true,
             memoryDomainOverride: memoryDomainOverride,
@@ -9144,6 +9135,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
         preferredTargetOverride: ScreenplayStudioScreen.PromptRoutingMode = .automatic
     ) -> String? {
         let cleanReply = reply.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard ScreenplayIntentClassifier.permittedPageRoutingText(userMessage) != nil else { return nil }
         let typedReply = screenplayOutput?.text.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard !cleanReply.isEmpty || !typedReply.isEmpty else { return nil }
         let effectivePreferredTarget: ScreenplayStudioScreen.PromptRoutingMode =

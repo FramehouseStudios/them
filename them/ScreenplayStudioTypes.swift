@@ -1,5 +1,6 @@
 import SwiftUI
 import UniformTypeIdentifiers
+import DraftStudio
 
 extension ScreenplayStudioScreen {
     enum PromptRoutingMode: String, CaseIterable, Identifiable {
@@ -47,6 +48,7 @@ extension ScreenplayStudioScreen {
         func preparing(_ prompt: String) -> String {
             let cleanPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !cleanPrompt.isEmpty else { return "" }
+            if DraftStudioPageWritePolicy.analyze(cleanPrompt).hadRefusal { return cleanPrompt }
             return "\(promptInstruction)\n\nWriter request: \(cleanPrompt)"
         }
 

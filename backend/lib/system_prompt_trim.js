@@ -290,6 +290,8 @@ function compactFeatureFilmMapBody(body, bodyLimit) {
 
 function screenplayModeContract(intent) {
   switch (String(intent || "").trim().toLowerCase()) {
+    case "story_discussion":
+      return "mode_contract: the writer refused page changes. Answer in spoken prose; discuss without writing, continuing, replacing or revising screenplay text.";
     case "dialogue_notes":
       return DIALOGUE_NOTES_TRIM_CONTRACT;
     case "finish_feature":
@@ -321,7 +323,7 @@ function compactScreenplayTaskBody(body, bodyLimit) {
     { value: firstLineStartingWith(lines, "requested_act:"), maxChars: 100 },
     { value: firstLineStartingWith(lines, "requested_page_batch:"), maxChars: 100 },
     {
-      value: intent === "dialogue_notes" ? "craft_contract: preserve the line's character, facts, tactic and feeling; spoken notes, not pages." : "craft_contract: whole-feature authorship; page batch discipline; expert page engine; subtext engine; image system; speed discipline; Fountain pages first; verify continuity.",
+      value: ["dialogue_notes", "story_discussion"].includes(intent) ? "craft_contract: preserve character, facts, tactic and feeling; spoken discussion, not pages." : "craft_contract: whole-feature authorship; page batch discipline; expert page engine; subtext engine; image system; speed discipline; Fountain pages first; verify continuity.",
       maxChars: 180,
     },
     { value: screenplayModeContract(intent), maxChars: 230 },

@@ -290,6 +290,50 @@ final class V1SmokeUITests: XCTestCase {
     }
 
     @MainActor
+    func test_studio_refused_write_preserves_saved_page_despite_page_selection() async throws {
+#if os(iOS)
+        guard let port = Int(ProcessInfo.processInfo.environment["THEM_UITEST_WRITER_LOOP_BACKEND_PORT"] ?? ""),
+              (1...65_535).contains(port) else {
+            throw XCTSkip("Dedicated authenticated backend required; a skip is not refusal proof")
+        }
+        let baseURL = try XCTUnwrap(URL(string: "http://127.0.0.1:\(port)"))
+        let fixture = try await createWriterLoopAuthenticationFixture(baseURL: baseURL)
+        let id = "refusal-ui-\(UUID().uuidString.lowercased())"
+        let created = try await requestJSON(baseURL: baseURL, path: "/screenplay/projects", method: "POST",
+            headers: fixture.authorizedHeaders, body: ["project_id": id, "title": "Keep my words", "activate": true])
+        try assertHTTP(created, context: "refusal UI project")
+        let draft = "INT. OBSERVATORY - NIGHT\n\nMARA\nKeep every word on this page.\n"
+        let saved = try await requestJSON(baseURL: baseURL, path: "/screenplay/projects/\(id)/version", method: "POST",
+            headers: fixture.authorizedHeaders, body: ["draft": draft, "phase": "scene_draft", "base_version_id": ""])
+        try assertHTTP(saved, context: "refusal UI baseline")
+        let versionID = try firstNonEmptyString(saved.payload["version_id"], saved.payload["server_version_id"], message: "Saved baseline needs a version")
+        let before = try await writerLoopProject(id: id, fixture: fixture)
+        let app = launchApp(openStudio: true, openCommandBar: true, routePage: true,
+            restoreProjectID: id, restoreVersionID: versionID, restoreLoadToken: Int(Date().timeIntervalSince1970),
+            submitTransportMode: "live-backend", launchEnvironment: fixture.appLaunchEnvironment)
+        defer { app.terminate() }
+        XCTAssertTrue(waitForExactWriterLoopDraft(draft.trimmingCharacters(in: .whitespacesAndNewlines), in: app, timeout: 25))
+        try submitStudioWriterBlockPrompt("Do not rewrite this scene. Just discuss the ending.", in: app)
+        // The transport fixture deliberately returns screenplay-shaped text.
+        // Even a bad model answer must stay in the pin, never the saved page.
+        XCTAssertTrue(waitForAccessibilityText(identifier: "studio.voice-pin.latest.output", containing: "HOME VOICE HANDOFF", in: app, timeout: 30))
+        XCTAssertTrue(waitForExactWriterLoopDraft(draft.trimmingCharacters(in: .whitespacesAndNewlines), in: app, timeout: 5))
+        let after = try await writerLoopProject(id: id, fixture: fixture)
+        XCTAssertEqual(stringValue(after["latest_version_id"]), stringValue(before["latest_version_id"]))
+        let beforeVersions = before["versions"] as? [[String: Any]] ?? []
+        let afterVersions = after["versions"] as? [[String: Any]] ?? []
+        XCTAssertFalse(beforeVersions.isEmpty)
+        XCTAssertTrue(NSArray(array: beforeVersions).isEqual(to: afterVersions), "Discussion changed saved versions")
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "Refused Page write stays in Voice Pin"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+#else
+        throw XCTSkip("iPhone-only refusal routing proof")
+#endif
+    }
+
+    @MainActor
     private func assertHomeVoiceHandoff(rawAudio: Bool, stopAfterFirstChunk: Bool = false) async throws {
 #if os(iOS)
         let rawPort = ProcessInfo.processInfo.environment["THEM_UITEST_WRITER_LOOP_BACKEND_PORT"] ?? ""
