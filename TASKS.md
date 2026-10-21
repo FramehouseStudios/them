@@ -8,20 +8,32 @@
 ### T-1085 — Combine original failed-generation billing with the corrected writer
 
 - **Owner:** codex. **Branch:** `codex/T-1085-billing-writer-integration`.
-- **Status:** in-progress. **Pillar:** writer text and truthful usage charging.
+- **Status:** review (focused handler proof passed; original PR heads unchanged).
+  **Pillar:** writer text and truthful usage charging.
 - **Boundary:** preserve original #625 and its prepared `9191af6c`, then
   merge backed-up security/save/editor candidate `c6630d00`. Keep both
   histories, original PR heads and protected main unchanged.
 - **Target:** original generation validation and response-lifecycle wallet
   settlement, including asked_repeat/continue_listening; no second billing
   owner. Keep the canonical tutorial helper once and preserve the original
-  pre-submit tutorial guard. No weaker UI assertion or product UI change.
+  pre-submit tutorial guard and stricter automatically reachable loaded-ask
+  assertions/diagnostics. No weaker UI assertion or product UI change.
 - **Success:** original billing owners and candidate iPhone source match;
   focused offline Node20 authenticated billing/preservation tests and actual
   base D009/diff pass. Reuse unchanged native app proof explicitly, no full
   local backend/iOS repeat or paid call. Fresh landing-head CI still required.
 - **Publication:** a scoped backup only, no replacement PR, original-head
   update, force push, squash, main merge or production deployment.
+- **Verified:** preserving merge `fe99f0a9`; shipping Swift/package/project
+  source matches candidate `c6630d00`, billing owners match original #625.
+  Pinned offline Node20 real handler/persistence/lifecycle10/0/0; three JS
+  syntax checks and UI-test syntax parse pass. No native suite repeated;
+  stronger merged UI expectations still require fresh landing-head execution.
+  D009 passes (Studio-4/bridge-23/others0 versus real #964); diff clean.
+- **Backup:** normally advance the existing task-owned integration backup,
+  preserving `c6630d00`, rather than creating another remote branch or PR.
+- **Next:** reconcile preserved native Files export with this combined source.
+- **Evidence:** `docs/billing-writer-integration-2026-10-20.md`.
 
 ### T-1081 — Preserve billing fixes on the current security/save foundation
 
