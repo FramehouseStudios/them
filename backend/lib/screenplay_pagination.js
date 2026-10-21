@@ -181,7 +181,11 @@ export function paginateScreenplay(draft, { linesPerPage: requested } = {}) {
     let need = sb + block.pieces.length;
     // A scene heading keeps the block after it on the same page.
     if (block.kind === "sceneHeading" && b + 1 < blocks.length) {
-      need += blockNeed(blocks[b + 1], false);
+      const next = blocks[b + 1];
+      const nextNeed = blockNeed(next, false);
+      // Keep a normal paragraph whole. An impossible whole-page bundle must
+      // keep at least two action lines (or cue/dialogue/MORE) with its heading.
+      need += nextNeed <= linesPerPage - block.pieces.length ? nextNeed : Math.min(nextNeed, next.kind === "character" ? 5 : 3);
     }
     const remaining = linesPerPage - count();
 
@@ -205,19 +209,26 @@ export function paginateScreenplay(draft, { linesPerPage: requested } = {}) {
       continue;
     }
 
-    if (!atTop && need > remaining) {
+    const followsHeading = b > 0 && blocks[b - 1].kind === "sceneHeading" && count() > 0;
+    if (!atTop && need > remaining && !followsHeading) {
       closePage();
     }
 
     // Overflowing block (longer than a page): fill line by line.
     let pieces = block.pieces;
-    if (count() === 0 && pieces.length > linesPerPage) {
-      while (pieces.length > linesPerPage) {
-        for (const piece of pieces.slice(0, linesPerPage)) place(piece);
-        closePage();
-        pieces = pieces.slice(linesPerPage);
+    if ((count() === 0 && pieces.length > linesPerPage) || (followsHeading && need > remaining)) {
+      if (count() > 0) {
+        const spacing = SPACE_BEFORE[block.kind] || 0;
+        if (spacing >= linesPerPage - count()) closePage();
+        else placeBlanks(spacing);
       }
-      for (const piece of pieces) place(piece);
+      while (pieces.length > 0) {
+        const take = Math.min(linesPerPage - count(), pieces.length);
+        if (take === 0) { closePage(); continue; }
+        for (const piece of pieces.slice(0, take)) place(piece);
+        pieces = pieces.slice(take);
+        if (pieces.length > 0) closePage();
+      }
       continue;
     }
     if (count() > 0) {

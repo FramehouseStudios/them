@@ -11,6 +11,8 @@ const out = path.resolve(__dirname, "..", "..", "docs", "pagination", "fixtures.
 
 const longSpeech = Array.from({ length: 9 }, (_, i) => `Sentence ${i + 1} of a speech that keeps going past the foot of the page because he cannot stop.`).join(" ");
 const drafts = {
+  heading_then_oversized_action: { linesPerPage: 54, draft: "Title: NIGHT SIGNAL\n\nINT. OBSERVATORY - NIGHT\n\n" + Array.from({ length: 65 }, (_, i) => `Action${i + 1}.`).join("\n") },
+  heading_then_page_sized_action: { linesPerPage: 24, draft: "INT. OBSERVATORY - NIGHT\n\n" + Array.from({ length: 24 }, (_, i) => `Action${i + 1}.`).join("\n") },
   title_only: { linesPerPage: 54, draft: "Title: ASHES\nAuthor: Zoë Chen\n\n" },
   title_body_crlf: { linesPerPage: 54, draft: "Title: ASHES\r\nAuthor: Zoë Chen\r\n    \r\nTIME: Midnight.\r\n\r\nINT. CAFÉ - DAY\r\n\r\nZoë waits. 👩🏽‍🚀\r\n" },
   title_body_nested_title: { linesPerPage: 54, draft: "Title: ASHES\n\nTitle: This is a sign in the scene.\n\nThe camera keeps moving." },

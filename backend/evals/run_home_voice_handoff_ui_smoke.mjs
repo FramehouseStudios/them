@@ -18,6 +18,7 @@ const allowedTests = [
   'themUITests/V1SmokeUITests/test_home_raw_audio_studio_stop_ends_capture_and_cancels_page',
   'themUITests/V1SmokeUITests/test_integrated_iphone_writer_loop_creates_saves_exports_and_restores',
   'themUITests/V1SmokeUITests/test_studio_refused_write_preserves_saved_page_despite_page_selection',
+  'themUITests/V1SmokeUITests/test_pages_navigator_controls_jump_and_preserve_source',
 ];
 const tests = process.env.ONLY_TESTING ? [process.env.ONLY_TESTING] : allowedTests.slice(0, 2);
 if (tests.some(test => !allowedTests.includes(test))) throw new Error('Unsupported Home voice proof test');
@@ -33,6 +34,7 @@ const server = await startBackend({ unsetEnv: ['DATABASE_URL', 'REDIS_URL'], env
   TALK_TEST_DEBUG_OFFLINE_ENABLED: '0', TALK_STREAM_AUDIO_ENABLED: '0',
   KNOWLEDGE_RAG_EMBEDDINGS_ENABLED: '0', THEM_HOME_VOICE_PROVIDER_FIXTURE: '1',
   THEM_HOME_VOICE_LONG_AUDIO: process.env.THEM_HOME_VOICE_LONG_AUDIO === '1' ? '1' : '0',
+  THEM_PAGE_NAVIGATOR_PROOF: tests.some(test => test.includes('test_pages_navigator_controls')) ? '1' : '0',
   NODE_OPTIONS: `--import=${fixtureURL.href}`,
 } });
 try {
@@ -54,6 +56,9 @@ try {
   const summary = JSON.parse(report.stdout);
   const counts = Object.fromEntries(['stt', 'chat', 'tts'].map(name => [name, server.stdout.join('').split('mocked_' + name).length - 1]));
   console.log(JSON.stringify({bundle, passed: summary.passedTests, failed: summary.failedTests, skipped: summary.skippedTests, mockedProviderCalls: counts, failures: summary.testFailures}));
+  const paginationResponses = server.stdout.join('').split('[proof-provider] observed_pagination_200').length - 1;
+  if (tests.some(test => test.includes('test_pages_navigator_controls')) && paginationResponses < 1) throw new Error('Pages UI never reached real pagination HTTP');
+  if (tests.some(test => test.includes('test_pages_navigator_controls'))) console.log(JSON.stringify({paginationResponses}));
   const reasons = server.stdout.join('').split('\n').filter(line => /screenplay_page_quality_exhausted reason=|studio_render(?:_stream)? quality_rejected reason=/.test(line));
   console.log(reasons.join('\n'));
   if (status !== 0 || summary.passedTests !== tests.length || summary.failedTests !== 0 || summary.skippedTests !== 0) throw new Error('UI proof failed');
