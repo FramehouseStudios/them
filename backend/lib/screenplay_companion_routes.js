@@ -38,6 +38,11 @@
 // change; only a code-organization change).
 
 import express from "express";
+import {
+  paginateScreenplay,
+  estimatedMinutes as paginationEstimatedMinutes,
+  LINES_PER_PAGE as PAGINATION_LINES_PER_PAGE,
+} from "./screenplay_pagination.js";
 
 function mountScreenplayCompanionRoutes(app, deps = {}) {
   if (!app || typeof app.post !== "function" || typeof app.get !== "function") {
@@ -200,21 +205,20 @@ function mountScreenplayCompanionRoutes(app, deps = {}) {
     }
     const title = normalizeSnippet(req.body?.title, 160);
     const phase = normalizeScreenplayPhaseValue(req.body?.phase);
-    const linesPerPage = Math.max(24, Math.min(120, parsePositiveInt(req.body?.lines_per_page, 55)));
-    const lines = splitScreenplayLines(draft);
-    const pages = [];
-    for (let cursor = 0; cursor < lines.length; cursor += linesPerPage) {
-      const pageLines = lines.slice(cursor, cursor + linesPerPage);
-      const pageIndex = pages.length + 1;
-      pages.push({
-        page: pageIndex,
-        start_line: cursor + 1,
-        end_line: cursor + pageLines.length,
-        line_count: pageLines.length,
-        preview: buildDraftExcerpt(pageLines.join(" "), 140),
-        est_minutes: Number((pageLines.length / 55).toFixed(2)),
-      });
-    }
+    // Element-aware printed pages (see docs/pagination/README.md). The
+    // 24–120 clamp and the response shape are unchanged; lines_per_page now
+    // defaults to the Letter body of 54 instead of a raw 55-line cut.
+    const paginated = paginateScreenplay(draft, {
+      linesPerPage: parsePositiveInt(req.body?.lines_per_page, PAGINATION_LINES_PER_PAGE),
+    });
+    const pages = paginated.pages.map((page) => ({
+      page: page.page,
+      start_line: page.startLine,
+      end_line: page.endLine,
+      line_count: page.lineCount,
+      preview: buildDraftExcerpt(page.lines.join(" "), 140),
+      est_minutes: paginationEstimatedMinutes(page.lineCount, paginated.linesPerPage),
+    }));
     if (pages.length === 0) {
       pages.push({
         page: 1,
@@ -229,12 +233,14 @@ function mountScreenplayCompanionRoutes(app, deps = {}) {
     return res.status(200).json({
       stage: "screenplay_paginate",
       mode: "computed",
+      engine: "element-aware",
       title,
       phase,
       target_pages: Number(req.body?.target_pages || 0) || null,
       page_count: pages.length,
-      line_count: lines.length,
-      lines_per_page: linesPerPage,
+      line_count: paginated.lineCount,
+      rendered_line_count: paginated.renderedLineCount,
+      lines_per_page: paginated.linesPerPage,
       pages,
       length_profile: lengthProfile,
     });
