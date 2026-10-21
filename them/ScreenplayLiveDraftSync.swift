@@ -394,6 +394,7 @@ nonisolated enum LiveDraftSyncPolicy {
         isRunningTests: Bool
     ) -> Bool {
         if isRunningTests { return false }
+        if arguments.contains("--ui-screenplay-save-network-fault") { return false }
         let optIn = (environment[automationOptInEnvironmentKey] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         if optIn == "1" || optIn.lowercased() == "true" { return true }
         if IOThemRuntime.isStudioAutomationArguments(arguments) || IOThemRuntime.isStudioEvalArguments(arguments) {
@@ -845,9 +846,6 @@ final class ScreenplayLiveDraftSyncService: ObservableObject {
         // 2026-09-28). Without a base, or when local already matches, there
         // is nothing to merge; the channel wins, as for overlapping edits.
         let hasAgreedBase = mirrorSeq != nil
-        if !hasAgreedBase, localText != remoteText {
-            editor?.preserveLocalDraftForLiveSyncRecovery(localText, projectID: projectID)
-        }
         setMirror(text: remoteText, seq: seq, checksum: checksum)
         var merged: String?
         if hasAgreedBase, localText != previousMirror, localText != remoteText,
@@ -856,6 +854,13 @@ final class ScreenplayLiveDraftSyncService: ObservableObject {
             if merged == nil {
                 logger.notice("live draft: overlapping edits, channel text kept")
             }
+        }
+        // Do not discard local words when the channel wins. This includes
+        // both a fresh mirror (no agreed base) and overlapping edits that
+        // cannot be safely rebased. The editor only persists text that is
+        // actually dirty against its last saved fingerprint.
+        if merged == nil, localText != remoteText {
+            editor?.preserveLocalDraftForLiveSyncRecovery(localText, projectID: projectID)
         }
         applyToEditor(merged ?? remoteText, projectID: projectID, sourceDeviceID: sourceDeviceID)
         if let revealLine, merged == nil {
@@ -1151,7 +1156,7 @@ nonisolated final class LiveDraftBackendTransport: LiveDraftTransport {
                     )
                     request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
                     request.timeoutInterval = 24 * 60 * 60
-                    let (bytes, response) = try await session.bytes(for: request)
+                    let (bytes, response) = try await session.bytes(for: request, delegate: BackendHTTPRedirectGuard.shared)
                     guard let http = response as? HTTPURLResponse else {
                         throw LiveDraftTransportError.invalidResponse
                     }
@@ -1195,7 +1200,7 @@ nonisolated final class LiveDraftBackendTransport: LiveDraftTransport {
 
     func fetchSnapshot(projectID: String) async throws -> LiveDraftSnapshotPayload {
         let request = try Self.makeRequest(projectID: projectID, path: "snapshot", method: "GET", query: [])
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await session.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
         guard let http = response as? HTTPURLResponse else { throw LiveDraftTransportError.invalidResponse }
         guard http.statusCode == 200 else { throw LiveDraftTransportError.http(http.statusCode) }
         return try JSONDecoder().decode(LiveDraftSnapshotPayload.self, from: data)
@@ -1240,7 +1245,7 @@ nonisolated final class LiveDraftBackendTransport: LiveDraftTransport {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         request.timeoutInterval = requestTimeout
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await session.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
         guard let http = response as? HTTPURLResponse else { throw LiveDraftTransportError.invalidResponse }
         let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
         let seq = (json["seq"] as? NSNumber)?.intValue ?? 0

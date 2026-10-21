@@ -276,6 +276,23 @@ public enum FountainFormatter {
         return strippingLeadingSceneHeading(from: clean, leadingAction: leadingHeading.attachedAction)
     }
 
+    /// Live prose is not a completed sentence; never invent punctuation or
+    /// consume the separator the writer has just typed before the next word.
+    public static func normalizeLiveEditorLine(
+        _ rawLine: String,
+        as element: ScreenplayEditorElement
+    ) -> String {
+        switch element {
+        case .action, .dialogue:
+            return rawLine
+        case .sceneHeading, .character, .parenthetical, .transition:
+            guard !rawLine.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return rawLine }
+            let trailing = String(rawLine.reversed()
+                .prefix { $0.isWhitespace && !$0.isNewline }.reversed())
+            return normalizeEditorLine(rawLine, as: element) + trailing
+        }
+    }
+
     public static func normalizeEditorLine(
         _ rawLine: String,
         as element: ScreenplayEditorElement,
