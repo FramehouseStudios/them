@@ -122,7 +122,12 @@ enum ScreenplayPrintService {
         #else
         // iOS: CoreText paginated PDF, same as macOS path but UIKit colors.
         let document = FountainTitlePageCodec.parse(draft)
-        let screenplay = document.scriptPageText.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Every CoreText range and continuation scan must address this same
+        // derived copy. Never normalize or rewrite the stored Fountain source.
+        let screenplay = document.scriptPageText
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         let paper = ScreenplayPrintMemory.effectivePaper
         let pageRect: CGRect = (paper == .a4) ? CGRect(x: 0, y: 0, width: 595, height: 842) : CGRect(x: 0, y: 0, width: 612, height: 792)
         let contentRect = CGRect(x: 108, y: 72, width: pageRect.width - 216, height: pageRect.height - 144)
@@ -329,7 +334,7 @@ enum ScreenplayPrintService {
     }
 
     private static func iOSAttributedDraft(for draft: String, printableWidth: CGFloat) -> NSAttributedString {
-        let fullText = draft.replacingOccurrences(of: "\r\n", with: "\n")
+        let fullText = draft
         let lines = fullText.components(separatedBy: .newlines)
         let inferred = ScreenplayEditorElement.inferredSequence(for: fullText)
         let font = UIFont(name: "Courier", size: 12) ?? UIFont.monospacedSystemFont(ofSize: 12, weight: .regular)

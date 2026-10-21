@@ -135,6 +135,32 @@ final class ScreenplayPrintServiceTests: XCTestCase {
 
     // MARK: - Format gate
 
+    func testImportedLineEndingsPreserveEveryWordAndContinuationPage() throws {
+        UserDefaults.standard.set(ScreenplayPrintPaper.letter.rawValue, forKey: paperKey)
+        let lines = ["Title: ASHES", "Author: Zoë Chen", "", "INT. CAFÉ - NIGHT", "", "MAYA"]
+            + (1...120).map { "Marker\(String(format: "%03d", $0)) Zoë hears the signal and knows we are still here." }
+        var reference: [String]?
+        for (label, newline) in [("lf", "\n"), ("crlf", "\r\n"), ("cr", "\r")] {
+            let draft = lines.joined(separator: newline)
+            let pdf = try ScreenplayPrintService.makePDF(draft: draft, title: "Ashes")
+            let document = try XCTUnwrap(PDFDocument(data: pdf))
+            let pages = (0..<document.pageCount).map { document.page(at: $0)?.string ?? "" }
+            let text = pages.joined(separator: "\n")
+            let sample = XCTAttachment(data: pdf, uniformTypeIdentifier: "com.adobe.pdf")
+            sample.name = "imported-line-endings-\(label)"
+            sample.lifetime = .keepAlways
+            add(sample)
+            XCTAssertGreaterThan(document.pageCount, 3)
+            XCTAssertTrue(text.contains("MAYA (CONT'D)"), label)
+            for index in 1...120 {
+                XCTAssertEqual(text.components(separatedBy: String(format: "Marker%03d", index)).count - 1, 1, "\(label) marker\(index) must survive once")
+            }
+            if let reference { XCTAssertEqual(pages, reference, "\(label) must print exactly like LF, including continuation labels") }
+            else { reference = pages }
+            XCTAssertEqual(draft, lines.joined(separator: newline), "export cannot mutate original source")
+        }
+    }
+
     func testGatePassesSixLineSpeech() {
         let draft = """
         INT. KITCHEN - DAY
