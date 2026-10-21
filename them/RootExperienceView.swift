@@ -5940,7 +5940,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
         let knownProjectID = existingProjectID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             ? screenplayDraftBridge.preferredProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
             : existingProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
-        let createKey = utteranceFingerprint(Data("\(cleanDraft)|\(pack)|\(phase)".utf8))
+        let createKey = utteranceFingerprint(Data("\(draft)|\(pack)|\(phase)".utf8))
         guard ScreenplayRestoredLiveDraftProjectPromotionPolicy.shouldCreateProject(
             isStudioSurfaceActive: isStudioSurfaceActive,
             draft: cleanDraft,
@@ -5979,7 +5979,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
 
                 let versionResult = try await BackendMemoryAPI.shared.upsertScreenplayProjectVersion(
                     projectId: createdProject.id,
-                    draft: cleanDraft,
+                    draft: draft,
                     title: createdProject.title,
                     phase: createdProject.lastPhase ?? normalizedPhase,
                     notes: "Auto-created from first Studio turn",

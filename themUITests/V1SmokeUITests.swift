@@ -906,6 +906,57 @@ final class V1SmokeUITests: XCTestCase {
     }
 
     @MainActor
+    func test_restored_unbound_draft_keeps_title_and_exact_bytes_after_promotion_and_relaunch() async throws {
+#if os(iOS)
+        guard let port = Int(ProcessInfo.processInfo.environment["THEM_UITEST_WRITER_LOOP_BACKEND_PORT"] ?? ""),
+              let baseURL = URL(string: "http://127.0.0.1:\(port)"),
+              await backendRestoreContractIsAvailable(baseURL: baseURL) else {
+            throw XCTSkip("A dedicated authenticated local backend is required.")
+        }
+        let fixture = try await createWriterLoopAuthenticationFixture(baseURL: baseURL)
+        let marker = UUID().uuidString
+        let draft = "Title:\r\n    WALL_E\r\n    After Midnight\r\nAuthor: A Writer\r\n\r\nINT. OBSERVATORY - NIGHT\r\n\r\nA cafe\u{0301} closes. \(marker)\r\n\r\nOn screen:\r\nTitle: NOT THE PROJECT NAME\r\n \t "
+        let expectedTitle = "WALL_E After Midnight"
+        var app = launchApp(openStudio: true, restoreUnboundDraft: draft, launchEnvironment: fixture.appLaunchEnvironment)
+        defer { app.terminate() }
+        let projectID = try await waitForWriterLoopProject(titled: expectedTitle, fixture: fixture, timeout: writerLoopWait(30))
+        let project = try await waitForWriterLoopSavedVersion(projectID: projectID, draft: draft,
+            fixture: fixture, app: app, timeout: writerLoopWait(30))
+        let versions = project["versions"] as? [[String: Any]] ?? []
+        XCTAssertEqual(versions.count, 1, "Promotion should produce one authoritative version, not fragments.")
+        XCTAssertEqual(Data(((versions.first?["draft"] as? String) ?? "").utf8), Data(draft.utf8))
+        XCTAssertEqual(stringValue(versions.first?["source"]), "studio_first_turn_auto_create",
+                       "This must exercise Root's actual promotion path, not a test-issued save.")
+        XCTAssertEqual(stringValue(project["title"]), expectedTitle)
+        XCTAssertEqual(Data(accessibleDraftText(in: app).utf8), Data(draft.utf8))
+        let image = XCTAttachment(screenshot: app.screenshot())
+        image.name = "Restored draft promoted with writer title and raw bytes"
+        image.lifetime = .keepAlways
+        add(image)
+        app.terminate()
+        // No draft launch override on reopening: actual owner-scoped state and
+        // the saved server version must carry the same bytes and binding.
+        app = launchApp(openStudio: true, resetState: false, launchEnvironment: fixture.appLaunchEnvironment)
+        XCTAssertTrue(waitForRestoreSnapshot(in: app, timeout: writerLoopWait(30)) { snapshot in
+            stringValue(snapshot["selected_project_id"]).lowercased() == projectID.lowercased()
+                && !stringValue(snapshot["latest_version_id"]).isEmpty
+        })
+        XCTAssertEqual(Data(accessibleDraftText(in: app).utf8), Data(draft.utf8))
+        let reopened = try await writerLoopProject(id: projectID, fixture: fixture)
+        let reopenedVersions = reopened["versions"] as? [[String: Any]] ?? []
+        XCTAssertEqual(reopenedVersions.count, 1)
+        XCTAssertEqual(Data(((reopenedVersions.first?["draft"] as? String) ?? "").utf8), Data(draft.utf8))
+        let listed = try await requestJSON(baseURL: baseURL, path: "/screenplay/projects", method: "GET",
+            headers: fixture.authorizedHeaders, body: nil)
+        try assertHTTP(listed, context: "reopened promoted projects")
+        let projects = listed.payload["screenplay_projects"] as? [[String: Any]] ?? []
+        XCTAssertEqual(projects.filter { stringValue($0["title"]) == expectedTitle }.count, 1)
+#else
+        throw XCTSkip("The restored-draft workflow specifically covers iPhone.")
+#endif
+    }
+
+    @MainActor
     private func runIntegratedWriterLoop(coverageFreshnessOnly: Bool) async throws {
 #if os(iOS)
         let portRaw = (ProcessInfo.processInfo.environment["THEM_UITEST_WRITER_LOOP_BACKEND_PORT"] ?? "")
@@ -3540,6 +3591,7 @@ final class V1SmokeUITests: XCTestCase {
         autoSubmitPagePrompt: String? = nil,
         autoSubmitVoicePinPrompt: String? = nil,
         autoSubmitVoiceSourcePrompt: String? = nil,
+        restoreUnboundDraft: String? = nil,
         restoreProjectID: String? = nil,
         restoreVersionID: String? = nil,
         restoreLoadToken: Int? = nil,
@@ -3661,8 +3713,12 @@ final class V1SmokeUITests: XCTestCase {
             ])
         }
         app.launchArguments = arguments
-        if !launchEnvironment.isEmpty {
-            app.launchEnvironment = launchEnvironment
+        var environment = launchEnvironment
+        if let restoreUnboundDraft {
+            environment["THEM_UITEST_RESTORE_UNBOUND_DRAFT_BASE64"] = Data(restoreUnboundDraft.utf8).base64EncodedString()
+        }
+        if !environment.isEmpty {
+            app.launchEnvironment = environment
         }
         app.launch()
 #if os(macOS)
@@ -5486,7 +5542,7 @@ final class V1SmokeUITests: XCTestCase {
         timeout: TimeInterval
     ) async throws -> String {
         let deadline = Date().addingTimeInterval(timeout)
-        var lastPayload: [String: Any] = [:]
+        var lastProjectCount = 0
         while Date() < deadline {
             let response = try await requestJSON(
                 baseURL: fixture.baseURL,
@@ -5497,8 +5553,8 @@ final class V1SmokeUITests: XCTestCase {
                 queryItems: [URLQueryItem(name: "limit", value: "50")]
             )
             try assertHTTP(response, context: "writer-loop project list")
-            lastPayload = response.payload
             let projects = response.payload["screenplay_projects"] as? [[String: Any]] ?? []
+            lastProjectCount = projects.count
             if let project = projects.first(where: { stringValue($0["title"]) == title }) {
                 return try firstNonEmptyString(
                     project["id"],
@@ -5512,7 +5568,7 @@ final class V1SmokeUITests: XCTestCase {
             domain: "themUITests.writerLoop",
             code: 1,
             userInfo: [
-                NSLocalizedDescriptionKey: "Timed out waiting for UI-created project \(title). Last payload: \(lastPayload)"
+                NSLocalizedDescriptionKey: "Timed out waiting for UI-created project \(title). Visible project count: \(lastProjectCount)"
             ]
         )
     }
@@ -5548,7 +5604,7 @@ final class V1SmokeUITests: XCTestCase {
         while Date() < deadline {
             lastProject = try await writerLoopProject(id: projectID, fixture: fixture)
             let versions = lastProject["versions"] as? [[String: Any]] ?? []
-            if versions.contains(where: { stringValue($0["draft"]) == draft }) {
+            if versions.contains(where: { (($0["draft"] as? String) ?? "").utf8.elementsEqual(draft.utf8) }) {
                 return lastProject
             }
             try await Task.sleep(nanoseconds: 200_000_000)
