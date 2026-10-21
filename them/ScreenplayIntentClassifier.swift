@@ -19,7 +19,6 @@ enum ScreenplayIntentClassifier {
 
     static func hasExplicitScriptIntent(_ text: String) -> Bool {
         let instruction = DraftStudioPageWritePolicy.analyze(text)
-        guard !instruction.refusesPageWrite else { return false }
         let writingVerbs = ["write", "draft", "drafting", "outline", "outlining", "revise", "rewrite", "rewriting", "edit", "editing", "polish", "finish", "build", "develop", "brainstorm", "brainstorming", "start"]
         let scriptObjects = ["script", "screenplay", "scene", "story", "beat", "slugline", "dialogue", "pilot", "short film", "feature", "movie", "film"]
         // A refused command is not permission to open a writing surface. Strip
@@ -30,7 +29,9 @@ enum ScreenplayIntentClassifier {
             with: " ", options: .regularExpression
         )
         let opensStudio = normalized.contains(" studio ") && ["open", "go to", "take me to", "switch to", "bring up", "launch"].contains { normalized.contains(" \($0) ") }
-        return opensStudio || (writingVerbs.contains { normalized.contains(" \($0) ") } && scriptObjects.contains { normalized.contains(" \($0) ") }) || ["work on my script", "work on the script", "work on a script"].contains { normalized.contains(" \($0) ") }
+        if opensStudio { return true } // Navigation is not permission to write.
+        guard !instruction.refusesPageWrite else { return false }
+        return (writingVerbs.contains { normalized.contains(" \($0) ") } && scriptObjects.contains { normalized.contains(" \($0) ") }) || ["work on my script", "work on the script", "work on a script"].contains { normalized.contains(" \($0) ") }
     }
 
     static func directPageWriteLinesCue(in normalized: String) -> Bool {

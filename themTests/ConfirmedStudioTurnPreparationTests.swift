@@ -12,6 +12,7 @@ final class ConfirmedStudioTurnPreparationTests: XCTestCase {
             XCTAssertFalse(active, text)
         }
         XCTAssertTrue(ScreenplayIntentClassifier.hasExplicitScriptIntent("Don't write a story; open Studio instead."))
+        XCTAssertNil(ScreenplayIntentClassifier.permittedPageRoutingText("Don't write a story; open Studio instead."), "Opening Studio still must not authorize Page writing")
         XCTAssertTrue(ScreenplayIntentClassifier.hasExplicitScriptIntent("Don't open Studio; write a scene about an astronaut."))
     }
 
