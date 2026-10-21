@@ -23,21 +23,21 @@ describe("page_flip offline golden + headers allowlist (P0)", () => {
     assert.notEqual(vPages[0], vPages[1]);
   });
 
-  it("offline Fountain INT mode golden 5p stays 5 pages, content distinct", () => {
+  it("five short scenes occupy two formatted pages, not five invented pages", () => {
     const draft = generateOfflineShortFilmDraft({ setting: "bedroom", characters: ["John","Sally","Sam"], requestedPages: 5 });
     const pages = paginateFountainDraft(draft);
-    assert.equal(pages.length, 5);
+    assert.equal(pages.length, 2);
     // Each page should be distinct (first page has first INT, last has last INT)
     const first = pages[0];
-    const last = pages[4];
+    const last = pages[1];
     assert.notEqual(first, last);
     // payload flip-through
     const p1 = buildPageFlipPayload({ project: { id: "p1" }, draft, currentPage: 1 });
-    assert.equal(p1.totalPages, 5);
-    assert.equal(p1.pages.length, 5);
+    assert.equal(p1.totalPages, 2);
+    assert.equal(p1.pages.length, 2);
     // all pages non-empty and distinct
     const set = new Set(p1.pages);
-    assert.equal(set.size, 5);
+    assert.equal(set.size, 2);
   });
 
   it("headers allowlist preserves Clementine x- headers via sanitize (all x- survive)", () => {

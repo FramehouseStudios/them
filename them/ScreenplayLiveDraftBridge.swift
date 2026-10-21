@@ -5759,7 +5759,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         )
         let effectiveCues: [ScreenplayVoiceCue]
         if normalizedCues.isEmpty {
-            let inferredElementRaw = ScreenplayEditorElement.inferredSequence(for: trimmed)
+            let inferredElementRaw = ScreenplayEditorElement.inferredDocumentSequence(for: trimmed)
                 .compactMap { $0 }
                 .first?
                 .rawValue ?? ScreenplayEditorElement.action.rawValue
@@ -5889,14 +5889,14 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             )
         }
 
-        let lines = text
+        let lines = FountainTitlePageCodec.parse(text).scriptPageText
             .components(separatedBy: .newlines)
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
 
         guard !lines.isEmpty else { return [] }
 
-        let inferredElements = ScreenplayEditorElement.inferredSequence(for: text)
+        let inferredElements = ScreenplayEditorElement.inferredScreenplaySequence(for: text)
         let nonEmptyElements = inferredElements.compactMap { $0 }
         let segmentDuration = max(audioDurationMs / max(lines.count, 1), 1)
 

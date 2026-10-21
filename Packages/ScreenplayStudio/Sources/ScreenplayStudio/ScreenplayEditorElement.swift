@@ -144,7 +144,27 @@ public enum ScreenplayEditorElement: String, CaseIterable, Identifiable, Codable
     }
 
     public static func inferredSequence(for draft: String) -> [ScreenplayEditorElement?] {
-        let lines = draft.components(separatedBy: .newlines)
+        inferredBodySequence(for: draft)
+    }
+
+    /// Complete-document inference preserves physical line positions while
+    /// keeping title metadata outside screenplay element classification.
+    public static func inferredDocumentSequence(for draft: String) -> [ScreenplayEditorElement?] {
+        let parts = FountainTitlePageCodec.parse(draft)
+        guard parts.hasTitlePage else { return inferredBodySequence(for: draft) }
+        guard let bodyStart = parts.screenplayBodyStartLine else {
+            return Array(repeating: nil, count: physicalLines(draft).count)
+        }
+        return Array(repeating: nil, count: bodyStart - 1) + inferredBodySequence(for: parts.scriptPageText)
+    }
+
+    private static func physicalLines(_ draft: String) -> [String] {
+        draft.replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n").components(separatedBy: .newlines)
+    }
+
+    private static func inferredBodySequence(for draft: String) -> [ScreenplayEditorElement?] {
+        let lines = physicalLines(draft)
         var result: [ScreenplayEditorElement?] = []
         var previousElement: ScreenplayEditorElement? = nil
 
@@ -167,7 +187,7 @@ public enum ScreenplayEditorElement: String, CaseIterable, Identifiable, Codable
     /// title metadata is intentionally absent from the returned sequence so callers
     /// cannot accidentally count it as action, dialogue, or screenplay page lines.
     public static func inferredScreenplaySequence(for document: String) -> [ScreenplayEditorElement?] {
-        inferredSequence(for: FountainTitlePageCodec.parse(document).scriptPageText)
+        inferredBodySequence(for: FountainTitlePageCodec.parse(document).scriptPageText)
     }
 
     public static func nextElementAfterReturn(

@@ -9,6 +9,14 @@ import UIKit
 import AppKit
 #endif
 
+/// PDF contexts and CoreText are already y-up. Convert layout rectangles,
+/// never flip the CGContext (which also turns glyphs upside down).
+enum ScreenplayPDFGeometry {
+    static func fromTop(_ rect: CGRect, pageHeight: CGFloat) -> CGRect {
+        CGRect(x: rect.minX, y: pageHeight - rect.maxY, width: rect.width, height: rect.height)
+    }
+}
+
 #if canImport(AVFoundation)
 import AVFoundation
 
@@ -128,8 +136,6 @@ enum ScreenplayPrintService {
             context.beginPDFPage(nil)
             context.saveGState()
             context.textMatrix = .identity
-            context.translateBy(x: 0, y: pageRect.height)
-            context.scaleBy(x: 1, y: -1)
             drawIOSTitlePage(titlePage, in: context, pageRect: pageRect)
             context.restoreGState()
             context.endPDFPage()
@@ -143,15 +149,16 @@ enum ScreenplayPrintService {
             context.beginPDFPage(nil)
             context.saveGState()
             context.textMatrix = .identity
-            context.translateBy(x: 0, y: pageRect.height)
-            context.scaleBy(x: 1, y: -1)
             // Page number
             let headerText = "\(pageNumber)."
+            let headerStyle = NSMutableParagraphStyle()
+            headerStyle.alignment = .right
             let headerAttr = NSAttributedString(string: headerText, attributes: [
                 .font: UIFont(name: "Courier", size: 10) ?? UIFont.systemFont(ofSize: 10),
-                .foregroundColor: UIColor.black.withAlphaComponent(0.7)
+                .foregroundColor: UIColor.black.withAlphaComponent(0.7),
+                .paragraphStyle: headerStyle
             ])
-            let headerPath = CGPath(rect: CGRect(x: 108, y: 36, width: 400, height: 20), transform: nil)
+            let headerPath = CGPath(rect: ScreenplayPDFGeometry.fromTop(CGRect(x: 108, y: 36, width: 400, height: 20), pageHeight: pageRect.height), transform: nil)
             let headerFrame = CTFramesetterCreateFrame(CTFramesetterCreateWithAttributedString(headerAttr), CFRange(location: 0, length: headerAttr.length), headerPath, nil)
             CTFrameDraw(headerFrame, context)
             let path = CGPath(rect: contentRect, transform: nil)
@@ -172,14 +179,14 @@ enum ScreenplayPrintService {
                     if isDualBreak {
                         let comps = prefix.components(separatedBy: "\n")
                         if comps.count >= 3, let lastBreak = prefix.lastIndex(of: "\n"), let secondBreak = prefix[..<lastBreak].lastIndex(of: "\n") {
-                            let pullBack = prefix.distance(from: secondBreak, to: prefix.endIndex)
+                            let pullBack = (String(prefix[secondBreak...]) as NSString).length
                             if pullBack < visible.length && pullBack > 0 {
                                 let adjRange = CFRange(location: range.location, length: visible.length - pullBack)
                                 frame = CTFramesetterCreateFrame(framesetter, adjRange, CGPath(rect: contentRect, transform: nil), nil)
                                 visible = CTFrameGetVisibleStringRange(frame)
                             }
                         } else if comps.count >= 2, let lastBreak = prefix.lastIndex(of: "\n") {
-                            let pullBack = prefix.distance(from: lastBreak, to: prefix.endIndex)
+                            let pullBack = (String(prefix[lastBreak...]) as NSString).length
                             if pullBack < visible.length && pullBack > 0 {
                                 let adjRange = CFRange(location: range.location, length: visible.length - pullBack)
                                 frame = CTFramesetterCreateFrame(framesetter, adjRange, CGPath(rect: contentRect, transform: nil), nil)
@@ -187,7 +194,7 @@ enum ScreenplayPrintService {
                             }
                         }
                     } else if prefix.components(separatedBy: "\n").count >= 2, let lastBreak = prefix.lastIndex(of: "\n") {
-                        let pullBack = prefix.distance(from: lastBreak, to: prefix.endIndex)
+                        let pullBack = (String(prefix[lastBreak...]) as NSString).length
                         if pullBack < visible.length && pullBack > 0 {
                             let adjRange = CFRange(location: range.location, length: visible.length - pullBack)
                             frame = CTFramesetterCreateFrame(framesetter, adjRange, CGPath(rect: contentRect, transform: nil), nil)
@@ -206,7 +213,7 @@ enum ScreenplayPrintService {
                 let prevEl = breakLine > 0 && elements.indices.contains(breakLine-1) ? elements[breakLine-1] : nil
                 if (prevEl == .dialogue || prevEl == .character) && (nextEl == .dialogue || nextEl == .parenthetical) {
                     let moreAttr = NSAttributedString(string: "(MORE)", attributes: [.font: UIFont(name: "Courier", size: 10) ?? UIFont.systemFont(ofSize: 10), .foregroundColor: UIColor.black])
-                    let morePath = CGPath(rect: CGRect(x: 250, y: 730, width: 112, height: 14), transform: nil)
+                    let morePath = CGPath(rect: ScreenplayPDFGeometry.fromTop(CGRect(x: 250, y: pageRect.height - 62, width: 112, height: 14), pageHeight: pageRect.height), transform: nil)
                     let moreFrame = CTFramesetterCreateFrame(CTFramesetterCreateWithAttributedString(moreAttr), CFRange(location: 0, length: moreAttr.length), morePath, nil)
                     CTFrameDraw(moreFrame, context)
                 }
@@ -228,7 +235,7 @@ enum ScreenplayPrintService {
                     }
                     if let name = charName, !name.isEmpty {
                         let contAttr = NSAttributedString(string: "\(name) (CONT'D)", attributes: [.font: UIFont(name: "Courier", size: 12) ?? UIFont.monospacedSystemFont(ofSize: 12, weight: .regular), .foregroundColor: UIColor.black])
-                        let contPath = CGPath(rect: CGRect(x: 220, y: 72, width: 200, height: 14), transform: nil)
+                        let contPath = CGPath(rect: ScreenplayPDFGeometry.fromTop(CGRect(x: 220, y: 54, width: 200, height: 14), pageHeight: pageRect.height), transform: nil)
                         let contFrame = CTFramesetterCreateFrame(CTFramesetterCreateWithAttributedString(contAttr), CFRange(location: 0, length: contAttr.length), contPath, nil)
                         CTFrameDraw(contFrame, context)
                     }
@@ -253,11 +260,8 @@ enum ScreenplayPrintService {
     }
 
     static func pageCountEstimate(for draft: String) -> Int {
-        // Industry: 1 page ≈ 55 lines at Courier 12 with 1" margins — matches CTFramesetter contentRect; orphan guard keeps real pages honest.
-        let paginationSource = FountainPaginationSource.make(from: draft)
-        if paginationSource.hasTitlePage && !paginationSource.shouldPaginate { return 0 }
-        let lines = paginationSource.scriptText.components(separatedBy: .newlines).count
-        return max(1, Int(ceil(Double(lines) / 55.0)))
+        // This is a preview estimate, not the measured CoreText PDF page count.
+        ScreenplayPageLayout.pageCount(for: draft)
     }
 
     #if !os(macOS)
@@ -288,13 +292,13 @@ enum ScreenplayPrintService {
                 .paragraphStyle: centered,
             ]))
         }
-        drawIOS(titleBlock, in: CGRect(x: 72, y: 220, width: pageRect.width - 144, height: 240), context: context)
+        drawIOS(titleBlock, in: ScreenplayPDFGeometry.fromTop(CGRect(x: 72, y: 220, width: pageRect.width - 144, height: 240), pageHeight: pageRect.height), context: context)
 
         if let contact = nonempty(titlePage.contact) {
             drawIOS(NSAttributedString(string: contact, attributes: [
                 .font: bodyFont,
                 .foregroundColor: UIColor.black,
-            ]), in: CGRect(x: 72, y: pageRect.height - 152, width: 230, height: 90), context: context)
+            ]), in: ScreenplayPDFGeometry.fromTop(CGRect(x: 72, y: pageRect.height - 152, width: 230, height: 90), pageHeight: pageRect.height), context: context)
         }
         if let draftDate = nonempty(titlePage.draftDate) {
             let right = NSMutableParagraphStyle()
@@ -303,7 +307,7 @@ enum ScreenplayPrintService {
                 .font: bodyFont,
                 .foregroundColor: UIColor.black,
                 .paragraphStyle: right,
-            ]), in: CGRect(x: pageRect.width - 302, y: pageRect.height - 152, width: 230, height: 90), context: context)
+            ]), in: ScreenplayPDFGeometry.fromTop(CGRect(x: pageRect.width - 302, y: pageRect.height - 152, width: 230, height: 90), pageHeight: pageRect.height), context: context)
         }
     }
 

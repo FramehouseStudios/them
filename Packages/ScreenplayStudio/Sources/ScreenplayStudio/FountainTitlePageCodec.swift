@@ -87,10 +87,10 @@ public enum FountainTitlePageCodec {
         var bodyStart: String.Index?
 
         while lineIndex < physicalLines.count {
-            if physicalLines[lineIndex].content.isEmpty {
+            if physicalLines[lineIndex].content.trimmingCharacters(in: .whitespaces).isEmpty {
                 repeat {
                     lineIndex += 1
-                } while lineIndex < physicalLines.count && physicalLines[lineIndex].content.isEmpty
+                } while lineIndex < physicalLines.count && physicalLines[lineIndex].content.trimmingCharacters(in: .whitespaces).isEmpty
                 if lineIndex < physicalLines.count {
                     bodyStart = physicalLines[lineIndex].start
                 }
@@ -110,7 +110,7 @@ public enum FountainTitlePageCodec {
 
             while lineIndex < physicalLines.count {
                 let line = physicalLines[lineIndex]
-                if isIndented(line.content) {
+                if isIndented(line.content) && !line.content.trimmingCharacters(in: .whitespaces).isEmpty {
                     values.append(unindented(line.content))
                     lineIndex += 1
                     continue
@@ -388,7 +388,8 @@ public enum FountainTitlePageCodec {
         var result = text[...]
         while !result.isEmpty {
             if result.hasPrefix("\r\n") {
-                result = result.dropFirst(2)
+                // CRLF is one extended grapheme cluster in Swift, not two.
+                result = result.dropFirst()
             } else if result.hasPrefix("\r") || result.hasPrefix("\n") {
                 result = result.dropFirst()
             } else {

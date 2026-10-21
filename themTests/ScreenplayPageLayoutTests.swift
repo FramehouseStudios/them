@@ -27,6 +27,19 @@ final class ScreenplayPageLayoutTests: XCTestCase {
         XCTAssertEqual(ScreenplayPageLayout.estimatedMinutes(lineCount: 54), 1, accuracy: 0.001)
     }
 
+    func test_title_metadata_never_counts_or_shifts_full_document_targets() {
+        for newline in ["\n", "\r\n", "\r"] {
+            XCTAssertEqual(ScreenplayPageLayout.paginate("Title: ASHES\(newline)Author: Zoë Chen"), [])
+            let body = ["INT. CAFÉ - DAY", "", "Zoë waits. 👩🏽‍🚀"].joined(separator: newline)
+            let document = ["Title: ASHES", "Author: Zoë Chen", "    ", body].joined(separator: newline)
+            let pages = ScreenplayPageLayout.paginate(document)
+            XCTAssertEqual(pages.count, 1)
+            XCTAssertEqual(pages.first?.startLine, 4)
+            XCTAssertEqual(pages.first?.endLine, 6)
+            XCTAssertEqual(pages.first?.lines, ["INT. CAFÉ - DAY", "", "Zoë waits. 👩🏽‍🚀"])
+        }
+    }
+
     func test_source_ranges_preserve_leading_blank_lines_and_cr_only_imports() {
         for newline in ["\n", "\r\n", "\r"] {
             let draft = ["", "", "INT. ROOM - DAY", "", "Mara waits.", ""].joined(separator: newline)

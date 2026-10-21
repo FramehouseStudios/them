@@ -80,12 +80,12 @@ export function buildLivePaperPayload(project, opts = {}) {
   const rawContexts = project.characterContexts ?? project.character_contexts ?? project.character_context ?? project.characterContext ?? project.characterVoiceContexts ?? {};
   const characterContexts = normalizeCharacterContexts(rawContexts);
   // Flip-through: paginate draft if available (latest version draft or opts.draft)
-  const draft = String(opts.draft || project?.versions?.[0]?.draft || project?.latestDraft || "");
+  const draft = String(opts.draft ?? project?.versions?.[0]?.draft ?? project?.latestDraft ?? "");
   let pages = [];
   try {
     if (draft) pages = paginateFountainDraft(draft);
   } catch {}
-  const totalPages = pages.length || Math.max(1, Number(opts.currentPage) || 1);
+  const totalPages = pages.length;
   const currentPage = Math.max(1, Math.min(totalPages, Number(opts.currentPage) || 1));
   // Feature 40-beat scaffold for 60p+ (D009)
   let beats40 = null;
