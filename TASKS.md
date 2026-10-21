@@ -8,7 +8,8 @@
 ### T-1096 — Original Pages work on the current writer foundation
 
 - **Owner:** codex. **Branch:** `codex/T-1096-pages-writer-sync`.
-- **Status:** in-progress. **Pillar:** mobile-first / trustworthy page navigation.
+- **Status:** review (locally proven integration; protected landing pending).
+  **Pillar:** mobile-first / trustworthy page navigation.
 - **Scope:** preserving merges of original #642 `7c40428b` and #893 `58c3ff33`
   above `e3faeca6`; replay isolated existing bounded-speech/Unicode repair
   `964bb7a7` and ASCII performance correction `eddb2ed5`, not old T-951's
@@ -21,6 +22,47 @@
   provider or production deployment. #80 export/editor classification, legacy
   page_flip/visual_pagination reconciliation, narrow inspector redesign and
   physical-phone proof are not claimed by importing a printed-page engine.
+- **Root fixes:** shared current draft/density snapshot replaces stale server /
+  raw55-line estimates; source ranges retain blank-prefix/CR offsets; late
+  recalculations cannot overwrite a new request. Full units exposed a new
+  cache-deinit crash and earlier refusal-vs-navigation regression: use a value
+  cache and keep opening Studio separate from Page permission.
+- **Proof:** Node20 full2851/0/2; supplemental actual pagination HTTP28/0/0;
+  signed full units red777/2/0 -> corrected779/0/0; original Pages + typing UI
+  2/0/0; authenticated save/export/relaunch UI1/0/0; longer-audio synthetic
+  ASR -> complete page -> exact save/relaunch UI1/0/0. macOS/offline golden/
+  D009/diff pass. No paid provider or physical-phone claim. Exact runtime
+  `0f67802a`, with navigation correction `2b95140` (see Git for full SHA).
+- **Evidence:** `docs/pages-writer-integration-2026-10-21.md`.
+- **Next:** T-1097 source-preserving title/live-paper page semantics, then
+  T-1098 narrow Pages inspector; original product child remains #643.
+
+### T-1097 — Finish source-preserving page-contract reconciliation
+
+- **Owner:** codex. **Status:** ready. **Pillar:** durable writer words / pages.
+- **Observed:** original #613 `4143d9c3` remains open and absent here; title
+  metadata can still count as screenplay. Production live-paper imports the
+  legacy scene-splitting page_flip helper. Its edit consumer reconstructs draft
+  text from page strings, so a blind swap to rendered pages risks source loss.
+- **Done when:** preserve/reconcile original #613 after reading its exact
+  commits, keep title/body bytes and full-document source mapping, make live
+  page counts match the canonical engine, and fence/migrate mutation consumers
+  without saving display wrapping/MORE markers or duplicating text. Re-prove
+  title-only/title+body/long-speech/Unicode and authenticated writer recovery.
+- **Boundary:** no new parser/HTTP/persistence framework, invented writer
+  byline, accepted-decision change, original rewrite or unreviewed main merge.
+
+### T-1098 — Readable narrow Pages navigator
+
+- **Owner:** codex. **Status:** ready. **Pillar:** mobile-first / writer control.
+- **Observed source:** inspector still puts a fixed112-point thumbnail next
+  to metadata; original #642 adds an overview, not the requested full tab fix.
+- **Done when:** full-width compact cards, current/total/runtime estimate,
+  clear preview-density controls/reset/recalculate, previous/next and direct
+  jumps through the real handler; inspect the complete narrow tab and verify
+  actions plus no vertical label collapse. Reuse T-1096's canonical snapshot.
+- **Boundary:** preserve orb/Clementine/aesthetic; do not claim PDF/export or
+  physical-phone parity from a preview-only UI pass.
 
 ### T-1093 — Current confirmed Home voice-to-page handoff
 
