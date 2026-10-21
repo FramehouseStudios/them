@@ -19,6 +19,37 @@
   exposed hidden Reuse and voice-fault failures. Retained as evidence, not a
   current next-task instruction; see T-1100 and its fresh GitHub check.
 
+### T-1102 — Target-aware mentor guidance that reaches the provider
+
+- **Owner:** codex. **Branch:** `codex/T-1102-mentor-target-guidance`.
+- **Status:** review (scoped local proof; protected landing pending).
+  **Pillar:** living companion / writer authorship.
+- **Scope:** preserve original #645 `8a7f367a` above T-1100, reuse T-971's
+  scorer hardening, and fix the observed prompt-delivery dependency with the
+  relevant original #649 seams, not a competing prompt/notes framework.
+- **Checkpoint:** preserving merge `869c8b6`; runtime `02e9bee`. Writer's target
+  and active scaled map outrank examples;120 is a recommendation, not a limit.
+  No forced110-page deadlines, padding or truncation. Fixed misleading scorer
+  credit for coin flips/committee/stand-in and missing/wrong alias page evidence.
+- **Root delivery:** real local /talk capture red0/1/0: mentor tag absent at the
+  provider. Tagged native core/pitch, current allocator's whole-core reservation,
+  one shared configurable mentor budget and existing compose/index forwarding
+  now retain the contracts. Kept current semantic compaction and backend-owned
+  dialogue notes, not the older duplicate native notes overlay. #649's original
+  head remains queued for history reconciliation after the intervening originals.
+- **Proof:** scorer red5/3/0 ->8/0/0; focused27/0/0; actual-talk repair1/0/0;
+  full Node20 backend2898/0/2 plus offline40 strong PASS/40 weak FAIL. Focused
+  signed native8/0/0 on new task-owned7F1A14C1-B379-4417-AFE9-331810CD9CD3.
+  Actual Swift fresh and Studio prompts replayed through the real local handler:
+  two cases1/0/0 each, both complete core AND pitch, with/without a feature map.
+  macOS/D009/diff pass. No paid/live model, full native-suite or phone claim.
+- **Evidence:** `docs/mentor-target-delivery-2026-10-21.md`. Full-suite snapshot
+  differs only by the subsequently strengthened pitch-content test, separately
+  executed with both native prompts; no runtime difference. Existing exported
+  file/device preserved while the Mac remains locked.
+- **Next actual boundary:** original #646 `72f9375`, based on #645; address
+  T-1101 freshness while preserving its bounded refresh and #774 quiet behavior.
+
 ### T-1100 — Coverage on the current writer foundation
 
 - **Owner:** codex. **Branch:** `codex/T-1100-coverage-current-writer`.
@@ -57,8 +88,8 @@
   synthetic file verified in Files-provider storage with exactly one marker.
   External opening could not be observed because the Mac is locked; human
   unlock requested. This does not block unmodified-source integration work.
-- **Next actual product boundary:** #645 `8a7f367a`, based on #644. Reconcile
-  mentor guidance with the human's flexible120-page direction, not a new mandate.
+- **Continued:** #645 is preserved and reconciled in T-1102. The next actual
+  boundary is #646, with T-1101's coverage freshness work.
 
 ### T-1101 — Mark and scope earlier same-project coverage snapshots
 
