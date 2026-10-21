@@ -26,4 +26,10 @@ final class HerVoiceSpecMentorCoreParityTests: XCTestCase {
         let literal = HerVoiceSpec.mentorCoreBlock.trimmingCharacters(in: .whitespacesAndNewlines)
         XCTAssertEqual(literal, shared, "Update docs/persona/mentor-core.txt together with HerVoiceSpec.mentorCoreBlock.")
     }
+
+    func test_recent_conversation_marker_matches_backend_wire_owner() throws {
+        let root = try repositoryRoot()
+        let source = try String(contentsOf: root.appendingPathComponent("backend/lib/conversation_freshness.js"), encoding: .utf8)
+        XCTAssertTrue(source.contains("const RECENT_CONVERSATION_MARKER = \"\(HerVoiceSpec.recentConversationMarker)\";"))
+    }
 }

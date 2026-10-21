@@ -5,6 +5,25 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1092 — Preserve corrected filmmaker/dialogue work on writer candidate
+
+- **Owner:** codex. **Branch:** `codex/T-1092-filmmaker-writer-sync`.
+- **Status:** review (scoped local proof; protected landing pending).
+  **Pillar:** writer intent / living companion / voice-to-scene.
+- **Scope:** original #641 `232098ba` through corrected `b85e391f`, preserving
+  merge onto `c730435a`; no broad rehearsal, replacement or original rewrite.
+- **Root:** supplied dialogue verbs selected rewrite/Page; notes also swallowed
+  real trailing revision directions. Canonical notes/revision policy now
+  separates those cases for task and cost-lane selection.
+- **Verified:** Node20 focused143/0/0, offline40-pair/8-prompt gate, signed Swift
+  intent/voice-contract14/0/0 on erased owned Pro. D009 index-69/Studio-14/
+  Root-80/bridge-23/memory0 versus main; syntax/diff pass. No paid calls.
+- **Evidence:** `docs/filmmaker-writer-sync-2026-10-20.md`; exact changed-file
+  manifest and retained source/native/log artifacts accompany the checkpoint.
+- **Next:** reconcile existing T-949 confirmed Home voice ordering/save fix
+  `6e7138b1`, then actual stack child #642. #964 still needs genuine current-head
+  non-author review. Physical-phone and production holds remain.
+
 ### T-1090 — Reconcile persisted Craft reports with writer selection
 
 - **Owner:** codex. **Branch:** `codex/T-1090-craft-report-selection`.
@@ -1044,6 +1063,22 @@ change or treat it as merged; original pre-proof text remains in Git history.
   and narrow Studio runtime proof required. VERIFIED in T-1090: authenticated
   local report/picker/real override persistence/explicit switch and Refresh,
   native UI1/0/0, screenshots inspected. Not phone/provider or main proof.
+
+### T-949 — Prove confirmed Home-to-Studio first-turn writing
+
+- **Owner:** codex. **Status:** ready. **Pillar:** voice-to-scene.
+- **Scope:** current confirmed script request opens authenticated Studio before
+  page prompt preparation; never use a previous microphone transcript.
+- **Done when:** Home first utterance writes/saves; everyday/partial/stale words
+  never promote mode; authentication refusal blocks writing. Existing writer
+  UI begins in Studio and does not cover this transition. Runtime proof needed.
+
+### T-947 — Filmmaker/dialogue review corrections
+- Owner: Codex; status: review.
+- Branch: `codex/T-947-filmmaker-review-fixes`; original #641 `232098ba` preserved.
+- Scope: repair Home/Studio boundaries, rewrite and dialogue-notes routing, project-memory contracts, fresh Page-lane behavior and distress/freshness precedence.
+- Done: behavioral backend tests, signed Swift proof coordinated by integration owner, D009 and diff checks; no main merge or replacement PR.
+- Current proof: Node 20 full backend 2,768/0/2; focused 61/61; offline mentor golden and D009 pass. Signed units/UI and integrated proof pending with integration owner. Evidence: `docs/filmmaker-review-corrections-2026-10-08.md`.
 
 | ID   | Title                                              | Owner  | Status            |
 |------|----------------------------------------------------|--------|-------------------|
