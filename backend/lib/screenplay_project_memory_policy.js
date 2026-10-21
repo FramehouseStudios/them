@@ -1,6 +1,6 @@
 const SCREENPLAY_PROJECT_MEMORY_PROMPT_INTENTS = new Set([
   "write_scene", "rewrite_scene", "continue_script", "scene_doctor",
-  "outline_structure", "character_development", "dialogue_punchup", "dialogue_notes",
+  "outline_structure", "character_development", "dialogue_punchup", "dialogue_notes", "story_discussion",
   "emotional_continuity", "pacing_pass", "finish_feature", "momentum_rescue",
 ]);
 function screenplayTaskCanUseProjectMemory(task, hint = "") {

@@ -1,4 +1,5 @@
 import { inferScreenplayTask } from "./prompt_assembly.js";
+import { analyzeScreenplayWriteInstruction, currentScreenplayInstruction } from "./screenplay_write_instruction.js";
 
 function trimToString(value = "", maxLength = 8_000) {
   return String(value ?? "").trim().slice(0, Math.max(1, Number(maxLength || 8_000)));
@@ -217,7 +218,9 @@ function shouldAutoRouteTaskToPage({
 
 function inferScreenplayTargetFromRequest(input = {}) {
   if (!input || typeof input !== "object") return "";
-  const text = textFromRequest(input);
+  const instruction = analyzeScreenplayWriteInstruction(currentScreenplayInstruction(input));
+  if (instruction.refusesPageWrite) return "";
+  const text = instruction.hadRefusal ? instruction.routingText : textFromRequest(input);
   if (!text) {
     return positiveIntegerOrZero(
       input.screenplayTargetPages ??
@@ -245,6 +248,7 @@ function inferScreenplayTargetFromRequest(input = {}) {
 
 function resolveScreenplayTargetFromRequest(input = {}) {
   if (!input || typeof input !== "object") return "";
+  if (analyzeScreenplayWriteInstruction(currentScreenplayInstruction(input)).refusesPageWrite) return "voice_pin";
   const explicit = normalizeScreenplayTarget(
     input.screenplayTarget ??
     input.screenplay_target ??
@@ -254,8 +258,19 @@ function resolveScreenplayTargetFromRequest(input = {}) {
   return explicit || inferScreenplayTargetFromRequest(input);
 }
 
+// Audio can arrive with Page hints before ASR knows the current words. Revoke
+// that permission before prompt/generation; keep the transcript itself intact.
+function enforceScreenplayWriteRefusal(req, studioMeta, transcript) {
+  if (!analyzeScreenplayWriteInstruction(transcript).refusesPageWrite) return false;
+  if (studioMeta) studioMeta.screenplayTarget = "voice_pin";
+  req.body = { ...req.body, client_transcript: transcript, screenplay_target: "voice_pin", screenplayTarget: "voice_pin" };
+  req.clementine?.refusePageWrite?.();
+  return true;
+}
+
 export {
   inferScreenplayTargetFromRequest,
   normalizeScreenplayTarget,
   resolveScreenplayTargetFromRequest,
+  enforceScreenplayWriteRefusal,
 };

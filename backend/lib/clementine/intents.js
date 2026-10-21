@@ -9,6 +9,7 @@
 import { parseShortFilmIntent } from "./short_film_intent.js";
 import { isShortFilmBetaEnabled } from "./short_film_beta.js";
 import { asksForDialogueNotes, isScreenplayRevisionRequest } from "../dialogue_notes.js";
+import { analyzeScreenplayWriteInstruction } from "../screenplay_write_instruction.js";
 
 const INTENT = Object.freeze({
   GREETING: "greeting",
@@ -40,6 +41,13 @@ function normalizeText(input) {
  * Returns one of INTENT values.
  */
 function classifyIntent(utterance, hints = {}) {
+  const instruction = analyzeScreenplayWriteInstruction(utterance);
+  if (instruction.refusesPageWrite) return INTENT.ADVISE;
+  // Current permission outranks stale lane/task hints, including on mixed asks.
+  if (instruction.hadRefusal) {
+    utterance = instruction.routingText;
+    hints = { ...hints, intent: "", pageMode: false, continuePage: false };
+  }
   const forced = String(hints?.intent || "").trim().toLowerCase();
   if (forced && INTENT_VALUES.includes(forced)) return forced;
 

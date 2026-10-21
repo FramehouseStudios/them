@@ -1,4 +1,5 @@
 import Foundation
+import DraftStudio
 
 /// Decides when a spoken turn is about the script, without the exact-phrase
 /// lists that used to gate it. Pattern families (question starters × story
@@ -17,17 +18,30 @@ enum ScreenplayIntentClassifier {
     }
 
     static func hasExplicitScriptIntent(_ text: String) -> Bool {
+        let instruction = DraftStudioPageWritePolicy.analyze(text)
+        guard !instruction.refusesPageWrite else { return false }
         let writingVerbs = ["write", "draft", "drafting", "outline", "outlining", "revise", "rewrite", "rewriting", "edit", "editing", "polish", "finish", "build", "develop", "brainstorm", "brainstorming", "start"]
         let scriptObjects = ["script", "screenplay", "scene", "story", "beat", "slugline", "dialogue", "pilot", "short film", "feature", "movie", "film"]
         // A refused command is not permission to open a writing surface. Strip
         // only its verb phrase, preserving a later affirmative request.
         let negatedVerbs = (writingVerbs + ["writing", "opening", "open", "go to", "take me to", "switch to", "bring up", "launch"]).joined(separator: "|")
-        let normalized = normalize(text).replacingOccurrences(
+        let normalized = normalize(instruction.routingText).replacingOccurrences(
             of: "\\b(?:don't want (?:you )?to|dont want (?:you )?to|do not want (?:you )?to|don't|dont|do not|never|stop|avoid|no need to)\\s+(?:please\\s+)?(?:\(negatedVerbs))\\b",
             with: " ", options: .regularExpression
         )
         let opensStudio = normalized.contains(" studio ") && ["open", "go to", "take me to", "switch to", "bring up", "launch"].contains { normalized.contains(" \($0) ") }
         return opensStudio || (writingVerbs.contains { normalized.contains(" \($0) ") } && scriptObjects.contains { normalized.contains(" \($0) ") }) || ["work on my script", "work on the script", "work on a script"].contains { normalized.contains(" \($0) ") }
+    }
+
+    static func directPageWriteLinesCue(in normalized: String) -> Bool {
+        [#"\bwrite\b.*\b(?:screenplay\s+)?action\s+line(?:s)?\b"#,
+         #"\bwrite\b.*\b(?:screenplay\s+)?dialogue\s+line(?:s)?\b"#]
+            .contains { normalized.range(of: $0, options: .regularExpression) != nil }
+    }
+
+    static func permittedPageRoutingText(_ text: String) -> String? {
+        let instruction = DraftStudioPageWritePolicy.analyze(text)
+        return instruction.refusesPageWrite ? nil : instruction.routingText
     }
     static let storyNouns: [String] = [
         "scene", "script", "screenplay", "story", "act one", "act two", "act three", "act 1", "act 2", "act 3",
