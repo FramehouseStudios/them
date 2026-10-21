@@ -290,12 +290,27 @@
 
 ### T-1109 — Extend canonical transport ownership to remaining mutation routes
 
-- **Owner:** codex. **Status:** next, BEFORE T-1108 and #648.
-- **VERIFIED source boundary:** T-1107 covers metadata/version upsert only.
-  Activation, outline/scene/beat/transition, collaborator/comment and companion
-  mutation methods still await bootstrap then build current headers. A stale
+- **Owner:** codex. **Branch:** `codex/T-1109-owned-screenplay-transport`.
+- **Status:** active checkpoint; follow-through BEFORE T-1108 and #648.
+- **Current fix:** activation/outline bootstrap-switch reproduction red0/2/0;
+  canonical caller ownership now covers 15 Studio methods (nine project/
+  companion writes including the existing metadata/version owners, six reads).
+  Shared existing-envelope decoding removes duplicate sync paths; no second
+  HTTP/auth framework. First signed ownership/outline gate28/0/0; final proof
+  ledger: `docs/studio-request-ownership-2026-10-21.md`.
+- **Next:** question resolution/outbox, character-memory batch, realtime/history,
+  telemetry and derived/export requests; audit deferred notifications and cache
+  scope. Do not call this checkpoint complete app-wide isolation or all mutations.
+- **Initial source boundary:** T-1107 covered metadata/version upsert only.
+  Activation, outline/scene/beat, collaborator/comment and companion
+  mutation methods awaited bootstrap then built current headers. A stale
   operation could be retargeted even where server authorization rejects foreign
   projects; shared-project attribution and stale sync still need protection.
+- **VERIFIED checkpoint:** `08b92cd89e095d2b12b9da8132506f29cc18ed62`;
+  full signed869/0/0, real local-backend recovery UI3/0/0, writer/Files/relaunch
+  UI1/0/0, macOS/D009/diff pass.
+  MemoryAPI shrank162 lines versus actual parent; backend unchanged, no repeated
+  full backend or paid-provider run. Remaining boundaries stay explicitly open.
 - **Done when:** reproduce the first remaining actual client failure, reuse the
   canonical captured ownership/header rule across mutations (and audit related
   read/cache sync application), preserve same-owner success and conflict paths.
