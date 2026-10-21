@@ -5,6 +5,29 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1088 — Golden mentor work on the current writer candidate
+
+- **Owner:** codex. **Branch:** `codex/T-1088-mentor-golden-writer-sync`.
+- **Status:** review (scoped proof complete; original protected landing
+  pending). **Pillar:** living companion / writer authorship.
+- **Boundary:** preserve original #639 `57225143` onto `dc8af7b5`; no-ff
+  merge `476579c6`. Resolve the Swift mentor conflict by retaining the flexible
+  120-page correction and original dialogue/one-question/idea-building rules.
+- **Root fixes:** canonical text/parity retains human guidance; explicit
+  110-page fixtures remain writer-selected examples, default recommendation
+  becomes flexible120. Weekly eval is offline only; live requires fresh manual
+  approval. Reject empty selector matches and stop after provider failure.
+  Pass workflow input as quoted data, not shell source.
+- **Verified:** offline Node20 10/0/0; all40 exemplar pairs separated,8 prompt
+  assertions passed. Workflow YAML/guard/secret separation/bash syntax checks
+  pass statically; no hosted workflow or paid-provider claim. D009/diff pass.
+- **Swift proof:** signed focused core/parity5/0/0 on erased owned Pro,
+  iOS26.2/23C54; completed summary read. SE export/file retained. No repeated
+  broad gates or paid calls at this preparation boundary.
+- **Evidence:** `docs/mentor-golden-writer-sync-2026-10-20.md`.
+- **Next:** inspect actual #640 head/base and root fixes before integration.
+  Preserve every original PR head/base and required main review/check gates.
+
 ### T-1087 — Preserve mentor core on the current writer candidate
 
 - **Owner:** codex. **Branch:** `codex/T-1087-mentor-core-writer-sync`.
