@@ -5,7 +5,7 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
-### T-968 — Exact document identity for coverage
+### T-968 — Exact document identity for coverage (historical; current T-1100)
 
 - **Owner:** codex. **Branch:** `codex/T-968-coverage-document-identity`.
 - **Status:** review. **Pillar:** trustworthy current-script feedback.
@@ -15,10 +15,65 @@
   D009/diff pass, raw writer bytes remain unchanged and limits are recorded.
 - **Evidence:** before15/3/0, after full836/0/0 on erased owned simulator;
   D009 deltas0. `docs/coverage-document-identity-2026-10-16.md`.
-- **Priority hold:** #906 returned to draft after raw CI logs exposed hidden
-  Reuse and voice-fault failures. Reconcile original #904 CI prefix next.
+- **Historical hold (October16):** #906 returned to draft after raw CI logs
+  exposed hidden Reuse and voice-fault failures. Retained as evidence, not a
+  current next-task instruction; see T-1100 and its fresh GitHub check.
 
-### T-967 — Preserve coverage and context-isolation repairs
+### T-1100 — Coverage on the current writer foundation
+
+- **Owner:** codex. **Branch:** `codex/T-1100-coverage-current-writer`.
+- **Status:** review (current integration proven locally; protected landing pending).
+  **Pillar:** living companion / script ownership.
+- **Scope:** preserve original #644 `047672ac`, #880 `b619d7d`, #881 `b7a0ea5`
+  and selected linter #597 `7b120904`; replay existing connected-read/exact-byte
+  repairs. Keep current recovery dependencies and canonical framework setter.
+- **Checkpoint:** preserving merges `d33d307`, `1fec259`, `2f58c18`, `4ebbc4e`;
+  existing repairs `1d32c93` and `c3b3209`; root import/body fix `e5b7efa`.
+- **Reproduced:** same body6.5 versus title+body6.4 versus CR-only4.7; title-only
+  produced a fabricated0-page grade. Coverage/linter now use the canonical
+  derived body/physical-newline rules, preserve source coordinates and raw saved
+  bytes, and reject empty body with the existing400 envelope. Native sends the
+  intact document for single server-side title parsing. Coverage card labels
+  heuristic scores honestly. Selected #597 fixes ordinary-action cue warnings;
+  additive title masking prevents metadata being treated as dialogue.
+- **Proof:** new body regressions red5/2/0 -> focused65/0/0. First Node20 full
+  2893/1/2 exposed the newly imported request missing the origin guard; corrected
+  contract2/0/0 and full2894/0/2. Initial native/Mac compile failures exposed an
+  absent older helper; current byte comparison fixes it. A second native build
+  exposed an absent imported UI navigation helper; current pinned-tab navigation
+  fixes it. Final full signed themTests822/0/0; macOS builds. Actual authenticated
+  Craft read + save/Files-export/relaunch UI1/0/0; exact single saved draft.
+  Failures retained, not waived. No paid model calls; synthetic provider1/0/0
+  for chat/stt/tts in the writer journey, not microphone/model-quality proof.
+- **Done when:** connected authenticated Craft read matches server output,
+  writer save/export/relaunch and ownership/Unicode/import regressions pass,
+  no monitored god file grows, and exact source/failures/proof are retained.
+- **Limits / next:** existing #646 refresh policy and #774 quiet announcements
+  remain at their original boundaries. Completed same-project reads still need
+  an explicit freshness indicator; #648 controls/read prompt protection remains.
+  No live-model, physical-phone, production, App Store or main-landing claim.
+- **Evidence:** `docs/coverage-current-writer-2026-10-21.md`. Final runtime
+  `0919fc8`; workflow-only navigation correction `4dc346a`. Exported35-byte
+  synthetic file verified in Files-provider storage with exactly one marker.
+  External opening could not be observed because the Mac is locked; human
+  unlock requested. This does not block unmodified-source integration work.
+- **Next actual product boundary:** #645 `8a7f367a`, based on #644. Reconcile
+  mentor guidance with the human's flexible120-page direction, not a new mandate.
+
+### T-1101 — Mark and scope earlier same-project coverage snapshots
+
+- **Owner:** codex. **Status:** ready. **Pillar:** trustworthy companion.
+- **Observed source:** #881 correctly fences foreign/stale in-flight results,
+  but a completed same-project card and shared conversation summary can remain
+  after the text changes, without an explicit earlier-snapshot label.
+- **Done when:** keep useful earlier reads visibly labeled, do not present their
+  scores as the current edited script in conversation, and retain owner/byte
+  guards. Reconcile at original #646 while preserving its bounded refresh rule
+  and #774 quiet announcements; no new poll/AI-cost loop or voice owner.
+- **Boundary:** no claim of full speech/playback isolation or reliable voice
+  controls until their actual request/receipt and physical-phone paths are proven.
+
+### T-967 — Preserve coverage and context-isolation repairs (historical; current T-1100)
 
 - **Owner:** codex. **Branch:** `codex/T-967-coverage-integration`.
 - **Status:** review. **Pillars:** living companion; project isolation.
@@ -165,9 +220,9 @@
   full live voice-action proof: original
   #648 prompt/reply and writer-authority repairs must follow at their boundary.
 - **Evidence:** `docs/studio-actions-current-writer-2026-10-21.md`.
-- **Next:** original #644 is actually based on #643. Retain #597 for observed
-  false cue warnings, and reconcile #648 with the preserved authority safeguards
-  before claiming spoken promises reliably execute. Main/production holds stay.
+- **Continued:** original #644 and selected #597 are preserved in T-1100.
+  Reconcile #648 with the preserved authority safeguards before claiming spoken
+  promises reliably execute. Main/production holds stay.
 
 ### T-1093 — Current confirmed Home voice-to-page handoff
 
