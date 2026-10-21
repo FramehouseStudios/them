@@ -33,6 +33,11 @@
   preparation, then publish the same original #904 normally with fresh CI
   and independent review. Avoid a redundant pre-landing full hosted run.
 - **Evidence:** `docs/recovery-foundation-sync-2026-10-20.md`.
+- **Later hosted state (separate heads):** #964 `5faa43d6` and #919
+  `39ca7c3b` now have all three required checks SUCCESS. #964 is ready for
+  the human's genuine review; old approval remains dismissed. No remote source
+  change or main merge here. The new combined local tree still needs its own
+  fresh landing-head checks after the protected parent lands.
 
 ### T-1069 — Keep iPhone export format choices on the document
 

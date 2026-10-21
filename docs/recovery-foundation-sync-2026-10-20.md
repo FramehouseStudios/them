@@ -88,3 +88,24 @@ actual main into this local preparation and normally advance the same original
 full CI run. Production remains held under the human's existing decision.
 
 Continue status: READY FOR CONTINUE.
+
+## Later same-session hosted results (separate heads)
+
+VERIFIED terminal SUCCESS, not a substitute for this local combined tree:
+
+- #964 `5faa43d6`, run39515659045: all three required jobs pass; backend
+  2752/0/2, signed units633/0/0, V1 UI28/0/9 (37 total). Required writer,
+  voice-fault and macOS stages pass. Marked the original ready without changing
+  its head. Independent review remains REQUIRED; old ee5c83fd review is dismissed.
+- #919 `39ca7c3b`, run39517148595: all three jobs pass; backend2753/0/2,
+  signed units682/0/0, V1 UI32/0/9 (41 total), strict native recovery2/0/0.
+  Required writer and voice/macOS stages pass. Keep the original draft while
+  lower parents land; no propagation into a checked head occurred here.
+- Original #964 readiness event did not produce another workflow in the
+  post-event head-filtered snapshot: only completed run39515659045 exists.
+  This is the observed event, not a guarantee against all future duplicate runs.
+
+Raw completed hosted logs were retained privately alongside this local proof.
+Their numerical suite totals and canonical recovery success were read, not
+inferred from old PR descriptions. No new native/backend/provider run followed
+these observations, and no main merge or production deployment occurred.
