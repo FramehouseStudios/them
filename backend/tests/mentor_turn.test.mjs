@@ -5,10 +5,18 @@ import {
   elevateChatModelPlanForMentorTurn,
   mentorTurnsEnabled,
   MENTOR_REASON,
+  mentorSystemPromptMaxChars,
 } from "../lib/mentor_turn.js";
 
 const PITCH_PROMPT = "You are Clementine.\n\nSCENE PITCH (standing collaborator rule):\n- This is the first exchange of the session.";
 const STUDIO_PROMPT = "You are Clementine.\n\nSCREENPLAY STUDIO MODE (priority override - supersedes RESPONSE SHAPE below):";
+
+test("[mentor-turn] production and offline eval share the configured mentor context budget", () => {
+  assert.equal(mentorSystemPromptMaxChars({}), 13_000);
+  assert.equal(mentorSystemPromptMaxChars({ MENTOR_TURN_SYSTEM_PROMPT_MAX_CHARS: "14000" }), 14_000);
+  assert.equal(mentorSystemPromptMaxChars({ MENTOR_TURN_SYSTEM_PROMPT_MAX_CHARS: "100" }), 6_200);
+  assert.equal(mentorSystemPromptMaxChars({ MENTOR_TURN_SYSTEM_PROMPT_MAX_CHARS: "invalid" }), 13_000);
+});
 
 test("[mentor-turn] writing-session prompts and Studio context mark a mentor turn; page writes never do", () => {
   assert.equal(isMentorTurn({ customSystemPrompt: PITCH_PROMPT, env: {} }), true);

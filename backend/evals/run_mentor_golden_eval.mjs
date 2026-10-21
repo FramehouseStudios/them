@@ -23,6 +23,8 @@ import { fileURLToPath } from "node:url";
 import { CASES, CATEGORIES } from "./mentor_conversation/cases.mjs";
 import { scoreMentorReply, THRESHOLDS } from "./mentor_conversation/score_mentor_reply.js";
 import { createPersonaRuntime } from "../lib/persona.js";
+import { fitSystemPromptForTurnLatency } from "../lib/system_prompt_trim.js";
+import { mentorSystemPromptMaxChars } from "../lib/mentor_turn.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..", "..");
@@ -68,7 +70,13 @@ export function buildMentorSystemPrompt(testCase, runtime = personaRuntime()) {
   if (testCase?.fresh) parts.push(SCENE_PITCH_FRESH);
   const base = parts.join("\n\n");
   const withCore = runtime.appendDirectorAddendum(base, runtime.PERSONA_ENFORCEMENT_ADDENDUM);
-  return runtime.withOutputContract(withCore, { mentorTurn: true });
+  const contracted = runtime.withOutputContract(withCore, { mentorTurn: true });
+  const tagged = contracted
+    .replace(mentorCore, `<mentor_core>\n${mentorCore}\n</mentor_core>`)
+    .replace(SCENE_PITCH_FRESH, `<scene_pitch>\n${SCENE_PITCH_FRESH}\n</scene_pitch>`);
+  return fitSystemPromptForTurnLatency(tagged, {
+    chatModelPlan: { tier: "rich" }, richMaxChars: mentorSystemPromptMaxChars(),
+  });
 }
 
 function userMessage(testCase) {

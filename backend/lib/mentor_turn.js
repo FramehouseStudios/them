@@ -14,6 +14,13 @@ const MENTOR_MARKERS = Object.freeze([
 ]);
 const MENTOR_REASON = "mentor_craft_talk";
 const DEFAULT_RICH_MODEL = "gpt-4o";
+const DEFAULT_MENTOR_SYSTEM_PROMPT_MAX_CHARS = 13_000;
+
+// One owner for the #649 identity budget, shared by production and the eval.
+function mentorSystemPromptMaxChars(env = process.env) {
+  const configured = Number.parseInt(String(env?.MENTOR_TURN_SYSTEM_PROMPT_MAX_CHARS ?? ""), 10);
+  return Number.isFinite(configured) ? Math.max(6_200, configured) : DEFAULT_MENTOR_SYSTEM_PROMPT_MAX_CHARS;
+}
 
 function envFlagOff(value) {
   const n = String(value ?? "").trim().toLowerCase();
@@ -67,6 +74,8 @@ export {
   MENTOR_MARKERS,
   MENTOR_REASON,
   DEFAULT_RICH_MODEL,
+  DEFAULT_MENTOR_SYSTEM_PROMPT_MAX_CHARS,
+  mentorSystemPromptMaxChars,
   mentorTurnsEnabled,
   isMentorTurn,
   elevateChatModelPlanForMentorTurn,

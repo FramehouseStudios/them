@@ -157,20 +157,24 @@ export function scoreBuildOnWriter(reply, { writerNouns = [] } = {}) {
 // the room, not only as the textbook label. The golden exemplars use both.
 const TERM_SYNONYMS = Object.freeze({
   "why now": [/why now/, /starts? today/, /start today/, /why today/, /not last (year|week|month)/],
-  "obstacle": [/obstacle/, /in (his|her|their|the) way/, /standing in/, /stands in/],
+  "obstacle": [/\bobstacle\b/, /\bin (his|her|their|the) way\b/, /\bstand(?:ing|s)? in (his|her|their|the) way\b/],
   "want": [/\bwants?\b/, /\bneeds?\b/],
-  "reversal": [/reversal/, /flips?/, /turns? (the )?(tactic|strategy|plan)/, /false (win|victory|defeat|loss)/],
-  "commitment": [/commit/, /choice (he|she|they) can'?t take back/, /can'?t go back/, /no way back/, /point of no return/],
+  "reversal": [/\breversal\b/, /\bflips? (the |his |her |their )?(tactic|strategy|plan|pursuit)\b/, /\bturns? (the )?(tactic|strategy|plan)\b/, /\bfalse (win|victory|defeat|loss)\b/],
+  "commitment": [/\bcommit(?:s|ment|ted|ting)?\b/, /choice (he|she|they) can'?t take back/, /can'?t go back/, /no way back/, /point of no return/],
   "inciting incident": [/inciting incident/, /inciting event/],
   "midpoint": [/midpoint/, /mid-point/, /middle of the (script|story|film)/],
   "act one": [/act one/, /act 1\b/, /act i\b/],
   "act two": [/act two/, /act 2\b/, /act ii\b/],
 });
 
+function termPattern(term) {
+  const literal = String(term).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const alternatives = TERM_SYNONYMS[term] || [];
+  return `(?:\\b${literal}\\b${alternatives.map(re => `|${re.source}`).join("")})`;
+}
+
 function termPresent(lower, term) {
-  if (lower.includes(term)) return true;
-  const alts = TERM_SYNONYMS[term];
-  return Array.isArray(alts) ? alts.some((re) => re.test(lower)) : false;
+  return new RegExp(termPattern(term), "i").test(lower);
 }
 
 export function scoreStructureAccuracy(reply, { expectTerms = [], expectPages = [] } = {}) {
@@ -186,11 +190,16 @@ export function scoreStructureAccuracy(reply, { expectTerms = [], expectPages = 
   const andThen = (lower.match(/\band then\b/g) || []).length >= 2;
   if (causal && !andThen) { score += 1; } else notes.push(andThen ? "and-then chain" : "no causality");
   for (const spec of expectPages) {
-    const re = new RegExp(`${spec.term}[^.]{0,60}?page\\s*(\\d{1,3})|page\\s*(\\d{1,3})[^.]{0,60}?${spec.term}`, "i");
+    const term = termPattern(String(spec.term).toLowerCase());
+    const re = new RegExp(`${term}[\\s\\S]{0,120}?\\bpage\\s*(\\d{1,3})\\b|\\bpage\\s*(\\d{1,3})\\b[\\s\\S]{0,120}?${term}`, "i");
     const m = text.match(re);
-    if (!m) continue;
+    if (!m) {
+      score = Math.min(score, 2);
+      notes.push(`${spec.term} missing required page evidence`);
+      continue;
+    }
     const page = Number(m[1] || m[2]);
-    if (page < spec.low || page > spec.high) { score -= 1; notes.push(`${spec.term} placed at page ${page}, expected ${spec.low}–${spec.high}`); }
+    if (page < spec.low || page > spec.high) { score = Math.min(score, 2); notes.push(`${spec.term} placed at page ${page}, expected ${spec.low}–${spec.high}`); }
   }
   return { score: clamp(score), notes };
 }
