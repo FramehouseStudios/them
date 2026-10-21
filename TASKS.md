@@ -96,6 +96,23 @@
   No physical/live/production/main completion claim. Parent638/974 now hosted
   green;638 exact0b56861 awaits independent review. Public children stay held.
 
+### Historical T-1096 — Original Pages work on the dated writer foundation
+
+- **Owner:** codex. **Branch:** `codex/T-1096-pages-writer-sync`.
+- **Status:** in-progress. **Pillar:** mobile-first / trustworthy page navigation.
+- **Scope:** preserving merges of original #642 `7c40428b` and #893 `58c3ff33`
+  above `e3faeca6`; replay isolated existing bounded-speech/Unicode repair
+  `964bb7a7` and ASCII performance correction `eddb2ed5`, not old T-951's
+  cumulative foundation. Keep original histories and all current typing tests.
+- **Done when:** current header/overview/inspector/Craft counts use the same
+  cached draft/density engine, no stale server page count wins, source jumps
+  preserve blank-prefix/CR ranges, and focused parity plus integration gates
+  have fresh recorded outcomes. Retain actual numbered-page and writer UI.
+- **Boundary:** no original-head rewrite, replacement PR, main merge, paid
+  provider or production deployment. #80 export/editor classification, legacy
+  page_flip/visual_pagination reconciliation, narrow inspector redesign and
+  physical-phone proof are not claimed by importing a printed-page engine.
+
 ### Historical T-1093 — Confirmed Home writer checkpoint (not current proof)
 
 - **Owner:** codex. **Branch:** `codex/T-1093-confirmed-home-writer-sync`.
@@ -2149,7 +2166,7 @@ as history, not new proof or active assignments for this original639 repair.
 Historical Pages/security records below are dated context, not current proof.
 ### T-951 — Integrate and re-prove original pagination
 
-- **Owner:** codex. **Status:** in-progress. **Pillar:** mobile-first.
+- **Owner:** codex. **Status:** review (historical; current integration T-1096). **Pillar:** mobile-first.
 - **Branch:** `codex/T-951-pages-integration-proof`, from T-950 `ccb50270`.
 - **Scope:** preserving merge of original #642 `7c40428b`; fix reproduced
   unbounded multi-page speech and Unicode phone/backend wrapping disagreement.

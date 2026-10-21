@@ -34,6 +34,8 @@ const drafts = {
   },
   crlf_and_trim: { linesPerPage: 54, draft: "  INT. GARAGE - NIGHT\r\n\r\nThe engine runs.\r\n\r\nOWEN\r\nSign it.\r\n  " },
   single_line: { linesPerPage: 54, draft: "one line" },
+  leading_blank_source_ranges: { linesPerPage: 54, draft: "\n\nINT. ROOM - DAY\n\nMara waits.\n" },
+  cr_only_source_ranges: { linesPerPage: 54, draft: "\r\rINT. ROOM - DAY\r\rMara waits.\r" },
   unicode_graphemes: { linesPerPage: 24, draft: ["INT. 船 - NIGHT", "", "李", ("👩🏽‍🚀 e\u0301 界\u00a0listen ").repeat(40)].join("\n") },
   multi_page_speech: { linesPerPage: 24, draft: [...Array.from({length: 14}, (_, i) => `Action line ${i + 1}.`), "", "MARA", Array.from({length: 200}, (_, i) => `Sentence ${i + 1} reaches the radio.`).join(" ")].join("\n") },
 };

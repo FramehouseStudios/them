@@ -27,6 +27,27 @@ final class ScreenplayPageLayoutTests: XCTestCase {
         XCTAssertEqual(ScreenplayPageLayout.estimatedMinutes(lineCount: 54), 1, accuracy: 0.001)
     }
 
+    func test_source_ranges_preserve_leading_blank_lines_and_cr_only_imports() {
+        for newline in ["\n", "\r\n", "\r"] {
+            let draft = ["", "", "INT. ROOM - DAY", "", "Mara waits.", ""].joined(separator: newline)
+            let pages = ScreenplayPageLayout.paginate(draft)
+            XCTAssertEqual(pages.map { [$0.startLine, $0.endLine] }, [[3, 5]])
+            XCTAssertEqual(pages.first?.lines, ["INT. ROOM - DAY", "", "Mara waits."])
+        }
+    }
+
+    func test_current_snapshot_tracks_draft_and_density_without_server_pages() {
+        var cache = ScreenplayPageLayout.Cache()
+        let text = draft(lines: 120)
+        let normal = cache.pages(for: text, linesPerPage: 54)
+        XCTAssertEqual(normal.count, 3)
+        XCTAssertEqual(cache.pages(for: text, linesPerPage: 54), normal)
+        XCTAssertEqual(cache.pages(for: text, linesPerPage: 24).count, 5)
+        let changed = text.replacingOccurrences(of: "Line 1\n", with: "Changed first line.\n")
+        XCTAssertEqual(cache.pages(for: changed, linesPerPage: 54).first?.lines.first, "Changed first line.")
+        XCTAssertEqual(cache.pages(for: "", linesPerPage: 54), [])
+    }
+
     func test_wrap_is_greedy_monospace_and_cuts_oversized_words() {
         XCTAssertEqual(ScreenplayPageLayout.wrap("", width: 10), [""])
         XCTAssertEqual(ScreenplayPageLayout.wrap("one two three", width: 7), ["one two", "three"])

@@ -5118,8 +5118,9 @@ private var projectsSidebarContent: some View {
     }
 
     private var draftPaginationPagePresentations: [ScreenplayStudioPaginationPagePresentation] {
-        vm.paginationPages.map { page in
-            ScreenplayStudioPaginationPagePresentation(
+        vm.localPaginationPages.map { layoutPage in
+            let page = layoutPage.backendPage(linesPerPage: vm.linesPerPage)
+            return ScreenplayStudioPaginationPagePresentation(
                 page: page,
                 thumbnailLines: ScreenplayStudioDraftToolsPresentationPlanner.paginationThumbnailLines(
                     for: page,
@@ -8913,18 +8914,7 @@ Current draft version:
     }
 
     private var screenplayPagePageCountText: String {
-        if !vm.paginationPages.isEmpty {
-            return "\(vm.paginationPages.count)"
-        }
-        guard !screenplayPageShouldShowEmptyPlaceholder else {
-            return "0"
-        }
-        let normalized = vm.fountainDraft
-            .replacingOccurrences(of: "\r\n", with: "\n")
-            .replacingOccurrences(of: "\r", with: "\n")
-        let lineCount = max(1, normalized.components(separatedBy: "\n").count)
-        let estimated = Int(ceil(Double(lineCount) / Double(max(vm.linesPerPage, 1))))
-        return "\(max(1, estimated))"
+        "\(vm.estimatedFeaturePageCount)"
     }
 
     private var screenplayPageRevisionStateText: String {

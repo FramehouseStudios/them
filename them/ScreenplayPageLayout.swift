@@ -5,6 +5,20 @@ import Foundation
 /// trip. Element widths, spacing and continuation rules mirror
 /// `backend/lib/screenplay_pagination.js`; shared fixtures pin their agreement.
 struct ScreenplayPageLayout {
+    /// One current draft/density snapshot; unrelated status renders reuse it.
+    /// Not observable state: computation must never publish during view updates.
+    struct Cache {
+        private var snapshot: (draft: String, density: Int, pages: [Page])?
+
+        mutating func pages(for draft: String, linesPerPage: Int) -> [Page] {
+            let density = min(max(linesPerPage, minimumLinesPerPage), maximumLinesPerPage)
+            if let snapshot, snapshot.draft == draft, snapshot.density == density { return snapshot.pages }
+            let pages = paginate(draft, linesPerPage: density)
+            snapshot = (draft, density, pages)
+            return pages
+        }
+    }
+
     struct Page: Identifiable, Hashable {
         let number: Int
         let startLine: Int
@@ -17,21 +31,25 @@ struct ScreenplayPageLayout {
         var lineCount: Int { lines.count }
 
         var backendPage: BackendScreenplayPaginationPage {
+            backendPage(linesPerPage: defaultLinesPerPage)
+        }
+
+        func backendPage(linesPerPage: Int) -> BackendScreenplayPaginationPage {
             BackendScreenplayPaginationPage(
                 page: number,
                 startLine: startLine,
                 endLine: endLine,
                 lineCount: lineCount,
-                preview: nil,
-                estMinutes: nil
+                preview: lines.prefix(8).joined(separator: "\n"),
+                estMinutes: ScreenplayPageLayout.estimatedMinutes(lineCount: lineCount, linesPerPage: linesPerPage)
             )
         }
     }
 
     /// US Letter, 1-inch top and bottom margins, 12-point lines.
-    static let defaultLinesPerPage = 54
-    static let minimumLinesPerPage = 24
-    static let maximumLinesPerPage = 120
+    nonisolated static let defaultLinesPerPage = 54
+    nonisolated static let minimumLinesPerPage = 24
+    nonisolated static let maximumLinesPerPage = 120
 
     /// Final Draft indents at 10.33 characters per inch.
     static func charsPerLine(_ kind: LineKind) -> Int {
@@ -90,7 +108,7 @@ struct ScreenplayPageLayout {
         let pieces: [Piece]
     }
 
-    private static func buildBlocks(lines: [String], kinds: [LineKind]) -> [Block] {
+    private static func buildBlocks(lines: [String], kinds: [LineKind], sourceOffset: Int) -> [Block] {
         var blocks: [Block] = []
         var index = 0
         while index < lines.count {
@@ -99,7 +117,7 @@ struct ScreenplayPageLayout {
             var pieces: [Piece] = []
             while index < lines.count, kinds[index] != .blank {
                 for text in wrap(lines[index], width: charsPerLine(kinds[index])) {
-                    pieces.append(Piece(text: text, sourceLine: index + 1))
+                    pieces.append(Piece(text: text, sourceLine: index + 1 + sourceOffset))
                 }
                 index += 1
             }
@@ -113,13 +131,15 @@ struct ScreenplayPageLayout {
     /// pinned to docs/pagination/fixtures.json.
     static func paginate(_ draft: String, linesPerPage requested: Int = defaultLinesPerPage) -> [Page] {
         let linesPerPage = min(max(requested, minimumLinesPerPage), maximumLinesPerPage)
-        let normalized = draft
+        let source = draft
             .replacingOccurrences(of: "\r\n", with: "\n")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "\r", with: "\n")
+        let normalized = source.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalized.isEmpty else { return [] }
         let lines = normalized.components(separatedBy: "\n")
         let kinds = classify(lines)
-        let blocks = buildBlocks(lines: lines, kinds: kinds)
+        let sourceOffset = source.prefix(while: { $0.isWhitespace }).filter { $0 == "\n" }.count
+        let blocks = buildBlocks(lines: lines, kinds: kinds, sourceOffset: sourceOffset)
 
         var pages: [Page] = []
         var currentLines: [String] = []

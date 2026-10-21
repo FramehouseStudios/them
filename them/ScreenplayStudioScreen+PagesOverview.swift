@@ -15,7 +15,7 @@ extension ScreenplayStudioScreen {
     /// Header chip on the Studio home page: live printed-page count for the
     /// draft as typed, opening the numbered page overview.
     var screenplayPagesOverviewChip: some View {
-        let pageCount = ScreenplayPageLayout.pageCount(for: vm.fountainDraft)
+        let pageCount = vm.estimatedFeaturePageCount
         return Button {
             vm.isPagesOverviewPresented = true
         } label: {
@@ -39,12 +39,13 @@ extension ScreenplayStudioScreen {
         .buttonStyle(.plain)
         .accessibilityIdentifier("studio.draft.page.pages")
         .accessibilityLabel("\(ScreenplayPageLayout.summaryText(pageCount: pageCount)). Show printed pages.")
-        .help("Printed pages at \(ScreenplayPageLayout.defaultLinesPerPage) lines per page. Tap to see every numbered page.")
+        .help("Page preview at \(vm.linesPerPage) lines per page. Tap to see every numbered page.")
     }
 
     var screenplayPagesOverviewSheet: some View {
         ScreenplayStudioPagesOverviewView(
-            draft: vm.fountainDraft,
+            pages: vm.localPaginationPages,
+            linesPerPage: vm.linesPerPage,
             title: vm.selectedProject?.title ?? "",
             onJumpToPage: { page in
                 vm.isPagesOverviewPresented = false
