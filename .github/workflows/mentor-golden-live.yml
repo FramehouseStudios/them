@@ -1,0 +1,73 @@
+name: Mentor golden set (live)
+
+# Weekly measurement of Clementine's spoken mentor voice against the forty
+# scripted exchanges in backend/evals/mentor_conversation. The offline half of
+# this eval already runs on every PR inside eval:canon; this job answers each
+# case with the real rich model and scores it, so a prompt or routing change
+# is measured before it is felt. Manual runs are allowed for a prompt PR.
+#
+# Gate: >= 80% PASS, 0 FAIL, register >= 3.5 on every reply. Live results
+# move a few cases between runs at the model's temperature; rerun once before
+# treating a miss as a regression.
+
+on:
+  schedule:
+    - cron: "17 14 * * 1"   # Mondays 14:17 UTC
+  workflow_dispatch:
+    inputs:
+      only:
+        description: "Limit to one case id or category (pitch, build, structure, dialogue, register)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mentor-golden-live
+  cancel-in-progress: false
+
+jobs:
+  live:
+    name: Answer and score 40 mentor exchanges
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      MENTOR_GOLDEN_REPORT: ${{ github.workspace }}/mentor-golden/report.json
+      CHAT_MODEL_RICH: ${{ vars.CHAT_MODEL_RICH || 'gpt-4o' }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require OpenAI provider secret
+        run: |
+          if [ -z "${OPENAI_API_KEY}" ]; then
+            echo "::error::OPENAI_API_KEY secret is not set; the live golden set cannot run."
+            exit 2
+          fi
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci
+      - name: Offline gate (scorer separates golden from weak)
+        working-directory: backend
+        run: npm run eval:mentor-golden
+      - name: Live measurement
+        working-directory: backend
+        run: |
+          if [ -n "${{ github.event.inputs.only }}" ]; then
+            node evals/run_mentor_golden_eval.mjs --live --only="${{ github.event.inputs.only }}"
+          else
+            npm run eval:mentor-golden:live
+          fi
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mentor-golden-live-report
+          path: mentor-golden/report.json
+          if-no-files-found: ignore
+          retention-days: 90
