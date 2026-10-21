@@ -127,6 +127,49 @@
 - **Next actual boundary:** #647 `848e59d0`, based on #646. Preserve original
   auto-title work and all current recovery/source-ownership safeguards.
 
+### T-1103 — Canonical writer-owned titles for promoted drafts
+
+- **Owner:** codex. **Branch:** `codex/T-1103-project-auto-title`.
+- **Status:** review (focused local proof, not a main/release claim).
+  **Pillar:** living companion / writer authorship.
+- **Scope:** original #647 `848e59d0` preserved by no-ff `4386ad6`;
+  correction `d2dc719` reuses FountainTitlePageCodec rather than scanning
+  screenplay action for Title fields. Multiline/single-character/Unicode titles
+  work; literal underscores and meaningful punctuation survive. Only generated
+  suggestions use the 48-character limit; the server owns storage limits.
+- **Proof:** original pure helper failed all4 synthetic edge cases. Signed
+  focused25/0/0 (9 naming, existing Studio actions and promotion policy) on
+  erased owned7F1A14C1-B379-4417-AFE9-331810CD9CD3. macOS/D009/diff pass.
+  Root shrank29 lines. No backend, paid-provider or actual promotion UI run.
+- **Evidence:** `docs/project-auto-title-2026-10-21.md`; retained public source,
+  failures and bundle in `_proof/T-1103-20261021.ufHRT8` under home worktrees.
+- **Next:** T-1104 raw-save loss found in this same path, BEFORE original #648.
+  #855's final word-list first-page title algorithm is a different caller and
+  remains at its own original boundary; it was read, not silently replaced.
+
+### T-1104 — Preserve raw version text and audit first-project promotion
+
+- **Owner:** codex. **Branch:** `codex/T-1104-raw-version-retention` (next).
+- **Status:** ready / highest next data-safety priority, before #648.
+- **VERIFIED source:** current Root autoCreateStudioProjectIfNeeded sends
+  cleanDraft to the version API. Active backend screenplay_projects_routes.js
+  POST /projects/:id/version normalizes CRLF and trims the draft, then compares
+  normalized stored text for replay identity. BackendMemoryAPI already sends
+  the original draft; the store normalizer and response preserve their input.
+  Existing one-line marker UI proof does not cover whitespace/line-ending loss.
+- **Done when:** actual handler reproduces loss/replay collisions, raw bytes
+  survive save/read/reload and exact retries, changed bytes under one request ID
+  conflict, empty validation remains, and authenticated native first-project
+  promotion/restoration saves the same source bytes without duplicate projects.
+- **Adjacent source risk to investigate, not a reproduced runtime claim:**
+  promotion also runs at synced playback start on a planned merged draft, before
+  the authoritative committed-write observer; after project creation it saves a
+  version before checking the owner, and the final check lacks generation/draft
+  identity. Reuse current auth/document/commit owners; prove the first failure
+  and fix the actual lifecycle, not a competing writer/auth/persistence system.
+- **Boundary:** keep original heads, orb and Clementine. No paid model call,
+  deployment, secret change or protected-main bypass. Full goal remains active.
+
 ### T-967 — Preserve coverage and context-isolation repairs (historical; current T-1100)
 
 - **Owner:** codex. **Branch:** `codex/T-967-coverage-integration`.
