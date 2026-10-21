@@ -188,12 +188,29 @@
 
 ### T-1105 — Keep asynchronous first-project promotion with its initiating page
 
-- **Owner:** codex. **Branch:** `codex/T-1105-promotion-commit-ownership` (next).
-- **Status:** ready / next data-safety priority BEFORE original #648.
-- **Source risks, not yet runtime reproductions:** Root still calls promotion
-  on a planned merge at synced playback start as well as the committed-write
-  observer. It saves a version before checking owner; its final guard compares
-  user ID and empty project only, not session generation or current draft bytes.
+- **Owner:** codex. **Branch:** `codex/T-1105-promotion-commit-ownership`.
+- **Status:** review (Root/page boundary proven; transport gap T-1107 remains
+  BEFORE original #648).
+- **Checkpoint:** `b65a52f87fe253c83983824960afa945f1c5b6ac`.
+- **VERIFIED:** held real authenticated project-create response plus an actual
+  editor change caused one stale Root-source version submission. Corrected Root
+  rechecks canonical auth/generation/project/exact bytes before version submission
+  and binding/error application. Removed planned-merge promotion at playback
+  start; committed-write and restored-page triggers remain.
+- **Further reproduced failure:** normal restored-page save UI0/1/0 after the
+  new guard. Empty initial project-list hydration cleared the unbound editor,
+  invalidating the save. Fixed the clear at the model owner: only detach a
+  previously loaded project's page, never treat no selection as an empty saved
+  draft. Final signed focused2/0/0, actual authenticated positive/relaunch UI1/0/0
+  and delayed-response/edit UI1/0/0 pass. macOS/D009/diff pass. Earlier full
+  signed844/0/0 precedes only the later model/test correction; not a claimed
+  final full845 run. Actual Stop UI initially0/1/0 reached an already-finished
+  0.168-second fixture; existing longer audio makes the active-interruption
+  precondition meaningful, then Stop UI1/0/0. No paid provider calls. Backend
+  production runtime unchanged; prior Node20 full2900/0/2 reused, new proof
+  proxy checks2/0/0 separately. All failed attempts retained.
+- **Evidence:** `docs/project-promotion-ownership-2026-10-21.md`; home worktrees
+  `_proof/T-1105-20261021.2WLp0I/`. No main/deployment/phone proof claim.
 - **Done when:** delayed project creation plus actual page edits/cancel/account
   generation changes cannot save/bind a stale draft or overwrite the current
   page/status. Preserve real restored-unbound promotion and retry/relaunch
@@ -202,6 +219,31 @@
 - **Not covered by T-1104:** crash between project and version creation, partial
   project/orphan reconciliation or idempotent project creation. Do not call the
   happy-path one-project UI check proof of these adversarial cases.
+
+### T-1107 — Keep project writes with the initiating account across bootstrap/retry
+
+- **Owner:** codex. **Status:** next data-safety boundary after T-1105.
+- **VERIFIED source risk, not a reproduced cross-account write:** both project
+  upsert and version upsert await swallowed bootstrap before constructing their
+  requests from current identity. Version retry can refresh and rebuild headers;
+  response sync updates happen before Root's callback checks. Those callback
+  checks do not prove transport ownership across these awaits.
+- **Done when:** hold actual bootstrap/401 refresh, change login intent, inspect
+  actual outgoing scope and sync application; prevent stale identity work using
+  canonical auth intent/lease owners. Legitimate same-account refresh/bootstrap
+  must still work. Extract a capability only if needed for D009; no second auth
+  framework, logging of credentials, or security claim from pure policy tests.
+
+### T-1108 — Recover interrupted initial project creation without losing source
+
+- **Owner:** codex. **Status:** queued after transport ownership.
+- **Known boundary:** separate metadata-create and initial-version requests are
+  not crash-atomic; dropping a stale create response can leave metadata without
+  a version. Current happy-path one-project proof does not cover crash/retry
+  reconciliation, orphan handling, or idempotent project creation.
+- **Done when:** reproduce interruption at that boundary and recover exact local
+  text without duplicate projects or unauthorized deletion; extend the existing
+  project/outbox capability and additive contracts, not a competing writer store.
 
 ### T-1106 — Reconcile title-page/editor presentation without rewriting source
 
