@@ -3,6 +3,13 @@ import Foundation
 /// Eligibility for the existing restored/committed-page promotion capability.
 /// Auth and exact-document identity stay owned by StudioActionDocumentContext.
 struct ScreenplayRestoredLiveDraftProjectPromotionPolicy {
+    static func committedDraftIsReady(write: ScreenplayCommittedWrite?, draft: String, auth: ScreenplayStudioAuthContext) -> Bool {
+        guard let write, write.isAuthoritativeWrite, write.normalizedProjectID.isEmpty,
+              !auth.userID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+        return ScreenplayStudioAuthContextPolicy.matches(expected: write.authContext, current: auth)
+            && write.committedDraft.utf8.elementsEqual(draft.utf8)
+    }
+
     static func shouldCreateProject(
         isStudioSurfaceActive: Bool,
         draft: String,
