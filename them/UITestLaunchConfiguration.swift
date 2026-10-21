@@ -74,6 +74,14 @@ nonisolated enum UITestLaunchConfiguration {
 
         copyEnvironmentValue("THEM_UITEST_BACKEND_BASE_URL", from: environment, to: "backend_base_url", defaults: defaults)
         seedCredentialEnvironmentValues(from: environment, defaults: defaults)
+        // Use typed storage for multiline restore fixtures: NSArgumentDomain's
+        // property-list parsing can truncate an unquoted title page at a newline.
+        if let ownerID = nonEmptyEnvironmentValue("THEM_UITEST_USER_ID", in: environment),
+           let encoded = nonEmptyEnvironmentValue("THEM_UITEST_RESTORE_UNBOUND_DRAFT_BASE64", in: environment),
+           let bytes = Data(base64Encoded: encoded), let draft = String(data: bytes, encoding: .utf8) {
+            defaults.set(draft, forKey: ScreenplayOwnerScopedStoragePolicy.storageKey(
+                baseKey: "studio_live_draft_text_v1", ownerUserID: ownerID))
+        }
         copyEnvironmentValue("THEM_UITEST_CLIENT_TOKEN_BASE_URL", from: environment, to: "client_token_base_url", defaults: defaults)
         copyEnvironmentDouble("THEM_UITEST_CLIENT_TOKEN_CACHED_AT", from: environment, to: "client_token_cached_at", defaults: defaults)
         copyEnvironmentValue("THEM_UITEST_AUTH_DEBUG_ACCESS_TOKEN", from: environment, to: "auth_debug_access_token", defaults: defaults)
