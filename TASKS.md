@@ -5,6 +5,30 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1089 — Corrected craft routing on the writer candidate
+
+- **Owner:** codex. **Branch:** `codex/T-1089-craft-writer-sync`.
+- **Status:** review (scoped preserving integration proven; original protected
+  landing remains pending). **Pillar:** living companion / writer intent.
+- **Boundary:** preserve original #640 `c8eb36ba` through existing corrected
+  source/proof `2757b8d6`, merged no-ff into current `6c55d9bc` as `b54ea2ba`.
+  No duplicate implementation, squash, replacement PR or original-head change.
+- **Root fixes retained:** planner lexicon rollback; protected craft/mentor
+  content; canonical framework default/client fallback; feature-map precedence
+  even when appended late; context-scoped lexical craft retrieval;110-card
+  data preserved with compact formatting and accurate deployment copy.
+- **Verified:** 87 focused Node checks passed initially; one routing file
+  could not initialize read-only default persistence. That file then passed
+  28/0/0 with writable disposable paths. Offline40-case gate passes. Signed
+  framework selection3/0/0 on erased owned Pro/iOS26.2. No paid provider calls.
+- **D009:** index33581 delta-45; Studio-10/bridge-23/other deltas0 vs main.
+  Full110-card deep equality to original #640; current mentor/cost safeguards
+  and writer billing/security/export paths preserved. No broad suite rerun.
+- **Evidence:** `docs/craft-writer-sync-2026-10-20.md`.
+- **Next:** fix T-948's remaining restored-report/default-selection mismatch
+  before proceeding to original #641. #964 independent review still gates main;
+  production and physical-phone proof remain open.
+
 ### T-1088 — Golden mentor work on the current writer candidate
 
 - **Owner:** codex. **Branch:** `codex/T-1088-mentor-golden-writer-sync`.
