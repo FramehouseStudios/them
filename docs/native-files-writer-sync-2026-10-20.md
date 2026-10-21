@@ -1,8 +1,9 @@
 # Native Files export in the corrected writer candidate
 
-Status: implementation, native save and byte checks passed; fresh external-open
-observation is NOT complete because computer-use reported the Mac locked.
-The human was asked to unlock it manually. No unlock bypass was attempted.
+Status: implementation, native save, byte checks and external opening passed
+on the owned simulator. Computer-use initially reported the Mac locked; the
+human manually unlocked it before the external-open observation. No unlock
+bypass was attempted. Physical-iPhone and shipping-backend proof remain open.
 
 ## Preserved implementation
 
@@ -54,7 +55,7 @@ previous candidate, whose results are not falsely called a new suite here.
 Typed fixture proof is not microphone, model, Apple sign-in or real-phone proof.
 Existing compiler warnings and other-format/macOS/iCloud-provider limits remain.
 
-## Independent saved-byte receipt, with remaining observation gap
+## Independent saved-byte receipt and external-open observation
 
 The documented owned Documents app-group lookup resolves Files LocalStorage.
 Its generated `writer-loop-9ec67ddc8240.md` contains **35 bytes**, exactly
@@ -73,10 +74,15 @@ Current activity text omits the full fixture suffix; no direct UUID-in-log
 correlation is claimed. The native contract checks its expected filename and
 final saved draft, and the recorded picker image/file receipt are retained.
 
-Computer-use could not inspect the live simulator because the Mac is locked.
-Do not relabel the previous T1073 external-open image/file as this run's proof.
-Preserve the current owned simulator/file until manual unlock, then open this
-same export in Files outside THEM and record the observation without a rerun.
+VERIFIED after the human confirmed manual unlock: computer-use selected the
+existing SE simulator, opened Files and selected `writer-loop-9ec67ddc8240`.
+Files accessibility listed the same Markdown filename and 35-byte size. The
+resulting screenshot showed its external preview with the title
+`writer-loop-9ec67ddc8240` and `**WRITER LOOP DRAFT 9EC67DDC8240**` on the page.
+The preview text was visible in the screenshot, not exposed as separate AX
+text; the screenshot was inspected directly. No export or writer-test rerun,
+new file, or old T1073 screenshot substituted for this observation. This is a
+simulator Files opening, not physical-phone or other-format validation.
 
 ## Changed files and publication
 
@@ -121,5 +127,5 @@ fresh exact-head checks/review. The shared backup includes later capabilities:
 never use its final tip wholesale to shortcut an earlier original PR's scope.
 Do not retest or change the stable green #964 head merely to update documents.
 
-Continue status: READY FOR CONTINUE (non-interactive work; external-open step
-requires manual Mac unlock).
+Continue status: READY FOR CONTINUE. External opening is now observed; retain
+the SE file/state while continuing scoped integration and protected review.

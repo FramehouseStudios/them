@@ -5,11 +5,37 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1087 — Preserve mentor core on the current writer candidate
+
+- **Owner:** codex. **Branch:** `codex/T-1087-mentor-core-writer-sync`.
+- **Status:** review (scoped integration/prompt proof complete; protected
+  original landing remains pending). **Pillar:** living companion / voice→scene.
+- **Boundary:** preserve original #638 `6ad41171` with a no-ff merge onto
+  `01fa4948`, not the older broad mentor rehearsal. Preserve every original
+  PR head/base and existing writer, export, billing and security capability.
+- **Root corrections:** specific writer requests outrank unsolicited first-
+  turn pitches; recommend 120 pages flexibly without fixed 110-page beats
+  or padding/truncation. Page output retains priority over mentor prose.
+- **Verification scope:** focused offline Node20 mentor/persona/trimming/page
+  generation and signed mentor/pitch Swift tests; D009/diff. No broad repeats,
+  paid model calls or production changes. Full integrated gates at landing.
+- **Verified:** preserving merge `bfcf1952`; offline Node20 32/0/0; signed
+  Swift10/0/0 on erased owned Pro/iOS26.2. D009 vs main index33626 delta0,
+  Studio-10/bridge-23/others0; production-JS syntax/diff pass. Source, prompt
+  and injected-provider proof, not live-model or physical-phone proof.
+- **External export follow-through:** after manual Mac unlock, the same
+  T-1086 Markdown file opened in Files outside THEM; filename, 35-byte size
+  and exact displayed fixture observed. SE state/file retained.
+- **Evidence:** `docs/mentor-writer-sync-2026-10-20.md`.
+- **Next:** original #639 preserving integration; reconcile its canonical
+  mentor text/parity fixture with these corrections. #964 still needs current
+  independent approval. No scheduled paid evaluation without fresh permission.
+
 ### T-1086 — Native Files export on the corrected billing/security writer
 
 - **Owner:** codex. **Branch:** `codex/T-1086-native-export-writer-sync`.
-- **Status:** in-progress (save/byte proof passed; external-open observation
-  awaits manual Mac unlock). **Pillar:** writer-owned saved/exported pages.
+- **Status:** review (save/byte proof and external-open observation passed
+  on simulator). **Pillar:** writer-owned saved/exported pages.
 - **Boundary:** preserve original #590 through prepared `45a1ed96`, merge
   current integration `f0b5fb5e`; keep all original heads/history unchanged.
 - **Target:** existing FileDocument/coordinator and Document child, exact
@@ -25,12 +51,12 @@
   Signed/erased owned SE/iOS26.2; actual summaries read. Saved provider file35
   bytes equals independent expected Markdown; SHA256304997ef. No Save-retap
   activity found. Actual-main D009 Studio-10/bridge-23/other deltas0; diff clean.
-- **Human observation:** CUA reports Mac locked. Requested manual unlock;
-  do not bypass it or claim fresh external opening from old T1073 evidence.
-  Preserve E8998A6B's state/file; no erasing this simulator until observed.
+- **Human observation:** after the human manually unlocked the Mac, CUA
+  opened the same file in Files; current screenshot displays its exact
+  fixture. No rerun or old T1073 evidence substitution. Preserve SE state.
 - **Evidence:** `docs/native-files-writer-sync-2026-10-20.md`.
-- **Next:** after unlock open this same file in Files; meanwhile continue
-  non-interactive integration work without erasing the held simulator.
+- **Next:** continue scoped integration; fresh landing gates, genuine review
+  and physical-phone proof remain required.
 
 ### T-1073 — Preserve original native Files export in the writer candidate
 
