@@ -16,6 +16,7 @@ import { simulateCoverage } from "./coverage_simulator.js";
 import { lintScreenplay } from "./format_linter.js";
 import { scorePageHeuristic } from "../evals/page_craft/score_page.js";
 import { getFrameworkById, DEFAULT_FRAMEWORK_ID } from "./craft_frameworks.js";
+import { splitFountainDocument, normalizeFountainText } from "./fountain_import.js";
 
 export const COVERAGE_SCHEMA_VERSION = 1;
 export const PILLARS = Object.freeze(["structure", "pacing", "dialogue", "character", "format"]);
@@ -205,16 +206,22 @@ function spokenRead({ title, grade, verdict, overall, pillars, works, missing, m
 }
 
 export function rateScreenplay({ draft = "", title = "", linesPerPage } = {}) {
-  const text = String(draft || "").replace(/\r\n/g, "\n").trim();
+  // Analyze a derived body once; paginate the original document so source
+  // offsets and body text beginning with "Title:" are not reinterpreted.
+  const document = String(draft || "");
+  const parts = splitFountainDocument(document);
+  const body = normalizeFountainText(parts.scriptText);
+  const text = body.trim();
   if (!text) {
     const err = new Error("draft_required");
     err.code = "draft_required";
     throw err;
   }
-  const pagination = paginateScreenplay(text, { linesPerPage });
+  const pagination = paginateScreenplay(document, { linesPerPage });
   const pageCount = pagination.pages.length;
   const lines = text.split("\n");
-  const scenes = splitScenes(lines);
+  const sourceOffset = parts.documentLineOffset + body.match(/^\s*/u)[0].split("\n").length - 1;
+  const scenes = splitScenes(lines).map(scene => ({ ...scene, startLine: scene.startLine + sourceOffset }));
   const coverage = simulateCoverage({ text, pageCount });
   const lint = lintScreenplay({ text });
   const sceneScores = scenes
