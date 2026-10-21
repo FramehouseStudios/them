@@ -5,6 +5,29 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1090 — Reconcile persisted Craft reports with writer selection
+
+- **Owner:** codex. **Branch:** `codex/T-1090-craft-report-selection`.
+- **Status:** in-progress (root code/model-client proof complete; narrow live
+  Studio observation pending). **Pillar:** mobile-first / writer control.
+- **Root:** discovery fills an automatic default before report fetch; old code
+  mistakes nonempty selection for explicit intent. Track intent separately,
+  route picker actions through the model, adopt restored report only for an
+  automatic choice, and scope override writes to the selected report context.
+- **Safety:** late project/version/auth responses and old loading completions
+  cannot apply to a newer load; mismatched response identity is not displayed.
+  Keep a valid available automatic default on project reset. No view observer
+  publishing selection side-effects, new god-view state or architecture.
+- **Verified:** final signed focused10/0/0 on erased owned Pro/iOS26.2, actual
+  summary read. Tests exercise real view model/BackendClient with HTTP stubs,
+  not live backend/provider/voice. Initial9/0/0 preceded final edge-case fixes.
+  D009 index-45/Studio-14/bridge-23/other deltas0 vs main; diff pass. No paid
+  calls or unchanged backend/full-suite reruns. Runtime commit `12396da7`.
+- **Evidence:** `docs/craft-report-selection-2026-10-20.md`.
+- **Next:** observe the restored report/picker/Save Override together against
+  an authenticated disposable backend before closing T-948 or moving to #641.
+  Original protected landing and physical-phone/production gates remain open.
+
 ### T-1089 — Corrected craft routing on the writer candidate
 
 - **Owner:** codex. **Branch:** `codex/T-1089-craft-writer-sync`.
@@ -995,12 +1018,15 @@ change or treat it as merged; original pre-proof text remains in Git history.
 
 ### T-948 — Persisted craft report rail reconciliation
 
-- **Owner:** codex. **Status:** ready. **Pillar:** mobile-first / living companion.
+- **Owner:** codex. **Status:** in-progress (T-1090 root fix/model-client proof).
+  **Pillar:** mobile-first / living companion.
 - **Scope:** prefer a loaded report's framework if the writer has not explicitly
   chosen one; preserve explicit choices. Separate from the T-945 allocator fix.
 - **Done when:** stored Save the Cat report, chip and successful Save Override
   agree; explicit Three-Act selection stays selected. Signed behavioral tests
-  and narrow Studio runtime proof required. Known minor issue, not fixed yet.
+  and narrow Studio runtime proof required. Code/client checks now pass; the
+  narrow running-app observation is pending. See T-1090; do not close from
+  selection-helper tests alone.
 
 | ID   | Title                                              | Owner  | Status            |
 |------|----------------------------------------------------|--------|-------------------|
