@@ -8,7 +8,8 @@
 ### T-1083 — Integrate green editor recovery with the current save/security parent
 
 - **Owner:** codex. **Branch:** `codex/T-1083-editor-foundation-sync`.
-- **Status:** in-progress. **Pillar:** exact typing and acknowledged recovery.
+- **Status:** review (local affected proof passed; original remote unchanged).
+  **Pillar:** exact typing and acknowledged recovery.
 - **Boundary:** original #919 `39ca7c3b`, now hosted-green, plus preserved
   #904 preparation `97ce2453`. Retain both histories; no remote/main change.
 - **Target:** combine the single save-slot/atomic held-save/security fixes
@@ -20,6 +21,14 @@
   local backend/unit/V1 repeat or paid call; fresh landing-head CI still needed.
 - **Publication:** wait for protected lower parents and genuine review;
   advance original PRs normally, no replacement, force push or squash.
+- **Verified:** preserving merge `a69ad159`; signed selected save/model16
+  plus exact typing UI2 =18/0/0, authenticated conflict/relaunch UI1/0/0.
+  Erased owned SE/iOS26.2; native summaries inspected. Five D009 deltas0
+  versus real remote #904; protected editor/typing and parent security/save
+  owners compared byte-identical. No full local suite or paid call.
+- **Next:** preserve-prepare original security #973 on this source; publish
+  original children only after lower protected parents land and fresh checks.
+- **Evidence:** `docs/editor-foundation-sync-2026-10-20.md`.
 
 ### T-1080 — Wait for the seeded page before injecting offline edits
 
