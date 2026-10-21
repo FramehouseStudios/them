@@ -2,18 +2,15 @@ import SwiftUI
 import ScreenplayStudio
 
 /// Read-only stack of printed pages for the current draft: one paper card per
-/// 55-line page, numbered the way a printed script is, with the total count
+/// page preview, with the current density, total count
 /// and screen-time estimate on top. Tapping a page jumps the editor to it.
 struct ScreenplayStudioPagesOverviewView: View {
-    let draft: String
+    let pages: [ScreenplayPageLayout.Page]
+    let linesPerPage: Int
     let title: String
     let onJumpToPage: (BackendScreenplayPaginationPage) -> Void
 
     @Environment(\.dismiss) private var dismiss
-
-    private var pages: [ScreenplayPageLayout.Page] {
-        ScreenplayPageLayout.paginate(draft)
-    }
 
     var body: some View {
         let pages = self.pages
@@ -48,12 +45,12 @@ struct ScreenplayStudioPagesOverviewView: View {
         .accessibilityIdentifier("studio.pages.overview")
     }
 
-    static func summaryLine(pageCount: Int, lineCount: Int) -> String {
+    static func summaryLine(pageCount: Int, lineCount: Int, linesPerPage: Int = ScreenplayPageLayout.defaultLinesPerPage) -> String {
         let pages = ScreenplayPageLayout.summaryText(pageCount: pageCount)
         guard pageCount > 0 else { return pages }
-        let minutes = ScreenplayPageLayout.estimatedMinutes(lineCount: lineCount)
+        let minutes = ScreenplayPageLayout.estimatedMinutes(lineCount: lineCount, linesPerPage: linesPerPage)
         let minuteText = minutes < 1 ? "under a minute" : "about \(Int(minutes.rounded())) min"
-        return "\(pages) · \(minuteText) on screen · \(ScreenplayPageLayout.defaultLinesPerPage) lines per printed page"
+        return "\(pages) · \(minuteText) on screen · \(linesPerPage) lines per printed page"
     }
 
     private func header(pageCount: Int, lineCount: Int) -> some View {
@@ -62,7 +59,7 @@ struct ScreenplayStudioPagesOverviewView: View {
                 .font(IOThemTypography.UI.sectionTitle)
                 .foregroundStyle(Color.herText.opacity(0.90))
                 .lineLimit(1)
-            Text(Self.summaryLine(pageCount: pageCount, lineCount: lineCount))
+            Text(Self.summaryLine(pageCount: pageCount, lineCount: lineCount, linesPerPage: linesPerPage))
                 .font(IOThemTypography.UI.caption)
                 .foregroundStyle(Color.herText.opacity(0.62))
                 .accessibilityIdentifier("studio.pages.overview.summary")
@@ -87,7 +84,7 @@ struct ScreenplayStudioPagesOverviewView: View {
     private func pageCard(_ page: ScreenplayPageLayout.Page, total: Int) -> some View {
         let kinds = ScreenplayPageLayout.classify(page.lines)
         return Button {
-            onJumpToPage(page.backendPage)
+            onJumpToPage(page.backendPage(linesPerPage: linesPerPage))
         } label: {
             VStack(alignment: .leading, spacing: 0) {
                 HStack {

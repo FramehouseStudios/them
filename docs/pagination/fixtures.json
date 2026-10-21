@@ -400,6 +400,58 @@
       }
     },
     {
+      "id": "leading_blank_source_ranges",
+      "linesPerPage": 54,
+      "draft": "\n\nINT. ROOM - DAY\n\nMara waits.\n",
+      "expected": {
+        "lineCount": 3,
+        "renderedLineCount": 3,
+        "pages": [
+          {
+            "page": 1,
+            "startLine": 3,
+            "endLine": 5,
+            "lineCount": 3,
+            "lines": [
+              "INT. ROOM - DAY",
+              "",
+              "Mara waits."
+            ],
+            "firstLine": "INT. ROOM - DAY",
+            "lastLine": "Mara waits.",
+            "moreCount": 0,
+            "contdCount": 0
+          }
+        ]
+      }
+    },
+    {
+      "id": "cr_only_source_ranges",
+      "linesPerPage": 54,
+      "draft": "\r\rINT. ROOM - DAY\r\rMara waits.\r",
+      "expected": {
+        "lineCount": 3,
+        "renderedLineCount": 3,
+        "pages": [
+          {
+            "page": 1,
+            "startLine": 3,
+            "endLine": 5,
+            "lineCount": 3,
+            "lines": [
+              "INT. ROOM - DAY",
+              "",
+              "Mara waits."
+            ],
+            "firstLine": "INT. ROOM - DAY",
+            "lastLine": "Mara waits.",
+            "moreCount": 0,
+            "contdCount": 0
+          }
+        ]
+      }
+    },
+    {
       "id": "unicode_graphemes",
       "linesPerPage": 24,
       "draft": "INT. 船 - NIGHT\n\n李\n👩🏽‍🚀 é 界 listen 👩🏽‍🚀 é 界 listen 👩🏽‍🚀 é 界 listen 👩🏽‍🚀 é 界 listen 👩🏽‍🚀 é 界 listen 👩🏽‍🚀 é 界 listen 👩🏽‍🚀 é 界 listen 👩🏽‍🚀 é 界 listen 👩🏽‍🚀 é 界 listen 👩🏽‍🚀 é 界 listen 👩🏽‍🚀 é 界 listen 👩🏽‍🚀 é 界 listen 👩🏽‍🚀 é 界 listen 👩🏽‍🚀 é 界 listen 👩🏽‍🚀 é 界 listen 👩🏽‍🚀 é 界 listen 👩🏽‍🚀 é 界 listen 👩🏽‍🚀 é 界 listen 👩🏽‍🚀 é 界 listen 👩🏽‍🚀 é 界 listen 👩🏽‍🚀 é 界 listen 👩🏽‍🚀 é 界 listen 👩🏽‍🚀 é 界 listen 👩🏽‍🚀 é 界 listen 👩🏽‍🚀 é 界 listen 👩🏽‍🚀 é 界 listen 👩🏽‍🚀 é 界 listen 👩🏽‍🚀 é 界 listen 👩🏽‍🚀 é 界 listen 👩🏽‍🚀 é 界 listen 👩🏽‍🚀 é 界 listen 👩🏽‍🚀 é 界 listen 👩🏽‍🚀 é 界 listen 👩🏽‍🚀 é 界 listen 👩🏽‍🚀 é 界 listen 👩🏽‍🚀 é 界 listen 👩🏽‍🚀 é 界 listen 👩🏽‍🚀 é 界 listen 👩🏽‍🚀 é 界 listen 👩🏽‍🚀 é 界 listen ",

@@ -118,14 +118,14 @@ function clampLinesPerPage(value) {
 }
 
 function normalizeDraft(draft) {
-  return String(draft ?? "").replace(/\r\n/g, "\n").trim();
+  return String(draft ?? "").replace(/\r\n?/g, "\n");
 }
 
 /**
  * Split the draft into blocks (runs of non-blank lines) with rendered pieces.
  * Each piece: { text, sourceLine (1-based), kind }.
  */
-function buildBlocks(lines, kinds) {
+function buildBlocks(lines, kinds, sourceOffset = 0) {
   const blocks = [];
   let index = 0;
   while (index < lines.length) {
@@ -135,7 +135,7 @@ function buildBlocks(lines, kinds) {
     while (index < lines.length && kinds[index] !== "blank") {
       const kind = kinds[index];
       for (const text of wrapLine(lines[index], CHARS_PER_LINE[kind] || 62)) {
-        pieces.push({ text, sourceLine: index + 1, kind });
+        pieces.push({ text, sourceLine: index + 1 + sourceOffset, kind });
       }
       index += 1;
     }
@@ -146,13 +146,15 @@ function buildBlocks(lines, kinds) {
 
 export function paginateScreenplay(draft, { linesPerPage: requested } = {}) {
   const linesPerPage = clampLinesPerPage(requested);
-  const normalized = normalizeDraft(draft);
+  const source = normalizeDraft(draft);
+  const normalized = source.trim();
   if (!normalized) {
     return { linesPerPage, lineCount: 0, renderedLineCount: 0, pages: [] };
   }
   const lines = normalized.split("\n");
   const kinds = classifyLines(lines);
-  const blocks = buildBlocks(lines, kinds);
+  const sourceOffset = source.match(/^\s*/u)[0].split("\n").length - 1;
+  const blocks = buildBlocks(lines, kinds, sourceOffset);
 
   const pages = [];
   let current = { number: 1, lines: [], sourceLines: [] };

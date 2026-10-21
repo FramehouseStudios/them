@@ -8765,7 +8765,7 @@ actor BackendMemoryAPI {
         title: String = "",
         phase: String = "scene_draft",
         targetPages: Int? = nil,
-        linesPerPage: Int = 55
+        linesPerPage: Int = ScreenplayPageLayout.defaultLinesPerPage
     ) async throws -> BackendReadResult<BackendScreenplayPaginateResponse> {
         _ = try? await bootstrapSession(force: false)
         let trimmedDraft = draft.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -8776,7 +8776,7 @@ actor BackendMemoryAPI {
         var payload: [String: Any] = [
             "draft": draft,
             "phase": phase,
-            "lines_per_page": max(24, linesPerPage),
+            "lines_per_page": min(max(ScreenplayPageLayout.minimumLinesPerPage, linesPerPage), ScreenplayPageLayout.maximumLinesPerPage),
         ]
         if !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             payload["title"] = title

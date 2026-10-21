@@ -339,6 +339,20 @@ test("[screenplay-companion-routes] POST /paginate rejects empty draft with 400"
   });
 });
 
+test("[screenplay-companion-routes] POST /paginate keeps full-document source lines at the default density", async () => {
+  await withTestServer(defaultDeps(), async (baseURL) => {
+    for (const newline of ["\n", "\r\n", "\r"]) {
+      const draft = ['', '', 'INT. ROOM - DAY', '', 'Mara waits.', ''].join(newline);
+      const r = await postJson(baseURL, "/screenplay/paginate", { draft });
+      assert.equal(r.status, 200);
+      assert.equal(r.body.lines_per_page, 54);
+      assert.equal(r.body.line_count, 3);
+      assert.equal(r.body.engine, 'element-aware');
+      assert.deepEqual(r.body.pages.map(p => [p.start_line, p.end_line]), [[3, 5]]);
+    }
+  });
+});
+
 test("[screenplay-companion-routes] POST /paginate clamps lines_per_page to [24, 120]", async () => {
   await withTestServer(defaultDeps(), async (baseURL) => {
     const r = await postJson(baseURL, "/screenplay/paginate", {

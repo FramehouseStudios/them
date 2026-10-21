@@ -62,6 +62,16 @@ test("[pagination] speeches spanning many pages remain bounded and complete", ()
   }
 });
 
+test("[pagination] source ranges preserve leading blank lines and CR-only imports", () => {
+  for (const newline of ["\n", "\r\n", "\r"]) {
+    const draft = ['', '', 'INT. ROOM - DAY', '', 'Mara waits.', ''].join(newline);
+    const result = paginateScreenplay(draft);
+    assert.deepEqual(result.pages.map(p => [p.startLine, p.endLine]), [[3, 5]]);
+    assert.deepEqual(result.pages[0].lines, ['INT. ROOM - DAY', '', 'Mara waits.']);
+    assert.equal(result.lineCount, 3, 'legacy trimmed content count remains stable');
+  }
+});
+
 test("[pagination] a scene heading never ends a page and a cue keeps two lines of speech", () => {
   const filler = Array.from({ length: 20 }, (_, i) => `Action line ${i + 1}.`).join("\n");
   const heading = paginateScreenplay(`${filler}\n\nINT. LATE - NIGHT\n\nThe heading moved with this line.`, { linesPerPage: 24 });

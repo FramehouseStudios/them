@@ -18,7 +18,18 @@ Rules (12-point Courier lines; see NOTICE-opendraft.md for provenance):
 - Blocks longer than a page (long action) overflow line by line.
 - One page ≈ one minute of screen; `est_minutes` uses rendered lines.
 
-`start_line` / `end_line` are 1-based source lines of the draft; a speech split across a break reports its source lines on both pages.
+`start_line` / `end_line` are 1-based source lines of the original draft,
+including leading blank lines. CRLF and CR-only imports normalize to LF for
+layout, without changing source line numbers. The existing `line_count` still
+counts the trimmed content. A speech split across a break reports its source
+lines on both pages; source ranges can overlap and do not identify a wrapped
+character offset by themselves.
+
+Studio's header, overview, inspector cards and Craft fallback share a single
+current draft/density cache. Backend pagination is a recalculation result, not
+an authority for a newer draft or density. This preview model does not yet
+prove that the continuous editor or exported PDF uses the same element model
+(tracked separately as #80); do not infer export parity from these fixtures.
 
 Regenerate the fixtures after a deliberate rule change:
 
