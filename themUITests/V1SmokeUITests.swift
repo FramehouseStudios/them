@@ -949,7 +949,7 @@ final class V1SmokeUITests: XCTestCase {
 
         XCTAssertTrue(rightDrawer.waitForExistence(timeout: writerLoopWait(5)))
         let craftTab = app.buttons["studio.right-panel.craft"]
-        XCTAssertTrue(revealInspectorTab(craftTab, drawer: rightDrawer, in: app))
+        XCTAssertTrue(waitForHittability(of: craftTab, timeout: writerLoopWait(5)), "The pinned Craft tab must be reachable")
         craftTab.tap()
         XCTAssertTrue(waitForSelection(of: craftTab, timeout: writerLoopWait(5)))
         let readPages = app.buttons["studio.craft.coverage.refresh"]
@@ -966,7 +966,7 @@ final class V1SmokeUITests: XCTestCase {
         let verdict = stringValue(coverage.payload["verdict"]).capitalized
         XCTAssertTrue(staticText(containing: "\(grade.label) · \(verdict) · 1 page, 0 scenes", in: app).exists,
                       "The card must describe this writer's saved one-page draft, not another script.")
-        XCTAssertTrue(revealInspectorTab(draftInspector, drawer: rightDrawer, in: app))
+        XCTAssertTrue(waitForHittability(of: draftInspector, timeout: writerLoopWait(5)), "The pinned Draft tab must be reachable")
         if !draftInspector.isSelected {
             draftInspector.tap()
         }
