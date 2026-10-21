@@ -79,4 +79,26 @@ enum ScreenplayCoveragePresentation {
     static func speechText(from notification: Notification) -> String? {
         (notification.userInfo?["text"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
     }
+
+    /// Keep coverage delivery attached to the same root lifetime without
+    /// exposing or duplicating the root's existing speech owner.
+    static func observingSpeech<Content: View>(
+        in content: Content,
+        stop: @escaping () -> Void,
+        speak: @escaping (String) -> Void
+    ) -> some View {
+        content.onReceive(NotificationCenter.default.publisher(for: .themClementineSpeakRequested)) { notification in
+            deliverSpeech(from: notification, stop: stop, speak: speak)
+        }
+    }
+
+    static func deliverSpeech(
+        from notification: Notification,
+        stop: () -> Void,
+        speak: (String) -> Void
+    ) {
+        guard let text = speechText(from: notification) else { return }
+        stop()
+        speak(text)
+    }
 }
