@@ -1111,7 +1111,7 @@ change or treat it as merged; original pre-proof text remains in Git history.
 
 ### T-949 — Prove confirmed Home-to-Studio first-turn writing
 
-- **Owner:** codex. **Status:** in-progress (T-1093 current-parent reconciliation).
+- **Owner:** codex. **Status:** review (T-1093 current-parent local proof).
   **Pillar:** voice-to-scene.
 - **Branch:** `codex/T-949-confirmed-home-page-routing`, based on preserved
   rehearsal `5cfa52bb`. App Store work deferred by the human on 2026-10-16.

@@ -125,6 +125,18 @@ T-949 tree. No private environment files were included in the frozen backend.
 
 ## Remaining work, not hidden by green local fixtures
 
+VERIFIED local savepoint: runtime commit
+`8ffa3992ecbe53c4d4e68c848bb022c47f6ed9c3`, parent `fc873384`.
+Retained current proof:
+`/Users/halfmutantfilms/io.them-worktrees/_proof/T-1093-20261020.nlMyjc/`.
+Includes final-source.tar, implementation.patch, exact changed-files.txt,
+focused native bundle/summary, short Home pair, fixed long-audio bundle/summary,
+Node20 fixture log, final macOS log and D009 JSON. The separate failed-proof
+directory above retains both red runs and the content-free cancellation event.
+This documentation checkpoint changes no proven runtime source. Existing
+integration backup `codex/T-1084-security-foundation-sync` is the normal
+fast-forward save target; original protected PRs remain the landing path.
+
 Fresh #807 read: OPEN/draft, head `d3550a2067a0abf7c784fac3835a96b4c19b19b1`,
 base `codex/T-voice-heard-words-only`. Its shared guarded transcribe-first route
 remains canonical. It initially targets Studio, not Home. Reconcile the Home
