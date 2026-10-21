@@ -38,6 +38,8 @@
 // owner record. Caller-supplied X-User-Id is never trusted.
 
 import express from "express";
+import { createScreenplayProjectInitializer, createEmptyScreenplayProjectRecord } from "./screenplay_project_initialization.js";
+import { createScreenplayVersionRecord } from "./screenplay_version_record.js";
 import {
   defaultResolveScreenplayUserId,
   requireScreenplayUserId,
@@ -152,6 +154,7 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
     throw new Error("mountScreenplayProjectsRoutes: resolveScreenplayUserId must be a function");
   }
   const activeOutlineMutations = new Map();
+  const initializeProject = createScreenplayProjectInitializer({ ...deps, getAuthorizedScreenplayOwner });
 
   function getAuthorizedScreenplayOwner(req, res, stage) {
     const userId = requireScreenplayUserId(req, res, {
@@ -791,7 +794,8 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
 
   // ---------- Phase 2b: write routes ----------
 
-  app.post("/screenplay/projects", express.json({ limit: "512kb" }), async (req, res) => {
+  app.post("/screenplay/projects", express.json({ limit: "2mb" }), async (req, res) => {
+    if (Object.prototype.hasOwnProperty.call(req.body || {}, "initial_draft")) return initializeProject(req, res);
     const owner = await getFreshAuthorizedScreenplayOwner(req, res, "screenplay_project");
     if (!owner) return;
     const now = Date.now();
@@ -821,39 +825,9 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
       || Object.prototype.hasOwnProperty.call(req.body, "studio_exchange_history")
       || Object.prototype.hasOwnProperty.call(req.body, "studioExchangeHistory")
     );
-    const project = existing || {
-      id: requestedProjectId || createScreenplayId("project"),
-      title,
-      archived: false,
-      tags: [],
-      characters: [],
-      setting: "",
-      tone: "",
-      promptSeed: "",
-      logline: "",
-      themeArgument: "",
-      centralQuestion: "",
-      protagonistWant: "",
-      protagonistNeed: "",
-      antagonisticForce: "",
-      actPosition: "",
-      endingImage: "",
-      unresolvedSetups: [],
-      createdAt: now,
-      updatedAt: now,
-      lastPhase: "scene_draft",
-      activeVersionId: "",
-      lastVersionId: "",
-      lastVersionAt: 0,
-      studioThreadViewState: null,
-      studioDiffAcknowledgedKeys: [],
-      studioDiffAcknowledgedEntries: [],
-      studioAskNoteHistory: [],
-      outline: createEmptyScreenplayOutline(),
-      versions: [],
-      collaborators: [],
-      comments: [],
-    };
+    const project = existing || createEmptyScreenplayProjectRecord({
+      id: requestedProjectId || createScreenplayId("project"), title, now, createEmptyScreenplayOutline,
+    });
     project.title = title;
     project.tags = normalizeScreenplayStringList(req.body?.tags, 24, 48);
     project.characters = normalizeScreenplayStringList(req.body?.characters, 24, 48);
@@ -1631,26 +1605,21 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
       ownerActiveProjectId: owner.activeProjectId,
       ownerUpdatedAt: owner.updatedAt,
     };
-    const version = {
+    const version = createScreenplayVersionRecord({
       id: createScreenplayId("version"),
       projectId: project.id,
       phase,
       source,
       clientRequestId,
-      createdAt: now,
-      updatedAt: now,
-      prompt: "",
+      now,
       notes,
-      formatScore: score.formatScore,
-      storyScore: score.storyScore,
-      confidenceClass: score.confidenceClass,
-      warnings: score.warnings,
+      score,
       draft,
       draftExcerpt: buildDraftExcerpt(draft, 220),
       studioWriteAnchors,
       screenplayBindings,
       persistencePending: Boolean(clientRequestId),
-    };
+    });
     project.versions = Array.isArray(project.versions) ? project.versions : [];
     project.versions.unshift(version);
     project.activeVersionId = version.id;

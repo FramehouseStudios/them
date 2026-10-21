@@ -194,6 +194,7 @@ import { mountFountainImportRoute } from "./lib/fountain_import_route.js";
 import { mountFDXExportRoute } from "./lib/fdx_export_route.js";
 import { mountFountainExportRoute } from "./lib/fountain_export_route.js";
 import { mountScreenplayProjectsRoutes } from "./lib/screenplay_projects_routes.js";
+import { normalizeStoredScreenplayVersionRecord } from "./lib/screenplay_version_record.js";
 import { mountScreenplayCompanionRoutes } from "./lib/screenplay_companion_routes.js";
 import { mountRealtimeRoutes } from "./lib/realtime_routes.js";
 import { mountRealtimeClientSecretRoute } from "./lib/realtime_client_secret_route.js";
@@ -9779,28 +9780,8 @@ function createEmptyScreenplayOwner(ownerKey) {
 }
 
 function normalizeStoredScreenplayVersion(entry) {
-  if (!entry || typeof entry !== "object") return null;
-  const id = normalizeSnippet(entry.id, 64);
-  if (!id) return null;
-  return {
-    id,
-    projectId: normalizeSnippet(entry.projectId, 64),
-    phase: normalizeSnippet(entry.phase, 48) || "scene_draft",
-    source: normalizeSnippet(entry.source, 48),
-    clientRequestId: normalizeSnippet(entry.clientRequestId ?? entry.client_request_id, 96),
-    createdAt: Math.max(0, Number(entry.createdAt || 0)),
-    updatedAt: Math.max(0, Number(entry.updatedAt || entry.createdAt || 0)),
-    prompt: normalizeSnippet(entry.prompt, 320),
-    notes: normalizeSnippet(entry.notes, 240),
-    formatScore: Number(entry.formatScore || 0),
-    storyScore: Number(entry.storyScore || 0),
-    confidenceClass: normalizeSnippet(entry.confidenceClass, 24) || "medium",
-    warnings: normalizeScreenplayStringList(entry.warnings, 8, 64),
-    draft: String(entry.draft || ""),
-    draftExcerpt: buildDraftExcerpt(entry.draftExcerpt || entry.draft || ""),
-    studioWriteAnchors: normalizeStoredScreenplayWriteAnchors(entry.studioWriteAnchors || entry.studio_write_anchors),
-    screenplayBindings: normalizeStoredScreenplayBindings(entry.screenplayBindings || entry.screenplay_bindings),
-  };
+  return normalizeStoredScreenplayVersionRecord(entry, { normalizeSnippet, normalizeScreenplayStringList,
+    buildDraftExcerpt, normalizeStoredScreenplayWriteAnchors, normalizeStoredScreenplayBindings });
 }
 
 function normalizeStoredScreenplayWriteAnchor(entry) {
