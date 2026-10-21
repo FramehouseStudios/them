@@ -1676,13 +1676,12 @@ final class ScreenplayStudioViewModel: ObservableObject {
     private var lastSeenScreenplayStateVersion = ""
     private var outlineRevisionProjectID = ""
     private var isCrossDeviceRefreshInFlight = false
-    private var isDraftSaveInFlight = false
     private var outlineMutationRetryTask: Task<Void, Never>?
     private var outlineMutationDrainCoordinator = ScreenplayOutlineMutationDrainCoordinator()
     private var outlineMutationTerminalAcceptance: [String: Bool] = [:]
     private var outlineMutationAwaitedIDs: Set<String> = []
     private var latestOptimisticOutlineMutationByProject: [String: ScreenplayOutlineMutationOutboxEntry] = [:]
-    private var pendingDraftSaveRequest: DraftSaveRequest?
+    private var draftSaveSlot = ScreenplayDraftSaveSlot<DraftSaveRequest>()
     private var shouldQueuePendingDraftSaveAfterFailure = false
     private let localDraftRecoveryStore: ScreenplayLocalDraftRecoveryStore
     private let draftSaveOutbox: ScreenplayDraftSaveOutbox
@@ -1903,7 +1902,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
     }
 
     var debugIsDraftSaveInFlight: Bool {
-        isDraftSaveInFlight
+        draftSaveSlot.isClaimed
     }
     #endif
 
@@ -4243,10 +4242,13 @@ final class ScreenplayStudioViewModel: ObservableObject {
     func runQueuedSaveNetworkFaultUITest(marker: String) async -> Bool {
         let cleanMarker = marker.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanMarker.isEmpty else { return false }
-        for _ in 0..<40 where selectedProject == nil || isLoading || isDraftSaveInFlight || isSaving {
+        for _ in 0..<40 where selectedProject?.id != selectedProjectID || loadedDraftProjectID != selectedProjectID
+            || isLoading || draftSaveSlot.isClaimed || isSaving {
+            guard !Task.isCancelled else { return false }
             try? await Task.sleep(for: .milliseconds(250))
         }
-        guard selectedProject != nil, !isLoading, !isDraftSaveInFlight, !isSaving else { return false }
+        guard !Task.isCancelled, !selectedProjectID.isEmpty, selectedProject?.id == selectedProjectID,
+              loadedDraftProjectID == selectedProjectID, !isLoading, !draftSaveSlot.isClaimed, !isSaving else { return false }
         autosaveEnabled = false
         if !fountainDraft.contains(cleanMarker) {
             let separator = fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -5817,7 +5819,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
     }
 
     func resumeQueuedDraftSavesIfNeeded(force: Bool = false) async {
-        guard !isDraftSaveInFlight,
+        guard !draftSaveSlot.isClaimed,
               !isSaving,
               !isStreamingDraftPreviewActive else {
             return
@@ -5839,8 +5841,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
         let ownerUserId = BackendAuthClient.currentAuthSessionState().user?.userId
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
 
-        isDraftSaveInFlight = true
-        defer { isDraftSaveInFlight = false }
+        let drainContext = currentStudioAuthContext()
+        guard draftSaveSlot.claimForQueue() else { return }
         var completedCount = 0
         while completedCount < 4 {
             let entry: ScreenplayDraftSaveOutboxEntry?
@@ -5865,6 +5867,26 @@ final class ScreenplayStudioViewModel: ObservableObject {
             completedCount += 1
         }
         await refreshDraftSaveOutboxStatus()
+        guard let pending = draftSaveSlot.release() else { return }
+        // Preserve the captured request, not a new save of whichever project
+        // happens to be selected after this drain's asynchronous work.
+        guard authContextIsCurrent(pending.authContext), selectedProjectID == pending.projectId,
+              conflictState == nil || pending.source == "studio_conflict_resolve" else {
+            do {
+                var retained = pending.outboxEntry
+                retained.status = .parked
+                retained.nextAttemptAt = 0
+                retained.lastError = "Save retained after the account, project, or conflict choice changed."
+                try await draftSaveOutbox.enqueue(retained)
+            } catch {
+                guard authContextIsCurrent(pending.authContext), selectedProjectID == pending.projectId else { return }
+                errorText = "Your local draft is preserved, but its waiting save could not be retained: \(error.localizedDescription)"
+            }
+            return
+        }
+        let followsDrain = completedCount > 0 && pending.projectId == projectId
+            && pending.authContext == drainContext && pending.source != "studio_conflict_resolve"
+        await submitDraftSave(followsDrain ? pending.rebased(on: latestVersionID) : pending)
     }
 
     private func adoptQueuedDraftIntoUnchangedEditorIfNeeded(
@@ -5934,11 +5956,26 @@ final class ScreenplayStudioViewModel: ObservableObject {
             return
         }
 
-        if !isDraftSaveInFlight,
-           (try? await draftSaveOutbox.hasActiveEntries(
-               projectId: request.projectId,
-               ownerUserId: request.ownerUserId
-           )) == true {
+        await submitDraftSave(request)
+    }
+
+    private func submitDraftSave(_ request: DraftSaveRequest) async {
+        var next: DraftSaveRequest? = request
+        while let current = next {
+            guard draftSaveSlot.claim(current) else { return }
+            let queuedBehindEarlierSaves = await runClaimedDraftSave(current)
+            next = draftSaveSlot.release()
+            // Behind an earlier save: try the queue now; it keeps its own backoff.
+            if next == nil, queuedBehindEarlierSaves { await resumeQueuedDraftSavesIfNeeded() }
+        }
+    }
+
+    /// Returns true when the request was queued behind earlier unsent saves.
+    private func runClaimedDraftSave(_ request: DraftSaveRequest) async -> Bool {
+        if (try? await draftSaveOutbox.hasActiveEntries(
+            projectId: request.projectId,
+            ownerUserId: request.ownerUserId
+        )) == true {
             do {
                 try await draftSaveOutbox.enqueue(request.outboxEntry)
                 hasUnsavedDraftChanges = true
@@ -5954,24 +5991,14 @@ final class ScreenplayStudioViewModel: ObservableObject {
             } catch {
                 errorText = "Your draft is preserved locally, but its retry could not be queued: \(error.localizedDescription)"
             }
-            return
+            return true
         }
-
-        if isDraftSaveInFlight {
-            pendingDraftSaveRequest = request
-            return
-        }
-
-        isDraftSaveInFlight = true
-        defer { isDraftSaveInFlight = false }
 
         var nextRequest: DraftSaveRequest? = request
         while let activeRequest = nextRequest {
-            pendingDraftSaveRequest = nil
             let didSave = await performDraftSave(activeRequest)
             guard didSave else {
-                let queuedRequest = pendingDraftSaveRequest
-                pendingDraftSaveRequest = nil
+                let queuedRequest = draftSaveSlot.takePending()
                 if shouldQueuePendingDraftSaveAfterFailure,
                    let queuedRequest {
                     do {
@@ -5980,9 +6007,9 @@ final class ScreenplayStudioViewModel: ObservableObject {
                         errorText = "Your newest local draft is preserved, but its retry could not be queued: \(error.localizedDescription)"
                     }
                 }
-                return
+                return false
             }
-            if let queuedRequest = pendingDraftSaveRequest {
+            if let queuedRequest = draftSaveSlot.takePending() {
                 if ScreenplayDraftSaveCoalescingPolicy.shouldCoalesce(
                     activeDraft: activeRequest.draft,
                     activeSource: activeRequest.source,
@@ -6019,6 +6046,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 baseVersionOverride: nil
             )
         }
+        return false
     }
 
     private func performDraftSave(_ request: DraftSaveRequest) async -> Bool {
