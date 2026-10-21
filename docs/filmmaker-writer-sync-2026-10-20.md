@@ -74,6 +74,21 @@ preserved `filmmaker-review-corrections-2026-10-08.md` for historical evidence.
 
 ## Remaining boundary and next implementation
 
+VERIFIED savepoint: runtime preserving merge `b04e16c2` has parents `c730435a`
+and corrected `b85e391f`. A normal fast-forward saved it to the existing
+`codex/T-1084-security-foundation-sync` backup. Remote main remains
+`78b8c94f43b4a11f18c2e61df556b9cd7370e735`; original #641 remains `232098ba`.
+The head-filtered Actions query returned no runs: no fresh hosted green is
+claimed for this backup. Protected original PRs remain the landing path.
+
+Retained proof directory:
+`/Users/halfmutantfilms/io.them-worktrees/_proof/T-1092-20261020.QN5U9o/`.
+It contains source.tar, final/earlier focused logs, the native bundle/log,
+signed-summary.json, god-files.json, Swift source hashes, integration.patch
+and the exact `changed-files.txt` manifest. Private environment files and
+provider credentials are excluded. This checkpoint update is documentation
+only; it does not change the proven runtime source.
+
 VERIFIED GitHub recheck: #964 exact `5faa43d6` has all three required checks
 SUCCESS but remains REVIEW_REQUIRED/BLOCKED. A genuine non-author review is
 required; this local integration cannot bypass it.
