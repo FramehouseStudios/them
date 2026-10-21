@@ -7,6 +7,11 @@ public struct FountainPaginationSource: Equatable, Sendable {
     public let documentLineOffset: Int
     public let hasTitlePage: Bool
 
+    /// Derived layout text only. Preserve the original body/terminators above.
+    public var normalizedScriptText: String {
+        scriptText.replacingOccurrences(of: "\r\n|[\r\u{0085}\u{2028}\u{2029}]", with: "\n", options: .regularExpression)
+    }
+
     public var shouldPaginate: Bool {
         !scriptText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }

@@ -20,7 +20,7 @@
 //     dialogue lines remain on both sides.
 //   - Long action blocks overflow line by line.
 
-import { splitFountainDocument } from "./fountain_import.js";
+import { splitFountainDocument, normalizeFountainText } from "./fountain_import.js";
 
 export const LINES_PER_PAGE = 54;
 export const MIN_LINES_PER_PAGE = 24;
@@ -120,7 +120,7 @@ function clampLinesPerPage(value) {
 }
 
 function normalizeDraft(draft) {
-  return String(draft ?? "").replace(/\r\n?/g, "\n");
+  return normalizeFountainText(draft);
 }
 
 /**

@@ -46,6 +46,21 @@ const flat = [
   "Trust your instinct.",
 ].join("\n");
 
+test("[coverage] title metadata and physical line endings cannot change the same body's read", () => {
+  const body = [sceneBlock(0), sceneBlock(1)].join("\n");
+  const expected = rateScreenplay({ draft: body, title: "Orbit" });
+  for (const separator of ["\n", "\r\n", "\r", "\u2028", "\u2029", "\u0085"]) {
+    const document = ("Title: Orbit\nAuthor: Zoë Chen\n\n" + body).replaceAll("\n", separator);
+    assert.deepEqual(rateScreenplay({ draft: document, title: "Orbit" }), expected, JSON.stringify(separator));
+  }
+});
+
+test("[coverage] a title page alone has no screenplay to grade", () => {
+  for (const draft of ["Title: Orbit\nAuthor: Zoë Chen\n", "Title: Orbit\rAuthor: Zoë Chen\r"]) {
+    assert.throws(() => rateScreenplay({ draft }), error => error.code === "draft_required");
+  }
+});
+
 test("[coverage] grades and verdicts follow studio coverage bands", () => {
   assert.equal(gradeFor(9), "A"); assert.equal(gradeFor(7.4), "B"); assert.equal(gradeFor(5.6), "C"); assert.equal(gradeFor(4.2), "D"); assert.equal(gradeFor(2), "F");
   assert.equal(verdictFor(8.2), "RECOMMEND"); assert.equal(verdictFor(6.5), "CONSIDER"); assert.equal(verdictFor(5), "PASS");

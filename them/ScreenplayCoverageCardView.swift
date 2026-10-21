@@ -26,6 +26,11 @@ struct ScreenplayCoverageCardView: View {
                 .disabled(isLoading)
                 .accessibilityIdentifier("studio.craft.coverage.refresh")
             }
+            Text("Rule-based format and draft-shape estimates, not a professional coverage review or a prediction of story quality.")
+                .font(IOThemTypography.UI.microRegular)
+                .foregroundStyle(Color.herText.opacity(0.62))
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("studio.craft.coverage.method")
             if isLoading {
                 HStack(spacing: IOThemSpacing.Scale.sm) {
                     ProgressView().controlSize(.small)

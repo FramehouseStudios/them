@@ -4599,8 +4599,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
         guard !Task.isCancelled else { return }
         let context = currentCoverageContext()
         let document = FountainTitlePageCodec.parse(context.draft)
-        let draft = document.scriptPageText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !draft.isEmpty else {
+        let draft = context.draft
+        guard !document.scriptPageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             invalidateCoverage()
             return
         }

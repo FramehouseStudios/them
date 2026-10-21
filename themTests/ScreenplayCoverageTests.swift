@@ -28,7 +28,7 @@ final class ScreenplayCoverageTests: XCTestCase {
     }
 
     @MainActor
-    func testCoverageRequestUsesTitleAndOnlyTheScreenplayBody() async throws {
+    func testCoverageRequestPreservesDocumentBytesForSingleServerSideBodyParsing() async throws {
         let vm = makeCoverageVM()
         defer { StudioOutlineRegistry.shared.clearCoverage() }
         let body = "INT. ROOM - NIGHT\n\nA cafe\u{0301} closes."
@@ -37,7 +37,7 @@ final class ScreenplayCoverageTests: XCTestCase {
         var requests = 0
         await vm.refreshCoverage { draft, title in
             requests += 1
-            XCTAssertEqual(Array(draft.utf8), Array(body.utf8))
+            XCTAssertEqual(Array(draft.utf8), Array(vm.fountainDraft.utf8))
             XCTAssertEqual(title, "Orbit")
             return report
         }

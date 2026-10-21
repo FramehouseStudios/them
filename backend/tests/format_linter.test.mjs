@@ -14,6 +14,17 @@ function rules(suggestions) {
   return suggestions.map((s) => s.rule);
 }
 
+test("[format_linter] title metadata is not dialogue and body suggestions retain document ranges", () => {
+  for (const separator of ["\n", "\r\n", "\r", "\u2028", "\u2029", "\u0085"]) {
+    const normalized = "Title: NIGHT SIGNAL\nAuthor: Zoë Chen\n\nINT. ROOM - NIGHT\n\njune\nKeep the light on.";
+    const report = lintScreenplay({ text: normalized.replaceAll("\n", separator) });
+    const cues = report.suggestions.filter(suggestion => suggestion.rule === "character_cue_caps");
+    assert.deepEqual(cues.map(suggestion => [suggestion.line, suggestion.excerpt]), [[6, "june"]]);
+    assert.deepEqual(cues[0].range, [normalized.indexOf("june"), normalized.indexOf("june") + 4]);
+    assert.equal(lintScreenplay({ text: "Title: NIGHT SIGNAL\nAuthor: Zoë Chen\n" }).totalSuggestions, 0);
+  }
+});
+
 // ---------- envelope shape ----------
 
 test("[format_linter] envelope carries schemaVersion + ruleSetVersion + counts", () => {

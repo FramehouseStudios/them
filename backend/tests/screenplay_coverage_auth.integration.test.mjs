@@ -31,6 +31,17 @@ test("[coverage-auth] real backend requires user auth and reads only submitted p
     assert.deepEqual(first.json.characters.map((character) => character.name), ["MARA", "FRANK"]);
     assert.deepEqual(second.json, first.json);
 
+    const titled = await apiRequest(server, "/screenplay/coverage", {
+      method: "POST", headers, json: { title: "Kitchen", draft: ("Title: Kitchen\nAuthor: Zoë\n\n" + draft).replaceAll("\n", "\r") },
+    });
+    assert.equal(titled.status, 200);
+    assert.deepEqual(titled.json, first.json, "Actual HTTP must analyze the same body, not title/line-ending artifacts");
+    const emptyBody = await apiRequest(server, "/screenplay/coverage", {
+      method: "POST", headers, json: { draft: "Title: Kitchen\nAuthor: Zoë\n" },
+    });
+    assert.equal(emptyBody.status, 400);
+    assert.deepEqual(emptyBody.json, { stage: "screenplay_coverage", error: "draft_required" });
+
     const changed = await apiRequest(server, "/screenplay/coverage", {
       method: "POST", headers,
       json: { title: "Roof", draft: "EXT. ROOF - DAWN\n\nJUNE\nDon't look down.\n" },

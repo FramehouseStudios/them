@@ -8795,7 +8795,7 @@ actor BackendMemoryAPI {
         }
         var request = try makeWriteRequest(path: "/screenplay/coverage")
         let payload: [String: Any] = [
-            "draft": trimmedDraft,
+            "draft": draft,
             "title": title,
         ]
         request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
