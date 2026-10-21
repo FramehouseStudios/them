@@ -82,22 +82,103 @@ memoryAPI10865 delta0. Whitespace passes. Backend source is unchanged, so no
 unchanged full backend/unit/V1/macOS or paid golden run was repeated here.
 The SE's previously observed exported file/state was not erased.
 
-## Not covered / next execution
+## Authenticated running-app follow-through
 
-T-948 is not closed yet: observe the real Craft picker, stored report and Save
-Override together against an authenticated disposable localhost backend, then
-confirm explicit switching remains intact. Do not claim that compiling the
-Binding or passing model tests proves those visible UI actions.
+VERIFIED runtime follow-up `6190d61a8c2a08b711127c0757c035d8299963ba`:
+
+- Real UI initially could discover frameworks but did not select its stored
+  report. The Craft request builder omitted the canonical bearer-header helper
+  used elsewhere in BackendClient. App token and caller-supplied user ID are
+  not authentication. Add the existing attachAuthorizationHeader call; do not
+  loosen server authorization or create a fallback identity.
+- Public framework discovery is not a versioned protected report. Capture the
+  protected read's current project/version/auth scope once after discovery,
+  before its retry loop. Never rebind a protected retry across identities.
+  A new model regression covers version/auth convergence during discovery;
+  existing late-response guards remain tested. Initial live-failure attribution
+  to this handoff alone was incomplete: missing bearer wiring was a separate
+  verified blocker. The successful combined path is proven, not an isolated
+  causal measurement of each change in that first failure.
+- The real override then returned200 and was stored, but status feedback was
+  hidden: the view only used infoText when no report existed. Render status
+  with an existing report too, full-width and wrapping, not an optimistic
+  claim. Add stable action identifiers and actual selected-state traits for
+  assistive technology and the real workflow.
+
+Final authenticated localhost UI: **1 passed / 0 failed / 0 skipped**, signed,
+erased owned Pro/iOS26.2/23C54, strict completed summary inspected:
+`/tmp/them-1090-craft-ui.cgZWrx/craft-ui.xcresult` and `summary.json`.
+
+The test uses existing signup/session fixture helpers, a real owned project,
+real saved version and real stored report API. In the app it observes Save the
+Cat selected, opens the Catalyst override, enters page12, taps Save Override,
+observes the acknowledgement, and independently re-analyzes via the API to
+verify the stored override's matching project/version/framework and manual
+status. It selects Three-Act and taps Refresh; backend receipts show the
+second protected report read200 while the explicit choice remains selected.
+
+Screenshots were exported and viewed: the stored-report selection, visible
+"Override saved for catalyst" feedback, and retained Three-Act selection after
+Refresh. Status wraps normally across two lines in the308pt inspector; no
+letter-per-line collapse. This is Pro/light-mode evidence, not an SE,
+Dynamic-Type, dark-mode or physical-device sweep. A metric caption visibly
+truncates to UNAVAI...; tracked separately as T-1091, not claimed polished.
+Historical io.them navigation branding is still visible; no rename claim.
+
+Backend: host Node24.19.0, REQUIRE_USER_AUTH=1, isolated persistence and dummy
+local accounts. OPENAI_API_KEY is empty, Muse/embeddings disabled; a process
+preload blocks non-loopback fetch and records any attempt. Final audit has
+**zero external fetch attempts**. The classifier/logline fallback is explicitly
+unavailable/stub, not live quality evidence. No Apple sign-in, paid model,
+shipping host or physical microphone claim. Backend source itself is unchanged.
+
+The task-owned one-off runner/preload are retained with proof, not added as
+another production framework or a replacement required-gate producer. Existing
+required writer-loop behavior and its actor annotation are preserved. The
+additional Craft case skips without its dedicated local fixture; its strict
+dedicated producer requires one pass and zero skips. A default V1 run therefore
+has an additional fixture-dependent case; that default full run was not
+executed here and no old pass/skip totals are relabeled as current.
+
+### Failed attempts, not hidden retries
+
+- Attempt1: UI0/1/0 at report selection; preserved bundle/hierarchy.
+- Attempt2: compile stop from an accidental duplicate MainActor test
+  annotation; no test execution claimed. Removed duplicate and preserved the
+  original writer test's annotation.
+- Attempt3: model11/0/0, UI0/1/0 at the expanded Page field. Protected report
+  GET200 and selected Save the Cat screenshot prove auth wiring now reaches
+  the server. Failure tree also reports signalterm after interaction failure;
+  no production-crash cause is inferred. The test needed to reveal its new
+  below-fold field; explicit guards now stop before further failed actions.
+- Attempt4: UI0/1/0 at acknowledgement. Server override POST200 and private
+  JSON store independently contain one correctly scoped Catalyst/page12
+  override. This uncovered the actual hidden-status view defect.
+- Attempt5 after rendering status: UI1/0/0. Unchanged model/backend suites
+  were not repeated. Earlier model11 result is separate, not12 fresh passes.
+
+No attempt was retried unchanged merely to obtain green. All native bundles
+and relevant logs are retained privately; no real credentials or writer text
+are committed. Source remains clean after scoped commits. D009 and whitespace
+remain green: index-45, Studio-14, bridge-23, other monitored deltas0 vs main.
+
+## Not covered / next execution
 
 This is not universal Craft cancellation/retry coverage. Analysis/override
 operations retain their existing busy lifetimes; no new cancellation API or
 durable mutation protocol was added. Other Craft operations and full sign-out
 cleanup need their own integrated evidence. D017 runtime target consistency
 and the overall shipping-backend/physical-phone journey remain open.
+Expired Craft-session refresh/retry and caller-selected initial API-host trust
+are not established by this fresh local JWT flow; redirect protection remains
+unchanged. No new full backend/unit/V1/macOS result is claimed.
 
 GitHub #964 was freshly read: exact head5faa43d6, all3 required checks SUCCESS,
 reviewDecision REVIEW_REQUIRED, mergeState BLOCKED. Main78b8c94f and production
 are unchanged; approvals/protections are never bypassed. Save only a scoped
 normal advance of the existing integration backup; preserve original PR heads.
 
-Continue status: READY FOR CONTINUE (narrow authenticated running-app proof).
+Next original boundary verified from actual bases: #641
+`claude/filmmaker-dialogue-port` at232098ba, based on `claude/three-act-port`.
+Read its body and existing correction history before integration. Continue
+status: READY FOR CONTINUE.

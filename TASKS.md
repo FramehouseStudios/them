@@ -8,8 +8,8 @@
 ### T-1090 — Reconcile persisted Craft reports with writer selection
 
 - **Owner:** codex. **Branch:** `codex/T-1090-craft-report-selection`.
-- **Status:** in-progress (root code/model-client proof complete; narrow live
-  Studio observation pending). **Pillar:** mobile-first / writer control.
+- **Status:** review (authenticated local running-app proof complete; protected
+  landing remains pending). **Pillar:** mobile-first / writer control.
 - **Root:** discovery fills an automatic default before report fetch; old code
   mistakes nonempty selection for explicit intent. Track intent separately,
   route picker actions through the model, adopt restored report only for an
@@ -24,9 +24,26 @@
   D009 index-45/Studio-14/bridge-23/other deltas0 vs main; diff pass. No paid
   calls or unchanged backend/full-suite reruns. Runtime commit `12396da7`.
 - **Evidence:** `docs/craft-report-selection-2026-10-20.md`.
-- **Next:** observe the restored report/picker/Save Override together against
-  an authenticated disposable backend before closing T-948 or moving to #641.
-  Original protected landing and physical-phone/production gates remain open.
+- **Live follow-through:** `6190d61a` adds the missing canonical bearer header
+  to Craft requests, captures protected-read scope after public metadata, and
+  renders saved status alongside an existing report. Native UI1/0/0 on an
+  authenticated disposable backend: report/picker agree, visible Save Override
+  acknowledgement and real persisted scope/page12, explicit Three-Act survives
+  Refresh. Zero external fetch attempts. Earlier failed attempts retained.
+  Eleven model checks pass separately; no paid model/phone claim.
+- **Next:** inspect original #641 `232098ba` and reuse existing corrections;
+  keep T-1091 metric-label clipping tracked. Required original landing reviews,
+  integrated-main gates, physical-phone journey and production hold remain.
+
+### T-1091 — Craft metric labels fit a narrow inspector
+
+- **Owner:** codex. **Status:** ready. **Pillar:** accessible mobile-first UI.
+- **Observed:** T-1090's actual Pro screenshot shows the four metric cards
+  truncating the Unavailable caption to "UNAVAI..." in the308pt inspector.
+- **Target:** allow a readable responsive arrangement/full caption and preserve
+  current values, style and honest unavailable-analysis semantics. No new state.
+- **Done when:** actual narrow and large-text rendering shows complete labels;
+  no card becomes an ambiguous abbreviation. Separate from functional T-948.
 
 ### T-1089 — Corrected craft routing on the writer candidate
 
@@ -1018,15 +1035,15 @@ change or treat it as merged; original pre-proof text remains in Git history.
 
 ### T-948 — Persisted craft report rail reconciliation
 
-- **Owner:** codex. **Status:** in-progress (T-1090 root fix/model-client proof).
+- **Owner:** codex. **Status:** review (T-1090 local model and live UI proof).
   **Pillar:** mobile-first / living companion.
 - **Scope:** prefer a loaded report's framework if the writer has not explicitly
   chosen one; preserve explicit choices. Separate from the T-945 allocator fix.
 - **Done when:** stored Save the Cat report, chip and successful Save Override
   agree; explicit Three-Act selection stays selected. Signed behavioral tests
-  and narrow Studio runtime proof required. Code/client checks now pass; the
-  narrow running-app observation is pending. See T-1090; do not close from
-  selection-helper tests alone.
+  and narrow Studio runtime proof required. VERIFIED in T-1090: authenticated
+  local report/picker/real override persistence/explicit switch and Refresh,
+  native UI1/0/0, screenshots inspected. Not phone/provider or main proof.
 
 | ID   | Title                                              | Owner  | Status            |
 |------|----------------------------------------------------|--------|-------------------|
