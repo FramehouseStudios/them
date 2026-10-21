@@ -334,7 +334,14 @@
 
 ### T-1111 — Owner-scoped offline talk recovery and safe duplicate intent
 
-- **Owner:** codex. **Status:** NEXT, before T-1108 and original #648.
+- **Owner:** codex. **Status:** verified checkpoint; T-1108 is next.
+- **Proof:** parent red0/3/0; focused48/0/0 then56/0/0. Full901/1/0 exposed
+  missing explicit replay request-key restoration; fixed, final signed902/0/0.
+  Recovery UI1/0/0 (two helper-selector/navigation reds retained), real Files
+  save/exact bytes/foreign+legacy retention, authenticated writer/export/restore
+  UI1/0/0, macOS0, D009 allfive0/diff pass. No paid calls or fresh backend rerun.
+  `docs/talk-recovery-ownership-2026-10-21.md`. T-1100 synthetic export now
+  visually opened in Files Quick Look; matching SHA256 retained. Not phone proof.
 - **VERIFIED source:** OfflineTalkOutbox's current allEntries/summary and
   deleteParkedEntries are device-wide. Replay rejects a different signed-in
   user but does not protect Data Controls from showing or deleting old-owner
@@ -347,6 +354,18 @@
   Extend the existing queue/ownership capability; no second outbox or migration
   that silently deletes/reassigns historical work. Scope inherited legacy proof
   honestly, and do not claim a phone or production journey from fixtures.
+
+### T-1112 — Reconcile interrupted talk enqueue without adopting unknown owners
+
+- **Owner:** codex. **Status:** queued after T-1108, before original #648.
+- **Source boundary:** enqueue writes a protected body then atomically replaces
+  the manifest. Failure/crash between these can leave a blob without a row.
+  T-1111 intentionally does not unlink it or silently assign historical owners.
+- **Done when:** reproduce the interruption, preserve exact bytes, and provide a
+  crash-safe owner/origin-bound recovery path using the existing outbox/storage
+  capability. Unknown legacy ownership remains quarantined until an explicit
+  policy, not guessed from whichever account is currently signed in. No new
+  parallel queue/store. Prove fail-closed reads, retry/idempotency and UI recovery.
 
 ### T-1108 — Recover interrupted initial project creation without losing source
 
