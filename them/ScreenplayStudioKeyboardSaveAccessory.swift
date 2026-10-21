@@ -23,6 +23,9 @@ extension IOSCursorInsertTextEditor.Coordinator {
         } else if pendingEditorPublications.acknowledge(incomingText) {
             return false
         }
+        if !documentDidChange && !shouldApplyBoundText(incomingText, currentText: textView.text ?? "") {
+            return false
+        }
         return ScreenplayEditorTextBindingPolicy.shouldApplyModelText(
             incomingText: incomingText,
             currentEditorText: textView.text ?? "",

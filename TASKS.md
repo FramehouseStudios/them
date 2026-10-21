@@ -5,6 +5,51 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1093 — Current confirmed Home voice-to-page handoff
+
+- **Owner:** codex. **Branch:** `codex/T-1093-confirmed-home-writer-sync`.
+- **Status:** review (current-parent local proof; protected landing pending).
+  **Pillar:** voice-to-scene / durable writer text.
+- **Scope:** reuse isolated T-949 `6e7138b1` above `fc873384`, not its older
+  cumulative rehearsal. Reconcile its editor gate into the existing package
+  owner, preserving current typing/echo/document-switch safeguards.
+- **Root:** confirmed words open authenticated Studio before preparation;
+  no stale/partial Home instruction, duplicate document writer or partial
+  first-save snapshot. Refused commands no longer count as Home open consent.
+- **Current proof:** signed focused67/0/0; Node20 fixture3/0/0; authenticated
+  running-app Home pair2/0/0 with exact complete saved/relaunched editor text;
+  macOS scaffold pass. Synthetic providers, no microphone/model/phone claim.
+- **Evidence:** `docs/confirmed-home-writer-sync-2026-10-20.md`.
+- **Reopened:** short Home2/0/0 did not settle narration: long raw0/1/0, then
+  instrumented0/1/0. Exact call stack identifies bargeIn from microphone frames.
+  Reused original #623's native simulator policy/tests verbatim; its backend
+  changes remain preserved/deferred, not silently absorbed or dismissed.
+- **Final:** signed focused71/0/0; unchanged failing long-audio workflow1/0/0
+  after the native root fix; final macOS scaffold passes. Both long failures
+  retained, no assertion/timeout relaxation. D009 passes; no paid provider calls.
+- **Next:** save scoped checkpoint; address T-1095 preview-cleanup ownership
+  and T-1094 active-Studio refusals, then continue original #642.
+  #807 remains the canonical later transcribe-first boundary. Main/production
+  holds and independent review requirements remain.
+
+### T-1094 — Respect refused Page commands within active Studio
+
+- **Owner:** codex. **Status:** ready. **Pillar:** writer control / safe voice.
+- **Source finding:** T-1093 filters refused Home-opening verbs, but Studio
+  force/explicit-page signals still inspect the older unfiltered text.
+- **Done when:** actual active-Studio routing with a refused command cannot
+  insert/replace pages; a separate affirmative command remains usable. Check
+  server/task/explicit-target boundaries, not only the Home classifier.
+
+### T-1095 — Preview cleanup must not cancel an unrelated write
+
+- **Owner:** codex. **Status:** ready. **Pillar:** durable voice-to-scene.
+- **Source finding:** cancelStreamingVoiceTurnPreview cancels a stream before
+  checking preview activity. This was NOT T-1093's traced bargeIn caller.
+- **Done when:** inactive preview cleanup leaves a normal stream alone, active
+  preview cancellation still restores its baseline, and explicit Stop/barge-in
+  still interrupts the actual page owner. Prove the real bridge behavior.
+
 ### T-1092 — Preserve corrected filmmaker/dialogue work on writer candidate
 
 - **Owner:** codex. **Branch:** `codex/T-1092-filmmaker-writer-sync`.
@@ -1066,12 +1111,22 @@ change or treat it as merged; original pre-proof text remains in Git history.
 
 ### T-949 — Prove confirmed Home-to-Studio first-turn writing
 
-- **Owner:** codex. **Status:** ready. **Pillar:** voice-to-scene.
+- **Owner:** codex. **Status:** in-progress (T-1093 current-parent reconciliation).
+  **Pillar:** voice-to-scene.
+- **Branch:** `codex/T-949-confirmed-home-page-routing`, based on preserved
+  rehearsal `5cfa52bb`. App Store work deferred by the human on 2026-10-16.
 - **Scope:** current confirmed script request opens authenticated Studio before
   page prompt preparation; never use a previous microphone transcript.
 - **Done when:** Home first utterance writes/saves; everyday/partial/stale words
-  never promote mode; authentication refusal blocks writing. Existing writer
-  UI begins in Studio and does not cover this transition. Runtime proof needed.
+  never promote mode; authentication refusal blocks writing. The prior writer
+  UI begins in Studio; dedicated Home runtime proof is recorded below.
+- **Historical proof, not this combined tree:** local Node20 backend 2,788/0/2; complete signed units 657/0/0;
+  Home pair 2/0/0; long-audio raw 1/0/0; existing writer UI 1/0/0. Scaffold,
+  offline golden, D009 and diff pass. Full evidence and failed attempts:
+  docs/confirmed-home-voice-routing-2026-10-16.md.
+- **Boundary:** deterministic local proof, not shipping/phone/model proof.
+  Preserve #807's canonical transcribe-first implementation and reconcile the
+  raw two-generation path there before production promotion. No main merge.
 
 ### T-947 — Filmmaker/dialogue review corrections
 - Owner: Codex; status: review.

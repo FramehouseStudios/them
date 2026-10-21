@@ -5442,6 +5442,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             || queuedInsertMode == .voiceRevealFinalize
             || queuedInsertMode == .voiceRevealCancel
         let wasStreaming = streamTask != nil || streamingProgress > 0 || hadQueuedSyncedInsert
+        if wasStreaming { traceActiveStreamCancellation(reason: reason) }
         streamTask?.cancel()
         streamTask = nil
         let cancelledSynced = cancelActiveSyncedVoiceInsert(
@@ -11018,6 +11019,11 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
             scheduleDeferredPublicationFlush()
         }
 
+        func shouldApplyBoundText(_ text: String, currentText: String) -> Bool {
+            let base = streamingInsertRange != nil ? streamingInsertBaseText : (voiceRevealContentRange != nil ? voiceRevealBaseText : nil)
+            return ScreenplayDeferredPublicationGate.shouldApplyBoundText(text, currentText: currentText, pendingExpectedText: deferredText?.expected, pendingText: deferredText?.value, activeStreamingBaseText: base)
+        }
+
         private func publishText(_ value: String, requestID: UUID? = nil) {
             guard representableUpdateDepth > 0 else {
                 publishEditorText(value)
@@ -11213,8 +11219,7 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
                 }
 
                 if let text,
-                   self.parent.text == text.expected,
-                   requestIsCurrent(text.requestID) {
+                   ScreenplayDeferredPublicationGate.acceptsNativeTextPublication(expectedBinding: text.expected, currentBinding: self.parent.text, queuedText: text.value, nativeText: self.textView?.text, requestID: text.requestID, activeRequestID: self.parent.insertionRequest?.id) {
                     self.publishEditorText(text.value)
                 }
                 if let activeElement,

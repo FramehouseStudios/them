@@ -3,6 +3,36 @@
 import Foundation
 
 extension RootExperienceView {
+    #if DEBUG
+    /// Injects confirmed words at the Home ingress only; real auth, prompt,
+    /// talk, quality, insertion and save paths still run. Never a mic/model proof.
+    func consumeUITestHomeVoiceTurnIfNeeded() -> Bool {
+        guard IOThemRuntime.isRunningUITests, !isStudioSurfaceActive,
+              let prompt = ProcessInfo.processInfo.environment["THEM_UITEST_HOME_VOICE_PROMPT"],
+              !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+        handleStudioDebugVoiceTurnCommand(token: 949, promptOverride: prompt, projectIDOverride: nil)
+        return true
+    }
+    #endif
+
+    func prepareConfirmedTurnPrompt(
+        _ text: String,
+        allowOpeningStudio: Bool = true,
+        turnKeyNamespace: String = "voice"
+    ) -> PreparedTurnPrompt {
+        ConfirmedStudioTurnPreparation.prepare(
+            transcript: text,
+            isStudioActive: { isStudioSurfaceActive },
+            openStudio: { if allowOpeningStudio { openStudio() } },
+            build: { clean, active in
+                buildPreparedTurnPrompt(
+                    confirmedTranscript: clean, partialHint: clean,
+                    isScreenplayModeOverride: active, turnKeyNamespace: turnKeyNamespace
+                )
+            }
+        )
+    }
+
     func shouldAutoOpenStudioForScriptIntent(_ text: String) -> Bool {
         ScreenplayIntentClassifier.hasExplicitScriptIntent(text)
     }

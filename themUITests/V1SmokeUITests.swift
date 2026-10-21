@@ -274,6 +274,67 @@ final class V1SmokeUITests: XCTestCase {
         XCTAssertTrue(waitForDraft(in: app, containing: "INT. KITCHEN - DAY", timeout: 10))
     }
 
+    @MainActor
+    func test_confirmed_home_voice_turn_opens_studio_writes_and_restores() async throws {
+        try await assertHomeVoiceHandoff(rawAudio: false)
+    }
+
+    @MainActor
+    func test_home_raw_audio_uses_current_server_transcript_writes_and_restores() async throws {
+        try await assertHomeVoiceHandoff(rawAudio: true)
+    }
+
+    @MainActor
+    private func assertHomeVoiceHandoff(rawAudio: Bool) async throws {
+#if os(iOS)
+        let rawPort = ProcessInfo.processInfo.environment["THEM_UITEST_WRITER_LOOP_BACKEND_PORT"] ?? ""
+        guard let port = Int(rawPort), (1...65_535).contains(port) else {
+            throw XCTSkip("A task-owned writer-loop backend is required; a skipped fixture is not proof")
+        }
+        let baseURL = try XCTUnwrap(URL(string: "http://127.0.0.1:\(port)"))
+        let fixture = try await createWriterLoopAuthenticationFixture(baseURL: baseURL)
+        let marker = "HOME VOICE HANDOFF"
+        var environment = fixture.appLaunchEnvironment
+        environment["THEM_UITEST_HOME_VOICE_PROMPT"] = "Write a story about two astronauts who discover the observatory sky is a painted set. Put HOME VOICE HANDOFF on the panel."
+        if rawAudio { environment["THEM_UITEST_HOME_VOICE_RAW_AUDIO"] = "1" }
+        var app = launchApp(submitTransportMode: "live", launchEnvironment: environment)
+        defer { app.terminate() }
+        XCTAssertTrue(element(identifier: "home.surface", in: app).waitForExistence(timeout: 15))
+        XCTAssertFalse(element(identifier: "studio.surface", in: app).exists, "The harness must not pre-open Studio")
+        let talk = app.buttons["home.talk.button"]
+        XCTAssertTrue(waitForHittability(of: talk, timeout: 15))
+        talk.tap()
+        XCTAssertTrue(element(identifier: "studio.surface", in: app).waitForExistence(timeout: 20))
+        XCTAssertTrue(waitForDraft(in: app, containing: marker, timeout: 45), "Confirmed Home speech did not reach the real page path")
+        let editor = textInput("studio.draft.editor", in: app)
+        XCTAssertTrue(waitForTextInputValue(in: editor, containing: "Someone on the other side pulls back.", timeout: 45), "The complete generated scene must reach the native editor, not a truncated preview")
+        let draft = (editor.value as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        XCTAssertEqual(occurrenceCount(of: marker, in: draft), 1)
+        var snapshot: [String: Any] = [:]
+        let selected = waitForRestoreSnapshot(in: app, timeout: 20) { value in
+            snapshot = value
+            return !stringValue(value["selected_project_id"]).isEmpty
+        }
+        guard selected else {
+            XCTFail("First project missing: " + String(describing: snapshot.filter { ["autosave_status_text", "error_text", "draft_character_count"].contains($0.key) }))
+            return
+        }
+        let projectID = try XCTUnwrap(snapshot["selected_project_id"] as? String)
+        _ = try await waitForWriterLoopSavedVersion(projectID: projectID, draft: draft, fixture: fixture, app: app, timeout: 30)
+        app.terminate()
+        environment.removeValue(forKey: "THEM_UITEST_HOME_VOICE_PROMPT")
+        environment.removeValue(forKey: "THEM_UITEST_HOME_VOICE_RAW_AUDIO")
+        app = launchApp(openStudio: true, resetState: false, launchEnvironment: environment)
+        let restoredEditor = textInput("studio.draft.editor", in: app)
+        let exact = NSPredicate { object, _ in
+            ((object as? XCUIElement)?.value as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) == draft
+        }
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: exact, object: restoredEditor)], timeout: 30), .completed)
+#else
+        throw XCTSkip("iPhone-only Home voice handoff")
+#endif
+    }
+
     func test_record_voice_turn_round_trips_to_screenplay() {
         let app = launchApp(
             openStudio: true,

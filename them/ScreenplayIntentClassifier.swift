@@ -17,9 +17,15 @@ enum ScreenplayIntentClassifier {
     }
 
     static func hasExplicitScriptIntent(_ text: String) -> Bool {
-        let normalized = normalize(text)
         let writingVerbs = ["write", "draft", "drafting", "outline", "outlining", "revise", "rewrite", "rewriting", "edit", "editing", "polish", "finish", "build", "develop", "brainstorm", "brainstorming", "start"]
-        let scriptObjects = ["script", "screenplay", "scene", "beat", "slugline", "dialogue", "pilot", "short film", "feature", "movie", "film"]
+        let scriptObjects = ["script", "screenplay", "scene", "story", "beat", "slugline", "dialogue", "pilot", "short film", "feature", "movie", "film"]
+        // A refused command is not permission to open a writing surface. Strip
+        // only its verb phrase, preserving a later affirmative request.
+        let negatedVerbs = (writingVerbs + ["writing", "opening", "open", "go to", "take me to", "switch to", "bring up", "launch"]).joined(separator: "|")
+        let normalized = normalize(text).replacingOccurrences(
+            of: "\\b(?:don't want (?:you )?to|dont want (?:you )?to|do not want (?:you )?to|don't|dont|do not|never|stop|avoid|no need to)\\s+(?:please\\s+)?(?:\(negatedVerbs))\\b",
+            with: " ", options: .regularExpression
+        )
         let opensStudio = normalized.contains(" studio ") && ["open", "go to", "take me to", "switch to", "bring up", "launch"].contains { normalized.contains(" \($0) ") }
         return opensStudio || (writingVerbs.contains { normalized.contains(" \($0) ") } && scriptObjects.contains { normalized.contains(" \($0) ") }) || ["work on my script", "work on the script", "work on a script"].contains { normalized.contains(" \($0) ") }
     }
@@ -51,7 +57,7 @@ enum ScreenplayIntentClassifier {
         "hiding", "secret", "inner life", "the kind of person", "feels flat", "feels thin", "one-note", "one note",
     ]
 
-    private static func normalize(_ text: String) -> String {
+    static func normalize(_ text: String) -> String {
         " " + text.lowercased()
             .replacingOccurrences(of: "\u{2019}", with: "'")
             .replacingOccurrences(of: "[^a-z0-9' ]+", with: " ", options: .regularExpression)

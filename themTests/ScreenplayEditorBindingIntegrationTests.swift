@@ -10,6 +10,20 @@ final class ScreenplayEditorBindingIntegrationTests: XCTestCase {
         override var isFirstResponder: Bool { true }
     }
 
+    func testStreamingBaselineCannotRollbackAnUnfocusedEditorButDocumentSwitchWins() {
+        let coordinator = makeCoordinator(text: .constant("Baseline"))
+        let editor = UITextView()
+        editor.text = "Baseline with native streamed text"
+        coordinator.streamingInsertBaseText = "Baseline"
+        coordinator.streamingInsertRange = NSRange(location: 8, length: 26)
+        XCTAssertFalse(coordinator.shouldApplyModelText(
+            incomingText: "Baseline", to: editor, documentDidChange: false
+        ))
+        XCTAssertTrue(coordinator.shouldApplyModelText(
+            incomingText: "Baseline", to: editor, documentDidChange: true
+        ), "A real project switch must not be blocked by an old stream baseline.")
+    }
+
     func testFreshModelValueUsesHistoricalRenderNotLiveBinding() {
         var model = "Original draft"
         let coordinator = makeCoordinator(text: Binding(get: { model }, set: { model = $0 }))
