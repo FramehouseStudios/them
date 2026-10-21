@@ -3863,7 +3863,7 @@ struct RootExperienceView: View {
                 startConversationLoopIfNeeded()
             },
             onStopTalk: {
-                stopStudioTalkFlow()
+                stopCurrentInteraction()
             },
             onOpenVoiceSettings: {
                 showingVoiceSettings = true
@@ -6055,6 +6055,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
         realtimeAssistantTranscriptFallbackTask?.cancel()
         realtimeAssistantTranscriptFallbackTask = nil
         cancelRealtimeRecovery(clearTurn: true)
+        screenplayDraftBridge.cancelStream(reason: .cancel)
         cancelRealtimeStudioDraftStream(restorePreview: true)
         realtimeTransport.disconnect()
         speculativeTalk.cancel()
@@ -12481,31 +12482,6 @@ Write this approved story direction directly into screenplay pages now. Maintain
         }
     }
 
-    @MainActor
-    private func stopStudioTalkFlow() {
-        conversationLoopEnabled = false
-        pendingGoodbyeStopAfterPlayback = false
-        inFlightTalkTask?.cancel()
-        inFlightTalkTask = nil
-        isTurnSubmitting = false
-        isThinking = false
-        realtimeAssistantTranscriptFallbackTask?.cancel()
-        realtimeAssistantTranscriptFallbackTask = nil
-        cancelRealtimeRecovery(clearTurn: true)
-        cancelRealtimeStudioDraftStream(restorePreview: true)
-        realtimeTransport.disconnect()
-        speculativeTalk.cancel()
-        orbAudio.stop()
-        promptSpeaker.stop()
-        typedReplySpeaker.cancel()
-        voice.markRequestFailed()
-        if voiceTransportMode == .realtimePreview {
-            voice.stopRecording()
-            voice.teardown()
-            return
-        }
-        voice.resumeRecordingIfNeeded()
-    }
 }
 
 private struct InAppNoteItem: Codable, Identifiable, Hashable {

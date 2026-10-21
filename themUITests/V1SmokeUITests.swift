@@ -285,7 +285,12 @@ final class V1SmokeUITests: XCTestCase {
     }
 
     @MainActor
-    private func assertHomeVoiceHandoff(rawAudio: Bool) async throws {
+    func test_home_raw_audio_studio_stop_ends_capture_and_cancels_page() async throws {
+        try await assertHomeVoiceHandoff(rawAudio: true, stopAfterFirstChunk: true)
+    }
+
+    @MainActor
+    private func assertHomeVoiceHandoff(rawAudio: Bool, stopAfterFirstChunk: Bool = false) async throws {
 #if os(iOS)
         let rawPort = ProcessInfo.processInfo.environment["THEM_UITEST_WRITER_LOOP_BACKEND_PORT"] ?? ""
         guard let port = Int(rawPort), (1...65_535).contains(port) else {
@@ -307,6 +312,25 @@ final class V1SmokeUITests: XCTestCase {
         XCTAssertTrue(element(identifier: "studio.surface", in: app).waitForExistence(timeout: 20))
         XCTAssertTrue(waitForDraft(in: app, containing: marker, timeout: 45), "Confirmed Home speech did not reach the real page path")
         let editor = textInput("studio.draft.editor", in: app)
+        if stopAfterFirstChunk {
+            let stop = app.buttons["studio.compact.talk"]
+            XCTAssertTrue(waitForHittability(of: stop, timeout: 10))
+            XCTAssertEqual(stop.label, "Stop talking")
+            stop.tap()
+            let stopped = NSPredicate { object, _ in
+                (object as? XCUIElement)?.label == "Start talking"
+            }
+            XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: stopped, object: stop)], timeout: 5), .completed, "Stop resumed microphone capture instead of ending the session")
+            let baselineRestored = NSPredicate { object, _ in
+                ((object as? XCUIElement)?.value as? String) == ""
+            }
+            XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: baselineRestored, object: editor)], timeout: 5), .completed, "Stop failed to cancel the generated page and restore the empty baseline")
+            try await Task.sleep(nanoseconds: 2_000_000_000)
+            XCTAssertTrue(editor.exists)
+            XCTAssertEqual(editor.value as? String, "", "Cancelled write emitted more text after Stop")
+            XCTAssertEqual(stop.label, "Start talking", "Voice rearmed after Stop")
+            return
+        }
         XCTAssertTrue(waitForTextInputValue(in: editor, containing: "Someone on the other side pulls back.", timeout: 45), "The complete generated scene must reach the native editor, not a truncated preview")
         let draft = (editor.value as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         XCTAssertEqual(occurrenceCount(of: marker, in: draft), 1)

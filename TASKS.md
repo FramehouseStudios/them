@@ -27,7 +27,7 @@
 - **Final:** signed focused71/0/0; unchanged failing long-audio workflow1/0/0
   after the native root fix; final macOS scaffold passes. Both long failures
   retained, no assertion/timeout relaxation. D009 passes; no paid provider calls.
-- **Next:** save scoped checkpoint; address T-1095 preview-cleanup ownership
+- **Next:** saved at `f9235d54`; address T-1095 preview-cleanup ownership
   and T-1094 active-Studio refusals, then continue original #642.
   #807 remains the canonical later transcribe-first boundary. Main/production
   holds and independent review requirements remain.
@@ -43,12 +43,23 @@
 
 ### T-1095 — Preview cleanup must not cancel an unrelated write
 
-- **Owner:** codex. **Status:** ready. **Pillar:** durable voice-to-scene.
+- **Owner:** codex. **Branch:** `codex/T-1095-preview-cancel-ownership`.
+- **Status:** review (scoped current-parent proof; protected landing pending).
+  **Pillar:** durable voice-to-scene / explicit writer control.
 - **Source finding:** cancelStreamingVoiceTurnPreview cancels a stream before
   checking preview activity. This was NOT T-1093's traced bargeIn caller.
 - **Done when:** inactive preview cleanup leaves a normal stream alone, active
   preview cancellation still restores its baseline, and explicit Stop/barge-in
   still interrupts the actual page owner. Prove the real bridge behavior.
+- **Root:** bridge red0/1/0 -> guard fix14/0/0 focused signed/native checks;
+  longer-audio Home/save/relaunch1/0/0. Actual iPhone-simulator Stop button then
+  exposed duplicate handler resuming capture: UI red0/1/0 -> unchanged1/0/0
+  after routing to existing full-stop owner and deleting the duplicate.
+- **Verified:** final macOS scaffold/D009/diff pass; Root shrank24 lines versus
+  parent. Both red runs retained. No paid providers or physical-phone claim.
+- **Evidence:** `docs/preview-cancellation-2026-10-20.md`.
+- **Next:** T-1094 active-Studio refusals, then original #642; original-head
+  review, integrated-main/phone proof and production hold remain.
 
 ### T-1092 — Preserve corrected filmmaker/dialogue work on writer candidate
 

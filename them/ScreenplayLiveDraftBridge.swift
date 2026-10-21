@@ -4873,8 +4873,8 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
     }
 
     func cancelStreamingVoiceTurnPreview() {
-        cancelStream()
         guard isStreamingDraftPreviewActive else { return }
+        cancelStream()
         isStreamingDraftPreviewActive = false
         streamingPreviewText = ""
         streamingPreviewBaseDraft = ""
