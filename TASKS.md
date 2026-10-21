@@ -342,7 +342,7 @@
   UI1/0/0, macOS0, D009 allfive0/diff pass. No paid calls or fresh backend rerun.
   `docs/talk-recovery-ownership-2026-10-21.md`. T-1100 synthetic export now
   visually opened in Files Quick Look; matching SHA256 retained. Not phone proof.
-- **VERIFIED source:** OfflineTalkOutbox's current allEntries/summary and
+- **VERIFIED parent source:** OfflineTalkOutbox's allEntries/summary and
   deleteParkedEntries are device-wide. Replay rejects a different signed-in
   user but does not protect Data Controls from showing or deleting old-owner
   entries. Same-scope same-key deduplication also ignores changed body bytes.
@@ -369,8 +369,22 @@
 
 ### T-1108 — Recover interrupted initial project creation without losing source
 
-- **Owner:** codex. **Status:** voice-binding fix at checkpoint; crash-safe
-  creation remains queued after T-1111 owner-scoped recovery cleanup.
+- **Owner:** codex. **Status:** active; server transaction prerequisite verified,
+  durable client creation intent and wiring are NEXT. Not client-complete.
+- **Server checkpoint:** `370fd41942afbcef53839a96c751f2a3c49d93d2` on parent
+  ae656da, gate correction1ab2239. Atomic opt-in initial_draft contract uses the
+  canonical owner CAS; metadata+first version commit together. Actual backend
+  restart/concurrent/lost-receipt replay preserves exact bytes and one project;
+  late initialization cannot roll back a later version. Route72/0/0, actual
+  restart/store64/0/0, corrected focused87/0/0, full Node20 backend2911/0/2.
+  Index-19/other god deltas0, syntax/diff pass. Native source unchanged; no fresh
+  signed/UI/phone claim. Initial red0/4 and full2776/12/2 preserved/explained.
+  `docs/initial-project-transaction-2026-10-21.md`.
+- **Client source to fix:** Root auto-promotion and ViewModel explicit creation
+  still perform metadata then version requests. Explicit `createProject()` also
+  trims the source into `seededDraft`; eligibility may trim, stored words may
+  not. Bind stable owner/origin/document creation intent before HTTP, preserving
+  newer manual edits and deliberate empty/title-only new-project behavior.
 - **VERIFIED voice failure:** raw-audio page appeared but stayed unbound;
   two actual UI0/1/0 results. Read-only lifecycle counters show1,064 characters
   in committed/editor text, raw UTF8 match=true and streaming idle. Root's UUID-only
