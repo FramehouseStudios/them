@@ -1,4 +1,5 @@
 import Foundation
+import ScreenplayStudio
 
 /// Names a project that the app creates on the writer's behalf (a live draft
 /// promoted to a Studio project). A screenplay's name is never its first line
@@ -7,12 +8,13 @@ enum ScreenplayProjectAutoTitle {
     static let maxLength = 48
 
     static func title(for draft: String, pack: String, now: Date = Date()) -> String {
-        let lines = draft
+        let document = FountainTitlePageCodec.parse(draft)
+        if let titled = cleanedTitle(document.titlePage?.title) { return titled }
+        let lines = document.scriptPageText
             .split(whereSeparator: \.isNewline)
             .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
 
-        if let titled = titlePageTitle(in: lines) { return titled }
         if let fromHeading = lines.lazy.compactMap(sceneHeadingTitle).first { return fromHeading }
 
         let cleanPack = pack.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -24,14 +26,16 @@ enum ScreenplayProjectAutoTitle {
 
     /// Fountain title page: `Title: The Long Night` (case-insensitive key).
     static func titlePageTitle(in lines: [String]) -> String? {
-        for line in lines.prefix(12) {
-            let lower = line.lowercased()
-            guard lower.hasPrefix("title:") else { continue }
-            let value = line.dropFirst("title:".count).trimmingCharacters(in: .whitespacesAndNewlines)
-            let cleaned = clamp(stripMarkup(value))
-            if cleaned.count >= 2 { return cleaned }
-        }
-        return nil
+        cleanedTitle(FountainTitlePageCodec.parse(lines.joined(separator: "\n")).titlePage?.title)
+    }
+
+    private static func cleanedTitle(_ title: String?) -> String? {
+        guard let title else { return nil }
+        let clean = stripMarkup(title).replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        // The short-label limit is for generated suggestions, not a writer's
+        // chosen title. The existing server contract owns its storage limits.
+        return clean.isEmpty ? nil : clean
     }
 
     /// `INT. KITCHEN - NIGHT` → "Kitchen at Night"; `EXT. PORCH` → "Porch".
@@ -53,7 +57,8 @@ enum ScreenplayProjectAutoTitle {
     }
 
     private static func stripMarkup(_ text: String) -> String {
-        text.replacingOccurrences(of: "[*_]+", with: "", options: .regularExpression)
+        text.replacingOccurrences(of: "(?<![\\w\\\\])_([^_]+)_(?!\\w)", with: "$1", options: .regularExpression)
+            .replacingOccurrences(of: "(?<!\\\\)\\*{1,3}([^*]+)\\*{1,3}", with: "$1", options: .regularExpression)
     }
 
     private static func titleCase(_ text: String) -> String {

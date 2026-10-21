@@ -2,6 +2,34 @@ import XCTest
 @testable import them
 
 final class ScreenplayProjectAutoTitleTests: XCTestCase {
+    func testTitleInsideSceneIsNotProjectMetadata() {
+        let draft = "INT. ROOM - NIGHT\n\nOn the monitor:\nTitle: NOT THE PROJECT NAME\n\nA writer waits."
+        XCTAssertEqual(ScreenplayProjectAutoTitle.title(for: draft, pack: ""), "Room at Night")
+        XCTAssertEqual(ScreenplayProjectAutoTitle.title(for: "\nTitle: An action line\n\nEXT. PIER - DAWN\n\nA bell rings.", pack: ""), "Pier at Dawn",
+                       "Use the original first-physical-line metadata boundary, not a trimmed copy.")
+    }
+
+    func testMultilineTitleUsesCanonicalMetadataWithoutChangingDraftBytes() {
+        let draft = "Title:\r\n    The Long\r\n    Night\r\nAuthor: A Writer\r\n\r\nEXT. PIER - DAWN\r\n\r\nA bell rings."
+        let before = Array(draft.utf8)
+        XCTAssertEqual(ScreenplayProjectAutoTitle.title(for: draft, pack: ""), "The Long Night")
+        XCTAssertEqual(Array(draft.utf8), before)
+    }
+
+    func testWriterTitlesKeepSingleCharacterAndLiteralPunctuation() {
+        for title in ["X", "WALL_E", "A_B_C", "彼女", "STAR*MAN"] {
+            XCTAssertEqual(ScreenplayProjectAutoTitle.title(for: "Title: \(title)\n\nINT. ROOM - NIGHT\n\nA robot waits.", pack: ""), title)
+        }
+        XCTAssertEqual(ScreenplayProjectAutoTitle.titlePageTitle(in: ["Title: _*Echo Chamber*_"]), "Echo Chamber")
+        XCTAssertEqual(ScreenplayProjectAutoTitle.titlePageTitle(in: ["Title: The **Long** _Night_"]), "The Long Night")
+    }
+
+    func testWriterTitleIsNotClampedToGeneratedSuggestionLength() {
+        let title = "The Night We Waited Outside the Observatory Until the Last Light Went Out"
+        XCTAssertGreaterThan(title.count, ScreenplayProjectAutoTitle.maxLength)
+        XCTAssertEqual(ScreenplayProjectAutoTitle.title(for: "Title: \(title)\n\nINT. ROOM - NIGHT\n\nA lamp dims.", pack: ""), title)
+    }
+
     func test_first_action_line_is_never_the_title() {
         let draft = "INT. KITCHEN - NIGHT\n\nMARA stands at the sink. She does not turn around.\n\nMARA\nYou said you would call.\n"
         let title = ScreenplayProjectAutoTitle.title(for: draft, pack: "")
