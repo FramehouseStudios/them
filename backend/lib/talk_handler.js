@@ -4169,7 +4169,7 @@ ${directorOutputRule}
     if (studioActionExtraction.stripped || studioActionExtraction.actions.length) {
       reply = studioActionExtraction.spokenText;
       logger.log(
-        `[${rid}] studio_actions=${JSON.stringify(studioActionExtraction.actions)} rejected=${JSON.stringify(studioActionExtraction.rejected)}`
+        `[${rid}] studio_actions_count=${studioActionExtraction.actions.length} rejected_count=${studioActionExtraction.rejected.length}`
       );
     }
     let replyRepaired = false;
