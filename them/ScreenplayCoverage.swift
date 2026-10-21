@@ -72,11 +72,12 @@ enum ScreenplayCoverageRefreshPolicy {
     }
 
     static func shape(of draft: String) -> Shape? {
-        let normalized = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalized = FountainPaginationSource.make(from: draft).normalizedScriptText
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalized.isEmpty else { return nil }
         let lines = normalized.components(separatedBy: "\n")
         let scenes = ScreenplayPageLayout.classify(lines).filter { $0 == .sceneHeading }.count
-        return Shape(pageCount: ScreenplayPageLayout.pageCount(for: normalized), sceneCount: scenes)
+        return Shape(pageCount: ScreenplayPageLayout.pageCount(for: draft), sceneCount: scenes)
     }
 
     static func shouldRefresh(
@@ -86,7 +87,11 @@ enum ScreenplayCoverageRefreshPolicy {
         isStreaming: Bool
     ) -> Bool {
         guard !isRefreshing, !isStreaming else { return false }
-        guard let shape = shape(of: draft) else { return false }
+        return shouldRefresh(current: current, shape: shape(of: draft))
+    }
+
+    static func shouldRefresh(current: BackendScreenplayCoverageReport?, shape: Shape?) -> Bool {
+        guard let shape else { return false }
         guard let current else { return true }
         return current.pageCount != shape.pageCount || current.sceneCount != shape.sceneCount
     }
@@ -94,6 +99,11 @@ enum ScreenplayCoverageRefreshPolicy {
 
 enum ScreenplayCoveragePresentation {
     static let pillarOrder = ["structure", "pacing", "dialogue", "character", "format"]
+    static let earlierSnapshotText = "Earlier snapshot — your pages have changed. Read again for the current draft."
+
+    static func speechText(for report: BackendScreenplayCoverageReport, isCurrent: Bool) -> String {
+        isCurrent ? report.spoken : "This read is from an earlier snapshot, before your latest edits. \(report.spoken)"
+    }
 
     static func title(for pillar: String) -> String {
         switch pillar {

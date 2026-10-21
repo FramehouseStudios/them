@@ -6,6 +6,7 @@ import ScreenplayStudio
 /// hear it in her voice.
 struct ScreenplayCoverageCardView: View {
     let report: BackendScreenplayCoverageReport?
+    var isCurrent: Bool = true
     let isLoading: Bool
     let errorText: String
     let onRefresh: () -> Void
@@ -43,6 +44,13 @@ struct ScreenplayCoverageCardView: View {
                     .font(IOThemTypography.UI.microRegular)
                     .foregroundStyle(Color.herText.opacity(0.7))
             } else if let report {
+                if !isCurrent {
+                    Text(ScreenplayCoveragePresentation.earlierSnapshotText)
+                        .font(IOThemTypography.UI.microRegular)
+                        .foregroundStyle(Color.herText.opacity(0.78))
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("studio.craft.coverage.earlier-snapshot")
+                }
                 reportBody(report)
             } else {
                 Text("Import or write pages and she'll grade what you have so far: structure, pacing, dialogue, character, format.")
@@ -94,9 +102,10 @@ struct ScreenplayCoverageCardView: View {
             }
             noteBlock(title: "The move", lines: [report.move])
             Button {
-                ScreenplayCoveragePresentation.requestSpeech(report.spoken)
+                ScreenplayCoveragePresentation.requestSpeech(
+                    ScreenplayCoveragePresentation.speechText(for: report, isCurrent: isCurrent))
             } label: {
-                Label("Hear her read", systemImage: "waveform")
+                Label(isCurrent ? "Hear her read" : "Hear earlier read", systemImage: "waveform")
                     .font(IOThemTypography.UI.micro)
             }
             .buttonStyle(.borderedProminent)

@@ -129,6 +129,7 @@ struct ScreenplayCraftRailView: View {
     let frameworks: [ScreenplayCraftFrameworkReference]
     let report: ScreenplayCraftReport?
     var coverageReport: BackendScreenplayCoverageReport? = nil
+    var isCoverageReadCurrent: Bool = true
     var isCoverageRefreshing: Bool = false
     var coverageErrorText: String = ""
     var onRefreshCoverage: () -> Void = {}
@@ -170,6 +171,7 @@ struct ScreenplayCraftRailView: View {
             header
             ScreenplayCoverageCardView(
                 report: coverageReport,
+                isCurrent: isCoverageReadCurrent,
                 isLoading: isCoverageRefreshing,
                 errorText: coverageErrorText,
                 onRefresh: onRefreshCoverage

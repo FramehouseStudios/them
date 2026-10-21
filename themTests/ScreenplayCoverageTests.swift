@@ -3,6 +3,137 @@ import XCTest
 
 final class ScreenplayCoverageTests: XCTestCase {
     @MainActor
+    func testConversationDoesNotQuoteAnEarlierDraftRead() throws {
+        let bridge = ScreenplayLiveDraftBridge.shared
+        let originalDraft = bridge.draftText
+        let originalProject = bridge.preferredProjectID
+        defer {
+            StudioOutlineRegistry.shared.clearCoverage()
+            bridge.draftText = originalDraft
+            bridge.preferredProjectID = originalProject
+        }
+        let before = "INT. CAFE - NIGHT\n\nA caf\u{00e9} closes.\n"
+        bridge.preferredProjectID = "coverage-freshness"
+        bridge.draftText = before
+        let context = ScreenplayCoverageContext(auth: .current(), projectID: bridge.preferredProjectID, draft: before)
+        StudioOutlineRegistry.shared.publishCoverage(try decodeSample(), context: context, requestID: UUID())
+        XCTAssertNotNil(StudioCapabilitiesSnapshot.current(bridge: bridge, studioOpen: true).coverage)
+        bridge.draftText = "INT. CAFE - NIGHT\n\nA cafe\u{0301} closes.\n"
+        XCTAssertNil(StudioCapabilitiesSnapshot.current(bridge: bridge, studioOpen: true).coverage,
+                     "A byte-distinct edit must not send the earlier score as current context.")
+        bridge.draftText = before + " "
+        XCTAssertNil(StudioCapabilitiesSnapshot.current(bridge: bridge, studioOpen: true).coverage,
+                     "The production snapshot must compare raw bytes, not trimmed text.")
+        bridge.draftText = before
+        XCTAssertNotNil(StudioCapabilitiesSnapshot.current(bridge: bridge, studioOpen: true).coverage,
+                        "Undoing to the exact read snapshot can reuse its useful result without a request.")
+    }
+
+    func testRefreshShapeUsesBodyAndPhysicalNewlines() {
+        XCTAssertNil(ScreenplayCoverageRefreshPolicy.shape(of: "Title: Orbit\nAuthor: A Writer\n"))
+        let body = "INT. ROOM - NIGHT\n\nA lamp dims.\n\nEXT. PORCH - DAWN\n\nA bird calls."
+        let expected = ScreenplayCoverageRefreshPolicy.Shape(pageCount: 1, sceneCount: 2)
+        for separator in ["\n", "\r\n", "\r", "\u{0085}", "\u{2028}", "\u{2029}"] {
+            let document = "Title: Orbit\nAuthor: A Writer\n\n" + body
+            XCTAssertEqual(ScreenplayCoverageRefreshPolicy.shape(of: document.replacingOccurrences(of: "\n", with: separator)), expected)
+        }
+    }
+
+    @MainActor
+    func testCompletedReadIsRetainedAndLabeledUntilExactSnapshotReturns() async throws {
+        let vm = makeCoverageVM()
+        defer { StudioOutlineRegistry.shared.clearCoverage() }
+        let before = vm.fountainDraft
+        let report = try decodeSample()
+        await vm.refreshCoverage { _, _ in report }
+        XCTAssertTrue(vm.isCoverageReadCurrent)
+        vm.fountainDraft += " A different word."
+        XCTAssertEqual(vm.coverageReport, report, "Keep useful notes from the same writer/project.")
+        XCTAssertFalse(vm.isCoverageReadCurrent)
+        XCTAssertTrue(ScreenplayCoveragePresentation.earlierSnapshotText.contains("Earlier snapshot"))
+        XCTAssertTrue(ScreenplayCoveragePresentation.speechText(for: report, isCurrent: false).hasPrefix("This read is from an earlier snapshot"))
+        vm.fountainDraft = before
+        XCTAssertTrue(vm.isCoverageReadCurrent)
+        XCTAssertEqual(ScreenplayCoveragePresentation.speechText(for: report, isCurrent: true), report.spoken)
+    }
+
+    @MainActor
+    func testAutomaticReadIsQuietAndWordEditsDoNotRequestAgain() async throws {
+        let vm = makeCoverageVM()
+        defer { StudioOutlineRegistry.shared.clearCoverage() }
+        let report = try decodeSample()
+        vm.infoText = "Keep writing."
+        var requests = 0
+        var speechCount = 0
+        let token = NotificationCenter.default.addObserver(forName: .themClementineSpeakRequested,
+            object: nil, queue: nil) { _ in speechCount += 1 }
+        defer { NotificationCenter.default.removeObserver(token) }
+        await vm.refreshCoverageIfNeeded { _, _ in requests += 1; return report }
+        XCTAssertEqual(requests, 1)
+        XCTAssertEqual(vm.coverageReport, report)
+        XCTAssertEqual(vm.infoText, "Keep writing.")
+        XCTAssertEqual(speechCount, 0)
+        vm.fountainDraft += " Another word."
+        await vm.refreshCoverageIfNeeded { _, _ in requests += 1; return report }
+        XCTAssertEqual(requests, 1)
+        XCTAssertFalse(vm.isCoverageReadCurrent)
+        await vm.refreshCoverage { _, _ in requests += 1; return report }
+        XCTAssertEqual(requests, 2)
+        XCTAssertTrue(vm.isCoverageReadCurrent)
+        XCTAssertTrue(vm.infoText.contains("Clementine's read:"), "Explicit reads retain their announcement.")
+    }
+
+    @MainActor
+    func testAutomaticReadBoundsFailedAttemptsButManualRetryAndNewShapeWork() async throws {
+        let vm = makeCoverageVM()
+        defer { StudioOutlineRegistry.shared.clearCoverage() }
+        var requests = 0
+        let offline: (String, String) async throws -> BackendScreenplayCoverageReport = { _, _ in
+            requests += 1
+            throw URLError(.notConnectedToInternet)
+        }
+        await vm.refreshCoverageIfNeeded(request: offline)
+        for _ in 0..<3 {
+            vm.fountainDraft += " word"
+            await vm.refreshCoverageIfNeeded(request: offline)
+        }
+        XCTAssertEqual(requests, 1, "A failed automatic read must not retry after each word.")
+        let report = try decodeSample()
+        await vm.refreshCoverage { _, _ in requests += 1; return report }
+        XCTAssertEqual(requests, 2, "Read again is the explicit recovery action.")
+        vm.fountainDraft += "\n\nEXT. PORCH - DAWN\n\nA bird calls."
+        await vm.refreshCoverageIfNeeded(request: offline)
+        XCTAssertEqual(requests, 3, "A new scene permits a new bounded automatic attempt.")
+        vm.selectedProjectID = "project-b"
+        await vm.refreshCoverageIfNeeded(request: offline)
+        XCTAssertEqual(requests, 4, "Attempts cannot suppress another project's first read.")
+    }
+
+    @MainActor
+    func testAutomaticReadSkipsStreamingInflightEmptyAndUnownedDrafts() async throws {
+        let vm = makeCoverageVM()
+        defer { StudioOutlineRegistry.shared.clearCoverage() }
+        let report = try decodeSample()
+        var requests = 0
+        let fetch: (String, String) async throws -> BackendScreenplayCoverageReport = { _, _ in requests += 1; return report }
+        vm.isStreamingDraftPreviewActive = true
+        await vm.refreshCoverageIfNeeded(request: fetch)
+        vm.isStreamingDraftPreviewActive = false
+        vm.isCoverageRefreshing = true
+        await vm.refreshCoverageIfNeeded(request: fetch)
+        vm.isCoverageRefreshing = false
+        vm.selectedProjectID = ""
+        await vm.refreshCoverageIfNeeded(request: fetch)
+        vm.selectedProjectID = "project-a"
+        vm.fountainDraft = "Title: Orbit\nAuthor: A Writer\n"
+        await vm.refreshCoverageIfNeeded(request: fetch)
+        XCTAssertEqual(requests, 0)
+        vm.fountainDraft = "INT. ROOM - NIGHT\n\nA light dims."
+        await vm.refreshCoverageIfNeeded(request: fetch)
+        XCTAssertEqual(requests, 1)
+    }
+
+    @MainActor
     func testUnicodeEquivalentByteChangeRejectsInflightReadAndSpeech() async throws {
         let vm = makeCoverageVM()
         defer { StudioOutlineRegistry.shared.clearCoverage() }
@@ -160,14 +291,14 @@ final class ScreenplayCoverageTests: XCTestCase {
         await vm.refreshCoverage { _, _ in report }
         auth = ScreenplayStudioAuthContext(userID: "writer-a", sessionIntentGeneration: 2)
         XCTAssertNil(vm.coverageReport)
-        XCTAssertNil(StudioOutlineRegistry.shared.coverage(for: auth, projectID: "project-a"))
+        XCTAssertNil(StudioOutlineRegistry.shared.coverage(for: auth, projectID: "project-a", draft: vm.fountainDraft))
         await vm.refreshCoverage { _, _ in
             await Task.yield()
             auth = ScreenplayStudioAuthContext(userID: "writer-b", sessionIntentGeneration: 3)
             return report
         }
         XCTAssertNil(vm.coverageReport)
-        XCTAssertNil(StudioOutlineRegistry.shared.coverage(for: auth, projectID: "project-a"))
+        XCTAssertNil(StudioOutlineRegistry.shared.coverage(for: auth, projectID: "project-a", draft: vm.fountainDraft))
     }
 
     @MainActor
@@ -184,7 +315,7 @@ final class ScreenplayCoverageTests: XCTestCase {
         DispatchQueue.main.async { drained.fulfill() }
         await fulfillment(of: [drained], timeout: 2)
         XCTAssertEqual(vm.coverageReport, report)
-        XCTAssertEqual(StudioOutlineRegistry.shared.coverage(for: auth, projectID: "project-a"), StudioCoverageSummary(report: report))
+        XCTAssertEqual(StudioOutlineRegistry.shared.coverage(for: auth, projectID: "project-a", draft: vm.fountainDraft), StudioCoverageSummary(report: report))
     }
 
     @MainActor
@@ -195,10 +326,10 @@ final class ScreenplayCoverageTests: XCTestCase {
         let registry = StudioOutlineRegistry.shared
         defer { registry.clearCoverage() }
         registry.publishCoverage(report, context: context, requestID: UUID())
-        XCTAssertNotNil(registry.coverage(for: auth, projectID: "project-a"))
-        XCTAssertNil(registry.coverage(for: auth, projectID: "project-b"))
-        XCTAssertNil(registry.coverage(for: auth, projectID: ""))
-        XCTAssertNil(registry.coverage(for: ScreenplayStudioAuthContext(userID: "writer-b", sessionIntentGeneration: 1), projectID: "project-a"))
+        XCTAssertNotNil(registry.coverage(for: auth, projectID: "project-a", draft: "pages"))
+        XCTAssertNil(registry.coverage(for: auth, projectID: "project-b", draft: "pages"))
+        XCTAssertNil(registry.coverage(for: auth, projectID: "", draft: "pages"))
+        XCTAssertNil(registry.coverage(for: ScreenplayStudioAuthContext(userID: "writer-b", sessionIntentGeneration: 1), projectID: "project-a", draft: "pages"))
     }
 
     @MainActor
