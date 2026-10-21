@@ -39,7 +39,9 @@
 
 ### T-1097 — Finish source-preserving page-contract reconciliation
 
-- **Owner:** codex. **Status:** ready. **Pillar:** durable writer words / pages.
+- **Owner:** codex. **Branch:** `codex/T-1097-source-page-contract`.
+- **Status:** in-progress (source/title/export checkpoint proven, not landed).
+  **Pillar:** durable writer words / pages.
 - **Observed:** original #613 `4143d9c3` remains open and absent here; title
   metadata can still count as screenplay. Production live-paper imports the
   legacy scene-splitting page_flip helper. Its edit consumer reconstructs draft
@@ -51,6 +53,24 @@
   title-only/title+body/long-speech/Unicode and authenticated writer recovery.
 - **Boundary:** no new parser/HTTP/persistence framework, invented writer
   byline, accepted-decision change, original rewrite or unreviewed main merge.
+- **Checkpoint:** original #613 `4143d9c3` preserved by merge `1661fee`; root
+  repairs `aae442509dc1ac5854a57e3d62479f6cd6481a9e`. Title-only is zero pages
+  locally AND on the actual HTTP route; title/body source ranges retain original
+  positions. Fixed single-CRLF first-character loss and upside-down native PDF
+  output. Legacy flip/visual adapters now share the canonical engine; line-edit
+  previews change original spans, reject ambiguous targets, and cannot invoke
+  the orphan unsafe persistence helper. Nothing is saved from rendered pages.
+- **Proof:** Node20 full2858/0/2; signed focused26/0/0 plus package27/0/0;
+  actual native PDF title/body PNGs visually inspected; authenticated writer
+  save/export/relaunch UI1/0/0; longer-audio synthetic ASR/page/save/relaunch
+  UI1/0/0. macOS/D009/diff pass. Prior failed assertions and upside-down PDFs
+  retained. No fresh full themTests, paid-model, physical-phone or main claim.
+- **Evidence:** `docs/title-source-pages-2026-10-21.md`.
+- **Still active:** derived collaboration cursor still uses raw55; live-paper
+  attachment is duplicated in the debug talk branch and receives metadata,
+  not an authoritative complete draft. Swift's two live-paper views have no
+  actual header consumer. Do not call those features connected. Resolve the
+  remaining consumer contract before claiming T-1097 finished; T-1098 follows.
 
 ### T-1098 — Readable narrow Pages navigator
 
