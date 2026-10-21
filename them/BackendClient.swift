@@ -5815,6 +5815,7 @@ final class BackendClient {
         if let token = appToken() {
             request.setValue(token, forHTTPHeaderField: "X-APP-TOKEN")
         }
+        attachAuthorizationHeader(to: &request)
         return request
     }
 
