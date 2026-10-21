@@ -28,6 +28,15 @@ the legacy resume behavior to match Stop, not a new microphone/provider path.
 
 ## Current proof and limits
 
+Local runtime commit `51ec42d8bc06aceb756eea232f32d5e755cb8290`.
+Retained proof:
+`/Users/halfmutantfilms/io.them-worktrees/_proof/T-1095-20261020.Qsq2uE/`.
+Includes both red bundles, focused units, positive Home workflow, final Stop
+workflow, final macOS log, source archive, implementation patch, exact
+changed-files.txt manifest, D009 JSON and native summaries. Documentation-only
+checkpoint changes do not alter the proven runtime. Normal save target remains
+the existing integration backup, not a replacement PR or main.
+
 - Signed focused **14/0/0**, actual summary read: four real-bridge/native-editor
   cancellation tests plus ten existing editor-binding checks. Inactive cleanup
   leaves a normal stream through its complete final request; queued final
@@ -66,7 +75,8 @@ recognition, live reply quality, physical-iPhone proof or a shipping backend.
 
 Not covered: physical audio, Stop before the first remote-render chunk,
 populated-project Stop UI, paid cancellation/refund, in-flight account/project
-changes, broader offline/conflict recovery and full integrated-main gates.
+changes, page-only cancellation affordances after narration ends, broader
+offline/conflict recovery and full integrated-main gates.
 Original independent review and production-credentials hold still apply.
 
 Next: T-1094 active-Studio refusal routing, then original #642 after refreshing
