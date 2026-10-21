@@ -83,7 +83,9 @@
 
 ### T-1098 — Readable narrow Pages navigator
 
-- **Owner:** codex. **Status:** ready. **Pillar:** mobile-first / writer control.
+- **Owner:** codex. **Branch:** `codex/T-1098-narrow-page-navigator`.
+- **Status:** review (locally proven; protected landing pending).
+  **Pillar:** mobile-first / writer control.
 - **Observed source:** inspector still puts a fixed112-point thumbnail next
   to metadata; original #642 adds an overview, not the requested full tab fix.
 - **Done when:** full-width compact cards, current/total/runtime estimate,
@@ -92,6 +94,22 @@
   actions plus no vertical label collapse. Reuse T-1096's canonical snapshot.
 - **Boundary:** preserve orb/Clementine/aesthetic; do not claim PDF/export or
   physical-phone parity from a preview-only UI pass.
+- **Root fixes:** extracted the fixed-width thumbnail layout into one responsive
+  full-width navigator, retaining the real source jump/recalculate handlers.
+  Summary, runtime estimate, previous/next, density/reset and compact page cards
+  have distinct accessible controls. Preview density is explicitly not PDF
+  layout. Fixed canonical Swift/JS pagination stranding a heading before an
+  oversized action paragraph; original words and source ranges remain intact.
+- **Proof:** focused signed native23/0/0; Node20 full2862/0/2; real authenticated
+  Pages UI1/0/0, including exactly one successful HTTP recalculation per press,
+  exact retained UTF8 and no extra saved version. Native typing + original page
+  overview2/0/0. Complete230pt component and actual iPhone app screenshots
+  visually inspected; macOS/D009/diff pass. Earlier compile/UI failures retained
+  and explained; no full themTests, real-phone or paid-model claim.
+- **Evidence:** `docs/narrow-pages-navigator-2026-10-21.md`.
+- **Next:** original #643 reconciliation; retain original #597 as the existing
+  cue-linter repair for the false title/action warnings seen in Pages proof.
+  No main merge or production deployment; #964 still requires independent review.
 
 ### T-1093 — Current confirmed Home voice-to-page handoff
 
