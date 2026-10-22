@@ -473,18 +473,37 @@
   see `docs/offline-talk-reply-review-2026-10-21.md`. Final signed925/0/0,
   actual intercepted raw-voice/write/restore UI1/0/0; review/close/relaunch/export
   UI1/0/0. Runtime4943017; original heads/main preserved.
-  Next: full metadata custody and document-safe page/audio handoff, with durable
-  insertion identity before ack. Do not declare complete from review/export.
+  Full metadata custody now implemented in Runtimef8db1d7; see
+  `docs/offline-talk-metadata-custody-2026-10-21.md`. Signed928/0/0 on metadata
+  runtime; final view-only fallback covered by review UI1/0/0 and macOS build.
+  Final intercepted voice/write/restore UI1/0/0; Node20 source contracts7/0/0.
+  Next: T-1117 metadata read isolation, server result durability and document-
+  safe page/audio handoff with durable insertion identity before ack. Do not
+  declare complete from review/export or successful capture alone.
   Prioritize proving delivery of a potentially missing core-loop result over
   additional recovery UI for already-retained project setup bytes.
-- **Source observation:** OfflineTalkOutbox handles HTTP2xx by settling/removing
-  the request; it does not itself deliver the response body to Clementine/page
-  presentation. Determine whether server persistence/canonical cross-device
-  hydration covers each bound/unbound talk path. Do not assume it does.
+- **Original failure:** Before9ac8c30, HTTP2xx settled/removed an undelivered
+  reply. It now retains that response and can capture full metadata, but does
+  not yet deliver it to Clementine/page presentation. Determine whether server
+  persistence covers each bound/unbound path; successful capture is not proof
+  of atomic server result durability or complete client delivery.
 - **Done when:** prove an actual queued turn's authenticated HTTP response,
   durable receipt, relevant spoken/page result and relaunch restoration. Retain
   any undelivered result safely through crashes, owner/origin changes and retry.
   Reuse canonical talk/result/receipt handling; no second conversation store.
+
+### T-1117 — Verify and harden turn metadata owner isolation
+
+- **Owner:** codex. **Status:** NEXT before automatic T-1116 page delivery.
+- **Source concern:** index.js `canReadTalkTurnMeta` can fall through a known
+  authenticated-user/metadata-owner mismatch to an old client-token match or
+  missing-session allowance. Actual predicate fixture returns true; an external
+  HTTP exploit is unproven because production middleware has not been tested.
+- **Done when:** real two-account authenticated local HTTP checks, without the
+  `them-dev` bypass, reject cross-owner access even with the earlier owner's
+  client token/header. Preserve valid owner reads and intentional ownerless
+  legacy behavior; extract one capability without growing index.js. Record
+  required backend/auth regression and current signed-client proof accurately.
 
 ### T-1106 — Reconcile title-page/editor presentation without rewriting source
 
