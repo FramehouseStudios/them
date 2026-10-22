@@ -172,6 +172,7 @@ import {
   normalizeOutlineRevision,
 } from "./lib/screenplay_outline_protocol.js";
 import { mountTalkPipelineRoutes } from "./lib/talk_pipeline.js";
+import { createTalkTurnReadPolicy } from "./lib/talk_turn_read_policy.js";
 import { createPageReservationStore } from "./lib/clementine/page_cancel.js";
 import { createWalletStore } from "./lib/clementine/wallet.js";
 import {
@@ -5562,7 +5563,7 @@ function storeTalkTurnMeta({
   talkTurnMetaById.set(normalizedTurnId, {
     turnId: normalizedTurnId,
     sessionId: String(sessionId || "").trim(),
-    userId: normalizeScreenplayOwnerValue(userId, "user"),
+    userId: String(userId || "").trim(),
     stateVersion: String(stateVersion || "").trim(),
     transcript: normalizeSnippet(transcript, 6_000),
     reply: normalizeSnippet(reply, 8_000),
@@ -5652,7 +5653,7 @@ function readTalkTurnMeta(turnId = "", now = Date.now()) {
   return {
     turnId: normalizedTurnId,
     sessionId: String(entry.sessionId || "").trim(),
-    userId: normalizeScreenplayOwnerValue(entry.userId, "user"),
+    userId: String(entry.userId || "").trim(),
     stateVersion: String(entry.stateVersion || "").trim(),
     transcript: String(entry.transcript || ""),
     reply: String(entry.reply || ""),
@@ -7608,33 +7609,7 @@ function consumeSpeculativeTalkPrepared({
   };
 }
 
-function canReadTalkTurnMeta(req, meta) {
-  if (!meta || typeof meta !== "object") return false;
-  const appToken = String(req.get("X-APP-TOKEN") || "").trim();
-  const ip = normalizeClientIp(clientIp(req));
-  if (
-    process.env.NODE_ENV !== "production"
-    && appToken === "them-dev"
-    && (ip === "127.0.0.1" || ip === "::1" || ip === "::ffff:127.0.0.1")
-  ) {
-    return true;
-  }
-  const sessionId = String(meta.sessionId || "").trim();
-  const metaUserId = normalizeScreenplayOwnerValue(meta.userId, "user");
-  const requestUserId = normalizeScreenplayOwnerValue(req.authUser?.id || req.userId, "user");
-  if (metaUserId && requestUserId && metaUserId === requestUserId) {
-    return true;
-  }
-  if (!sessionId) return true;
-  const token = normalizeClientToken(req.get("X-Client-Token"));
-  if (token) {
-    return sessionId === token || sessionId === `ip:${ip}`;
-  }
-  if (sessionId.startsWith("ip:")) {
-    return sessionId === `ip:${ip}`;
-  }
-  return false;
-}
+const canReadTalkTurnMeta = createTalkTurnReadPolicy({ clientIp, normalizeClientIp, normalizeClientToken });
 
 function deriveBackendRuntimeStatus() {
   const metrics = summarizeTalkMetrics();
