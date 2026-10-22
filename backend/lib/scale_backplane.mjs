@@ -4,6 +4,15 @@ import { randomUUID } from "node:crypto";
 
 const TALK_IDEMPOTENCY_DOMAIN = "talk_idempotency";
 
+class TalkIdempotencyCapacityError extends Error {
+  constructor(capacity) {
+    super(`talk idempotency capacity exhausted (${capacity})`);
+    this.name = "TalkIdempotencyCapacityError";
+    this.code = "TALK_IDEMPOTENCY_CAPACITY";
+    this.capacity = capacity;
+  }
+}
+
 function nowMs() {
   return Date.now();
 }
@@ -230,6 +239,13 @@ export async function createScaleBackplane({
     postgresEnabled: false,
     outbox: new FileOutboxStore(outboxFilePath || path.resolve(process.cwd(), "outbox_store.json")),
   };
+  let idempotencyAdmissionChain = Promise.resolve();
+
+  function withIdempotencyAdmissionLock(operation) {
+    const next = idempotencyAdmissionChain.then(operation, operation);
+    idempotencyAdmissionChain = next.catch(() => {});
+    return next;
+  }
 
   async function initRedis() {
     const url = String(redisUrl || "").trim();
@@ -580,36 +596,41 @@ export async function createScaleBackplane({
     if (!key) return;
     const encoded = encodeIdempotencyRecord(value);
     if (persistence && typeof persistence.put === "function") {
-      try {
-        await persistence.put({ domain: TALK_IDEMPOTENCY_DOMAIN, key, value: encoded });
-      } catch (err) {
-        logger?.log?.(`[scale_backplane] idempotency_persistence_set_error key=${key} err=${String(err?.message || err)}`);
+      if (typeof persistence.list !== "function" || typeof persistence.delete !== "function") {
+        const err = new Error("durable idempotency admission requires persistence list/delete methods");
+        err.code = "TALK_IDEMPOTENCY_CAPACITY_UNAVAILABLE";
         throw err;
       }
-      if (typeof persistence.list === "function" && typeof persistence.delete === "function") {
+      const capacity = Math.min(10_000, toPositiveInt(maxEntries, 160));
+      await withIdempotencyAdmissionLock(async () => {
         try {
           const rows = await persistence.list({
             domain: TALK_IDEMPOTENCY_DOMAIN,
-            limit: Math.min(10_000, Math.max(1_000, Number(maxEntries || 160) + 256)),
+            limit: Math.min(10_000, Math.max(1_000, capacity + 1)),
           });
           const current = nowMs();
-          const live = [];
+          let liveCount = 0;
+          let updatesExisting = false;
           for (const row of rows) {
             if (isExpiredIdempotencyRecord(row?.value, current)) {
               await persistence.delete({ domain: TALK_IDEMPOTENCY_DOMAIN, key: row.key });
             } else {
-              live.push(row);
+              liveCount += 1;
+              if (row.key === key) updatesExisting = true;
             }
           }
-          live.sort((a, b) => Number(a?.value?.createdAt || 0) - Number(b?.value?.createdAt || 0));
-          const overflow = Math.max(0, live.length - Math.max(1, Number(maxEntries || 160)));
-          for (let i = 0; i < overflow; i += 1) {
-            await persistence.delete({ domain: TALK_IDEMPOTENCY_DOMAIN, key: live[i].key });
+          if (!updatesExisting && liveCount >= capacity) {
+            throw new TalkIdempotencyCapacityError(capacity);
           }
+          // This lock closes same-process list/put races. The generic adapter
+          // cannot make admission atomic across multiple backend processes;
+          // clustered Postgres needs a transactional/advisory-lock extension.
+          await persistence.put({ domain: TALK_IDEMPOTENCY_DOMAIN, key, value: encoded });
         } catch (err) {
-          logger?.log?.(`[scale_backplane] idempotency_prune_error err=${String(err?.message || err)}`);
+          logger?.log?.(`[scale_backplane] idempotency_persistence_set_error key=${key} err=${String(err?.message || err)}`);
+          throw err;
         }
-      }
+      });
     }
     if (state.redisEnabled && state.redis) {
       try {
@@ -684,4 +705,9 @@ export async function createScaleBackplane({
   };
 }
 
-export { TALK_IDEMPOTENCY_DOMAIN, encodeIdempotencyRecord, decodeIdempotencyRecord };
+export {
+  TALK_IDEMPOTENCY_DOMAIN,
+  TalkIdempotencyCapacityError,
+  encodeIdempotencyRecord,
+  decodeIdempotencyRecord,
+};
