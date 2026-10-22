@@ -357,7 +357,21 @@
 
 ### T-1112 — Reconcile interrupted talk enqueue without adopting unknown owners
 
-- **Owner:** codex. **Status:** queued after T-1108, before original #648.
+- **Owner:** codex. **Status:** verified local checkpoint on
+  `codex/T-1112-interrupted-talk-enqueue`; not phone or production proof.
+- **Proof:** parent0/2/0; first affected26/1/0 exposed cached legacy recovery
+  regression, fixed without changing that assertion. Affected32/0/0; full918
+  then final919/0/0 after producer-origin guard. Recovery UI2/0/0; final export/
+  deletion UI1/0/0 with exact307-byte artifact and foreign/unassigned bodies
+  retained. Actual writer/export/relaunch1/0/0; macOS0, D009 allfive0/diff pass.
+  Node20 source contracts7/0/0; backend unchanged, inherited full2912/0/2.
+  `docs/interrupted-talk-enqueue-recovery-2026-10-21.md`.
+  Runtimec1e9255. Next T-1116 accepted-response handoff proof, then T-1113;
+  no paid model, main merge, original-head update, deployment or phone claim.
+- **Reproduction:** signed parent0/2/0: actual body-write/manifest-failure loses
+  the owned entry on relaunch; unreferenced legacy bytes have no quarantine
+  notice. New self-describing protected bodies recover only as held work; old
+  unknown-owner bytes remain quarantined. Settled markers prevent resurrection.
 - **Source boundary:** enqueue writes a protected body then atomically replaces
   the manifest. Failure/crash between these can leave a blob without a row.
   T-1111 intentionally does not unlink it or silently assign historical owners.
@@ -415,7 +429,8 @@
 
 ### T-1113 — Recover retained initial setups after document navigation
 
-- **Owner:** codex. **Status:** queued after T-1112, before original #648.
+- **Owner:** codex. **Status:** queued after T-1116 response handoff proof,
+  before original #648. Bytes are retained; discoverability is still incomplete.
 - T-1108 refuses stale receipt binding and retains immutable original text and
   receipt identity in the existing outbox. Current-document Finish setup works;
   deliberately abandoned/navigated documents need a discoverable owner/origin-
@@ -444,6 +459,22 @@
   power-loss guarantee. Reproduce before changing the canonical journal.
 - **Done when:** measure input latency/IO count and exact restore after immediate
   termination; handle an actual failed journal write without a false saved claim.
+  Include T-1112's maximum25MiB binary-body settlement rewrite cost; it is not
+  measured and must not be described as a performance improvement.
+
+### T-1116 — Deliver an accepted offline talk response to the writer
+
+- **Owner:** codex. **Status:** NEXT after T-1112, before T-1113 or original #648.
+  Prioritize proving delivery of a potentially missing core-loop result over
+  additional recovery UI for already-retained project setup bytes.
+- **Source observation:** OfflineTalkOutbox handles HTTP2xx by settling/removing
+  the request; it does not itself deliver the response body to Clementine/page
+  presentation. Determine whether server persistence/canonical cross-device
+  hydration covers each bound/unbound talk path. Do not assume it does.
+- **Done when:** prove an actual queued turn's authenticated HTTP response,
+  durable receipt, relevant spoken/page result and relaunch restoration. Retain
+  any undelivered result safely through crashes, owner/origin changes and retry.
+  Reuse canonical talk/result/receipt handling; no second conversation store.
 
 ### T-1106 — Reconcile title-page/editor presentation without rewriting source
 
