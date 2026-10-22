@@ -477,8 +477,9 @@
   `docs/offline-talk-metadata-custody-2026-10-21.md`. Signed928/0/0 on metadata
   runtime; final view-only fallback covered by review UI1/0/0 and macOS build.
   Final intercepted voice/write/restore UI1/0/0; Node20 source contracts7/0/0.
-  Next: T-1117 metadata read isolation, server result durability and document-
-  safe page/audio handoff with durable insertion identity before ack. Do not
+  T-1117 metadata read isolation is locally verified in6b2d83d. Next: document-
+  safe page/audio handoff with durable insertion identity before ack, plus
+  the server result durability window. Do not
   declare complete from review/export or successful capture alone.
   Prioritize proving delivery of a potentially missing core-loop result over
   additional recovery UI for already-retained project setup bytes.
@@ -494,11 +495,15 @@
 
 ### T-1117 — Verify and harden turn metadata owner isolation
 
-- **Owner:** codex. **Status:** NEXT before automatic T-1116 page delivery.
-- **Source concern:** index.js `canReadTalkTurnMeta` can fall through a known
-  authenticated-user/metadata-owner mismatch to an old client-token match or
-  missing-session allowance. Actual predicate fixture returns true; an external
-  HTTP exploit is unproven because production middleware has not been tested.
+- **Owner:** codex. **Status:** VERIFIED locally in Runtime6b2d83d; not deployed.
+- **Root issue:** real local two-account HTTP reproduced B reading A's reply
+  with A's previous client token, despite required JWT auth and no dev bypass.
+  Fixed known-owner fallback and repeated owner-ID prefixing; extracted the
+  policy and shrank index.js by25lines. Production was not probed or changed.
+- **Proof:** red0/1/0; focused14/0/0; fresh Node20 backend2915/0/2; current
+  signed client voice/write/restore UI1/0/0 with intercepted providers; D009,
+  syntax/diff pass. Native source unchanged; no relabeled fresh unit/mac run.
+  See `docs/talk-turn-owner-isolation-2026-10-21.md` for exact scope/skip reasons.
 - **Done when:** real two-account authenticated local HTTP checks, without the
   `them-dev` bypass, reject cross-owner access even with the earlier owner's
   client token/header. Preserve valid owner reads and intentional ownerless
