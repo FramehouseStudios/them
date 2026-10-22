@@ -469,8 +469,12 @@
   See `docs/offline-talk-reply-retention-2026-10-21.md` for exact evidence/limits.
   Runtime9ac8c30: signed922/0/0, affected36/0/0, recovery UI2/0/0,
   writer/export/restore UI1/0/0, macOS/D009/diff and Node20 contracts7/0/0.
-  Next: canonical result decoding and document-safe page/audio handoff, not
-  more unchanged gates or declaring T-1116 complete from retention/export.
+  Canonical live/retained decoding and read-only in-app review now implemented;
+  see `docs/offline-talk-reply-review-2026-10-21.md`. Final signed925/0/0,
+  actual intercepted raw-voice/write/restore UI1/0/0; review/close/relaunch/export
+  UI1/0/0. Runtime4943017; original heads/main preserved.
+  Next: full metadata custody and document-safe page/audio handoff, with durable
+  insertion identity before ack. Do not declare complete from review/export.
   Prioritize proving delivery of a potentially missing core-loop result over
   additional recovery UI for already-retained project setup bytes.
 - **Source observation:** OfflineTalkOutbox handles HTTP2xx by settling/removing
