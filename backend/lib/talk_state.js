@@ -77,6 +77,14 @@ function captureTalkResponseHeaders(res) {
   return sanitizeTalkHeadersForIdempotency(res.getHeaders());
 }
 
+function resolveTalkIdempotencyScope(req, resolveTalkSessionKey) {
+  const trustedUserId = String(
+    req?.authUser?.id || req?.authUser?.user_id || req?.authUser?.userId || ""
+  ).trim();
+  if (trustedUserId) return `user:${trustedUserId}`;
+  return resolveTalkSessionKey(req);
+}
+
 function pruneTalkIdempotencyCacheInternal(ttlMs, maxEntries, now) {
   const current = Math.max(0, Number(now || Date.now()));
   for (const [key, record] of talkIdempotencyCache.entries()) {
@@ -219,7 +227,8 @@ export function createTalkIdempotencyGuard({
       );
       if (!headerKey) return next();
       const sessionKey = resolveTalkSessionKey(req);
-      const cacheKey = `${sessionKey}|${headerKey}`;
+      const scopeKey = resolveTalkIdempotencyScope(req, resolveTalkSessionKey);
+      const cacheKey = `${scopeKey}|${headerKey}`;
       const t = now();
       pruneTalkIdempotencyCacheInternal(talkIdempotencyTtlMs, talkIdempotencyMaxEntries, t);
       let existing = talkIdempotencyCache.get(cacheKey);
@@ -285,7 +294,12 @@ export function createTalkIdempotencyGuard({
         expiresAt: t + talkIdempotencyTtlMs,
       };
       talkIdempotencyCache.set(cacheKey, pendingRecord);
-      void scaleBackplane.setIdempotency(cacheKey, pendingRecord, talkIdempotencyTtlMs);
+      await scaleBackplane.setIdempotency(
+        cacheKey,
+        pendingRecord,
+        talkIdempotencyTtlMs,
+        talkIdempotencyMaxEntries
+      );
       req.talkIdempotency = {
         cacheKey,
         key: headerKey,
@@ -516,7 +530,7 @@ export function createTalkIdempotencyHelpers({
         now
       );
     },
-    commitSuccess(req, { statusCode = 200, headers = {}, body = Buffer.alloc(0) } = {}) {
+    async commitSuccess(req, { statusCode = 200, headers = {}, body = Buffer.alloc(0) } = {}) {
       if (!talkIdempotencyEnabled) return;
       const ctx = req?.talkIdempotency;
       if (!ctx?.cacheKey) return;
@@ -537,8 +551,13 @@ export function createTalkIdempotencyHelpers({
         completedAt: now,
         expiresAt: now + talkIdempotencyTtlMs,
       };
+      await scaleBackplane.setIdempotency(
+        ctx.cacheKey,
+        updated,
+        talkIdempotencyTtlMs,
+        talkIdempotencyMaxEntries
+      );
       talkIdempotencyCache.set(ctx.cacheKey, updated);
-      void scaleBackplane.setIdempotency(ctx.cacheKey, updated, talkIdempotencyTtlMs);
       pruneTalkIdempotencyCacheInternal(
         talkIdempotencyTtlMs,
         talkIdempotencyMaxEntries,
