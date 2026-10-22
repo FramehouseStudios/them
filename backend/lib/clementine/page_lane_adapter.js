@@ -358,6 +358,12 @@ function createPageLaneTalkAdapter({
         walletStore.commit(walletReservation.reservationId, pendingOutputTokens);
       }
     };
+    const isWalletChargeEligible = () => {
+      const turnStatus = String(res.getHeader?.('x-turn-status') || '');
+      return res.statusCode < 400 && !turnStatus.startsWith('error') &&
+        turnStatus !== 'asked_repeat' && turnStatus !== 'continue_listening' &&
+        pendingOutputTokens !== null;
+    };
     if (walletReservation?.reservationId && walletStore) {
       res.once('finish', () => settleWallet(true));
       res.once('close', () => settleWallet(false));
@@ -402,6 +408,30 @@ function createPageLaneTalkAdapter({
         walletReservation?.reservationId && walletStore
           ? (actualOutputTokens) => {
               pendingOutputTokens = Math.max(0, Number(actualOutputTokens) || 0);
+            }
+          : null,
+      buildWalletSettlement:
+        walletReservation?.reservationId && walletStore?.buildSettlement
+          ? (settlementKey) => isWalletChargeEligible()
+              ? walletStore.buildSettlement(
+                  walletReservation.reservationId,
+                  pendingOutputTokens,
+                  settlementKey
+                )
+              : null
+          : null,
+      settleWalletDurably:
+        walletReservation?.reservationId && walletStore?.commitDurably
+          ? async (settlement) => {
+              if (walletSettled) return { ok: true, code: "already_committed" };
+              const result = await walletStore.commitDurably(
+                walletReservation.reservationId,
+                settlement?.actualOutputTokens,
+                settlement?.settlementKey
+              );
+              walletSettled = true;
+              req.clementine.walletReservation = result.reservation || req.clementine.walletReservation;
+              return result;
             }
           : null,
       abortSignal: reservation?.id

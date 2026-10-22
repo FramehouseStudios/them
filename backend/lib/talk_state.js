@@ -183,6 +183,7 @@ export function createTalkIdempotencyGuard({
   recordTalkMetric,
   talkIdempotencyTtlMs,
   talkIdempotencyMaxEntries,
+  reconcilePreparedIdempotency = null,
   now = () => Date.now(),
   logger = console,
 } = {}) {
@@ -263,6 +264,58 @@ export function createTalkIdempotencyGuard({
             `[${req.requestId || "unknown"}] talk_idempotency replay=1 session=${sessionKey} key=${headerKey}`
           );
           return sendCachedTalkIdempotencyResponse(res, existing);
+        }
+        if (status === "prepared" && Buffer.isBuffer(existing.body)) {
+          if (existing.settlement && typeof reconcilePreparedIdempotency !== "function") {
+            res.setHeader("Retry-After", "1");
+            res.setHeader("Cache-Control", "no-store");
+            return res.status(503).json({
+              stage: "idempotency",
+              error: "settlement_pending",
+              retry_after_ms: 1000,
+            });
+          }
+          try {
+            if (existing.settlement) {
+              await reconcilePreparedIdempotency(req, existing.settlement);
+            }
+            const completed = {
+              ...existing,
+              status: "completed",
+              completedAt: now(),
+            };
+            await scaleBackplane.setIdempotency(
+              cacheKey,
+              completed,
+              talkIdempotencyTtlMs,
+              talkIdempotencyMaxEntries
+            );
+            talkIdempotencyCache.set(cacheKey, completed);
+            recordTalkMetric({
+              statusCode: 208,
+              totalMs: 0,
+              sttMs: 0,
+              chatMs: 0,
+              ttsMs: 0,
+              streamAudio: false,
+              chatStreamUsed: false,
+              talkStatus: "idempotency_reconciled_replay",
+              lane: "guard",
+              model: "none",
+            });
+            return sendCachedTalkIdempotencyResponse(res, completed);
+          } catch (error) {
+            logger.warn?.(
+              `[${req.requestId || "unknown"}] talk_idempotency settlement_pending=1 key=${headerKey} error=${error?.message || error}`
+            );
+            res.setHeader("Retry-After", "1");
+            res.setHeader("Cache-Control", "no-store");
+            return res.status(503).json({
+              stage: "idempotency",
+              error: "settlement_pending",
+              retry_after_ms: 1000,
+            });
+          }
         }
         if (status === "pending") {
           recordTalkMetric({
@@ -542,28 +595,67 @@ export function createTalkIdempotencyHelpers({
       if (!ctx?.cacheKey) return;
       const existing = talkIdempotencyCache.get(ctx.cacheKey) || await scaleBackplane.getIdempotency(ctx.cacheKey);
       if (!existing) return;
+      if (String(existing.status || "") === "prepared") {
+        if (existing.settlement && typeof req?.clementine?.settleWalletDurably === "function") {
+          await req.clementine.settleWalletDurably(existing.settlement);
+          const completed = {
+            ...existing,
+            status: "completed",
+            completedAt: Date.now(),
+          };
+          await scaleBackplane.setIdempotency(
+            ctx.cacheKey,
+            completed,
+            talkIdempotencyTtlMs,
+            talkIdempotencyMaxEntries
+          );
+          talkIdempotencyCache.set(ctx.cacheKey, completed);
+        }
+        const error = new Error("talk response was already prepared for settlement recovery");
+        error.code = "TALK_IDEMPOTENCY_RESPONSE_PREPARED";
+        error.retryable = true;
+        throw error;
+      }
       const now = Date.now();
       const payloadBuffer = Buffer.isBuffer(body) ? Buffer.from(body) : Buffer.alloc(0);
       const normalizedHeaders = sanitizeTalkHeadersForIdempotency(headers);
       if (payloadBuffer.length && !normalizedHeaders["content-length"]) {
         normalizedHeaders["content-length"] = String(payloadBuffer.length);
       }
-      const updated = {
+      const prepared = {
         ...existing,
-        status: "completed",
+        status: "prepared",
         statusCode: Math.max(200, Math.min(299, Number(statusCode || 200))),
         headers: normalizedHeaders,
         body: payloadBuffer,
-        completedAt: now,
+        settlement: typeof req?.clementine?.buildWalletSettlement === "function"
+          ? req.clementine.buildWalletSettlement(ctx.cacheKey)
+          : null,
+        preparedAt: now,
         expiresAt: now + talkIdempotencyTtlMs,
       };
       await scaleBackplane.setIdempotency(
         ctx.cacheKey,
-        updated,
+        prepared,
         talkIdempotencyTtlMs,
         talkIdempotencyMaxEntries
       );
-      talkIdempotencyCache.set(ctx.cacheKey, updated);
+      talkIdempotencyCache.set(ctx.cacheKey, prepared);
+      if (prepared.settlement && typeof req?.clementine?.settleWalletDurably === "function") {
+        await req.clementine.settleWalletDurably(prepared.settlement);
+      }
+      const completed = {
+        ...prepared,
+        status: "completed",
+        completedAt: Date.now(),
+      };
+      await scaleBackplane.setIdempotency(
+        ctx.cacheKey,
+        completed,
+        talkIdempotencyTtlMs,
+        talkIdempotencyMaxEntries
+      );
+      talkIdempotencyCache.set(ctx.cacheKey, completed);
       pruneTalkIdempotencyCacheInternal(
         talkIdempotencyTtlMs,
         talkIdempotencyMaxEntries,
@@ -575,7 +667,7 @@ export function createTalkIdempotencyHelpers({
       if (!ctx?.cacheKey) return;
       const existing = talkIdempotencyCache.get(ctx.cacheKey);
       if (!existing) return;
-      if (keepCompleted && String(existing.status || "") === "completed") return;
+      if (keepCompleted && ["prepared", "completed"].includes(String(existing.status || ""))) return;
       talkIdempotencyCache.delete(ctx.cacheKey);
       void scaleBackplane.deleteIdempotency(ctx.cacheKey);
     },
