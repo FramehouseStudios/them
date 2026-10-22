@@ -47,8 +47,17 @@ struct OfflineTalkReplyReviewView: View {
                 guard review.scope.isCurrent else { throw OfflineTalkPreviousOwnerError() }
                 let packet = try await OfflineTalkOutbox.shared.receivedReply(review.entryID,
                     initiatingIdentity: review.owner, backendURL: review.scope.backendURL)
-                let decoded = try await BackendClient().decodeReceivedTalkReply(packet,
-                    initiatingIdentity: review.owner, backendURL: review.scope.backendURL)
+                let api = BackendClient()
+                let decoded: BackendTalkResult
+                do {
+                    decoded = try await api.decodeReceivedTalkReply(packet,
+                        initiatingIdentity: review.owner, backendURL: review.scope.backendURL)
+                } catch {
+                    let enriched = try await OfflineTalkOutbox.shared.captureReceivedTurnMetadata(review.entryID,
+                        initiatingIdentity: review.owner, backendURL: review.scope.backendURL, client: api)
+                    decoded = try await api.decodeReceivedTalkReply(enriched,
+                        initiatingIdentity: review.owner, backendURL: review.scope.backendURL)
+                }
                 guard !Task.isCancelled, review.scope.isCurrent else {
                     try? FileManager.default.removeItem(at: decoded.audioURL)
                     throw OfflineTalkPreviousOwnerError()

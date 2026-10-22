@@ -467,6 +467,35 @@ actor OfflineTalkOutbox {
         publishSnapshot()
     }
 
+    /// The audio receipt is committed before this optional GET. Never repeat
+    /// generation to repair missing metadata, and never resurrect a deleted or
+    /// acknowledged entry after an outstanding lookup returns.
+    func captureReceivedTurnMetadata(_ id: String, initiatingIdentity owner: BackendAuthRequestIdentity,
+        backendURL: URL, client: BackendClient? = nil) async throws -> OfflineTalkReceivedReply {
+        let packet = try receivedReply(id, initiatingIdentity: owner, backendURL: backendURL)
+        let advertised = packet.response.headers["x-turn-meta-available"]?.lowercased() ?? ""
+        guard packet.response.turnMetadata == nil, ["1", "true"].contains(advertised) else { return packet }
+        let identity = requestIdentityProvider(false)
+        try requireScope(owner, backendURL: backendURL)
+        let api: BackendClient
+        if let client { api = client }
+        else { api = await BackendClient(baseURL: backendURL, fallbackURL: backendURL, persistBackendBaseURL: false) }
+        let currentScope = OfflineTalkRecoveryScope(identity: identity, backendURL: backendURL)
+        let provider = requestIdentityProvider, originProvider = backendURLProvider
+        let metadata = try await api.captureReceivedTurnMetadata(packet, initiatingIdentity: identity, backendURL: backendURL,
+            currentScopeProvider: { .init(identity: provider(false), backendURL: originProvider()) })
+        try requireScope(owner, backendURL: backendURL)
+        guard currentScope.matches(identity: requestIdentityProvider(false), backendURL: backendURLProvider()) else { throw OfflineTalkPreviousOwnerError() }
+        let fresh = try receivedReply(id, initiatingIdentity: owner, backendURL: backendURL)
+        if fresh.response.turnMetadata != nil { return fresh }
+        guard fresh.response.id == packet.response.id else { throw BackendMemoryAPIError.invalidResponse }
+        var record = try readStoredRecord(blobURL(for: fresh.entry.bodyRef))
+        _ = try record.validatedBody(matching: fresh.entry)
+        record.response = try fresh.response.retainingTurnMetadata(metadata)
+        try writeProtectedData(record.encoded(), to: blobURL(for: fresh.entry.bodyRef))
+        return try receivedReply(id, initiatingIdentity: owner, backendURL: backendURL)
+    }
+
     @discardableResult
     func drainDue(
         now: Date = Date(),
@@ -524,6 +553,9 @@ actor OfflineTalkOutbox {
                     }
                 }
                 try handleSendResult(result, forEntryID: entry.id, now: now)
+                if transport == nil, entry.endpoint == Self.talkEndpoint, result.statusCode == 200 {
+                    _ = try? await captureReceivedTurnMetadata(entry.id, initiatingIdentity: owner, backendURL: backendURL)
+                }
             } catch {
                 if !scope.matches(identity: requestIdentityProvider(false), backendURL: backendURLProvider()) {
                     if let retained = entries.firstIndex(where: { $0.id == entry.id }) { entries[retained].status = .pending }
@@ -701,7 +733,7 @@ actor OfflineTalkOutbox {
 
     private func readStoredRecord(_ url: URL) throws -> OfflineTalkStoredBody {
         let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
-        guard size <= Self.maxBodyBytes + OfflineTalkStoredResponse.maxBodyBytes + 1_048_576 else {
+        guard size <= Self.maxBodyBytes + OfflineTalkStoredResponse.maxBodyBytes + 3_145_728 else {
             throw BackendError.stage("offline_outbox", "Queued body exceeds the recovery limit. Its file was kept.")
         }
         return try PropertyListDecoder().decode(OfflineTalkStoredBody.self, from: Data(contentsOf: url))

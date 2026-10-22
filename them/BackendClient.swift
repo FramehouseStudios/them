@@ -630,7 +630,7 @@ struct BackendCharacterTraitCardState: Identifiable, Equatable {
     }
 }
 
-private struct BackendTalkTurnMetaPayload: Decodable {
+nonisolated struct BackendTalkTurnMetaPayload: Codable {
     let turnID: String?
     let sessionID: String?
     let stateVersion: String?
@@ -666,9 +666,22 @@ private struct BackendTalkTurnMetaPayload: Decodable {
         case knowledgeQueryRewrite = "knowledge_query_rewrite"
         case knowledgeContradictionRisk = "knowledge_contradiction_risk"
     }
+
+    static func retainedData(_ data: Data, expectedTurnID: String) throws -> Data {
+        guard data.count <= 2 * 1024 * 1024, !expectedTurnID.isEmpty else { throw BackendMemoryAPIError.invalidResponse }
+        let value = try JSONDecoder().decode(Self.self, from: data)
+        guard value.turnID == expectedTurnID else { throw BackendMemoryAPIError.invalidResponse }
+        // Re-encoding the canonical typed payload drops unknown fields. The
+        // session ID is a credential, not a recoverable conversation artifact.
+        guard var object = try JSONSerialization.jsonObject(with: JSONEncoder().encode(value)) as? [String: Any] else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        object.removeValue(forKey: "session_id")
+        return try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+    }
 }
 
-private struct BackendTalkTurnMetaRenderContractPayload: Decodable {
+nonisolated struct BackendTalkTurnMetaRenderContractPayload: Codable {
     let replyRoleRaw: String?
     let authoritativePageTextAvailable: Bool?
     let syncReady: Bool?
@@ -4989,6 +5002,33 @@ final class BackendClient {
             retryAudioValidationIfAllowed: retryAudioValidationIfAllowed)
     }
 
+    func captureReceivedTurnMetadata(
+        _ packet: OfflineTalkReceivedReply, initiatingIdentity owner: BackendAuthRequestIdentity,
+        backendURL: URL, currentScopeProvider: () -> OfflineTalkRecoveryScope = { .current() }
+    ) async throws -> Data {
+        try requireReceivedTalkScope(packet, owner: owner, backendURL: backendURL, currentScopeProvider: currentScopeProvider)
+        try packet.response.validate()
+        let turnID = packet.response.headers["x-turn-id"] ?? ""
+        guard !turnID.isEmpty else { throw BackendMemoryAPIError.invalidResponse }
+        let payload = try await fetchTurnMeta(baseURL: backendURL, userID: owner.userID,
+            clientToken: owner.clientToken, turnID: turnID)
+        try requireReceivedTalkScope(packet, owner: owner, backendURL: backendURL, currentScopeProvider: currentScopeProvider)
+        return try BackendTalkTurnMetaPayload.retainedData(JSONEncoder().encode(payload), expectedTurnID: turnID)
+    }
+
+    private func requireReceivedTalkScope(_ packet: OfflineTalkReceivedReply, owner: BackendAuthRequestIdentity,
+        backendURL: URL, currentScopeProvider: () -> OfflineTalkRecoveryScope) throws {
+        try Task.checkCancellation()
+        guard !owner.userID.isEmpty, packet.entry.receivedReply == true,
+              currentScopeProvider().matches(identity: owner, backendURL: backendURL),
+              packet.entry.endpoint == "/talk", packet.entry.method == "POST",
+              let url = URL(string: packet.entry.urlString), url.path == "/talk",
+              OfflineTalkRecoveryScope.sameBackend(url, backendURL),
+              packet.entry.headers.first(where: { $0.key.lowercased() == "x-user-id" })?.value == owner.userID else {
+            throw OfflineTalkPreviousOwnerError()
+        }
+    }
+
     /// Decode already-paid transport evidence, never send it again or adopt a
     /// persisted session token. The outbox remains the durable owner until the
     /// writer's delivery is acknowledged separately.
@@ -4997,16 +5037,7 @@ final class BackendClient {
         backendURL: URL, currentScopeProvider: () -> OfflineTalkRecoveryScope = { .current() }
     ) async throws -> BackendTalkResult {
         func requireScope() throws {
-            try Task.checkCancellation()
-            let scope = currentScopeProvider()
-            guard !owner.userID.isEmpty, packet.entry.receivedReply == true,
-                  scope.matches(identity: owner, backendURL: backendURL),
-                  packet.entry.endpoint == "/talk", packet.entry.method == "POST",
-                  let url = URL(string: packet.entry.urlString), url.path == "/talk",
-                  OfflineTalkRecoveryScope.sameBackend(url, backendURL),
-                  packet.entry.headers.first(where: { $0.key.lowercased() == "x-user-id" })?.value == owner.userID else {
-                throw OfflineTalkPreviousOwnerError()
-            }
+            try requireReceivedTalkScope(packet, owner: owner, backendURL: backendURL, currentScopeProvider: currentScopeProvider)
         }
         try requireScope()
         try packet.response.validate()
@@ -5018,21 +5049,23 @@ final class BackendClient {
               let http = HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: packet.response.headers) else {
             throw BackendError.stage("offline_outbox", "This saved turn has no playable response. It remains kept on this device.")
         }
+        let retained = try packet.response.turnMetadata.map { try JSONDecoder().decode(BackendTalkTurnMetaPayload.self, from: $0) }
         // Metadata lookups are volatile and can require a different session
         // after relaunch. Recovery must be self-contained, not silently turn a
         // partial page into a completed delivery or trigger another generation.
         if parseHeaderBool(http, field: "x-screenplay-output-available", default: false),
-           parseScreenplayOutput(from: http) == nil {
+           parseScreenplayOutput(from: http) == nil, retained?.screenplayOutput == nil {
             throw BackendError.stage("offline_outbox", "The saved reply references page text that was not included. Its files remain kept; delivery is not acknowledged.")
         }
         if parseHeaderBool(http, field: "x-screenplay-authoritative", default: false),
-           parseScreenplayOutput(from: http)?.writesToPage != true {
+           parseScreenplayOutput(from: http)?.writesToPage != true, retained?.screenplayOutput?.writesToPage != true {
             throw BackendError.stage("offline_outbox", "The saved reply's authoritative page text is unavailable. Its files remain kept; delivery is not acknowledged.")
         }
         let result = try await decodeTalkSuccess(data: packet.response.body, http: http,
             contentType: http.value(forHTTPHeaderField: "content-type") ?? "", baseURL: backendURL,
             userID: owner.userID, clientToken: "", emittedFirstSegment: false,
             allowTurnMetaLookup: false, allowSessionBootstrap: false,
+            retainedTurnMeta: retained,
             retryAudioValidationIfAllowed: { _ in nil })
         do { try requireScope() }
         catch { try? FileManager.default.removeItem(at: result.audioURL); throw error }
@@ -5045,6 +5078,7 @@ final class BackendClient {
         data: Data, http: HTTPURLResponse?, contentType: String, baseURL: URL,
         userID: String, clientToken: String, emittedFirstSegment: Bool,
         allowTurnMetaLookup: Bool = true, allowSessionBootstrap: Bool = true,
+        retainedTurnMeta: BackendTalkTurnMetaPayload? = nil,
         retryAudioValidationIfAllowed: (String) async throws -> BackendTalkResult?
     ) async throws -> BackendTalkResult {
         let normalizedType = contentType.lowercased()
@@ -5149,14 +5183,16 @@ final class BackendClient {
             (knowledgeTopics.isEmpty && knowledgeCitations.isEmpty)
         )
         var turnMetaRateLimitNotice: BackendTalkTurnMetaRateLimitNotice?
-        if allowTurnMetaLookup, shouldFetchTurnMeta, let commitSignal {
+        if (allowTurnMetaLookup && shouldFetchTurnMeta) || retainedTurnMeta != nil, let commitSignal {
             do {
-                let payload = try await fetchTurnMeta(
+                let payload: BackendTalkTurnMetaPayload
+                if let retainedTurnMeta { payload = retainedTurnMeta }
+                else { payload = try await fetchTurnMeta(
                     baseURL: baseURL,
                     userID: userID,
                     clientToken: clientToken,
                     turnID: commitSignal.turnId
-                )
+                ) }
                 if transcript?.isEmpty ?? true {
                     transcript = payload.transcript?
                         .trimmingCharacters(in: .whitespacesAndNewlines)
