@@ -474,10 +474,12 @@
   not paid-model/physical-microphone proof. macOS0, Node20 contracts7/0/0,
   D009 bridge−64/others0 and diff pass. Details and failed-run corrections:
   `docs/offline-talk-reply-review-2026-10-21.md` (latest checkpoint section).
-  **Next verified gap:** a bare raw-audio `/talk` Page hint without the canonical
-  generation-intent field degrades to Voice Pin in the isolated reproduction;
-  the full confirmed-voice request returns authoritative Page output. Investigate
-  routing/context at its root, then prove the server result durability window.
+  **Routing update:** T-1119 runtimebe7c70d fixes the bare raw-audio `/talk` Page
+  hint degrading to Voice Pin: defer classification to actual ASR. Current
+  Node20 backend2920/0/2 and signed voice/write/restore UI1/0/0, providers
+  intercepted. Server result durability remains Zora's separate T-1118 lane.
+  Next: canonical omitted-budget wallet boundary, then original-context/unbound
+  delivery; do not infer full voice/recovery completion from the routing fix.
   Do not force non-authoritative replies into the page or call T-1116 complete.
   See `docs/offline-talk-reply-retention-2026-10-21.md` for exact evidence/limits.
   Runtime9ac8c30: signed922/0/0, affected36/0/0, recovery UI2/0/0,
@@ -505,6 +507,30 @@
   durable receipt, relevant spoken/page result and relaunch restoration. Retain
   any undelivered result safely through crashes, owner/origin changes and retry.
   Reuse canonical talk/result/receipt handling; no second conversation store.
+
+### T-1119 — Classify raw microphone turns after authoritative ASR
+
+- **Owner:** codex (Jarvis); Zora retains separate T-1118 backend restart work.
+- **Branch:** `codex/T-1119-authoritative-audio-routing`, parent9d897e5.
+- **Status:** locally proven root fix, Runtimebe7c70d; protected landing pending.
+- **Root:** actual authenticated raw `/talk` Page request returned Voice Pin
+  because pre-ASR empty text installed a silence Reflex reply that survived ASR.
+- **Fix:** defer raw-audio lane preparation to actual ASR; reuse the existing
+  classifier/reservation/reflex owner once before generation. Reconcile Page
+  target/refusal at that boundary; stop on wallet response/disconnect. No repeat
+  speech handler, new wallet/store/auth path, or native changes.
+- **Proof:** actual red0/1/0; local fixed HTTP returns authoritative Page with
+  one intercepted ASR. Focused raw/refusal/Reflex/cancel cases27/0/0; normal
+  HTTP regression1/0/0 without a global header override. Fresh Node20 full
+  backend2920/0/2; current signed voice/page/save/relaunch UI1/0/0 on erased
+  owned7F1A14C1, intercepted STT1/chat3/TTS1. Syntax/D009/diff pass; no fresh
+  full native-unit/macOS rerun for this backend-only fix.
+- **Limits:** positive400-token wallet proof only; existing omitted-budget
+  zero-cost hold and oversized audio metadata headers remain explicit debt.
+  No live model/physical-microphone/production/main claim. See
+  `docs/raw-voice-routing-2026-10-21.md` for exact failures and corrections.
+- **Next:** save the scoped branch, then canonical
+  omitted-budget wallet audit and original-context/unbound delivery gaps.
 
 ### T-1117 — Verify and harden turn metadata owner isolation
 
