@@ -78,6 +78,103 @@ test("expired idempotency response is deleted instead of replayed", async () => 
   await backplane.close();
 });
 
+test("capacity admission preserves an unexpired accepted result", async () => {
+  const { root, persistence } = fixture();
+  const backplane = await createScaleBackplane({
+    persistence,
+    outboxFilePath: path.join(root, "outbox.json"),
+    logger: { log() {} },
+  });
+  await backplane.init();
+  const now = Date.now();
+  const acceptedKey = "user:writer-a|accepted-a";
+  await backplane.setIdempotency(acceptedKey, {
+    status: "completed",
+    body: Buffer.from("accepted-a"),
+    createdAt: now,
+    completedAt: now,
+    expiresAt: now + 60_000,
+  }, 60_000, 1);
+
+  await assert.rejects(
+    backplane.setIdempotency("user:writer-a|pending-b", {
+      status: "pending",
+      createdAt: now + 1,
+      expiresAt: now + 60_000,
+    }, 60_000, 1),
+    (err) => err?.code === "TALK_IDEMPOTENCY_CAPACITY"
+  );
+  assert.equal((await backplane.getIdempotency(acceptedKey))?.status, "completed");
+  assert.equal(await backplane.getIdempotency("user:writer-a|pending-b"), null);
+  await backplane.close();
+});
+
+test("expired capacity is pruned so a new request can be admitted", async () => {
+  const { root, persistence } = fixture();
+  const backplane = await createScaleBackplane({
+    persistence,
+    outboxFilePath: path.join(root, "outbox.json"),
+    logger: { log() {} },
+  });
+  await backplane.init();
+  const now = Date.now();
+  await backplane.setIdempotency("user:writer-a|expired-a", {
+    status: "completed",
+    body: Buffer.from("expired"),
+    createdAt: now - 120_000,
+    completedAt: now - 120_000,
+    expiresAt: now - 60_000,
+  }, 60_000, 1);
+  await backplane.setIdempotency("user:writer-a|pending-b", {
+    status: "pending",
+    createdAt: now,
+    expiresAt: now + 60_000,
+  }, 60_000, 1);
+
+  assert.equal(await backplane.getIdempotency("user:writer-a|expired-a"), null);
+  assert.equal((await backplane.getIdempotency("user:writer-a|pending-b"))?.status, "pending");
+  await backplane.close();
+});
+
+test("existing pending record can complete at capacity and retain exact replay bytes", async () => {
+  const { root, persistence } = fixture();
+  const key = "user:writer-a|same-key";
+  const now = Date.now();
+  const body = Buffer.from([255, 0, 19, 128, 42]);
+  const first = await createScaleBackplane({
+    persistence,
+    outboxFilePath: path.join(root, "outbox.json"),
+    logger: { log() {} },
+  });
+  await first.init();
+  await first.setIdempotency(key, {
+    status: "pending",
+    createdAt: now,
+    expiresAt: now + 60_000,
+  }, 60_000, 1);
+  await first.setIdempotency(key, {
+    status: "completed",
+    statusCode: 200,
+    headers: { "content-type": "audio/mpeg" },
+    body,
+    createdAt: now,
+    completedAt: now + 1,
+    expiresAt: now + 60_000,
+  }, 60_000, 1);
+  await first.close();
+
+  const restarted = await createScaleBackplane({
+    persistence: createJsonPersistence({ jsonRoot: path.join(root, "persistence") }),
+    outboxFilePath: path.join(root, "outbox.json"),
+    logger: { log() {} },
+  });
+  await restarted.init();
+  const replay = await restarted.getIdempotency(key);
+  assert.equal(replay?.status, "completed");
+  assert.deepEqual(replay?.body, body);
+  await restarted.close();
+});
+
 test("turn metadata hydrates after restart and is not published before persistence", async () => {
   const { root, persistence } = fixture();
   const store = createTalkTurnStore({ persistence, ttlMs: 60_000, maxEntries: 4 });
