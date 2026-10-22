@@ -465,7 +465,20 @@
 ### T-1116 — Deliver an accepted offline talk response to the writer
 
 - **Owner:** codex. **Status:** ACTIVE — durable accepted-response retention
-  prerequisite implemented; canonical page/audio delivery still unfinished.
+  and explicit bound-project playback/append/save recovery implemented;
+  automatic original-context delivery and server durability remain unfinished.
+  Latest runtime3784636 on `codex/T-1116-page-recovery-handoff`: signed units
+  932/0/0; real authenticated queued HTTP → retained reply → playback → append
+  → exact saved version → exact native-editor relaunch UI1/0/0, one saved copy.
+  Existing raw-voice/write/restore regression1/0/0; providers intercepted in both,
+  not paid-model/physical-microphone proof. macOS0, Node20 contracts7/0/0,
+  D009 bridge−64/others0 and diff pass. Details and failed-run corrections:
+  `docs/offline-talk-reply-review-2026-10-21.md` (latest checkpoint section).
+  **Next verified gap:** a bare raw-audio `/talk` Page hint without the canonical
+  generation-intent field degrades to Voice Pin in the isolated reproduction;
+  the full confirmed-voice request returns authoritative Page output. Investigate
+  routing/context at its root, then prove the server result durability window.
+  Do not force non-authoritative replies into the page or call T-1116 complete.
   See `docs/offline-talk-reply-retention-2026-10-21.md` for exact evidence/limits.
   Runtime9ac8c30: signed922/0/0, affected36/0/0, recovery UI2/0/0,
   writer/export/restore UI1/0/0, macOS/D009/diff and Node20 contracts7/0/0.
