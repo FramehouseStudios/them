@@ -46,6 +46,12 @@ Mara snaps her tether loose. The painted stars shiver as she pulls the
 wall toward her. Someone on the other side pulls back.
 `;
 export { draft, story };
+// Discovery only for the runner's synthetic, explicitly funded account. Login
+// still uses the real auth route; this route grants no balance or credentials.
+if (process.env.THEM_HOME_VOICE_FUNDED_WRITER === '1') {
+  const { app } = await import('../app.js');
+  app.get('/__test/funded-writer', (_req, res) => res.json({ funded_writer: true, fixture_port: Number(process.env.PORT) }));
+}
 globalThis.fetch = async (input, options = {}) => {
   const u = new URL(typeof input === 'string' || input instanceof URL ? input : input.url);
   if (['127.0.0.1', 'localhost', '[::1]'].includes(u.hostname)) return fetchReal(input, options);

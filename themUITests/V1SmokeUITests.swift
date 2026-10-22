@@ -5862,14 +5862,25 @@ final class V1SmokeUITests: XCTestCase {
     ) async throws -> WriterLoopAuthenticationFixture {
         let appToken = "them-dev"
         let stamp = "\(Int(Date().timeIntervalSince1970 * 1_000))-\(UUID().uuidString.prefix(6).lowercased())"
+        // The dedicated intercepted-provider runner can provision a funded
+        // synthetic account. Authenticate it through the real login/session
+        // routes; never weaken wallet enforcement to make the UI story pass.
+        let localHost = ["127.0.0.1", "localhost", "::1"].contains(baseURL.host ?? "")
+        let funded: JSONResponse?
+        if localHost {
+            funded = try? await requestJSON(baseURL: baseURL, path: "/__test/funded-writer",
+                method: "GET", headers: ["X-APP-TOKEN": appToken], body: nil)
+        } else { funded = nil }
+        let useFunded = funded?.status == 200 && (funded?.payload["funded_writer"] as? Bool) == true
+        let port = intValue(funded?.payload["fixture_port"])
         let signup = try await requestJSON(
             baseURL: baseURL,
-            path: "/auth/signup",
+            path: useFunded ? "/auth/login" : "/auth/signup",
             method: "POST",
             headers: ["X-APP-TOKEN": appToken],
             body: [
-                "email": "studio-writer-loop-\(stamp)@example.test",
-                "password": "ThemWriterLoop-\(stamp)-aA1!",
+                "email": useFunded ? "studio-funded-\(port)@example.test" : "studio-writer-loop-\(stamp)@example.test",
+                "password": useFunded ? "Local-funded-\(port)-aA1!" : "ThemWriterLoop-\(stamp)-aA1!",
                 "display_name": "Studio Writer Loop Contract",
             ]
         )

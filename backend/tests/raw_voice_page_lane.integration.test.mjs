@@ -50,8 +50,8 @@ test('raw microphone Page requests classify the actual ASR words before generati
     await server.stop();
     const persistence = createJsonPersistence({ jsonRoot: path.join(dataDir, 'persistence') });
     await createAdapterWalletPersistence({ persistence }).putBalance({
-      ownerId, pageMilliturns: 100000, companionMilliturns: 0,
-      grantedPageMilliturns: 100000, grantedCompanionMilliturns: 0,
+      ownerId, pageMilliturns: 100, companionMilliturns: 0,
+      grantedPageMilliturns: 100, grantedCompanionMilliturns: 0,
     });
     server = await startBackend({ ...options, dataDir });
     const session = await apiRequest(server, '/session', { method: 'POST', headers: auth, json: {} });
@@ -70,6 +70,31 @@ test('raw microphone Page requests classify the actual ASR words before generati
     form.set('tail_silence_ms', '900');
     form.set('file', new Blob([fs.readFileSync(new URL('../test.wav', import.meta.url))], { type: 'audio/wav' }), 'microphone.wav');
     // Deliberately no client/debug/generation transcript: only server ASR knows the words.
+    for (const cap of [undefined, '0', '1']) {
+      if (cap === undefined) form.delete('max_output_tokens');
+      else form.set('max_output_tokens', cap);
+      const denied = await sendAudio(server, headers, form);
+      assert.equal(denied.status, 402, `server budget must reject underfunded cap ${cap}`);
+      assert.equal(JSON.parse(denied.body).error_class, 'wallet_empty');
+      assert.notEqual(denied.headers.get('x-screenplay-authoritative'), '1');
+    }
+    const deniedLog = server.stdout.join('');
+    assert.equal(deniedLog.split('[proof-provider] mocked_stt').length - 1, 3);
+    assert.equal(deniedLog.includes('[proof-provider] mocked_chat'), false, 'no paid chat before real budget is held');
+    assert.equal(deniedLog.includes('[proof-provider] mocked_tts'), false, 'wallet denial is not a misleading recovered voice reply');
+    const balance = await apiRequest(server, '/talk/wallet', { method: 'POST', headers, json: {} });
+    assert.equal(balance.json.pageTurnsLeft, 0.1);
+    const port = server.port;
+    await server.stop();
+    await createAdapterWalletPersistence({ persistence }).putBalance({
+      ownerId, pageMilliturns: 100000, companionMilliturns: 0,
+      grantedPageMilliturns: 100000, grantedCompanionMilliturns: 0,
+    });
+    server = await startBackend({ ...options, dataDir, port });
+    const fundedSession = await apiRequest(server, '/session', { method: 'POST', headers: auth, json: {} });
+    assert.equal(fundedSession.status, 201);
+    headers['X-Client-Token'] = fundedSession.json.client_token;
+    form.set('max_output_tokens', '1'); // tiny client hint must not truncate or under-reserve the real Page.
     const response = await sendAudio(server, headers, form);
     assert.equal(response.status, 200);
     assert.equal(response.headers.get('x-screenplay-target'), 'page', 'actual ASR writing must not inherit pre-ASR silence');
@@ -78,10 +103,13 @@ test('raw microphone Page requests classify the actual ASR words before generati
     assert.equal(response.headers.get('x-clementine-reflex'), null);
     assert.ok(response.headers.get('x-clementine-page-reservation'));
     assert.ok(response.headers.get('x-stt-model'));
+    const settledBalance = await apiRequest(server, '/talk/wallet', { method: 'POST', headers, json: {} });
+    assert.equal(settledBalance.status, 200);
+    assert.equal(settledBalance.json.pageTurnsLeft, 99.8, 'the successful HTTP result must debit the fixture actual80 tokens, not its one-token hint');
     const metadata = await apiRequest(server, `/talk/turn/${response.headers.get('x-turn-id')}`, { headers });
     assert.equal(metadata.status, 200);
     assert.match(JSON.stringify(metadata.json), /HOME VOICE HANDOFF/);
     assert.equal(server.stdout.join('').split('[proof-provider] mocked_stt').length - 1, 1);
-    console.log(JSON.stringify({ fixture: 'authenticated raw HTTP; deterministic providers, no paid calls', target: 'page', authoritative: true, asrCalls: 1 }));
+    console.log(JSON.stringify({ fixture: 'authenticated raw HTTP; deterministic providers, no paid calls', underfunded: [402, 402, 402], deniedChatAndTts: 0, target: 'page', authoritative: true, fundedAsrCalls: 1, settledPageTurns: 0.2 }));
   } finally { await server.stop(); }
 });

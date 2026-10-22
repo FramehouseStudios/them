@@ -38,15 +38,17 @@ for (const [label, transcript, expectedLane, pageTurns] of [
         const page = await reconcileScreenplayTranscript(req, res, { screenplayProjectId: 'project' }, transcript);
         await resolve(transcript); // A duplicate notification must not reserve twice.
         if (pageTurns === 0) {
-          assert.equal(res.statusCode, 402);
-          assert.equal(res.writableEnded, true, 'handler must stop before generation');
-          assert.equal(pages.size(), 0);
+          assert.throws(() => req.clementine.prepareGenerationBudget(400), error => error.status === 402);
+          res.status(402).json({ error: 'wallet_empty' });
+          assert.equal(wallet.getBalance('writer').pageTurnsLeft, 0);
           return;
         }
         assert.equal(req.clementine.lane, expectedLane);
         assert.equal(page, expectedLane === 'Page');
         if (page) {
           assert.equal(pages.size(), 1);
+          assert.equal(wallet.getBalance('writer').pageTurnsLeft, 2, 'ASR alone does not set a client-owned hold');
+          req.clementine.prepareGenerationBudget(400);
           assert.equal(req.clementine.proceed().ok, true);
           assert.equal(wallet.getBalance('writer').pageTurnsLeft, 1);
           const reservation = req.clementine.reservationId;

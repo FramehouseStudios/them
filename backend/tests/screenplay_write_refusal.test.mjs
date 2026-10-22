@@ -83,7 +83,9 @@ test('authoritative ASR refusal cancels the existing Page hold before generation
     handleTalkRequest: async (request) => {
       reservationId = request.clementine.reservationId;
       assert.ok(reservationId, 'audio starts with a provisional Page hold');
-      assert.equal(wallet.getBalance('writer').pageTurnsLeft, 4);
+      assert.equal(wallet.getBalance('writer').pageTurnsLeft, 5, 'the real server generation budget is not known before ASR');
+      request.clementine.prepareGenerationBudget(400);
+      assert.equal(wallet.getBalance('writer').pageTurnsLeft, 4, 'a prepared hold must still be refunded by refusal');
       const originalSignal = request.clementine.abortSignal;
       const meta = { screenplayTarget: 'page' };
       const words = 'Do not rewrite my scene. Just discuss it.';

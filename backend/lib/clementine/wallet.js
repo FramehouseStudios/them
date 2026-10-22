@@ -479,6 +479,31 @@ function createWalletStore({
     };
   }
 
+  // Grow the same process-local hold to a server-owned generation budget.
+  // Synchronous check-and-mutate: an insufficient top-up changes neither the
+  // balance nor reservation; repeats never charge twice or reopen settled work.
+  function ensureReservationBudget(reservationId, maxOutputTokens) {
+    const entry = reservations.get(String(reservationId || ""));
+    const tokens = Math.ceil(Number(maxOutputTokens));
+    if (!entry || entry.status !== "reserved" || !Number.isSafeInteger(tokens) || tokens <= 0) {
+      const error = new Error("Active wallet reservation and positive server budget required");
+      error.code = "wallet_reservation_unavailable";
+      throw error;
+    }
+    const required = estimateReservationMilliturns({ maxOutputTokens: tokens, tokensPerTurn });
+    const extra = Math.max(0, required - entry.reservedMilliturns);
+    const row = balances.get(entry.ownerId);
+    if (extra > row[entry.lane]) {
+      throw createWalletEmptyError({ ownerId: entry.ownerId, lane: entry.lane,
+        neededMilliturns: extra, availableMilliturns: row[entry.lane] });
+    }
+    row[entry.lane] -= extra;
+    entry.reservedMilliturns += extra;
+    entry.maxOutputTokens = Math.max(entry.maxOutputTokens, tokens);
+    if (extra) void enqueuePersist(entry.ownerId);
+    return getReservation(entry.reservationId);
+  }
+
   function getReservation(reservationId) {
     const entry = reservations.get(String(reservationId || ""));
     if (!entry) return null;
@@ -702,6 +727,7 @@ function createWalletStore({
 
   return {
     reserve,
+    ensureReservationBudget,
     commit,
     release,
     getBalance,

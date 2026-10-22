@@ -16,6 +16,7 @@ import {
 import {
   shouldRunPageMultipass,
   runTalkGeneratePageMultipass,
+  multipassWalletReserveTokenMultiplier,
 } from "./clementine/page_multipass.js";
 import { isShortFilmBetaEnabled } from "./clementine/short_film_beta.js";
 import { parseShortFilmIntent } from "./clementine/short_film_intent.js";
@@ -78,6 +79,7 @@ async function runTalkGenerate({
     const pageGate = gatePageGeneration(req.clementine);
     pageAbortSignal = pageGate.signal;
     pageReservationId = pageGate.reservationId;
+    await req.clementine.prepareGenerationBudget?.(chatMaxTokens, { requestId: rid });
   }
 
   // Beta short-film: flag-gated, before multipass. Gate on page-write turn, not flag alone — chat must never return Fountain.
@@ -217,6 +219,11 @@ async function runTalkGenerate({
   // F2: Page multipass (Plan→Draft→Critique→Revise). Flag-gated; thin hook.
   // Skips streaming — craft loop needs discrete stages + abort between them.
   if (shouldRunPageMultipass(req)) {
+    if (req?.clementine?.reservationId) {
+      await req.clementine.prepareGenerationBudget?.(chatMaxTokens, {
+        requestId: rid, passes: multipassWalletReserveTokenMultiplier(),
+      });
+    }
     return runTalkGeneratePageMultipass({
       req,
       rid,

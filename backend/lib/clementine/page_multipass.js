@@ -77,7 +77,7 @@ function shouldRunPageMultipass(req, env = process.env) {
  * Plan/critique are not metered; do not multiply for them.
  */
 function multipassWalletReserveTokenMultiplier(env = process.env) {
-  return isPageMultipassEnabled(env) ? 2 : 1;
+  return isPageMultipassEnabled(env) ? (isPageMultipassRepairEnabled(env) ? 3 : 2) : 1;
 }
 
 function assertNotAborted(signal, { reservationId = null, stage = "" } = {}) {

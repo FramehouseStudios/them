@@ -40,10 +40,12 @@ async function runShortFilmLane({ req, parsed, chatSupplier = null, signal = nul
   // Require chatSupplier in production; offlineDraftFn is test-only injection
   if (chatSupplier && typeof chatSupplier.chat === "function") {
     try {
+      const maxTokens = chatModelPlan?.maxTokens || 4000;
+      await req?.clementine?.prepareGenerationBudget?.(maxTokens);
       const chatResult = await chatSupplier.chat({
         model: chatModelPlan?.model || process.env.CHAT_MODEL_STRUCTURAL || "gpt-5.6-sol",
         messages: [{ role: "system", content: system }, { role: "user", content: user }],
-        maxTokens: chatModelPlan?.maxTokens || 4000,
+        maxTokens,
         temperature: chatModelPlan?.temperature,
         apiMode: chatModelPlan?.apiMode,
         reasoningEffort: req?.clementine?.effort || chatModelPlan?.reasoningEffort,

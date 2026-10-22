@@ -13,6 +13,7 @@
 import { classifyIntent, INTENT } from "./intents.js";
 import { laneForIntent, LANE } from "./lanes.js";
 import { currentScreenplayInstruction } from "../screenplay_write_instruction.js";
+import { createTalkFailureError, buildTalkFailureDiagnostics, buildTalkFailureBody } from "../talk_failure_diagnostics.js";
 import {
   peekKnownFacts,
   peekVoiceSpecHints,
@@ -165,6 +166,7 @@ function beginPageWork(store, {
   userId = "",
   meta = null,
   walletStore = null,
+  deferWalletBudget = false,
 } = {}) {
   if (!store || typeof store.reserve !== "function") {
     throw new Error("beginPageWork requires a page reservation store");
@@ -185,7 +187,7 @@ function beginPageWork(store, {
   const multipassOn = isPageMultipassEnabled();
   // Wallet honesty: draft+revise are both metered when multipass is on —
   // reserve 2× max_output_tokens headroom (plan/critique remain unmetered).
-  const maxOutputTokens = Math.max(
+  const maxOutputTokens = deferWalletBudget ? 0 : Math.max(
     0,
     Math.round(Number(hints.maxOutputTokens || 0) || 0)
   ) * (multipassOn ? multipassWalletReserveTokenMultiplier() : 1);
@@ -313,6 +315,7 @@ function createPageLaneTalkAdapter({
         userId,
         meta: { source: "talk_edge" },
         walletStore,
+        deferWalletBudget: true,
       });
       lane = started.lane;
       reservation = started.reservation;
@@ -333,7 +336,9 @@ function createPageLaneTalkAdapter({
       logger?.warn?.(
         `[clementine/page] reserve skipped: ${err?.message || err}`
       );
-      lane = resolveTalkLane(utterance, hints);
+      const diagnostic = buildTalkFailureDiagnostics(err, { providerStage: "chat", status: 503,
+        errorClass: "page_reservation_unavailable" });
+      return res.status(503).json(buildTalkFailureBody(diagnostic));
     }
 
     // Generation only proposes usage. Settle after the handler's quality and
@@ -364,6 +369,21 @@ function createPageLaneTalkAdapter({
       effort: lane.effort,
       walletMeter: lane.walletMeter,
       pageMultipass,
+      prepareGenerationBudget: walletStore ? (maxTokens, { requestId = "", passes = 1 } = {}) => {
+        try {
+          const gate = pageReservationStore.proceed(reservation?.id);
+          if (!gate.ok) throw new Error("Page reservation is not active");
+          if (!Number.isSafeInteger(passes) || passes <= 0) throw new Error("Invalid metered pass count");
+          const budget = Math.ceil(Number(maxTokens)) * passes;
+          const held = walletStore.ensureReservationBudget(walletReservation?.reservationId, budget);
+          req.clementine.walletReservation = held;
+          return held;
+        } catch (error) {
+          throw createTalkFailureError({ requestId, providerStage: "chat",
+            status: error?.code === "wallet_empty" ? 402 : 503,
+            errorClass: error?.code === "wallet_empty" ? "wallet_empty" : "page_reservation_unavailable" });
+        }
+      } : null,
       refusePageWrite: () => {
         // Cancel through the existing owner so linked wallet/cancel observers
         // see the revocation. A conversation must not inherit its aborted signal.
