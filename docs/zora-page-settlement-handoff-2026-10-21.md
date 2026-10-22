@@ -4,7 +4,8 @@
 
 VERIFIED on branch `codex/T-1122-durable-page-settlement`, based on
 `d2532cf090efaf2ed2da5fdc87cc005cb9f7339a`. Runtime commit `051328b`; focused
-proof commit `cf7caff`. The original T-1118 worktree and branch were not changed.
+proof commit `cf7caff`; adversarial boundary follow-up `31bd768`. The original
+T-1118 worktree and branch were not changed.
 No push, merge, deployment, native change, paid provider request or production
 database operation occurred.
 
@@ -44,6 +45,25 @@ write error for `flush()`. This makes the reproduced failure observable, but the
 accepted Page path no longer relies on that legacy queue. StoreKit crediting was
 also converted from `BEGIN`/`COMMIT` through a pool-shaped query facade to one
 atomic CTE, so a concurrent credit composes with the settlement row update.
+
+The follow-up closes four observed boundaries:
+
+- Page responses without a client idempotency key, or with replay disabled, now
+  await a reservation-scoped durable receipt before success. Storage failure is
+  propagated. Because that key is not stable across a new client request, this
+  proves acknowledgement durability only—not retry deduplication or exact replay.
+- A billed `prepared` record has `expiresAt:0` until reconciliation completes.
+  It cannot disappear after five minutes and admit regeneration against an
+  existing receipt. Completed records, and prepared records with no settlement,
+  retain the configured bounded TTL. Unresolved billed records consume capacity
+  until reconciled; capacity fails closed rather than deleting them.
+- Pending admission and pending→prepared→completed publication use canonical
+  persistence compare-and-swap. Two PostgreSQL-backed workers cannot both admit
+  the same key, and a stale worker cannot overwrite a newer result state.
+- Page wallet state distinguishes pending, released and committed. If `close`
+  releases the provisional hold while the prepared write is awaiting, durable
+  settlement throws `wallet_reservation_released`; completion is not published.
+  The keyed prepared response remains available for later reconciliation.
 
 ## Required reserved integration hunk
 
@@ -88,12 +108,18 @@ All focused tests ran in `them-foundation-proof-tools:node20` with the exact-loc
 read-only dependencies from
 `/tmp/them-t1118-node20-deps.jVOfVY/backend/node_modules`.
 
-- Focused wallet/IAP/Page/replay/persistence suite: **107 pass / 0 fail / 0 skip**.
-- Actual ephemeral PostgreSQL16 proof: **1 pass / 0 fail / 0 skip**.
+- Focused wallet/IAP/Page/replay/persistence suite: **118 pass / 0 fail / 0 skip**.
+- Actual ephemeral PostgreSQL16 proofs: **2 pass / 0 fail / 0 skip**.
   It launched 12 same-key settlements concurrently and observed one debit;
   forced the receipt insert to raise from a trigger and observed no receipt or
-  debit; then ran credit and debit concurrently and observed the composed14.6
-  balance. The task-owned container was stopped and removed.
+  debit; ran credit and debit concurrently and observed the composed14.6 balance;
+  then used two independent PostgreSQL pools/backplanes to prove one pending
+  admission and rejection of a stale prepared transition. The task-owned
+  containers were stopped and removed.
+- Both opt-in PostgreSQL tests reject any URL whose host is not loopback or
+  `host.docker.internal`, or whose database is not exactly `/t1122`. Trigger and
+  function names are unique per run. An explicit non-local URL probe failed
+  before connection with the expected refusal.
 - Node syntax checks: pass for all changed runtime modules and the PostgreSQL
   proof.
 - `git diff --check`: pass.
@@ -115,13 +141,23 @@ runs report it skipped. No provider call is required.
   receipt retry is idempotent and completion/replay can resume.
 - **Answered:** stale/alternate recovery response — a second handler completion
   cannot overwrite an existing prepared response.
+- **Answered:** close/release during prepared persistence — completion is refused,
+  no receipt/debit is fabricated, and keyed prepared recovery remains intact.
+- **Answered:** same-key multiworker preparation — PostgreSQL CAS admits one
+  worker and fences stale state transitions.
 - **Answered:** owner isolation — settlement key is the trusted owner-scoped
   replay key, and existing cross-owner replay tests remain green.
-- **Partially addressed:** timeout/offline/provider disappearance — prepared
+- **Partially addressed:** timeout/offline/provider disappearance — billed prepared
   retries return503 while storage is unavailable and never regenerate; no client
   offline UX or physical-device flow was exercised here.
+- **Partially addressed:** requests without a client idempotency key await their
+  durable reservation-scoped receipt, but a later new request can regenerate and
+  charge again. Cross-request exactly-once behavior requires a stable client key.
 - **Not covered:** JSON multi-process safety. This is an explicit unsupported
   mode, not inferred distributed atomicity.
+- **Not covered:** globally atomic capacity across different idempotency keys.
+  Same-key admission is PostgreSQL-atomic; the bounded capacity count remains a
+  same-process admission lock and may overshoot across workers.
 - **Not covered:** production migration rollout/rollback, Redis behavior,
   physical power loss and storage-engine durability settings.
 - **Pre-existing follow-up:** canonical account export/purge does not include the
@@ -134,14 +170,17 @@ runs report it skipped. No provider call is required.
 Runtime: `backend/lib/clementine/wallet.js`,
 `backend/lib/clementine/wallet_persistence.js`,
 `backend/lib/clementine/page_lane_adapter.js`, `backend/lib/talk_state.js`,
-`backend/lib/persistence_adapter.js`, and
+`backend/lib/scale_backplane.mjs`, `backend/lib/persistence_adapter.js`, and
 `backend/migrations/014_wallet_talk_settlements.sql`.
 
 Proof: `backend/tests/clementine_wallet_persistence.test.mjs`,
 `backend/tests/clementine_wallet_settlement.postgres.test.mjs`,
+`backend/tests/talk_idempotency_admission.postgres.test.mjs`,
 `backend/tests/server_page_budget.test.mjs`,
+`backend/tests/talk_result_persistence.test.mjs`,
 `backend/tests/talk_state.test.mjs`, and
 `backend/tests/persistence_adapter.test.mjs`.
 
-Next: preserve the two commits, apply the reserved integration hunk, then run the
-single full backend and intercepted restart gates. READY FOR CONTINUE.
+Next: preserve the runtime, proof and follow-up commits, apply the reserved
+integration hunk, then run the single full backend and intercepted restart gates.
+READY FOR CONTINUE.

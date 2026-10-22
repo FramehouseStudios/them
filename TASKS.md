@@ -545,7 +545,8 @@
 ### T-1122 — Recover durable Page settlement without false success
 
 - **Owner:** codex (Zora bounded reliability lane). **Branch:**
-  `codex/T-1122-durable-page-settlement`; runtime `051328b`, tests `cf7caff`.
+  `codex/T-1122-durable-page-settlement`; runtime `051328b`, tests `cf7caff`,
+  adversarial follow-up `31bd768`.
 - **Verified failure:** injected canonical `putBalance` failures produce a
   successful0.2turn commit and resolved `flush()`, but durable/restarted balance
   stays10 instead of9.8. Snapshotting alone does not make settlement atomic.
@@ -557,9 +558,15 @@
   PostgreSQL settlement and StoreKit credit each use one CTE, not pool-level
   pseudo-transactions; JSON uses recoverable CAS states under its documented
   single-process limit.
-- **Proof:** focused exact-runtime Node20 107/0/0; actual ephemeral PostgreSQL16
-  1/0/0 covers 12 concurrent duplicates, trigger-forced statement rollback and
-  concurrent credit/debit composition. Syntax, D009 and diff checks pass. No
+- **Follow-up boundaries fixed:** disabled/unkeyed Page success now awaits a
+  reservation-scoped receipt; billed `prepared` responses do not expire into
+  regeneration; pending admission and pending→prepared→completed transitions use
+  persistence CAS; close/release during prepared persistence cannot publish a
+  false completion. Completed and unbilled replay still use the configured TTL.
+- **Proof:** focused exact-runtime Node20 118/0/0; actual guarded ephemeral
+  PostgreSQL16 2/0/0 covers 12 concurrent settlement duplicates, trigger-forced
+  rollback, concurrent credit/debit, two-worker same-key admission and stale
+  transition rejection. Syntax, D009 and diff checks pass. No
   providers, paid calls, native code, production data or deployment exercised.
 - **Integration pending:** Jarvis-owned `backend/index.js` must pass the durable
   settlement reconciler into `createTalkIdempotencyGuard` using the exact hunk in
@@ -570,6 +577,8 @@
   no paid calls, native tests, pushes, merges or deployments in Zora's lane.
   JSON is not a multi-process billing backend; account export/purge of dedicated
   wallet tables and retention policy remain pre-existing wallet follow-ups.
+  Unkeyed requests have awaited durability but no cross-request deduplication or
+  exact replay; different-key global capacity admission is not transactional.
 
 ### T-1120 — Fund actual server Page budgets before generation
 
