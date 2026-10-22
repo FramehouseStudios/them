@@ -504,6 +504,12 @@ actor OfflineTalkOutbox {
         backendURL: URL) throws -> OfflineTalkPageDeliveryPlan {
         let packet = try receivedReply(id, initiatingIdentity: owner, backendURL: backendURL)
         guard packet.response.id == receiptID else { throw BackendMemoryAPIError.invalidResponse }
+        var record = try readStoredRecord(blobURL(for: packet.entry.bodyRef))
+        let originalBody = try record.validatedBody(matching: packet.entry)
+        if let originalProject = try offlineTalkRequestProjectID(body: originalBody, headers: packet.entry.headers),
+           originalProject != projectID {
+            throw BackendError.stage("offline_outbox", "This reply was requested for another project. Open that project to recover it; the reply is kept.")
+        }
         if let existing = packet.pageDelivery {
             guard existing.projectID == projectID,
                   existing.documentID == nil || existing.documentID == documentID else { throw OfflineTalkPreviousOwnerError() }
@@ -512,8 +518,6 @@ actor OfflineTalkOutbox {
         let plan = OfflineTalkPageDeliveryPlan(id: UUID(), receiptID: receiptID, projectID: projectID,
             documentID: documentID, beforeDraft: beforeDraft, afterDraft: afterDraft)
         try plan.validate(response: packet.response)
-        var record = try readStoredRecord(blobURL(for: packet.entry.bodyRef))
-        _ = try record.validatedBody(matching: packet.entry)
         record.version = 3; record.pageDelivery = plan
         record.pageDeliveryDigest = try plan.integrityDigest()
         try writeProtectedData(record.encoded(), to: blobURL(for: packet.entry.bodyRef))

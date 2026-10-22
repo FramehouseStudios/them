@@ -512,6 +512,29 @@
   any undelivered result safely through crashes, owner/origin changes and retry.
   Reuse canonical talk/result/receipt handling; no second conversation store.
 
+### T-1123 — Keep queued scene delivery in its initiating project
+
+- **Owner:** codex (Jarvis); branch `codex/T-1123-queued-page-origin`, parent
+  `e85b487`. Native-only; Zora's T-1122 backend module ownership is untouched.
+- **Root:** after relaunch, a queued request for projectA could prepare a delivery
+  into projectB when the response omitted its project trace. Signed regression
+  red0/1/0. Existing response-only guarding did not bind the original request.
+- **Fix:** read initiating project from integrity-checked stored multipart bytes
+  at the canonical prepare-before-insert boundary. Reject mismatches before a
+  delivery plan is written, without modifying/deleting the response. The bounded
+  byte parser checks actual part headers, ignores project-like binary audio and
+  rejects duplicate fields/boundaries or malformed declared multipart. Reuse the
+  existing outbox; no extra journal/schema, request regeneration or god-file edit.
+- **Proof:** focused6/0/0; full signed units934/0/0; actual authenticated queued
+  reply/playback/append/save/exact-relaunch UI1/0/0, intercepted STT1/chat2/TTS23.
+  Erased owned7F1A14C1, normal signing. macOS/D009/diff pass. Backend2939/0/2 is
+  inherited unchanged from T-1121, not rerun. No live model/microphone/phone proof.
+- **Limits:** this does not implement automatic original-document delivery,
+  unbound setup or precise queued rewrites. Legacy non-multipart/no-project
+  requests retain explicit manual behavior; never infer them safe for automation.
+- **Next:** finish T-1122 review/wiring, then original-document/unbound delivery.
+  Full record: `docs/queued-page-origin-2026-10-21.md`.
+
 ### T-1121 — Integrate durable accepted talk results without changing client IDs
 
 - **Owner:** codex (Jarvis); branch `codex/T-1121-durable-talk-integration`,
