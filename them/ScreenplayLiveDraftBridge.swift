@@ -2042,33 +2042,6 @@ struct ScreenplayProjectBindingSnapshot: Codable, Equatable, Hashable {
     )
 }
 
-struct ScreenplayLiveDraftOriginSnapshot: Codable, Equatable, Hashable {
-    let updatedAt: Date
-    let projectID: String
-    let versionID: String
-
-    init(
-        updatedAt: Date = Date(),
-        projectID: String,
-        versionID: String
-    ) {
-        self.updatedAt = updatedAt
-        self.projectID = projectID.trimmingCharacters(in: .whitespacesAndNewlines)
-        self.versionID = versionID.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    var isEmpty: Bool {
-        projectID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-            versionID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
-
-    static let empty = ScreenplayLiveDraftOriginSnapshot(
-        updatedAt: .distantPast,
-        projectID: "",
-        versionID: ""
-    )
-}
-
 enum ScreenplayIntelligenceSeverity: String, Codable, Equatable, Hashable {
     case info
     case warning
@@ -2882,7 +2855,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
 
     @Published var draftText: String = "" {
         didSet {
-            guard draftText != oldValue else { return }
+            guard !draftText.utf8.elementsEqual(oldValue.utf8) else { return }
             syncStructuredDraftSnapshot(text: draftText)
         }
     }
@@ -2920,6 +2893,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         }
     }
     @Published private(set) var draftOrigin: ScreenplayLiveDraftOriginSnapshot = .empty
+    @Published var initialProjectReceipt: ScreenplayInitialProjectReceipt? = nil
     @Published var featureSpine: ScreenplayFeatureSpine = .empty
     @Published private(set) var characterVoiceMemories: [BackendScreenplayCharacterVoiceMemory] = []
     private var characterVoiceMemoryUserID: String = ""
@@ -3301,7 +3275,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
             if let snapshot = try? decoder.decode(ScreenplayLiveDraftOriginSnapshot.self, from: data),
-               !snapshot.isEmpty {
+               (!snapshot.isEmpty || snapshot.documentID != nil) {
                 return snapshot
             }
         }
@@ -3401,6 +3375,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         guard !isReconcilingAccountStorage else { return }
         if let draft = ScreenplayLiveDraftTextPersistencePolicy.draftForStorage(text) {
             UserDefaults.standard.set(draft, forKey: ownerScopedKey(Self.draftTextStorageKey))
+            if preferredProjectID.isEmpty { ScreenplayLiveDraftFileStore.persist(draft, ownerUserID: storageOwnerUserID) }
             persistDraftOriginForCurrentContext()
         } else {
             UserDefaults.standard.removeObject(forKey: ownerScopedKey(Self.draftTextStorageKey))
@@ -3408,6 +3383,14 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             draftOrigin = .empty
             UserDefaults.standard.removeObject(forKey: ownerScopedKey(Self.draftOriginStorageKey))
         }
+    }
+
+    func initialProjectDocumentID(owner: BackendAuthRequestIdentity) throws -> String {
+        try owner.requireCurrentOwner(BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: false))
+        guard !isReconcilingAccountStorage, storageOwnerUserID == owner.userID else { throw BackendMemoryAPIError.server(status: 409, message: "auth_request_superseded") }
+        persistDraftText(draftText)
+        guard let id = draftOrigin.documentID, !id.isEmpty, UserDefaults.standard.synchronize() else { throw BackendMemoryAPIError.invalidResponse }
+        return id
     }
 
     private func persistAuthoritativeCommittedDraft(_ committedWrite: ScreenplayCommittedWrite?) {
@@ -3422,12 +3405,15 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
 
     private func persistDraftOriginForCurrentContext() {
         guard !isReconcilingAccountStorage else { return }
+        let projectID = committedWriteProjectIDSnapshot()
+        let sameDocument = draftOrigin.projectID == projectID || (initialProjectReceipt?.project.id == projectID
+            && initialProjectReceipt?.entry.initialization?.documentID == draftOrigin.documentID)
         let snapshot = ScreenplayLiveDraftOriginSnapshot(
-            projectID: committedWriteProjectIDSnapshot(),
-            versionID: committedWriteVersionIDSnapshot()
+            projectID: projectID,
+            versionID: committedWriteVersionIDSnapshot(), documentID: sameDocument ? (draftOrigin.documentID ?? UUID().uuidString.lowercased()) : UUID().uuidString.lowercased()
         )
         draftOrigin = snapshot
-        guard !snapshot.isEmpty else {
+        guard !snapshot.isEmpty || snapshot.documentID != nil else {
             UserDefaults.standard.removeObject(forKey: ownerScopedKey(Self.draftOriginStorageKey))
             return
         }
@@ -6379,6 +6365,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
     }
 
     func clearDraft() {
+        initialProjectReceipt = nil
         cancelStream()
         draftText = ""
         isStreamingDraftPreviewActive = false
@@ -6598,6 +6585,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         )
         latestFeatureWorkflowContext = Self.restoreFeatureWorkflowContext(ownerUserID: nextOwnerUserID)
         latestAppliedMemory = Self.restoreLatestAppliedMemory(ownerUserID: nextOwnerUserID)
+        initialProjectReceipt = nil
         lastCommittedWrite = nil
         pendingInsertion = nil
         pendingReplacementTarget = nil

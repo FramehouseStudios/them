@@ -34,6 +34,7 @@ nonisolated struct ScreenplayDraftSaveOutboxEntry: Identifiable, Codable, Equata
     var retries: Int
     var nextAttemptAt: TimeInterval
     var lastError: String
+    var initialization: ScreenplayInitialProjectMetadata? = nil
 }
 
 nonisolated struct ScreenplayDraftSaveOutboxSnapshot: Equatable {
@@ -184,7 +185,7 @@ actor ScreenplayDraftSaveOutbox {
         let cleanOwnerUserId = ownerUserId.trimmingCharacters(in: .whitespacesAndNewlines)
         let nowSeconds = now.timeIntervalSince1970
         guard let index = entries.firstIndex(where: {
-            $0.projectId == cleanProjectId && $0.ownerUserId == cleanOwnerUserId
+            $0.projectId == cleanProjectId && $0.ownerUserId == cleanOwnerUserId && $0.initialization == nil
         }) else {
             return nil
         }
@@ -335,12 +336,105 @@ actor ScreenplayDraftSaveOutbox {
         return entries
     }
 
+    func prepareInitialProject(ownerUserID: String, backendURL: URL, documentID: String,
+                               sourceProjectID: String, draft: String, title: String, phase: String,
+                               source: String, explicitTitle: Bool = false) throws -> ScreenplayDraftSaveOutboxEntry {
+        try loadIfNeeded()
+        let origin = try ScreenplayInitialProjectMetadata.origin(backendURL)
+        guard !ownerUserID.isEmpty, !documentID.isEmpty, !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw BackendMemoryAPIError.invalidResponse }
+        if let existing = initialProjectEntry(ownerUserID: ownerUserID, backendURL: origin, documentID: documentID,
+                                             sourceProjectID: sourceProjectID) {
+            guard !explicitTitle || existing.title == title else {
+                throw BackendMemoryAPIError.server(status: 409, message: "A project named ‘\(existing.title)’ is still being set up. Save now to finish it before starting another project. Your words are kept.")
+            }
+            return existing
+        }
+        let now = Date().timeIntervalSince1970
+        var entry = ScreenplayDraftSaveOutboxEntry(id: UUID().uuidString.lowercased(),
+            projectId: "project-\(UUID().uuidString.lowercased())", ownerUserId: ownerUserID,
+            draft: draft, title: title, phase: phase, notes: "Initial Studio draft", source: source,
+            studioWriteAnchors: [], screenplayBindings: [], baseVersionId: "", createdAt: now, updatedAt: now,
+            status: .pending, retries: 0, nextAttemptAt: 0, lastError: "Project setup is kept on this device.")
+        entry.initialization = .init(documentID: documentID, backendURL: origin, sourceProjectID: sourceProjectID)
+        _ = try enqueue(entry)
+        return entry
+    }
+
+    private func initialProjectEntry(ownerUserID: String, backendURL: URL, documentID: String,
+                                     sourceProjectID: String) -> ScreenplayDraftSaveOutboxEntry? {
+        entries.first { entry in
+            guard let metadata = entry.initialization else { return false }
+            return entry.ownerUserId == ownerUserID && metadata.documentID == documentID
+                && (metadata.sourceProjectID == sourceProjectID || entry.projectId == sourceProjectID)
+                && OfflineTalkRecoveryScope.sameBackend(metadata.backendURL, backendURL)
+        }
+    }
+
+    func pendingInitialProject(ownerUserID: String, backendURL: URL, documentID: String,
+                               sourceProjectID: String) throws -> ScreenplayDraftSaveOutboxEntry? {
+        try loadIfNeeded()
+        return initialProjectEntry(ownerUserID: ownerUserID, backendURL: backendURL,
+                                   documentID: documentID, sourceProjectID: sourceProjectID)
+    }
+
+    func beginInitialProject(id: String, ownerUserID: String, backendURL: URL) throws {
+        try loadIfNeeded()
+        guard let index = entries.firstIndex(where: { $0.id == id }),
+              let metadata = entries[index].initialization, entries[index].ownerUserId == ownerUserID,
+              OfflineTalkRecoveryScope.sameBackend(metadata.backendURL, backendURL) else { throw BackendMemoryAPIError.invalidResponse }
+        guard entries[index].status != .inflight else {
+            throw BackendMemoryAPIError.server(status: 409, message: "Project setup is already being sent. Your words are kept.")
+        }
+        let previous = entries
+        entries[index].status = .inflight
+        do { try persist() } catch { entries = previous; throw error }
+        publishSnapshot()
+    }
+
+    func recordInitialProjectReceipt(id: String, versionID: String) throws {
+        try loadIfNeeded()
+        guard let index = entries.firstIndex(where: { $0.id == id }), entries[index].initialization != nil,
+              !versionID.isEmpty else { throw BackendMemoryAPIError.invalidResponse }
+        let previous = entries
+        entries[index].initialization?.receiptVersionID = versionID
+        entries[index].status = .parked
+        entries[index].lastError = "First draft saved. Finish project setup to bind this receipt."
+        do { try persist() } catch { entries = previous; throw error }
+        publishSnapshot()
+    }
+
+    func finishInitialProjectBinding(id: String, versionID: String, owner: BackendAuthRequestIdentity) throws {
+        try owner.requireCurrentOwner(BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: false))
+        try loadIfNeeded()
+        guard let entry = entries.first(where: { $0.id == id }), entry.ownerUserId == owner.userID,
+              let metadata = entry.initialization, metadata.receiptVersionID == versionID,
+              OfflineTalkRecoveryScope.sameBackend(metadata.backendURL, BackendAuthClient.resolvedBackendBaseURL()) else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        let previous = entries
+        entries.removeAll { $0.id == id }
+        do { try persist() } catch { entries = previous; throw error }
+        publishSnapshot()
+    }
+
+    func releaseInitialProject(id: String, error: String) throws {
+        try loadIfNeeded()
+        guard let index = entries.firstIndex(where: { $0.id == id }), entries[index].initialization != nil else { return }
+        let previous = entries
+        entries[index].status = .pending
+        entries[index].lastError = normalizedError(error)
+        do { try persist() } catch { entries = previous; throw error }
+        publishSnapshot()
+    }
+
     func pendingEntry(projectId: String, ownerUserId: String) throws -> ScreenplayDraftSaveOutboxEntry? {
         try loadIfNeeded()
         let cleanProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
         let cleanOwnerUserId = ownerUserId.trimmingCharacters(in: .whitespacesAndNewlines)
         return entries.last { entry in
             entry.projectId == cleanProjectId
+                && entry.initialization == nil
                 && entry.ownerUserId == cleanOwnerUserId
                 && (entry.status == .pending || entry.status == .inflight
                     || (entry.status == .parked && entry.lastError == Self.conflictReason))

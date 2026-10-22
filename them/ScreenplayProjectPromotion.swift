@@ -1,5 +1,22 @@
 import Foundation
 
+struct ScreenplayLiveDraftOriginSnapshot: Codable, Equatable, Hashable {
+    let updatedAt: Date
+    let projectID: String
+    let versionID: String
+    let documentID: String?
+
+    init(updatedAt: Date = Date(), projectID: String, versionID: String, documentID: String? = nil) {
+        self.updatedAt = updatedAt
+        self.projectID = projectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.versionID = versionID.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.documentID = documentID
+    }
+
+    var isEmpty: Bool { projectID.isEmpty && versionID.isEmpty }
+    static let empty = Self(updatedAt: .distantPast, projectID: "", versionID: "")
+}
+
 /// Eligibility for the existing restored/committed-page promotion capability.
 /// Auth and exact-document identity stay owned by StudioActionDocumentContext.
 struct ScreenplayRestoredLiveDraftProjectPromotionPolicy {

@@ -794,6 +794,9 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
 
   // ---------- Phase 2b: write routes ----------
 
+  // A dedicated path fails without mutation on older servers; clients must not
+  // fall back to metadata-only creation when the atomic capability is absent.
+  app.post("/screenplay/projects/initialize", express.json({ limit: "2mb" }), initializeProject);
   app.post("/screenplay/projects", express.json({ limit: "2mb" }), async (req, res) => {
     if (Object.prototype.hasOwnProperty.call(req.body || {}, "initial_draft")) return initializeProject(req, res);
     const owner = await getFreshAuthorizedScreenplayOwner(req, res, "screenplay_project");

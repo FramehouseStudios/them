@@ -3,6 +3,17 @@ import XCTest
 
 final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
     @MainActor
+    func testBridgeDraftAdoptionPreservesRawWhitespaceAndUnicode() async {
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store)
+        model.selectedProjectID = ""
+        model.fountainDraft = ""
+        let raw = "\r\nINT. CAFE - NIGHT\r\nCafe\u{0301}.\r\n \t "
+        model.replaceDraftFromVoiceBridgeIfNeeded(raw, draftOriginProjectID: "")
+        XCTAssertEqual(Data(model.fountainDraft.utf8), Data(raw.utf8))
+        await Task.yield()
+    }
+
+    @MainActor
     func testExplicitLoadServerChoiceAllowsNormalLiveFollowingAgain() async {
         let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store)
         model.selectedProjectID = "resolved-choice"

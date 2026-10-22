@@ -54,6 +54,7 @@ function registerMethodNotAllowedRoutes(app) {
   app.all("/recap", methodNotAllowed("GET"));
   app.all("/recap/today", methodNotAllowed("GET"));
   app.all("/screenplay/projects", methodNotAllowed("GET, POST"));
+  app.all("/screenplay/projects/initialize", methodNotAllowed("POST"));
   app.all("/screenplay/projects/:projectId", methodNotAllowed("GET"));
   app.all("/screenplay/projects/:projectId/outline", methodNotAllowed("GET, POST"));
   app.all("/screenplay/projects/:projectId/scenes", methodNotAllowed("POST"));

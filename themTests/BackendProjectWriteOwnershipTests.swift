@@ -3,6 +3,67 @@ import XCTest
 @testable import them
 
 final class BackendProjectWriteOwnershipTests: XCTestCase {
+    func testInitialProjectUsesAtomicEndpointAndOriginalBytesWithoutLeakingLocalScope() async throws {
+        let state = ProjectWriteOwnershipState(), entry = initialEntry()
+        ProjectWriteOwnershipProtocol.handler = { request in
+            state.record(request)
+            if request.url?.path == "/session" { state.rotateToken(); return .json(#"{"error":"unavailable"}"#, status: 503) }
+            var body = request.httpBody ?? Data()
+            if body.isEmpty, let stream = request.httpBodyStream {
+                stream.open(); defer { stream.close() }
+                var buffer = [UInt8](repeating: 0, count: 1024)
+                while true { let count = stream.read(&buffer, maxLength: buffer.count); if count <= 0 { break }; body.append(contentsOf: buffer.prefix(count)) }
+            }
+            let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+            let initial = try XCTUnwrap(json["initial_draft"] as? [String: Any])
+            XCTAssertEqual(Data(try XCTUnwrap(initial["draft"] as? String).utf8), Data(entry.draft.utf8))
+            XCTAssertEqual(initial["client_request_id"] as? String, entry.id)
+            XCTAssertNil(json["initialization"])
+            XCTAssertNil(json["ownerUserId"])
+            XCTAssertEqual(request.value(forHTTPHeaderField: "X-Idempotency-Key"), entry.id)
+            return .json(Self.mutation, status: 201)
+        }
+        let result = try await makeAPI(state).upsertScreenplayProject(projectId: entry.projectId, title: entry.title,
+            phase: entry.phase, initialDraft: entry, initiatingIdentity: state.identity())
+        XCTAssertEqual(result.payload.versionId, "version-a")
+        let writes = state.requests().filter { $0.url?.path != "/session" }
+        XCTAssertEqual(writes.map { $0.url!.path }, ["/screenplay/projects/initialize"])
+        XCTAssertEqual(writes.first?.value(forHTTPHeaderField: "Authorization"), "Bearer fixture-rotated")
+    }
+
+    func testMissingAtomicEndpointNeverFallsBackToUnsafeMetadataThenVersion() async {
+        let state = ProjectWriteOwnershipState(), entry = initialEntry()
+        ProjectWriteOwnershipProtocol.handler = { request in state.record(request); return .json(#"{"error":"not_found"}"#, status: 404) }
+        do {
+            _ = try await makeAPI(state).upsertScreenplayProject(projectId: entry.projectId, title: entry.title,
+                phase: entry.phase, initialDraft: entry, initiatingIdentity: state.identity())
+            XCTFail("An unavailable atomic endpoint was acknowledged.")
+        } catch BackendMemoryAPIError.server(let status, _) { XCTAssertEqual(status, 404) }
+        catch { XCTFail("Unexpected error: \(error)") }
+        XCTAssertEqual(state.requests().filter { $0.url?.path != "/session" }.map { $0.url!.path }, ["/screenplay/projects/initialize"])
+    }
+
+    func testInitialProjectCannotBeSentToADifferentBackend() async {
+        let state = ProjectWriteOwnershipState()
+        var entry = initialEntry()
+        entry.initialization = .init(documentID: "document-a", backendURL: URL(string: "https://other.example.test")!, sourceProjectID: "")
+        ProjectWriteOwnershipProtocol.handler = { request in state.record(request); return .json(#"{"error":"unavailable"}"#, status: 503) }
+        await assertSuperseded {
+            _ = try await makeAPI(state).upsertScreenplayProject(projectId: entry.projectId, title: entry.title,
+                phase: entry.phase, initialDraft: entry, initiatingIdentity: state.identity())
+        }
+        XCTAssertTrue(state.requests().allSatisfy { $0.url?.path == "/session" })
+    }
+
+    private func initialEntry() -> ScreenplayDraftSaveOutboxEntry {
+        var entry = ScreenplayDraftSaveOutboxEntry(id: "request-initial", projectId: "project-a", ownerUserId: "writer-a",
+            draft: "\r\nCafe\u{0301}. \t ", title: "A", phase: "scene_draft", notes: "Initial draft", source: "studio_initial_seed",
+            studioWriteAnchors: [], screenplayBindings: [], baseVersionId: "", createdAt: 1, updatedAt: 1,
+            status: .pending, retries: 0, nextAttemptAt: 0, lastError: "")
+        entry.initialization = .init(documentID: "document-a", backendURL: URL(string: "https://project-write-ownership.test")!, sourceProjectID: "")
+        return entry
+    }
+
     func testDataControlsCannotSendToABackendOtherThanTheConfirmedOrigin() async {
         for kind in 0..<3 {
             let state = ProjectWriteOwnershipState()
