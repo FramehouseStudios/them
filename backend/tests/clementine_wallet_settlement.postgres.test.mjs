@@ -5,7 +5,18 @@ import pg from "pg";
 
 import { createPostgresWalletPersistence } from "../lib/clementine/wallet_persistence.js";
 
-const databaseUrl = String(process.env.T1122_DATABASE_URL || "").trim();
+function taskOwnedDatabaseUrl(raw) {
+  const value = String(raw || "").trim();
+  if (!value) return "";
+  const parsed = new URL(value);
+  const localHosts = new Set(["127.0.0.1", "localhost", "host.docker.internal"]);
+  if (!localHosts.has(parsed.hostname) || parsed.pathname !== "/t1122") {
+    throw new Error("refusing PostgreSQL proof outside task-owned loopback database /t1122");
+  }
+  return value;
+}
+
+const databaseUrl = taskOwnedDatabaseUrl(process.env.T1122_DATABASE_URL);
 
 test("[wallet-settlement/pg] duplicate concurrency, rollback and credit composition", {
   skip: !databaseUrl && "T1122_DATABASE_URL is not configured",
@@ -18,6 +29,8 @@ test("[wallet-settlement/pg] duplicate concurrency, rollback and credit composit
   const failureKey = `t1122-failure-${suffix}`;
   const composedKey = `t1122-composed-${suffix}`;
   const transactionId = `t1122-credit-${suffix}`;
+  const functionName = `t1122_reject_${suffix}`;
+  const triggerName = `t1122_reject_trigger_${suffix}`;
   try {
     await pool.query(
       `INSERT INTO wallet_balances (
@@ -41,7 +54,7 @@ test("[wallet-settlement/pg] duplicate concurrency, rollback and credit composit
     assert.equal((await persistence.getBalance(ownerId)).pageMilliturns, 9_800);
 
     await pool.query(`
-      CREATE OR REPLACE FUNCTION t1122_reject_test_settlement()
+      CREATE FUNCTION ${functionName}()
       RETURNS trigger LANGUAGE plpgsql AS $$
       BEGIN
         IF NEW.settlement_key LIKE 't1122-failure-%' THEN
@@ -50,9 +63,9 @@ test("[wallet-settlement/pg] duplicate concurrency, rollback and credit composit
         RETURN NEW;
       END;
       $$;
-      CREATE TRIGGER t1122_reject_test_settlement_trigger
+      CREATE TRIGGER ${triggerName}
       BEFORE INSERT ON wallet_talk_settlements
-      FOR EACH ROW EXECUTE FUNCTION t1122_reject_test_settlement();
+      FOR EACH ROW EXECUTE FUNCTION ${functionName}();
     `);
     await assert.rejects(
       persistence.applyTalkSettlement({
@@ -63,8 +76,8 @@ test("[wallet-settlement/pg] duplicate concurrency, rollback and credit composit
     );
     assert.equal((await persistence.getBalance(ownerId)).pageMilliturns, 9_800);
     assert.equal(await persistence.getTalkSettlement(failureKey), null);
-    await pool.query("DROP TRIGGER t1122_reject_test_settlement_trigger ON wallet_talk_settlements");
-    await pool.query("DROP FUNCTION t1122_reject_test_settlement()");
+    await pool.query(`DROP TRIGGER ${triggerName} ON wallet_talk_settlements`);
+    await pool.query(`DROP FUNCTION ${functionName}()`);
 
     await Promise.all([
       persistence.applyTalkSettlement({
@@ -82,8 +95,8 @@ test("[wallet-settlement/pg] duplicate concurrency, rollback and credit composit
     assert.ok(await persistence.getTalkSettlement(composedKey));
     assert.ok(await persistence.getIapTransaction(transactionId));
   } finally {
-    await pool.query("DROP TRIGGER IF EXISTS t1122_reject_test_settlement_trigger ON wallet_talk_settlements").catch(() => {});
-    await pool.query("DROP FUNCTION IF EXISTS t1122_reject_test_settlement()").catch(() => {});
+    await pool.query(`DROP TRIGGER IF EXISTS ${triggerName} ON wallet_talk_settlements`).catch(() => {});
+    await pool.query(`DROP FUNCTION IF EXISTS ${functionName}()`).catch(() => {});
     await pool.query("DELETE FROM wallet_talk_settlements WHERE owner_id = $1", [ownerId]).catch(() => {});
     await pool.query("DELETE FROM iap_transactions WHERE owner_id = $1", [ownerId]).catch(() => {});
     await pool.query("DELETE FROM wallet_balances WHERE owner_id = $1", [ownerId]).catch(() => {});

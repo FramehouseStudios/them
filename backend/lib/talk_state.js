@@ -129,6 +129,20 @@ function sendCachedTalkIdempotencyResponse(res, record) {
   return res.status(statusCode).send(body);
 }
 
+async function persistTalkIdempotencyTransition(
+  scaleBackplane,
+  cacheKey,
+  expected,
+  next,
+  ttlMs,
+  maxEntries
+) {
+  if (typeof scaleBackplane.compareAndSetIdempotency === "function") {
+    return scaleBackplane.compareAndSetIdempotency(cacheKey, expected, next, ttlMs);
+  }
+  return scaleBackplane.setIdempotency(cacheKey, next, ttlMs, maxEntries);
+}
+
 export function createTalkRateLimitGuard({
   clientIp,
   talkRateLimitWindowMs,
@@ -221,12 +235,14 @@ export function createTalkIdempotencyGuard({
   return async function talkIdempotencyGuard(req, res, next) {
     if (isSpeculativePrepareRequest(req)) return next();
     if (!talkIdempotencyEnabled) return next();
+    let requestedKey = "";
     try {
       const headerKey = normalizeIdempotencyKey(
         req.get("X-Idempotency-Key") ||
           req.get("Idempotency-Key")
       );
       if (!headerKey) return next();
+      requestedKey = headerKey;
       const sessionKey = resolveTalkSessionKey(req);
       const scopeKey = resolveTalkIdempotencyScope(req, resolveTalkSessionKey);
       const cacheKey = `${scopeKey}|${headerKey}`;
@@ -283,9 +299,12 @@ export function createTalkIdempotencyGuard({
               ...existing,
               status: "completed",
               completedAt: now(),
+              expiresAt: now() + talkIdempotencyTtlMs,
             };
-            await scaleBackplane.setIdempotency(
+            await persistTalkIdempotencyTransition(
+              scaleBackplane,
               cacheKey,
+              existing,
               completed,
               talkIdempotencyTtlMs,
               talkIdempotencyMaxEntries
@@ -367,6 +386,14 @@ export function createTalkIdempotencyGuard({
       });
       next();
     } catch (err) {
+      if (err?.code === "TALK_IDEMPOTENCY_CONFLICT") {
+        res.setHeader("Retry-After", "1");
+        return res.status(409).json({
+          stage: "idempotency",
+          error: "Duplicate turn in progress for this key.",
+          key: requestedKey,
+        });
+      }
       if (err?.code === "TALK_IDEMPOTENCY_CAPACITY") {
         res.setHeader("Retry-After", "1");
         res.setHeader("Cache-Control", "no-store");
@@ -578,6 +605,19 @@ export function createTalkIdempotencyHelpers({
   if (!isPositiveFinite(talkIdempotencyMaxEntries)) {
     throw new Error("createTalkIdempotencyHelpers requires positive talkIdempotencyMaxEntries");
   }
+  async function settlePageWithoutReplay(req) {
+    const clementine = req?.clementine;
+    const reservationId = String(clementine?.walletReservationId || "").trim();
+    if (
+      !reservationId ||
+      typeof clementine?.buildWalletSettlement !== "function" ||
+      typeof clementine?.settleWalletDurably !== "function"
+    ) {
+      return;
+    }
+    const settlement = clementine.buildWalletSettlement(`talk-wallet:${reservationId}`);
+    if (settlement) await clementine.settleWalletDurably(settlement);
+  }
   return {
     sanitizeHeaders: sanitizeTalkHeadersForIdempotency,
     captureResponseHeaders: captureTalkResponseHeaders,
@@ -590,9 +630,9 @@ export function createTalkIdempotencyHelpers({
       );
     },
     async commitSuccess(req, { statusCode = 200, headers = {}, body = Buffer.alloc(0) } = {}) {
-      if (!talkIdempotencyEnabled) return;
+      if (!talkIdempotencyEnabled) return settlePageWithoutReplay(req);
       const ctx = req?.talkIdempotency;
-      if (!ctx?.cacheKey) return;
+      if (!ctx?.cacheKey) return settlePageWithoutReplay(req);
       const existing = talkIdempotencyCache.get(ctx.cacheKey) || await scaleBackplane.getIdempotency(ctx.cacheKey);
       if (!existing) return;
       if (String(existing.status || "") === "prepared") {
@@ -602,9 +642,12 @@ export function createTalkIdempotencyHelpers({
             ...existing,
             status: "completed",
             completedAt: Date.now(),
+            expiresAt: Date.now() + talkIdempotencyTtlMs,
           };
-          await scaleBackplane.setIdempotency(
+          await persistTalkIdempotencyTransition(
+            scaleBackplane,
             ctx.cacheKey,
+            existing,
             completed,
             talkIdempotencyTtlMs,
             talkIdempotencyMaxEntries
@@ -622,20 +665,23 @@ export function createTalkIdempotencyHelpers({
       if (payloadBuffer.length && !normalizedHeaders["content-length"]) {
         normalizedHeaders["content-length"] = String(payloadBuffer.length);
       }
+      const settlement = typeof req?.clementine?.buildWalletSettlement === "function"
+        ? req.clementine.buildWalletSettlement(ctx.cacheKey)
+        : null;
       const prepared = {
         ...existing,
         status: "prepared",
         statusCode: Math.max(200, Math.min(299, Number(statusCode || 200))),
         headers: normalizedHeaders,
         body: payloadBuffer,
-        settlement: typeof req?.clementine?.buildWalletSettlement === "function"
-          ? req.clementine.buildWalletSettlement(ctx.cacheKey)
-          : null,
+        settlement,
         preparedAt: now,
-        expiresAt: now + talkIdempotencyTtlMs,
+        expiresAt: settlement ? 0 : now + talkIdempotencyTtlMs,
       };
-      await scaleBackplane.setIdempotency(
+      await persistTalkIdempotencyTransition(
+        scaleBackplane,
         ctx.cacheKey,
+        existing,
         prepared,
         talkIdempotencyTtlMs,
         talkIdempotencyMaxEntries
@@ -648,9 +694,12 @@ export function createTalkIdempotencyHelpers({
         ...prepared,
         status: "completed",
         completedAt: Date.now(),
+        expiresAt: Date.now() + talkIdempotencyTtlMs,
       };
-      await scaleBackplane.setIdempotency(
+      await persistTalkIdempotencyTransition(
+        scaleBackplane,
         ctx.cacheKey,
+        prepared,
         completed,
         talkIdempotencyTtlMs,
         talkIdempotencyMaxEntries

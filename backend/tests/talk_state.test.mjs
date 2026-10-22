@@ -914,6 +914,55 @@ test("idempotency helpers disabled: commitSuccess no-ops", async () => {
   assert.equal(talkIdempotencyCacheSize(), 0);
 });
 
+test("Page settlement is awaited even when replay idempotency is disabled or unkeyed", async () => {
+  resetState();
+  const sb = stubScaleBackplane();
+  for (const talkIdempotencyEnabled of [false, true]) {
+    const helpers = createTalkIdempotencyHelpers({
+      scaleBackplane: sb,
+      talkIdempotencyEnabled,
+      talkIdempotencyTtlMs: 60_000,
+      talkIdempotencyMaxEntries: 256,
+    });
+    const events = [];
+    const req = {
+      requestId: `request-${talkIdempotencyEnabled}`,
+      clementine: {
+        walletReservationId: `reservation-${talkIdempotencyEnabled}`,
+        buildWalletSettlement(key) {
+          events.push(["prepared", key]);
+          return { settlementKey: key, actualOutputTokens: 80 };
+        },
+        async settleWalletDurably(settlement) {
+          await Promise.resolve();
+          events.push(["settled", settlement.settlementKey]);
+        },
+      },
+    };
+    await helpers.commitSuccess(req, { body: Buffer.from("accepted") });
+    assert.deepEqual(events, [
+      ["prepared", `talk-wallet:reservation-${talkIdempotencyEnabled}`],
+      ["settled", `talk-wallet:reservation-${talkIdempotencyEnabled}`],
+    ]);
+  }
+  const failing = createTalkIdempotencyHelpers({
+    scaleBackplane: sb,
+    talkIdempotencyEnabled: false,
+    talkIdempotencyTtlMs: 60_000,
+    talkIdempotencyMaxEntries: 256,
+  });
+  await assert.rejects(
+    failing.commitSuccess({
+      clementine: {
+        walletReservationId: "reservation-failure",
+        buildWalletSettlement: key => ({ settlementKey: key, actualOutputTokens: 80 }),
+        settleWalletDurably: async () => { throw new Error("durable settlement unavailable"); },
+      },
+    }),
+    /durable settlement unavailable/
+  );
+});
+
 test("authenticated idempotency scope ignores a previous owner's client token", async () => {
   resetState();
   const sb = stubScaleBackplane();
@@ -1053,7 +1102,9 @@ test("prepared settlement failure is replayed only after durable reconciliation"
     helpers.commitSuccess(first, { body: Buffer.from("replay me exactly") }),
     /injected settlement outage/
   );
-  assert.equal((await sb.getIdempotency(first.talkIdempotency.cacheKey)).status, "prepared");
+  const durablePrepared = await sb.getIdempotency(first.talkIdempotency.cacheKey);
+  assert.equal(durablePrepared.status, "prepared");
+  assert.equal(durablePrepared.expiresAt, 0, "unresolved billed responses must not age into regeneration");
   helpers.clearPending(first, { keepCompleted: true });
   assert.equal(
     [...__test.peekIdempotencyCache().values()][0]?.status,
