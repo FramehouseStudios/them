@@ -5050,6 +5050,12 @@ final class BackendClient {
             throw BackendError.stage("offline_outbox", "This saved turn has no playable response. It remains kept on this device.")
         }
         let retained = try packet.response.turnMetadata.map { try JSONDecoder().decode(BackendTalkTurnMetaPayload.self, from: $0) }
+        let headerReply = (http.value(forHTTPHeaderField: "x-reply")?.removingPercentEncoding ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if retained == nil, parseHeaderBool(http, field: "x-turn-meta-available", default: false),
+           headerReply.isEmpty, parseScreenplayOutput(from: http) == nil {
+            throw BackendError.stage("offline_outbox", "The received reply still needs its turn metadata. Its audio and request remain kept; no generation will be repeated.")
+        }
         // Metadata lookups are volatile and can require a different session
         // after relaunch. Recovery must be self-contained, not silently turn a
         // partial page into a completed delivery or trigger another generation.

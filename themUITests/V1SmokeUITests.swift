@@ -2277,6 +2277,79 @@ final class V1SmokeUITests: XCTestCase {
         XCTAssertTrue(export.exists, "Export must not acknowledge page/audio delivery.")
     }
 
+    @MainActor
+    func test_queued_talk_reply_plays_appends_saves_and_restores_once() async throws {
+        guard let port = Int(ProcessInfo.processInfo.environment["THEM_UITEST_WRITER_LOOP_BACKEND_PORT"] ?? "") else {
+            throw XCTSkip("Task-owned authenticated backend required; no injected success")
+        }
+        let base = try XCTUnwrap(URL(string: "http://127.0.0.1:\(port)"))
+        let fixture = try await createWriterLoopAuthenticationFixture(baseURL: base)
+        let projectID = "recovered-page-\(UUID().uuidString.lowercased())"
+        let created = try await requestJSON(baseURL: base, path: "/screenplay/projects", method: "POST",
+            headers: fixture.authorizedHeaders, body: ["project_id": projectID, "title": "Keep my original words", "activate": true])
+        try assertHTTP(created, context: "Recovery project")
+        let before = "INT. CONTROL ROOM - NIGHT\n\nMARA\nKeep my original words."
+        let saved = try await requestJSON(baseURL: base, path: "/screenplay/projects/\(projectID)/version", method: "POST",
+            headers: fixture.authorizedHeaders, body: ["draft": before, "phase": "scene_draft", "base_version_id": ""])
+        try assertHTTP(saved, context: "Recovery baseline")
+        let version = try firstNonEmptyString(saved.payload["version_id"], saved.payload["server_version_id"], message: "Baseline version missing")
+        var app = launchApp(openStudio: true, receiveTalkPage: true, restoreProjectID: projectID,
+            restoreVersionID: version, restoreLoadToken: Int(Date().timeIntervalSince1970), launchEnvironment: fixture.appLaunchEnvironment)
+        defer { app.terminate() }
+        XCTAssertTrue(waitForExactWriterLoopDraft(before, in: app, timeout: 25))
+        guard dismissKeyboardTypingTutorialIfPresent(in: app) else { return }
+        app.buttons["studio.sidebar.right.toggle"].tap()
+        let drawer = element(identifier: "studio.sidebar.right.drawer", in: app)
+        XCTAssertTrue(drawer.waitForExistence(timeout: 8))
+        let draftTab = app.buttons["studio.right-panel.draft"]
+        XCTAssertTrue(waitForHittability(of: draftTab, timeout: 5)); draftTab.tap()
+        guard revealInStudioDrawer(app.buttons["studio.draft.document.save"], drawer: drawer, scrollingUp: true, maxSwipes: 8, fullyVisible: true) else {
+            XCTFail("The actual Document card did not become visible"); return
+        }
+        let review = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "studio.recovery.reply.")).firstMatch
+        guard review.waitForExistence(timeout: 45) else { XCTFail("Queued HTTP response did not become a retained reply"); return }
+        XCTAssertTrue(revealInStudioDrawer(review, drawer: drawer, scrollingUp: true, maxSwipes: 8, fullyVisible: true))
+        review.tap()
+        XCTAssertTrue(app.staticTexts["talk.recovery.reply.text"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["talk.recovery.reply.text"].label.contains("HOME VOICE HANDOFF"))
+        let receivedScene = app.staticTexts["talk.recovery.reply.text"].label
+        let expectedDraft = before + "\n\n" + receivedScene.trimmingCharacters(in: .whitespacesAndNewlines)
+        let play = app.buttons["talk.recovery.reply.play"]
+        XCTAssertTrue(play.waitForExistence(timeout: 5)); play.tap()
+        let playing = NSPredicate(format: "label == %@", "Stop playback")
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: playing, object: play)], timeout: 3), .completed)
+        play.tap()
+        XCTAssertEqual(play.label, "Play reply")
+        let append = app.buttons["talk.recovery.reply.append"]
+        if !append.isHittable { app.swipeUp() }
+        XCTAssertTrue(waitForHittability(of: append, timeout: 5)); append.tap()
+        let status = app.staticTexts["talk.recovery.reply.status"]
+        let delivered = NSPredicate(format: "label == %@", "Recovered scene saved.")
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: delivered, object: status)], timeout: 35), .completed,
+            "Recovery did not confirm the saved version: \(status.label)")
+        app.buttons["Close"].tap()
+        XCTAssertFalse(review.exists, "Only a confirmed saved page may release the retained reply")
+        app.buttons["studio.sidebar.right.toggle"].tap()
+        let editor = textInput("studio.draft.editor", in: app)
+        XCTAssertTrue(waitForTextInputValue(in: editor, containing: "Someone on the other side pulls back.", timeout: 10))
+        let draft = editor.value as? String ?? ""
+        XCTAssertEqual(Data(draft.utf8), Data(expectedDraft.utf8), "The full native page must match the reviewed result, not the 1,000-character debug preview")
+        XCTAssertTrue(draft.utf8.starts(with: before.utf8), "Recovery changed existing writer bytes")
+        XCTAssertEqual(occurrenceCount(of: "HOME VOICE HANDOFF", in: draft), 1)
+        let project = try await writerLoopProject(id: projectID, fixture: fixture)
+        let versions = project["versions"] as? [[String: Any]] ?? []
+        XCTAssertEqual(versions.filter { stringValue($0["draft"]).utf8.elementsEqual(draft.utf8) }.count, 1,
+            "One append created multiple saved versions")
+        app.terminate()
+        app = launchApp(openStudio: true, resetState: false, launchEnvironment: fixture.appLaunchEnvironment)
+        let restoredEditor = textInput("studio.draft.editor", in: app)
+        let exact = NSPredicate { object, _ in ((object as? XCUIElement)?.value as? String)?.utf8.elementsEqual(draft.utf8) == true }
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: exact, object: restoredEditor)], timeout: 30), .completed)
+        let restored = restoredEditor.value as? String ?? ""
+        XCTAssertEqual(Data(restored.utf8), Data(draft.utf8))
+        XCTAssertEqual(occurrenceCount(of: "HOME VOICE HANDOFF", in: restored), 1)
+    }
+
     func test_interrupted_talk_recovery_requires_confirmation_and_keeps_original_queue_on_relaunch() {
         var app = launchApp(openDataControls: true, showTalkRecovery: true, interruptTalkEnqueue: true,
             launchEnvironment: interruptedTalkRecoveryEnvironment)
@@ -3900,6 +3973,7 @@ final class V1SmokeUITests: XCTestCase {
         showTalkRecovery: Bool = false,
         interruptTalkEnqueue: Bool = false,
         receiveTalkReply: Bool = false,
+        receiveTalkPage: Bool = false,
         conflictSaveSuccess: Bool = false,
         liveMemory: Bool = false,
         showPendingScreenplayQuestion: Bool = false,
@@ -3980,6 +4054,7 @@ final class V1SmokeUITests: XCTestCase {
         }
         if interruptTalkEnqueue { arguments.append("--ui-talk-interrupted-enqueue-fixture") }
         if receiveTalkReply { arguments.append("--ui-talk-received-reply-fixture") }
+        if receiveTalkPage { arguments.append("--ui-talk-page-recovery-fixture") }
         if conflictSaveSuccess {
             arguments.append("--ui-conflict-save-success")
         }

@@ -25,13 +25,14 @@ const allowedTests = [
   'themUITests/V1SmokeUITests/test_explicit_project_creation_preserves_existing_page_bytes',
   'themUITests/V1SmokeUITests/test_studio_refused_write_preserves_saved_page_despite_page_selection',
   'themUITests/V1SmokeUITests/test_pages_navigator_controls_jump_and_preserve_source',
+  'themUITests/V1SmokeUITests/test_queued_talk_reply_plays_appends_saves_and_restores_once',
 ];
 const tests = process.env.ONLY_TESTING ? [process.env.ONLY_TESTING] : allowedTests.slice(0, 2);
 if (tests.some(test => !allowedTests.includes(test))) throw new Error('Unsupported Home voice proof test');
 if (process.env.THEM_HOME_VOICE_LONG_AUDIO === '1' && (tests.length !== 1 || !tests[0].includes('home_raw_audio'))) throw new Error('Long audio regression requires the raw-audio case alone');
 // Stop must interrupt an active turn, not race the 0.168-second silence fixture.
 // Reuse the existing measured audio asset; native state assertions stay strict.
-const needsInterruptibleAudio = tests.some(test => test.endsWith('/test_home_raw_audio_studio_stop_ends_capture_and_cancels_page'));
+const needsInterruptibleAudio = tests.some(test => test.endsWith('/test_home_raw_audio_studio_stop_ends_capture_and_cancels_page') || test.includes('test_queued_talk_reply_plays'));
 const bundle = process.env.THEM_HOME_VOICE_RESULT_BUNDLE || `/tmp/them-home-voice-${process.pid}.xcresult`;
 if (existsSync(bundle)) throw new Error('Refusing to overwrite an existing result bundle');
 const config = `/tmp/them-home-voice-${process.pid}.xcconfig`;
@@ -76,6 +77,7 @@ try {
   if (tests.some(test => test.includes('home_raw_audio')) && counts.stt < 1) throw new Error('Raw audio test never reached mocked server ASR');
   if (tests.some(test => test.includes('home_')) && counts.chat < 1) throw new Error('Home test never reached mocked generation');
   if (tests.some(test => test.includes('studio_refused_write')) && counts.chat < 1) throw new Error('Refusal test never reached mocked generation');
+  if (tests.some(test => test.includes('test_queued_talk_reply_plays')) && (counts.stt !== 1 || counts.chat < 1 || counts.tts < 1)) throw new Error('Queued reply proof did not execute one authenticated audio turn');
 } finally {
   await promotionProxy?.stop();
   await server.stop();

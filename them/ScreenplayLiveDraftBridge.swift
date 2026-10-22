@@ -855,7 +855,7 @@ struct ScreenplayPendingReplacementTarget: Identifiable, Equatable {
     let currentText: String
 }
 
-private func screenplayEditorPreparedInsertionCoreText(
+func screenplayEditorPreparedInsertionCoreText(
     _ raw: String,
     existing: String,
     insertionRange: NSRange,
@@ -9577,7 +9577,7 @@ struct MacCursorInsertTextEditor: NSViewRepresentable {
                 if replacementContext.isReplacement {
                     affixes = ("", "")
                 } else {
-                    affixes = insertionAffixes(existing: current, selection: replacementContext.range)
+                    affixes = screenplayEditorInsertionAffixes(existing: current, selection: replacementContext.range)
                 }
                 streamingPreviewOriginalSelection = replacementContext.range
                 streamingPreviewOriginalText = replacementContext.range.length > 0
@@ -9749,7 +9749,7 @@ struct MacCursorInsertTextEditor: NSViewRepresentable {
                 if replacementContext.isReplacement {
                     affixes = ("", "")
                 } else {
-                    affixes = insertionAffixes(existing: current, selection: replacementContext.range)
+                    affixes = screenplayEditorInsertionAffixes(existing: current, selection: replacementContext.range)
                 }
                 streamingInsertPrefix = affixes.prefix
                 streamingInsertSuffix = affixes.suffix
@@ -10367,40 +10367,8 @@ struct MacCursorInsertTextEditor: NSViewRepresentable {
             }
         }
 
-        private func insertionAffixes(existing: String, selection: NSRange) -> (prefix: String, suffix: String) {
-            guard !existing.isEmpty else { return ("", "") }
-
-            let ns = existing as NSString
-            let start = selection.location
-            let end = selection.location + selection.length
-
-            let before = start > 0 ? ns.substring(with: NSRange(location: start - 1, length: 1)) : ""
-            let after = end < ns.length ? ns.substring(with: NSRange(location: end, length: 1)) : ""
-
-            let prefix: String
-            if before.isEmpty || before == "\n" {
-                prefix = before.isEmpty ? "" : "\n"
-            } else {
-                prefix = "\n\n"
-            }
-
-            let suffix: String
-            if after.isEmpty || after == "\n" {
-                suffix = after.isEmpty ? "" : "\n"
-            } else {
-                suffix = "\n\n"
-            }
-
-            return (prefix, suffix)
-        }
-
         private func insertionText(for raw: String, existing: String, selection: NSRange) -> String {
-            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { return "" }
-            guard !existing.isEmpty else { return trimmed }
-
-            let affixes = insertionAffixes(existing: existing, selection: selection)
-            return affixes.prefix + trimmed + affixes.suffix
+            screenplayEditorInsertionText(for: raw, existing: existing, selection: selection)
         }
 
         private func resolvedReplacementContext(
@@ -11931,7 +11899,7 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
                 if replacementContext.isReplacement {
                     affixes = ("", "")
                 } else {
-                    affixes = insertionAffixes(existing: current, selection: replacementContext.range)
+                    affixes = screenplayEditorInsertionAffixes(existing: current, selection: replacementContext.range)
                 }
                 streamingPreviewOriginalSelection = replacementContext.range
                 streamingPreviewOriginalText = replacementContext.range.length > 0
@@ -12104,7 +12072,7 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
                 if replacementContext.isReplacement {
                     affixes = ("", "")
                 } else {
-                    affixes = insertionAffixes(existing: current, selection: replacementContext.range)
+                    affixes = screenplayEditorInsertionAffixes(existing: current, selection: replacementContext.range)
                 }
                 streamingInsertPrefix = affixes.prefix
                 streamingInsertSuffix = affixes.suffix
@@ -12703,40 +12671,8 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
             }
         }
 
-        private func insertionAffixes(existing: String, selection: NSRange) -> (prefix: String, suffix: String) {
-            guard !existing.isEmpty else { return ("", "") }
-
-            let ns = existing as NSString
-            let start = selection.location
-            let end = selection.location + selection.length
-
-            let before = start > 0 ? ns.substring(with: NSRange(location: start - 1, length: 1)) : ""
-            let after = end < ns.length ? ns.substring(with: NSRange(location: end, length: 1)) : ""
-
-            let prefix: String
-            if before.isEmpty || before == "\n" {
-                prefix = before.isEmpty ? "" : "\n"
-            } else {
-                prefix = "\n\n"
-            }
-
-            let suffix: String
-            if after.isEmpty || after == "\n" {
-                suffix = after.isEmpty ? "" : "\n"
-            } else {
-                suffix = "\n\n"
-            }
-
-            return (prefix, suffix)
-        }
-
         private func insertionText(for raw: String, existing: String, selection: NSRange) -> String {
-            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { return "" }
-            guard !existing.isEmpty else { return trimmed }
-
-            let affixes = insertionAffixes(existing: existing, selection: selection)
-            return affixes.prefix + trimmed + affixes.suffix
+            screenplayEditorInsertionText(for: raw, existing: existing, selection: selection)
         }
 
         private func resolvedReplacementContext(
