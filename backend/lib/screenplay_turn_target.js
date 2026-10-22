@@ -1,5 +1,7 @@
 import { inferScreenplayTask } from "./prompt_assembly.js";
 import { analyzeScreenplayWriteInstruction, currentScreenplayInstruction } from "./screenplay_write_instruction.js";
+import { isShortFilmBetaEnabled } from "./clementine/short_film_beta.js";
+import { parseShortFilmIntent } from "./clementine/short_film_intent.js";
 
 function trimToString(value = "", maxLength = 8_000) {
   return String(value ?? "").trim().slice(0, Math.max(1, Number(maxLength || 8_000)));
@@ -268,9 +270,29 @@ function enforceScreenplayWriteRefusal(req, studioMeta, transcript) {
   return true;
 }
 
+// The authoritative ASR words must settle routing before any model work. Reuse
+// the same Page reservation/Reflex owner as typed turns, not a second wallet path.
+async function reconcileScreenplayTranscript(req, res, studioMeta, transcript) {
+  const refused = enforceScreenplayWriteRefusal(req, studioMeta, transcript);
+  if (!refused && studioMeta && !studioMeta.screenplayTarget) {
+    studioMeta.screenplayTarget = resolveScreenplayTargetFromRequest({ ...req.body, client_transcript: transcript });
+    if (!studioMeta.screenplayTarget && isShortFilmBetaEnabled(process.env) && parseShortFilmIntent(transcript)) {
+      studioMeta.screenplayTarget = "page";
+      studioMeta.screenplayPromptSource = "short_film_beta";
+    }
+  }
+  if (req.clementine?.resolveTranscript) {
+    req.body = { ...req.body, screenplay_target: studioMeta?.screenplayTarget || "" };
+    await req.clementine.resolveTranscript(transcript);
+    if (refused) enforceScreenplayWriteRefusal(req, studioMeta, transcript);
+  }
+  return !refused && studioMeta?.screenplayTarget === "page";
+}
+
 export {
   inferScreenplayTargetFromRequest,
   normalizeScreenplayTarget,
   resolveScreenplayTargetFromRequest,
   enforceScreenplayWriteRefusal,
+  reconcileScreenplayTranscript,
 };

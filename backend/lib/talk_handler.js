@@ -27,7 +27,7 @@
 // amendment: it returns the handler; it does not register routes.
 
 import { randomUUID } from "node:crypto";
-import { enforceScreenplayWriteRefusal } from "./screenplay_turn_target.js";
+import { reconcileScreenplayTranscript } from "./screenplay_turn_target.js";
 import {
   createChatSupplier,
   createSttSupplier,
@@ -76,8 +76,6 @@ import {
   isPageCancelledError,
 } from "./clementine/page_abort.js";
 import { createMuseAwareChatSupplier } from "./clementine/muse_provider.js";
-import { isShortFilmBetaEnabled } from "./clementine/short_film_beta.js";
-import { parseShortFilmIntent } from "./clementine/short_film_intent.js";
 import { buildLivePaperPayload } from "./clementine/studio_live_paper.js";
 import { applyClementineTalkHeaders } from "./clementine/talk_clementine_headers.js";
 import { isMentorTurn, elevateChatModelPlanForMentorTurn, mentorSystemPromptMaxChars } from "./mentor_turn.js";
@@ -2044,17 +2042,8 @@ function createTalkHandler(deps) {
         activeSession.memory = await persistTalkMemory(previousMemory, Date.now());
       }
     }
-    // Beta short-film: after STT, if flag on, no target, and transcript parses, promote to page-write (real voice turn)
-    if (
-      isShortFilmBetaEnabled(process.env) &&
-      !String(studioMeta?.screenplayTarget || "").trim() &&
-      parseShortFilmIntent(transcript)
-    ) {
-      studioMeta.screenplayTarget = "page";
-      studioMeta.screenplayPromptSource = "short_film_beta";
-      isScreenplayPageWriteTurn = true;
-    }
-    if (enforceScreenplayWriteRefusal(req, studioMeta, transcript)) isScreenplayPageWriteTurn = false;
+    isScreenplayPageWriteTurn = await reconcileScreenplayTranscript(req, res, studioMeta, transcript);
+    if (res.writableEnded || res.destroyed) return;
     const forcedErrorStageRaw = TALK_TEST_DEBUG_FAILURE_ENABLED
       ? normalizeSnippet(
         req.get("x-debug-force-error") ?? req.body?.debug_force_error ?? req.body?.debugForceError,

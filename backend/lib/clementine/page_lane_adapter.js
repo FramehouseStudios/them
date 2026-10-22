@@ -242,7 +242,7 @@ function createPageLaneTalkAdapter({
     throw new Error("createPageLaneTalkAdapter requires pageReservationStore");
   }
 
-  return async function handleTalkWithPageLane(req, res) {
+  async function handleClassifiedTalk(req, res, runHandler) {
     const utterance = peekUtterance(req);
     const hints = peekPageHints(req);
     const sessionId = resolveSessionId(req);
@@ -299,7 +299,7 @@ function createPageLaneTalkAdapter({
       } catch (_e) {
         /* headers may already be sent */
       }
-      return handleTalkRequest(req, res);
+      return runHandler(req, res);
     }
 
     let lane;
@@ -406,11 +406,31 @@ function createPageLaneTalkAdapter({
     }
 
     try {
-      return await handleTalkRequest(req, res);
+      return await runHandler(req, res);
     } catch (error) {
       settleWallet(false);
       throw error;
     }
+  }
+
+  return async function handleTalkWithPageLane(req, res) {
+    if (expectsAudioTalkResponse(req) && !peekUtterance(req)) {
+      // An untranscribed recording is not silence. Prepare its real lane once
+      // ASR finishes, before generation; never run the speech pipeline twice.
+      let classification;
+      req.clementine = {
+        resolveTranscript(transcript) {
+          if (res.destroyed || res.writableEnded) return;
+          if (!classification) {
+            req.body = { ...req.body, client_transcript: transcript };
+            classification = handleClassifiedTalk(req, res, async () => {});
+          }
+          return classification;
+        },
+      };
+      return handleTalkRequest(req, res);
+    }
+    return handleClassifiedTalk(req, res, handleTalkRequest);
   };
 }
 
