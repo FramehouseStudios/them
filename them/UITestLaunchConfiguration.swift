@@ -24,6 +24,7 @@ nonisolated enum UITestLaunchConfiguration {
             // this launch's supposedly empty Studio.
             ScreenplayLiveDraftFileStore.removeAllForUITesting()
             ScreenplayDraftSaveOutbox.resetStoredQueueForUITesting()
+            OfflineTalkOutbox.resetStoredQueueForUITesting()
             ScreenplayOutlineMutationOutbox.resetStoredQueueForUITesting()
         }
 

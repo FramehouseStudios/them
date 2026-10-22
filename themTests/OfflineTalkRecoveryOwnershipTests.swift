@@ -48,7 +48,8 @@ final class OfflineTalkRecoveryOwnershipTests: XCTestCase {
         let entries = try readManifest()
         XCTAssertEqual(entries.count, 2)
         XCTAssertEqual(entries.filter { $0.status == .parked }.count, 1)
-        let bytes = try entries.map { try Data(contentsOf: blob($0)) }
+        let bytes = try entries.map { try PropertyListDecoder().decode(OfflineTalkStoredBody.self,
+            from: Data(contentsOf: blob($0))).validatedBody(matching: $0) }
         XCTAssertEqual(Set(bytes), [Data("first words".utf8), Data("different words".utf8)])
     }
 

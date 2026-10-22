@@ -9,6 +9,7 @@ private enum DataControlAction: Identifiable, Equatable {
     case clearHistory
     case clearMemories
     case clearParkedOutbox(entryIDs: Set<String>, scope: OfflineTalkRecoveryScope)
+    case resumeInterruptedTalk(entryID: String, scope: OfflineTalkRecoveryScope)
     case discardOutlineRecovery(
         headID: String,
         projectId: String,
@@ -25,6 +26,8 @@ private enum DataControlAction: Identifiable, Equatable {
             return "clear-memories"
         case .clearParkedOutbox:
             return "clear-parked-outbox"
+        case .resumeInterruptedTalk(let id, _):
+            return "resume-talk:\(id)"
         case .discardOutlineRecovery(let headID, let projectId, _, _):
             return "discard-outline-recovery:\(projectId):\(headID)"
         case .deleteAccount:
@@ -40,6 +43,8 @@ private enum DataControlAction: Identifiable, Equatable {
             return "Delete All Memories"
         case .clearParkedOutbox:
             return "Delete Parked Turns"
+        case .resumeInterruptedTalk:
+            return "Queue Recovered Request?"
         case .discardOutlineRecovery:
             return "Discard Parked Outline Changes"
         case .deleteAccount:
@@ -55,6 +60,8 @@ private enum DataControlAction: Identifiable, Equatable {
             return "This removes remembered names, themes, and continuity memory context. This cannot be undone."
         case .clearParkedOutbox(let ids, _):
             return "This deletes \(ids.count) confirmed parked \(ids.count == 1 ? "turn" : "turns") in this account and backend. Export first if you need the work. Other accounts and newly arrived turns are not deleted. This cannot be undone."
+        case .resumeInterruptedTalk:
+            return "The app closed before queue setup finished. Your exact request was recovered; recovery has not retried it automatically. The original network attempt may already have reached the server. Export first if you want a copy. Queue it with its original request ID for the usual online retry; sending may use Clementine credits."
         case .discardOutlineRecovery(_, _, let confirmedEntryIDs, _):
             let removalCount = confirmedEntryIDs.count
             let noun = removalCount == 1 ? "saved outline snapshot" : "causally linked outline snapshots"
@@ -72,6 +79,8 @@ private enum DataControlAction: Identifiable, Equatable {
             return "Delete Memories"
         case .clearParkedOutbox:
             return "Delete Parked Turns"
+        case .resumeInterruptedTalk:
+            return "Queue Request"
         case .discardOutlineRecovery(_, _, let confirmedEntryIDs, _):
             let removalCount = confirmedEntryIDs.count
             return removalCount == 1 ? "Discard Change" : "Discard \(removalCount) Changes"
@@ -88,11 +97,18 @@ private enum DataControlAction: Identifiable, Equatable {
             return "trash"
         case .clearParkedOutbox:
             return "tray.and.arrow.down"
+        case .resumeInterruptedTalk:
+            return "arrow.uturn.forward"
         case .discardOutlineRecovery:
             return "trash"
         case .deleteAccount:
             return "person.crop.circle.badge.xmark"
         }
+    }
+
+    var isDestructive: Bool {
+        if case .resumeInterruptedTalk = self { return false }
+        return true
     }
 }
 
@@ -201,17 +217,19 @@ struct DataControlsScreen: View {
         }
         .alert(item: $pendingAction) { confirmation in
             let action = confirmation.action
+            let perform = {
+                guard confirmation.scope.isCurrent else { return }
+                if action == .deleteAccount {
+                    presentAccountDeletionReauthentication()
+                } else {
+                    runAction(action, initiatingIdentity: confirmation.owner, backendURL: confirmation.backendURL)
+                }
+            }
             return Alert(
                 title: Text(action.title),
                 message: Text(action.message),
-                primaryButton: .destructive(Text(action.confirmLabel)) {
-                    guard confirmation.scope.isCurrent else { return }
-                    if action == .deleteAccount {
-                        presentAccountDeletionReauthentication()
-                    } else {
-                        runAction(action, initiatingIdentity: confirmation.owner, backendURL: confirmation.backendURL)
-                    }
-                },
+                primaryButton: action.isDestructive ? .destructive(Text(action.confirmLabel), action: perform)
+                    : .default(Text(action.confirmLabel), action: perform),
                 secondaryButton: .cancel()
             )
         }
@@ -547,10 +565,21 @@ struct DataControlsScreen: View {
                                 }
                             }
                             Spacer(minLength: 0)
-                            Button("Export") { Task { @MainActor in await exportOfflineTurn(entry.id) } }
-                                .buttonStyle(.bordered).disabled(isBusy)
-                                .accessibilityLabel("Export queued turn")
-                                .accessibilityIdentifier("data.controls.talk.export.\(entry.id)")
+                            VStack(alignment: .trailing, spacing: 6) {
+                                if entry.canResumeInterruptedEnqueue {
+                                    Button("Review") {
+                                        guard let scope = offlineTalkRecovery.scope, scope.isCurrent else { return }
+                                        presentAction(.resumeInterruptedTalk(entryID: entry.id, scope: scope))
+                                    }
+                                    .buttonStyle(.bordered).disabled(isBusy)
+                                    .accessibilityLabel("Review recovered request")
+                                    .accessibilityIdentifier("data.controls.talk.resume.\(entry.id)")
+                                }
+                                Button("Export") { Task { @MainActor in await exportOfflineTurn(entry.id) } }
+                                    .buttonStyle(.bordered).disabled(isBusy)
+                                    .accessibilityLabel("Export queued turn")
+                                    .accessibilityIdentifier("data.controls.talk.export.\(entry.id)")
+                            }.fixedSize(horizontal: true, vertical: false)
                         }
                     }
                 }
@@ -1337,6 +1366,13 @@ struct DataControlsScreen: View {
                     await refreshOfflineOutbox(startMonitoring: false)
                     guard scope.isCurrent else { return }
                     statusMessage = "Deleted \(ids.count) confirmed parked \(ids.count == 1 ? "turn" : "turns"). Other saved work was not changed."
+                case .resumeInterruptedTalk(let id, let confirmedScope):
+                    guard confirmedScope == scope else { return }
+                    _ = try await OfflineTalkOutbox.shared.resumeInterruptedEntry(id, initiatingIdentity: owner, backendURL: backendURL)
+                    guard scope.isCurrent else { return }
+                    await refreshOfflineOutbox(startMonitoring: false)
+                    guard scope.isCurrent else { return }
+                    statusMessage = "Recovered request queued with its original ID. It will retry online; use Retry queued talk turns to try now."
                 case .discardOutlineRecovery(
                     let headID,
                     let projectId,
