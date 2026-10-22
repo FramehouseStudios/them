@@ -135,6 +135,7 @@ struct DataControlsScreen: View {
     @State private var isRefreshingOutbox = false
     @State private var isRetryingOutbox = false
     @State private var offlineTalkRecovery = OfflineTalkRecoveryState.empty
+    @State private var inspectingReceivedReply: OfflineTalkReplyReview?
     private var offlineOutboxSnapshot: OfflineTalkOutboxSnapshot { offlineTalkRecovery.snapshot }
     private var offlineOutboxEntries: [OfflineTalkOutboxEntry] { offlineTalkRecovery.entries }
     @State private var outlineRecoveryChains: [ScreenplayOutlineMutationRecoveryChain] = []
@@ -260,6 +261,7 @@ struct DataControlsScreen: View {
             NotificationCenter.default.publisher(for: .themBackendIdentityPartitionChanged)
         ) { _ in
             offlineTalkRecovery = .empty
+            inspectingReceivedReply = nil
             isRefreshingOutbox = false
             isRetryingOutbox = false
             isExporting = false
@@ -299,6 +301,9 @@ struct DataControlsScreen: View {
                     inspectingOutlineRecovery = nil
                 }
             )
+        }
+        .sheet(item: $inspectingReceivedReply) { review in
+            OfflineTalkReplyReviewView(review: review) { inspectingReceivedReply = nil }
         }
         .fileExporter(
             isPresented: $isPresentingOutlineRecoveryExporter,
@@ -566,6 +571,15 @@ struct DataControlsScreen: View {
                             }
                             Spacer(minLength: 0)
                             VStack(alignment: .trailing, spacing: 6) {
+                                if entry.receivedReply == true {
+                                    Button("Read reply") {
+                                        guard let scope = offlineTalkRecovery.scope, scope.isCurrent else { return }
+                                        inspectingReceivedReply = .init(entryID: entry.id,
+                                            owner: BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: false), scope: scope)
+                                    }
+                                    .buttonStyle(.bordered).disabled(isBusy)
+                                    .accessibilityIdentifier("data.controls.talk.read.\(entry.id)")
+                                }
                                 if entry.canResumeInterruptedEnqueue {
                                     Button("Review") {
                                         guard let scope = offlineTalkRecovery.scope, scope.isCurrent else { return }

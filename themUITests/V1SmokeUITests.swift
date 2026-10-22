@@ -2253,6 +2253,14 @@ final class V1SmokeUITests: XCTestCase {
         for _ in 0..<8 where !export.isHittable { app.swipeUp() }
         XCTAssertTrue(staticText(containing: "Reply received", in: app).waitForExistence(timeout: 5))
         XCTAssertEqual(export.label, "Export received reply")
+        let read = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "data.controls.talk.read.")).firstMatch
+        XCTAssertTrue(read.exists)
+        read.tap()
+        XCTAssertTrue(app.staticTexts["talk.recovery.reply.text"].waitForExistence(timeout: 5))
+        XCTAssertEqual(app.staticTexts["talk.recovery.reply.text"].label, "A held fixture reply")
+        XCTAssertTrue(staticText(containing: "does not add it to your screenplay", in: app).exists)
+        app.buttons["Close"].tap()
+        XCTAssertTrue(read.waitForExistence(timeout: 5), "Reading must not acknowledge or discard the held result.")
         XCTAssertFalse(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "data.controls.talk.resume.")).firstMatch.exists)
         app.terminate()
         app = launchApp(openDataControls: true, resetState: false, launchEnvironment: interruptedTalkRecoveryEnvironment)

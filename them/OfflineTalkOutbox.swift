@@ -237,7 +237,7 @@ actor OfflineTalkOutbox {
                let index = entries.firstIndex(where: { $0.id == entry.id }) {
                 retainReceivedReply(.init(statusCode: 200, headers: ["content-type": "audio/mpeg",
                     "x-reply": "A held fixture reply", "x-turn-id": "ui-received-turn",
-                    "x-session-id": "fixture-not-exportable"], body: Data("Received audio fixture".utf8)), at: index, now: Date())
+                    "x-session-id": "fixture-not-exportable"], body: Data("ID3Received audio fixture".utf8)), at: index, now: Date())
             }
             if interrupt && id == "ui-owned-talk" { interruptedID = entry.id }
         }
