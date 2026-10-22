@@ -284,6 +284,51 @@ function stubScaleBackplane() {
   };
 }
 
+test("failed capacity admission publishes no phantom pending entry and can retry", async () => {
+  resetState();
+  let full = true, nextCalls = 0;
+  const sb = stubScaleBackplane();
+  const put = sb.setIdempotency;
+  sb.setIdempotency = async (...args) => {
+    if (full) { const error = new Error("capacity"); error.code = "TALK_IDEMPOTENCY_CAPACITY"; throw error; }
+    return put(...args);
+  };
+  const guard = createTalkIdempotencyGuard({
+    isSpeculativePrepareRequest: () => false, talkIdempotencyEnabled: true,
+    normalizeIdempotencyKey: value => value, resolveTalkSessionKey: () => "capacity-proof",
+    scaleBackplane: sb, recordTalkMetric: () => {}, talkIdempotencyTtlMs: 60000,
+    talkIdempotencyMaxEntries: 1, logger: { log() {} },
+  });
+  const req = stubRequest({ headers: { "Idempotency-Key": "capacity-proof" } });
+  const res = stubResponse();
+  await guard(req, res, () => nextCalls++);
+  assert.equal(res._recorded.statusCode, 503);
+  assert.equal(res._recorded.body.error, "replay_capacity");
+  assert.equal(talkIdempotencyCacheSize(), 0);
+  assert.equal(nextCalls, 0);
+  full = false;
+  await guard(req, stubResponse(), () => nextCalls++);
+  assert.equal(nextCalls, 1);
+});
+
+test("an evicted process cache entry still completes its durable pending result", async () => {
+  resetState();
+  const sb = stubScaleBackplane();
+  const guard = createTalkIdempotencyGuard({
+    isSpeculativePrepareRequest: () => false, talkIdempotencyEnabled: true,
+    normalizeIdempotencyKey: value => value, resolveTalkSessionKey: () => "eviction-proof",
+    scaleBackplane: sb, recordTalkMetric: () => {}, talkIdempotencyTtlMs: 60000,
+    talkIdempotencyMaxEntries: 1, logger: { log() {} },
+  });
+  const req = stubRequest({ headers: { "Idempotency-Key": "eviction-proof" } });
+  await guard(req, stubResponse(), () => {});
+  __test.reset();
+  const helper = createTalkIdempotencyHelpers({ scaleBackplane: sb, talkIdempotencyEnabled: true,
+    talkIdempotencyTtlMs: 60000, talkIdempotencyMaxEntries: 1 });
+  await helper.commitSuccess(req, { body: Buffer.from('accepted bytes') });
+  assert.equal((await sb.getIdempotency(req.talkIdempotency.cacheKey)).status, 'completed');
+});
+
 test("idempotency guard cache miss calls next()", async () => {
   resetState();
   const metrics = [];

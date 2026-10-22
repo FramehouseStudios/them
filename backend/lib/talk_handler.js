@@ -3089,7 +3089,7 @@ function createTalkHandler(deps) {
         })
         : null;
       if (committedTurnId) {
-        storeTalkTurnMeta({
+        await storeTalkTurnMeta({
           turnId: committedTurnId,
           sessionId: committedSessionId,
           userId: trustedUserId,
@@ -3221,7 +3221,7 @@ function createTalkHandler(deps) {
         const _clemCursor = req.body?.collabCursor ?? req.body?.collab_cursor ?? null;
         applyClementineTalkHeaders(res, { project: _clemProject, draft: _clemDraft, parsed: _clemParsed, quality: _clemQuality, collabCursor: _clemCursor, ownerKey: trustedUserId });
       } catch (_) {}
-      commitTalkIdempotencySuccess(req, {
+      await commitTalkIdempotencySuccess(req, {
         statusCode: 200,
         headers: captureTalkResponseHeaders(res),
         body: audioBuffer,
@@ -5124,7 +5124,7 @@ ${directorOutputRule}
       }
     }
     if (committedTurnId) {
-        storeTalkTurnMeta({
+        await storeTalkTurnMeta({
           turnId: committedTurnId,
           sessionId: committedSessionId,
           userId: trustedUserId,
@@ -5233,7 +5233,7 @@ ${directorOutputRule}
         "Server-Timing",
         `stt;dur=${Math.max(0, sttMs)}, llm;dur=${Math.max(0, chatMs)}, repair;dur=${Math.max(0, Math.round(Number(talkScreenplayRepairTrace.elapsedMs || 0) + Number(structuralQualityTrace.elapsedMs || 0)))}, tts;dur=${Math.max(0, ttsMs)}, total;dur=${Math.max(0, total_ms)}`
       );
-      commitTalkIdempotencySuccess(req, {
+      await commitTalkIdempotencySuccess(req, {
         statusCode: 200,
         headers: captureTalkResponseHeaders(res),
         body: streamedAudioBuffer,
@@ -5370,7 +5370,7 @@ ${directorOutputRule}
       "Server-Timing",
       `stt;dur=${Math.max(0, sttMs)}, llm;dur=${Math.max(0, chatMs)}, repair;dur=${Math.max(0, Math.round(Number(talkScreenplayRepairTrace.elapsedMs || 0) + Number(structuralQualityTrace.elapsedMs || 0)))}, tts;dur=${Math.max(0, ttsMs)}, total;dur=${Math.max(0, total_ms)}`
     );
-    commitTalkIdempotencySuccess(req, {
+    await commitTalkIdempotencySuccess(req, {
       statusCode: 200,
       headers: captureTalkResponseHeaders(res),
       body: audioBuffer,
@@ -5573,7 +5573,7 @@ ${directorOutputRule}
           res.setHeader("x-backend-build", BACKEND_BUILD);
           res.setHeader("x-backend-boot-id", BACKEND_BOOT_ID);
           res.setHeader("Content-Length", String(recoveryAudio.length));
-          commitTalkIdempotencySuccess(req, {
+          await commitTalkIdempotencySuccess(req, {
             statusCode: 200,
             headers: captureTalkResponseHeaders(res),
             body: recoveryAudio,

@@ -4,7 +4,17 @@
 // enforcing read authorization. This capability owns only retention,
 // persistence-before-publication, restart hydration, and bounded cache state.
 
+import { createHash } from "node:crypto";
 const TALK_TURNS_DOMAIN = "talk_turns";
+
+function ownerScope(entry = {}) {
+  const userId = String(entry.userId || "").trim();
+  return userId ? `user:${userId}` : `session:${String(entry.sessionId || "").trim()}`;
+}
+
+function turnStorageKey(turnId, scope) {
+  return `${createHash("sha256").update(ownerScope(scope)).digest("hex")}:${turnId}`;
+}
 
 function positiveInt(value, fallback) {
   const parsed = Number(value);
@@ -54,18 +64,18 @@ function createTalkTurnStore({
 
   async function prune(at = now()) {
     const rows = [...cache.entries()];
-    for (const [turnId, entry] of rows) {
+    for (const [key, entry] of rows) {
       if (!isExpired(entry, at)) continue;
-      cache.delete(turnId);
-      await persistence.delete({ domain: TALK_TURNS_DOMAIN, key: turnId });
+      cache.delete(key);
+      await persistence.delete({ domain: TALK_TURNS_DOMAIN, key });
     }
     if (cache.size <= capacity) return;
-    const ordered = [...cache.values()].sort(
-      (a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0)
+    const ordered = [...cache.entries()].sort(
+      (a, b) => Number(b[1].updatedAt || 0) - Number(a[1].updatedAt || 0)
     );
-    for (const entry of ordered.slice(capacity)) {
-      cache.delete(entry.turnId);
-      await persistence.delete({ domain: TALK_TURNS_DOMAIN, key: entry.turnId });
+    for (const [key] of ordered.slice(capacity)) {
+      cache.delete(key);
+      await persistence.delete({ domain: TALK_TURNS_DOMAIN, key });
     }
   }
 
@@ -78,7 +88,7 @@ function createTalkTurnStore({
       });
       for (const row of rows) {
         const entry = normalizedStoredEntry(row?.value);
-        if (entry) cache.set(entry.turnId, entry);
+        if (entry) cache.set(row.key, entry);
       }
       try {
         await prune(now());
@@ -95,12 +105,13 @@ function createTalkTurnStore({
       });
       if (!normalized) throw new Error("talk turn persistence requires turnId");
       normalized.expiresAt = normalized.updatedAt + retentionMs;
+      const key = turnStorageKey(normalized.turnId, normalized);
       await persistence.put({
         domain: TALK_TURNS_DOMAIN,
-        key: normalized.turnId,
+        key,
         value: normalized,
       });
-      cache.set(normalized.turnId, normalized);
+      cache.set(key, normalized);
       try {
         await prune(now());
       } catch (err) {
@@ -109,19 +120,45 @@ function createTalkTurnStore({
       return visibleEntry(normalized);
     },
 
-    get(turnId) {
+    get(turnId, scope = null) {
       const key = String(turnId || "").trim();
       if (!key) return null;
-      const entry = cache.get(key);
-      if (!entry || isExpired(entry, now())) return null;
-      return visibleEntry(entry);
+      const candidates = [...cache.values()].filter(entry => entry.turnId === key && !isExpired(entry)
+        && (!scope || ownerScope(entry) === ownerScope(scope)));
+      return candidates.length === 1 ? visibleEntry(candidates[0]) : null;
     },
 
-    async delete(turnId) {
-      const key = String(turnId || "").trim();
-      if (!key) return;
-      await persistence.delete({ domain: TALK_TURNS_DOMAIN, key });
-      cache.delete(key);
+    async read(turnId, scope = null) {
+      const id = String(turnId || "").trim();
+      if (!id) return null;
+      if (scope) {
+        const key = turnStorageKey(id, scope);
+        const entry = normalizedStoredEntry(await persistence.get({ domain: TALK_TURNS_DOMAIN, key }));
+        if (entry && !isExpired(entry)) {
+          if (entry.turnId !== id || ownerScope(entry) !== ownerScope(scope)) throw new Error("Talk metadata identity mismatch");
+          cache.set(key, entry);
+          return visibleEntry(entry);
+        }
+        cache.delete(key);
+      }
+      // Legacy unscoped entries remain readable only through the unchanged HTTP
+      // authorization policy. Never pick arbitrarily among colliding owners.
+      const found = this.get(id, scope) || this.get(id);
+      if (found) return found;
+      const denied = scope && [...cache.values()].find(entry => entry.turnId === id
+        && !isExpired(entry) && ownerScope(entry) !== ownerScope(scope));
+      // Preserve the existing403 contract without choosing another writer's
+      // screenplay. The facade uses only this identity to deny authorization.
+      return denied ? { turnId: id, userId: denied.userId || "", sessionId: denied.sessionId || "" } : null;
+    },
+
+    async delete(turnId, scope = null) {
+      const id = String(turnId || "").trim();
+      for (const [key, entry] of cache) {
+        if (entry.turnId !== id || (scope && ownerScope(entry) !== ownerScope(scope))) continue;
+        await persistence.delete({ domain: TALK_TURNS_DOMAIN, key });
+        cache.delete(key);
+      }
     },
 
     size() {

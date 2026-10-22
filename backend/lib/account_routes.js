@@ -22,6 +22,8 @@ const EXPORTABLE_DOMAINS = Object.freeze([
   "craft_loglines",
   "accepted_twists",
   "telemetry_first_page_written",
+  "talk_turns",
+  "talk_idempotency",
 ]);
 
 function mountAccountRoutes(app, deps) {

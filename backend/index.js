@@ -101,6 +101,7 @@ import {
 import { selectPendingScreenplayLearningQuestion } from "./lib/screenplay_question_planner.js";
 import { normalizeStoryMovePreferenceOverrides } from "./lib/story_rescue_move_library.js";
 import { resolveScreenplayTargetFromRequest } from "./lib/screenplay_turn_target.js";
+import { createTalkTurnStore } from "./lib/talk_turn_store.js";
 import {
   buildTalkScreenplayQualityAlert,
   deriveTalkScreenplayQualitySignal,
@@ -2996,18 +2997,18 @@ const checkInCooldownByIp = new Map();
 const assistantIdentityByIp = loadAssistantIdentityStore();
 const talkSpeculativeCache = new Map();
 const talkMetricsSamples = [];
-const talkTurnMetaById = new Map();
+// One shared PostgreSQL/JSON adapter owns the durable store domains.
+const sharedPersistence = createPersistence();
+const talkTurnStore = createTalkTurnStore({ persistence: sharedPersistence,
+  ttlMs: TALK_TURN_META_TTL_MS, maxEntries: TALK_TURN_META_MAX_ENTRIES });
 const scaleBackplane = await createScaleBackplane({
   redisUrl: SCALE_BACKPLANE_ENABLED ? SCALE_REDIS_URL : "",
   postgresUrl: SCALE_BACKPLANE_ENABLED ? SCALE_POSTGRES_URL : "",
   outboxFilePath: OUTBOX_STORE_PATH,
+  persistence: sharedPersistence,
   logger: console,
 });
 await scaleBackplane.init();
-// T07b/c: shared persistence adapter (Postgres if DATABASE_URL is set, JSON-file
-// fallback otherwise). Stores opt-in by passing it via configureXxxStore deps.
-// Declared early so configureMemoryStore (the first store init) can consume it.
-const sharedPersistence = createPersistence();
 
 // T13: realtime supplier (OpenAI by default; configurable via
 // REALTIME_PROVIDER env). Falls back to the OpenAI supplier even on
@@ -4935,6 +4936,7 @@ if (!loadedUserStoreFromAdapter) {
     throw error;
   }
 }
+await talkTurnStore.hydrate(); // Auth startup owns the first fail-closed storage check.
 const userAuth = createUserAuthSubsystem({
   accessTtlSeconds: JWT_TTL_SECONDS,
   appleAudience: AUTH_APPLE_AUDIENCE,
@@ -5062,6 +5064,7 @@ function persistenceRowBelongsToUser(row, userId) {
     key === `byIp:authuser:${normalizedUserId}` ||
     key.startsWith(`${normalizedUserId}:`) ||
     key.startsWith(`user:${normalizedUserId}:`) ||
+    key.startsWith(`user:${normalizedUserId}|`) ||
     key.startsWith(`authuser:${normalizedUserId}:`)
   ) {
     return true;
@@ -5518,30 +5521,7 @@ function summarizeTalkMetrics(windowMs = TALK_METRICS_WINDOW_MS) {
   };
 }
 
-function cleanupTalkTurnMetaStore(now = Date.now()) {
-  const cutoff = now - Math.max(60_000, Number(TALK_TURN_META_TTL_MS || 0));
-  for (const [turnId, entry] of talkTurnMetaById.entries()) {
-    const updatedAt = Math.max(
-      0,
-      Number(entry?.updatedAt || entry?.createdAt || 0)
-    );
-    if (updatedAt > 0 && updatedAt < cutoff) {
-      talkTurnMetaById.delete(turnId);
-    }
-  }
-  if (talkTurnMetaById.size <= TALK_TURN_META_MAX_ENTRIES) return;
-  const entries = [...talkTurnMetaById.entries()]
-    .map(([turnId, entry]) => ({
-      turnId,
-      updatedAt: Math.max(0, Number(entry?.updatedAt || entry?.createdAt || 0)),
-    }))
-    .sort((a, b) => b.updatedAt - a.updatedAt);
-  for (let i = TALK_TURN_META_MAX_ENTRIES; i < entries.length; i += 1) {
-    talkTurnMetaById.delete(entries[i].turnId);
-  }
-}
-
-function storeTalkTurnMeta({
+async function storeTalkTurnMeta({
   turnId = "",
   sessionId = "",
   userId = "",
@@ -5559,8 +5539,7 @@ function storeTalkTurnMeta({
 } = {}) {
   const normalizedTurnId = String(turnId || "").trim();
   if (!normalizedTurnId) return;
-  cleanupTalkTurnMetaStore(now);
-  talkTurnMetaById.set(normalizedTurnId, {
+  await talkTurnStore.put({
     turnId: normalizedTurnId,
     sessionId: String(sessionId || "").trim(),
     userId: String(userId || "").trim(),
@@ -5644,11 +5623,10 @@ function storeTalkTurnMeta({
   });
 }
 
-function readTalkTurnMeta(turnId = "", now = Date.now()) {
-  cleanupTalkTurnMetaStore(now);
+async function readTalkTurnMeta(turnId = "", now = Date.now(), scope = null) {
   const normalizedTurnId = String(turnId || "").trim();
   if (!normalizedTurnId) return null;
-  const entry = talkTurnMetaById.get(normalizedTurnId);
+  const entry = await talkTurnStore.read(normalizedTurnId, scope);
   if (!entry) return null;
   return {
     turnId: normalizedTurnId,
@@ -33174,7 +33152,10 @@ mountTalkPipelineRoutes(app, {
   talkUpload,
   handleTalkRequest,
   normalizeTalkTurnId: (value) => String(value || "").trim(),
-  getTalkTurnMeta: (turnId) => readTalkTurnMeta(turnId, Date.now()),
+  getTalkTurnMeta: (turnId, req) => readTalkTurnMeta(turnId, Date.now(), {
+    userId: String(req?.authUser?.id || req?.userId || "").trim(),
+    sessionId: normalizeClientToken(req?.get?.("X-Client-Token")) || `ip:${normalizeClientIp(clientIp(req))}`,
+  }),
   canReadTalkTurnMeta,
   pageReservationStore: clementinePageReservationStore,
   walletStore: clementineWalletStore,
@@ -33322,7 +33303,7 @@ mountDecisionsQueueRoute(app);
 mountCreativeMemoryStatsRoute(app, { creativeMemoryStore });
 
 // T-talk-turn-meta-stats: GET /talk/stats returns aggregate health
-// over the in-memory talkTurnMetaById store.
+// over the bounded canonical talk-turn store.
 //
 // ACCESS-CONTROL POSTURE (load-bearing — Codex review on #97):
 //   Safe-public, matches /ops/metrics + /ops/alerts.
@@ -33331,7 +33312,7 @@ mountCreativeMemoryStatsRoute(app, { creativeMemoryStore });
 //   no session IDs). The no-leakage property is pinned by the test
 //   suite ("[talk-stats] response contains no per-user content").
 mountTalkTurnStatsRoute(app, {
-  getAllTalkTurns: () => [...talkTurnMetaById.values()],
+  getAllTalkTurns: () => talkTurnStore.values(),
 });
 // 405 method guards (extracted to lib/method_not_allowed_routes.js).
 // Registered here — after the real handlers, before the final 404 — so

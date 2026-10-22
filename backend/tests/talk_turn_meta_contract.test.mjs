@@ -5,7 +5,7 @@
 // What's locked in here:
 //
 //   1. The full set of canonical error codes the route can emit:
-//      invalid_turn_id, turn_not_found, forbidden.
+//      invalid_turn_id, turn_not_found, forbidden, turn_unavailable.
 //   2. The full key set of the success-shape JSON body. iOS reads
 //      every one of these fields directly; renaming any of them (or
 //      forgetting to emit one) is a silent client regression.
@@ -19,7 +19,7 @@ import { mountTalkPipelineRoutes } from "../lib/talk_pipeline.js";
 
 // Canonical sets. Adding a field is a deliberate change — adjust this
 // list and the iOS consumer in the same PR.
-const ERROR_CODES = ["invalid_turn_id", "turn_not_found", "forbidden"];
+const ERROR_CODES = ["invalid_turn_id", "turn_not_found", "forbidden", "turn_unavailable"];
 const SUCCESS_KEYS = [
   "turn_id",
   "session_id",
@@ -42,7 +42,7 @@ const DEFAULT_RENDER_CONTRACT_KEYS = [
   "sync_ready",
 ];
 
-async function withTestServer(fn, { meta = null, canRead = true, userId = "u-test" } = {}) {
+async function withTestServer(fn, { meta = null, loadMeta = null, canRead = true, userId = "u-test" } = {}) {
   const app = express();
   if (userId !== null) {
     app.use((req, _res, next) => { req.user = { id: userId }; next(); });
@@ -56,7 +56,7 @@ async function withTestServer(fn, { meta = null, canRead = true, userId = "u-tes
     talkUpload: (req, _res, next) => next(),
     handleTalkRequest: (_req, res) => res.status(200).json({ ok: true }),
     normalizeTalkTurnId: (v) => String(v || "").trim(),
-    getTalkTurnMeta: () => meta,
+    getTalkTurnMeta: loadMeta || (() => meta),
     canReadTalkTurnMeta: () => canRead,
   });
   const server = app.listen(0);
@@ -106,6 +106,15 @@ test("[talk-turn-meta] caller can't read meta → 403 forbidden", async () => {
     },
     { meta: { turnId: "abc" }, canRead: false },
   );
+});
+
+test("[talk-turn-meta] rejected durable read → 503 without leaking storage details", async () => {
+  await withTestServer(async ({ baseURL }) => {
+    const r = await get(baseURL, "/talk/turn/abc");
+    assert.equal(r.status, 503);
+    assert.deepEqual(r.body, { error: "turn_unavailable" });
+    assert.ok(ERROR_CODES.includes(r.body.error));
+  }, { loadMeta: async () => { throw new Error("private storage failure detail"); } });
 });
 
 // ---------- success-shape contract ----------

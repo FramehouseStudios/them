@@ -289,17 +289,18 @@ export function createTalkIdempotencyGuard({
       const pendingRecord = {
         key: headerKey,
         sessionKey,
+        userId: String(req?.authUser?.id || req?.authUser?.user_id || req?.authUser?.userId || "").trim(),
         status: "pending",
         createdAt: t,
         expiresAt: t + talkIdempotencyTtlMs,
       };
-      talkIdempotencyCache.set(cacheKey, pendingRecord);
       await scaleBackplane.setIdempotency(
         cacheKey,
         pendingRecord,
         talkIdempotencyTtlMs,
         talkIdempotencyMaxEntries
       );
+      talkIdempotencyCache.set(cacheKey, pendingRecord);
       req.talkIdempotency = {
         cacheKey,
         key: headerKey,
@@ -313,6 +314,11 @@ export function createTalkIdempotencyGuard({
       });
       next();
     } catch (err) {
+      if (err?.code === "TALK_IDEMPOTENCY_CAPACITY") {
+        res.setHeader("Retry-After", "1");
+        res.setHeader("Cache-Control", "no-store");
+        return res.status(503).json({ stage: "idempotency", error: "replay_capacity", retry_after_ms: 1000 });
+      }
       next(err);
     }
   };
@@ -534,7 +540,7 @@ export function createTalkIdempotencyHelpers({
       if (!talkIdempotencyEnabled) return;
       const ctx = req?.talkIdempotency;
       if (!ctx?.cacheKey) return;
-      const existing = talkIdempotencyCache.get(ctx.cacheKey);
+      const existing = talkIdempotencyCache.get(ctx.cacheKey) || await scaleBackplane.getIdempotency(ctx.cacheKey);
       if (!existing) return;
       const now = Date.now();
       const payloadBuffer = Buffer.isBuffer(body) ? Buffer.from(body) : Buffer.alloc(0);
