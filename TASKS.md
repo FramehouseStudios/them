@@ -480,8 +480,10 @@
   intercepted. Server result durability remains Zora's separate T-1118 lane.
   T-1120 runtimed832be8 now fixes the omitted/client-budget reservation gap:
   Node20 backend2927/0/2 and funded signed voice/write/restore UI1/0/0,
-  providers intercepted. Next: preserve/integrate Zora's restart storage work
-  and original-context/unbound delivery; do not infer full recovery completion.
+  providers intercepted. T-1121 now integrates preserved restart storage with
+  awaited publication, owner-scoped metadata and JSON/Postgres restart samples.
+  Automatic original-context/unbound delivery and the reproduced wallet-settlement
+  persistence failure remain open; do not infer full recovery completion.
   Do not force non-authoritative replies into the page or call T-1116 complete.
   See `docs/offline-talk-reply-retention-2026-10-21.md` for exact evidence/limits.
   Runtime9ac8c30: signed922/0/0, affected36/0/0, recovery UI2/0/0,
@@ -509,6 +511,50 @@
   durable receipt, relevant spoken/page result and relaunch restoration. Retain
   any undelivered result safely through crashes, owner/origin changes and retry.
   Reuse canonical talk/result/receipt handling; no second conversation store.
+
+### T-1121 — Integrate durable accepted talk results without changing client IDs
+
+- **Owner:** codex (Jarvis); branch `codex/T-1121-durable-talk-integration`,
+  runtime `a6a3204`, integration parent `ab8fbc7`. Original Zora `c8e2b1a` and `ec38b82` preserved
+  by merge commits `4de763c` and `7d1e980`; no squash or original-head rewrite.
+- **Root fixes:** wire canonical persistence and await metadata/replay before
+  HTTP success; scope private metadata keys by trusted owner without changing
+  public `turn-N`; read through persistence for already-running workers. Admit
+  durable pending state before publishing the process cache; return retryable
+  capacity failure and complete accepted requests after local cache eviction.
+  Include both domains in account export/purge ownership; handle async read
+  failures with503. Preserve auth's fail-closed startup check before hydration.
+- **Proof:** final exact-runtime Node20 backend2939/0/2; signed units932/0/0;
+  signed raw-voice/page/save/restore1/0/0 and queued-play/append/save/restore1/0/0,
+  both on erased task-owned7F1A14C1 with intercepted providers. Final focused47/0/0
+  includes one later test-only async-read negative case. macOS/D009/syntax/diff
+  pass; index33513→33494 versus integration parent. No paid/model/phone claim.
+- **Restart samples:** real local JSON and PostgreSQL graceful/SIGKILL replay
+  preserve original bytes/turn, owner200/other403 and zero repeated providers.
+  Funded wallet100→99.8→99.6; restart samples preserve observed settlement.
+  Account export includes own new domains and excludes the other account.
+- **Not complete:** wallet settlement remains separate/fire-and-forget. Zora
+  reproduced failed writes hidden by flush: memory9.8, durable/restarted10.
+  This checkpoint is not exactly-once billing or a production release. Metadata
+  capacity/TTL, multi-worker admission, mid-request recovery and production
+  migration/deployment remain limitations; see the report for exact scope.
+- **Next:** T-1122 durable wallet settlement/error visibility in an isolated Zora
+  lane; Jarvis retains original-context/unbound client delivery and integration.
+  Proof/report: `docs/durable-talk-integration-2026-10-21.md`.
+
+### T-1122 — Recover durable Page settlement without false success
+
+- **Owner:** codex (Zora bounded reliability lane), pending committed-base handoff.
+- **Verified failure:** injected canonical `putBalance` failures produce a
+  successful0.2turn commit and resolved `flush()`, but durable/restarted balance
+  stays10 instead of9.8. Snapshotting alone does not make settlement atomic.
+- **Done when:** awaited settlement exposes storage failure; a durable idempotent
+  receipt/reconciliation boundary prevents regeneration/duplicate debit and
+  reconciles accepted replay after restart. Prove relevant partial failures with
+  local deterministic providers; do not claim distributed atomicity from samples.
+- **Scope:** existing wallet/persistence/replay owner, no parallel store/framework,
+  no paid calls, native tests, pushes, merges or deployments in Zora's lane.
+  Coordinate exact production module ownership before editing.
 
 ### T-1120 — Fund actual server Page budgets before generation
 
@@ -567,10 +613,10 @@
 - **Owner:** codex (Zora reliability role, explicitly requested by the human).
 - **Branch/worktree:** `codex/T-1118-zora-turn-durability` in
   `/Users/halfmutantfilms/io.them-worktrees/codex-zora-turn-durability`.
-- **Status:** durability capability implemented and locally verified in
-  `6385dcb`; **not wired through the Jarvis-reserved `backend/index.js` facade**,
-  so real HTTP restart recovery remains red and no integrated guarantee is
-  claimed. Deterministic two-account proof currently gets owner `404`, no
+- **Status:** original capability implemented and locally verified in
+  `6385dcb`; originally not wired through the Jarvis-owned facade. T-1121 now
+  preserves and integrates it with real restart proof (see its current report).
+  The original deterministic two-account proof got owner `404`, no
   replay header, a different turn id and fresh STT/chat/TTS after both graceful
   restart and SIGKILL. Exact reserved hunk and evidence are in
   `docs/zora-turn-durability-handoff-2026-10-21.md`.
