@@ -464,7 +464,13 @@
 
 ### T-1116 — Deliver an accepted offline talk response to the writer
 
-- **Owner:** codex. **Status:** NEXT after T-1112, before T-1113 or original #648.
+- **Owner:** codex. **Status:** ACTIVE — durable accepted-response retention
+  prerequisite implemented; canonical page/audio delivery still unfinished.
+  See `docs/offline-talk-reply-retention-2026-10-21.md` for exact evidence/limits.
+  Runtime9ac8c30: signed922/0/0, affected36/0/0, recovery UI2/0/0,
+  writer/export/restore UI1/0/0, macOS/D009/diff and Node20 contracts7/0/0.
+  Next: canonical result decoding and document-safe page/audio handoff, not
+  more unchanged gates or declaring T-1116 complete from retention/export.
   Prioritize proving delivery of a potentially missing core-loop result over
   additional recovery UI for already-retained project setup bytes.
 - **Source observation:** OfflineTalkOutbox handles HTTP2xx by settling/removing
