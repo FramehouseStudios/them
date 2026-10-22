@@ -544,17 +544,32 @@
 
 ### T-1122 — Recover durable Page settlement without false success
 
-- **Owner:** codex (Zora bounded reliability lane), pending committed-base handoff.
+- **Owner:** codex (Zora bounded reliability lane). **Branch:**
+  `codex/T-1122-durable-page-settlement`; runtime `051328b`, tests `cf7caff`.
 - **Verified failure:** injected canonical `putBalance` failures produce a
   successful0.2turn commit and resolved `flush()`, but durable/restarted balance
   stays10 instead of9.8. Snapshotting alone does not make settlement atomic.
-- **Done when:** awaited settlement exposes storage failure; a durable idempotent
-  receipt/reconciliation boundary prevents regeneration/duplicate debit and
-  reconciles accepted replay after restart. Prove relevant partial failures with
-  local deterministic providers; do not claim distributed atomicity from samples.
+- **Root fix:** provisional holds remain process-local; exact accepted bytes and
+  charge intent persist as `prepared` before an awaited, unique settlement
+  receipt atomically debits the durable balance. Completion follows the receipt.
+  A retry reconciles the receipt and replays the prepared bytes without entering
+  generation. Legacy queued writes snapshot values and `flush()` exposes errors.
+  PostgreSQL settlement and StoreKit credit each use one CTE, not pool-level
+  pseudo-transactions; JSON uses recoverable CAS states under its documented
+  single-process limit.
+- **Proof:** focused exact-runtime Node20 107/0/0; actual ephemeral PostgreSQL16
+  1/0/0 covers 12 concurrent duplicates, trigger-forced statement rollback and
+  concurrent credit/debit composition. Syntax, D009 and diff checks pass. No
+  providers, paid calls, native code, production data or deployment exercised.
+- **Integration pending:** Jarvis-owned `backend/index.js` must pass the durable
+  settlement reconciler into `createTalkIdempotencyGuard` using the exact hunk in
+  `docs/zora-page-settlement-handoff-2026-10-21.md`. Until then a prepared billed
+  response fails closed with retryable503 rather than regenerating, but cannot
+  self-reconcile after restart. Full backend runs after that hunk is connected.
 - **Scope:** existing wallet/persistence/replay owner, no parallel store/framework,
   no paid calls, native tests, pushes, merges or deployments in Zora's lane.
-  Coordinate exact production module ownership before editing.
+  JSON is not a multi-process billing backend; account export/purge of dedicated
+  wallet tables and retention policy remain pre-existing wallet follow-ups.
 
 ### T-1120 — Fund actual server Page budgets before generation
 
