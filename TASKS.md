@@ -478,8 +478,10 @@
   hint degrading to Voice Pin: defer classification to actual ASR. Current
   Node20 backend2920/0/2 and signed voice/write/restore UI1/0/0, providers
   intercepted. Server result durability remains Zora's separate T-1118 lane.
-  Next: canonical omitted-budget wallet boundary, then original-context/unbound
-  delivery; do not infer full voice/recovery completion from the routing fix.
+  T-1120 runtimed832be8 now fixes the omitted/client-budget reservation gap:
+  Node20 backend2927/0/2 and funded signed voice/write/restore UI1/0/0,
+  providers intercepted. Next: preserve/integrate Zora's restart storage work
+  and original-context/unbound delivery; do not infer full recovery completion.
   Do not force non-authoritative replies into the page or call T-1116 complete.
   See `docs/offline-talk-reply-retention-2026-10-21.md` for exact evidence/limits.
   Runtime9ac8c30: signed922/0/0, affected36/0/0, recovery UI2/0/0,
@@ -508,6 +510,34 @@
   any undelivered result safely through crashes, owner/origin changes and retry.
   Reuse canonical talk/result/receipt handling; no second conversation store.
 
+### T-1120 — Fund actual server Page budgets before generation
+
+- **Owner:** codex (Jarvis). **Branch:** `codex/T-1120-server-page-budgets`,
+  parentfb8a7f2. **Status:** locally proven root fix in Runtimed832be8;
+  protected landing pending.
+- **Root:** missing/zero/tiny client caps permitted900-token generation with an
+  inadequate/zero hold, while settlement cannot exceed that hold. Real local
+  adapter/generate red0/3/0; production was not probed.
+- **Fix:** retain cancellation-linked provisional identity, then atomically grow
+  that same process-local wallet reservation to the computed server cap before
+  model work; fail closed on insufficient funds/infrastructure. No output
+  truncation or client-owned funded cap. Preserve response settlement/refunds.
+- **Proof:** actual authenticated HTTP omissions/0/1 each402, STT3/chat0/TTS0;
+  properly funded one-token-hint request returns authoritative Page and the final
+  stronger HTTP assertion proves actual0.2turn debit (not one-token hint). Latest
+  focused19/0/0; frozen Node20 full2927/0/2. D009/syntax/diff pass. No paid calls.
+- **UI setup:** genuinely funded synthetic account through canonical persistence
+  and real login; no wallet bypass or App Store-purchase claim. Signed funded
+  voice/page/save/relaunch UI1/0/0 on erased owned7F1A14C1; intercepted
+  STT1/chat3/TTS1. No application Swift change. Full signed units/macOS remain
+  integration-boundary gates, not relabeled as fresh proof here.
+- **Limits:** process-local top-up, not cross-worker/crash-durable billing;
+  Companion metering and all provider overhead not established. No production,
+  main, original PR-head or physical-phone change. Full record:
+  `docs/server-page-budget-2026-10-21.md`.
+- **Next:** save scoped proof; review/preserve/integrate Zora T-1118 with awaited
+  facade wiring and a funded restart/debit probe, then original-context delivery.
+
 ### T-1119 — Classify raw microphone turns after authoritative ASR
 
 - **Owner:** codex (Jarvis); Zora retains separate T-1118 backend restart work.
@@ -529,8 +559,8 @@
   zero-cost hold and oversized audio metadata headers remain explicit debt.
   No live model/physical-microphone/production/main claim. See
   `docs/raw-voice-routing-2026-10-21.md` for exact failures and corrections.
-- **Next:** save the scoped branch, then canonical
-  omitted-budget wallet audit and original-context/unbound delivery gaps.
+- **Next:** branch saved atfb8a7f2; T-1120 addresses the omitted-budget wallet
+  gap. Restart durability and original-context/unbound delivery remain open.
 
 ### T-1117 — Verify and harden turn metadata owner isolation
 

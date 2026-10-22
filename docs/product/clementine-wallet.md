@@ -25,11 +25,23 @@ TOKENS_PER_TURN = 400          // ~one spoken reply or short page beat
 cost_milliturns = ceil(max_output_tokens / TOKENS_PER_TURN * 1000)
 ```
 
-- **Reserve** from `max_output_tokens` (or explicit `estimatedTurns`) before Muse.
-- **Commit** with actual output tokens after success (refund unused).
+- **Reserve** against the server's actual generation cap before Page model work.
+  `/talk` creates an initially unfunded provisional hold for cancellation identity,
+  then `ensureReservationBudget` grows that same hold once the server knows the
+  budget. Omitted, zero, tiny or inflated client caps are not billing authority.
+  The lower-level wallet also supports explicit `estimatedTurns` for trusted callers.
+- **Commit** actual output after a validated successful response; refund unused
+  headroom. Generation records proposed usage; the adapter settles on response
+  completion, not merely a successful model return. Failed/recovered/repeat/
+  continue-listening responses release the hold.
 - **Release** on cancel / barge-in (full refund of the hold).
 
-Hard stop at zero: `reserve` fails with `wallet_empty` — fail like a person (“You’re out of Page turns”), not a JSON TPM dump.
+Insufficient funds for the real budget stop Page generation with HTTP402 and
+`wallet_empty`, before a chat request. No screenplay is truncated to fit an
+understated client hint. Repeated budget preparation is idempotent; a failed
+top-up leaves the balance/hold unchanged; a released hold cannot be reopened.
+These holds are process-local, not an atomic cross-worker or crash-durable
+billing ledger. Page enforcement does not establish complete Companion metering.
 
 ## Warn at 10%
 
@@ -50,10 +62,14 @@ When remaining turns on a granted pack drop to **≤10%**, `getBalance` sets `lo
 
 ## Modules
 
-- `backend/lib/clementine/wallet.js` — `createWalletStore` (`reserve` / `commit` / `release` / `getBalance` / `credit`)
+- `backend/lib/clementine/wallet.js` — `createWalletStore` (`reserve` / `ensureReservationBudget` / `commit` / `release` / `getBalance` / `credit`)
 - Page cancel releases linked `walletReservationId` when `walletStore` is injected into `createPageReservationStore`
 - Optional `POST /talk/wallet` read-only balance (same light posture as page-cancel)
-- **Commit stub:** after successful Muse generation call `walletStore.commit(id, actualOutputTokens)` or `req.clementine.commitWallet?.(tokens)` — prefer talk_handler / muse completion once usage is known (adapter has no response-success seam)
+- `req.clementine.prepareGenerationBudget(cap)` funds the computed cap before
+  generation; `commitWallet(tokens)` records usage for response-lifecycle
+  settlement. Multipass holds headroom for draft/revise and optional metered
+  repair; plan/critique remain unmetered. These experimental flags stay off by
+  default; T-1120 does not claim a complete provider-cost audit.
 
 ## Change log
 
