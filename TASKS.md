@@ -369,8 +369,14 @@
 
 ### T-1108 — Recover interrupted initial project creation without losing source
 
-- **Owner:** codex. **Status:** active; server transaction prerequisite verified,
-  durable client creation intent and wiring are NEXT. Not client-complete.
+- **Owner:** codex. **Status:** active client checkpoint; durable creation intent
+  and both nonblank creation paths connected. Signed911/0/0, Node20 backend
+  2912/0/2, final interrupted-setup UI1/0/0, raw-voice UI1/0/0 and writer/export/
+  relaunch UI1/0/0. Actual35-byte Markdown opened in Files outside THEM; macOS/
+  D009/diff pass. Do not mark app-wide creation/recovery complete. See
+  `docs/initial-project-client-recovery-2026-10-21.md`.
+  Runtime2b51d72; preserve original heads/main. T-1112, then T-1113 are next;
+  blank setup T-1114 and unbound-journal measurement T-1115 remain explicit debt.
 - **Server checkpoint:** `370fd41942afbcef53839a96c751f2a3c49d93d2` on parent
   ae656da, gate correction1ab2239. Atomic opt-in initial_draft contract uses the
   canonical owner CAS; metadata+first version commit together. Actual backend
@@ -380,11 +386,12 @@
   Index-19/other god deltas0, syntax/diff pass. Native source unchanged; no fresh
   signed/UI/phone claim. Initial red0/4 and full2776/12/2 preserved/explained.
   `docs/initial-project-transaction-2026-10-21.md`.
-- **Client source to fix:** Root auto-promotion and ViewModel explicit creation
-  still perform metadata then version requests. Explicit `createProject()` also
-  trims the source into `seededDraft`; eligibility may trim, stored words may
-  not. Bind stable owner/origin/document creation intent before HTTP, preserving
-  newer manual edits and deliberate empty/title-only new-project behavior.
+- **Client checkpoint:** Root auto-promotion and ViewModel nonblank creation now
+  use durable owner/origin/document-bound atomic intents. Explicit creation and
+  bridge adoption retain raw bytes. Pending startup hydration cannot replace
+  newer local text with the already-committed first version. Finish setup uses
+  the existing Save now handler. Deliberate blank/title-only behavior remains
+  functional but not crash-idempotent; retired-document recovery is T-1113.
 - **VERIFIED voice failure:** raw-audio page appeared but stayed unbound;
   two actual UI0/1/0 results. Read-only lifecycle counters show1,064 characters
   in committed/editor text, raw UTF8 match=true and streaming idle. Root's UUID-only
@@ -398,13 +405,45 @@
   one-project/relaunch1/0/0, real held-create/edited-page1/0/0, macOS/D009/diff.
   No latency padding, weakened assertions or paid provider calls. The two-step
   crash/orphan boundary below remains open; do not call all T-1108 complete.
-- **Known boundary:** separate metadata-create and initial-version requests are
-  not crash-atomic; dropping a stale create response can leave metadata without
-  a version. Current happy-path one-project proof does not cover crash/retry
-  reconciliation, orphan handling, or idempotent project creation.
+- **Historical parent boundary:** separate metadata-create/initial-version
+  requests were not crash-atomic. The nonblank path is repaired/proven locally;
+  do not extend that claim to blank metadata setup, historical orphan cleanup,
+  retired-document discoverability, real-phone or production recovery.
 - **Done when:** reproduce interruption at that boundary and recover exact local
   text without duplicate projects or unauthorized deletion; extend the existing
   project/outbox capability and additive contracts, not a competing writer store.
+
+### T-1113 — Recover retained initial setups after document navigation
+
+- **Owner:** codex. **Status:** queued after T-1112, before original #648.
+- T-1108 refuses stale receipt binding and retains immutable original text and
+  receipt identity in the existing outbox. Current-document Finish setup works;
+  deliberately abandoned/navigated documents need a discoverable owner/origin-
+  scoped export/reconcile action. Never automatically select, delete or replay
+  unknown-owner/other-backend work. Reuse the existing recovery surface/outbox.
+- **Done when:** navigate away during creation, relaunch, discover/export the
+  exact retained original, explicitly resume it without duplicate projects, and
+  verify other users/origins cannot inspect or delete it.
+
+### T-1114 — Make intentional blank/title-only setup retry-safe
+
+- **Owner:** codex. **Status:** queued before declaring project setup complete.
+- T-1108 intentionally keeps existing blank metadata creation functional; it
+  has no initial draft to satisfy the nonblank atomic initializer. A lost
+  metadata receipt can still orphan/duplicate blank project metadata.
+- **Done when:** extend the canonical metadata contract with durable scoped
+  intent/replay semantics, preserve genuinely empty pages, and prove lost
+  receipt/relaunch without filler text, duplication or an unsafe fallback.
+
+### T-1115 — Measure unbound journal durability and editing latency
+
+- **Owner:** codex. **Status:** queued before feature-length reliability claim.
+- T-1108 persists unbound manual edits through the existing atomic file writer.
+  Per-keystroke full-file IO on the main actor is unmeasured at 120-page length;
+  existing UserDefaults/file precedence and disk-error semantics are not a
+  power-loss guarantee. Reproduce before changing the canonical journal.
+- **Done when:** measure input latency/IO count and exact restore after immediate
+  termination; handle an actual failed journal write without a false saved claim.
 
 ### T-1106 — Reconcile title-page/editor presentation without rewriting source
 

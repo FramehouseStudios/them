@@ -1,5 +1,9 @@
 # T-1108 — Atomic first-save server checkpoint
 
+Historical server checkpoint. Subsequent client wiring and its distinct proof
+are recorded in `initial-project-client-recovery-2026-10-21.md`; the native
+limitations below describe this server-only commit, not a completed app.
+
 Parent `ae656da2b4acb627de91565e3323a16f3f1b8c72`.
 Branch `codex/T-1108-initial-project-transaction`.
 Runtime `370fd41942afbcef53839a96c751f2a3c49d93d2`;
