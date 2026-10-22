@@ -37,6 +37,26 @@ crash safety, automatic original-document delivery or physical-phone readiness.
   test JSON and a task-owned localhost PostgreSQL database, and remove the extra
   balance HTTP read before SIGKILL so it cannot grant settlement extra time.
 
+## Exact files changed in this integration slice
+
+Runtime/test commit `a6a3204`:
+
+- `backend/evals/probe_talk_restart_durability.mjs`
+- `backend/index.js`
+- `backend/lib/account_routes.js`
+- `backend/lib/talk_handler.js`
+- `backend/lib/talk_pipeline.js`
+- `backend/lib/talk_state.js`
+- `backend/lib/talk_turn_store.js`
+- `backend/tests/talk_state.test.mjs`
+- `backend/tests/talk_turn_meta_contract.test.mjs`
+- `backend/tests/talk_turn_meta_screenplay_length.test.mjs`
+- `backend/tests/talk_turn_owner_storage.test.mjs`
+
+Documentation: `TASKS.md` and this report. The additional capability/migration
+files retained by the two preserving merges are listed in Zora's original
+`zora-turn-durability-handoff-2026-10-21.md`; they were not reimplemented here.
+
 ## Verification and red results
 
 All provider responses were intercepted. No paid requests, physical microphone,
