@@ -511,9 +511,13 @@
 - **Owner:** codex (Zora reliability role, explicitly requested by the human).
 - **Branch/worktree:** `codex/T-1118-zora-turn-durability` in
   `/Users/halfmutantfilms/io.them-worktrees/codex-zora-turn-durability`.
-- **Status:** assigned; first read-only causal trace and exact edit ownership
-  pending. Base `9d897e50050bc580be962b040b7c09895cee8c89`. No new runtime
-  fix or restart guarantee is claimed by this assignment.
+- **Status:** durability capability implemented and locally verified in
+  `6385dcb`; **not wired through the Jarvis-reserved `backend/index.js` facade**,
+  so real HTTP restart recovery remains red and no integrated guarantee is
+  claimed. Deterministic two-account proof currently gets owner `404`, no
+  replay header, a different turn id and fresh STT/chat/TTS after both graceful
+  restart and SIGKILL. Exact reserved hunk and evidence are in
+  `docs/zora-turn-durability-handoff-2026-10-21.md`.
 - **Scope:** canonical accepted `/talk` result/idempotency persistence and
   authorized recovery after real backend restart; no second store or repeat
   generation/debit. Backend-only isolated fixtures, no paid providers.
