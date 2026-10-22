@@ -191,6 +191,16 @@ final class OfflineTalkRecoveryOwnershipTests: XCTestCase {
         }
         await gate.release()
         _ = await drain.value
+        let held = try readManifest()
+        XCTAssertEqual(held.count, 2)
+        XCTAssertEqual(held.first(where: { $0.id == a.id })?.receivedReply, true)
+        do {
+            _ = try await outbox.receivedReply(a.id, initiatingIdentity: state.identity(), backendURL: state.url())
+            XCTFail("B read A's received reply.")
+        } catch {}
+        state.change(user: "writer-a")
+        let reply = try await outbox.receivedReply(a.id, initiatingIdentity: state.identity(), backendURL: state.url())
+        try await outbox.acknowledgeReceivedReply(a.id, receiptID: reply.response.id, initiatingIdentity: state.identity(), backendURL: state.url())
         XCTAssertEqual(try readManifest(), [b])
         XCTAssertEqual(try Data(contentsOf: blob(b)), Data("words-b".utf8))
     }
@@ -234,6 +244,9 @@ final class OfflineTalkRecoveryOwnershipTests: XCTestCase {
         XCTAssertEqual(requests.count, 2)
         XCTAssertEqual(requests.map { $0.value(forHTTPHeaderField: "Authorization") }, ["Bearer fixture-access", "Bearer fixture-rotated"])
         XCTAssertTrue(requests.allSatisfy { $0.httpBody == Data("words-a".utf8) && $0.value(forHTTPHeaderField: "X-Idempotency-Key") == "request-a" })
+        let reply = try await outbox.receivedReply(a.id, initiatingIdentity: state.identity(), backendURL: state.url())
+        XCTAssertTrue(reply.entry.bodyRef.hasSuffix(".turn"), "Legacy request bytes must migrate with their accepted response.")
+        try await outbox.acknowledgeReceivedReply(a.id, receiptID: reply.response.id, initiatingIdentity: state.identity(), backendURL: state.url())
         XCTAssertTrue(try readManifest().isEmpty)
     }
 

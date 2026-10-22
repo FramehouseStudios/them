@@ -2244,6 +2244,31 @@ final class V1SmokeUITests: XCTestCase {
         XCTAssertTrue(staticText(containing: "Older unassigned queued work", in: app).exists)
     }
 
+    func test_received_talk_reply_is_held_across_relaunch_and_exported_without_resend() {
+        var app = launchApp(openDataControls: true, showTalkRecovery: true, receiveTalkReply: true,
+            launchEnvironment: interruptedTalkRecoveryEnvironment)
+        defer { app.terminate() }
+        let exportID = NSPredicate(format: "identifier BEGINSWITH %@", "data.controls.talk.export.")
+        var export = app.buttons.matching(exportID).firstMatch
+        for _ in 0..<8 where !export.isHittable { app.swipeUp() }
+        XCTAssertTrue(staticText(containing: "Reply received", in: app).waitForExistence(timeout: 5))
+        XCTAssertEqual(export.label, "Export received reply")
+        XCTAssertFalse(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "data.controls.talk.resume.")).firstMatch.exists)
+        app.terminate()
+        app = launchApp(openDataControls: true, resetState: false, launchEnvironment: interruptedTalkRecoveryEnvironment)
+        export = app.buttons.matching(exportID).firstMatch
+        for _ in 0..<8 where !export.isHittable { app.swipeUp() }
+        XCTAssertTrue(staticText(containing: "Reply received", in: app).waitForExistence(timeout: 5))
+        XCTAssertEqual(export.label, "Export received reply")
+        export.tap()
+        let filename = app.textFields["DOCPicker.filenameTextField"]
+        XCTAssertTrue(filename.waitForExistence(timeout: 5))
+        app.buttons["Save"].tap()
+        XCTAssertTrue(waitForDisappearance(of: filename, timeout: 8))
+        XCTAssertTrue(staticText(containing: "Queued turn recovery export saved", in: app).waitForExistence(timeout: 5))
+        XCTAssertTrue(export.exists, "Export must not acknowledge page/audio delivery.")
+    }
+
     func test_interrupted_talk_recovery_requires_confirmation_and_keeps_original_queue_on_relaunch() {
         var app = launchApp(openDataControls: true, showTalkRecovery: true, interruptTalkEnqueue: true,
             launchEnvironment: interruptedTalkRecoveryEnvironment)
@@ -3866,6 +3891,7 @@ final class V1SmokeUITests: XCTestCase {
         showOutlineRecovery: Bool = false,
         showTalkRecovery: Bool = false,
         interruptTalkEnqueue: Bool = false,
+        receiveTalkReply: Bool = false,
         conflictSaveSuccess: Bool = false,
         liveMemory: Bool = false,
         showPendingScreenplayQuestion: Bool = false,
@@ -3945,6 +3971,7 @@ final class V1SmokeUITests: XCTestCase {
             arguments.append("--ui-talk-recovery-fixture")
         }
         if interruptTalkEnqueue { arguments.append("--ui-talk-interrupted-enqueue-fixture") }
+        if receiveTalkReply { arguments.append("--ui-talk-received-reply-fixture") }
         if conflictSaveSuccess {
             arguments.append("--ui-conflict-save-success")
         }

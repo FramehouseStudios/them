@@ -59,7 +59,7 @@ private enum DataControlAction: Identifiable, Equatable {
         case .clearMemories:
             return "This removes remembered names, themes, and continuity memory context. This cannot be undone."
         case .clearParkedOutbox(let ids, _):
-            return "This deletes \(ids.count) confirmed parked \(ids.count == 1 ? "turn" : "turns") in this account and backend. Export first if you need the work. Other accounts and newly arrived turns are not deleted. This cannot be undone."
+            return "This deletes \(ids.count) confirmed parked \(ids.count == 1 ? "turn" : "turns") in this account and backend, including any received replies held there. Export first if you need the work. Other accounts and newly arrived turns are not deleted. This cannot be undone."
         case .resumeInterruptedTalk:
             return "The app closed before queue setup finished. Your exact request was recovered; recovery has not retried it automatically. The original network attempt may already have reached the server. Export first if you want a copy. Queue it with its original request ID for the usual online retry; sending may use Clementine credits."
         case .discardOutlineRecovery(_, _, let confirmedEntryIDs, _):
@@ -577,7 +577,7 @@ struct DataControlsScreen: View {
                                 }
                                 Button("Export") { Task { @MainActor in await exportOfflineTurn(entry.id) } }
                                     .buttonStyle(.bordered).disabled(isBusy)
-                                    .accessibilityLabel("Export queued turn")
+                                    .accessibilityLabel(entry.receivedReply == true ? "Export received reply" : "Export queued turn")
                                     .accessibilityIdentifier("data.controls.talk.export.\(entry.id)")
                             }.fixedSize(horizontal: true, vertical: false)
                         }
@@ -969,6 +969,7 @@ struct DataControlsScreen: View {
     }
 
     private func outboxTitle(for entry: OfflineTalkOutboxEntry) -> String {
+        if entry.receivedReply == true { return "Reply received" }
         switch entry.status {
         case .pending:
             return entry.retries == 0 ? "Waiting to retry" : "Retry \(entry.retries) scheduled"

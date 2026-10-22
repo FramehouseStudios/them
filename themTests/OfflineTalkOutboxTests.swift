@@ -42,7 +42,7 @@ final class OfflineTalkOutboxTests: XCTestCase {
         XCTAssertEqual(snapshot.pendingCount, 1)
     }
 
-    func testDrainDueSendsPendingEntryAndRemovesItOnSuccess() async throws {
+    func testDrainDueRetainsReplyUntilExplicitDeliveryAcknowledgement() async throws {
         let outbox = makeOutbox()
         var request = makeRequest(url: URL(string: "https://them.test/talk")!)
         request.httpMethod = "POST"
@@ -62,7 +62,12 @@ final class OfflineTalkOutboxTests: XCTestCase {
         XCTAssertEqual(sentBodies, [body])
         XCTAssertEqual(drained.pendingCount, 0)
         let entries = await outbox.allEntries()
-        XCTAssertEqual(entries, [])
+        let retained = try XCTUnwrap(entries.first)
+        XCTAssertEqual(retained.receivedReply, true)
+        let reply = try await outbox.receivedReply(retained.id, initiatingIdentity: Self.identity("writer-test"), backendURL: URL(string: "https://them.test")!)
+        try await outbox.acknowledgeReceivedReply(retained.id, receiptID: reply.response.id, initiatingIdentity: Self.identity("writer-test"), backendURL: URL(string: "https://them.test")!)
+        let delivered = await outbox.allEntries()
+        XCTAssertEqual(delivered, [])
     }
 
     func testSameIdempotencyKeyDoesNotCollapseDifferentAccountsOrDestinations() async throws {
@@ -259,7 +264,12 @@ final class OfflineTalkOutboxTests: XCTestCase {
         XCTAssertEqual(calls, 2)
         XCTAssertEqual(drained.pendingCount, 0)
         let finalEntries = await outbox.allEntries()
-        XCTAssertEqual(finalEntries, [])
+        let retained = try XCTUnwrap(finalEntries.first)
+        XCTAssertEqual(retained.receivedReply, true)
+        let reply = try await outbox.receivedReply(retained.id, initiatingIdentity: Self.identity("writer-test"), backendURL: URL(string: "https://them.test")!)
+        try await outbox.acknowledgeReceivedReply(retained.id, receiptID: reply.response.id, initiatingIdentity: Self.identity("writer-test"), backendURL: URL(string: "https://them.test")!)
+        let delivered = await outbox.allEntries()
+        XCTAssertTrue(delivered.isEmpty)
     }
 
     func testProviderQuotaParksWithoutRetryingAfterRelaunch() async throws {
