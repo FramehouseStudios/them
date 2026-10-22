@@ -506,6 +506,26 @@
   any undelivered result safely through crashes, owner/origin changes and retry.
   Reuse canonical talk/result/receipt handling; no second conversation store.
 
+### T-1118 — Zora: accepted-result durability across backend restart
+
+- **Owner:** codex (Zora reliability role, explicitly requested by the human).
+- **Branch/worktree:** `codex/T-1118-zora-turn-durability` in
+  `/Users/halfmutantfilms/io.them-worktrees/codex-zora-turn-durability`.
+- **Status:** assigned; first read-only causal trace and exact edit ownership
+  pending. Base `9d897e50050bc580be962b040b7c09895cee8c89`. No new runtime
+  fix or restart guarantee is claimed by this assignment.
+- **Scope:** canonical accepted `/talk` result/idempotency persistence and
+  authorized recovery after real backend restart; no second store or repeat
+  generation/debit. Backend-only isolated fixtures, no paid providers.
+- **Done when:** same accepted result recovers within documented retention,
+  without extra generation/debit; owner reads pass and cross-owner reads fail.
+  Report graceful/crash distinctions and unsupported modes honestly. Fix a
+  demonstrated gap at its canonical owner; do not manufacture a code change.
+- **Coordination:** Jarvis retains T-1116 voice routing/client integration and
+  shared façades. Exact reservations, authority, handoff and stopping criteria:
+  `docs/engineering/zora-reliability.md`. Local commits only; no GitHub,
+  production, physical-device, or independent-review authority granted here.
+
 ### T-1117 — Verify and harden turn metadata owner isolation
 
 - **Owner:** codex. **Status:** VERIFIED locally in Runtime6b2d83d; not deployed.
