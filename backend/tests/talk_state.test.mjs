@@ -349,11 +349,10 @@ test("idempotency guard cache miss calls next()", async () => {
   let nextCalled = false;
   await guard(req, res, () => { nextCalled = true; });
   assert.equal(nextCalled, true);
-  assert.deepEqual(req.talkIdempotency, {
-    cacheKey: "ip:1.2.3.4|abc",
-    key: "abc",
-    sessionKey: "ip:1.2.3.4",
-  });
+  assert.equal(req.talkIdempotency.cacheKey, "ip:1.2.3.4|abc");
+  assert.equal(req.talkIdempotency.key, "abc");
+  assert.equal(req.talkIdempotency.sessionKey, "ip:1.2.3.4");
+  assert.match(req.talkIdempotency.admissionId, /^[0-9a-f-]{36}$/);
   assert.equal(talkIdempotencyCacheSize(), 1);
 });
 
@@ -871,6 +870,92 @@ test("idempotency helpers commitSuccess marks pending as completed", async () =>
   assert.ok(Buffer.isBuffer(entry.body));
 });
 
+test("commitSuccess fails closed when its durable admission disappeared", async () => {
+  resetState();
+  const sb = stubScaleBackplane();
+  let settlementBuilds = 0;
+  let durableSettlementCalls = 0;
+  const helpers = createTalkIdempotencyHelpers({
+    scaleBackplane: sb,
+    talkIdempotencyEnabled: true,
+    talkIdempotencyTtlMs: 60_000,
+    talkIdempotencyMaxEntries: 256,
+  });
+  const req = {
+    talkIdempotency: {
+      cacheKey: "user:writer|lost-admission",
+      key: "lost-admission",
+      sessionKey: "session",
+      admissionId: "admission-original",
+    },
+    clementine: {
+      walletReservationId: "reservation-lost",
+      buildWalletSettlement() {
+        settlementBuilds += 1;
+        return { settlementKey: "must-not-settle" };
+      },
+      async settleWalletDurably() {
+        durableSettlementCalls += 1;
+      },
+    },
+  };
+
+  await assert.rejects(
+    helpers.commitSuccess(req, { body: Buffer.from("accepted bytes") }),
+    error => error?.code === "TALK_IDEMPOTENCY_ADMISSION_LOST" && error?.retryable === true
+  );
+  assert.equal(settlementBuilds, 0);
+  assert.equal(durableSettlementCalls, 0);
+});
+
+test("commitSuccess cannot complete a newly readmitted request with the same key", async () => {
+  resetState();
+  const sb = stubScaleBackplane();
+  const cacheKey = "user:writer|readmitted";
+  const replacement = {
+    key: "readmitted",
+    sessionKey: "session",
+    admissionId: "admission-new",
+    status: "pending",
+    createdAt: Date.now(),
+    expiresAt: Date.now() + 60_000,
+  };
+  await sb.setIdempotency(cacheKey, replacement);
+  let settlementBuilds = 0;
+  let durableSettlementCalls = 0;
+  const helpers = createTalkIdempotencyHelpers({
+    scaleBackplane: sb,
+    talkIdempotencyEnabled: true,
+    talkIdempotencyTtlMs: 60_000,
+    talkIdempotencyMaxEntries: 256,
+  });
+  const req = {
+    talkIdempotency: {
+      cacheKey,
+      key: "readmitted",
+      sessionKey: "session",
+      admissionId: "admission-old",
+    },
+    clementine: {
+      buildWalletSettlement() {
+        settlementBuilds += 1;
+        return { settlementKey: "must-not-settle" };
+      },
+      async settleWalletDurably() {
+        durableSettlementCalls += 1;
+      },
+    },
+  };
+
+  await assert.rejects(
+    helpers.commitSuccess(req, { body: Buffer.from("stale accepted bytes") }),
+    error => error?.code === "TALK_IDEMPOTENCY_ADMISSION_LOST" && error?.retryable === true
+  );
+  assert.equal(settlementBuilds, 0);
+  assert.equal(durableSettlementCalls, 0);
+  assert.deepEqual(await sb.getIdempotency(cacheKey), replacement);
+});
+
 test("idempotency helpers clearPending removes pending but keeps completed", async () => {
   resetState();
   const sb = stubScaleBackplane();
@@ -1004,8 +1089,10 @@ test("commitSuccess does not publish a completed local result before durable sto
   resetState();
   const sb = stubScaleBackplane();
   const durableError = new Error("durable write failed");
-  sb.setIdempotency = async (_key, value) => {
+  const durableSet = sb.setIdempotency.bind(sb);
+  sb.setIdempotency = async (key, value) => {
     if (value?.status === "completed") throw durableError;
+    await durableSet(key, value);
   };
   const helpers = createTalkIdempotencyHelpers({
     scaleBackplane: sb,

@@ -123,9 +123,10 @@ test('close during prepared write cannot publish completion for a released hold'
     talkIdempotencyEnabled: true, talkIdempotencyTtlMs: 60_000,
     talkIdempotencyMaxEntries: 16 });
   const cacheKey = 'user:race-writer|close-race';
-  records.set(cacheKey, { status: 'pending', createdAt: Date.now(), expiresAt: Date.now() + 60_000 });
+  const admissionId = 'close-race-admission';
+  records.set(cacheKey, { admissionId, status: 'pending', createdAt: Date.now(), expiresAt: Date.now() + 60_000 });
   const req = { authUser: { id: 'race-writer' },
-    talkIdempotency: { cacheKey, key: 'close-race', sessionKey: 'race-session' },
+    talkIdempotency: { cacheKey, key: 'close-race', sessionKey: 'race-session', admissionId },
     body: { client_transcript: 'Write the opening scene.', screenplay_target: 'page' } };
   const res = response();
   await createPageLaneTalkAdapter({ pageReservationStore: pages, walletStore: wallet, logger: null,

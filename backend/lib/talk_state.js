@@ -34,6 +34,8 @@
 // setTalkRateLimiter, setTalkIdempotencyCache, etc.). Per-entry
 // access is named through commitSuccess / clearPending only.
 
+import { randomUUID } from "node:crypto";
+
 const talkRateBuckets = new Map();
 const talkIdempotencyCache = new Map();
 const talkInFlightBySession = new Map();
@@ -75,6 +77,13 @@ function sanitizeTalkHeadersForIdempotency(headers) {
 function captureTalkResponseHeaders(res) {
   if (!res || typeof res.getHeaders !== "function") return {};
   return sanitizeTalkHeadersForIdempotency(res.getHeaders());
+}
+
+function createTalkIdempotencyAdmissionLostError() {
+  const error = new Error("talk idempotency admission was lost or replaced");
+  error.code = "TALK_IDEMPOTENCY_ADMISSION_LOST";
+  error.retryable = true;
+  return error;
 }
 
 function resolveTalkIdempotencyScope(req, resolveTalkSessionKey) {
@@ -362,6 +371,7 @@ export function createTalkIdempotencyGuard({
         key: headerKey,
         sessionKey,
         userId: String(req?.authUser?.id || req?.authUser?.user_id || req?.authUser?.userId || "").trim(),
+        admissionId: randomUUID(),
         status: "pending",
         createdAt: t,
         expiresAt: t + talkIdempotencyTtlMs,
@@ -377,10 +387,15 @@ export function createTalkIdempotencyGuard({
         cacheKey,
         key: headerKey,
         sessionKey,
+        admissionId: pendingRecord.admissionId,
       };
       res.on("finish", () => {
         const record = talkIdempotencyCache.get(cacheKey);
-        if (!record || String(record.status || "") !== "pending") return;
+        if (
+          !record ||
+          String(record.status || "") !== "pending" ||
+          String(record.admissionId || "") !== pendingRecord.admissionId
+        ) return;
         talkIdempotencyCache.delete(cacheKey);
         void scaleBackplane.deleteIdempotency(cacheKey);
       });
@@ -592,11 +607,12 @@ export function createTalkIdempotencyHelpers({
 } = {}) {
   if (
     !scaleBackplane ||
+    typeof scaleBackplane.getIdempotency !== "function" ||
     typeof scaleBackplane.setIdempotency !== "function" ||
     typeof scaleBackplane.deleteIdempotency !== "function"
   ) {
     throw new Error(
-      "createTalkIdempotencyHelpers requires scaleBackplane with set/delete idempotency methods"
+      "createTalkIdempotencyHelpers requires scaleBackplane with get/set/delete idempotency methods"
     );
   }
   if (!isPositiveFinite(talkIdempotencyTtlMs)) {
@@ -633,8 +649,14 @@ export function createTalkIdempotencyHelpers({
       if (!talkIdempotencyEnabled) return settlePageWithoutReplay(req);
       const ctx = req?.talkIdempotency;
       if (!ctx?.cacheKey) return settlePageWithoutReplay(req);
-      const existing = talkIdempotencyCache.get(ctx.cacheKey) || await scaleBackplane.getIdempotency(ctx.cacheKey);
-      if (!existing) return;
+      const existing = await scaleBackplane.getIdempotency(ctx.cacheKey);
+      if (
+        !existing ||
+        !ctx.admissionId ||
+        String(existing.admissionId || "") !== String(ctx.admissionId)
+      ) {
+        throw createTalkIdempotencyAdmissionLostError();
+      }
       if (String(existing.status || "") === "prepared") {
         if (existing.settlement && typeof req?.clementine?.settleWalletDurably === "function") {
           await req.clementine.settleWalletDurably(existing.settlement);
@@ -716,6 +738,10 @@ export function createTalkIdempotencyHelpers({
       if (!ctx?.cacheKey) return;
       const existing = talkIdempotencyCache.get(ctx.cacheKey);
       if (!existing) return;
+      if (
+        !ctx.admissionId ||
+        String(existing.admissionId || "") !== String(ctx.admissionId)
+      ) return;
       if (keepCompleted && ["prepared", "completed"].includes(String(existing.status || ""))) return;
       talkIdempotencyCache.delete(ctx.cacheKey);
       void scaleBackplane.deleteIdempotency(ctx.cacheKey);
