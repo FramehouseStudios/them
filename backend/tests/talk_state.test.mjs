@@ -956,6 +956,52 @@ test("commitSuccess cannot complete a newly readmitted request with the same key
   assert.deepEqual(await sb.getIdempotency(cacheKey), replacement);
 });
 
+test("commitSuccess cannot replace an already completed exact response", async () => {
+  resetState();
+  const sb = stubScaleBackplane();
+  const cacheKey = "user:writer|completed";
+  const completed = {
+    key: "completed",
+    sessionKey: "session",
+    admissionId: "admission-completed",
+    status: "completed",
+    statusCode: 200,
+    headers: { "content-type": "application/json" },
+    body: Buffer.from("original accepted synthetic reply"),
+    createdAt: Date.now() - 1_000,
+    completedAt: Date.now() - 500,
+    expiresAt: Date.now() + 60_000,
+  };
+  await sb.setIdempotency(cacheKey, completed);
+  let persistenceWrites = 0;
+  const durableSet = sb.setIdempotency.bind(sb);
+  sb.setIdempotency = async (...args) => {
+    persistenceWrites += 1;
+    return durableSet(...args);
+  };
+  const helpers = createTalkIdempotencyHelpers({
+    scaleBackplane: sb,
+    talkIdempotencyEnabled: true,
+    talkIdempotencyTtlMs: 60_000,
+    talkIdempotencyMaxEntries: 256,
+  });
+  const req = {
+    talkIdempotency: {
+      cacheKey,
+      key: "completed",
+      sessionKey: "session",
+      admissionId: "admission-completed",
+    },
+  };
+
+  await assert.rejects(
+    helpers.commitSuccess(req, { body: Buffer.from("late replacement synthetic reply") }),
+    error => error?.code === "TALK_IDEMPOTENCY_RESPONSE_COMPLETED"
+  );
+  assert.equal(persistenceWrites, 0);
+  assert.deepEqual(await sb.getIdempotency(cacheKey), completed);
+});
+
 test("idempotency helpers clearPending removes pending but keeps completed", async () => {
   resetState();
   const sb = stubScaleBackplane();

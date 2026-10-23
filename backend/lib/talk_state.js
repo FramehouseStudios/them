@@ -86,6 +86,12 @@ function createTalkIdempotencyAdmissionLostError() {
   return error;
 }
 
+function createTalkIdempotencyResponseCompletedError() {
+  const error = new Error("talk response was already completed and is immutable");
+  error.code = "TALK_IDEMPOTENCY_RESPONSE_COMPLETED";
+  return error;
+}
+
 function resolveTalkIdempotencyScope(req, resolveTalkSessionKey) {
   const trustedUserId = String(
     req?.authUser?.id || req?.authUser?.user_id || req?.authUser?.userId || ""
@@ -657,7 +663,8 @@ export function createTalkIdempotencyHelpers({
       ) {
         throw createTalkIdempotencyAdmissionLostError();
       }
-      if (String(existing.status || "") === "prepared") {
+      const existingStatus = String(existing.status || "");
+      if (existingStatus === "prepared") {
         if (existing.settlement && typeof req?.clementine?.settleWalletDurably === "function") {
           await req.clementine.settleWalletDurably(existing.settlement);
           const completed = {
@@ -680,6 +687,12 @@ export function createTalkIdempotencyHelpers({
         error.code = "TALK_IDEMPOTENCY_RESPONSE_PREPARED";
         error.retryable = true;
         throw error;
+      }
+      if (existingStatus === "completed") {
+        throw createTalkIdempotencyResponseCompletedError();
+      }
+      if (existingStatus !== "pending") {
+        throw createTalkIdempotencyAdmissionLostError();
       }
       const now = Date.now();
       const payloadBuffer = Buffer.isBuffer(body) ? Buffer.from(body) : Buffer.alloc(0);
