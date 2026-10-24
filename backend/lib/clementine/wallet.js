@@ -150,6 +150,7 @@ function createWalletStore({
   const creditedTransactionMeta = new Map();
   /** @type {Promise<void>} */
   let writeChain = Promise.resolve();
+  let pendingWriteError = null;
 
   function enqueuePersist(ownerId) {
     if (!persistence || typeof persistence.putBalance !== "function") {
@@ -158,17 +159,44 @@ function createWalletStore({
     const id = String(ownerId || "").trim();
     if (!id || !balances.has(id)) return Promise.resolve();
     const row = balances.get(id);
+    const snapshot = {
+      ownerId: id,
+      companionMilliturns: row[WALLET_LANE.COMPANION],
+      pageMilliturns: row[WALLET_LANE.PAGE],
+      grantedCompanionMilliturns: row.grantedCompanion,
+      grantedPageMilliturns: row.grantedPage,
+    };
     const job = writeChain.then(() =>
-      persistence.putBalance({
-        ownerId: id,
-        companionMilliturns: row[WALLET_LANE.COMPANION],
-        pageMilliturns: row[WALLET_LANE.PAGE],
-        grantedCompanionMilliturns: row.grantedCompanion,
-        grantedPageMilliturns: row.grantedPage,
-      })
+      persistence.putBalance(snapshot)
     );
-    writeChain = job.catch(() => {});
+    writeChain = job.catch((error) => {
+      pendingWriteError ||= error;
+    });
     return job;
+  }
+
+  function installDurableBalance(row, { excludeReservationId = "" } = {}) {
+    if (!row?.ownerId) return;
+    const ownerId = String(row.ownerId);
+    const next = {
+      [WALLET_LANE.COMPANION]: Math.max(0, Math.round(Number(row.companionMilliturns) || 0)),
+      [WALLET_LANE.PAGE]: Math.max(0, Math.round(Number(row.pageMilliturns) || 0)),
+      grantedCompanion: Math.max(0, Math.round(Number(row.grantedCompanionMilliturns) || 0)),
+      grantedPage: Math.max(0, Math.round(Number(row.grantedPageMilliturns) || 0)),
+    };
+    for (const reservation of reservations.values()) {
+      if (
+        reservation.ownerId === ownerId &&
+        reservation.status === "reserved" &&
+        reservation.reservationId !== excludeReservationId
+      ) {
+        next[reservation.lane] = Math.max(
+          0,
+          next[reservation.lane] - reservation.reservedMilliturns
+        );
+      }
+    }
+    balances.set(ownerId, next);
   }
 
   function ensureOwner(ownerId) {
@@ -468,7 +496,6 @@ function createWalletStore({
       meta: meta && typeof meta === "object" ? { ...meta } : null,
     };
     reservations.set(reservationId, entry);
-    void enqueuePersist(id);
     return {
       reservationId,
       ownerId: id,
@@ -500,7 +527,6 @@ function createWalletStore({
     row[entry.lane] -= extra;
     entry.reservedMilliturns += extra;
     entry.maxOutputTokens = Math.max(entry.maxOutputTokens, tokens);
-    if (extra) void enqueuePersist(entry.ownerId);
     return getReservation(entry.reservationId);
   }
 
@@ -585,6 +611,80 @@ function createWalletStore({
     };
   }
 
+  function buildSettlement(reservationId, actualOutputTokens = 0, settlementKey = "") {
+    const entry = reservations.get(String(reservationId || ""));
+    const key = String(settlementKey || "").trim();
+    if (!entry || entry.status !== "reserved" || !key) {
+      const error = new Error("Active wallet reservation and settlement key required");
+      error.code = "wallet_reservation_unavailable";
+      throw error;
+    }
+    const actual = Math.max(0, Math.round(Number(actualOutputTokens) || 0));
+    let settled = tokensToMilliturns(actual, tokensPerTurn);
+    if (actual > 0 && settled === 0) settled = 1;
+    settled = Math.min(settled, entry.reservedMilliturns);
+    return {
+      settlementKey: key,
+      reservationId: entry.reservationId,
+      ownerId: entry.ownerId,
+      lane: entry.lane,
+      settledMilliturns: settled,
+      actualOutputTokens: actual,
+      createdAt: now(),
+    };
+  }
+
+  async function reconcileDurableSettlement(settlement) {
+    if (!settlement || typeof settlement !== "object") {
+      throw new Error("durable talk settlement is required");
+    }
+    if (!persistence || typeof persistence.applyTalkSettlement !== "function") {
+      const error = new Error("durable talk settlement persistence is unavailable");
+      error.code = "wallet_settlement_unavailable";
+      throw error;
+    }
+    const result = await persistence.applyTalkSettlement(settlement);
+    installDurableBalance(result.balance, {
+      excludeReservationId: String(settlement.reservationId || ""),
+    });
+    return result;
+  }
+
+  async function commitDurably(reservationId, actualOutputTokens = 0, settlementKey = "") {
+    const entry = reservations.get(String(reservationId || ""));
+    if (!entry) return { ok: false, code: "wallet_reservation_missing" };
+    if (entry.status === "committed") {
+      if (entry.settlementKey && entry.settlementKey !== settlementKey) {
+        const error = new Error("wallet reservation already committed under another settlement key");
+        error.code = "wallet_settlement_conflict";
+        throw error;
+      }
+      return { ok: true, code: "already_committed", reservation: getReservation(entry.reservationId) };
+    }
+    if (entry.status === "released") {
+      return {
+        ok: false,
+        code: "wallet_reservation_released",
+        reservation: getReservation(entry.reservationId),
+      };
+    }
+    const settlement = buildSettlement(reservationId, actualOutputTokens, settlementKey);
+    const result = await reconcileDurableSettlement(settlement);
+    entry.status = "committed";
+    entry.committedAt = now();
+    entry.actualOutputTokens = settlement.actualOutputTokens;
+    entry.settledMilliturns = settlement.settledMilliturns;
+    entry.settlementKey = settlement.settlementKey;
+    return {
+      ok: true,
+      code: result.alreadySettled ? "already_committed" : "committed",
+      settledTurns: milliturnsToTurns(settlement.settledMilliturns),
+      refundedTurns: milliturnsToTurns(entry.reservedMilliturns - settlement.settledMilliturns),
+      settlement,
+      reservation: getReservation(entry.reservationId),
+    };
+  }
+
   /**
    * Cancel path: return reserved milliturns to the lane balance.
    * Idempotent for already-released; no-op success for committed.
@@ -616,7 +716,6 @@ function createWalletStore({
     row[entry.lane] += entry.reservedMilliturns;
     entry.status = "released";
     entry.releasedAt = now();
-    void enqueuePersist(entry.ownerId);
     return {
       ok: true,
       code: "released",
@@ -723,12 +822,20 @@ function createWalletStore({
 
   async function flush() {
     await writeChain;
+    if (pendingWriteError) {
+      const error = pendingWriteError;
+      pendingWriteError = null;
+      throw error;
+    }
   }
 
   return {
     reserve,
     ensureReservationBudget,
     commit,
+    buildSettlement,
+    commitDurably,
+    reconcileDurableSettlement,
     release,
     getBalance,
     getReservation,

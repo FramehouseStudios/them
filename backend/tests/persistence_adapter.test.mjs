@@ -399,6 +399,7 @@ test("KNOWN_DOMAINS includes the canonical domains", () => {
       "telemetry_first_page_written",
       "user_memory",
       "wallet_balances",
+      "wallet_talk_settlements",
     ],
   );
 });

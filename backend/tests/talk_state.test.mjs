@@ -349,11 +349,10 @@ test("idempotency guard cache miss calls next()", async () => {
   let nextCalled = false;
   await guard(req, res, () => { nextCalled = true; });
   assert.equal(nextCalled, true);
-  assert.deepEqual(req.talkIdempotency, {
-    cacheKey: "ip:1.2.3.4|abc",
-    key: "abc",
-    sessionKey: "ip:1.2.3.4",
-  });
+  assert.equal(req.talkIdempotency.cacheKey, "ip:1.2.3.4|abc");
+  assert.equal(req.talkIdempotency.key, "abc");
+  assert.equal(req.talkIdempotency.sessionKey, "ip:1.2.3.4");
+  assert.match(req.talkIdempotency.admissionId, /^[0-9a-f-]{36}$/);
   assert.equal(talkIdempotencyCacheSize(), 1);
 });
 
@@ -871,6 +870,138 @@ test("idempotency helpers commitSuccess marks pending as completed", async () =>
   assert.ok(Buffer.isBuffer(entry.body));
 });
 
+test("commitSuccess fails closed when its durable admission disappeared", async () => {
+  resetState();
+  const sb = stubScaleBackplane();
+  let settlementBuilds = 0;
+  let durableSettlementCalls = 0;
+  const helpers = createTalkIdempotencyHelpers({
+    scaleBackplane: sb,
+    talkIdempotencyEnabled: true,
+    talkIdempotencyTtlMs: 60_000,
+    talkIdempotencyMaxEntries: 256,
+  });
+  const req = {
+    talkIdempotency: {
+      cacheKey: "user:writer|lost-admission",
+      key: "lost-admission",
+      sessionKey: "session",
+      admissionId: "admission-original",
+    },
+    clementine: {
+      walletReservationId: "reservation-lost",
+      buildWalletSettlement() {
+        settlementBuilds += 1;
+        return { settlementKey: "must-not-settle" };
+      },
+      async settleWalletDurably() {
+        durableSettlementCalls += 1;
+      },
+    },
+  };
+
+  await assert.rejects(
+    helpers.commitSuccess(req, { body: Buffer.from("accepted bytes") }),
+    error => error?.code === "TALK_IDEMPOTENCY_ADMISSION_LOST" && error?.retryable === true
+  );
+  assert.equal(settlementBuilds, 0);
+  assert.equal(durableSettlementCalls, 0);
+});
+
+test("commitSuccess cannot complete a newly readmitted request with the same key", async () => {
+  resetState();
+  const sb = stubScaleBackplane();
+  const cacheKey = "user:writer|readmitted";
+  const replacement = {
+    key: "readmitted",
+    sessionKey: "session",
+    admissionId: "admission-new",
+    status: "pending",
+    createdAt: Date.now(),
+    expiresAt: Date.now() + 60_000,
+  };
+  await sb.setIdempotency(cacheKey, replacement);
+  let settlementBuilds = 0;
+  let durableSettlementCalls = 0;
+  const helpers = createTalkIdempotencyHelpers({
+    scaleBackplane: sb,
+    talkIdempotencyEnabled: true,
+    talkIdempotencyTtlMs: 60_000,
+    talkIdempotencyMaxEntries: 256,
+  });
+  const req = {
+    talkIdempotency: {
+      cacheKey,
+      key: "readmitted",
+      sessionKey: "session",
+      admissionId: "admission-old",
+    },
+    clementine: {
+      buildWalletSettlement() {
+        settlementBuilds += 1;
+        return { settlementKey: "must-not-settle" };
+      },
+      async settleWalletDurably() {
+        durableSettlementCalls += 1;
+      },
+    },
+  };
+
+  await assert.rejects(
+    helpers.commitSuccess(req, { body: Buffer.from("stale accepted bytes") }),
+    error => error?.code === "TALK_IDEMPOTENCY_ADMISSION_LOST" && error?.retryable === true
+  );
+  assert.equal(settlementBuilds, 0);
+  assert.equal(durableSettlementCalls, 0);
+  assert.deepEqual(await sb.getIdempotency(cacheKey), replacement);
+});
+
+test("commitSuccess cannot replace an already completed exact response", async () => {
+  resetState();
+  const sb = stubScaleBackplane();
+  const cacheKey = "user:writer|completed";
+  const completed = {
+    key: "completed",
+    sessionKey: "session",
+    admissionId: "admission-completed",
+    status: "completed",
+    statusCode: 200,
+    headers: { "content-type": "application/json" },
+    body: Buffer.from("original accepted synthetic reply"),
+    createdAt: Date.now() - 1_000,
+    completedAt: Date.now() - 500,
+    expiresAt: Date.now() + 60_000,
+  };
+  await sb.setIdempotency(cacheKey, completed);
+  let persistenceWrites = 0;
+  const durableSet = sb.setIdempotency.bind(sb);
+  sb.setIdempotency = async (...args) => {
+    persistenceWrites += 1;
+    return durableSet(...args);
+  };
+  const helpers = createTalkIdempotencyHelpers({
+    scaleBackplane: sb,
+    talkIdempotencyEnabled: true,
+    talkIdempotencyTtlMs: 60_000,
+    talkIdempotencyMaxEntries: 256,
+  });
+  const req = {
+    talkIdempotency: {
+      cacheKey,
+      key: "completed",
+      sessionKey: "session",
+      admissionId: "admission-completed",
+    },
+  };
+
+  await assert.rejects(
+    helpers.commitSuccess(req, { body: Buffer.from("late replacement synthetic reply") }),
+    error => error?.code === "TALK_IDEMPOTENCY_RESPONSE_COMPLETED"
+  );
+  assert.equal(persistenceWrites, 0);
+  assert.deepEqual(await sb.getIdempotency(cacheKey), completed);
+});
+
 test("idempotency helpers clearPending removes pending but keeps completed", async () => {
   resetState();
   const sb = stubScaleBackplane();
@@ -914,6 +1045,55 @@ test("idempotency helpers disabled: commitSuccess no-ops", async () => {
   assert.equal(talkIdempotencyCacheSize(), 0);
 });
 
+test("Page settlement is awaited even when replay idempotency is disabled or unkeyed", async () => {
+  resetState();
+  const sb = stubScaleBackplane();
+  for (const talkIdempotencyEnabled of [false, true]) {
+    const helpers = createTalkIdempotencyHelpers({
+      scaleBackplane: sb,
+      talkIdempotencyEnabled,
+      talkIdempotencyTtlMs: 60_000,
+      talkIdempotencyMaxEntries: 256,
+    });
+    const events = [];
+    const req = {
+      requestId: `request-${talkIdempotencyEnabled}`,
+      clementine: {
+        walletReservationId: `reservation-${talkIdempotencyEnabled}`,
+        buildWalletSettlement(key) {
+          events.push(["prepared", key]);
+          return { settlementKey: key, actualOutputTokens: 80 };
+        },
+        async settleWalletDurably(settlement) {
+          await Promise.resolve();
+          events.push(["settled", settlement.settlementKey]);
+        },
+      },
+    };
+    await helpers.commitSuccess(req, { body: Buffer.from("accepted") });
+    assert.deepEqual(events, [
+      ["prepared", `talk-wallet:reservation-${talkIdempotencyEnabled}`],
+      ["settled", `talk-wallet:reservation-${talkIdempotencyEnabled}`],
+    ]);
+  }
+  const failing = createTalkIdempotencyHelpers({
+    scaleBackplane: sb,
+    talkIdempotencyEnabled: false,
+    talkIdempotencyTtlMs: 60_000,
+    talkIdempotencyMaxEntries: 256,
+  });
+  await assert.rejects(
+    failing.commitSuccess({
+      clementine: {
+        walletReservationId: "reservation-failure",
+        buildWalletSettlement: key => ({ settlementKey: key, actualOutputTokens: 80 }),
+        settleWalletDurably: async () => { throw new Error("durable settlement unavailable"); },
+      },
+    }),
+    /durable settlement unavailable/
+  );
+});
+
 test("authenticated idempotency scope ignores a previous owner's client token", async () => {
   resetState();
   const sb = stubScaleBackplane();
@@ -955,8 +1135,10 @@ test("commitSuccess does not publish a completed local result before durable sto
   resetState();
   const sb = stubScaleBackplane();
   const durableError = new Error("durable write failed");
-  sb.setIdempotency = async (_key, value) => {
+  const durableSet = sb.setIdempotency.bind(sb);
+  sb.setIdempotency = async (key, value) => {
     if (value?.status === "completed") throw durableError;
+    await durableSet(key, value);
   };
   const helpers = createTalkIdempotencyHelpers({
     scaleBackplane: sb,
@@ -983,9 +1165,136 @@ test("commitSuccess does not publish a completed local result before durable sto
   );
   assert.equal(
     [...__test.peekIdempotencyCache().values()][0]?.status,
-    "pending",
-    "memory must not claim completion when persistence failed"
+    "prepared",
+    "memory must retain the exact prepared response when completion persistence failed"
   );
+});
+
+test("commitSuccess durably prepares exact bytes before settlement and completion", async () => {
+  resetState();
+  const sb = stubScaleBackplane();
+  const transitions = [];
+  const baseSet = sb.setIdempotency.bind(sb);
+  sb.setIdempotency = async (key, value) => {
+    transitions.push(value.status);
+    await baseSet(key, value);
+  };
+  const helpers = createTalkIdempotencyHelpers({
+    scaleBackplane: sb, talkIdempotencyEnabled: true,
+    talkIdempotencyTtlMs: 60_000, talkIdempotencyMaxEntries: 256,
+  });
+  const guard = createTalkIdempotencyGuard({
+    isSpeculativePrepareRequest: () => false, talkIdempotencyEnabled: true,
+    normalizeIdempotencyKey: (v) => String(v || "").trim(),
+    resolveTalkSessionKey: () => "sess:settlement-order", scaleBackplane: sb,
+    recordTalkMetric: () => {}, talkIdempotencyTtlMs: 60_000,
+    talkIdempotencyMaxEntries: 256, logger: { log() {} },
+  });
+  const req = stubRequest({ headers: { "Idempotency-Key": "settlement-order" } });
+  await guard(req, stubResponse(), () => {});
+  req.clementine = {
+    buildWalletSettlement: (key) => ({ settlementKey: key, ownerId: "writer", lane: "page",
+      settledMilliturns: 200, actualOutputTokens: 200 }),
+    settleWalletDurably: async (settlement) => {
+      const durable = await sb.getIdempotency(req.talkIdempotency.cacheKey);
+      assert.equal(durable.status, "prepared");
+      assert.deepEqual(durable.body, Buffer.from("exact accepted bytes"));
+      assert.equal(settlement.settledMilliturns, 200);
+      transitions.push("settled");
+    },
+  };
+  await helpers.commitSuccess(req, {
+    headers: { "Content-Type": "audio/mpeg" },
+    body: Buffer.from("exact accepted bytes"),
+  });
+  assert.deepEqual(transitions, ["pending", "prepared", "settled", "completed"]);
+});
+
+test("prepared settlement failure is replayed only after durable reconciliation", async () => {
+  resetState();
+  const sb = stubScaleBackplane();
+  const helpers = createTalkIdempotencyHelpers({
+    scaleBackplane: sb, talkIdempotencyEnabled: true,
+    talkIdempotencyTtlMs: 60_000, talkIdempotencyMaxEntries: 256,
+  });
+  const initialGuard = createTalkIdempotencyGuard({
+    isSpeculativePrepareRequest: () => false, talkIdempotencyEnabled: true,
+    normalizeIdempotencyKey: (v) => String(v || "").trim(),
+    resolveTalkSessionKey: () => "sess:recover", scaleBackplane: sb,
+    recordTalkMetric: () => {}, talkIdempotencyTtlMs: 60_000,
+    talkIdempotencyMaxEntries: 256, logger: { log() {} },
+  });
+  const first = stubRequest({ headers: { "Idempotency-Key": "recover" } });
+  await initialGuard(first, stubResponse(), () => {});
+  first.clementine = {
+    buildWalletSettlement: (key) => ({ settlementKey: key, ownerId: "writer", lane: "page",
+      settledMilliturns: 200, actualOutputTokens: 200 }),
+    settleWalletDurably: async () => { throw new Error("injected settlement outage"); },
+  };
+  await assert.rejects(
+    helpers.commitSuccess(first, { body: Buffer.from("replay me exactly") }),
+    /injected settlement outage/
+  );
+  const durablePrepared = await sb.getIdempotency(first.talkIdempotency.cacheKey);
+  assert.equal(durablePrepared.status, "prepared");
+  assert.equal(durablePrepared.expiresAt, 0, "unresolved billed responses must not age into regeneration");
+  helpers.clearPending(first, { keepCompleted: true });
+  assert.equal(
+    [...__test.peekIdempotencyCache().values()][0]?.status,
+    "prepared",
+    "normal cleanup must retain a recoverable prepared response"
+  );
+  __test.reset();
+
+  let reconcileCalls = 0;
+  const recoveryGuard = createTalkIdempotencyGuard({
+    isSpeculativePrepareRequest: () => false, talkIdempotencyEnabled: true,
+    normalizeIdempotencyKey: (v) => String(v || "").trim(),
+    resolveTalkSessionKey: () => "sess:recover", scaleBackplane: sb,
+    reconcilePreparedIdempotency: async (_req, settlement) => {
+      reconcileCalls += 1;
+      assert.equal(settlement.settledMilliturns, 200);
+    },
+    recordTalkMetric: () => {}, talkIdempotencyTtlMs: 60_000,
+    talkIdempotencyMaxEntries: 256, logger: { log() {}, warn() {} },
+  });
+  const retry = stubRequest({ headers: { "Idempotency-Key": "recover" } });
+  const retryRes = stubResponse();
+  let nextCalls = 0;
+  await recoveryGuard(retry, retryRes, () => { nextCalls += 1; });
+  assert.equal(nextCalls, 0);
+  assert.equal(reconcileCalls, 1);
+  assert.deepEqual(retryRes._recorded.body, Buffer.from("replay me exactly"));
+  assert.equal(retryRes._recorded.headers["x-idempotency-replay"], "1");
+  assert.equal((await sb.getIdempotency(first.talkIdempotency.cacheKey)).status, "completed");
+});
+
+test("prepared reconciliation failure is retryable and never regenerates", async () => {
+  resetState();
+  const sb = stubScaleBackplane();
+  const key = "user:writer|still-pending";
+  await sb.setIdempotency(key, {
+    key: "still-pending", sessionKey: "sess", userId: "writer", status: "prepared",
+    body: Buffer.from("accepted"), statusCode: 200, headers: {},
+    settlement: { settlementKey: key, ownerId: "writer", lane: "page",
+      settledMilliturns: 100, actualOutputTokens: 100 },
+  });
+  const guard = createTalkIdempotencyGuard({
+    isSpeculativePrepareRequest: () => false, talkIdempotencyEnabled: true,
+    normalizeIdempotencyKey: (v) => String(v || "").trim(),
+    resolveTalkSessionKey: () => "sess", scaleBackplane: sb,
+    reconcilePreparedIdempotency: async () => { throw new Error("still down"); },
+    recordTalkMetric: () => {}, talkIdempotencyTtlMs: 60_000,
+    talkIdempotencyMaxEntries: 256, logger: { log() {}, warn() {} },
+  });
+  const req = stubRequest({ headers: { "Idempotency-Key": "still-pending" }, authUser: { id: "writer" } });
+  const res = stubResponse();
+  let nextCalls = 0;
+  await guard(req, res, () => { nextCalls += 1; });
+  assert.equal(nextCalls, 0);
+  assert.equal(res._recorded.statusCode, 503);
+  assert.equal(res._recorded.body.error, "settlement_pending");
+  assert.equal((await sb.getIdempotency(key)).status, "prepared");
 });
 
 // =====================================================================
