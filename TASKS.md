@@ -512,6 +512,42 @@
   any undelivered result safely through crashes, owner/origin changes and retry.
   Reuse canonical talk/result/receipt handling; no second conversation store.
 
+### T-1127 — Clear the hosted Pages-card compile failure on original #974
+
+- **Owner:** codex (Jarvis), same original `codex/T-1125-talk-owner-fence` branch.
+  Exact hosted head `f10fd41` passed D009 and Node20.20.2 backend2963/0/4, but
+  QualityGate failed before tests: `ScreenplayStudioDraftPageTools.swift:167`
+  exceeded Swift expression type-check time. Run40122604848 is terminal failed;
+  it is not being retried unchanged or counted as an iOS test pass.
+- **Fix:** split the unchanged Page-card UI into concrete card/content/header/
+  preview boundaries with explicitly typed colors/selection traits. Preserve
+  jump closure, selection state, all accessibility identifiers and appearance.
+- **Verified local proof:** fresh DerivedData `/tmp/them-1127-clean-dd`, signed
+  full units947/0/0 on erased owned simulator; actual Pages navigation UI1/0/0
+  with8 pagination HTTP200s and zero provider calls; macOS/D009/diff pass.
+  Parent/new230pt PNGs have identical SHA256. Hosted updated-head checks remain
+  required; no unchanged rerun. `docs/pages-clean-build-2026-10-24.md`.
+  T1126 original-project recovery is safely preserved LOCAL ONLY in `00be9dc`
+  on `codex/T-1126-original-project-recovery`; no WIP is included in #974.
+
+### T-1125 — Fence speech/retry ownership across account changes
+
+- **Owner:** codex (Jarvis); branch `codex/T-1125-talk-owner-fence`, parent
+  `8f8a66f`. Zora's read-only call-site audit found stable Page request keys
+  already present, but recursive auth retry could rebuild the bearer from a new
+  account and offline enqueue omitted the existing initiating-owner argument.
+- **Target:** one captured owner through dispatch/bootstrap, transport/audio/auth
+  retries, metadata reads, callbacks and queue admission. Refuse a changed user
+  or login intent with `auth_request_superseded`; permit same-login token refresh
+  and retain the operation key. No new storage or auth framework.
+- **Status:** runtime saved in `d184e3e`; signed focused13/0/0. Removed unnecessary
+  shared-token deletion and added synchronized per-attempt Page leases after
+  adversarial review. Fixture-only correction `2409673`; full signed947/0/0,
+  raw voice/write/save/restore UI1/0/0 and queued playback/single append/save/
+  restore UI1/0/0, macOS/D009/diff pass. Providers intercepted; no new backend
+  suite, main/deployment/physical-phone or live-model claim. Final proof:
+  `docs/talk-owner-fence-2026-10-24.md` before handoff.
+
 ### T-1124 — Integrate durable Page settlement and restart reconciliation
 
 - **Owner:** codex (Jarvis); branch `codex/T-1124-page-settlement-integration`,

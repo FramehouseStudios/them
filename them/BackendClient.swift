@@ -2302,6 +2302,8 @@ final class BackendClient {
     private let urlSession: URLSession
     private let shouldPersistBackendBaseURL: Bool
     private let shouldAttachUserIDHeader: Bool
+    private let requestIdentityProvider: @Sendable (Bool) -> BackendAuthRequestIdentity
+    private let talkAuthRefresher: @MainActor @Sendable (ScreenplayStudioAuthContext) async throws -> BackendAuthSessionState
     private let devFallbackAppToken: String? = {
 #if DEBUG
         "them-dev"
@@ -2337,6 +2339,7 @@ final class BackendClient {
     var onPageReservationObserved: ((String) -> Void)?
     /// Observed when multipart talk body targets `screenplay_target=page`.
     var onPageTalkInFlightChanged: ((Bool) -> Void)?
+    private let pageTalkActivity = BackendTalkPageActivity()
 
 
     private var cachedClientToken: String?
@@ -2374,13 +2377,21 @@ final class BackendClient {
         ),
         urlSession: URLSession = .shared,
         persistBackendBaseURL: Bool = true,
-        attachUserIDHeader: Bool = true
+        attachUserIDHeader: Bool = true,
+        requestIdentityProvider: @escaping @Sendable (Bool) -> BackendAuthRequestIdentity = {
+            BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: $0)
+        },
+        talkAuthRefresher: @escaping @MainActor @Sendable (ScreenplayStudioAuthContext) async throws -> BackendAuthSessionState = {
+            try await BackendAuthClient.refreshAuthSession(force: true, expectedOwner: $0)
+        }
     ) {
         self.baseURL = baseURL
         self.fallbackURL = fallbackURL
         self.urlSession = urlSession
         self.shouldPersistBackendBaseURL = persistBackendBaseURL
         self.shouldAttachUserIDHeader = attachUserIDHeader
+        self.requestIdentityProvider = requestIdentityProvider
+        self.talkAuthRefresher = talkAuthRefresher
     }
 
     func health() async throws -> Bool {
@@ -2953,8 +2964,10 @@ final class BackendClient {
         onTextReady: ((String) -> Void)? = nil,
         onDebugEvent: ((BackendTalkDebugEvent) -> Void)? = nil
     ) async throws -> BackendTalkResult {
+        let owner = requestIdentityProvider(true)
         do {
             let resolvedBaseURL = try await resolveBaseURL()
+            try owner.requireCurrentOwner(requestIdentityProvider(false))
             onDebugEvent?(
                 BackendTalkDebugEvent(
                     stage: "resolve_base_url_ok",
@@ -2966,16 +2979,19 @@ final class BackendClient {
                     errorDescription: nil
                 )
             )
-            let userID = resolveUserID()
+            let userID = owner.userID
             let clientToken = try await resolveTalkClientTokenOrFallback(
                 for: resolvedBaseURL,
                 userID: userID,
+                initiatingIdentity: owner,
                 onDebugEvent: onDebugEvent
             )
+            try owner.requireCurrentOwner(requestIdentityProvider(false))
             let stableIdempotencyKey = normalizedIdempotencyKey(idempotencyKey) ?? "ios-\(UUID().uuidString)"
             return try await performTalk(
                 fileURL: fileURL,
                 fileDataOverride: fileDataOverride,
+                initiatingIdentity: owner,
                 baseURL: resolvedBaseURL,
                 userID: userID,
                 clientToken: clientToken,
@@ -3045,13 +3061,16 @@ final class BackendClient {
         }
 
         let resolvedBaseURL = baseURL
+        let owner = requestIdentityProvider(true)
         persistSharedBackendBaseURL(resolvedBaseURL)
-        let userID = resolveUserID()
+        let userID = owner.userID
         let clientToken = try await resolveTalkClientTokenOrFallback(
             for: resolvedBaseURL,
             userID: userID,
+            initiatingIdentity: owner,
             onDebugEvent: nil
         )
+        try owner.requireCurrentOwner(requestIdentityProvider(false))
         let stableIdempotencyKey = normalizedIdempotencyKey(idempotencyKey) ?? "ios-text-\(UUID().uuidString)"
         let silentUploadURL = try makeSilentTalkUploadFile()
         defer { try? FileManager.default.removeItem(at: silentUploadURL) }
@@ -3059,6 +3078,7 @@ final class BackendClient {
         return try await performTalk(
             fileURL: silentUploadURL,
             fileDataOverride: nil,
+            initiatingIdentity: owner,
             baseURL: resolvedBaseURL,
             userID: userID,
             clientToken: clientToken,
@@ -4213,6 +4233,7 @@ final class BackendClient {
     private func performTalk(
         fileURL: URL,
         fileDataOverride: Data?,
+        initiatingIdentity owner: BackendAuthRequestIdentity,
         baseURL: URL,
         userID: String,
         clientToken: String,
@@ -4244,8 +4265,12 @@ final class BackendClient {
         allowAudioValidationRetry: Bool,
         forceNoStreamAudio: Bool
     ) async throws -> BackendTalkResult {
+        let identity = requestIdentityProvider(false)
+        try owner.requireCurrentOwner(identity)
+        let activityID = UUID()
         defer {
-            onPageTalkInFlightChanged?(false)
+            pageTalkActivity.finish(activityID, currentOwner: requestIdentityProvider(false).ownerContext,
+                                    onChange: onPageTalkInFlightChanged)
         }
 
         let boundary = "Boundary-\(UUID().uuidString)"
@@ -4282,7 +4307,9 @@ final class BackendClient {
         if let token = appToken {
             request.setValue(token, forHTTPHeaderField: "X-APP-TOKEN")
         }
-        attachAuthorizationHeader(to: &request)
+        if !identity.accessToken.isEmpty {
+            request.setValue("Bearer \(identity.accessToken)", forHTTPHeaderField: "Authorization")
+        }
         attachCompanionTtsByokHeaders(to: &request)
         if let key = normalizedIdempotencyKey(idempotencyKey) {
             request.setValue(key, forHTTPHeaderField: "X-Idempotency-Key")
@@ -4500,7 +4527,7 @@ final class BackendClient {
                 body.appendString("\r\n")
             }
             if target == "page" {
-                onPageTalkInFlightChanged?(true)
+                pageTalkActivity.begin(activityID, owner: owner.ownerContext, onChange: onPageTalkInFlightChanged)
             }
             let promptSource = studioMetadata.screenplayPromptSource.trimmingCharacters(in: .whitespacesAndNewlines)
             if !promptSource.isEmpty {
@@ -4671,7 +4698,9 @@ final class BackendClient {
         do {
             (data, response) = try await dataForTalkRequest(
                 request,
+                initiatingIdentity: owner,
                 onResponse: { [self] http in
+                guard self.isCurrentTalkOwner(owner) else { return }
                 responseFirstSegmentBytesHint = self.parseHeaderInt(
                     http,
                     field: "x-tts-first-bytes",
@@ -4733,6 +4762,7 @@ final class BackendClient {
                 )
                 if let onResponseMetadataReady, http.statusCode == 200 {
                     DispatchQueue.main.async {
+                        guard self.isCurrentTalkOwner(owner) else { return }
                         onResponseMetadataReady(responseMetadata)
                     }
                 }
@@ -4742,11 +4772,13 @@ final class BackendClient {
                    let reply = self.parseOptionalHeaderString(http, field: "x-reply"),
                    !reply.isEmpty {
                     DispatchQueue.main.async {
+                        guard self.isCurrentTalkOwner(owner) else { return }
                         onTextReady(reply)
                     }
                 }
             },
             onChunk: { [self] chunk, response in
+                guard self.isCurrentTalkOwner(owner) else { return }
                 guard !emittedFirstSegment else { return }
                 guard let onFirstAudioSegmentReady else { return }
                 guard response.statusCode == 200 else { return }
@@ -4769,6 +4801,10 @@ final class BackendClient {
                     try segmentData.write(to: segmentURL, options: [.atomic])
                     emittedFirstSegment = true
                     DispatchQueue.main.async {
+                        guard self.isCurrentTalkOwner(owner) else {
+                            try? FileManager.default.removeItem(at: segmentURL)
+                            return
+                        }
                         onFirstAudioSegmentReady(segmentURL)
                     }
                 } catch {
@@ -4777,6 +4813,7 @@ final class BackendClient {
                 }
             )
         } catch {
+            try owner.requireCurrentOwner(requestIdentityProvider(false))
             let nsError = error as NSError
             onDebugEvent?(
                 BackendTalkDebugEvent(
@@ -4789,11 +4826,13 @@ final class BackendClient {
                     errorDescription: error.localizedDescription
                 )
             )
-            if let queued = await enqueueOfflineTalkRequest(request, body: body, reason: error.localizedDescription) {
+            if let queued = await enqueueOfflineTalkRequest(request, body: body, reason: error.localizedDescription,
+                                                           initiatingIdentity: owner) {
                 throw queued
             }
             throw error
         }
+        try owner.requireCurrentOwner(requestIdentityProvider(false))
         let http = response as? HTTPURLResponse
         let statusCode = http?.statusCode ?? -1
         let contentType = http?.value(forHTTPHeaderField: "Content-Type") ?? "-"
@@ -4811,6 +4850,7 @@ final class BackendClient {
             return try await performTalk(
                 fileURL: fileURL,
                 fileDataOverride: fileDataOverride,
+                initiatingIdentity: owner,
                 baseURL: baseURL,
                 userID: userID,
                 clientToken: clientToken,
@@ -4850,11 +4890,12 @@ final class BackendClient {
                allowClientTokenRefresh,
                let stageError = parsedStageError,
                isUserAuthStage(stageError.stage),
-               await refreshUserAuthForRetryIfPossible() {
+               try await refreshTalkAuthIfCurrent(owner) {
                 print("POST /talk -> auth_user received, refreshed auth token and retrying once")
                 return try await performTalk(
                     fileURL: fileURL,
                     fileDataOverride: fileDataOverride,
+                    initiatingIdentity: owner,
                     baseURL: baseURL,
                     userID: userID,
                     clientToken: clientToken,
@@ -4891,11 +4932,13 @@ final class BackendClient {
                allowClientTokenRefresh,
                !isUserAuthStage(parsedStageError?.stage ?? "") {
                 print("POST /talk -> 401 unauthorized, refreshing session token and retrying once")
-                clearSessionToken()
-                let refreshed = try await refreshClientToken(for: baseURL, userID: userID)
+                // Direct refresh bypasses cached tokens. Never delete shared
+                // credentials from an old operation before its owner is checked.
+                let refreshed = try await refreshClientToken(for: baseURL, userID: userID, initiatingIdentity: owner)
                 return try await performTalk(
                     fileURL: fileURL,
                     fileDataOverride: fileDataOverride,
+                    initiatingIdentity: owner,
                     baseURL: baseURL,
                     userID: userID,
                     clientToken: refreshed,
@@ -4944,7 +4987,8 @@ final class BackendClient {
                 if let queued = await enqueueOfflineTalkRequest(
                     request,
                     body: body,
-                    reason: "HTTP \(statusCode)"
+                    reason: "HTTP \(statusCode)",
+                    initiatingIdentity: owner
                 ) {
                     throw queued
                 }
@@ -4953,11 +4997,11 @@ final class BackendClient {
             if let stageError = parsedStageError {
                 if allowClientTokenRefresh, stageError.stage.lowercased() == "auth_client" {
                     print("POST /talk -> auth_client received, refreshing session token and retrying once")
-                    clearSessionToken()
-                    let refreshed = try await refreshClientToken(for: baseURL, userID: userID)
+                    let refreshed = try await refreshClientToken(for: baseURL, userID: userID, initiatingIdentity: owner)
                     return try await performTalk(
                         fileURL: fileURL,
                         fileDataOverride: fileDataOverride,
+                        initiatingIdentity: owner,
                         baseURL: baseURL,
                         userID: userID,
                         clientToken: refreshed,
@@ -4997,9 +5041,17 @@ final class BackendClient {
             throw BackendError.http(statusCode, raw)
         }
 
-        return try await decodeTalkSuccess(data: data, http: http, contentType: contentType,
+        let result = try await decodeTalkSuccess(data: data, http: http, contentType: contentType,
             baseURL: baseURL, userID: userID, clientToken: clientToken, emittedFirstSegment: emittedFirstSegment,
+            initiatingIdentity: owner,
             retryAudioValidationIfAllowed: retryAudioValidationIfAllowed)
+        do { try owner.requireCurrentOwner(requestIdentityProvider(false)) }
+        catch {
+            try? FileManager.default.removeItem(at: result.audioURL)
+            if let remainder = result.streamedRemainderURL { try? FileManager.default.removeItem(at: remainder) }
+            throw error
+        }
+        return result
     }
 
     func captureReceivedTurnMetadata(
@@ -5011,7 +5063,7 @@ final class BackendClient {
         let turnID = packet.response.headers["x-turn-id"] ?? ""
         guard !turnID.isEmpty else { throw BackendMemoryAPIError.invalidResponse }
         let payload = try await fetchTurnMeta(baseURL: backendURL, userID: owner.userID,
-            clientToken: owner.clientToken, turnID: turnID)
+            clientToken: owner.clientToken, turnID: turnID, initiatingIdentity: owner)
         try requireReceivedTalkScope(packet, owner: owner, backendURL: backendURL, currentScopeProvider: currentScopeProvider)
         return try BackendTalkTurnMetaPayload.retainedData(JSONEncoder().encode(payload), expectedTurnID: turnID)
     }
@@ -5085,8 +5137,10 @@ final class BackendClient {
         userID: String, clientToken: String, emittedFirstSegment: Bool,
         allowTurnMetaLookup: Bool = true, allowSessionBootstrap: Bool = true,
         retainedTurnMeta: BackendTalkTurnMetaPayload? = nil,
+        initiatingIdentity owner: BackendAuthRequestIdentity? = nil,
         retryAudioValidationIfAllowed: (String) async throws -> BackendTalkResult?
     ) async throws -> BackendTalkResult {
+        try owner?.requireCurrentOwner(requestIdentityProvider(false))
         let normalizedType = contentType.lowercased()
         let mimeType = normalizedType
             .split(separator: ";", maxSplits: 1)
@@ -5119,7 +5173,9 @@ final class BackendClient {
                 max: 7 * 24 * 60 * 60
             )
             let expiry = Date().addingTimeInterval(TimeInterval(bootstrapExpiresIn))
-            persistResolvedClientToken(commitSignal.sessionId, expiry: expiry)
+            let identity = requestIdentityProvider(false)
+            try owner?.requireCurrentOwner(identity)
+            persistResolvedClientToken(commitSignal.sessionId, expiry: expiry, expectedSessionEpoch: identity.sessionEpoch)
         }
         var audioDurationMs = parseHeaderInt(
             http,
@@ -5197,7 +5253,8 @@ final class BackendClient {
                     baseURL: baseURL,
                     userID: userID,
                     clientToken: clientToken,
-                    turnID: commitSignal.turnId
+                    turnID: commitSignal.turnId,
+                    initiatingIdentity: owner
                 ) }
                 if transcript?.isEmpty ?? true {
                     transcript = payload.transcript?
@@ -5426,7 +5483,8 @@ final class BackendClient {
         baseURL: URL,
         userID: String,
         clientToken: String,
-        turnID: String
+        turnID: String,
+        initiatingIdentity owner: BackendAuthRequestIdentity? = nil
     ) async throws -> BackendTalkTurnMetaPayload {
         let normalizedTurnID = turnID.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedTurnID.isEmpty else {
@@ -5448,14 +5506,23 @@ final class BackendClient {
         if let token = appToken() {
             request.setValue(token, forHTTPHeaderField: "X-APP-TOKEN")
         }
-        attachAuthorizationHeader(to: &request)
+        if let owner {
+            let identity = requestIdentityProvider(false)
+            try owner.requireCurrentOwner(identity)
+            if !identity.accessToken.isEmpty {
+                request.setValue("Bearer \(identity.accessToken)", forHTTPHeaderField: "Authorization")
+            }
+        } else { attachAuthorizationHeader(to: &request) }
 
         var attempt = 0
         while true {
+            try owner?.requireCurrentOwner(requestIdentityProvider(false))
             let result: (Data, URLResponse)
             do {
                 result = try await urlSession.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
+                try owner?.requireCurrentOwner(requestIdentityProvider(false))
             } catch {
+                try owner?.requireCurrentOwner(requestIdentityProvider(false))
                 guard shouldRetryTalk(for: error), attempt + 1 < maxTurnMetaAttempts else {
                     throw error
                 }
@@ -5527,7 +5594,9 @@ final class BackendClient {
         return currentEpoch
     }
 
-    private func resolveClientToken(for baseURL: URL, userID: String) async throws -> String {
+    private func resolveClientToken(for baseURL: URL, userID: String,
+                                    initiatingIdentity owner: BackendAuthRequestIdentity? = nil) async throws -> String {
+        try owner?.requireCurrentOwner(requestIdentityProvider(false))
         let expectedSessionEpoch = synchronizeCachedIdentityEpoch()
         let now = Date()
         let formatter = ISO8601DateFormatter()
@@ -5574,7 +5643,8 @@ final class BackendClient {
         return try await refreshClientToken(
             for: baseURL,
             userID: userID,
-            expectedSessionEpoch: expectedSessionEpoch
+            expectedSessionEpoch: expectedSessionEpoch,
+            initiatingIdentity: owner
         )
     }
 
@@ -5630,9 +5700,11 @@ final class BackendClient {
         for baseURL: URL,
         userID: String,
         expectedSessionEpoch: Int? = nil,
-        allowAuthTokenRefresh: Bool = true
+        allowAuthTokenRefresh: Bool = true,
+        initiatingIdentity owner: BackendAuthRequestIdentity? = nil
     ) async throws -> String {
-        let identity = BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: true)
+        let identity = requestIdentityProvider(true)
+        try owner?.requireCurrentOwner(identity)
         let requestSessionEpoch = expectedSessionEpoch ?? identity.sessionEpoch
         guard identity.sessionEpoch == requestSessionEpoch else {
             throw BackendError.stage("session", "Session identity changed. Please retry.")
@@ -5660,6 +5732,7 @@ final class BackendClient {
 
         print("POST /session -> url=\(request.url?.absoluteString ?? "-") has_app_token=\(appToken != nil)")
         let (data, response) = try await urlSession.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
+        try owner?.requireCurrentOwner(requestIdentityProvider(false))
         let http = response as? HTTPURLResponse
         let status = http?.statusCode ?? -1
         let requestID = http?.value(forHTTPHeaderField: "X-Request-Id") ?? "-"
@@ -5673,15 +5746,19 @@ final class BackendClient {
 
         guard (200...299).contains(status) else {
             if let stageError = parseStageError(from: data) {
-                if allowAuthTokenRefresh,
-                   isUserAuthStage(stageError.stage),
-                   await refreshUserAuthForRetryIfPossible() {
-                    return try await refreshClientToken(
-                        for: baseURL,
-                        userID: resolveUserID(),
-                        expectedSessionEpoch: synchronizeCachedIdentityEpoch(),
-                        allowAuthTokenRefresh: false
-                    )
+                if allowAuthTokenRefresh, isUserAuthStage(stageError.stage) {
+                    let refreshed: Bool
+                    if let owner { refreshed = try await refreshTalkAuthIfCurrent(owner) }
+                    else { refreshed = await refreshUserAuthForRetryIfPossible() }
+                    if refreshed {
+                        return try await refreshClientToken(
+                            for: baseURL,
+                            userID: owner?.userID ?? resolveUserID(),
+                            expectedSessionEpoch: synchronizeCachedIdentityEpoch(),
+                            allowAuthTokenRefresh: false,
+                            initiatingIdentity: owner
+                        )
+                    }
                 }
                 throw BackendError.stage(stageError.stage, stageError.message)
             }
@@ -5966,11 +6043,13 @@ final class BackendClient {
 
     private func dataForTalkRequest(
         _ request: URLRequest,
+        initiatingIdentity owner: BackendAuthRequestIdentity,
         onResponse: ((HTTPURLResponse) -> Void)? = nil,
         onChunk: ((Data, HTTPURLResponse) -> Void)? = nil
     ) async throws -> (Data, URLResponse) {
         var attempt = 0
         while true {
+            try owner.requireCurrentOwner(requestIdentityProvider(false))
             do {
                 let result: (Data, URLResponse)
                 if onResponse != nil || onChunk != nil {
@@ -5980,8 +6059,9 @@ final class BackendClient {
                         onChunk: onChunk
                     )
                 } else {
-                    result = try await URLSession.shared.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
+                    result = try await urlSession.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
                 }
+                try owner.requireCurrentOwner(requestIdentityProvider(false))
                 if let http = result.1 as? HTTPURLResponse,
                    BackendProviderFailurePolicy.shouldRetryHTTP(
                        statusCode: http.statusCode,
@@ -5997,6 +6077,7 @@ final class BackendClient {
                 }
                 return result
             } catch {
+                try owner.requireCurrentOwner(requestIdentityProvider(false))
                 if (onResponse != nil || onChunk != nil),
                    shouldFallbackToPlainTalkTransport(for: error) {
                     print("POST /talk -> streaming transport fell back to shared data: \(error.localizedDescription)")
@@ -6121,6 +6202,7 @@ final class BackendClient {
             streamChunkFlushBytes: streamChunkFlushBytes
         )
         let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = urlSession.configuration.protocolClasses
         configuration.waitsForConnectivity = false
         configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
         configuration.timeoutIntervalForRequest = requestTimeout
@@ -6140,7 +6222,7 @@ final class BackendClient {
         onResponse: ((HTTPURLResponse) -> Void)? = nil,
         onChunk: ((Data, HTTPURLResponse) -> Void)? = nil
     ) async throws -> (Data, URLResponse) {
-        let (data, response) = try await URLSession.shared.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
+        let (data, response) = try await urlSession.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
         if let http = response as? HTTPURLResponse {
             onResponse?(http)
             if !data.isEmpty {
@@ -6155,7 +6237,7 @@ final class BackendClient {
         onResponse: ((HTTPURLResponse) -> Void)? = nil,
         onChunk: ((Data, HTTPURLResponse) -> Void)? = nil
     ) async throws -> (Data, URLResponse) {
-        let (bytes, response) = try await URLSession.shared.bytes(for: request, delegate: BackendHTTPRedirectGuard.shared)
+        let (bytes, response) = try await urlSession.bytes(for: request, delegate: BackendHTTPRedirectGuard.shared)
         if let http = response as? HTTPURLResponse {
             onResponse?(http)
         }
@@ -6176,10 +6258,11 @@ final class BackendClient {
     private func resolveTalkClientTokenOrFallback(
         for baseURL: URL,
         userID: String,
+        initiatingIdentity owner: BackendAuthRequestIdentity,
         onDebugEvent: ((BackendTalkDebugEvent) -> Void)?
     ) async throws -> String {
         do {
-            let clientToken = try await resolveClientToken(for: baseURL, userID: userID)
+            let clientToken = try await resolveClientToken(for: baseURL, userID: userID, initiatingIdentity: owner)
             onDebugEvent?(
                 BackendTalkDebugEvent(
                     stage: "resolve_client_token_ok",
@@ -6225,13 +6308,16 @@ final class BackendClient {
     private func enqueueOfflineTalkRequest(
         _ request: URLRequest,
         body: Data,
-        reason: String
+        reason: String,
+        initiatingIdentity owner: BackendAuthRequestIdentity
     ) async -> Error? {
         do {
+            try owner.requireCurrentOwner(requestIdentityProvider(false))
             let result = try await OfflineTalkOutbox.shared.enqueue(
                 request: request,
                 body: body,
-                reason: reason
+                reason: reason,
+                initiatingIdentity: owner
             )
             print("POST /talk -> queued offline outbox entry \(result.entry.id)")
             return BackendTalkQueuedError(
@@ -6240,6 +6326,7 @@ final class BackendClient {
                 reason: reason
             )
         } catch {
+            if !isCurrentTalkOwner(owner) { return error }
             if error is OfflineTalkPayloadConflictError || error is OfflineTalkPreviousOwnerError { return error }
             print("POST /talk -> offline outbox enqueue failed: \(error.localizedDescription)")
             return nil
@@ -6426,6 +6513,17 @@ final class BackendClient {
 
     private func isUserAuthStage(_ stage: String) -> Bool {
         stage.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "auth_user"
+    }
+
+    private func isCurrentTalkOwner(_ owner: BackendAuthRequestIdentity) -> Bool {
+        (try? owner.requireCurrentOwner(requestIdentityProvider(false))) != nil
+    }
+
+    private func refreshTalkAuthIfCurrent(_ owner: BackendAuthRequestIdentity) async throws -> Bool {
+        try owner.requireCurrentOwner(requestIdentityProvider(false))
+        let refreshed = try await talkAuthRefresher(owner.ownerContext)
+        try owner.requireCurrentOwner(requestIdentityProvider(false))
+        return refreshed.isAuthenticated
     }
 
     private func refreshUserAuthForRetryIfPossible() async -> Bool {
