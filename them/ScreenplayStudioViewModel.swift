@@ -1730,7 +1730,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
     private let draftSaveOutbox: ScreenplayDraftSaveOutbox
     private let outlineMutationOutbox = ScreenplayOutlineMutationOutbox.shared
     private let craftClient: BackendClient
-    private let projectSelectionAPI = BackendMemoryAPI()
+    private let projectSelectionAPI: BackendMemoryAPI
     private let conflictProjectLoader: ((String) async throws -> BackendScreenplayProjectSummary)?
     private var clientTokenOwnedProjectIDs: Set<String> = []
     private var activeLoadRequestID: UUID?
@@ -1743,11 +1743,13 @@ final class ScreenplayStudioViewModel: ObservableObject {
          draftSaveOutbox: ScreenplayDraftSaveOutbox = .shared,
          conflictProjectLoader: ((String) async throws -> BackendScreenplayProjectSummary)? = nil,
          craftClient: BackendClient = BackendClient(),
+         projectSelectionAPI: BackendMemoryAPI = BackendMemoryAPI(),
          coverageAuthContextProvider: (() -> ScreenplayStudioAuthContext)? = nil) {
         self.localDraftRecoveryStore = localDraftRecoveryStore
         self.draftSaveOutbox = draftSaveOutbox
         self.conflictProjectLoader = conflictProjectLoader
         self.craftClient = craftClient
+        self.projectSelectionAPI = projectSelectionAPI
         self.coverageAuthContextProvider = coverageAuthContextProvider
         fountainDraft = ScreenplayLiveDraftBridge.shared.draftText
         coverageIdentityCancellable = NotificationCenter.default.publisher(for: .themBackendIdentityPartitionChanged)
@@ -1975,6 +1977,12 @@ final class ScreenplayStudioViewModel: ObservableObject {
         syncLiveDraftBridgeProjectContext()
     }
 
+    /// Cached project labels are not proof that their draft was loaded.
+    var isSelectedProjectDraftLoaded: Bool {
+        let id = selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !id.isEmpty && selectedProject?.id == id && loadedDraftProjectID == id
+    }
+
     var debugLoadedDraftProjectID: String {
         loadedDraftProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
     }
@@ -1994,12 +2002,35 @@ final class ScreenplayStudioViewModel: ObservableObject {
     #endif
 
     func selectProject(_ projectID: String) async {
+        let owner = currentStudioAuthContext()
+        let previous = (id: selectedProjectID, project: selectedProject, loaded: loadedDraftProjectID,
+                        draft: fountainDraft, version: latestVersionID, outline: outline,
+                        revision: outlineRevision, revisionProject: outlineRevisionProjectID,
+                        recovery: recoveryCandidate, conflict: conflictState, question: pendingScreenplayQuestion)
         selectedProjectID = projectID
         clearTransientProjectStateForSelectionChange(to: projectID)
         resetCraftReportForProjectChange()
         await loadSelectedProjectOutline()
-        guard selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines) ==
+        guard authContextIsCurrent(owner), selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines) ==
                 projectID.trimmingCharacters(in: .whitespacesAndNewlines) else {
+            return
+        }
+        guard isSelectedProjectDraftLoaded else {
+            // A cached summary after a failed read must not rename another
+            // screenplay's still-loaded bytes or activate that failed selection.
+            if loadedDraftProjectID == previous.loaded, latestVersionID == previous.version,
+               fountainDraft.utf8.elementsEqual(previous.draft.utf8) {
+                selectedProjectID = previous.id
+                selectedProject = previous.project
+                outline = previous.outline
+                outlineRevision = previous.revision
+                outlineRevisionProjectID = previous.revisionProject
+                recoveryCandidate = recoveryCandidate ?? previous.recovery
+                conflictState = conflictState ?? previous.conflict
+                pendingScreenplayQuestion = pendingScreenplayQuestion ?? previous.question
+                reconcileSceneSessionState(with: outline)
+                syncLiveDraftBridgeProjectContext()
+            }
             return
         }
         await persistActiveProjectSelection(projectID)
@@ -5762,7 +5793,9 @@ final class ScreenplayStudioViewModel: ObservableObject {
             if selectedProject == nil {
                 clearFeatureSpineFields()
             }
-            syncLiveDraftBridgeProjectContext()
+            // Do not persist a new project identity around another project's
+            // still-loaded page while the failed selection is being unwound.
+            if isSelectedProjectDraftLoaded { syncLiveDraftBridgeProjectContext() }
             adoptOutlineMutationRevision(
                 selectedProject?.outlineRevision,
                 outline: selectedProject?.outline,

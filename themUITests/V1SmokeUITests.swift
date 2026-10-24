@@ -2306,10 +2306,43 @@ final class V1SmokeUITests: XCTestCase {
         guard revealInStudioDrawer(app.buttons["studio.draft.document.save"], drawer: drawer, scrollingUp: true, maxSwipes: 8, fullyVisible: true) else {
             XCTFail("The actual Document card did not become visible"); return
         }
-        let review = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "studio.recovery.reply.")).firstMatch
+        var review = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "studio.recovery.reply.")).firstMatch
         guard review.waitForExistence(timeout: 45) else { XCTFail("Queued HTTP response did not become a retained reply"); return }
-        XCTAssertTrue(revealInStudioDrawer(review, drawer: drawer, scrollingUp: true, maxSwipes: 8, fullyVisible: true))
+        // Keep A's received reply, then reopen with a different real project.
+        // Recovery must route back to A without appending to or changing B.
+        let otherID = "other-page-\(UUID().uuidString.lowercased())"
+        let otherDraft = "INT. SECOND ROOM - DAY\n\nKeep this other screenplay exactly."
+        let otherCreated = try await requestJSON(baseURL: base, path: "/screenplay/projects", method: "POST",
+            headers: fixture.authorizedHeaders, body: ["project_id": otherID, "title": "Another screenplay", "activate": false])
+        try assertHTTP(otherCreated, context: "Other recovery project")
+        let otherSaved = try await requestJSON(baseURL: base, path: "/screenplay/projects/\(otherID)/version", method: "POST",
+            headers: fixture.authorizedHeaders, body: ["draft": otherDraft, "phase": "scene_draft", "base_version_id": ""])
+        try assertHTTP(otherSaved, context: "Other recovery baseline")
+        let otherVersion = try firstNonEmptyString(otherSaved.payload["version_id"], otherSaved.payload["server_version_id"], message: "Other version missing")
+        app.terminate()
+        app = launchApp(openStudio: true, restoreProjectID: otherID, restoreVersionID: otherVersion,
+            restoreLoadToken: Int(Date().timeIntervalSince1970), resetState: false, launchEnvironment: fixture.appLaunchEnvironment)
+        XCTAssertTrue(waitForExactWriterLoopDraft(otherDraft, in: app, timeout: 25))
+        app.buttons["studio.sidebar.right.toggle"].tap()
+        let otherDrawer = element(identifier: "studio.sidebar.right.drawer", in: app)
+        XCTAssertTrue(otherDrawer.waitForExistence(timeout: 8))
+        app.buttons["studio.right-panel.draft"].tap()
+        review = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "studio.recovery.reply.")).firstMatch
+        XCTAssertTrue(review.waitForExistence(timeout: 15))
+        XCTAssertTrue(revealInStudioDrawer(review, drawer: otherDrawer, scrollingUp: true, maxSwipes: 8, fullyVisible: true))
         review.tap()
+        let openOriginal = app.buttons["talk.recovery.reply.open-original"]
+        XCTAssertTrue(openOriginal.waitForExistence(timeout: 12))
+        XCTAssertFalse(app.buttons["talk.recovery.reply.append"].exists, "A's scene must not be offered for B.")
+        openOriginal.tap()
+        XCTAssertTrue(waitForDisappearance(of: openOriginal, timeout: 25),
+                      "Original project did not open: \(app.staticTexts["talk.recovery.reply.error"].label)")
+        review = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "studio.recovery.reply.")).firstMatch
+        XCTAssertTrue(review.waitForExistence(timeout: 15), "Opening a project incorrectly acknowledged its reply.")
+        let originalDrawer = element(identifier: "studio.sidebar.right.drawer", in: app)
+        XCTAssertTrue(revealInStudioDrawer(review, drawer: originalDrawer, scrollingUp: true, maxSwipes: 8, fullyVisible: true))
+        review.tap()
+        XCTAssertFalse(openOriginal.exists)
         XCTAssertTrue(app.staticTexts["talk.recovery.reply.text"].waitForExistence(timeout: 10))
         XCTAssertTrue(app.staticTexts["talk.recovery.reply.text"].label.contains("HOME VOICE HANDOFF"))
         let receivedScene = app.staticTexts["talk.recovery.reply.text"].label
@@ -2340,6 +2373,11 @@ final class V1SmokeUITests: XCTestCase {
         let versions = project["versions"] as? [[String: Any]] ?? []
         XCTAssertEqual(versions.filter { stringValue($0["draft"]).utf8.elementsEqual(draft.utf8) }.count, 1,
             "One append created multiple saved versions")
+        let otherProject = try await writerLoopProject(id: otherID, fixture: fixture)
+        let otherVersions = otherProject["versions"] as? [[String: Any]] ?? []
+        XCTAssertEqual(stringValue(otherVersions.first?["draft"]), otherDraft)
+        XCTAssertFalse(otherVersions.contains { stringValue($0["draft"]).contains("HOME VOICE HANDOFF") },
+                       "Recovery wrote A's scene into B.")
         app.terminate()
         app = launchApp(openStudio: true, resetState: false, launchEnvironment: fixture.appLaunchEnvironment)
         let restoredEditor = textInput("studio.draft.editor", in: app)

@@ -512,6 +512,30 @@
   any undelivered result safely through crashes, owner/origin changes and retry.
   Reuse canonical talk/result/receipt handling; no second conversation store.
 
+### T-1126 — Recover a kept scene in its original project
+
+- **Owner:** codex (Jarvis); branch `codex/T-1126-original-project-recovery`,
+  parent `f10fd41`. Bound-project recovery UI currently offers the selected
+  project's append even when the request belongs elsewhere; the existing final
+  guard refuses it, but there is no connected original-project navigation.
+- **Target:** resolve the destination from the integrity-checked original request
+  or existing durable delivery plan, not the selected editor/optional response.
+  Show Open original project instead of a wrong-project append; use canonical
+  selection only after current work is saved and conflict/queue/stream guards
+  pass. Navigation alone must never acknowledge the reply.
+- **Proof in progress:** actual queued A response retained across relaunch into
+  B; open A, append/save once, restore exact A and confirm B unchanged. No paid
+  calls or production change. Unbound/precise-rewrite context and interrupted
+  delivery-plan document continuity remain separate unfinished boundaries.
+- **Local WIP checkpoint:** preserved before stopping for #974's hosted compiler
+  failure in `ScreenplayStudioDraftPageTools.pageCard`. Initial resolver focused
+  run exits0. Intermediate full unit run intentionally interrupted (75); a
+  destination run reports1 pass/1 outline-rollback failure while the implementation
+  was still being revised. Neither establishes current final-code proof. Read-only
+  review found a real cached-summary/failed-hydration contamination risk; current
+  local correction adds loaded-draft authority and guarded selection/outline
+  rollback. Do not push or call this slice verified until rerun coherently.
+
 ### T-1125 — Fence speech/retry ownership across account changes
 
 - **Owner:** codex (Jarvis); branch `codex/T-1125-talk-owner-fence`, parent

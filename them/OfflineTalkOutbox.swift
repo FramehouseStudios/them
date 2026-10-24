@@ -452,6 +452,21 @@ actor OfflineTalkOutbox {
         return .init(entry: entry, response: response, pageDelivery: record.pageDelivery)
     }
 
+    /// Read the integrity-checked request's destination, not the current editor
+    /// or optional response trace. Merely resolving it never acknowledges delivery.
+    func receivedReplyProjectID(_ id: String, receiptID: String, initiatingIdentity owner: BackendAuthRequestIdentity,
+                                backendURL: URL) throws -> String? {
+        let packet = try receivedReply(id, initiatingIdentity: owner, backendURL: backendURL)
+        guard packet.response.id == receiptID else { throw BackendMemoryAPIError.invalidResponse }
+        let record = try readStoredRecord(blobURL(for: packet.entry.bodyRef))
+        let original = try offlineTalkRequestProjectID(body: record.validatedBody(matching: packet.entry), headers: packet.entry.headers)
+        if let original, let planned = packet.pageDelivery?.projectID, original != planned {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        try requireScope(owner, backendURL: backendURL)
+        return original ?? packet.pageDelivery?.projectID
+    }
+
     func acknowledgeReceivedReply(_ id: String, receiptID: String, initiatingIdentity owner: BackendAuthRequestIdentity,
                                   backendURL: URL, deliveryPlanID: UUID? = nil) throws {
         let reply = try receivedReply(id, initiatingIdentity: owner, backendURL: backendURL)

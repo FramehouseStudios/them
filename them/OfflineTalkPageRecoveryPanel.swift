@@ -25,6 +25,32 @@ final class OfflineTalkPageRecoveryController: ObservableObject {
         } catch { if expected.isCurrent { entries = [] } }
     }
 
+    func openOriginalProject(_ packet: OfflineTalkReceivedReply) async throws {
+        guard !applying, let scope, scope.isCurrent else { throw OfflineTalkPreviousOwnerError() }
+        applying = true; defer { applying = false }
+        let owner = BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: false)
+        guard let project = try await OfflineTalkOutbox.shared.receivedReplyProjectID(packet.entry.id,
+            receiptID: packet.response.id, initiatingIdentity: owner, backendURL: scope.backendURL) else {
+            throw BackendError.stage("offline_outbox", "This reply has no verified original project. It is kept for review and export.")
+        }
+        guard scope.isCurrent else { throw OfflineTalkPreviousOwnerError() }
+        let blank = vm.selectedProjectID.isEmpty && vm.fountainDraft.isEmpty && bridge.draftText.isEmpty
+        guard vm.isSelectedProjectDraftLoaded || blank else {
+            throw BackendError.stage("offline_outbox", "Wait for the current screenplay to finish loading before switching projects. Your reply is kept.")
+        }
+        guard !vm.hasUnsavedDraftChanges, !vm.isSaving, !vm.isLoading, vm.conflictState == nil,
+              vm.queuedDraftSaveCount == 0, !bridge.isStreamingDraftPreviewActive else {
+            throw BackendError.stage("offline_outbox", "Save the current page and resolve any conflict before opening the original project. Your reply is kept.")
+        }
+        await vm.selectProject(project)
+        guard scope.isCurrent else { throw OfflineTalkPreviousOwnerError() }
+        guard vm.selectedProjectID == project, vm.isSelectedProjectDraftLoaded,
+              bridge.preferredProjectID == project else {
+            throw BackendError.stage("offline_outbox", "The original project could not be opened. The reply is still kept; try again when connected.")
+        }
+        await refresh()
+    }
+
     func appendAndSave(_ packet: OfflineTalkReceivedReply, result: BackendTalkResult) async throws -> String {
         guard !applying, let scope, scope.isCurrent else { throw OfflineTalkPreviousOwnerError() }
         applying = true; defer { applying = false }
@@ -34,7 +60,7 @@ final class OfflineTalkPageRecoveryController: ObservableObject {
         let document = bridge.draftOrigin.documentID
         func requireTarget() throws {
             guard scope.isCurrent, !project.isEmpty, vm.selectedProjectID == project,
-                  bridge.preferredProjectID == project, vm.selectedProject?.id == project,
+                  bridge.preferredProjectID == project, vm.isSelectedProjectDraftLoaded,
                   document == nil || bridge.draftOrigin.documentID == document,
                   !vm.isLoading, vm.conflictState == nil, !bridge.isStreamingDraftPreviewActive else {
                 throw BackendError.stage("offline_outbox", "Open the intended project and resolve any conflict before recovering this scene.")
@@ -117,7 +143,7 @@ struct OfflineTalkPageRecoveryPanel: View {
             if !controller.entries.isEmpty {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Received replies").font(.headline)
-                    Text("Review a reply, then append its scene to this project. Existing words will stay intact.")
+                    Text("Review a reply and recover it to its screenplay. Existing words will stay intact.")
                         .font(.caption).foregroundStyle(.secondary)
                     ForEach(controller.entries) { entry in
                         Button("Review received reply") {
@@ -142,7 +168,10 @@ struct OfflineTalkPageRecoveryPanel: View {
         }
         .sheet(item: $review) { item in
             OfflineTalkReplyReviewView(review: item, onDone: { review = nil },
-                destinationTitle: vm.selectedProject?.title, onAppend: { packet, result in try await controller.appendAndSave(packet, result: result) })
+                destinationTitle: vm.selectedProject?.title,
+                destinationProjectID: vm.isSelectedProjectDraftLoaded ? vm.selectedProjectID : nil,
+                onOpenOriginalProject: { try await controller.openOriginalProject($0) },
+                onAppend: { packet, result in try await controller.appendAndSave(packet, result: result) })
         }
     }
 }

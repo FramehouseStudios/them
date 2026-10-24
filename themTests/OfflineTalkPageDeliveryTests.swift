@@ -24,6 +24,17 @@ final class OfflineTalkPageDeliveryTests: XCTestCase {
         }
         let relaunched = queue()
         let packet = try await relaunched.receivedReply(entry.id, initiatingIdentity: owner, backendURL: url)
+        let destination = try await relaunched.receivedReplyProjectID(entry.id, receiptID: packet.response.id,
+            initiatingIdentity: owner, backendURL: url)
+        XCTAssertEqual(destination, "project-a", "Destination must come from the original request, even without a response trace.")
+        do {
+            _ = try await relaunched.receivedReplyProjectID(entry.id, receiptID: UUID().uuidString,
+                initiatingIdentity: owner, backendURL: url)
+            XCTFail("A stale reader resolved a different response's destination.")
+        } catch {}
+        let resolved = try await relaunched.receivedReply(entry.id, initiatingIdentity: owner, backendURL: url)
+        XCTAssertEqual(resolved.response.id, packet.response.id)
+        XCTAssertNil(resolved.pageDelivery, "Opening the original project must not acknowledge or plan a write.")
         do {
             _ = try await relaunched.preparePageDelivery(entry.id, receiptID: packet.response.id, projectID: "project-b",
                 documentID: "document-b", beforeDraft: "B original", afterDraft: "B original\n\nA scene",
@@ -87,6 +98,9 @@ final class OfflineTalkPageDeliveryTests: XCTestCase {
         let relaunched = queue()
         let restored = try await relaunched.receivedReply(entry.id, initiatingIdentity: owner, backendURL: url)
         XCTAssertEqual(restored.pageDelivery, plan)
+        let destination = try await relaunched.receivedReplyProjectID(entry.id, receiptID: restored.response.id,
+            initiatingIdentity: owner, backendURL: url)
+        XCTAssertEqual(destination, "project-a", "Legacy requests may resume only their existing durable plan's destination.")
         XCTAssertTrue(plan.permitsInsertion(project: "project-a", document: "document-a", draft: before))
         XCTAssertFalse(plan.permitsInsertion(project: "project-b", document: "document-a", draft: before))
         XCTAssertFalse(plan.permitsInsertion(project: "project-a", document: "document-b", draft: before))
