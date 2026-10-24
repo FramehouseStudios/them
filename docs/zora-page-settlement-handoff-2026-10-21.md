@@ -1,5 +1,10 @@
 # T-1122 — Durable Page settlement handoff, 2026-10-21
 
+Integration follow-up: [T-1124, 2026-10-24](page-settlement-integration-2026-10-24.md)
+preserves this history and both later source-only admission/completion fixes,
+wires the canonical callback and records actual authenticated restart proof.
+The unwired status below describes this original dated handoff, not T-1124.
+
 ## Checkpoint
 
 VERIFIED on branch `codex/T-1122-durable-page-settlement`, based on

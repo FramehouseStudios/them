@@ -33142,7 +33142,7 @@ mountTalkPipelineRoutes(app, {
   walletStore: clementineWalletStore,
 });
 // D011 — StoreKit IAP verify+credit (auth required; fail closed without ASC secrets).
-// Wallet balances + transactionId ledger persist via clementineWalletPersistence.
+// Wallet balances + transactionId ledger use the canonical bootstrapped store.
 mountIapCreditRoute(app, {
   walletStore: clementineWalletStore,
   requireAuthenticatedUser: userAuth.requireAuthenticatedUser,

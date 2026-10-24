@@ -12,6 +12,8 @@ import { startPromotionDelayProxy } from './promotion_delay_proxy.mjs';
 // A frozen backend snapshot may drive the current native working tree without
 // loading its private environment files. Default remains the adjacent app.
 const root = process.env.THEM_HOME_VOICE_APP_ROOT || fileURLToPath(new URL('../..', import.meta.url));
+const derivedDataPath = process.env.THEM_HOME_VOICE_DERIVED_DATA_PATH || '';
+if (derivedDataPath && !path.isAbsolute(derivedDataPath)) throw new Error('An explicit DerivedData path must be absolute');
 const destination = process.env.IOS_SIMULATOR_DESTINATION || '';
 if (!/^platform=iOS Simulator,id=[A-F0-9-]+$/.test(destination)) {
   throw new Error('An explicit task-owned IOS_SIMULATOR_DESTINATION is required');
@@ -75,7 +77,8 @@ try {
   server = await startBackend({ ...backendOptions, dataDir, port });
   if (tests.some(test => test.includes('test_delayed_project_creation') || test.includes('test_initial_project_relaunch'))) promotionProxy = await startPromotionDelayProxy(server.baseUrl);
   writeFileSync(config, `THEM_UITEST_WRITER_LOOP_BACKEND_PORT = ${promotionProxy?.port || server.port}\n`, {mode: 0o600});
-  const child = spawn('bash', ['scripts/run_v1_ui_smoke.sh', '-quiet', '-resultBundlePath', bundle, ...tests.slice(1).map(test => '-only-testing:' + test)], {
+  const child = spawn('bash', ['scripts/run_v1_ui_smoke.sh', '-quiet', '-resultBundlePath', bundle,
+    ...(derivedDataPath ? ['-derivedDataPath', derivedDataPath] : []), ...tests.slice(1).map(test => '-only-testing:' + test)], {
     cwd: root, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env,
       ONLY_TESTING: tests[0], THEM_UITEST_RESTORE_XCCONFIG_PATH: config,
       IOS_SIMULATOR_DESTINATION: destination,

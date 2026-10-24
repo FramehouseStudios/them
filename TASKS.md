@@ -512,6 +512,36 @@
   any undelivered result safely through crashes, owner/origin changes and retry.
   Reuse canonical talk/result/receipt handling; no second conversation store.
 
+### T-1124 — Integrate durable Page settlement and restart reconciliation
+
+- **Owner:** codex (Jarvis); branch `codex/T-1124-page-settlement-integration`,
+  parent `b2d95df`. Owned bootstrap/probe preparation preserved in `66168b9`;
+  preserving merge `dcc66e3` retains Zora's original T-1122 history through
+  `b4a94f6`, admission fencing `0657c8e` and immutable completion `3c37d94`.
+- **Root fixes:** await a durable receipt before success; persist exact prepared
+  response before charging; reconcile prepared responses through the canonical
+  wallet after restart. Missing/replaced admissions and completed-byte replacement
+  are refused. Wallet bootstrap now fails closed instead of inventing zero funds;
+  extracted initialization shrinks index33494→33475 against this parent.
+- **Verified:** exact-lock Node20 backend2963/0/4; separate actual PostgreSQL
+  settlement/admission2/0/0; signed erased-simulator units934/0/0; macOS compile,
+  D009/syntax/diff pass. Raw voice→page→save→restore UI1/0/0 and queued playback/
+  append/save/exact-restore UI1/0/0, both intercepted providers. Full archive/head
+  are recorded in the report and final branch handoff.
+- **Actual failure/restart:** trigger failures before debit and after debit/before
+  replay completion each return500 rather than false success. After SIGKILL,
+  retry recovers original bytes/turn, makes zero provider calls and retains one
+  receipt/debit. Normal graceful and post-response SIGKILL recovery also pass.
+- **Limits:** no paid provider, physical microphone, real phone, deployment/main
+  claim. Completed replay is bounded; unkeyed requests lack cross-request replay;
+  JSON is single-process and different-key global admission is not transactional.
+  Dedicated wallet-ledger export/purge policy remains open. Shipping health still
+  redirects away from the API; paired phone tunnel was unavailable when checked.
+- **Next:** investigate actual native stable-key coverage and finish original-
+  document/unbound/precise-rewrite recovery, then preserve the original PR stack's
+  protected landing and observe the physical-phone journey. Full evidence:
+  `docs/page-settlement-integration-2026-10-24.md`.
+
 ### T-1123 — Keep queued scene delivery in its initiating project
 
 - **Owner:** codex (Jarvis); branch `codex/T-1123-queued-page-origin`, parent
@@ -591,11 +621,10 @@
   rollback, concurrent credit/debit, two-worker same-key admission and stale
   transition rejection. Syntax, D009 and diff checks pass. No
   providers, paid calls, native code, production data or deployment exercised.
-- **Integration pending:** Jarvis-owned `backend/index.js` must pass the durable
-  settlement reconciler into `createTalkIdempotencyGuard` using the exact hunk in
-  `docs/zora-page-settlement-handoff-2026-10-21.md`. Until then a prepared billed
-  response fails closed with retryable503 rather than regenerating, but cannot
-  self-reconcile after restart. Full backend runs after that hunk is connected.
+- **Integration update:** T-1124 now preserves this history plus `0657c8e` and
+  `3c37d94`, wires canonical restart reconciliation and passes actual Node20
+  authenticated PostgreSQL failure/restart proof. See its current report; the
+  original Zora handoff records the earlier unwired capability honestly.
 - **Scope:** existing wallet/persistence/replay owner, no parallel store/framework,
   no paid calls, native tests, pushes, merges or deployments in Zora's lane.
   JSON is not a multi-process billing backend; account export/purge of dedicated
