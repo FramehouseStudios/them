@@ -73,6 +73,9 @@ final class BackendTalkOwnershipTests: XCTestCase {
     }
 
     func testAccountSwitchDuringSessionBootstrapCannotSendPage() async throws {
+        // This case must exercise /session, not a credential left by another
+        // class in the full bundle. Only the erased test host is affected.
+        BackendAuthClient.clearSharedClientToken()
         let state = TalkOwnerState()
         TalkOwnerProtocol.handler = { request in
             if request.url?.path == "/session" {
