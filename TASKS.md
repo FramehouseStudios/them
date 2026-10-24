@@ -512,6 +512,24 @@
   any undelivered result safely through crashes, owner/origin changes and retry.
   Reuse canonical talk/result/receipt handling; no second conversation store.
 
+### T-1125 — Fence speech/retry ownership across account changes
+
+- **Owner:** codex (Jarvis); branch `codex/T-1125-talk-owner-fence`, parent
+  `8f8a66f`. Zora's read-only call-site audit found stable Page request keys
+  already present, but recursive auth retry could rebuild the bearer from a new
+  account and offline enqueue omitted the existing initiating-owner argument.
+- **Target:** one captured owner through dispatch/bootstrap, transport/audio/auth
+  retries, metadata reads, callbacks and queue admission. Refuse a changed user
+  or login intent with `auth_request_superseded`; permit same-login token refresh
+  and retain the operation key. No new storage or auth framework.
+- **Status:** runtime saved in `d184e3e`; signed focused13/0/0. Removed unnecessary
+  shared-token deletion and added synchronized per-attempt Page leases after
+  adversarial review. Fixture-only correction `2409673`; full signed947/0/0,
+  raw voice/write/save/restore UI1/0/0 and queued playback/single append/save/
+  restore UI1/0/0, macOS/D009/diff pass. Providers intercepted; no new backend
+  suite, main/deployment/physical-phone or live-model claim. Final proof:
+  `docs/talk-owner-fence-2026-10-24.md` before handoff.
+
 ### T-1124 — Integrate durable Page settlement and restart reconciliation
 
 - **Owner:** codex (Jarvis); branch `codex/T-1124-page-settlement-integration`,
