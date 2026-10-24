@@ -175,11 +175,7 @@ import {
 import { mountTalkPipelineRoutes } from "./lib/talk_pipeline.js";
 import { createTalkTurnReadPolicy } from "./lib/talk_turn_read_policy.js";
 import { createPageReservationStore } from "./lib/clementine/page_cancel.js";
-import { createWalletStore } from "./lib/clementine/wallet.js";
-import {
-  createPostgresWalletPersistence,
-  createAdapterWalletPersistence,
-} from "./lib/clementine/wallet_persistence.js";
+import { bootstrapClementineWallet } from "./lib/clementine/wallet_bootstrap.js";
 import { mountIapCreditRoute } from "./lib/clementine/iap_credit_route.js";
 import { createIapVerifier } from "./lib/clementine/iap_verify.js";
 import { createTalkHandler } from "./lib/talk_handler.js";
@@ -32799,6 +32795,7 @@ const talkIdempotencyGuard = createTalkIdempotencyGuard({
   recordTalkMetric,
   talkIdempotencyTtlMs: TALK_IDEMPOTENCY_TTL_MS,
   talkIdempotencyMaxEntries: TALK_IDEMPOTENCY_MAX_ENTRIES,
+  reconcilePreparedIdempotency: (_req, settlement) => clementineWalletStore.reconcileDurableSettlement(settlement),
 });
 const talkSessionSerialGuard = createTalkSessionSerialGuard({
   isSpeculativePrepareRequest,
@@ -33123,23 +33120,7 @@ app.post(
 // D011 StoreKit IAP credits via mountIapCreditRoute (not Stripe Checkout on iOS).
 // T-wallet-postgres-persistence: durable balances + IAP ledger when DATABASE_URL
 // (postgres dedicated tables) or JSON persistence adapter domains; else memory.
-const clementineWalletPersistence =
-  sharedPersistence.kind === "postgres"
-    ? createPostgresWalletPersistence({ client: sharedPersistence })
-    : createAdapterWalletPersistence({ persistence: sharedPersistence });
-const clementineWalletStore = createWalletStore({
-  persistence: clementineWalletPersistence,
-});
-try {
-  const hydrated = await clementineWalletStore.hydrate();
-  console.log(
-    `[wallet] persistence=${clementineWalletStore.persistenceKind} balances=${hydrated.balances} iapTxns=${hydrated.transactions}`
-  );
-} catch (err) {
-  console.error(
-    `[wallet] hydrate failed (${err?.message || err}); continuing with empty process memory`
-  );
-}
+const clementineWalletStore = await bootstrapClementineWallet({ persistence: sharedPersistence });
 const clementinePageReservationStore = createPageReservationStore({
   walletStore: clementineWalletStore,
 });

@@ -13,6 +13,10 @@ import { createAdapterWalletPersistence, createPostgresWalletPersistence } from 
 
 const databaseUrl = String(process.env.THEM_TALK_RESTART_TEST_DATABASE_URL || "");
 if (databaseUrl && !['127.0.0.1', 'localhost'].includes(new URL(databaseUrl).hostname)) throw new Error('Only an explicitly task-owned localhost database is allowed');
+const settlementFaultProof = process.env.THEM_TALK_SETTLEMENT_FAULT_PROOF === "1";
+if (settlementFaultProof && (!databaseUrl || new URL(databaseUrl).pathname !== "/t1124")) {
+  throw new Error("Settlement fault injection requires the dedicated task-owned localhost t1124 database");
+}
 const unsetEnv = databaseUrl ? ["REDIS_URL"] : ["DATABASE_URL", "REDIS_URL"];
 
 const appToken = "them-t1118-local-proof";
@@ -108,6 +112,78 @@ async function forcedStop(server) {
   await once(server.child, "exit");
 }
 
+// Actual PostgreSQL faults, not a fake ledger assertion: exercise both sides of
+// the debit/replay boundary through authenticated HTTP and a real process kill.
+async function proveSettlementFailures({ server: initialServer, owner, projectId }) {
+  const db = createPersistence({ databaseUrl });
+  const suffix = randomUUID().replaceAll("-", "");
+  const functionName = `t1124_fault_${suffix}`;
+  const triggerName = `t1124_fault_trigger_${suffix}`;
+  const literal = value => `'${String(value).replaceAll("'", "''")}'`;
+  let current = initialServer;
+  let headers = await sessionHeaders(current, owner);
+  const results = [];
+  try {
+    for (const [index, phase] of ["before_debit", "after_debit_before_completion"].entries()) {
+      const key = `t1124-${phase}-${randomUUID()}`;
+      const cacheKey = `user:${owner.userId}|${key}`;
+      const table = index === 0 ? "wallet_talk_settlements" : "persistence_talk_idempotency";
+      const condition = index === 0
+        ? "NEW.settlement_key = TG_ARGV[0]"
+        : "NEW.key = TG_ARGV[0] AND NEW.value->>'status' = 'completed'";
+      await db.query(`CREATE FUNCTION ${functionName}() RETURNS trigger LANGUAGE plpgsql AS $$
+        BEGIN IF ${condition} THEN RAISE EXCEPTION 'injected T1124 settlement boundary failure'; END IF;
+        RETURN NEW; END; $$`);
+      await db.query(`CREATE TRIGGER ${triggerName} BEFORE INSERT OR UPDATE ON ${table}
+        FOR EACH ROW EXECUTE FUNCTION ${functionName}(${literal(cacheKey)})`);
+      const failed = await talk(current, headers, projectId, key);
+      assert.ok(failed.status >= 500 && failed.status < 600, `${phase} falsely acknowledged HTTP ${failed.status}`);
+      const prepared = await db.get({ domain: "talk_idempotency", key: cacheKey });
+      assert.equal(prepared?.status, "prepared", `${phase} discarded the original prepared reply`);
+      assert.equal(prepared.body?.encoding, "base64");
+      const originalBytes = Buffer.from(prepared.body.data, "base64");
+      assert.ok(originalBytes.length > 0);
+      const receiptBefore = await db.query("SELECT count(*)::int AS n FROM wallet_talk_settlements WHERE settlement_key = $1", [cacheKey]);
+      assert.equal(receiptBefore.rows[0].n, index === 0 ? 0 : 1);
+      const beforeBalance = await db.query("SELECT page_milliturns::int AS n FROM wallet_balances WHERE owner_id = $1", [owner.userId]);
+      assert.equal(beforeBalance.rows[0].n, index === 0 ? 100000 : 99600);
+      await forcedStop(current);
+      await db.query(`DROP TRIGGER ${triggerName} ON ${table}`);
+      await db.query(`DROP FUNCTION ${functionName}()`);
+      current = await startBackend({ dataDir: initialServer.dataDir, unsetEnv, env });
+      headers = await sessionHeaders(current, owner);
+      const replay = await talk(current, headers, projectId, key);
+      assert.equal(replay.status, 200);
+      assert.equal(replay.replay, "1");
+      assert.equal(replay.turnId, prepared.headers["x-turn-id"]);
+      assert.deepEqual(replay.body, originalBytes);
+      assert.deepEqual(providerCounts(current), { stt: 0, chat: 0, tts: 0 });
+      const secondReplay = await talk(current, headers, projectId, key);
+      assert.equal(secondReplay.status, 200);
+      assert.deepEqual(secondReplay.body, originalBytes);
+      const completed = await db.get({ domain: "talk_idempotency", key: cacheKey });
+      assert.equal(completed.status, "completed");
+      const receiptAfter = await db.query("SELECT count(*)::int AS n FROM wallet_talk_settlements WHERE settlement_key = $1", [cacheKey]);
+      assert.equal(receiptAfter.rows[0].n, 1);
+      const balanceAfter = await db.query("SELECT page_milliturns::int AS n FROM wallet_balances WHERE owner_id = $1", [owner.userId]);
+      assert.equal(balanceAfter.rows[0].n, 100000 - (index + 1) * 200);
+      results.push({ phase, failedHTTP: failed.status, receiptBefore: receiptBefore.rows[0].n,
+        replayHTTP: replay.status, sameBytes: true, sameTurn: true, receiptsAfter: 1,
+        pageMilliturnsAfter: balanceAfter.rows[0].n, providerCalls: providerCounts(current) });
+    }
+    return { server: current, headers, results };
+  } catch (error) {
+    await current.stop();
+    throw error;
+  } finally {
+    for (const table of ["wallet_talk_settlements", "persistence_talk_idempotency"]) {
+      await db.query(`DROP TRIGGER IF EXISTS ${triggerName} ON ${table}`).catch(() => {});
+    }
+    await db.query(`DROP FUNCTION IF EXISTS ${functionName}()`).catch(() => {});
+    await db.close();
+  }
+}
+
 let server = await startBackend({ unsetEnv, env });
 const dataDir = server.dataDir;
 const observations = { providerMode: "intercepted; no paid calls", persistence: databaseUrl ? 'postgres' : 'json' };
@@ -150,6 +226,13 @@ try {
     json: { owner_id: owner.userId },
   })).json;
 
+  if (settlementFaultProof) {
+    const proof = await proveSettlementFailures({ server, owner, projectId });
+    server = proof.server; ownerHeaders = proof.headers;
+    observations.settlementFailures = proof.results;
+  }
+  const expectedStartingTurns = settlementFaultProof ? 99.6 : 100;
+  const expectedAcceptedTurns = settlementFaultProof ? 99.4 : 99.8;
   const beforeBalance = await balance();
   const gracefulKey = `t1118-graceful-${randomUUID()}`;
   const accepted = await talk(server, ownerHeaders, projectId, gracefulKey);
@@ -157,8 +240,8 @@ try {
   assert.equal(accepted.authoritative, "1");
   assert.ok(accepted.turnId);
   const acceptedBalance = await balance();
-  assert.equal(beforeBalance.pageTurnsLeft, 100);
-  assert.equal(acceptedBalance.pageTurnsLeft, 99.8, 'initial accepted result must actually debit the funded wallet');
+  assert.equal(beforeBalance.pageTurnsLeft, expectedStartingTurns);
+  assert.equal(acceptedBalance.pageTurnsLeft, expectedAcceptedTurns, 'initial accepted result must actually debit the funded wallet');
   const initialCalls = providerCounts(server);
   const preRestartOwner = await apiRequest(server, `/talk/turn/${accepted.turnId}`, { headers: ownerHeaders });
   const preRestartOther = await apiRequest(server, `/talk/turn/${accepted.turnId}`, { headers: otherHeaders });
@@ -203,7 +286,7 @@ try {
   const forcedKey = `t1118-forced-${randomUUID()}`;
   const acceptedBeforeKill = await talk(server, ownerHeaders, projectId, forcedKey);
   assert.equal(acceptedBeforeKill.status, 200);
-  const expectedBalanceAfterKill = { ...acceptedBalance, pageTurnsLeft: 99.6 };
+  const expectedBalanceAfterKill = { ...acceptedBalance, pageTurnsLeft: settlementFaultProof ? 99.2 : 99.6 };
   // No extra HTTP read before termination: it would give queued settlement
   // writes time to finish and hide a response-before-wallet-durability window.
   await forcedStop(server);
