@@ -121,7 +121,9 @@ final class OfflineTalkMetadataCustodyTests: XCTestCase {
 
     private func client() -> BackendClient {
         let config = URLSessionConfiguration.ephemeral; config.protocolClasses = [MetadataCustodyProtocol.self]
-        return BackendClient(baseURL: backend, fallbackURL: backend, urlSession: .init(configuration: config), persistBackendBaseURL: false)
+        let identity = owner
+        return BackendClient(baseURL: backend, fallbackURL: backend, urlSession: .init(configuration: config),
+                             persistBackendBaseURL: false, requestIdentityProvider: { _ in identity })
     }
 }
 
