@@ -152,46 +152,72 @@ struct ScreenplayStudioDraftPageTools: View {
     }
 
     private func pageCard(_ row: ScreenplayStudioPaginationPagePresentation) -> some View {
-        let isSelected = selectedPage?.id == row.id
-        return Button { jump(to: row) } label: {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(alignment: .firstTextBaseline) {
-                    Text("Page \(row.id)").font(IOThemTypography.UI.captionStrong)
-                    Spacer(minLength: 4)
-                    if isSelected { Text("Selected").font(IOThemTypography.UI.microMedium).fixedSize() }
-                }
-                Text("Lines \(row.page.startLine)–\(row.page.endLine) · \(row.durationText)")
-                    .font(IOThemTypography.UI.microRegular)
-                    .fixedSize(horizontal: false, vertical: true)
-                if !row.visiblePreviewLines.isEmpty {
-                    Text(row.visiblePreviewLines.joined(separator: "\n"))
-                        .font(IOThemTypography.UI.monoPrompt)
-                        .foregroundStyle(Color.black.opacity(0.82))
-                        .lineSpacing(3).lineLimit(5)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(10)
-                        .background(Color.white.opacity(0.94), in: RoundedRectangle(cornerRadius: 8))
-                }
-                Label("Open page text", systemImage: "arrow.turn.down.right")
-                    .font(IOThemTypography.UI.labelMedium)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .foregroundStyle(Color.herText.opacity(0.88))
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(12)
-            .background(isSelected ? Color.herStudioActiveFill.opacity(0.14) : Color.herShellStroke.opacity(0.06), in: RoundedRectangle(cornerRadius: 12))
-            .overlay(RoundedRectangle(cornerRadius: 12).stroke(isSelected ? Color.herStudioActiveStroke.opacity(0.7) : Color.herShellStroke.opacity(0.2), lineWidth: 1))
-        }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier("studio.draft.page.\(row.id)")
-        .accessibilityLabel("Page \(row.id), lines \(row.page.startLine) through \(row.page.endLine), \(row.durationText)\(isSelected ? ", selected preview" : "")")
-        .accessibilityValue(row.visiblePreviewLines.joined(separator: "\n"))
-        .accessibilityHint("Opens original source line \(row.page.startLine) in the editor; it does not replace text")
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
+        ScreenplayPageNavigatorCard(row: row, isSelected: selectedPage?.id == row.id) { jump(to: row) }
     }
 
     private func jump(to row: ScreenplayStudioPaginationPagePresentation) {
         selectedPageID = row.id
         onJumpToPage(row.page)
+    }
+}
+
+/// Give each card section its own type-check boundary. A single nested Button /
+/// conditional preview expression exceeded the hosted clean-build compiler budget.
+private struct ScreenplayPageNavigatorCard: View {
+    let row: ScreenplayStudioPaginationPagePresentation
+    let isSelected: Bool
+    let onOpen: () -> Void
+
+    private var previewText: String { row.visiblePreviewLines.joined(separator: "\n") }
+    private var fillColor: Color { isSelected ? Color.herStudioActiveFill.opacity(0.14) : Color.herShellStroke.opacity(0.06) }
+    private var strokeColor: Color { isSelected ? Color.herStudioActiveStroke.opacity(0.7) : Color.herShellStroke.opacity(0.2) }
+    private var selectionTraits: AccessibilityTraits { isSelected ? .isSelected : [] }
+
+    var body: some View {
+        Button(action: onOpen) { content }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("studio.draft.page.\(row.id)")
+        .accessibilityLabel("Page \(row.id), lines \(row.page.startLine) through \(row.page.endLine), \(row.durationText)\(isSelected ? ", selected preview" : "")")
+        .accessibilityValue(previewText)
+        .accessibilityHint("Opens original source line \(row.page.startLine) in the editor; it does not replace text")
+        .accessibilityAddTraits(selectionTraits)
+    }
+
+    private var content: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            heading
+            Text("Lines \(row.page.startLine)–\(row.page.endLine) · \(row.durationText)")
+                .font(IOThemTypography.UI.microRegular)
+                .fixedSize(horizontal: false, vertical: true)
+            preview
+            Label("Open page text", systemImage: "arrow.turn.down.right")
+                .font(IOThemTypography.UI.labelMedium)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .foregroundStyle(Color.herText.opacity(0.88))
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .background(fillColor, in: RoundedRectangle(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(strokeColor, lineWidth: 1))
+    }
+
+    private var heading: some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text("Page \(row.id)").font(IOThemTypography.UI.captionStrong)
+            Spacer(minLength: 4)
+            if isSelected { Text("Selected").font(IOThemTypography.UI.microMedium).fixedSize() }
+        }
+    }
+
+    @ViewBuilder private var preview: some View {
+        if !row.visiblePreviewLines.isEmpty {
+            Text(previewText)
+                .font(IOThemTypography.UI.monoPrompt)
+                .foregroundStyle(Color.black.opacity(0.82))
+                .lineSpacing(3).lineLimit(5)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(10)
+                .background(Color.white.opacity(0.94), in: RoundedRectangle(cornerRadius: 8))
+        }
     }
 }
