@@ -647,6 +647,26 @@
   safely local325cfb5, not included here. Details and actual archive paths
   in `docs/native-export-presentation-identity-2026-10-24.md`.
 
+### T-1135 — Capture a deferred page save before its project changes
+
+- **Owner:** codex (Jarvis), local `codex/T-1135-deferred-page-save-owner`.
+  Preserving combined parent6ca496f includes T1130/T1133 and publishedbb005cd8.
+- **Reproduced:** actual model adopts A, selects unhydrated B before the task
+  starts, then enqueues A's scene behind B's earlier pending save under B's ID.
+  Focused0/1/0, no HTTP or provider. Selection was read after deferral.
+- **Fix:** runtime2b13d98 captures the canonical immutable save request before
+  scheduling; changed account/project/loaded version or cancellation parks that
+  original request. Reuse for programmatic autosaves; reject stale-account page
+  adoption before editor mutation. No second save store or public contract change.
+- **Proof:** focused signed39/0/0, full signed960/0/0, Mac0, D009/diff pass. Combined6ca before this
+  fix passes save-admission recovery1/0/0 and newer-writer lost-ack recovery1/0/0,
+  intercepted providers only; these are not current-runtime UI proof. Current
+  save-admission recovery also1/0/0 on current2b13d98; newer-writer acknowledgement
+  recovery1/0/0 preserves newer exact words without another version. No fresh backend run.
+- **Next:** port the shared capture/hold correction
+  to earlier #974 before advancing original #975. No wholesale continuation/hook
+  import. `docs/deferred-page-save-owner-2026-10-24.md`.
+
 ### T-1134 — Repair hosted duplicate save and false one-copy conflict assertion
 
 - **Owner:** codex (Jarvis), local `codex/T-1134-hosted-save-recovery` from exact
