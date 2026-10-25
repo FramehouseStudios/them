@@ -2191,7 +2191,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         latestVersionID = cleanVersionID
         let normalized = fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         lastSavedDraftFingerprint = fingerprint(for: normalized)
-        lastRevisionBaseDraft = normalized
+        lastRevisionBaseDraft = fountainDraft
         hasUnsavedDraftChanges = false
         stopFollowingRemoteLiveDraft()
         isManualDraftEditing = false
@@ -2296,7 +2296,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         latestVersionID = cleanVersionID
         loadedDraftProjectID = cleanProjectID
         lastSavedDraftFingerprint = committedFingerprint
-        lastRevisionBaseDraft = normalizedCommittedDraft
+        lastRevisionBaseDraft = committedDraft
         hasUnsavedDraftChanges = fingerprint(for: normalizedLocalDraft) != committedFingerprint
         if hasUnsavedDraftChanges {
             autosaveStatusText = "Unsaved changes"
@@ -4415,7 +4415,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         isManualDraftEditing = false
         lastManualDraftEditAt = .distantPast
         lastSavedDraftFingerprint = fingerprint(for: normalizedDraft)
-        lastRevisionBaseDraft = normalizedDraft
+        lastRevisionBaseDraft = draft
         hasUnsavedDraftChanges = false
         autosaveStatusText = normalizedDraft.isEmpty ? "Ready" : "Loaded latest draft"
         recoveryCandidate = nil
@@ -6608,7 +6608,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
            ProcessInfo.processInfo.arguments.contains("--ui-conflict-save-success") {
             latestVersionID = "ui-local-version"
             lastSavedDraftFingerprint = fingerprint(for: normalized)
-            lastRevisionBaseDraft = normalized
+            lastRevisionBaseDraft = request.draft
             hasUnsavedDraftChanges = false
             isManualDraftEditing = false
             lastManualDraftEditAt = .distantPast
@@ -6655,6 +6655,15 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 throw URLError(.notConnectedToInternet)
             }
 #endif
+            if loadedDraftProjectID == request.projectId,
+               ScreenplayDraftSaveCoalescingPolicy.isSatisfiedAutosave(draft: request.draft,
+                source: request.source, notes: request.notes, baseVersion: request.baseVersionId,
+                confirmedDraft: lastRevisionBaseDraft, confirmedVersion: latestVersionID) {
+                let acknowledged = try await draftSaveOutbox.markSatisfiedAutosave(id: request.id,
+                    projectId: request.projectId, ownerUserId: request.ownerUserId,
+                    confirmedDraft: lastRevisionBaseDraft, confirmedVersion: latestVersionID)
+                return acknowledged && authContextIsCurrent(request.authContext) && selectedProjectID == request.projectId
+            }
             switch try await emptyBaseDraftSavePreflight(for: request) {
             case .notRequired, .versionlessProject:
                 break
@@ -6788,7 +6797,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
             }
             syncLiveDraftBridgeProjectContext()
             lastSavedDraftFingerprint = fingerprint(for: normalized)
-            lastRevisionBaseDraft = normalized
+            lastRevisionBaseDraft = request.draft
             hasUnsavedDraftChanges = ScreenplayDraftSaveCompletionPolicy.hasUnsavedChanges(
                 currentDraft: fountainDraft,
                 savedDraft: request.draft
