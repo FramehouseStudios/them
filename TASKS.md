@@ -663,9 +663,21 @@
   and corrected without relaxing assertions. Earlier958 checkpoint predates the
   final taskless-inflight edge fix. Current writer/native export/relaunch1/0/0;
   required connected recovery3/0/0. No paid or production claim.
-- **Next:** complete current connected proof, then inspect existing #974 hosted
-  handle before a normal scoped advance; preserve original #975 and combined
-  recovery. `docs/save-completion-context-2026-10-24.md`.
+- **Integration:** original-parent local8d519bd preserves c4f245c with identical
+  tree; remote #974 stays34b9bc5 during run40167414308. Combined839a3c1 preserves
+  that parent and T1135f396c02 without conflicts; original #975/T1130/T1133
+  ancestry intact. Combined signed966/0/0, Mac0/D009/diff pass; newer-writer
+  acknowledgement recovery1/0/0; before-save-admission recovery1/0/0. Combined
+  writer/export/relaunch1/0/0. Actual35-byte export matches the canonical MD
+  projection with one marker. Mac locked; manual unlock requested once, external
+  preview NOT proven. Keep owned7F simulator/export intact until observation.
+- **Next:** verify combined recovery boundaries, then inspect the existing
+  hosted handle before a scoped original-parent advance. Never push the combined
+  HEAD as the earlier parent. Hosted34b9bc5 run40167414308 is fully SUCCESS;
+  original parent8d519bd normally published only after it completed. Fresh checks
+  required. Original638/639 heads preserved in ancestry but remain unlanded;
+  re-establish their actual main-based landing chain, not a replacement mega-PR.
+  `docs/save-completion-context-2026-10-24.md`.
 
 ### T-1135 — Preserve a deferred page save's original owner and project
 
