@@ -5,6 +5,53 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1139 — Preserve original640 with proven craft/routing corrections
+
+- **Owner:** codex (Jarvis). **Branch:** `codex/T-1139-original-640-craft`.
+- **Status:** locally proven; publication waits for parent checks. Public
+  heads unchanged. Original640 `c8eb36b`
+  and proven original639 candidate `f2cf7b5` preserved by merge8821a16.
+- **Reproduced:** exact four non-knowledge writer messages all route to
+  knowledge_answer; genuine inciting-incident question remains knowledge.
+  Lexical dialogue retrieval returns no craft card. Correctly permitted
+  production-function probe reports5 failed expectations; earlier EPERM
+  initialization is not product-defect proof.
+- **Fix:** backport existing attributed62828f3 andbd6c536 as72bf237/45b75b1:
+  intent restoration, trimmed contracts/craft retention, one framework default,
+  feature-map precedence, context-scoped lexical craft retrieval, corpus layout
+  and deployment count. Backport12396da as4199bb5 to reconcile stored reports,
+  explicit writer choice and stale project/version/auth responses on the rail.
+- **Integration:** initializer retains this boundary's existing save/recovery
+  ownership; add only craft-client injection, not later unrelated dependencies.
+  Historical ledger context is preserved, not treated as fresh proof.
+- **Success:** focused defects, real HTTP prompt path, canonical persona,
+  full Node20 backend, signed erased iOS units including framework/report
+  regression, writer UI, macOS, D009 and diff pass. No paid call or production
+  change. Publish originals bottom-up only after actual parent checks clear.
+- **Evidence:** `docs/original-640-craft-2026-10-25.md`.
+- **Additional root fix:** a held Analyze request remained busy after project
+  reset (signed red0/1/0). Extend existing operation-ID ownership to Analyze
+  and Override; project reset/framework change releases UI authority, old
+  completions cannot retire or publish into a newer request. No server-cancel
+  or exactly-once claim.
+- **Verified:** Node20 focused79/0/0 and full2779/0/2; all40 offline exemplar
+  pairs/eight prompt checks; initial signed645/0/0 before the new slot fix,
+  focused correction8/0/0, final signed646/0/0 including eight held success/error
+  context variants; final writer1/0/0; macOS exit0. Corpus all110 contents and
+  metadata unchanged; D009 index-45/Studio-4/others0; diff passes.
+
+### T-1140 — Make a missing D009 comparison baseline fail explicitly
+
+- **Owner:** codex. **Status:** ready, not implemented in T-1139.
+- **Observed:** an explicit GITHUB_BASE_REF with no local tracking ref returns
+  base/delta null but status ok/exit0. It is not comparison proof. T-1139
+  fetched the exact existing parent and reran with real counts; final proof
+  is valid. Current hosted checkout uses fetch-depth0, mitigating that case.
+- **Target:** canonical `scripts/check_god_files.mjs`; reject an explicitly
+  unavailable comparison ref, without weakening growth detection or changing
+  valid-baseline behavior. Verify using isolated fixture repos, not more
+  backend/native reruns. No new framework or production change.
+
 ### T-1138 — Preserve original golden-set PR639 with explicit spend approval
 
 - **Owner:** codex (Jarvis). **Branch:** `codex/T-1138-original-639-parent`.

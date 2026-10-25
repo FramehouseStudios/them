@@ -129,6 +129,82 @@ final class StudioCraftReportSelectionTests: XCTestCase {
         XCTAssertTrue(model.craftErrorText.contains("doesn't match"))
     }
 
+    func testProjectResetReleasesMutationSlotsAndOldCompletionCannotClearNewWork() async throws {
+        for (operation, changesProject, oldStatus) in [
+            ("analysis", true, 200), ("override", true, 200),
+            ("analysis", true, 400), ("override", true, 400),
+            ("analysis", false, 200), ("override", false, 200),
+            ("analysis", false, 400), ("override", false, 400)
+        ] {
+            let firstStarted = expectation(description: "old \(operation) request")
+            var secondStarted: XCTestExpectation?
+            let path = operation == "analysis" ? "/craft/analyze" : "/craft/overrides"
+            var held: [CraftReportURLProtocol] = []
+            let model = try makeModel { stub in
+                if stub.request.url?.path == path {
+                    held.append(stub)
+                    if held.count == 1 { firstStarted.fulfill() } else { secondStarted?.fulfill() }
+                } else { self.respondNormally(stub) }
+            }
+            let perform: @MainActor () async -> Void = {
+                if operation == "analysis" { await model.analyzeCraftReport() }
+                else {
+                    await model.createCraftTurnOverride(.init(turnId: "all-is-lost", action: "mark-present",
+                        reason: nil, sceneId: nil, page: 76, userId: nil, expiresAt: nil))
+                }
+            }
+            let isBusy: @MainActor () -> Bool = {
+                operation == "analysis" ? model.isCraftAnalyzing : model.isCraftOverrideSaving
+            }
+            func respond(_ stub: CraftReportURLProtocol, projectID: String, status: Int = 200) {
+                if status != 200 { stub.respond("{}", status: status) }
+                else if operation == "analysis" { stub.respond(report(projectID: projectID)) }
+                else {
+                    stub.respond("{\"id\":\"override-\(projectID)\",\"turnId\":\"all-is-lost\",\"action\":\"mark-present\",\"projectId\":\"\(projectID)\",\"versionId\":\"v1\",\"frameworkId\":\"save-the-cat\"}")
+                }
+            }
+            model.selectCraftFramework("save-the-cat")
+            let old = Task { await perform() }
+            await fulfillment(of: [firstStarted], timeout: 3)
+            guard held.count == 1 else { return XCTFail("Missing old \(operation) request") }
+            XCTAssertTrue(isBusy())
+            if changesProject {
+                model.selectedProjectID = "other-project"
+                model.selectedProject = try project("other-project")
+                model.resetCraftReportForProjectChange()
+            } else { model.selectCraftFramework("story-circle") }
+            XCTAssertFalse(isBusy(), "Context change must release the old \(operation) slot immediately")
+            guard !isBusy() else {
+                respond(held[0], projectID: "craft-project", status: oldStatus)
+                await old.value
+                continue
+            }
+            model.selectCraftFramework("save-the-cat")
+            let newRequestStarted = expectation(description: "new \(operation) request")
+            secondStarted = newRequestStarted
+            let current = Task { await perform() }
+            await fulfillment(of: [newRequestStarted], timeout: 3)
+            guard held.count == 2 else {
+                respond(held[0], projectID: "craft-project", status: oldStatus)
+                await old.value
+                await current.value
+                return XCTFail("New project must admit its own \(operation)")
+            }
+            respond(held[0], projectID: "craft-project", status: oldStatus)
+            await old.value
+            XCTAssertTrue(isBusy(), "Old \(operation) completion must not release the new request")
+            XCTAssertNil(model.craftReport)
+            XCTAssertEqual(model.craftInfoText, "")
+            XCTAssertEqual(model.craftErrorText, "")
+            let currentProjectID = changesProject ? "other-project" : "craft-project"
+            respond(held[1], projectID: currentProjectID)
+            await current.value
+            XCTAssertFalse(isBusy())
+            if operation == "analysis" { XCTAssertEqual(model.craftReport?.projectId, currentProjectID) }
+            else { XCTAssertTrue(model.craftInfoText.hasPrefix("Override saved")) }
+        }
+    }
+
     private func makeModel(handler: @escaping @MainActor (CraftReportURLProtocol) -> Void) throws -> ScreenplayStudioViewModel {
         CraftReportURLProtocol.handler = handler
         let configuration = URLSessionConfiguration.ephemeral
