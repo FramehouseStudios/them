@@ -5,6 +5,36 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1148 — Release a dismissed native export for explicit retry
+
+- **Owner:** codex (Jarvis). **Branch:** `codex/T-1148-dismissed-export-retry`.
+- **Base:** original9753879816865565d5c7f10e890a0b726a6a10d1930, all original
+  history retained. No original/public head, base, main or production change.
+- **Observed:** required run40208473954 is terminal red, writer0/1/0 at the
+  second Files presentation. Retained screenshot/hierarchy show the picker
+  gone, original exact draft intact, and coordinator rejecting the next request
+  as busy. Units966/0/0, backend/D009 pass; later stages skipped.
+- **Target:** explicit export after dismissal may supersede the previous
+  presented artifact, not a still-preparing request. Do not infer Save/Cancel
+  merely from the binding; still accept its real outcome until a new request
+  takes ownership. Late old binding/completion/cancel cannot affect the retry.
+- **Ownership:** ScreenplayStudioExportSupport.swift, its focused tests, this
+  entry and a scoped handoff. No backend/save/auth/god-file change, paid call,
+  retrying unchanged CI or weakening native Cancel/re-export/Save assertions.
+- **Done when:** reproduction fails before the smallest fix, focused signed
+  contracts pass, D009/diff pass, and real writer/Cancellation/Save is verified
+  when visible interaction is available. Mac currently locked; no GUI claim.
+- **Current:** reproduced0/1/0 before fix (one method/eight assertions), then
+  existing coordinator's six-line admission correction; signed export class
+  22/0/0, Mac build exit0, actual proper-parent D009 numeric deltas0 and diff pass. Backend and
+  native writer UI unchanged; no repeated backend run or fresh GUI claim.
+- **Evidence:** `docs/dismissed-export-retry-2026-10-25.md`. Public975 remains
+  red38798168, with an exact-head failure/hold comment. No push/main change.
+- **Next publication:** normally advance only original draft975 with this
+  local fix after verifying exact old head/base and green parent974. Required
+  unchanged hosted26.5 checks must prove the candidate; local26.2 contracts
+  do not clear the real Files failure. No merge, replacement, squash or force.
+
 ### T-1144 — Preserve current recovery repairs on original #975
 
 - **Owner:** codex (Jarvis). **Branch:** `codex/T-1144-original-975-parent`.

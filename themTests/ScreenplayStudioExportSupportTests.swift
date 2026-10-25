@@ -273,6 +273,85 @@ final class ScreenplayStudioExportSupportTests: XCTestCase {
         XCTAssertFalse(recorder.info.contains { $0.hasPrefix("Saved ") })
     }
 
+    func testDismissedNativePickerAllowsExplicitRetryWithoutCancellationCallback() async throws {
+        let recorder = ExportRecorder()
+        let coordinator = ScreenplayStudioExportCoordinator()
+        await coordinator.export(format: "md", deps: exportDependencies(recorder))
+        let firstID = try XCTUnwrap(coordinator.requestID)
+        let firstBinding = coordinator.presentationBinding(for: firstID)
+
+        // The native picker has left the screen but has not called either
+        // outcome callback. Dismissal alone still must not claim Save/Cancel.
+        firstBinding.wrappedValue = false
+        XCTAssertEqual(coordinator.requestID, firstID)
+        XCTAssertFalse(recorder.info.contains { $0.hasPrefix("Saved ") || $0 == "Export cancelled." })
+
+        await coordinator.export(format: "fdx", deps: exportDependencies(recorder))
+        let secondID = try XCTUnwrap(coordinator.requestID)
+        XCTAssertNotEqual(firstID, secondID, "A dismissed presentation must not lock out the writer's explicit retry.")
+        XCTAssertEqual(recorder.requestedFormats, ["md", "fdx"])
+        XCTAssertTrue(coordinator.isPresented)
+        XCTAssertEqual(coordinator.document?.data, exportArtifact.data)
+        XCTAssertFalse(recorder.errors.contains { !$0.isEmpty })
+
+        let infoBeforeLateCallbacks = recorder.info
+        firstBinding.wrappedValue = true
+        coordinator.cancel(requestID: firstID)
+        coordinator.complete(.success(URL(fileURLWithPath: "/stale/first.md")), requestID: firstID)
+        XCTAssertEqual(coordinator.requestID, secondID)
+        XCTAssertTrue(coordinator.isPresented)
+        XCTAssertEqual(recorder.info, infoBeforeLateCallbacks)
+        XCTAssertFalse(recorder.info.contains { $0.hasPrefix("Saved ") })
+
+        coordinator.presentationBinding(for: secondID).wrappedValue = false
+        coordinator.complete(.success(URL(fileURLWithPath: "/Files/retry.fdx")), requestID: secondID)
+        XCTAssertNil(coordinator.requestID)
+        XCTAssertEqual(recorder.info.last, "Saved retry.fdx to Files.")
+    }
+
+    func testExplicitRetryDoesNotReplaceStillPresentedNativePicker() async throws {
+        let recorder = ExportRecorder()
+        let coordinator = ScreenplayStudioExportCoordinator()
+        await coordinator.export(format: "md", deps: exportDependencies(recorder))
+        let firstID = try XCTUnwrap(coordinator.requestID)
+
+        await coordinator.export(format: "fdx", deps: exportDependencies(recorder))
+
+        XCTAssertEqual(coordinator.requestID, firstID)
+        XCTAssertTrue(coordinator.isPresented)
+        XCTAssertEqual(recorder.requestedFormats, ["md"])
+        XCTAssertEqual(recorder.errors.last, "Finish or cancel the current export before starting another.")
+        XCTAssertFalse(recorder.info.contains { $0.hasPrefix("Saved ") })
+        coordinator.cancel(requestID: firstID)
+    }
+
+    func testExplicitRetryDoesNotReplaceStillPreparingExport() async throws {
+        let recorder = ExportRecorder()
+        let coordinator = ScreenplayStudioExportCoordinator()
+        let artifact = exportArtifact
+        var dependencies = exportDependencies(recorder)
+        dependencies.exportFromBackend = { format in
+            recorder.requestedFormats.append(format)
+            let preparingID = try XCTUnwrap(coordinator.requestID)
+            XCTAssertNil(coordinator.document)
+            XCTAssertFalse(coordinator.isPresented)
+
+            await coordinator.export(format: "fdx", deps: self.exportDependencies(recorder))
+
+            XCTAssertEqual(coordinator.requestID, preparingID)
+            XCTAssertEqual(recorder.requestedFormats, ["md"])
+            return artifact
+        }
+        await coordinator.export(format: "md", deps: dependencies)
+
+        XCTAssertTrue(coordinator.isPresented)
+        XCTAssertEqual(coordinator.document?.data, artifact.data)
+        XCTAssertEqual(recorder.requestedFormats, ["md"])
+        XCTAssertTrue(recorder.errors.contains("Finish or cancel the current export before starting another."))
+        XCTAssertFalse(recorder.info.contains { $0.hasPrefix("Saved ") })
+        coordinator.cancel(requestID: coordinator.requestID)
+    }
+
     func testNativePickerBindingAndCancellationRemainScopedToTheirPresentation() async throws {
         let recorder = ExportRecorder()
         let coordinator = ScreenplayStudioExportCoordinator()

@@ -295,6 +295,12 @@ final class ScreenplayStudioExportCoordinator: ObservableObject {
     func export(format: String, deps: ScreenplayStudioExportSupport.Dependencies) async {
         guard deps.isCurrentContext() else { return }
         invalidateIfContextChanged()
+        // Files may dismiss before (or without) an outcome callback. Keep that
+        // outcome authoritative until an explicit retry supersedes it. Never
+        // retire a still-preparing request or a picker that remains presented.
+        if requestID != nil, document != nil, !isPresented {
+            invalidate()
+        }
         guard requestID == nil else {
             deps.setError("Finish or cancel the current export before starting another.")
             return
