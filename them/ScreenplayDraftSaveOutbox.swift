@@ -252,6 +252,24 @@ actor ScreenplayDraftSaveOutbox {
         publishSnapshot()
     }
 
+    /// Retire only this passive request, never another recovery/conflict copy.
+    /// Roll back memory if the atomic manifest update cannot become durable.
+    func markSatisfiedAutosave(id: String, projectId: String, ownerUserId: String,
+        confirmedDraft: String, confirmedVersion: String) throws -> Bool {
+        try loadIfNeeded()
+        guard let index = entries.firstIndex(where: { $0.id == id }) else { return true }
+        let entry = entries[index]
+        guard entry.projectId == projectId, entry.ownerUserId == ownerUserId, entry.status != .parked,
+              ScreenplayDraftSaveCoalescingPolicy.isSatisfiedAutosave(draft: entry.draft, source: entry.source,
+                notes: entry.notes, baseVersion: entry.baseVersionId,
+                confirmedDraft: confirmedDraft, confirmedVersion: confirmedVersion) else { return false }
+        let previous = entries
+        entries.remove(at: index)
+        do { try persist() } catch { entries = previous; throw error }
+        publishSnapshot()
+        return true
+    }
+
     func remove(id: String) throws {
         try loadIfNeeded()
         entries.removeAll { $0.id == id }

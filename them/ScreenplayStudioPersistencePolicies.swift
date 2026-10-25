@@ -278,6 +278,16 @@ struct ScreenplayDraftIntegrityFingerprint {
 }
 
 struct ScreenplayDraftSaveCoalescingPolicy {
+    /// Passive housekeeping cannot create another version of already
+    /// acknowledged exact bytes. Explicit saves/notes/decisions remain writes.
+    nonisolated static func isSatisfiedAutosave(draft: String, source: String, notes: String,
+        baseVersion: String, confirmedDraft: String, confirmedVersion: String) -> Bool {
+        let confirmed = confirmedVersion.trimmingCharacters(in: .whitespacesAndNewlines)
+        return source == "studio_autosave" && notes.isEmpty && !confirmed.isEmpty
+            && baseVersion.trimmingCharacters(in: .whitespacesAndNewlines) == confirmed
+            && draft.utf8.elementsEqual(confirmedDraft.utf8)
+    }
+
     static func shouldCoalesce(
         activeDraft: String,
         activeSource: String,

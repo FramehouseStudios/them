@@ -272,6 +272,40 @@ final class ScreenplayStudioExportSupportTests: XCTestCase {
         XCTAssertTrue(coordinator.isPresented)
         XCTAssertFalse(recorder.info.contains { $0.hasPrefix("Saved ") })
     }
+
+    func testNativePickerBindingAndCancellationRemainScopedToTheirPresentation() async throws {
+        let recorder = ExportRecorder()
+        let coordinator = ScreenplayStudioExportCoordinator()
+        await coordinator.export(format: "md", deps: exportDependencies(recorder))
+        let firstID = try XCTUnwrap(coordinator.requestID)
+        let firstBinding = coordinator.presentationBinding(for: firstID)
+        XCTAssertTrue(firstBinding.wrappedValue)
+        // Files lowers its presentation binding before delivering cancellation.
+        firstBinding.wrappedValue = false
+        XCTAssertEqual(coordinator.requestID, firstID, "Dismissal alone cannot decide Save versus Cancel.")
+        coordinator.cancel(requestID: firstID)
+        XCTAssertNil(coordinator.requestID)
+
+        await coordinator.export(format: "fdx", deps: exportDependencies(recorder))
+        let secondID = try XCTUnwrap(coordinator.requestID)
+        let secondBinding = coordinator.presentationBinding(for: secondID)
+        XCTAssertNotEqual(firstID, secondID)
+        XCTAssertFalse(firstBinding.wrappedValue)
+        firstBinding.wrappedValue = false
+        firstBinding.wrappedValue = true
+        coordinator.cancel(requestID: firstID)
+        coordinator.complete(.success(URL(fileURLWithPath: "/stale/stale.md")), requestID: firstID)
+        XCTAssertTrue(secondBinding.wrappedValue, "An old picker must not close a newer export.")
+        XCTAssertEqual(coordinator.requestID, secondID)
+        XCTAssertEqual(recorder.requestedFormats, ["md", "fdx"])
+        XCTAssertFalse(recorder.info.contains { $0.hasPrefix("Saved ") })
+
+        secondBinding.wrappedValue = false
+        coordinator.complete(.success(URL(fileURLWithPath: "/Files/complete-scene.fdx")), requestID: secondID)
+        XCTAssertNil(coordinator.requestID)
+        XCTAssertFalse(secondBinding.wrappedValue)
+        XCTAssertEqual(recorder.info.last, "Saved complete-scene.fdx to Files.")
+    }
 #endif
 
 #if DEBUG && !os(macOS)

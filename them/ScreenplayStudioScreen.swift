@@ -14847,46 +14847,8 @@ Look at the city.
     }
 
     private func applyUITestPendingScreenplayQuestionFixtureIfNeeded() {
-        let arguments = ProcessInfo.processInfo.arguments
-        guard IOThemRuntime.isRunningUITests,
-              arguments.contains("--ui-show-pending-screenplay-question"),
-              !didResolveUITestPendingQuestionFixture else {
-            return
-        }
-        let provisionalOptions = arguments.contains("--ui-show-provisional-screenplay-options")
-            ? [
-                BackendPendingScreenplayOption(
-                    id: "option-1",
-                    rank: 1,
-                    value: "Mara gives June the manifest and lets her choose the crossing.",
-                    recommended: true
-                ),
-                BackendPendingScreenplayOption(
-                    id: "option-2",
-                    rank: 2,
-                    value: "Mara exposes the ferry board before June can leave.",
-                    recommended: false
-                ),
-                BackendPendingScreenplayOption(
-                    id: "option-3",
-                    rank: 3,
-                    value: "Mara destroys the manifest and trusts June without proof.",
-                    recommended: false
-                ),
-            ]
-            : nil
-        vm.pendingScreenplayQuestion = BackendPendingScreenplayQuestion(
-            id: "ui-pending-theme-question",
-            projectId: vm.selectedProjectID.isEmpty ? "ui-project" : vm.selectedProjectID,
-            projectTitle: vm.selectedProject?.title ?? "The Last Crossing",
-            targetField: "project.theme_argument",
-            targetLabel: "Theme argument",
-            question: provisionalOptions == nil
-                ? "What does Mara learn about love when control can no longer keep June safe?"
-                : "Which path should become true: Option 1, 2, or 3?",
-            provisionalOptions: provisionalOptions,
-            askedAt: Date().timeIntervalSince1970 * 1_000
-        )
+        guard !didResolveUITestPendingQuestionFixture,
+              ScreenplayPendingQuestionUITestFixture.install(on: vm) else { return }
         directionOneRightPanelTab = .them
         isDirectionOneRightRailExpanded = true
     }

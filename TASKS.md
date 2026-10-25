@@ -5,6 +5,31 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1141 — Diagnose the exact hosted recovery-export failure
+
+- **Owner:** codex (Jarvis). **Branch:** `codex/T-1141-recovery-export-presentation`.
+- **Base:** actual published974 `8d519bd`; run40170181825 is terminal red.
+- **Verified boundary:** hosted signed959/0/0 and writer1/0/0 pass; broad V1
+  is35 pass/1 fail/22 skip. Failure: queued-turn export after cancelling Review
+  did not reach detected native Files UI. Later recovery/voice/Mac steps skipped.
+- **Observation:** retained hosted recording shows a blank white panel after
+  Export, not just a missing private filename field. Exact test passes1/0/0
+  locally on26.2. Do not invent a runtime root cause from that difference.
+- **Candidate:** use existing bounded hosted readiness scaling for the two
+  recovery Files paths, assert real Save hittability and retain timeout screen/
+  hierarchy. No sleep, tap retry, skip, bypass, synthetic Save or app/runtime edit.
+- **Proof:** local two-path check2/0/0, summary positively requires exactly2
+  executed passes and zero skips/failures. Reject the initial unsupported
+  comma-selector invocation (zero tests/unknown) rather than call it a pass.
+  Use separate xcodebuild only-testing flags and require2/0/0.
+- **Inherited exact-head checks:** hosted backend2964/0/4, units959/0/0 and
+  writer1/0/0; not new runs on this UI-test-only change. App/backend/scripts/
+  Packages/workflows byte-unchanged. No broad rerun solely for reassurance.
+- **Done when:** relevant local proof passes, original974 advances normally
+  once with explicit uncertainty and fresh hosted checks resolve the failure.
+  Do not merge or advance975 while parent red. Evidence:
+  `docs/recovery-export-readiness-2026-10-25.md`.
+
 ### T-968 — Exact document identity for coverage (historical; current T-1100)
 
 - **Owner:** codex. **Branch:** `codex/T-968-coverage-document-identity`.
@@ -511,6 +536,173 @@
   durable receipt, relevant spoken/page result and relaunch restoration. Retain
   any undelivered result safely through crashes, owner/origin changes and retry.
   Reuse canonical talk/result/receipt handling; no second conversation store.
+
+### T-1128 — Recognize real native Files presentation in the hosted writer loop
+
+- **Owner:** codex (Jarvis), original #974 branch. Hosted10557ad now compiles
+  and passes947 signed units, backend and D009. Its integrated writer case fails
+  one assertion: private `DOCPicker.filenameTextField` is absent in the failure
+  snapshot, although native `Browse View (Picker)` and active Save are present.
+  Both hosted screenshots show the real Files exporter. Do not retry unchanged
+  or call this a product/export failure without that distinction.
+- **Fix:** recognize the actual picker (with older-field fallback),
+  require actual dismissal on cancel/save, and stop the workflow after a failed
+  presentation boundary. Preserve native Save, exact version/marker and relaunch
+  checks. Bound per-failure diagnostics so a huge hierarchy cannot erase the
+  first assertion; complete evidence stays in the retained xcresult.
+- **Verification:** diagnostic helper11/0/0 on Node24.19.0; Bash syntax/diff/D009
+  pass. Exact signed writer harness1/0/0 and three shared recovery/export
+  callers3/0/0 on erased owned iPhone17Pro/iOS26.2. Isolated storage and external
+  providers blocked; no live-provider or physical-phone claim. Owned DerivedData
+  uses optional absolute
+  `IOS_DERIVED_DATA_PATH` in the canonical runner; default CI behavior unchanged.
+  Source review caught/corrected a leftover test variable and Bash3 empty-array
+  nounset before publication; the first local attempt was stopped deliberately.
+  Hosted iOS26.5 confirmation remains required on the changed head. No production
+  app/backend source changed; parent hosted signed947/0/0 is inherited evidence,
+  not a fresh full-unit run. `docs/native-files-picker-proof-2026-10-24.md`.
+- **Preserved recovery:** local-only `50d07e6` retains `00be9dc` and preserving
+  merge61c0566; coherent failed-selection/loaded-draft regressions2/0/0. Full
+  original-project recovery UI and units remain unfinished, not included in #974.
+
+### T-1132 — Bind native export presentation to its own immutable request
+
+- **Owner:** codex (Jarvis), original #974 branch; parent7428be7, runtime3b4d454.
+  Hosted run40160014884: units/backend2964/0/4/D009 pass, writer0/1/0 fails on
+  second Files export after cancel. Native hierarchy proves the coordinator is
+  still busy after Files disappears; later hosted stages skipped. The nullable
+  callback capture is the source-level diagnosis, not an instrumented callback
+  trace. Do not waive the red result because #975's separate writer passed.
+- **Fix:** private immutable-request Files host, independent of Studio/editor
+  identity; request-scoped presentation binding, unchanged canonical context and
+  stale-callback guards. No global-ID callback fallback or test delay.
+- **Proof:** signed focused19/0/0; unchanged actual writer/native cancel/re-export/
+  save/relaunch UI1/0/0; full signed948/0/0; Mac build0, D009/diff pass. Backend
+  unchanged, parent Node20 backend2964/0/4 inherited. No paid/phone/deploy claim.
+- **Next:** published9b1c279 run40162533820 passed hosted26.5 writer and is in
+  broad UI; this is not a whole-gate pass. Shared T1134 save correction is now
+  locally integrated below, pending its normal push/fresh checks. T-1130 remains
+  safely local325cfb5, not included here. Details and actual archive paths
+  in `docs/native-export-presentation-identity-2026-10-24.md`.
+
+### T-1136 — Separate old save receipts from the current page
+
+- **Owner:** codex (Jarvis), local `codex/T-1136-save-completion-context`
+  directly from published parent34b9bc5; runtime111bc4d.
+- **Reproduced:** hold A's actual-model save response, load/edit B, release A;
+  model reselected A. Focused0/1/0 with intercepted transport, not a live server.
+- **Fix:** acknowledge the original durable request independently of UI rights;
+  fence version/document/backend/owner/project across awaits, preserve original
+  recovery on late errors/conflicts, and retain B's captured waiting save with
+  B's base. Rebase only a true same-owner/project/base successor. Reuse canonical
+  model API for writes; no parallel framework or backend change.
+- **Proof:** corrected focused5/0/0; final signed959/0/0 includes six cases,
+  Mac0/D009/diff pass. First expanded1/4 was our B-dirty fixture mistake; retained
+  and corrected without relaxing assertions. Earlier958 checkpoint predates the
+  final taskless-inflight edge fix. Current writer/native export/relaunch1/0/0;
+  required connected recovery3/0/0. No paid or production claim.
+- **Next:** complete current connected proof, then inspect existing #974 hosted
+  handle before a normal scoped advance; preserve original #975 and combined
+  recovery. `docs/save-completion-context-2026-10-24.md`.
+
+### T-1135 — Preserve a deferred page save's original owner and project
+
+- **Owner:** codex (Jarvis), original parent #974 branch. Combined descendant
+  `codex/T-1135-deferred-page-save-owner` remains preserved at ef62fb8.
+- **Reproduced:** actual model adopted A, selected B before its Task started,
+  and durably queued A's scene under B; focused0/1/0, no HTTP/provider. The
+  canonical request was built after deferral from the later selected project.
+- **Fix:** capture request before scheduling; changed auth/project/loaded base
+  or cancellation parks that original request. Reject stale-account page
+  adoption before editing. Reuse for programmatic autosaves, existing outbox and
+  request UUIDs. Only the shared small fix is ported, not child recovery/hooks.
+- **Proof:** combined runtime2b13d98 has focused39/0/0, full signed960/0/0,
+  save-admission recovery1/0/0, newer-writer acknowledgement1/0/0, Mac0. These
+  are not earlier-parent proof. Earlier-parent runtimef7eba21 passes signed
+  953/0/0, Mac0 and D009/diff; unchanged current writer1/0/0, offline recovery3/0/0.
+  No fresh backend or paid calls.
+- **Next:** prove/publish earlier parent normally before advancing original
+  child #975. `docs/deferred-page-save-parent-2026-10-24.md`.
+
+### T-1134 — Repair hosted duplicate save and false one-copy conflict assertion
+
+- **Owner:** codex (Jarvis), local `codex/T-1134-hosted-save-recovery` from exact
+  failed #975 head80a2f66; source d511eda. Hosted40160039304 recovery1/2/0:
+  manual+autosave created two versions, while conflict text remained87 characters
+  with two parked copies. Do not mislabel a journal-count predicate as lost text.
+- **Fix:** adapt preserved original #962 runtime1ffa52e, not another framework:
+  exact acknowledged passive autosave/same nonempty version/empty notes only;
+  durable removal of only that request with rollback on failed disk persistence.
+  Keep raw acknowledged revision-base bytes. Conflict test now proves exact text,
+  loaded/selected project, conflict version, no premature server save and cleanup,
+  rather than assuming one immutable copy. Explicit writes/changed bytes stay.
+- **Proof:** unchanged auth baseline1/0/0 is timing evidence only; changed focused
+  queue37/0/0 and connected signed recovery3/0/0, syntax/D009/diff pass. No full
+  unit/backend/Mac proof claimed on that first child-source checkpoint. Exact
+  earlier-parent runtime1eb6b7d now passes full signed951/0/0, actual recovery3/0/0,
+  unchanged writer/native-export/relaunch1/0/0, Mac0 and D009/diff. Backend unchanged;
+  no repeated local backend suite. Both task entries survive the docs conflict.
+- **Next:** normally publish the scoped fix on original #974 first and require
+  fresh hosted26.5/full-gate proof, then bring preserved children forward.
+  T1130 at325cfb5 and T1133 at6fe19b1 remain separate. No main/deploy/paid
+  call. `docs/hosted-save-recovery-2026-10-24.md` retains exact artifact/results.
+
+### T-1129 — Keep isolated question fixtures stable through outbox notifications
+
+- **Owner:** codex (Jarvis), original #974 branch; parent2369367. Hosted
+  run40155283007 passed947 signed units and the exact writer loop, then failed
+  broad UI34/2/22: provisional choices absent and the second seeded question
+  absent on relaunch. Local unchanged baseline2/0/0 exposed timing dependence,
+  not evidence that the hosted failures should be waived.
+- **Root / fix:** launch skipped server hydration for explicit presentation
+  fixtures, but an outbox notification still called normal pending-question
+  refresh and cleared the no-project fixture. Honor the same canonical DEBUG
+  fixture policy in that refresh. Do not reseed resolved questions or suppress
+  real backend workflows. Extract the existing fixture from Studio; post one real
+  outbox notification after seeding so its regression is deterministic.
+- **Proof:** explicit notification before guard0/1/0 -> both UI cases2/0/0.
+  Source2b2cd64; preserving combined merge4fffce4 with original #975 passes full
+  signed950/0/0, including the actual BackendCredentialMigrationTests hydration
+  policy case. Parent and combined Mac builds pass. D009/diff pass; Studio shrinks
+  17337 ->17299 lines. Backend tree unchanged; no paid/live/provider/phone claim.
+  `docs/pending-question-fixture-isolation-2026-10-24.md` records selector mistake,
+  inherited versus current proof and hosted confirmation still required.
+
+### T-1127 — Clear the hosted Pages-card compile failure on original #974
+
+- **Owner:** codex (Jarvis), same original `codex/T-1125-talk-owner-fence` branch.
+  Exact hosted head `f10fd41` passed D009 and Node20.20.2 backend2963/0/4, but
+  QualityGate failed before tests: `ScreenplayStudioDraftPageTools.swift:167`
+  exceeded Swift expression type-check time. Run40122604848 is terminal failed;
+  it is not being retried unchanged or counted as an iOS test pass.
+- **Fix:** split the unchanged Page-card UI into concrete card/content/header/
+  preview boundaries with explicitly typed colors/selection traits. Preserve
+  jump closure, selection state, all accessibility identifiers and appearance.
+- **Verified local proof:** fresh DerivedData `/tmp/them-1127-clean-dd`, signed
+  full units947/0/0 on erased owned simulator; actual Pages navigation UI1/0/0
+  with8 pagination HTTP200s and zero provider calls; macOS/D009/diff pass.
+  Parent/new230pt PNGs have identical SHA256. Hosted updated-head checks remain
+  required; no unchanged rerun. `docs/pages-clean-build-2026-10-24.md`.
+  T1126 original-project recovery is safely preserved LOCAL ONLY in `00be9dc`
+  on `codex/T-1126-original-project-recovery`; no WIP is included in #974.
+
+### T-1125 — Fence speech/retry ownership across account changes
+
+- **Owner:** codex (Jarvis); branch `codex/T-1125-talk-owner-fence`, parent
+  `8f8a66f`. Zora's read-only call-site audit found stable Page request keys
+  already present, but recursive auth retry could rebuild the bearer from a new
+  account and offline enqueue omitted the existing initiating-owner argument.
+- **Target:** one captured owner through dispatch/bootstrap, transport/audio/auth
+  retries, metadata reads, callbacks and queue admission. Refuse a changed user
+  or login intent with `auth_request_superseded`; permit same-login token refresh
+  and retain the operation key. No new storage or auth framework.
+- **Status:** runtime saved in `d184e3e`; signed focused13/0/0. Removed unnecessary
+  shared-token deletion and added synchronized per-attempt Page leases after
+  adversarial review. Fixture-only correction `2409673`; full signed947/0/0,
+  raw voice/write/save/restore UI1/0/0 and queued playback/single append/save/
+  restore UI1/0/0, macOS/D009/diff pass. Providers intercepted; no new backend
+  suite, main/deployment/physical-phone or live-model claim. Final proof:
+  `docs/talk-owner-fence-2026-10-24.md` before handoff.
 
 ### T-1124 — Integrate durable Page settlement and restart reconciliation
 
