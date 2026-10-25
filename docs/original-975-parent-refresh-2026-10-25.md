@@ -65,10 +65,28 @@ not attribute it to a provider or claim acceptable latency from the pass.
 Completed proof is preserved under
 `/Users/halfmutantfilms/io.them-worktrees/_proof/T-1144-20261025.ErqmHC/`.
 
-Remaining connected checkpoints: resumed original-project delivery with a newer
-saved writer edit and no second save; insertion interrupted before save admission;
-canonical three-case offline/auth/conflict recovery; essential writer export/
-relaunch; and macOS scaffold build. Each uses its own retained result path.
+New canonical three-case recovery passed **3/0/0**, process exit0 and strict
+positive xcresult guard, on the same exact owned erased signed simulator:
+`/private/tmp/them-1144-save-recovery/them-save-recovery-8blA28/recovery-ios.xcresult`.
+It checks offline relaunch, actual401→successful refresh→fresh-bearer201, exact
+complete saved text, one resulting server version, and conflict/relaunch/Keep
+Mine cleanup. No product assertion or parked-copy criterion was relaxed here.
+The auth case took15m versus21s conflict and18s ordinary reconnect. That delay
+remains unclassified, not accepted as normal app performance. Current CUA confirms
+the Mac is locked; manual unlock is requested, not bypassed. No further local GUI
+proof will be launched merely to repeat that stalled observation environment.
+New recovery bundle/log have distinct `save-recovery-current` names in the same
+permanent archive, leaving earlier evidence intact.
+
+VERIFIED source identity: direct `git diff --exit-code 839a3c1 HEAD -- them
+themTests backend scripts Packages .github them.xcodeproj` is empty. Reuse the
+already retained T1136 combined newer-writer/no-second-save recovery1/0/0,
+before-save-admission recovery1/0/0, essential writer/export/relaunch1/0/0 and
+Mac build0 as source-identical inherited proof, explicitly not new T1144 runs.
+The entire UI-file diff is limited to two Files-readiness cases and their common
+failure-diagnostic helper, positively checked separately here by Files2/0/0.
+The recovery-plan cases and their assertions are unchanged. This avoids duplicate
+unchanged suites; fresh required hosted checks still apply to any published head.
 Deterministic intercepted providers prove transport/state/recovery, not live
 microphone input, model relevance, external-file opening or physical-phone use.
 
@@ -79,9 +97,10 @@ by this local merge. Original975 was verified remotely at80a2f66, base
 `codex/T-1125-talk-owner-fence`, still draft. Only a normal descendant push after
 the connected checkpoint may advance it; required fresh checks and independent
 human review remain. Original638 is green but still requires human review;
-original639 at9bb54ec has backend/D009 green but its native gate40185550749 is
-now terminal FAILURE. Stop further publication and inspect that first earlier
-stack failure before advancing975. No red check is waived by local966/0/0.
+original639's earlier9bb54ec/40185550749 and6ec372d/40190222594 reds are retained.
+Its published correction965a507 now has backend/D009 and hosted writer success;
+fresh40203301919 is still active in broader V1. Stop further publication until
+that exact earlier gate clears. No red is waived by local966/0/0 or recovery3/0/0.
 
 Production remains held. Exact intended-backend physical-iPhone journey and an
 observed export opening outside THEM remain necessary for product completion.

@@ -28,6 +28,17 @@
   latency claim. Further connected checkpoint/publication stops for exact
   #639 run40185550749 native V1 failure. Evidence:
   `docs/original-975-parent-refresh-2026-10-25.md`.
+- **Continuation:** original639's later writer failure is now fixed locally
+  and published at965a507; fresh40203301919 has backend/D009 green and native
+  active. Resume unblocked local three-case recovery proof while that separate
+  remote job runs; original975 publication remains held until the earlier
+  exact-head gate clears. No new source or unchanged full-unit/backend rerun.
+- **New recovery:** signed canonical offline/auth/conflict3/0/0, strict positive
+  counts; actual401/refresh/fresh-bearer save, exact text and one server version.
+  Auth case15m versus21s/18s others remains a timing gap. Mac currently locked;
+  manual unlock requested for GUI observation, no bypass. Native source is
+  byte-identical to839a3c1, so its stronger two recovery cases, writer and Mac
+  results remain explicitly inherited, not needlessly rerun. No paid call.
 
 ### T-1141 — Diagnose the exact hosted recovery-export failure
 
