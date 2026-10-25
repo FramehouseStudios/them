@@ -789,7 +789,7 @@ final class V1SmokeUITests: XCTestCase {
         XCTAssertTrue(error.waitForExistence(timeout: 8), "A failed export must show the actual error.")
         XCTAssertFalse(error.label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         XCTAssertEqual(Array(accessibleDraftText(in: app).utf8), Array(before.utf8))
-        XCTAssertFalse(app.textFields["DOCPicker.filenameTextField"].exists)
+        XCTAssertFalse(nativeFilesExporterIsPresented(in: app))
         XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH[c] %@", "Saved ")).firstMatch.exists,
             "A failed export must not claim that Files saved it.")
         exportMenu.tap()
@@ -1386,30 +1386,29 @@ final class V1SmokeUITests: XCTestCase {
         let markdownExport = app.buttons["studio.export.md"]
         XCTAssertTrue(markdownExport.waitForExistence(timeout: writerLoopWait(5)), "Export Copy did not offer Markdown.")
         markdownExport.tap()
-        let pickerFilename = app.textFields["DOCPicker.filenameTextField"]
-        XCTAssertTrue(
-            pickerFilename.waitForExistence(timeout: writerLoopWait(10)),
-            "Real export did not present the native Files picker.\n\(app.debugDescription)"
-        )
+        guard waitForNativeFilesExporter(in: app, presented: true, timeout: writerLoopWait(10)) else {
+            XCTFail("Real export did not present the native Files picker.\n\(app.debugDescription)")
+            return
+        }
         let firstPicker = XCTAttachment(screenshot: app.screenshot())
         firstPicker.name = "writer-loop-files-before-cancel.png"
         firstPicker.lifetime = .keepAlways
         add(firstPicker)
 
-        XCTAssertTrue(
-            dismissNativeFilesExporter(in: app, filenameField: pickerFilename),
-            "Cancel did not dismiss the native Files picker.\n\(app.debugDescription)"
-        )
+        guard dismissNativeFilesExporter(in: app) else {
+            XCTFail("Cancel did not dismiss the native Files picker.\n\(app.debugDescription)")
+            return
+        }
         XCTAssertTrue(waitForExactWriterLoopDraft(marker, in: app, timeout: writerLoopWait(5)))
 
         XCTAssertTrue(revealInStudioDrawer(exportMenu, drawer: rightDrawer, scrollingUp: false, maxSwipes: 8))
         exportMenu.tap()
         XCTAssertTrue(markdownExport.waitForExistence(timeout: writerLoopWait(5)))
         markdownExport.tap()
-        XCTAssertTrue(
-            pickerFilename.waitForExistence(timeout: writerLoopWait(10)),
-            "The second export did not present the native Files picker.\n\(app.debugDescription)"
-        )
+        guard waitForNativeFilesExporter(in: app, presented: true, timeout: writerLoopWait(10)) else {
+            XCTFail("The second export did not present the native Files picker.\n\(app.debugDescription)")
+            return
+        }
         let saveExport = element(identifier: "Save", in: app)
         if !waitForHittability(of: saveExport, timeout: writerLoopWait(2)) {
             let onMyIPhone = element(identifier: "DOC.sidebar.item.On My iPhone", in: app)
@@ -2217,9 +2216,8 @@ final class V1SmokeUITests: XCTestCase {
         app.alerts.firstMatch.buttons["Cancel"].tap()
         XCTAssertTrue(review.exists, "Cancelling review must leave the recovered request held.")
         export.tap()
-        let filename = app.textFields["DOCPicker.filenameTextField"]
-        XCTAssertTrue(filename.waitForExistence(timeout: 5), "Recovery export did not open the native file exporter.")
-        XCTAssertTrue(dismissNativeFilesExporter(in: app, filenameField: filename))
+        XCTAssertTrue(waitForNativeFilesExporter(in: app, presented: true, timeout: 5), "Recovery export did not open the native file exporter.")
+        XCTAssertTrue(dismissNativeFilesExporter(in: app))
         let delete = app.buttons["data.controls.talk.delete-parked"]
         XCTAssertTrue(delete.waitForExistence(timeout: 5))
         delete.tap()
@@ -2229,9 +2227,9 @@ final class V1SmokeUITests: XCTestCase {
         alert.buttons["Cancel"].tap()
         XCTAssertTrue(export.exists, "Cancel deleted the queued turn.")
         export.tap()
-        XCTAssertTrue(filename.waitForExistence(timeout: 5))
+        XCTAssertTrue(waitForNativeFilesExporter(in: app, presented: true, timeout: 5))
         app.buttons["Save"].tap()
-        XCTAssertTrue(waitForDisappearance(of: filename, timeout: 8))
+        XCTAssertTrue(waitForNativeFilesExporter(in: app, presented: false, timeout: 8))
         XCTAssertTrue(staticText(containing: "Queued turn recovery export saved", in: app).waitForExistence(timeout: 5))
         let saved = XCTAttachment(screenshot: app.screenshot())
         saved.name = "talk-recovery-after-real-files-save.png"
@@ -2269,10 +2267,9 @@ final class V1SmokeUITests: XCTestCase {
         XCTAssertTrue(staticText(containing: "Reply received", in: app).waitForExistence(timeout: 5))
         XCTAssertEqual(export.label, "Export received reply")
         export.tap()
-        let filename = app.textFields["DOCPicker.filenameTextField"]
-        XCTAssertTrue(filename.waitForExistence(timeout: 5))
+        XCTAssertTrue(waitForNativeFilesExporter(in: app, presented: true, timeout: 5))
         app.buttons["Save"].tap()
-        XCTAssertTrue(waitForDisappearance(of: filename, timeout: 8))
+        XCTAssertTrue(waitForNativeFilesExporter(in: app, presented: false, timeout: 8))
         XCTAssertTrue(staticText(containing: "Queued turn recovery export saved", in: app).waitForExistence(timeout: 5))
         XCTAssertTrue(export.exists, "Export must not acknowledge page/audio delivery.")
     }
@@ -4530,10 +4527,23 @@ final class V1SmokeUITests: XCTestCase {
             .firstMatch
     }
 
-    private func dismissNativeFilesExporter(
-        in app: XCUIApplication,
-        filenameField: XCUIElement
-    ) -> Bool {
+    private func nativeFilesExporterIsPresented(in app: XCUIApplication) -> Bool {
+        // Hosted iOS26.5 exposes the real Browse picker and Save control but
+        // not DOCPicker.filenameTextField. Older runtimes still expose the field.
+        app.otherElements["Browse View (Picker)"].exists || app.textFields["DOCPicker.filenameTextField"].exists
+    }
+
+    private func waitForNativeFilesExporter(in app: XCUIApplication, presented: Bool, timeout: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if nativeFilesExporterIsPresented(in: app) == presented { return true }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        }
+        return nativeFilesExporterIsPresented(in: app) == presented
+    }
+
+    private func dismissNativeFilesExporter(in app: XCUIApplication) -> Bool {
+        guard nativeFilesExporterIsPresented(in: app) else { return false }
         // A picker can reopen inside a concrete folder. Return to Browse first;
         // the root-level close glyph is then always in the leading 44-point slot.
         let backToBrowse = app.buttons["BackButton"]
@@ -4552,7 +4562,7 @@ final class V1SmokeUITests: XCTestCase {
             withNormalizedOffset: CGVector(dx: 0.095, dy: 0.126)
         )
         leadingClose.tap()
-        return waitForDisappearance(of: filenameField, timeout: writerLoopWait(8))
+        return waitForNativeFilesExporter(in: app, presented: false, timeout: writerLoopWait(8))
     }
 
     private func element(identifier: String, in app: XCUIApplication) -> XCUIElement {

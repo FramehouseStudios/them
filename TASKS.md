@@ -542,6 +542,34 @@
   red: hosted947 signed units pass, integrated writer workflow fails in
   run40124255938. Preserve this work locally while diagnosing that boundary.
 
+### T-1128 — Recognize real native Files presentation in the hosted writer loop
+
+- **Owner:** codex (Jarvis), original #974 branch. Hosted10557ad now compiles
+  and passes947 signed units, backend and D009. Its integrated writer case fails
+  one assertion: private `DOCPicker.filenameTextField` is absent in the failure
+  snapshot, although native `Browse View (Picker)` and active Save are present.
+  Both hosted screenshots show the real Files exporter. Do not retry unchanged
+  or call this a product/export failure without that distinction.
+- **Fix:** recognize the actual picker (with older-field fallback),
+  require actual dismissal on cancel/save, and stop the workflow after a failed
+  presentation boundary. Preserve native Save, exact version/marker and relaunch
+  checks. Bound per-failure diagnostics so a huge hierarchy cannot erase the
+  first assertion; complete evidence stays in the retained xcresult.
+- **Verification:** diagnostic helper11/0/0 on Node24.19.0; Bash syntax/diff/D009
+  pass. Exact signed writer harness1/0/0 and three shared recovery/export
+  callers3/0/0 on erased owned iPhone17Pro/iOS26.2. Isolated storage and external
+  providers blocked; no live-provider or physical-phone claim. Owned DerivedData
+  uses optional absolute
+  `IOS_DERIVED_DATA_PATH` in the canonical runner; default CI behavior unchanged.
+  Source review caught/corrected a leftover test variable and Bash3 empty-array
+  nounset before publication; the first local attempt was stopped deliberately.
+  Hosted iOS26.5 confirmation remains required on the changed head. No production
+  app/backend source changed; parent hosted signed947/0/0 is inherited evidence,
+  not a fresh full-unit run. `docs/native-files-picker-proof-2026-10-24.md`.
+- **Preserved recovery:** local-only `50d07e6` retains `00be9dc` and preserving
+  merge61c0566; coherent failed-selection/loaded-draft regressions2/0/0. Full
+  original-project recovery UI and units remain unfinished, not included in #974.
+
 ### T-1127 — Clear the hosted Pages-card compile failure on original #974
 
 - **Owner:** codex (Jarvis), same original `codex/T-1125-talk-owner-fence` branch.

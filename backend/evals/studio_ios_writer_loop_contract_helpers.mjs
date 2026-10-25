@@ -47,7 +47,11 @@ export function xcresultFailureDetails(testResults) {
         .map((value) => String(value || "").trim())
         .filter(Boolean)
         .join(" — ");
-      if (message) details.push(`${label}: ${message}`);
+      // A single XCTest message can contain the entire UI hierarchy. Preserve
+      // its assertion headline here so the outer bounded tail cannot erase it;
+      // the retained xcresult still owns the complete hierarchy/screenshots.
+      if (message) details.push(`${label}: ${message.slice(0, 2_000)}`
+        + (message.length > 2_000 ? "\n[details truncated; see retained xcresult]" : ""));
     }
     for (const child of Array.isArray(node.children) ? node.children : []) visit(child);
   };
