@@ -67,8 +67,9 @@ test('refusal survives legacy intent wrapping and prompt trimming without changi
 });
 
 test('authoritative ASR refusal cancels the existing Page hold before generation, not the conversation', async () => {
+  for (const storeOwnsWallet of [true, false]) {
   const wallet = createWalletStore({ initialBalances: { writer: { page: 5 } } });
-  const pages = createPageReservationStore({ walletStore: wallet });
+  const pages = createPageReservationStore({ walletStore: storeOwnsWallet ? wallet : null });
   const before = wallet.getBalance('writer');
   const req = { body: { screenplay_target: 'page', session_id: 'session', max_output_tokens: 400, screenplay_generation_transcript: 'Rewrite the last scene.' }, authUser: { id: 'writer' } };
   const res = new EventEmitter();
@@ -88,6 +89,7 @@ test('authoritative ASR refusal cancels the existing Page hold before generation
       const meta = { screenplayTarget: 'page' };
       const words = 'Do not rewrite my scene. Just discuss it.';
       assert.equal(enforceScreenplayWriteRefusal(request, meta, words), true);
+      assert.equal(enforceScreenplayWriteRefusal(request, meta, words), true, 'repeated refusal must not release funds twice');
       assert.equal(meta.screenplayTarget, 'voice_pin');
       assert.equal(request.body.client_transcript, words);
       assert.equal(request.clementine.lane, LANE.COMPANION);
@@ -103,4 +105,5 @@ test('authoritative ASR refusal cancels the existing Page hold before generation
   assert.equal(pages.get(reservationId).status, 'cancelled');
   assert.equal(pages.get(reservationId).cancelReason, 'writer_refused');
   assert.deepEqual(wallet.getBalance('writer'), before);
+  }
 });

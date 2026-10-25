@@ -127,7 +127,7 @@ final class ScreenplayPreviewCancellationTests: XCTestCase {
 #if os(iOS)
     private func makeCoordinator(text: Binding<String>) -> IOSCursorInsertTextEditor.Coordinator {
         IOSCursorInsertTextEditor(
-            text: text, documentID: "preview-cancellation-test",
+            text: text,
             activeScreenplayElement: .constant(.action),
             insertionRequest: .constant(nil), lineJumpRequest: .constant(nil),
             lineHighlightRequest: .constant(nil), anchoredTextRectRequest: .constant(nil),

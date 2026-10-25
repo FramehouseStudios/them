@@ -32,7 +32,7 @@ Balanced-quote trailing directions remain instructions, and explicit Page/
 Continue hints retain priority. Unquoted colon-attributed/read-back lines are
 handled by the existing policy. This is not an authorization or billing change.
 
-## Current proof — scopes kept separate
+## Initial backend-only proof atf63c13d — superseded by Home checkpoint below
 
 - Signed/native/UI/macOS proof for this641tree has NOT run yet. Do not claim
   historical637/644 or inherited parent646 units as new combined-tree proof.
@@ -70,7 +70,7 @@ scorer/approval guards8/0/0 and D009 deltas0, plus parent640 gate regressions
 7/0/0 and numeric D009. Their updated local heads are4c61d5a and22bf182;
 neither public child was advanced or given an unchanged fresh native-suite claim.
 
-## First remaining integration failure — Home voice preparation order
+## Home voice preparation failure at the initial checkpoint
 
 VERIFIED source ordering still prepares turn-based/realtime requests before
 opening Studio. The newly protected page-routing boundary correctly requires
@@ -94,7 +94,7 @@ Original638run40176990546 and974run40175219157 are live, not declared green.
 No paid model, physical microphone/phone, shipping backend, production change,
 integrated-main or whole-product completion claim follows from this checkpoint.
 
-## Exact final diff manifest versus prepared640 parent22bf182
+## Initial641 diff manifest atf63c13d versus prepared640 parent22bf182
 
 - TASKS.md
 - backend/evals/clementine/scenes.jsonl
@@ -124,3 +124,103 @@ integrated-main or whole-product completion claim follows from this checkpoint.
 - them/ScreenplayIntentClassifier.swift
 - themTests/HerVoiceSpecMentorCoreParityTests.swift
 - themTests/ScreenplayIntentClassifierTests.swift
+
+## Connected Home checkpoint — current local source
+
+Preserved existing6e7138b1 as250161c, native refusal/barge-in corrections from
+8ffa3992 as9dd2332, Stop/preview ownership51ec42d8 as6213992, and cross-client/
+server refusal6ccee79 asba8e808. Attribution/history remain; no broad backup
+merge or replacement STT service. Historical ledger conflicts keep both sides
+with explicit dated headings, not new proof claims.
+
+Two integration corrections were necessary. A later test constructor supplied
+`documentID`, absent at this boundary: initial native attempt failed to build,
+not a reproduced runtime failure. Adapt only the test helper to the existing
+initializer. The resulting single compound-command test genuinely failed0/1/0:
+page refusal incorrectly blocked a separate positive request to open Studio.
+Opening permission now remains separate from page-mutation permission; the
+actual page refusal guard is not relaxed.
+
+Focused Node first failed13/2/0. The imported refusal adapter referenced a
+later `settleWallet` closure unavailable here, also causing the real handler's
+missing Companion header/recovered failure. Use the existing Page-cancel owner
+and idempotent canonical wallet.release, including an independently supplied
+wallet. The regression now exercises both store configurations and repeated
+refusal without double refund. Corrected focused15/0/0; assertions retained.
+
+VERIFIED final local source, all signed native runs erase only owned simulator
+91693AF0-AE2C-4FAD-9F4C-EC4C92AA382A, iPhone17Pro/iOS26.2:
+
+- Full pinned Node20.20.2 backend2803 pass/0 fail/2 skip, exit0. Real PostgreSQL
+  without DATABASE_URL and the opt-in Page-response case remain skipped.
+- Complete signed themTests681/0/0, exit0, including both earlier failures.
+- Confirmed and raw Home journeys2/0/0: full native scene, one marker, exact
+  authenticated saved version, exact editor restoration on relaunch (outer
+  whitespace trimmed). Raw case deliberately starts with a stale transcript.
+- Longer-audio raw Home1/0/0, not merely the shortened-audio fixture.
+- Actual Studio Stop button1/0/0: capture ends, native baseline restored,
+  no late text or rearming during the asserted window.
+- Actual Studio write-refusal1/0/0: even with Page selected and the test provider
+  returning screenplay-shaped text, the exact draft/version collection is kept.
+- Existing authenticated manual writer workflow1/0/0, zero mocked provider
+  calls. It covers save/export handoff/relaunch, not a file opened outside THEM.
+- Mac scaffold BUILD SUCCEEDED/exit0; build-only, never unsigned iOS testing.
+- Offline golden40 exemplar pairs/eight prompt checks pass, not live quality.
+- D009 versus actual public parentc8eb36b: index33557(-69), Studio17431(-4),
+  Root14992(-120), bridge12926(-26), memory10865(0). Diff check passes.
+
+UI orchestration/local server used Node24.19.0; full backend used Node20.20.2.
+`run_home_voice_handoff_ui_smoke.mjs` pins synthetic ASR/chat/TTS and blocks
+external fetches. Its task-local XCODEBUILD wrapper only supplies isolated
+DerivedData; selectors, signing, assertions, timeouts and strict summary counts
+remain unchanged. No private environment or real provider key was copied.
+
+Canonical UI command: set explicit IOS_SIMULATOR_DESTINATION above,
+THEM_HOME_VOICE_RESULT_BUNDLE to a distinct result, and
+XCODEBUILD=/private/tmp/them-1143-home-xcodebuild.sh; invoke
+`node backend/evals/run_home_voice_handoff_ui_smoke.mjs`. Default selects the
+Home pair; ONLY_TESTING selects the named long-raw, Stop, refusal or existing
+writer case. Longer audio sets THEM_HOME_VOICE_LONG_AUDIO=1 for raw/Stop only.
+All exact terminal logs/bundles and before failures are retained separately in
+`/Users/halfmutantfilms/io.them-worktrees/_proof/T-1143-Home-20261025.GyBsBM/`.
+
+Additional Home files, alongside the initial manifest above:
+
+- Packages/DraftStudio/Sources/DraftStudio/DraftStudio.swift
+- Packages/DraftStudio/Sources/DraftStudio/DraftStudioPageWritePolicy.swift
+- backend/evals/home_voice_provider_fixture.mjs
+- backend/evals/run_home_voice_handoff_ui_smoke.mjs
+- backend/lib/screenplay_turn_target.js
+- backend/lib/screenplay_write_instruction.js
+- backend/lib/talk_handler.js
+- backend/tests/fixtures/screenplay_write_refusal.json
+- backend/tests/helpers/screenplay_refusal_provider.mjs
+- backend/tests/home_voice_provider_fixture.test.mjs
+- backend/tests/screenplay_write_refusal.integration.test.mjs
+- backend/tests/screenplay_write_refusal.test.mjs
+- docs/confirmed-home-voice-routing-2026-10-16.md (historical)
+- docs/preview-cancellation-2026-10-20.md (historical)
+- them/ConfirmedStudioTurnPreparation.swift
+- them/HerVoiceController.swift
+- them/ScreenplayDeferredPublicationGate.swift
+- them/ScreenplayLiveDraftBridge.swift
+- them/ScreenplayStudioTypes.swift
+- themTests/ClementineVoiceSettingsBargeInTests.swift
+- themTests/ConfirmedStudioTurnPreparationTests.swift
+- themTests/ScreenplayPageWriteRefusalTests.swift
+- themTests/ScreenplayPreviewCancellationTests.swift
+- themTests/StudioThreadViewStateSupportTests.swift
+
+Original638 head0b56861/run40176990546 and974 headf4aca4a/run40175219157 are
+now terminal green in all three required jobs. Main is still78b8c94;638 remains
+draft/REVIEW_REQUIRED. Independent personal review was requested for exact0b.
+No child public head was advanced during this preparation. Local641 still needs
+the protected parent sequence and its own fresh hosted checks/review.
+
+Not covered: physical microphone/phone, live reply quality, intended shipping
+backend, outside-app file opening, in-flight auth/project changes for this Home
+path, populated-project Stop or paid Stop refund. Raw Home still has the dated
+two-call limitation; reconcile canonical original807 before shipping. This
+checkpoint does not replace the separate stronger recovery/owner-fence branch,
+prove the entire stack, authorize a paid call, lift production hold or establish
+integrated-main/product completion. Existing Swift6 warnings remain.

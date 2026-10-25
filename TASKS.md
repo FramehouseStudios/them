@@ -41,6 +41,14 @@
   Own only the existing Root/intent/bridge seams, extracted canonical helpers,
   associated native/fixture tests/runner and handoff. No broader backup merge,
   parallel STT service, production or paid-provider work.
+- **Home checkpoint:** attributed250161c/9dd2332/6213992/ba8e808 preserve
+  existing Home/refusal/echo/Stop work. Adapted old test initializer; native
+  compound-open regression0/1/0 and Node refusal13/2/0 corrected at canonical
+  owners, not by weaker assertions. Final Node20 backend2803/0/2, signed full
+  units681/0/0, Home pair2/0/0, long raw1/0/0, Stop1/0/0, refusal1/0/0,
+  unchanged writer1/0/0, Mac exit0, offline40pairs/8checks and D009/diff pass.
+  No physical/live/production/main completion claim. Parent638/974 now hosted
+  green;638 exact0b56861 awaits independent review. Public children stay held.
 
 ### Historical T-1093 — Confirmed Home writer checkpoint (not current proof)
 

@@ -347,7 +347,10 @@ function createPageLaneTalkAdapter({
         // Cancel through the existing owner so linked wallet/cancel observers
         // see the revocation. A conversation must not inherit its aborted signal.
         if (reservation?.id) pageReservationStore.cancel(reservation.id, { reason: "writer_refused" });
-        settleWallet(false);
+        // cancel releases a linked hold when the store has wallet DI. The
+        // adapter also supports an independently supplied wallet; release is
+        // idempotent, so both configurations use the same canonical owner.
+        if (walletReservation?.reservationId) walletStore?.release?.(walletReservation.reservationId);
         markTalkAsDiscussion(req, res);
       },
       reservationId: reservation?.id || null,
