@@ -540,6 +540,25 @@
   merge61c0566; coherent failed-selection/loaded-draft regressions2/0/0. Full
   original-project recovery UI and units remain unfinished, not included in #974.
 
+### T-1132 — Bind native export presentation to its own immutable request
+
+- **Owner:** codex (Jarvis), original #974 branch; parent7428be7, runtime3b4d454.
+  Hosted run40160014884: units/backend2964/0/4/D009 pass, writer0/1/0 fails on
+  second Files export after cancel. Native hierarchy proves the coordinator is
+  still busy after Files disappears; later hosted stages skipped. The nullable
+  callback capture is the source-level diagnosis, not an instrumented callback
+  trace. Do not waive the red result because #975's separate writer passed.
+- **Fix:** private immutable-request Files host, independent of Studio/editor
+  identity; request-scoped presentation binding, unchanged canonical context and
+  stale-callback guards. No global-ID callback fallback or test delay.
+- **Proof:** signed focused19/0/0; unchanged actual writer/native cancel/re-export/
+  save/relaunch UI1/0/0; full signed948/0/0; Mac build0, D009/diff pass. Backend
+  unchanged, parent Node20 backend2964/0/4 inherited. No paid/phone/deploy claim.
+- **Next:** normal descendant push on original #974, fresh hosted26.5 checks;
+  preserve this into #975/T-1130 and finish that combined checkpoint. T-1130
+  remains safely local389de8c, not included here. Details and actual archive paths
+  in `docs/native-export-presentation-identity-2026-10-24.md`.
+
 ### T-1129 — Keep isolated question fixtures stable through outbox notifications
 
 - **Owner:** codex (Jarvis), original #974 branch; parent2369367. Hosted
