@@ -142,6 +142,22 @@ extension Notification.Name {
 enum StudioActionDispatcher {
     static let userInfoKey = "action"
 
+    /// One logical turn owns one document snapshot and dispatch lease, even if
+    /// transport fails after headers and the caller retries the request.
+    static func handlingRequest<Result>(
+        bridge: ScreenplayLiveDraftBridge? = nil,
+        studioOpen: @escaping () -> Bool,
+        openStudio: @escaping () -> Void,
+        center: NotificationCenter = .default,
+        isCurrent: @escaping () -> Bool = { true },
+        onResponse: @escaping (BackendTalkResponseMetadata) -> Void,
+        request: @escaping (@escaping (BackendTalkResponseMetadata) -> Void) async throws -> Result
+    ) -> () async throws -> Result {
+        let response = handlingResponse(bridge: bridge, studioOpen: studioOpen,
+            openStudio: openStudio, center: center, isCurrent: isCurrent, onResponse: onResponse)
+        return { try await request(response) }
+    }
+
     /// Resolve visibility when the response arrives, dispatch its validated
     /// actions, then pass the unchanged response to the existing voice path.
     static func handlingResponse(

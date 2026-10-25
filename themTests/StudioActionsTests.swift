@@ -2,6 +2,59 @@ import XCTest
 @testable import them
 
 final class StudioActionsTests: XCTestCase {
+    @MainActor
+    func test_retried_request_dispatches_once_but_forwards_each_response() async throws {
+        let center = NotificationCenter()
+        var actions = 0
+        var forwards = 0
+        var attempts = 0
+        let token = center.addObserver(forName: .themStudioActionRequested, object: nil, queue: nil) { _ in actions += 1 }
+        defer { center.removeObserver(token) }
+        let response = BackendTalkResponseMetadata(
+            audioDurationMs: nil, renderContract: .default, timingSource: nil,
+            screenplayOutput: nil, screenplayQuality: nil, screenplayCues: [], dialogueTimeline: nil,
+            creativeMemoryTrace: .empty, screenplayTrace: .empty, reply: "Saving the draft.",
+            suggestion: nil, uncertainty: nil, collabCursor: nil, samanthaPresence: nil,
+            presenceHistory: [], presenceBargeAt: nil, presenceBargeReason: nil, voiceLearn: nil,
+            vulnAsk: nil, vulnOptions: [], studioActions: [.init(type: "save_draft")]
+        )
+        let request = StudioActionDispatcher.handlingRequest(
+            studioOpen: { true }, openStudio: {}, center: center,
+            onResponse: { _ in forwards += 1 }, request: { deliver in
+                attempts += 1
+                deliver(response)
+                if attempts == 1 { throw URLError(.networkConnectionLost) }
+                return 42
+            }
+        )
+        do {
+            _ = try await request()
+            XCTFail("The first attempt must lose transport after response headers")
+        } catch let error as URLError {
+            XCTAssertEqual(error.code, .networkConnectionLost)
+        }
+        let result = try await request()
+        XCTAssertEqual(result, 42)
+        XCTAssertEqual(attempts, 2)
+        XCTAssertEqual(forwards, 2, "Metadata forwarding is not a second action receipt")
+        XCTAssertEqual(actions, 1, "An outer retry cannot recreate the save/rewrite dispatch lease")
+
+        var current = true
+        var lateResponse: ((BackendTalkResponseMetadata) -> Void)?
+        let following = StudioActionDispatcher.handlingRequest(
+            studioOpen: { true }, openStudio: {}, center: center, isCurrent: { current },
+            onResponse: { _ in forwards += 1 }, request: { deliver in
+                lateResponse = deliver
+                return 0
+            }
+        )
+        _ = try await following()
+        current = false
+        lateResponse?(response)
+        XCTAssertEqual(actions, 1, "Stop or a newer turn must fence a delayed action even when the draft is unchanged")
+        XCTAssertEqual(forwards, 3, "The existing metadata path remains distinct from action dispatch")
+    }
+
     func test_actions_match_only_the_original_authenticated_document_bytes() {
         let auth = ScreenplayStudioAuthContext(userID: "writer-a", sessionIntentGeneration: 7)
         let expected = StudioActionDocumentContext(auth: auth, projectID: "project-a", draft: "Café", isAuthenticated: true)
