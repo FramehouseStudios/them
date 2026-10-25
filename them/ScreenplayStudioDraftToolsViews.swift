@@ -722,6 +722,7 @@ private struct ScreenplayStudioDraftToolsTabs: View {
                         lineWidth: isActive ? 1.3 : 1
                     )
             )
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel(section.title)

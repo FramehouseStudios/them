@@ -8,9 +8,10 @@
 ### T-1138 — Preserve original golden-set PR639 with explicit spend approval
 
 - **Owner:** codex (Jarvis). **Branch:** `codex/T-1138-original-639-parent`.
-- **Status:** locally proven, publication held for parent CI. Original639
-  `5722514` and updated
-  original638 `612bf17` preserved by merge `946a3c9`; actual base remains
+- **Status:** prior local proof retained; refresh includes original638's
+  proven tab hit-target repair0b56861. Publication held for parent CI.
+  Original639 `5722514` and prior original638 `612bf17` are preserved by
+  merge `946a3c9`; actual base remains
   `claude/mentor-core-port`. No replacement PR or main change.
 - **Root:** original weekly workflow spent automatically. Attributed existing
   fix6c55d9b backported as49486db: scheduled offline-only; explicit live approval;
@@ -33,11 +34,37 @@
   prompt checks; D009/diff and static workflow safety pass. Evidence:
   `docs/original-639-parent-2026-10-25.md`.
 
+### T-1142 — Fix the original638 hosted Snapshots-pane failure
+
+- **Owner:** codex. **Branch:** `codex/T-1142-draft-pane-navigation`.
+  **Status:** original638 advanced normally to0b56861; fresh hosted run
+  40176990546 is in progress, not a declared pass.
+  Retained recording/hierarchy shows Revisions stays
+  selected after the Snapshots tap. The inactive button's icon/text-only
+  accessibility frame is33.6pt high; the event lands in its clear inter-item gap.
+  Original638 head612bf17/run40171307411 remains terminal red.
+- **Observed:** broad V1 test `test_draft_tools_tabs_route_to_each_presentation_pane`
+  reaches Pages and Revisions, taps Snapshots, then fails the snapshot-tools
+  element assertion at line613. Later voice/macOS step is skipped. Do not
+  treat earlier local633/0/0 or writer1/0/0 as clearing this hosted failure.
+- **Target:** one full rectangular touch target per draft-tools tile, retaining
+  current visuals/selection/routing. Own only DraftToolsViews, its existing UI
+  workflow regression, this entry and the failure handoff; basee63c6e0.
+  Prove minimum44pt target height and one padding tap per route, selected state,
+  real pane/note/create controls, and return to Pages. No longer timeout or retry.
+- **Proof:** signed red0/1/0 (inactive target34.24pt); corrected UI3/0/0,
+  full units633/0/0, authenticated local writer1/0/0, Mac build exit0, D009
+  numeric deltas0/diff pass. Backend unchanged, same tree as hosted2750/0/2;
+  not rerun. Fresh hosted checks and independent review remain required.
+- **Evidence:** `docs/hosted-draft-pane-failure-2026-10-25.md`. Main unchanged;
+  no further review action needed until a corrected exact head is provided.
+
 ### T-1137 — Preserve original mentor-core PR 638 on current main
 
 - **Owner:** codex (Jarvis). **Branch:** `codex/T-1137-original-638-mainline`.
-- **Status:** locally proven; original draft publication pending fresh checks
-  and independent review. No main or production change.
+- **Status:** prior612bf17 hosted failure retained at T-1142 above; corrected
+  head0b56861 is published with fresh checks running. Independent review still
+  required; no main or production change.
 - **Target:** update original #638 with a preserving merge of current main,
   not a replacement PR or rehearsal rollup. Preserve original638 `6ad4117`
   and main `78b8c94`; clean merge checkpoint `8bc3f5a`.
