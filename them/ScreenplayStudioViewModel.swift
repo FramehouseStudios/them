@@ -2213,7 +2213,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
 
     @discardableResult
     func adoptCommittedPageWriteIfNeeded(_ committedWrite: ScreenplayCommittedWrite) -> Bool {
-        guard committedWrite.isAuthoritativeWrite else { return false }
+        guard committedWrite.isAuthoritativeWrite, authContextIsCurrent(committedWrite.authContext) else { return false }
         let bridge = ScreenplayLiveDraftBridge.shared
         let committedProjectID = ScreenplayLiveDraftBridge.resolvedCommittedWriteProjectID(
             committedWrite,
@@ -2247,14 +2247,10 @@ final class ScreenplayStudioViewModel: ObservableObject {
             dirty: true
         )
         let saveIntent = resolvedDraftSaveIntent(for: committedDraft)
-        Task {
-            await saveCurrentDraft(
-                source: saveIntent.source,
-                notes: saveIntent.notes,
-                draftOverride: committedDraft,
-                requestIDOverride: committedWrite.id.uuidString.lowercased()
-            )
-        }
+        guard let request = makeDraftSaveRequest(draft: committedDraft, source: saveIntent.source,
+            notes: saveIntent.notes, baseVersionOverride: nil,
+            requestIDOverride: committedWrite.id.uuidString.lowercased()) else { return true }
+        Task { await submitDeferredDraftSave(request) }
         return true
     }
 
@@ -6202,7 +6198,9 @@ final class ScreenplayStudioViewModel: ObservableObject {
             return
         }
 
-        Task { await saveCurrentDraft(source: source) }
+        guard let request = makeDraftSaveRequest(draft: fountainDraft, source: source, notes: "",
+            baseVersionOverride: nil) else { return }
+        Task { await submitDeferredDraftSave(request) }
     }
 
     func handleDraftDebouncedChange(_ draft: String) async {
@@ -6483,12 +6481,6 @@ final class ScreenplayStudioViewModel: ObservableObject {
         draftOverride: String? = nil,
         requestIDOverride: String? = nil
     ) async {
-        #if DEBUG
-        if OfflineTalkPageRecoveryUITestFixture.holdsSaveAdmission(projectID: selectedProjectID) {
-            errorText = "Recovery save admission interrupted. Your page is kept locally."
-            return
-        }
-        #endif
         guard let request = makeDraftSaveRequest(
             draft: draftOverride ?? fountainDraft,
             source: source,
@@ -6508,7 +6500,34 @@ final class ScreenplayStudioViewModel: ObservableObject {
         await submitDraftSave(request)
     }
 
+    /// Capture before deferring. A later selection, login or receipt cannot
+    /// reinterpret an earlier page as a save of the newly selected project.
+    private func submitDeferredDraftSave(_ request: DraftSaveRequest) async {
+        guard !Task.isCancelled, authContextIsCurrent(request.authContext),
+              selectedProjectID == request.projectId, isSelectedProjectDraftLoaded,
+              latestVersionID == request.baseVersionId else {
+            do {
+                var retained = request.outboxEntry
+                retained.status = .parked
+                retained.nextAttemptAt = 0
+                retained.lastError = "Page save retained after its account, project, or saved version changed."
+                try await draftSaveOutbox.enqueue(retained)
+            } catch {
+                guard authContextIsCurrent(request.authContext), selectedProjectID == request.projectId else { return }
+                errorText = "Your local page is preserved, but its waiting save could not be retained: \(error.localizedDescription)"
+            }
+            return
+        }
+        await submitDraftSave(request)
+    }
+
     private func submitDraftSave(_ request: DraftSaveRequest) async {
+        #if DEBUG
+        if OfflineTalkPageRecoveryUITestFixture.holdsSaveAdmission(projectID: request.projectId) {
+            errorText = "Recovery save admission interrupted. Your page is kept locally."
+            return
+        }
+        #endif
         var next: DraftSaveRequest? = request
         while let current = next {
             guard draftSaveSlot.claim(current) else { return }

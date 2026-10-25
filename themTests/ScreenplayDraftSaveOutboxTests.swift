@@ -2,6 +2,78 @@ import XCTest
 @testable import them
 
 final class ScreenplayDraftSaveOutboxTests: XCTestCase {
+    @MainActor
+    func testPageAdoptionRejectsACommitFromAnotherAccountBeforeChangingWriterText() async throws {
+        let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let suite = "them.stale-page-owner.\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: .init(defaults: defaults), draftSaveOutbox: queue)
+        model.autosaveEnabled = false
+        model.selectedProjectID = "same-project-string"
+        let before = "INT. ROOM - NIGHT\n\nThe current writer's page."
+        model.applyStructuralUITestDraft(before, versionID: "current-base")
+        let current = ScreenplayStudioAuthContext.current()
+        let write = ScreenplayCommittedWrite(id: UUID(), writeID: "late-previous-account",
+            projectID: model.selectedProjectID, previousDraft: before,
+            committedDraft: before + "\nPrevious account's late scene.", insertedText: "Late scene.",
+            replacementApplied: false, replacedWriteID: nil, startLine: 4, endLine: 5, committedAt: Date(),
+            authContext: .init(userID: current.userID + "-other", sessionIntentGeneration: current.sessionIntentGeneration))
+        XCTAssertFalse(model.adoptCommittedPageWriteIfNeeded(write))
+        XCTAssertEqual(Data(model.fountainDraft.utf8), Data(before.utf8))
+        let entries = try await queue.entriesForTesting()
+        XCTAssertTrue(entries.isEmpty)
+        await queue.stopNetworkMonitoring()
+    }
+
+    @MainActor
+    func testDeferredPageSaveKeepsItsOriginalProjectAfterSelectionChanges() async throws {
+        let owner = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""
+        let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let suite = "them.deferred-page-owner.\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let recovery = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "recovery")
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: recovery, draftSaveOutbox: queue)
+        model.autosaveEnabled = false
+        func project(_ id: String) throws -> BackendScreenplayProjectSummary {
+            try JSONDecoder().decode(BackendScreenplayProjectSummary.self,
+                from: JSONSerialization.data(withJSONObject: ["id": id, "title": id]))
+        }
+        let original = try project("page-owner-a"), other = try project("project-1")
+        model.selectedProjectID = original.id; model.selectedProject = original
+        model.applyStructuralUITestDraft("INT. ORIGINAL ROOM - NIGHT", versionID: "original-version")
+        let before = model.fountainDraft, after = before + "\n\nMARA\nOnly in the original screenplay."
+        // Keep B's existing save queued. The actual model must not enqueue A's
+        // scene behind it; no HTTP or substituted save implementation is needed.
+        try await queue.enqueue(replacingOwner(of: makeEntry(id: "other-project-writer", draft: "B's separate words"), with: owner))
+        let write = ScreenplayCommittedWrite(id: UUID(), writeID: "deferred-page-owner", projectID: original.id,
+            previousDraft: before, committedDraft: after, insertedText: "MARA\nOnly in the original screenplay.",
+            replacementApplied: false, replacedWriteID: nil, startLine: 3, endLine: 4, committedAt: Date())
+        XCTAssertTrue(model.adoptCommittedPageWriteIfNeeded(write))
+        // Both operations run on MainActor before the deferred save task starts.
+        // B's selection is intentionally not hydrated yet.
+        model.selectedProjectID = other.id; model.selectedProject = other
+        let requestID = write.id.uuidString.lowercased()
+        var retained: ScreenplayDraftSaveOutboxEntry?
+        let deadline = Date().addingTimeInterval(3)
+        repeat {
+            retained = try await queue.entriesForTesting().first { $0.id == requestID }
+            if retained == nil { try await Task.sleep(for: .milliseconds(10)) }
+        } while retained == nil && Date() < deadline
+        let entry = try XCTUnwrap(retained, "The original page save must remain recoverable after switching projects.")
+        XCTAssertEqual(entry.projectId, original.id, "A deferred task must not rebuild A's save against selected project B.")
+        XCTAssertEqual(entry.ownerUserId, owner)
+        XCTAssertEqual(entry.baseVersionId, "original-version")
+        XCTAssertEqual(Data(entry.draft.utf8), Data(after.utf8))
+        XCTAssertEqual(entry.status, .parked, "An inactive project's write stays held, not runnable under the current page.")
+        let entries = try await queue.entriesForTesting()
+        XCTAssertEqual(entries.filter { $0.projectId == other.id }.map(\.draft), ["B's separate words"])
+        XCTAssertEqual(model.selectedProjectID, other.id)
+        XCTAssertEqual(recovery.payloads(ownerUserId: owner)[original.id]?["draft"] as? String, after)
+        await queue.stopNetworkMonitoring()
+    }
+
     func testSatisfiedAutosaveRequiresExactAcknowledgedBytesBaseAndPassiveIntent() {
         let raw = "  INT. ROOM - NIGHT\r\nCafe\u{0301}. \t\n"
         XCTAssertTrue(ScreenplayDraftSaveCoalescingPolicy.isSatisfiedAutosave(draft: raw,
