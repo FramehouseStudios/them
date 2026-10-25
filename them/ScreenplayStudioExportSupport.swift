@@ -343,6 +343,13 @@ final class ScreenplayStudioExportCoordinator: ObservableObject {
         invalidate()
     }
 
+    func presentationBinding(for presentedID: UUID) -> Binding<Bool> {
+        Binding(
+            get: { self.requestID == presentedID && self.isPresented },
+            set: { if self.requestID == presentedID { self.isPresented = $0 } }
+        )
+    }
+
     func invalidateIfContextChanged() {
         if let deps = pendingDependencies, !deps.isCurrentContext() { invalidate() }
     }
@@ -364,17 +371,14 @@ struct ScreenplayStudioExportPresentation: ViewModifier {
     @ObservedObject var coordinator: ScreenplayStudioExportCoordinator
 
     func body(content: Content) -> some View {
-        let requestID = coordinator.requestID
         content
 #if !os(macOS)
-            .fileExporter(
-                isPresented: $coordinator.isPresented,
-                document: coordinator.document,
-                contentTypes: [coordinator.document?.contentType ?? .data],
-                defaultFilename: coordinator.document?.filename,
-                onCompletion: { coordinator.complete($0, requestID: requestID) },
-                onCancellation: { coordinator.cancel(requestID: requestID) }
-            )
+            .background {
+                if let requestID = coordinator.requestID, let document = coordinator.document {
+                    ScreenplayStudioFileExporterHost(coordinator: coordinator, requestID: requestID, document: document)
+                        .id(requestID)
+                }
+            }
 #endif
             .onDisappear { coordinator.studioDidDisappear() }
             .onReceive(NotificationCenter.default.publisher(for: .themBackendIdentityPartitionChanged).receive(on: RunLoop.main)) { _ in
@@ -385,3 +389,26 @@ struct ScreenplayStudioExportPresentation: ViewModifier {
             }
     }
 }
+
+#if !os(macOS)
+/// Create the presenter only after its immutable request/artifact exist. The
+/// reusable Studio modifier must not install callbacks with a nil/previous ID.
+/// Its identity changes without recreating the editor or Studio's view state.
+private struct ScreenplayStudioFileExporterHost: View {
+    @ObservedObject var coordinator: ScreenplayStudioExportCoordinator
+    let requestID: UUID
+    let document: ScreenplayStudioExportDocument
+
+    var body: some View {
+        Color.clear.frame(width: 0, height: 0)
+            .fileExporter(
+                isPresented: coordinator.presentationBinding(for: requestID),
+                document: document,
+                contentTypes: [document.contentType],
+                defaultFilename: document.filename,
+                onCompletion: { coordinator.complete($0, requestID: requestID) },
+                onCancellation: { coordinator.cancel(requestID: requestID) }
+            )
+    }
+}
+#endif
