@@ -137,6 +137,9 @@ final class OfflineTalkPageRecoveryController: ObservableObject {
         guard continuing || vm.latestVersionID == baseVersion else {
             throw BackendError.stage("offline_outbox", "The saved version changed while preparing recovery. Your reply is kept; no text was added.")
         }
+        #if DEBUG
+        try OfflineTalkPageRecoveryUITestFixture.interruptInsertionIfNeeded(receiptID: packet.response.id)
+        #endif
         var inserted = false
         if (continuing || (plan.permitsInsertion(project: project, document: bridge.draftOrigin.documentID, draft: bridge.draftText)
             && plan.baseVersionID == vm.latestVersionID)),

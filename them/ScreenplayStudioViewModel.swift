@@ -6483,6 +6483,12 @@ final class ScreenplayStudioViewModel: ObservableObject {
         draftOverride: String? = nil,
         requestIDOverride: String? = nil
     ) async {
+        #if DEBUG
+        if OfflineTalkPageRecoveryUITestFixture.holdsSaveAdmission(projectID: selectedProjectID) {
+            errorText = "Recovery save admission interrupted. Your page is kept locally."
+            return
+        }
+        #endif
         guard let request = makeDraftSaveRequest(
             draft: draftOverride ?? fountainDraft,
             source: source,

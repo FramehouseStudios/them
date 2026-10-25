@@ -2276,16 +2276,28 @@ final class V1SmokeUITests: XCTestCase {
 
     @MainActor
     func test_queued_talk_reply_plays_appends_saves_and_restores_once() async throws {
-        try await assertQueuedTalkReplyRecovery(interruptAcknowledgement: false)
+        try await assertQueuedTalkReplyRecovery(interruption: .none)
     }
 
     @MainActor
     func test_queued_talk_reply_plays_resumes_saved_plan_after_project_switch_without_resaving() async throws {
-        try await assertQueuedTalkReplyRecovery(interruptAcknowledgement: true)
+        try await assertQueuedTalkReplyRecovery(interruption: .acknowledgement)
     }
 
     @MainActor
-    private func assertQueuedTalkReplyRecovery(interruptAcknowledgement: Bool) async throws {
+    func test_queued_talk_reply_plays_resumes_prepared_plan_before_insertion_once() async throws {
+        try await assertQueuedTalkReplyRecovery(interruption: .insertion)
+    }
+
+    @MainActor
+    func test_queued_talk_reply_plays_resumes_inserted_page_before_save_admission_once() async throws {
+        try await assertQueuedTalkReplyRecovery(interruption: .saveAdmission)
+    }
+
+    private enum QueuedTalkRecoveryInterruption { case none, insertion, saveAdmission, acknowledgement }
+
+    @MainActor
+    private func assertQueuedTalkReplyRecovery(interruption: QueuedTalkRecoveryInterruption) async throws {
         guard let port = Int(ProcessInfo.processInfo.environment["THEM_UITEST_WRITER_LOOP_BACKEND_PORT"] ?? "") else {
             throw XCTSkip("Task-owned authenticated backend required; no injected success")
         }
@@ -2300,7 +2312,9 @@ final class V1SmokeUITests: XCTestCase {
             headers: fixture.authorizedHeaders, body: ["draft": before, "phase": "scene_draft", "base_version_id": ""])
         try assertHTTP(saved, context: "Recovery baseline")
         let version = try firstNonEmptyString(saved.payload["version_id"], saved.payload["server_version_id"], message: "Baseline version missing")
-        var app = launchApp(openStudio: true, receiveTalkPage: true, interruptTalkPageAcknowledgement: interruptAcknowledgement,
+        var app = launchApp(openStudio: true, receiveTalkPage: true,
+            interruptTalkPageAcknowledgement: interruption == .acknowledgement,
+            interruptTalkPageInsertion: interruption == .insertion, holdTalkPageSaveAdmission: interruption == .saveAdmission,
             restoreProjectID: projectID,
             restoreVersionID: version, restoreLoadToken: Int(Date().timeIntervalSince1970), launchEnvironment: fixture.appLaunchEnvironment)
         defer { app.terminate() }
@@ -2328,7 +2342,8 @@ final class V1SmokeUITests: XCTestCase {
         try assertHTTP(otherSaved, context: "Other recovery baseline")
         let otherVersion = try firstNonEmptyString(otherSaved.payload["version_id"], otherSaved.payload["server_version_id"], message: "Other version missing")
         app.terminate()
-        app = launchApp(openStudio: true, interruptTalkPageAcknowledgement: interruptAcknowledgement,
+        app = launchApp(openStudio: true, interruptTalkPageAcknowledgement: interruption == .acknowledgement,
+            interruptTalkPageInsertion: interruption == .insertion, holdTalkPageSaveAdmission: interruption == .saveAdmission,
             restoreProjectID: otherID, restoreVersionID: otherVersion,
             restoreLoadToken: Int(Date().timeIntervalSince1970), resetState: false, launchEnvironment: fixture.appLaunchEnvironment)
         XCTAssertTrue(waitForExactWriterLoopDraft(otherDraft, in: app, timeout: 25))
@@ -2367,28 +2382,42 @@ final class V1SmokeUITests: XCTestCase {
         if !append.isHittable { app.swipeUp() }
         XCTAssertTrue(waitForHittability(of: append, timeout: 5)); append.tap()
         let delivered = NSPredicate(format: "label == %@", "Recovered scene saved.")
-        var savedVersionCountBeforeResume: Int?
-        if interruptAcknowledgement {
+        var expectedVersionCountAfterResume: Int?
+        if interruption != .none {
             let error = app.staticTexts["talk.recovery.reply.error"]
-            let interrupted = NSPredicate(format: "label CONTAINS %@", "Saved recovery acknowledgement interrupted")
+            let errorFragment: String
+            switch interruption {
+            case .insertion: errorFragment = "Recovery insertion interrupted"
+            case .saveAdmission: errorFragment = "its saved version is not confirmed"
+            default: errorFragment = "Saved recovery acknowledgement interrupted"
+            }
+            let interrupted = NSPredicate(format: "label CONTAINS %@", errorFragment)
             guard XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: interrupted, object: error)], timeout: 35) == .completed else {
-                XCTFail("The real save did not reach the interruption boundary: \(error.label)"); return
+                XCTFail("The recovery did not reach \(interruption): \(error.label)"); return
             }
             let savedProject = try await writerLoopProject(id: projectID, fixture: fixture)
             let savedVersions = savedProject["versions"] as? [[String: Any]] ?? []
-            XCTAssertEqual(savedVersions.filter { stringValue($0["draft"]).utf8.elementsEqual(expectedDraft.utf8) }.count, 1)
-            let recoveredVersion = try XCTUnwrap(savedVersions.first { stringValue($0["draft"]).utf8.elementsEqual(expectedDraft.utf8) })
-            let recoveredID = try firstNonEmptyString(recoveredVersion["id"], message: "Recovered version identity missing")
-            XCTAssertFalse(stringValue(recoveredVersion["client_request_id"]).isEmpty, "Saved recovery needs its canonical request identity")
-            expectedRestoredDraft = expectedDraft + "\n\nMARA\nKeep these newer saved words."
-            let newerSaved = try await requestJSON(baseURL: base, path: "/screenplay/projects/\(projectID)/version", method: "POST",
-                headers: fixture.authorizedHeaders, body: ["draft": expectedRestoredDraft, "phase": "scene_draft",
-                    "base_version_id": recoveredID, "source": "studio_manual"])
-            try assertHTTP(newerSaved, context: "Newer writer version before recovery acknowledgement")
-            let newerProject = try await writerLoopProject(id: projectID, fixture: fixture)
-            savedVersionCountBeforeResume = (newerProject["versions"] as? [[String: Any]] ?? []).count
+            let matchingVersions = savedVersions.filter { stringValue($0["draft"]).utf8.elementsEqual(expectedDraft.utf8) }
+            XCTAssertEqual(matchingVersions.count, interruption == .acknowledgement ? 1 : 0)
+            if interruption == .acknowledgement {
+                let recoveredVersion = try XCTUnwrap(matchingVersions.first)
+                let recoveredID = try firstNonEmptyString(recoveredVersion["id"], message: "Recovered version identity missing")
+                XCTAssertFalse(stringValue(recoveredVersion["client_request_id"]).isEmpty, "Saved recovery needs its canonical request identity")
+                expectedRestoredDraft = expectedDraft + "\n\nMARA\nKeep these newer saved words."
+                let newerSaved = try await requestJSON(baseURL: base, path: "/screenplay/projects/\(projectID)/version", method: "POST",
+                    headers: fixture.authorizedHeaders, body: ["draft": expectedRestoredDraft, "phase": "scene_draft",
+                        "base_version_id": recoveredID, "source": "studio_manual"])
+                try assertHTTP(newerSaved, context: "Newer writer version before recovery acknowledgement")
+                let newerProject = try await writerLoopProject(id: projectID, fixture: fixture)
+                expectedVersionCountAfterResume = (newerProject["versions"] as? [[String: Any]] ?? []).count
+            } else {
+                XCTAssertEqual(savedVersions.count, 1, "The interrupted path admitted an unexpected save before relaunch")
+                XCTAssertEqual(stringValue(savedVersions.first?["draft"]), before)
+                expectedVersionCountAfterResume = savedVersions.count + 1
+            }
             app.terminate()
-            app = launchApp(openStudio: true, interruptTalkPageAcknowledgement: true,
+            app = launchApp(openStudio: true, interruptTalkPageAcknowledgement: interruption == .acknowledgement,
+                interruptTalkPageInsertion: interruption == .insertion,
                 restoreProjectID: otherID, restoreVersionID: otherVersion,
                 restoreLoadToken: Int(Date().timeIntervalSince1970), resetState: false, launchEnvironment: fixture.appLaunchEnvironment)
             guard waitForExactWriterLoopDraft(otherDraft, in: app, timeout: 25) else {
@@ -2450,8 +2479,8 @@ final class V1SmokeUITests: XCTestCase {
         XCTAssertEqual(occurrenceCount(of: "HOME VOICE HANDOFF", in: draft), 1)
         let project = try await writerLoopProject(id: projectID, fixture: fixture)
         let versions = project["versions"] as? [[String: Any]] ?? []
-        if let savedVersionCountBeforeResume {
-            XCTAssertEqual(versions.count, savedVersionCountBeforeResume, "Acknowledgement retry created another saved version")
+        if let expectedVersionCountAfterResume {
+            XCTAssertEqual(versions.count, expectedVersionCountAfterResume, "Recovery created an unexpected saved version")
         }
         XCTAssertEqual(versions.filter { stringValue($0["draft"]).utf8.elementsEqual(draft.utf8) }.count, 1,
             "One append created multiple saved versions")
@@ -4102,6 +4131,8 @@ final class V1SmokeUITests: XCTestCase {
         receiveTalkReply: Bool = false,
         receiveTalkPage: Bool = false,
         interruptTalkPageAcknowledgement: Bool = false,
+        interruptTalkPageInsertion: Bool = false,
+        holdTalkPageSaveAdmission: Bool = false,
         conflictSaveSuccess: Bool = false,
         liveMemory: Bool = false,
         showPendingScreenplayQuestion: Bool = false,
@@ -4184,6 +4215,8 @@ final class V1SmokeUITests: XCTestCase {
         if receiveTalkReply { arguments.append("--ui-talk-received-reply-fixture") }
         if receiveTalkPage { arguments.append("--ui-talk-page-recovery-fixture") }
         if interruptTalkPageAcknowledgement { arguments.append("--ui-talk-page-recovery-interrupt-ack") }
+        if interruptTalkPageInsertion { arguments.append("--ui-talk-page-recovery-interrupt-insert") }
+        if holdTalkPageSaveAdmission { arguments.append("--ui-talk-page-recovery-hold-save-admission") }
         if conflictSaveSuccess {
             arguments.append("--ui-conflict-save-success")
         }

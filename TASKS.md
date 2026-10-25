@@ -512,6 +512,21 @@
   any undelivered result safely through crashes, owner/origin changes and retry.
   Reuse canonical talk/result/receipt handling; no second conversation store.
 
+### T-1133 — Check prepared and not-yet-admitted recovery across relaunch
+
+- **Owner:** codex (Jarvis), local `codex/T-1133-recovery-crash-boundary`, parent
+  325cfb5. Explicit DEBUG/UI/loopback hooks only; no Release behavior change.
+- **Verified:** prepared plan interrupted before insertion → relaunch B → reopen
+  A → finish → one new saved version → exact native relaunch UI1/0/0. Existing
+  T1130 runtime handled this boundary; no new product fix is claimed. Intercepted
+  ASR/chat/TTS1/2/23; syntax/diff pass.
+- **Not run:** save-admission hold case, unchanged normal/ack variants, full
+  units or Mac on this probe. Stop for new hosted #975 red40160039304 at80a2f66:
+  duplicate server version after auth refresh, failed conflict-relaunch predicate
+  and SIGTERM report; units/writer/broad UI passed, voice/Mac skipped.
+- **Next:** preserve locally; triage the exact hosted source before further
+  probing. `docs/recovery-crash-boundary-2026-10-24.md` records scope and limits.
+
 ### T-1130 — Resume interrupted page recovery without a second write
 
 - **Owner:** codex (Jarvis), `codex/T-1130-recovery-plan-continuity`, parent
