@@ -2,6 +2,29 @@ import XCTest
 @testable import them
 
 final class ScreenplayCoverageTests: XCTestCase {
+    func test_speech_delivery_trims_text_and_stops_before_speaking() {
+        var events: [String] = []
+        let notification = Notification(
+            name: .themClementineSpeakRequested,
+            userInfo: ["text": "  Here's my read.\n"]
+        )
+        ScreenplayCoveragePresentation.deliverSpeech(
+            from: notification, stop: { events.append("stop") }, speak: { events.append($0) }
+        )
+        XCTAssertEqual(events, ["stop", "Here's my read."])
+    }
+
+    func test_speech_delivery_ignores_missing_or_nontext_payload_without_interrupting() {
+        var events: [String] = []
+        for userInfo: [AnyHashable: Any] in [[:], ["text": 42]] {
+            ScreenplayCoveragePresentation.deliverSpeech(
+                from: Notification(name: .themClementineSpeakRequested, userInfo: userInfo),
+                stop: { events.append("stop") }, speak: { events.append($0) }
+            )
+        }
+        XCTAssertTrue(events.isEmpty)
+    }
+
     private let sampleJSON = """
     {"schemaVersion":1,"title":"Kitchen","pageCount":1,"sceneCount":1,"overall":6.6,"grade":"C","verdict":"CONSIDER",
      "pillars":{"structure":{"score":4,"notes":["Too few pages to read an act shape; this is a scene, not a feature yet."]},
