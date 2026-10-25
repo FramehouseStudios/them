@@ -34,6 +34,7 @@ final class V1SmokeUITests: XCTestCase {
 
         let sentence = "She counts seven red lights before the motel sign finally goes dark."
         editor.tap()
+        XCTAssertFalse(app.buttons["studio.prompt.keyboard-send"].exists, "The command bar cannot expose a floating Send while the screenplay editor owns focus")
         editor.typeText(sentence)
 
         XCTAssertTrue(
