@@ -1,5 +1,11 @@
 # T-1152 — Preserved Pages and readable source-safe navigation
 
+Current follow-up: original642 advanced normally to78dc3be after641's hosted
+gate passed.642 then failed hosted compilation before tests; T1154's narrowly
+scoped repair and fresh proof are in `pages-preview-typecheck-2026-10-25.md`.
+The source-specific records below retain their original boundaries, not a
+claim that the hosted failure passed or that current public642 is still7c.
+
 ## Current completed boundary — supersedes the historical checkpoint below
 
 Branch codex/T-1152-original-642-pages, worktree

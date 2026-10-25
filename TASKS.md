@@ -18,8 +18,17 @@
 - **Done when:** signed units and unchanged real Pages UI pass, same230pt
   rendering inspected, macOS/D009/diff pass; normal original642 fast-forward
   with preserved history/base/draft, then fresh hosted gate (not assumed green).
-- **Status:** in-progress. Current6438c50e09 held, its signed unit proof is
-  separate; its backend fetch failure remains a tracked first red to repair.
+- **Proof:** e2a5f9c signed erased units705/0/0; unchanged authenticated Pages
+  workflow1/0/0,8 actual pagination200s and one request per Recalculate;
+  complete230pt render inspected and PNG SHA1 identical94f2b548 to the old
+  sample. Mac/D009/diff pass. Backend is byte-identical to T1152's2839/0/2
+  source, not rerun. Local Xcode26.3 does not prove hosted26.6 success.
+- **Status:** locally proven candidate; normally advance original642 and wait
+  for its fresh hosted gate. Current643da05e289 remains separate: units722/0/0
+  after retry fix; first backend2852/1/2, unchanged cancellation assertions7/0/0
+  after canonical fixture repair, final backend2853/0/2. Parent reconciliation,
+  combined final native/UI/macOS proof and original643 publication still due.
+- **Evidence:** `docs/pages-preview-typecheck-2026-10-25.md`.
 
 ### T-1152 — Preserve original Pages and reconcile the existing safety repairs
 
@@ -50,9 +59,12 @@
   final Pages1/0/0, typing+overview+writer3/0/0, synthetic Home2/0/0; Mac build,
   offline40/8, current-parent D009/diff pass. Inspected current230pt/actual UI
   and native PDF artifacts. Existing warnings and both skips remain explicit.
-- **Next:** original643 +879 and existing bounded safety corrections on the
-  actual next boundary. Do not advance original642 until original641 required
-  hosted checks are green. No main/production/paid/physical-phone claim.
+- **Publication:** original642 normally advanced7c40428b→78dc3be after exact
+  original641a45d904 completed required checks green.642's fresh hosted compile
+  then failed before tests; T1154 owns the scoped repair, not a blind rerun.
+- **Next:** original643 +879 and bounded safety repairs on the actual next
+  boundary; publication held on fresh642 clearance. No main/production/paid/
+  physical-phone claim.
 - **Evidence:** `docs/original-642-pages-2026-10-25.md`.
 
 ### T-1151 — Reconcile original641 with the now-published corrected Craft parent
@@ -70,13 +82,14 @@
   D009 checks pass. No repeated unchanged run merely for reassurance.
 - **Publication:** exact parent64015c5868 passed all required hosted checks;
   original641 advanced normally232098ba→a45d904 with draft/base/history retained.
-  Its own fresh Quality Gate40232439824 is active, not a pass. Human review,
-  no-paid/main/production/bypass constraints remain.
+  Its own Quality Gate40232439824 completed green: backend2809/0/2,
+  units682/0/0, strictwriter pass,V1 28/0/14,voicefault1/0/0,Macbuild. Human
+  review and no-paid/main/production/bypass constraints remain.
 - **Completed local proof:** preserving merge76db805; full Node20 backend
   2809/0/2, signed erased units682/0/0, runner contracts21/0/0, offline40/8,
   Home pair2/0/0, authenticated Craft+writer2/0/0, Mac0. Current-parent D009
   index-24/Root-120/bridge-26/Studio+memory0; diff passes. No paid model call.
-- **Status:** locally proven and published; fresh child Quality Gate active.
+- **Status:** locally proven and published; exact-head required checks green.
   Public health URL currently fails TLS in curl and Node20; DNS returns Porkbun
   target. No production change or shipping/physical readiness claim.
 - **Evidence:** `docs/original-641-parent-refresh-2026-10-25.md`.
