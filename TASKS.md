@@ -5,6 +5,25 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1155 — Preserve coverage and scope every read to its document
+
+- **Owner:** codex (Jarvis). **Branch:** `codex/T-1155-original-644-coverage`.
+- **Base:** proven actionscdd463f5; original643 publication still waits for
+  exact64284659a6a required hosted checks. No assumed public-head clearance.
+- **Scope:** no-ff preserve original644047672ac,880b619d7d,881b7a0ea5;
+  reuse a28c7e1/619f988/e5b7efa/0919fc8 and reconcile the existing connected
+  workflow4dc346a. Retain current Craft selector, auth/recovery and action owners.
+- **Binary success:** current authenticated project/exact-draft/request alone
+  may publish card/summary/speech/error; title-only has no read, same body and
+  supported line endings give the same analysis, HTTP auth/redirect policy is
+  canonical, real controls reach current read without modifying writer bytes.
+  Rule-based scores explicitly estimates, never professional-quality claims.
+- **Boundaries:** no second coverage/speech/HTTP/store framework, no paid model
+  call, no main merge/review bypass or original-head replacement. Preserve646/
+  774 refresh/quiet policy at their actual boundaries; completed-read freshness
+  must be assessed, not assumed solved by in-flight guards. Production held.
+- **Status:** in-progress. Original bodies/follow-ups and T1100 ledger read.
+
 ### T-1153 — Preserve original Studio voice actions on the current Pages writer
 
 - **Owner:** codex (Jarvis). **Branch:** `codex/T-1153-original-643-actions`.
