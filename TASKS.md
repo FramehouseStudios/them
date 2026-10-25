@@ -5,6 +5,32 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1149 — Preserve the legacy draft journal when owner migration fails
+
+- **Owner:** codex (Jarvis). **Branch:** `codex/T-1149-draft-journal-migration`.
+- **Base:** published original975a754cac; no public head/base or main change.
+- **Observed source risk:** journal persist catches write failure but returns
+  no outcome; legacy migration unconditionally removes its source afterwards.
+  This is not yet a reproduced physical-device data-loss incident.
+- **Target:** an isolated destination-write failure keeps original exact UTF8
+  bytes recoverable; successful retry copies them before source removal;
+  existing destinations and other owners remain unchanged.
+- **Scope:** existing native journal-store capability and focused tests only.
+  Extract that capability from the oversized bridge rather than grow it or add
+  a second store. Preserve paths, owner keys, text policy and caller contracts.
+- **Done when:** pre-fix regression fails, focused signed persistence/reset/
+  migration tests pass, numeric D009/diff and Mac compile pass, and limits are
+  documented. Do not advance another original head while current975 gate is
+  unresolved; no paid calls, shared-worktree edits, production or review bypass.
+- **Proof:** actual injected write-preparation failure loses53 source bytes
+  before fix (0/1/0); corrected migration/reset8/0/0, normal signing and erased
+  owned91693AF0. One canonical store moved intact except acknowledged-write
+  return/migration guard; bridge shrinks111 lines, other D009 deltas0.
+- **Evidence:** `docs/draft-journal-migration-2026-10-25.md`. Full signed native
+  974/0/0; Mac build exit0. Published parent975a754cac now has all required
+  hosted checks green. Manual preserved Markdown opened in Files outside THEM
+  on reserved7F1A14C1; this is controlled simulator evidence, not real-phone proof.
+
 ### T-1148 — Release a dismissed native export for explicit retry
 
 - **Owner:** codex (Jarvis). **Branch:** `codex/T-1148-dismissed-export-retry`.
