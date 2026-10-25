@@ -5728,7 +5728,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         )
     }
 
-    private func applyServerDraft(
+    func applyServerDraft(
         _ draft: String,
         versionId: String,
         allowOverwriteDirtyLocalDraft: Bool = false,
@@ -5785,10 +5785,13 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 }
                 conflictState = nil
             }
-            evaluateLocalDraftRecovery(
-                projectId: selectedProjectID,
-                serverDraft: draft
-            )
+            // An unchanged server snapshot is not a recovery decision: these
+            // protected edits are already on the page. Keep their durable copy
+            // without placing a modal over active writing/inspector controls.
+            // Real remote conflicts and fresh-launch recovery remain explicit.
+            if remoteConflict {
+                evaluateLocalDraftRecovery(projectId: selectedProjectID, serverDraft: draft)
+            }
             return
         }
 
