@@ -33,6 +33,14 @@
   2795/0/2; syntax/diff and numeric D009 pass. No new641native/UI/Mac proof.
   Home confirmed-input/open-before-prepare gap remains the next actual fix;
   do not declare this boundary ready. `docs/original-641-routing-2026-10-25.md`.
+- **Home continuation:** reconcile isolated6e7138b1 with attribution in this
+  same owned lane: current confirmed words before Studio preparation, no stale
+  Home partial, existing native publication/committed-save ownership, synthetic
+  loopback-only Home fixture and exact saved/relaunch equality. Include its
+  documented refusal and simulator barge-in follow-ups before final proof.
+  Own only the existing Root/intent/bridge seams, extracted canonical helpers,
+  associated native/fixture tests/runner and handoff. No broader backup merge,
+  parallel STT service, production or paid-provider work.
 
 ### T-1139 — Preserve original640 with proven craft/routing corrections
 
