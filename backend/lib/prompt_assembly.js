@@ -20,7 +20,7 @@ import { enforceCraftContextPrecedence } from "./craft_prompts.js";
 // output.
 
 import { buildTraitsBlockForPrompt } from "./trait_library.js";
-import { asksForDialogueNotes, DIALOGUE_NOTES_CONTRACT } from "./dialogue_notes.js";
+import { asksForDialogueNotes, isScreenplayRevisionRequest, DIALOGUE_NOTES_CONTRACT } from "./dialogue_notes.js";
 import { buildAcceptedTwistsBlockForPrompt } from "./accepted_twist_log.js";
 import {
   FEATURE_MAP_BLOCK_OPEN,
@@ -501,9 +501,7 @@ function inferScreenplayTask(userInput = "") {
     /\b(dialogue|line|lines|exchange|argument|conversation|voice|voices|banter|monologue|subtext)\b/,
     /\b(what should (?:he|she|they) say|what does (?:he|she|they) say)\b/,
   ]);
-  const rewriteLike = hasAny(lower, [
-    /\b(rewrite|revise|polish|replace|swap out|another pass|do another pass|make it better|elevate|professionalize|pro pass|expert pass)\b/,
-    /\b(make (?:this|it|this script|the script|this screenplay|the screenplay|this passage|this scene|the scene|this line|the line|this exchange|the exchange) (?:shorter|tighter|sharper|cleaner|faster|smarter|more expert|more professional|more cinematic|more emotional|more sophisticated|more filmic|less on[- ]the[- ]nose))\b/,
+  const rewriteLike = isScreenplayRevisionRequest(lower) || hasAny(lower, [
     /\bmake\b.{0,80}\b(?:act\s*(?:ii|2|two|iii|3|three)|second act|third act|final act|finale|midpoint|sequence)\b.{0,100}\b(?:better|stronger|smarter|faster|sharper|cleaner|more expert|more cinematic|more emotional|less generic)\b/,
   ]) || (hasAny(lower, [/\bpunch up\b/]) && !dialogueLike);
   const explicitDialoguePunchupLike = dialogueLike && hasAny(lower, [

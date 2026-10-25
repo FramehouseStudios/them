@@ -8,6 +8,7 @@
 
 import { parseShortFilmIntent } from "./short_film_intent.js";
 import { isShortFilmBetaEnabled } from "./short_film_beta.js";
+import { asksForDialogueNotes, isScreenplayRevisionRequest } from "../dialogue_notes.js";
 
 const INTENT = Object.freeze({
   GREETING: "greeting",
@@ -63,6 +64,11 @@ function classifyIntent(utterance, hints = {}) {
     return INTENT.SILENCE;
   }
 
+  // Use the server task's policy before inspecting verbs inside dialogue.
+  // Explicit page/continue hints still belong to their existing Page path.
+  if (hints?.pageMode !== true && hints?.continuePage !== true
+    && asksForDialogueNotes(utterance)) return INTENT.STORY_HELP;
+
   // Page lane cues (sacred — must win over casual talk)
   if (/\b(write|draft|type|insert|propose)\b.*\b(scene|beat|page|action|dialogue|line)\b/.test(text)
     || /\b(page|scene|beat)\b.*\b(edit|change|fix|rewrite)\b/.test(text)
@@ -74,7 +80,7 @@ function classifyIntent(utterance, hints = {}) {
     || hints?.continuePage === true) {
     return INTENT.PAGE_CONTINUE;
   }
-  if (/\b(rewrite|tighten|sharpen|soften|shorten|punch up)\b/.test(text)) {
+  if (isScreenplayRevisionRequest(text) || /\b(sharpen|punch up)\b/.test(text)) {
     return INTENT.PAGE_REWRITE;
   }
 

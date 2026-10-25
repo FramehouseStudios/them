@@ -26,6 +26,13 @@
 - **Holds:** parent638/974 hosted gates remain live; no child push, main merge,
   paid provider call, production/credential change or review bypass. Keep
   native proof isolated/signed and erase only task-owned simulator91693AF0.
+- **Current checkpoint:** preserving merge060bf00; original232098ba and
+  correctedb85e391f remain ancestors. Quoted-dialogue command confusion and
+  swallowed trailing tighten instruction reproduced (focused5/2/0), repaired
+  using the isolated existingb04e16c policy (7/0/0); full Node20 backend
+  2795/0/2; syntax/diff and numeric D009 pass. No new641native/UI/Mac proof.
+  Home confirmed-input/open-before-prepare gap remains the next actual fix;
+  do not declare this boundary ready. `docs/original-641-routing-2026-10-25.md`.
 
 ### T-1139 — Preserve original640 with proven craft/routing corrections
 

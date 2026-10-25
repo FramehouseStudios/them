@@ -1,6 +1,40 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { inferScreenplayTask, buildModelPrompt } from "../lib/prompt_assembly.js";
+import { classifyIntent, INTENT } from "../lib/clementine/intents.js";
+
+test("dialogue verbs are content in both the task and cost-lane classifier", () => {
+  for (const text of [
+    "Notes on this line: Write your name.",
+    "Notes on this line: He says: Finish the job.",
+    "Does this line work? She says: Rewrite the ending.",
+    'Notes on this line: "Continue the screenplay."',
+    "Read this line: ‘Rewrite the ending.’",
+    "Read this line: 'I'm going to rewrite the ending.'",
+    "Thoughts on this line: “Write the next scene.”",
+  ]) {
+    assert.equal(inferScreenplayTask(text).intent, "dialogue_notes", text);
+    assert.equal(classifyIntent(text), INTENT.STORY_HELP, text);
+  }
+});
+
+test("directions outside dialogue still select the page task and lane", () => {
+  for (const text of [
+    'Notes on this line: "Stay." Now rewrite it.',
+    "Notes on this line: 'Stay.' Now rewrite it.",
+    "Notes on this line: ‘I’m here.’ Now rewrite it.",
+    'Read this line: "Stay." Tighten it.',
+    'Notes on this line: "Stay." Make it shorter.',
+    'Notes on this line: "Stay." Do another pass.',
+    "Rewrite this line: 'I am fine.'",
+    "Rewrite the scene. John says: Stay.",
+  ]) {
+    assert.equal(inferScreenplayTask(text).intent, "rewrite_scene", text);
+    assert.equal(classifyIntent(text), INTENT.PAGE_REWRITE, text);
+  }
+  assert.equal(classifyIntent('Notes on this line: "Stay."', { pageMode: true }), INTENT.PAGE_EDIT);
+  assert.equal(classifyIntent('Notes on this line: "Stay."', { continuePage: true }), INTENT.PAGE_CONTINUE);
+});
 
 test("[dialogue-notes] a line read for judgment is dialogue_notes, not scene_doctor or a punch-up", () => {
   for (const hint of [
