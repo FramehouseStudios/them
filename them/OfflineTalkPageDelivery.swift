@@ -108,6 +108,16 @@ nonisolated struct OfflineTalkPageDeliveryPlan: Codable, Equatable {
         return (documentID == nil || documentID == document)
             && beforeDraft.utf8.elementsEqual(serverDraft.utf8)
     }
+
+    func confirmsSavedResult(draft: String, requestID: String?, isCurrentVersion: Bool) -> Bool {
+        guard afterDraft.utf8.elementsEqual(draft.utf8) else { return false }
+        // A historical copy can contain identical words from a different turn.
+        // New plans use the existing canonical save request ID as their receipt.
+        if baseVersionID != nil { return requestID == id.uuidString.lowercased() }
+        // Old journals have no correlation contract. A current exact result can
+        // finish them, but unrelated historical text is not a delivery receipt.
+        return isCurrentVersion
+    }
 }
 
 /// The same paragraph separators used by both native editors. Recovery only

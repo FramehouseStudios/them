@@ -94,7 +94,9 @@ final class OfflineTalkPageRecoveryController: ObservableObject {
             return saved
         }
         func containsSavedResult(_ saved: BackendScreenplayProjectSummary, plan: OfflineTalkPageDeliveryPlan) -> Bool {
-            saved.versions?.contains { ($0.draft ?? "").utf8.elementsEqual(plan.afterDraft.utf8) } == true
+            let currentID = ScreenplayProjectDraftRestorePolicy.preferredVersion(in: saved)?.id
+            return saved.versions?.contains { plan.confirmsSavedResult(draft: $0.draft ?? "",
+                requestID: $0.clientRequestId, isCurrentVersion: $0.id == currentID) } == true
         }
         func acknowledge(_ plan: OfflineTalkPageDeliveryPlan) async throws -> String {
             try requireTarget()
@@ -158,7 +160,7 @@ final class OfflineTalkPageRecoveryController: ObservableObject {
         // draft merely because its acknowledgement was interrupted.
         if !inserted, vm.fountainDraft.utf8.elementsEqual(plan.afterDraft.utf8),
            vm.hasUnsavedDraftChanges, !vm.isSaving {
-            await vm.manualSaveDraft()
+            await vm.finishRecoveredPageSave(plan)
         }
         let deadline = Date().addingTimeInterval(15)
         while Date() < deadline, vm.isSaving || (inserted && vm.hasUnsavedDraftChanges && vm.errorText.isEmpty && vm.queuedDraftSaveCount == 0) {

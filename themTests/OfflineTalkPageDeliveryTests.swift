@@ -96,6 +96,21 @@ final class OfflineTalkPageDeliveryTests: XCTestCase {
             draft: "", version: "", serverVersion: "", serverDraft: ""))
     }
 
+    func testSavedResultRequiresThisPlansRequestIdentityNotHistoricalIdenticalWords() {
+        let id = UUID()
+        let plan = OfflineTalkPageDeliveryPlan(id: id, receiptID: "receipt", projectID: "project-a",
+            documentID: "document", beforeDraft: "Before", afterDraft: "Before\n\nScene", baseVersionID: "base")
+        XCTAssertFalse(plan.confirmsSavedResult(draft: plan.afterDraft, requestID: "unrelated-old-save", isCurrentVersion: false))
+        XCTAssertFalse(plan.confirmsSavedResult(draft: plan.afterDraft, requestID: nil, isCurrentVersion: true))
+        XCTAssertFalse(plan.confirmsSavedResult(draft: plan.afterDraft + "Newer words", requestID: id.uuidString.lowercased(), isCurrentVersion: true))
+        XCTAssertTrue(plan.confirmsSavedResult(draft: plan.afterDraft, requestID: id.uuidString.lowercased(), isCurrentVersion: false),
+            "A correlated durable save still proves delivery after the writer saves newer words.")
+        let legacy = OfflineTalkPageDeliveryPlan(id: id, receiptID: plan.receiptID, projectID: plan.projectID,
+            documentID: plan.documentID, beforeDraft: plan.beforeDraft, afterDraft: plan.afterDraft)
+        XCTAssertFalse(legacy.confirmsSavedResult(draft: legacy.afterDraft, requestID: nil, isCurrentVersion: false))
+        XCTAssertTrue(legacy.confirmsSavedResult(draft: legacy.afterDraft, requestID: nil, isCurrentVersion: true))
+    }
+
     func testProjectExtractionUsesMultipartHeadersNotBinaryAudioOrResponseText() throws {
         let boundary = "THEM-original-project"
         let headers = ["content-type": "multipart/form-data; boundary=\"\(boundary)\""]

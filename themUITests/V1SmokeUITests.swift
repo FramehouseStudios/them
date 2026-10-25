@@ -2356,6 +2356,7 @@ final class V1SmokeUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["talk.recovery.reply.text"].label.contains("HOME VOICE HANDOFF"))
         let receivedScene = app.staticTexts["talk.recovery.reply.text"].label
         let expectedDraft = before + "\n\n" + receivedScene.trimmingCharacters(in: .whitespacesAndNewlines)
+        var expectedRestoredDraft = expectedDraft
         let play = app.buttons["talk.recovery.reply.play"]
         XCTAssertTrue(play.waitForExistence(timeout: 5)); play.tap()
         let playing = NSPredicate(format: "label == %@", "Stop playback")
@@ -2376,7 +2377,16 @@ final class V1SmokeUITests: XCTestCase {
             let savedProject = try await writerLoopProject(id: projectID, fixture: fixture)
             let savedVersions = savedProject["versions"] as? [[String: Any]] ?? []
             XCTAssertEqual(savedVersions.filter { stringValue($0["draft"]).utf8.elementsEqual(expectedDraft.utf8) }.count, 1)
-            savedVersionCountBeforeResume = savedVersions.count
+            let recoveredVersion = try XCTUnwrap(savedVersions.first { stringValue($0["draft"]).utf8.elementsEqual(expectedDraft.utf8) })
+            let recoveredID = try firstNonEmptyString(recoveredVersion["id"], message: "Recovered version identity missing")
+            XCTAssertFalse(stringValue(recoveredVersion["client_request_id"]).isEmpty, "Saved recovery needs its canonical request identity")
+            expectedRestoredDraft = expectedDraft + "\n\nMARA\nKeep these newer saved words."
+            let newerSaved = try await requestJSON(baseURL: base, path: "/screenplay/projects/\(projectID)/version", method: "POST",
+                headers: fixture.authorizedHeaders, body: ["draft": expectedRestoredDraft, "phase": "scene_draft",
+                    "base_version_id": recoveredID, "source": "studio_manual"])
+            try assertHTTP(newerSaved, context: "Newer writer version before recovery acknowledgement")
+            let newerProject = try await writerLoopProject(id: projectID, fixture: fixture)
+            savedVersionCountBeforeResume = (newerProject["versions"] as? [[String: Any]] ?? []).count
             app.terminate()
             app = launchApp(openStudio: true, interruptTalkPageAcknowledgement: true,
                 restoreProjectID: otherID, restoreVersionID: otherVersion,
@@ -2435,7 +2445,7 @@ final class V1SmokeUITests: XCTestCase {
             return
         }
         let draft = editor.value as? String ?? ""
-        XCTAssertEqual(Data(draft.utf8), Data(expectedDraft.utf8), "The full native page must match the reviewed result, not the 1,000-character debug preview")
+        XCTAssertEqual(Data(draft.utf8), Data(expectedRestoredDraft.utf8), "Recovery must preserve the full page, including newer saved words, not the 1,000-character debug preview")
         XCTAssertTrue(draft.utf8.starts(with: before.utf8), "Recovery changed existing writer bytes")
         XCTAssertEqual(occurrenceCount(of: "HOME VOICE HANDOFF", in: draft), 1)
         let project = try await writerLoopProject(id: projectID, fixture: fixture)

@@ -2251,10 +2251,20 @@ final class ScreenplayStudioViewModel: ObservableObject {
             await saveCurrentDraft(
                 source: saveIntent.source,
                 notes: saveIntent.notes,
-                draftOverride: committedDraft
+                draftOverride: committedDraft,
+                requestIDOverride: committedWrite.id.uuidString.lowercased()
             )
         }
         return true
+    }
+
+    func finishRecoveredPageSave(_ plan: OfflineTalkPageDeliveryPlan) async {
+        guard isSelectedProjectDraftLoaded, selectedProjectID == plan.projectID,
+              fountainDraft.utf8.elementsEqual(plan.afterDraft.utf8),
+              conflictState == nil, hasUnsavedDraftChanges, !isSaving else { return }
+        let intent = ScreenplayDraftSaveIntent.clementinePageWrite
+        await saveCurrentDraft(source: intent.source, notes: intent.notes,
+            draftOverride: plan.afterDraft, requestIDOverride: plan.id.uuidString.lowercased())
     }
 
     @discardableResult
@@ -6293,14 +6303,15 @@ final class ScreenplayStudioViewModel: ObservableObject {
         draft: String,
         source: String,
         notes: String,
-        baseVersionOverride: String?
+        baseVersionOverride: String?,
+        requestIDOverride: String? = nil
     ) -> DraftSaveRequest? {
         guard let project = selectedProject else { return nil }
         let ownerUserId = BackendAuthClient.currentAuthSessionState().user?.userId
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let authContext = currentStudioAuthContext()
         return DraftSaveRequest(
-            id: UUID().uuidString.lowercased(),
+            id: requestIDOverride ?? UUID().uuidString.lowercased(),
             projectId: project.id,
             ownerUserId: ownerUserId,
             draft: draft,
@@ -6469,13 +6480,15 @@ final class ScreenplayStudioViewModel: ObservableObject {
         source: String,
         notes: String = "",
         baseVersionOverride: String? = nil,
-        draftOverride: String? = nil
+        draftOverride: String? = nil,
+        requestIDOverride: String? = nil
     ) async {
         guard let request = makeDraftSaveRequest(
             draft: draftOverride ?? fountainDraft,
             source: source,
             notes: notes,
-            baseVersionOverride: baseVersionOverride
+            baseVersionOverride: baseVersionOverride,
+            requestIDOverride: requestIDOverride
         ) else {
             errorText = "Select a project first."
             return
