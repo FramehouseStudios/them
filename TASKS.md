@@ -515,21 +515,32 @@
 ### T-1130 — Resume interrupted page recovery without a second write
 
 - **Owner:** codex (Jarvis), `codex/T-1130-recovery-plan-continuity`, parent
-  `80a2f66`; local runtime `aa8cc35`. Original #974/#975 heads unchanged.
+  `80a2f66`; initial runtime `aa8cc35`, preserving parent mergeb81d153, final
+  runtime0b10320. Published #974 is now9b1c279; original #975 remains80a2f66.
 - **Root/fix:** interrupted-ack UI exposed startup debounce journaling A under
   newly selected, not-yet-loaded B; require loaded-project authority. Check the
   retained plan's exact server result before retrying, so a renewed local document
   UUID cannot strand an already-saved scene or cause another save. New plans keep
   their canonical base; continuation refuses newer text/version without rebasing.
+  Adversarial review after954 green units found unrelated identical historical
+  text was insufficient proof. Carry the immutable write UUID through canonical
+  client_request_id and require it plus exact bytes for new-plan confirmation.
+  Legacy unknown correlation can confirm only a current exact saved result.
   Legacy journal digest encoding stays unchanged and unknown bases stay strict.
 - **Proof:** signed focused9/0/0, actual authenticated interrupted-save/relaunch/
   other-project/original-project/retry/exact-restore UI1/0/0; no extra saved
   version and B unchanged. ASR/chat/TTS intercepted1/2/23. D009/diff/syntax pass.
   Earlier UI0/1/0 attempts and one compile-only failed test attempt are retained.
-  Full units, normal recovery UI and Mac remain pending on this source.
-- **Next/stop:** #974 run40160014884 is now terminal red on the second native
-  Files export after cancel (units/backend/D009 passed). Preserve this slice
-  locally, fix that earlier hosted boundary first, then complete broader proof.
+  Final combined signed955/0/0, focused10/0/0, stronger interrupted two-project
+  UI1/0/0 additionally preserves a newer saved writer edit with no extra version;
+  Mac0 and D009/diff pass. Standalone normal UI not rerun; stronger case covers
+  its initial append/save path. No backend runtime change or paid-model call.
+- **Next/stop:** earlier #974 red40160014884 is retained; T1132's changed parent
+  is published with local948/0/0 and writer1/0/0. Fresh run40162533820 is now in
+  writer after backend/D009/units; require green, then preserve-merge this proven
+  local descendant into original #975 and publish/re-prove. Remote #975 old run
+  is in offline recovery after broad UI. Before-insertion/save interruptions,
+  uncorrelated-crash autosave and legacy historical proof remain unverified/held.
   See `docs/recovery-plan-continuity-2026-10-24.md`; no live/phone/main claim.
 
 ### T-1126 — Recover a kept scene in its original project
