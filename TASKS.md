@@ -540,6 +540,27 @@
   merge61c0566; coherent failed-selection/loaded-draft regressions2/0/0. Full
   original-project recovery UI and units remain unfinished, not included in #974.
 
+### T-1129 — Keep isolated question fixtures stable through outbox notifications
+
+- **Owner:** codex (Jarvis), original #974 branch; parent2369367. Hosted
+  run40155283007 passed947 signed units and the exact writer loop, then failed
+  broad UI34/2/22: provisional choices absent and the second seeded question
+  absent on relaunch. Local unchanged baseline2/0/0 exposed timing dependence,
+  not evidence that the hosted failures should be waived.
+- **Root / fix:** launch skipped server hydration for explicit presentation
+  fixtures, but an outbox notification still called normal pending-question
+  refresh and cleared the no-project fixture. Honor the same canonical DEBUG
+  fixture policy in that refresh. Do not reseed resolved questions or suppress
+  real backend workflows. Extract the existing fixture from Studio; post one real
+  outbox notification after seeding so its regression is deterministic.
+- **Proof:** explicit notification before guard0/1/0 -> both UI cases2/0/0.
+  Source2b2cd64; preserving combined merge4fffce4 with original #975 passes full
+  signed950/0/0, including the actual BackendCredentialMigrationTests hydration
+  policy case. Parent and combined Mac builds pass. D009/diff pass; Studio shrinks
+  17337 ->17299 lines. Backend tree unchanged; no paid/live/provider/phone claim.
+  `docs/pending-question-fixture-isolation-2026-10-24.md` records selector mistake,
+  inherited versus current proof and hosted confirmation still required.
+
 ### T-1127 — Clear the hosted Pages-card compile failure on original #974
 
 - **Owner:** codex (Jarvis), same original `codex/T-1125-talk-owner-fence` branch.
