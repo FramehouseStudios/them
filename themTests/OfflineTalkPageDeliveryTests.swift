@@ -24,6 +24,17 @@ final class OfflineTalkPageDeliveryTests: XCTestCase {
         }
         let relaunched = queue()
         let packet = try await relaunched.receivedReply(entry.id, initiatingIdentity: owner, backendURL: url)
+        let destination = try await relaunched.receivedReplyProjectID(entry.id, receiptID: packet.response.id,
+            initiatingIdentity: owner, backendURL: url)
+        XCTAssertEqual(destination, "project-a", "Destination must come from the original request, even without a response trace.")
+        do {
+            _ = try await relaunched.receivedReplyProjectID(entry.id, receiptID: UUID().uuidString,
+                initiatingIdentity: owner, backendURL: url)
+            XCTFail("A stale reader resolved a different response's destination.")
+        } catch {}
+        let resolved = try await relaunched.receivedReply(entry.id, initiatingIdentity: owner, backendURL: url)
+        XCTAssertEqual(resolved.response.id, packet.response.id)
+        XCTAssertNil(resolved.pageDelivery, "Opening the original project must not acknowledge or plan a write.")
         do {
             _ = try await relaunched.preparePageDelivery(entry.id, receiptID: packet.response.id, projectID: "project-b",
                 documentID: "document-b", beforeDraft: "B original", afterDraft: "B original\n\nA scene",
@@ -43,6 +54,61 @@ final class OfflineTalkPageDeliveryTests: XCTestCase {
         XCTAssertEqual(offlineTalkReplyDisplayText(outputText: " \n", reply: "…"), "…")
         XCTAssertEqual(offlineTalkReplyDisplayText(outputText: "INT. ROOM - NIGHT\n", reply: "Preview"), "INT. ROOM - NIGHT\n")
         XCTAssertEqual(offlineTalkReplyDisplayText(outputText: nil, reply: nil), "No reply text was included.")
+    }
+
+    func testRenewedDocumentRequiresExactWordsAndUnchangedCanonicalBase() {
+        let plan = OfflineTalkPageDeliveryPlan(id: UUID(), receiptID: "receipt", projectID: "project-a",
+            documentID: "old-document", beforeDraft: "Original\r\nCafe\u{0301}. \t",
+            afterDraft: "Original\r\nCafe\u{0301}. \t\n\nNew scene", baseVersionID: "base-a")
+        func permits(project: String = "project-a", draft: String? = nil,
+                     version: String = "base-a", server: String = "base-a") -> Bool {
+            plan.permitsContinuation(project: project, document: "renewed-document",
+                draft: draft ?? plan.beforeDraft, version: version, serverVersion: server, serverDraft: "Saved baseline")
+        }
+        XCTAssertTrue(permits(), "A renewed local UUID is not a new screenplay when version and bytes prove continuity.")
+        XCTAssertTrue(permits(draft: plan.afterDraft), "An inserted but unsaved scene may finish the same plan.")
+        XCTAssertFalse(permits(project: "project-b"))
+        XCTAssertFalse(permits(draft: plan.beforeDraft + "Writer's newer words"))
+        XCTAssertFalse(permits(draft: plan.afterDraft + "Writer's newer words"))
+        XCTAssertFalse(permits(draft: "Original\r\nCafé. \t"), "Unicode equivalence is not exact writer bytes.")
+        XCTAssertFalse(permits(version: "newer-a"))
+        XCTAssertFalse(permits(server: "newer-a"))
+        XCTAssertFalse(permits(version: "newer-a", server: "newer-a"), "Matching newer hints cannot rebase the immutable plan.")
+    }
+
+    func testLegacyDeliveryPlanKeepsDigestAndCannotFollowANewDocumentWithoutABase() throws {
+        let legacy = #"{"afterDraft":"Before\n\nScene","beforeDraft":"Before","documentID":"document-a","id":"00000000-0000-0000-0000-000000000001","projectID":"project-a","receiptID":"receipt"}"#
+        let plan = try JSONDecoder().decode(OfflineTalkPageDeliveryPlan.self, from: Data(legacy.utf8))
+        XCTAssertNil(plan.baseVersionID)
+        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
+        XCTAssertEqual(try encoder.encode(plan), Data(legacy.utf8), "Missing optional anchors must not change old integrity bytes.")
+        XCTAssertTrue(plan.permitsContinuation(project: "project-a", document: "document-a", draft: plan.afterDraft,
+            version: "base", serverVersion: "base", serverDraft: plan.beforeDraft))
+        XCTAssertFalse(plan.permitsContinuation(project: "project-a", document: "new-document", draft: plan.beforeDraft,
+            version: "base", serverVersion: "base", serverDraft: plan.beforeDraft))
+        XCTAssertFalse(plan.permitsContinuation(project: "project-a", document: "document-a", draft: plan.beforeDraft,
+            version: "base", serverVersion: "base", serverDraft: "Changed server words"))
+        let newProject = OfflineTalkPageDeliveryPlan(id: UUID(), receiptID: "receipt", projectID: "new-project",
+            documentID: "old-document", beforeDraft: "", afterDraft: "Scene", baseVersionID: "")
+        let restored = try JSONDecoder().decode(OfflineTalkPageDeliveryPlan.self, from: encoder.encode(newProject))
+        XCTAssertEqual(restored.baseVersionID, "", "A known empty base must not become unknown legacy authority.")
+        XCTAssertTrue(restored.permitsContinuation(project: "new-project", document: "renewed-document",
+            draft: "", version: "", serverVersion: "", serverDraft: ""))
+    }
+
+    func testSavedResultRequiresThisPlansRequestIdentityNotHistoricalIdenticalWords() {
+        let id = UUID()
+        let plan = OfflineTalkPageDeliveryPlan(id: id, receiptID: "receipt", projectID: "project-a",
+            documentID: "document", beforeDraft: "Before", afterDraft: "Before\n\nScene", baseVersionID: "base")
+        XCTAssertFalse(plan.confirmsSavedResult(draft: plan.afterDraft, requestID: "unrelated-old-save", isCurrentVersion: false))
+        XCTAssertFalse(plan.confirmsSavedResult(draft: plan.afterDraft, requestID: nil, isCurrentVersion: true))
+        XCTAssertFalse(plan.confirmsSavedResult(draft: plan.afterDraft + "Newer words", requestID: id.uuidString.lowercased(), isCurrentVersion: true))
+        XCTAssertTrue(plan.confirmsSavedResult(draft: plan.afterDraft, requestID: id.uuidString.lowercased(), isCurrentVersion: false),
+            "A correlated durable save still proves delivery after the writer saves newer words.")
+        let legacy = OfflineTalkPageDeliveryPlan(id: id, receiptID: plan.receiptID, projectID: plan.projectID,
+            documentID: plan.documentID, beforeDraft: plan.beforeDraft, afterDraft: plan.afterDraft)
+        XCTAssertFalse(legacy.confirmsSavedResult(draft: legacy.afterDraft, requestID: nil, isCurrentVersion: false))
+        XCTAssertTrue(legacy.confirmsSavedResult(draft: legacy.afterDraft, requestID: nil, isCurrentVersion: true))
     }
 
     func testProjectExtractionUsesMultipartHeadersNotBinaryAudioOrResponseText() throws {
@@ -83,10 +149,15 @@ final class OfflineTalkPageDeliveryTests: XCTestCase {
         let before = "INT. ROOM - NIGHT\r\nWriter’s exact words. \t\n"
         let after = before + "\nINT. HALL - NIGHT\nA light flickers."
         let plan = try await outbox.preparePageDelivery(entry.id, receiptID: packet.response.id, projectID: "project-a",
-            documentID: "document-a", beforeDraft: before, afterDraft: after, initiatingIdentity: owner, backendURL: url)
+            documentID: "document-a", beforeDraft: before, afterDraft: after, baseVersionID: "base-a",
+            initiatingIdentity: owner, backendURL: url)
         let relaunched = queue()
         let restored = try await relaunched.receivedReply(entry.id, initiatingIdentity: owner, backendURL: url)
         XCTAssertEqual(restored.pageDelivery, plan)
+        XCTAssertEqual(restored.pageDelivery?.baseVersionID, "base-a")
+        let destination = try await relaunched.receivedReplyProjectID(entry.id, receiptID: restored.response.id,
+            initiatingIdentity: owner, backendURL: url)
+        XCTAssertEqual(destination, "project-a", "Legacy requests may resume only their existing durable plan's destination.")
         XCTAssertTrue(plan.permitsInsertion(project: "project-a", document: "document-a", draft: before))
         XCTAssertFalse(plan.permitsInsertion(project: "project-b", document: "document-a", draft: before))
         XCTAssertFalse(plan.permitsInsertion(project: "project-a", document: "document-b", draft: before))

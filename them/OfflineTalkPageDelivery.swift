@@ -69,6 +69,15 @@ nonisolated struct OfflineTalkPageDeliveryPlan: Codable, Equatable {
     let documentID: String?
     let beforeDraft: String
     let afterDraft: String
+    /// nil is a legacy journal with no version anchor; empty is a known new
+    /// project with no saved version. Keep those cases distinct on disk.
+    let baseVersionID: String?
+
+    init(id: UUID, receiptID: String, projectID: String, documentID: String?,
+         beforeDraft: String, afterDraft: String, baseVersionID: String? = nil) {
+        self.id = id; self.receiptID = receiptID; self.projectID = projectID; self.documentID = documentID
+        self.beforeDraft = beforeDraft; self.afterDraft = afterDraft; self.baseVersionID = baseVersionID
+    }
 
     func validate(response: OfflineTalkStoredResponse) throws {
         guard receiptID == response.id, !projectID.isEmpty,
@@ -86,6 +95,28 @@ nonisolated struct OfflineTalkPageDeliveryPlan: Codable, Equatable {
     func permitsInsertion(project: String, document: String?, draft: String) -> Bool {
         projectID == project && (documentID == nil || documentID == document)
             && beforeDraft.utf8.elementsEqual(draft.utf8)
+    }
+
+    /// Reopening the same project may renew its local document UUID. Only a
+    /// known, unchanged canonical version plus exact before/after bytes can
+    /// authorize continuation across that renewal. Never re-plan newer words.
+    func permitsContinuation(project: String, document: String?, draft: String,
+                             version: String, serverVersion: String, serverDraft: String) -> Bool {
+        guard projectID == project, version == serverVersion,
+              beforeDraft.utf8.elementsEqual(draft.utf8) || afterDraft.utf8.elementsEqual(draft.utf8) else { return false }
+        if let baseVersionID { return version == baseVersionID }
+        return (documentID == nil || documentID == document)
+            && beforeDraft.utf8.elementsEqual(serverDraft.utf8)
+    }
+
+    func confirmsSavedResult(draft: String, requestID: String?, isCurrentVersion: Bool) -> Bool {
+        guard afterDraft.utf8.elementsEqual(draft.utf8) else { return false }
+        // A historical copy can contain identical words from a different turn.
+        // New plans use the existing canonical save request ID as their receipt.
+        if baseVersionID != nil { return requestID == id.uuidString.lowercased() }
+        // Old journals have no correlation contract. A current exact result can
+        // finish them, but unrelated historical text is not a delivery receipt.
+        return isCurrentVersion
     }
 }
 

@@ -3,6 +3,23 @@ import XCTest
 
 final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
     @MainActor
+    func testDebounceCannotJournalRestoredWordsUnderAnUnloadedSelection() async throws {
+        let recovery = try XCTUnwrap(store)
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: recovery)
+        model.selectedProjectID = "new-selection-not-loaded"
+        model.fountainDraft = "INT. ORIGINAL ROOM - NIGHT\n\nWords belonging to the previous project."
+        model.hasUnsavedDraftChanges = false
+        model.autosaveStatusText = "Waiting for the selected project"
+        await model.handleDraftDebouncedChange(model.fountainDraft)
+        XCTAssertFalse(model.hasUnsavedDraftChanges, "Selection is not authority to label the previous page as a new edit.")
+        XCTAssertEqual(model.autosaveStatusText, "Waiting for the selected project")
+        XCTAssertEqual(model.debugLoadedDraftProjectID, "")
+        XCTAssertNil(recovery.dirtyOrdinarySnapshot(ownerUserId: BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: false).userID,
+            projectId: model.selectedProjectID))
+        await Task.yield()
+    }
+
+    @MainActor
     func testBridgeDraftAdoptionPreservesRawWhitespaceAndUnicode() async {
         let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store)
         model.selectedProjectID = ""

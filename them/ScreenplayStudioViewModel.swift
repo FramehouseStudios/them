@@ -1977,6 +1977,12 @@ final class ScreenplayStudioViewModel: ObservableObject {
         syncLiveDraftBridgeProjectContext()
     }
 
+    /// Cached project labels are not proof that their draft was loaded.
+    var isSelectedProjectDraftLoaded: Bool {
+        let id = selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !id.isEmpty && selectedProject?.id == id && loadedDraftProjectID == id
+    }
+
     var debugLoadedDraftProjectID: String {
         loadedDraftProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
     }
@@ -1996,12 +2002,35 @@ final class ScreenplayStudioViewModel: ObservableObject {
     #endif
 
     func selectProject(_ projectID: String) async {
+        let owner = currentStudioAuthContext()
+        let previous = (id: selectedProjectID, project: selectedProject, loaded: loadedDraftProjectID,
+                        draft: fountainDraft, version: latestVersionID, outline: outline,
+                        revision: outlineRevision, revisionProject: outlineRevisionProjectID,
+                        recovery: recoveryCandidate, conflict: conflictState, question: pendingScreenplayQuestion)
         selectedProjectID = projectID
         clearTransientProjectStateForSelectionChange(to: projectID)
         resetCraftReportForProjectChange()
         await loadSelectedProjectOutline()
-        guard selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines) ==
+        guard authContextIsCurrent(owner), selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines) ==
                 projectID.trimmingCharacters(in: .whitespacesAndNewlines) else {
+            return
+        }
+        guard isSelectedProjectDraftLoaded else {
+            // A cached summary after a failed read must not rename another
+            // screenplay's still-loaded bytes or activate that failed selection.
+            if loadedDraftProjectID == previous.loaded, latestVersionID == previous.version,
+               fountainDraft.utf8.elementsEqual(previous.draft.utf8) {
+                selectedProjectID = previous.id
+                selectedProject = previous.project
+                outline = previous.outline
+                outlineRevision = previous.revision
+                outlineRevisionProjectID = previous.revisionProject
+                recoveryCandidate = recoveryCandidate ?? previous.recovery
+                conflictState = conflictState ?? previous.conflict
+                pendingScreenplayQuestion = pendingScreenplayQuestion ?? previous.question
+                reconcileSceneSessionState(with: outline)
+                syncLiveDraftBridgeProjectContext()
+            }
             return
         }
         await persistActiveProjectSelection(projectID)
@@ -2223,6 +2252,15 @@ final class ScreenplayStudioViewModel: ObservableObject {
             requestIDOverride: committedWrite.id.uuidString.lowercased()) else { return true }
         Task { await submitDeferredDraftSave(request) }
         return true
+    }
+
+    func finishRecoveredPageSave(_ plan: OfflineTalkPageDeliveryPlan) async {
+        guard isSelectedProjectDraftLoaded, selectedProjectID == plan.projectID,
+              fountainDraft.utf8.elementsEqual(plan.afterDraft.utf8),
+              conflictState == nil, hasUnsavedDraftChanges, !isSaving else { return }
+        let intent = ScreenplayDraftSaveIntent.clementinePageWrite
+        await saveCurrentDraft(source: intent.source, notes: intent.notes,
+            draftOverride: plan.afterDraft, requestIDOverride: plan.id.uuidString.lowercased())
     }
 
     @discardableResult
@@ -5666,8 +5704,19 @@ final class ScreenplayStudioViewModel: ObservableObject {
             outlineRevision = 0
             outline = .empty
         }
+        let versionBeforeRefresh = latestVersionID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let loadedProjectBeforeRefresh = loadedDraftProjectID
+        func readAuthorityIsCurrent() -> Bool {
+            authContextIsCurrent(authContext)
+                && selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines) == id
+                && loadedDraftProjectID == loadedProjectBeforeRefresh
+                && latestVersionID.trimmingCharacters(in: .whitespacesAndNewlines) == versionBeforeRefresh
+        }
+        func deferChangedReadAuthority() {
+            if authContextIsCurrent(authContext), selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines) == id,
+               !readAuthorityIsCurrent() { lastSeenScreenplayStateVersion = "" }
+        }
         do {
-            let versionBeforeRefresh = latestVersionID.trimmingCharacters(in: .whitespacesAndNewlines)
             let ownerHeaders = projectOwnerHeaderOptions(forProjectID: id)
             let shouldUseClientTokenOwner = ownerHeaders.usesDebugClientTokenOwner
             let detailResult: BackendReadResult<BackendScreenplayProjectResponse>
@@ -5689,10 +5738,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
                     versionLimit: 24
                 )
             }
-            guard authContextIsCurrent(authContext),
-                  selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines) == id else {
-                return
-            }
+            guard readAuthorityIsCurrent() else { return }
             updateClientTokenOwnerContext(
                 forProjectID: id,
                 loadedWithClientTokenOwner: detailLoadedWithClientTokenOwner,
@@ -5711,21 +5757,24 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 includeAuthToken: refreshedOwnerHeaders.includeAuthToken,
                 clientTokenOverride: refreshedOwnerHeaders.clientTokenOverride
             )
-            guard authContextIsCurrent(authContext),
-                  selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines) == id else {
-                return
-            }
+            // A save/selection completed while these reads were suspended.
+            // Its confirmed page is newer authority than this response snapshot.
+            guard readAuthorityIsCurrent() else { return }
             if let project = detailResult.payload.project {
                 selectedProject = project
                 selectedProjectID = project.id
                 upsertProject(project)
-                guard await hydrateDraftRestoringQueuedSaves(from: project) else { return }
+                guard await hydrateDraftRestoringQueuedSaves(from: project, readIsCurrent: readAuthorityIsCurrent) else {
+                    deferChangedReadAuthority(); return
+                }
                 hydrateCollaboration(from: project)
             } else if let project = outlineResult?.payload.project {
                 selectedProject = project
                 selectedProjectID = project.id
                 upsertProject(project)
-                guard await hydrateDraftRestoringQueuedSaves(from: project) else { return }
+                guard await hydrateDraftRestoringQueuedSaves(from: project, readIsCurrent: readAuthorityIsCurrent) else {
+                    deferChangedReadAuthority(); return
+                }
                 hydrateCollaboration(from: project)
             } else {
                 selectedProject = projects.first(where: { $0.id == id })
@@ -5753,10 +5802,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
             await refreshOutlineMutationOutboxStatus()
             await resumeQueuedOutlineMutationsIfNeeded()
         } catch {
-            guard authContextIsCurrent(authContext),
-                  selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines) == id else {
-                return
-            }
+            guard readAuthorityIsCurrent() else { return }
             clearTransientProjectStateForSelectionChange(to: id)
             selectedProject = projects.first(where: { $0.id == id })
             reconcileSceneSessionState(with: outline)
@@ -5766,7 +5812,9 @@ final class ScreenplayStudioViewModel: ObservableObject {
             if selectedProject == nil {
                 clearFeatureSpineFields()
             }
-            syncLiveDraftBridgeProjectContext()
+            // Do not persist a new project identity around another project's
+            // still-loaded page while the failed selection is being unwound.
+            if isSelectedProjectDraftLoaded { syncLiveDraftBridgeProjectContext() }
             adoptOutlineMutationRevision(
                 selectedProject?.outlineRevision,
                 outline: selectedProject?.outline,
@@ -5955,13 +6003,14 @@ final class ScreenplayStudioViewModel: ObservableObject {
     }
 
     @discardableResult
-    func hydrateDraftRestoringQueuedSaves(from project: BackendScreenplayProjectSummary) async -> Bool {
+    func hydrateDraftRestoringQueuedSaves(from project: BackendScreenplayProjectSummary,
+                                        readIsCurrent: (() -> Bool)? = nil) async -> Bool {
         let context = currentStudioAuthContext()
-        guard project.id == selectedProjectID else { return false }
+        guard project.id == selectedProjectID, readIsCurrent?() ?? true else { return false }
         // Selection and detail refresh can run independently of load()'s
         // bootstrap. Restore the durable writer copy before either hydrates.
         guard await restorePendingDraftSaveBeforeProjectHydration() else { return false }
-        guard authContextIsCurrent(context), project.id == selectedProjectID else { return false }
+        guard authContextIsCurrent(context), project.id == selectedProjectID, readIsCurrent?() ?? true else { return false }
         let retained: ScreenplayDraftSaveOutboxEntry?
         do {
             retained = try await draftSaveOutbox.pendingEntry(projectId: project.id, ownerUserId: context.userID)
@@ -5971,7 +6020,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
             errorText = ScreenplayDraftSaveRecoveryPresentationPolicy.unreadableQueueError
             return false
         }
-        guard authContextIsCurrent(context), project.id == selectedProjectID else { return false }
+        guard authContextIsCurrent(context), project.id == selectedProjectID, readIsCurrent?() ?? true else { return false }
         if let retained, retained.status == .parked,
            retained.lastError == ScreenplayDraftSaveOutbox.conflictReason,
            !draftSaveSlot.isClaimed, !isSaving, loadedDraftProjectID == project.id, hasUnsavedDraftChanges,
@@ -6159,10 +6208,12 @@ final class ScreenplayStudioViewModel: ObservableObject {
         let authContext = currentStudioAuthContext()
         func isCurrentDraft() -> Bool {
             !Task.isCancelled && !isHydratingDraft && selectedProjectID == projectID
+                && (projectID.isEmpty || loadedDraftProjectID == projectID)
                 && authContextIsCurrent(authContext) && fountainDraft.utf8.elementsEqual(draft.utf8)
         }
         // The debounce's Task may start after a newer edit, and layout calls
-        // suspend. An old snapshot must not retire or persist the writer's page.
+        // suspend. Selection alone does not bind the previous project's restored
+        // text to this one; an old snapshot must not journal or save that page.
         guard isCurrentDraft() else { return }
         let normalized = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         let hasCoveragePresentation = coverageSimulationReport != nil ||
@@ -6427,13 +6478,15 @@ final class ScreenplayStudioViewModel: ObservableObject {
         source: String,
         notes: String = "",
         baseVersionOverride: String? = nil,
-        draftOverride: String? = nil
+        draftOverride: String? = nil,
+        requestIDOverride: String? = nil
     ) async {
         guard let request = makeDraftSaveRequest(
             draft: draftOverride ?? fountainDraft,
             source: source,
             notes: notes,
-            baseVersionOverride: baseVersionOverride
+            baseVersionOverride: baseVersionOverride,
+            requestIDOverride: requestIDOverride
         ) else {
             errorText = "Select a project first."
             return
@@ -6451,8 +6504,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
     /// reinterpret an earlier page as a save of the newly selected project.
     private func submitDeferredDraftSave(_ request: DraftSaveRequest) async {
         guard !Task.isCancelled, authContextIsCurrent(request.authContext),
-              selectedProjectID == request.projectId, selectedProject?.id == request.projectId,
-              loadedDraftProjectID == request.projectId, latestVersionID == request.baseVersionId else {
+              selectedProjectID == request.projectId, isSelectedProjectDraftLoaded,
+              latestVersionID == request.baseVersionId else {
             do {
                 var retained = request.outboxEntry
                 retained.status = .parked
@@ -6469,6 +6522,12 @@ final class ScreenplayStudioViewModel: ObservableObject {
     }
 
     private func submitDraftSave(_ request: DraftSaveRequest) async {
+        #if DEBUG
+        if OfflineTalkPageRecoveryUITestFixture.holdsSaveAdmission(projectID: request.projectId) {
+            errorText = "Recovery save admission interrupted. Your page is kept locally."
+            return
+        }
+        #endif
         var next: DraftSaveRequest? = request
         while let current = next {
             guard draftSaveSlot.claim(current) else { return }

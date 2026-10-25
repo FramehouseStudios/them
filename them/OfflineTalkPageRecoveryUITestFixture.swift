@@ -5,6 +5,40 @@ import Foundation
 /// The HTTP replay, response retention, metadata and save paths remain real.
 @MainActor
 enum OfflineTalkPageRecoveryUITestFixture {
+    static func interruptInsertionIfNeeded(receiptID: String) throws {
+        let url = BackendAuthClient.resolvedBackendBaseURL()
+        guard IOThemRuntime.isRunningUITests,
+              ProcessInfo.processInfo.arguments.contains("--ui-talk-page-recovery-interrupt-insert"),
+              url.scheme == "http", url.host == "127.0.0.1" else { return }
+        let marker = "ui-talk-page-recovery-insert-interrupted-\(receiptID)"
+        guard !UserDefaults.standard.bool(forKey: marker) else { return }
+        UserDefaults.standard.set(true, forKey: marker)
+        throw BackendError.stage("offline_outbox", "Recovery insertion interrupted. Your reply is kept.")
+    }
+
+    /// Leave real writer recovery bytes but admit no save for this fixture's
+    /// original project. The next launch deliberately removes this fault flag.
+    static func holdsSaveAdmission(projectID: String) -> Bool {
+        let url = BackendAuthClient.resolvedBackendBaseURL()
+        return IOThemRuntime.isRunningUITests && !projectID.isEmpty
+            && ProcessInfo.processInfo.arguments.contains("--ui-talk-page-recovery-hold-save-admission")
+            && url.scheme == "http" && url.host == "127.0.0.1"
+            && UserDefaults.standard.bool(forKey: "ui-talk-page-recovery-installed-\(projectID)")
+    }
+
+    /// Interrupt only the acknowledgement, after the real saved version was
+    /// checked. A relaunch must recover the same journal without another write.
+    static func interruptAcknowledgementIfNeeded(receiptID: String) throws {
+        let url = BackendAuthClient.resolvedBackendBaseURL()
+        guard IOThemRuntime.isRunningUITests,
+              ProcessInfo.processInfo.arguments.contains("--ui-talk-page-recovery-interrupt-ack"),
+              url.scheme == "http", url.host == "127.0.0.1" else { return }
+        let marker = "ui-talk-page-recovery-ack-interrupted-\(receiptID)"
+        guard !UserDefaults.standard.bool(forKey: marker) else { return }
+        UserDefaults.standard.set(true, forKey: marker)
+        throw BackendError.stage("offline_outbox", "Saved recovery acknowledgement interrupted. Your reply is kept.")
+    }
+
     static func install(projectID: String) async {
         let args = ProcessInfo.processInfo.arguments
         let url = BackendAuthClient.resolvedBackendBaseURL()

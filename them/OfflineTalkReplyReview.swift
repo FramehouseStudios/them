@@ -13,6 +13,8 @@ struct OfflineTalkReplyReviewView: View {
     let review: OfflineTalkReplyReview
     var onDone: () -> Void
     var destinationTitle: String? = nil
+    var destinationProjectID: String? = nil
+    var onOpenOriginalProject: ((OfflineTalkReceivedReply) async throws -> Void)? = nil
     var onAppend: ((OfflineTalkReceivedReply, BackendTalkResult) async throws -> String)? = nil
     @State private var result: BackendTalkResult?
     @State private var packet: OfflineTalkReceivedReply?
@@ -22,6 +24,12 @@ struct OfflineTalkReplyReviewView: View {
     @State private var delivered = false
     @State private var status = ""
     @State private var error = ""
+    @State private var originalProjectID: String?
+    @State private var destinationVerified = false
+
+    private var needsOriginalProject: Bool {
+        originalProjectID.map { $0 != destinationProjectID } ?? false
+    }
 
     var body: some View {
         NavigationStack {
@@ -46,8 +54,25 @@ struct OfflineTalkReplyReviewView: View {
                                 catch { self.error = error.localizedDescription }
                             }
                         }.buttonStyle(.bordered).disabled(applying).accessibilityIdentifier("talk.recovery.reply.play")
-                        if let onAppend, let packet, result.screenplayOutput?.writesToPage == true, !delivered {
-                            Text("Append this scene to \(destinationTitle ?? "the selected project"). Existing text will not be replaced.")
+                        if needsOriginalProject, let packet, let onOpenOriginalProject {
+                            Text("This reply belongs to another project. Open its original project before adding the scene.")
+                                .font(.caption).foregroundStyle(.secondary)
+                            Button("Open original project") {
+                                player.stop(); playing = false; applying = true; error = ""
+                                status = "Opening the original project. Your reply stays kept."
+                                Task { @MainActor in
+                                    defer { applying = false }
+                                    do { try await onOpenOriginalProject(packet); onDone() }
+                                    catch { self.error = error.localizedDescription; status = "Reply kept for recovery." }
+                                }
+                            }.buttonStyle(.borderedProminent).disabled(applying)
+                                .accessibilityIdentifier("talk.recovery.reply.open-original")
+                                .accessibilityHint("Opens the screenplay that requested this reply. Does not add or discard text.")
+                        } else if destinationVerified, !needsOriginalProject,
+                                  let onAppend, let packet, result.screenplayOutput?.writesToPage == true, !delivered {
+                            Text(packet.pageDelivery == nil
+                                ? "Append this scene to \(destinationTitle ?? "the selected project"). Existing text will not be replaced."
+                                : "Finish the original recovery. Already-saved text will not be appended or saved again.")
                                 .font(.caption).foregroundStyle(.secondary)
                             Button(packet.pageDelivery == nil ? "Append & save scene" : "Finish saved recovery") {
                                 player.stop(); playing = false; applying = true; error = ""; status = "Confirming the recovered scene and saved version…"
@@ -61,7 +86,9 @@ struct OfflineTalkReplyReviewView: View {
                         }
                         if applying { ProgressView() }
                         if !status.isEmpty { Text(status).font(.caption).accessibilityIdentifier("talk.recovery.reply.status") }
-                        if !error.isEmpty { Text(error).font(.caption).foregroundStyle(.secondary) }
+                        if !error.isEmpty {
+                            Text(error).font(.caption).foregroundStyle(.secondary).accessibilityIdentifier("talk.recovery.reply.error")
+                        }
                     } else if !error.isEmpty {
                         Text(error).foregroundStyle(.secondary)
                             .accessibilityIdentifier("talk.recovery.reply.error")
@@ -71,8 +98,9 @@ struct OfflineTalkReplyReviewView: View {
                 }.frame(maxWidth: .infinity, alignment: .leading).padding()
             }
             .navigationTitle("Received reply")
-            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Close", action: onDone) } }
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Close", action: onDone).disabled(applying) } }
         }
+        .interactiveDismissDisabled(applying)
         .task(id: review.id) {
             markRecoveryTiming("opened")
             do {
@@ -98,6 +126,14 @@ struct OfflineTalkReplyReviewView: View {
                 }
                 result = decoded
                 packet = received
+                if onAppend != nil {
+                    do {
+                        originalProjectID = try await OfflineTalkOutbox.shared.receivedReplyProjectID(received.entry.id,
+                            receiptID: received.response.id, initiatingIdentity: review.owner, backendURL: review.scope.backendURL)
+                        guard review.scope.isCurrent else { throw OfflineTalkPreviousOwnerError() }
+                        destinationVerified = true
+                    } catch { self.error = error.localizedDescription }
+                }
                 markRecoveryTiming("ready")
             } catch { self.error = error.localizedDescription }
         }

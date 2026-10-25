@@ -5,6 +5,97 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1149 — Preserve the legacy draft journal when owner migration fails
+
+- **Owner:** codex (Jarvis). **Branch:** `codex/T-1149-draft-journal-migration`.
+- **Base:** published original975a754cac; no public head/base or main change.
+- **Observed source risk:** journal persist catches write failure but returns
+  no outcome; legacy migration unconditionally removes its source afterwards.
+  This is not yet a reproduced physical-device data-loss incident.
+- **Target:** an isolated destination-write failure keeps original exact UTF8
+  bytes recoverable; successful retry copies them before source removal;
+  existing destinations and other owners remain unchanged.
+- **Scope:** existing native journal-store capability and focused tests only.
+  Extract that capability from the oversized bridge rather than grow it or add
+  a second store. Preserve paths, owner keys, text policy and caller contracts.
+- **Done when:** pre-fix regression fails, focused signed persistence/reset/
+  migration tests pass, numeric D009/diff and Mac compile pass, and limits are
+  documented. Do not advance another original head while current975 gate is
+  unresolved; no paid calls, shared-worktree edits, production or review bypass.
+- **Proof:** actual injected write-preparation failure loses53 source bytes
+  before fix (0/1/0); corrected migration/reset8/0/0, normal signing and erased
+  owned91693AF0. One canonical store moved intact except acknowledged-write
+  return/migration guard; bridge shrinks111 lines, other D009 deltas0.
+- **Evidence:** `docs/draft-journal-migration-2026-10-25.md`. Full signed native
+  974/0/0; Mac build exit0. Published parent975a754cac now has all required
+  hosted checks green. Manual preserved Markdown opened in Files outside THEM
+  on reserved7F1A14C1; this is controlled simulator evidence, not real-phone proof.
+
+### T-1148 — Release a dismissed native export for explicit retry
+
+- **Owner:** codex (Jarvis). **Branch:** `codex/T-1148-dismissed-export-retry`.
+- **Base:** original9753879816865565d5c7f10e890a0b726a6a10d1930, all original
+  history retained. No original/public head, base, main or production change.
+- **Observed:** required run40208473954 is terminal red, writer0/1/0 at the
+  second Files presentation. Retained screenshot/hierarchy show the picker
+  gone, original exact draft intact, and coordinator rejecting the next request
+  as busy. Units966/0/0, backend/D009 pass; later stages skipped.
+- **Target:** explicit export after dismissal may supersede the previous
+  presented artifact, not a still-preparing request. Do not infer Save/Cancel
+  merely from the binding; still accept its real outcome until a new request
+  takes ownership. Late old binding/completion/cancel cannot affect the retry.
+- **Ownership:** ScreenplayStudioExportSupport.swift, its focused tests, this
+  entry and a scoped handoff. No backend/save/auth/god-file change, paid call,
+  retrying unchanged CI or weakening native Cancel/re-export/Save assertions.
+- **Done when:** reproduction fails before the smallest fix, focused signed
+  contracts pass, D009/diff pass, and real writer/Cancellation/Save is verified
+  when visible interaction is available. Mac currently locked; no GUI claim.
+- **Current:** reproduced0/1/0 before fix (one method/eight assertions), then
+  existing coordinator's six-line admission correction; signed export class
+  22/0/0, Mac build exit0, actual proper-parent D009 numeric deltas0 and diff pass. Backend and
+  native writer UI unchanged; no repeated backend run or fresh GUI claim.
+- **Evidence:** `docs/dismissed-export-retry-2026-10-25.md`. Public975 remains
+  red38798168, with an exact-head failure/hold comment. No push/main change.
+- **Next publication:** normally advance only original draft975 with this
+  local fix after verifying exact old head/base and green parent974. Required
+  unchanged hosted26.5 checks must prove the candidate; local26.2 contracts
+  do not clear the real Files failure. No merge, replacement, squash or force.
+
+### T-1144 — Preserve current recovery repairs on original #975
+
+- **Owner:** codex (Jarvis). **Branch:** `codex/T-1144-original-975-parent`.
+- **Status:** review (local checkpoint; publication held at earlier #639 red).
+  **Pillar:** writer ownership / recoverable voice-to-page.
+- **Base:** committed combined recovery `01bbeda`; original #975 remains
+  `80a2f66` publicly. Preserve both, then merge green original parent #974
+  `f4aca4a` without squash, force or replacement PR.
+- **Scope:** retain original-project routing, correlated interrupted delivery,
+  save-drain/late-response authority and exact-word recovery. Parent refresh
+  changes only the two native Files readiness checks and their diagnostics;
+  no new backend runtime or native production changes.
+- **Done when:** updated combined signed units, connected recovery/essential
+  writer and Mac checks pass; proper-parent D009/diff pass; source identity
+  supports explicitly inherited backend proof. Normally advance original #975
+  only after inspecting the exact parent/child and preserving all history.
+- **Boundaries:** no paid calls, production changes, native resource sharing,
+  simulated-live claim or main merge. Zora owns a separate backend lane.
+- **Current proof:** new signed966/0/0 and real native Files two-path2/0/0;
+  proper-parent D009 deltas0/diff pass. The Files run was unusually slow; no
+  latency claim. Further connected checkpoint/publication stops for exact
+  #639 run40185550749 native V1 failure. Evidence:
+  `docs/original-975-parent-refresh-2026-10-25.md`.
+- **Continuation:** original639's later writer failure is now fixed locally
+  and published at965a507; fresh40203301919 has backend/D009 green and native
+  active. Resume unblocked local three-case recovery proof while that separate
+  remote job runs; original975 publication remains held until the earlier
+  exact-head gate clears. No new source or unchanged full-unit/backend rerun.
+- **New recovery:** signed canonical offline/auth/conflict3/0/0, strict positive
+  counts; actual401/refresh/fresh-bearer save, exact text and one server version.
+  Auth case15m versus21s/18s others remains a timing gap. Mac currently locked;
+  manual unlock requested for GUI observation, no bypass. Native source is
+  byte-identical to839a3c1, so its stronger two recovery cases, writer and Mac
+  results remain explicitly inherited, not needlessly rerun. No paid call.
+
 ### T-1141 — Diagnose the exact hosted recovery-export failure
 
 - **Owner:** codex (Jarvis). **Branch:** `codex/T-1141-recovery-export-presentation`.
@@ -537,6 +628,93 @@
   any undelivered result safely through crashes, owner/origin changes and retry.
   Reuse canonical talk/result/receipt handling; no second conversation store.
 
+### T-1133 — Check prepared and not-yet-admitted recovery across relaunch
+
+- **Owner:** codex (Jarvis), local `codex/T-1133-recovery-crash-boundary`, parent
+  325cfb5. Explicit DEBUG/UI/loopback hooks only; no Release behavior change.
+- **Verified:** prepared plan interrupted before insertion → relaunch B → reopen
+  A → finish → one new saved version → exact native relaunch UI1/0/0. Existing
+  T1130 runtime handled this boundary; no new product fix is claimed. Intercepted
+  ASR/chat/TTS1/2/23; syntax/diff pass.
+- **Not run:** save-admission hold case, unchanged normal/ack variants, full
+  units or Mac on this probe. Stop for new hosted #975 red40160039304 at80a2f66:
+  duplicate server version after auth refresh, failed conflict-relaunch predicate
+  and SIGTERM report; units/writer/broad UI passed, voice/Mac skipped.
+- **Next:** preserve locally; triage the exact hosted source before further
+  probing. `docs/recovery-crash-boundary-2026-10-24.md` records scope and limits.
+
+### T-1130 — Resume interrupted page recovery without a second write
+
+- **Owner:** codex (Jarvis), `codex/T-1130-recovery-plan-continuity`, parent
+  `80a2f66`; initial runtime `aa8cc35`, preserving parent mergeb81d153, final
+  runtime0b10320. Published #974 is now9b1c279; original #975 remains80a2f66.
+- **Root/fix:** interrupted-ack UI exposed startup debounce journaling A under
+  newly selected, not-yet-loaded B; require loaded-project authority. Check the
+  retained plan's exact server result before retrying, so a renewed local document
+  UUID cannot strand an already-saved scene or cause another save. New plans keep
+  their canonical base; continuation refuses newer text/version without rebasing.
+  Adversarial review after954 green units found unrelated identical historical
+  text was insufficient proof. Carry the immutable write UUID through canonical
+  client_request_id and require it plus exact bytes for new-plan confirmation.
+  Legacy unknown correlation can confirm only a current exact saved result.
+  Legacy journal digest encoding stays unchanged and unknown bases stay strict.
+- **Proof:** signed focused9/0/0, actual authenticated interrupted-save/relaunch/
+  other-project/original-project/retry/exact-restore UI1/0/0; no extra saved
+  version and B unchanged. ASR/chat/TTS intercepted1/2/23. D009/diff/syntax pass.
+  Earlier UI0/1/0 attempts and one compile-only failed test attempt are retained.
+  Final combined signed955/0/0, focused10/0/0, stronger interrupted two-project
+  UI1/0/0 additionally preserves a newer saved writer edit with no extra version;
+  Mac0 and D009/diff pass. Standalone normal UI not rerun; stronger case covers
+  its initial append/save path. No backend runtime change or paid-model call.
+- **Next/stop:** earlier #974 red40160014884 is retained; T1132's changed parent
+  is published with local948/0/0 and writer1/0/0. Fresh run40162533820 is now in
+  writer after backend/D009/units; require green, then preserve-merge this proven
+  local descendant into original #975 and publish/re-prove. Remote #975 old run
+  is in offline recovery after broad UI. Before-insertion/save interruptions,
+  uncorrelated-crash autosave and legacy historical proof remain unverified/held.
+  See `docs/recovery-plan-continuity-2026-10-24.md`; no live/phone/main claim.
+
+### T-1126 — Recover a kept scene in its original project
+
+- **Owner:** codex (Jarvis); branch `codex/T-1126-original-project-recovery`,
+  parent `f10fd41`. Bound-project recovery UI currently offers the selected
+  project's append even when the request belongs elsewhere; the existing final
+  guard refuses it, but there is no connected original-project navigation.
+- **Target:** resolve the destination from the integrity-checked original request
+  or existing durable delivery plan, not the selected editor/optional response.
+  Show Open original project instead of a wrong-project append; use canonical
+  selection only after current work is saved and conflict/queue/stream guards
+  pass. Navigation alone must never acknowledge the reply.
+- **Connected proof:** actual queued A response retained across relaunch into
+  B; open A, append/save once, restore exact A and confirm B unchanged. No paid
+  calls or production change. Unbound/precise-rewrite context and interrupted
+  delivery-plan document continuity remain separate unfinished boundaries.
+- **Local WIP checkpoint:** preserved before stopping for #974's hosted compiler
+  failure in `ScreenplayStudioDraftPageTools.pageCard`. Initial resolver focused
+  run exits0. Intermediate full unit run intentionally interrupted (75); a
+  destination run reports1 pass/1 outline-rollback failure while the implementation
+  was still being revised. Neither establishes current final-code proof. Read-only
+  review found a real cached-summary/failed-hydration contamination risk; current
+  local correction adds loaded-draft authority and guarded selection/outline
+  rollback. Do not push or call this slice verified until rerun coherently.
+- **Coherent checkpoint:** preserving merge `61c0566` retains `00be9dc` and
+  #974's compiler fix `10557ad`; the saved-tree failed-load/loaded-authority
+  regression now passes2/0/0 in `/tmp/them-1126-destination-v2.xcresult`.
+  Full recovery UI/full units still pending. Stop again for #974's next first
+  red: hosted947 signed units pass, integrated writer workflow fails in
+  run40124255938. Preserve this work locally while diagnosing that boundary.
+- **Current correction / proof:** preserving merge16000d6 retains #974's2369367
+  Files-picker correction. Runtime f2b7fbc fixes a reproduced stale project read:
+  held HTTP read after a newer confirmed page, focused red2/1/0 ->3/0/0. The
+  connected UI exposed an additional outbox-suspension gap; content-free stack
+  identified cross-device refresh hydration. The same read-authority fence now
+  spans HTTP and local recovery awaits; changed authority defers the read for the
+  normal poll. Failed selection also cannot label another loaded draft as its own.
+  Final signed full950/0/0, two-project recovery/playback/single-save/relaunch
+  UI1/0/0, macOS/D009/diff pass. No temporary trace ships. Earlier intermittent
+  passes and subsequent reversion failures are retained, not erased by the green
+  run. `docs/original-project-recovery-2026-10-24.md` records exact boundaries.
+
 ### T-1128 — Recognize real native Files presentation in the hosted writer loop
 
 - **Owner:** codex (Jarvis), original #974 branch. Hosted10557ad now compiles
@@ -601,28 +779,51 @@
   and corrected without relaxing assertions. Earlier958 checkpoint predates the
   final taskless-inflight edge fix. Current writer/native export/relaunch1/0/0;
   required connected recovery3/0/0. No paid or production claim.
-- **Next:** complete current connected proof, then inspect existing #974 hosted
-  handle before a normal scoped advance; preserve original #975 and combined
-  recovery. `docs/save-completion-context-2026-10-24.md`.
+- **Integration:** original-parent local8d519bd preserves c4f245c with identical
+  tree; remote #974 stays34b9bc5 during run40167414308. Combined839a3c1 preserves
+  that parent and T1135f396c02 without conflicts; original #975/T1130/T1133
+  ancestry intact. Combined signed966/0/0, Mac0/D009/diff pass; newer-writer
+  acknowledgement recovery1/0/0; before-save-admission recovery1/0/0. Combined
+  writer/export/relaunch1/0/0. Actual35-byte export matches the canonical MD
+  projection with one marker. Mac locked; manual unlock requested once, external
+  preview NOT proven. Keep owned7F simulator/export intact until observation.
+- **Next:** verify combined recovery boundaries, then inspect the existing
+  hosted handle before a scoped original-parent advance. Never push the combined
+  HEAD as the earlier parent. Hosted34b9bc5 run40167414308 is fully SUCCESS;
+  original parent8d519bd normally published only after it completed. Fresh checks
+  required. Original638/639 heads preserved in ancestry but remain unlanded;
+  re-establish their actual main-based landing chain, not a replacement mega-PR.
+  `docs/save-completion-context-2026-10-24.md`.
 
 ### T-1135 — Preserve a deferred page save's original owner and project
 
-- **Owner:** codex (Jarvis), original parent #974 branch. Combined descendant
-  `codex/T-1135-deferred-page-save-owner` remains preserved at ef62fb8.
+- **Owner:** codex (Jarvis), original parent #974 and local combined descendant
+  `codex/T-1135-deferred-page-save-owner`; both histories preserved.
 - **Reproduced:** actual model adopted A, selected B before its Task started,
   and durably queued A's scene under B; focused0/1/0, no HTTP/provider. The
   canonical request was built after deferral from the later selected project.
 - **Fix:** capture request before scheduling; changed auth/project/loaded base
   or cancellation parks that original request. Reject stale-account page
   adoption before editing. Reuse for programmatic autosaves, existing outbox and
-  request UUIDs. Only the shared small fix is ported, not child recovery/hooks.
+  request UUIDs. Only the shared small fix was ported into the earlier parent,
+  not child continuation/hooks. Its existing selected/loaded fields implement
+  the later child's equivalent canonical loaded-project property.
 - **Proof:** combined runtime2b13d98 has focused39/0/0, full signed960/0/0,
   save-admission recovery1/0/0, newer-writer acknowledgement1/0/0, Mac0. These
   are not earlier-parent proof. Earlier-parent runtimef7eba21 passes signed
   953/0/0, Mac0 and D009/diff; unchanged current writer1/0/0, offline recovery3/0/0.
   No fresh backend or paid calls.
-- **Next:** prove/publish earlier parent normally before advancing original
-  child #975. `docs/deferred-page-save-parent-2026-10-24.md`.
+- **Published:** original parent #974 normally advanced bb005cd8 ->34b9bc5;
+  fresh required run40167414308 pending. Original child #975 remains80a2f66.
+  Parent/base/draft/protections unchanged; no main merge or deployment.
+- **Integration:** preserve-merged that parent into the combined local branch;
+  retain the already-proven canonical loaded-project property and both task
+  evidence scopes. All native/backend/script sources and tests are directly
+  verified byte-identical to ef62fb8; its960-unit/recovery proof applies without
+  an unchanged rerun. No new runtime difference is claimed as a new test result.
+- **Next:** resolve the earlier hosted gate before advancing original child.
+  `docs/deferred-page-save-parent-2026-10-24.md` and
+  `docs/deferred-page-save-owner-2026-10-24.md` retain both exact scopes.
 
 ### T-1134 — Repair hosted duplicate save and false one-copy conflict assertion
 
