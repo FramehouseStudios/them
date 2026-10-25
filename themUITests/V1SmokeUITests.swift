@@ -2276,6 +2276,16 @@ final class V1SmokeUITests: XCTestCase {
 
     @MainActor
     func test_queued_talk_reply_plays_appends_saves_and_restores_once() async throws {
+        try await assertQueuedTalkReplyRecovery(interruptAcknowledgement: false)
+    }
+
+    @MainActor
+    func test_queued_talk_reply_plays_resumes_saved_plan_after_project_switch_without_resaving() async throws {
+        try await assertQueuedTalkReplyRecovery(interruptAcknowledgement: true)
+    }
+
+    @MainActor
+    private func assertQueuedTalkReplyRecovery(interruptAcknowledgement: Bool) async throws {
         guard let port = Int(ProcessInfo.processInfo.environment["THEM_UITEST_WRITER_LOOP_BACKEND_PORT"] ?? "") else {
             throw XCTSkip("Task-owned authenticated backend required; no injected success")
         }
@@ -2290,7 +2300,8 @@ final class V1SmokeUITests: XCTestCase {
             headers: fixture.authorizedHeaders, body: ["draft": before, "phase": "scene_draft", "base_version_id": ""])
         try assertHTTP(saved, context: "Recovery baseline")
         let version = try firstNonEmptyString(saved.payload["version_id"], saved.payload["server_version_id"], message: "Baseline version missing")
-        var app = launchApp(openStudio: true, receiveTalkPage: true, restoreProjectID: projectID,
+        var app = launchApp(openStudio: true, receiveTalkPage: true, interruptTalkPageAcknowledgement: interruptAcknowledgement,
+            restoreProjectID: projectID,
             restoreVersionID: version, restoreLoadToken: Int(Date().timeIntervalSince1970), launchEnvironment: fixture.appLaunchEnvironment)
         defer { app.terminate() }
         XCTAssertTrue(waitForExactWriterLoopDraft(before, in: app, timeout: 25))
@@ -2317,7 +2328,8 @@ final class V1SmokeUITests: XCTestCase {
         try assertHTTP(otherSaved, context: "Other recovery baseline")
         let otherVersion = try firstNonEmptyString(otherSaved.payload["version_id"], otherSaved.payload["server_version_id"], message: "Other version missing")
         app.terminate()
-        app = launchApp(openStudio: true, restoreProjectID: otherID, restoreVersionID: otherVersion,
+        app = launchApp(openStudio: true, interruptTalkPageAcknowledgement: interruptAcknowledgement,
+            restoreProjectID: otherID, restoreVersionID: otherVersion,
             restoreLoadToken: Int(Date().timeIntervalSince1970), resetState: false, launchEnvironment: fixture.appLaunchEnvironment)
         XCTAssertTrue(waitForExactWriterLoopDraft(otherDraft, in: app, timeout: 25))
         app.buttons["studio.sidebar.right.toggle"].tap()
@@ -2353,10 +2365,58 @@ final class V1SmokeUITests: XCTestCase {
         let append = app.buttons["talk.recovery.reply.append"]
         if !append.isHittable { app.swipeUp() }
         XCTAssertTrue(waitForHittability(of: append, timeout: 5)); append.tap()
-        let status = app.staticTexts["talk.recovery.reply.status"]
         let delivered = NSPredicate(format: "label == %@", "Recovered scene saved.")
-        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: delivered, object: status)], timeout: 35), .completed,
-            "Recovery did not confirm the saved version: \(status.label)")
+        var savedVersionCountBeforeResume: Int?
+        if interruptAcknowledgement {
+            let error = app.staticTexts["talk.recovery.reply.error"]
+            let interrupted = NSPredicate(format: "label CONTAINS %@", "Saved recovery acknowledgement interrupted")
+            guard XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: interrupted, object: error)], timeout: 35) == .completed else {
+                XCTFail("The real save did not reach the interruption boundary: \(error.label)"); return
+            }
+            let savedProject = try await writerLoopProject(id: projectID, fixture: fixture)
+            let savedVersions = savedProject["versions"] as? [[String: Any]] ?? []
+            XCTAssertEqual(savedVersions.filter { stringValue($0["draft"]).utf8.elementsEqual(expectedDraft.utf8) }.count, 1)
+            savedVersionCountBeforeResume = savedVersions.count
+            app.terminate()
+            app = launchApp(openStudio: true, interruptTalkPageAcknowledgement: true,
+                restoreProjectID: otherID, restoreVersionID: otherVersion,
+                restoreLoadToken: Int(Date().timeIntervalSince1970), resetState: false, launchEnvironment: fixture.appLaunchEnvironment)
+            guard waitForExactWriterLoopDraft(otherDraft, in: app, timeout: 25) else {
+                let screen = XCTAttachment(screenshot: app.screenshot())
+                screen.name = "interrupted-recovery-relaunch-boundary.png"; screen.lifetime = .keepAlways; add(screen)
+                XCTFail("Other project did not load before retry.\n\(app.debugDescription)"); return
+            }
+            app.buttons["studio.sidebar.right.toggle"].tap()
+            let resumedDrawer = element(identifier: "studio.sidebar.right.drawer", in: app)
+            guard resumedDrawer.waitForExistence(timeout: 8) else { XCTFail("Retry inspector missing"); return }
+            app.buttons["studio.right-panel.draft"].tap()
+            review = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "studio.recovery.reply.")).firstMatch
+            guard review.waitForExistence(timeout: 15),
+                  revealInStudioDrawer(review, drawer: resumedDrawer, scrollingUp: true, maxSwipes: 8, fullyVisible: true) else {
+                XCTFail("Interrupted reply was not retained"); return
+            }
+            review.tap()
+            let reopen = app.buttons["talk.recovery.reply.open-original"]
+            guard reopen.waitForExistence(timeout: 10) else { XCTFail("Retry lost original project"); return }
+            reopen.tap()
+            guard waitForDisappearance(of: reopen, timeout: 25) else { XCTFail("Retry did not reopen original project"); return }
+            guard review.waitForExistence(timeout: 15),
+                  revealInStudioDrawer(review, drawer: resumedDrawer, scrollingUp: true, maxSwipes: 8, fullyVisible: true) else {
+                XCTFail("Opening original project acknowledged an unfinished plan"); return
+            }
+            review.tap()
+            let finish = app.buttons["talk.recovery.reply.append"]
+            guard finish.waitForExistence(timeout: 10), finish.label == "Finish saved recovery" else {
+                XCTFail("Retry did not expose the original durable plan"); return
+            }
+            for _ in 0..<5 where !finish.isHittable { app.swipeUp() }
+            guard waitForHittability(of: finish, timeout: 5) else { XCTFail("Finish recovery not reachable"); return }
+            finish.tap()
+        }
+        let finalStatus = app.staticTexts["talk.recovery.reply.status"]
+        guard XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: delivered, object: finalStatus)], timeout: 35) == .completed else {
+            XCTFail("Recovery did not confirm the saved version: \(finalStatus.label), \(app.staticTexts["talk.recovery.reply.error"].label)"); return
+        }
         app.buttons["Close"].tap()
         XCTAssertFalse(review.exists, "Only a confirmed saved page may release the retained reply")
         let inspectorToggle = app.buttons["studio.sidebar.right.toggle"]
@@ -2380,6 +2440,9 @@ final class V1SmokeUITests: XCTestCase {
         XCTAssertEqual(occurrenceCount(of: "HOME VOICE HANDOFF", in: draft), 1)
         let project = try await writerLoopProject(id: projectID, fixture: fixture)
         let versions = project["versions"] as? [[String: Any]] ?? []
+        if let savedVersionCountBeforeResume {
+            XCTAssertEqual(versions.count, savedVersionCountBeforeResume, "Acknowledgement retry created another saved version")
+        }
         XCTAssertEqual(versions.filter { stringValue($0["draft"]).utf8.elementsEqual(draft.utf8) }.count, 1,
             "One append created multiple saved versions")
         let otherProject = try await writerLoopProject(id: otherID, fixture: fixture)
@@ -4028,6 +4091,7 @@ final class V1SmokeUITests: XCTestCase {
         interruptTalkEnqueue: Bool = false,
         receiveTalkReply: Bool = false,
         receiveTalkPage: Bool = false,
+        interruptTalkPageAcknowledgement: Bool = false,
         conflictSaveSuccess: Bool = false,
         liveMemory: Bool = false,
         showPendingScreenplayQuestion: Bool = false,
@@ -4109,6 +4173,7 @@ final class V1SmokeUITests: XCTestCase {
         if interruptTalkEnqueue { arguments.append("--ui-talk-interrupted-enqueue-fixture") }
         if receiveTalkReply { arguments.append("--ui-talk-received-reply-fixture") }
         if receiveTalkPage { arguments.append("--ui-talk-page-recovery-fixture") }
+        if interruptTalkPageAcknowledgement { arguments.append("--ui-talk-page-recovery-interrupt-ack") }
         if conflictSaveSuccess {
             arguments.append("--ui-conflict-save-success")
         }

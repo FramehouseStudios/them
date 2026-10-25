@@ -56,6 +56,46 @@ final class OfflineTalkPageDeliveryTests: XCTestCase {
         XCTAssertEqual(offlineTalkReplyDisplayText(outputText: nil, reply: nil), "No reply text was included.")
     }
 
+    func testRenewedDocumentRequiresExactWordsAndUnchangedCanonicalBase() {
+        let plan = OfflineTalkPageDeliveryPlan(id: UUID(), receiptID: "receipt", projectID: "project-a",
+            documentID: "old-document", beforeDraft: "Original\r\nCafe\u{0301}. \t",
+            afterDraft: "Original\r\nCafe\u{0301}. \t\n\nNew scene", baseVersionID: "base-a")
+        func permits(project: String = "project-a", draft: String? = nil,
+                     version: String = "base-a", server: String = "base-a") -> Bool {
+            plan.permitsContinuation(project: project, document: "renewed-document",
+                draft: draft ?? plan.beforeDraft, version: version, serverVersion: server, serverDraft: "Saved baseline")
+        }
+        XCTAssertTrue(permits(), "A renewed local UUID is not a new screenplay when version and bytes prove continuity.")
+        XCTAssertTrue(permits(draft: plan.afterDraft), "An inserted but unsaved scene may finish the same plan.")
+        XCTAssertFalse(permits(project: "project-b"))
+        XCTAssertFalse(permits(draft: plan.beforeDraft + "Writer's newer words"))
+        XCTAssertFalse(permits(draft: plan.afterDraft + "Writer's newer words"))
+        XCTAssertFalse(permits(draft: "Original\r\nCafé. \t"), "Unicode equivalence is not exact writer bytes.")
+        XCTAssertFalse(permits(version: "newer-a"))
+        XCTAssertFalse(permits(server: "newer-a"))
+        XCTAssertFalse(permits(version: "newer-a", server: "newer-a"), "Matching newer hints cannot rebase the immutable plan.")
+    }
+
+    func testLegacyDeliveryPlanKeepsDigestAndCannotFollowANewDocumentWithoutABase() throws {
+        let legacy = #"{"afterDraft":"Before\n\nScene","beforeDraft":"Before","documentID":"document-a","id":"00000000-0000-0000-0000-000000000001","projectID":"project-a","receiptID":"receipt"}"#
+        let plan = try JSONDecoder().decode(OfflineTalkPageDeliveryPlan.self, from: Data(legacy.utf8))
+        XCTAssertNil(plan.baseVersionID)
+        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
+        XCTAssertEqual(try encoder.encode(plan), Data(legacy.utf8), "Missing optional anchors must not change old integrity bytes.")
+        XCTAssertTrue(plan.permitsContinuation(project: "project-a", document: "document-a", draft: plan.afterDraft,
+            version: "base", serverVersion: "base", serverDraft: plan.beforeDraft))
+        XCTAssertFalse(plan.permitsContinuation(project: "project-a", document: "new-document", draft: plan.beforeDraft,
+            version: "base", serverVersion: "base", serverDraft: plan.beforeDraft))
+        XCTAssertFalse(plan.permitsContinuation(project: "project-a", document: "document-a", draft: plan.beforeDraft,
+            version: "base", serverVersion: "base", serverDraft: "Changed server words"))
+        let newProject = OfflineTalkPageDeliveryPlan(id: UUID(), receiptID: "receipt", projectID: "new-project",
+            documentID: "old-document", beforeDraft: "", afterDraft: "Scene", baseVersionID: "")
+        let restored = try JSONDecoder().decode(OfflineTalkPageDeliveryPlan.self, from: encoder.encode(newProject))
+        XCTAssertEqual(restored.baseVersionID, "", "A known empty base must not become unknown legacy authority.")
+        XCTAssertTrue(restored.permitsContinuation(project: "new-project", document: "renewed-document",
+            draft: "", version: "", serverVersion: "", serverDraft: ""))
+    }
+
     func testProjectExtractionUsesMultipartHeadersNotBinaryAudioOrResponseText() throws {
         let boundary = "THEM-original-project"
         let headers = ["content-type": "multipart/form-data; boundary=\"\(boundary)\""]
@@ -94,10 +134,12 @@ final class OfflineTalkPageDeliveryTests: XCTestCase {
         let before = "INT. ROOM - NIGHT\r\nWriter’s exact words. \t\n"
         let after = before + "\nINT. HALL - NIGHT\nA light flickers."
         let plan = try await outbox.preparePageDelivery(entry.id, receiptID: packet.response.id, projectID: "project-a",
-            documentID: "document-a", beforeDraft: before, afterDraft: after, initiatingIdentity: owner, backendURL: url)
+            documentID: "document-a", beforeDraft: before, afterDraft: after, baseVersionID: "base-a",
+            initiatingIdentity: owner, backendURL: url)
         let relaunched = queue()
         let restored = try await relaunched.receivedReply(entry.id, initiatingIdentity: owner, backendURL: url)
         XCTAssertEqual(restored.pageDelivery, plan)
+        XCTAssertEqual(restored.pageDelivery?.baseVersionID, "base-a")
         let destination = try await relaunched.receivedReplyProjectID(entry.id, receiptID: restored.response.id,
             initiatingIdentity: owner, backendURL: url)
         XCTAssertEqual(destination, "project-a", "Legacy requests may resume only their existing durable plan's destination.")

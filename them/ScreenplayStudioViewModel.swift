@@ -6200,10 +6200,12 @@ final class ScreenplayStudioViewModel: ObservableObject {
         let authContext = currentStudioAuthContext()
         func isCurrentDraft() -> Bool {
             !Task.isCancelled && !isHydratingDraft && selectedProjectID == projectID
+                && (projectID.isEmpty || loadedDraftProjectID == projectID)
                 && authContextIsCurrent(authContext) && fountainDraft.utf8.elementsEqual(draft.utf8)
         }
         // The debounce's Task may start after a newer edit, and layout calls
-        // suspend. An old snapshot must not retire or persist the writer's page.
+        // suspend. Selection alone does not bind the previous project's restored
+        // text to this one; an old snapshot must not journal or save that page.
         guard isCurrentDraft() else { return }
         let normalized = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         let hasCoveragePresentation = coverageSimulationReport != nil ||

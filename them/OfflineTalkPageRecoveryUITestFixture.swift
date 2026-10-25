@@ -5,6 +5,19 @@ import Foundation
 /// The HTTP replay, response retention, metadata and save paths remain real.
 @MainActor
 enum OfflineTalkPageRecoveryUITestFixture {
+    /// Interrupt only the acknowledgement, after the real saved version was
+    /// checked. A relaunch must recover the same journal without another write.
+    static func interruptAcknowledgementIfNeeded(receiptID: String) throws {
+        let url = BackendAuthClient.resolvedBackendBaseURL()
+        guard IOThemRuntime.isRunningUITests,
+              ProcessInfo.processInfo.arguments.contains("--ui-talk-page-recovery-interrupt-ack"),
+              url.scheme == "http", url.host == "127.0.0.1" else { return }
+        let marker = "ui-talk-page-recovery-ack-interrupted-\(receiptID)"
+        guard !UserDefaults.standard.bool(forKey: marker) else { return }
+        UserDefaults.standard.set(true, forKey: marker)
+        throw BackendError.stage("offline_outbox", "Saved recovery acknowledgement interrupted. Your reply is kept.")
+    }
+
     static func install(projectID: String) async {
         let args = ProcessInfo.processInfo.arguments
         let url = BackendAuthClient.resolvedBackendBaseURL()

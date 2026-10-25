@@ -57,6 +57,7 @@ final class OfflineTalkPageRecoveryController: ObservableObject {
         let owner = BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: false)
         let project = vm.selectedProjectID
         let before = vm.fountainDraft
+        let baseVersion = vm.latestVersionID
         let document = bridge.draftOrigin.documentID
         func requireTarget() throws {
             guard scope.isCurrent, !project.isEmpty, vm.selectedProjectID == project,
@@ -67,6 +68,10 @@ final class OfflineTalkPageRecoveryController: ObservableObject {
             }
         }
         try requireTarget()
+        let fresh = try await OfflineTalkOutbox.shared.receivedReply(packet.entry.id,
+            initiatingIdentity: owner, backendURL: scope.backendURL)
+        try requireTarget()
+        guard fresh.response.id == packet.response.id else { throw BackendMemoryAPIError.invalidResponse }
         guard let output = result.screenplayOutput, output.writesToPage,
               result.renderContract.authoritativePageTextAvailable else { throw BackendMemoryAPIError.invalidResponse }
         let sourceProject = result.screenplayTrace.projectId ?? ""
@@ -79,12 +84,61 @@ final class OfflineTalkPageRecoveryController: ObservableObject {
         let range = NSRange(location: (before as NSString).length, length: 0)
         let core = screenplayEditorPreparedInsertionCoreText(output.text, existing: before, insertionRange: range, replacementTarget: nil)
         let after = before + screenplayEditorInsertionText(for: core, existing: before, selection: range)
-        let plan = try await OfflineTalkOutbox.shared.preparePageDelivery(packet.entry.id, receiptID: packet.response.id,
-            projectID: project, documentID: document, beforeDraft: before, afterDraft: after,
-            initiatingIdentity: owner, backendURL: scope.backendURL)
+        let config = URLSessionConfiguration.ephemeral; config.timeoutIntervalForResource = 12
+        let api = BackendMemoryAPI(session: URLSession(configuration: config), baseURL: scope.backendURL)
+        func serverProject() async throws -> BackendScreenplayProjectSummary {
+            let response = try await api.fetchScreenplayProject(projectId: project, includeDrafts: true,
+                versionLimit: 32, initiatingIdentity: owner)
+            try requireTarget()
+            guard let saved = response.payload.project, saved.id == project else { throw BackendMemoryAPIError.invalidResponse }
+            return saved
+        }
+        func containsSavedResult(_ saved: BackendScreenplayProjectSummary, plan: OfflineTalkPageDeliveryPlan) -> Bool {
+            saved.versions?.contains { ($0.draft ?? "").utf8.elementsEqual(plan.afterDraft.utf8) } == true
+        }
+        func acknowledge(_ plan: OfflineTalkPageDeliveryPlan) async throws -> String {
+            try requireTarget()
+            #if DEBUG
+            try OfflineTalkPageRecoveryUITestFixture.interruptAcknowledgementIfNeeded(receiptID: packet.response.id)
+            #endif
+            try await OfflineTalkOutbox.shared.acknowledgeReceivedReply(packet.entry.id, receiptID: packet.response.id,
+                initiatingIdentity: owner, backendURL: scope.backendURL, deliveryPlanID: plan.id)
+            await refresh()
+            return "Recovered scene saved."
+        }
+        let plan: OfflineTalkPageDeliveryPlan
+        let continuing: Bool
+        if let pending = fresh.pageDelivery {
+            plan = pending
+            guard plan.projectID == project else {
+                throw BackendError.stage("offline_outbox", "Open this reply's original project before finishing recovery. Your reply is kept.")
+            }
+            let saved = try await serverProject()
+            // A lost acknowledgement is not another append or another save.
+            // Even if the writer has since changed the editor, keep those words.
+            if containsSavedResult(saved, plan: plan) { return try await acknowledge(plan) }
+            let head = ScreenplayProjectDraftRestorePolicy.preferredVersion(in: saved)
+            guard plan.permitsContinuation(project: project, document: bridge.draftOrigin.documentID,
+                draft: vm.fountainDraft, version: vm.latestVersionID, serverVersion: head?.id ?? "",
+                serverDraft: head?.draft ?? ""), bridge.draftText.utf8.elementsEqual(vm.fountainDraft.utf8),
+                !vm.isSaving, vm.queuedDraftSaveCount == 0 else {
+                throw BackendError.stage("offline_outbox", "This recovery's page or saved version has changed. Your reply is kept for review and export; no text was added.")
+            }
+            continuing = true
+        } else {
+            plan = try await OfflineTalkOutbox.shared.preparePageDelivery(packet.entry.id, receiptID: packet.response.id,
+                projectID: project, documentID: document, beforeDraft: before, afterDraft: after, baseVersionID: baseVersion,
+                initiatingIdentity: owner, backendURL: scope.backendURL)
+            continuing = false
+        }
         try requireTarget()
+        guard continuing || vm.latestVersionID == baseVersion else {
+            throw BackendError.stage("offline_outbox", "The saved version changed while preparing recovery. Your reply is kept; no text was added.")
+        }
         var inserted = false
-        if plan.permitsInsertion(project: project, document: bridge.draftOrigin.documentID, draft: bridge.draftText),
+        if (continuing || (plan.permitsInsertion(project: project, document: bridge.draftOrigin.documentID, draft: bridge.draftText)
+            && plan.baseVersionID == vm.latestVersionID)),
+           bridge.draftText.utf8.elementsEqual(plan.beforeDraft.utf8),
            vm.fountainDraft.utf8.elementsEqual(plan.beforeDraft.utf8) {
             let start = plan.beforeDraft.components(separatedBy: "\n").count
             let write = ScreenplayCommittedWrite(id: plan.id, writeID: plan.id.uuidString.lowercased(),
@@ -112,18 +166,11 @@ final class OfflineTalkPageRecoveryController: ObservableObject {
             try requireTarget()
         }
         try requireTarget()
-        let config = URLSessionConfiguration.ephemeral; config.timeoutIntervalForResource = 12
-        let api = BackendMemoryAPI(session: URLSession(configuration: config), baseURL: scope.backendURL)
-        let saved = try await api.fetchScreenplayProject(projectId: project, includeDrafts: true, versionLimit: 32, initiatingIdentity: owner)
-        try requireTarget()
-        guard saved.payload.project?.id == project,
-              saved.payload.project?.versions?.contains(where: { ($0.draft ?? "").utf8.elementsEqual(plan.afterDraft.utf8) }) == true else {
+        let saved = try await serverProject()
+        guard containsSavedResult(saved, plan: plan) else {
             throw BackendError.stage("offline_outbox", "The scene is kept locally, but its saved version is not confirmed. Finish recovery after saving; it will not append a second copy.")
         }
-        try await OfflineTalkOutbox.shared.acknowledgeReceivedReply(packet.entry.id, receiptID: packet.response.id,
-            initiatingIdentity: owner, backendURL: scope.backendURL, deliveryPlanID: plan.id)
-        await refresh()
-        return "Recovered scene saved."
+        return try await acknowledge(plan)
     }
 }
 

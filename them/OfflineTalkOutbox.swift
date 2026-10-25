@@ -515,7 +515,7 @@ actor OfflineTalkOutbox {
     }
 
     func preparePageDelivery(_ id: String, receiptID: String, projectID: String, documentID: String?,
-        beforeDraft: String, afterDraft: String, initiatingIdentity owner: BackendAuthRequestIdentity,
+        beforeDraft: String, afterDraft: String, baseVersionID: String? = nil, initiatingIdentity owner: BackendAuthRequestIdentity,
         backendURL: URL) throws -> OfflineTalkPageDeliveryPlan {
         let packet = try receivedReply(id, initiatingIdentity: owner, backendURL: backendURL)
         guard packet.response.id == receiptID else { throw BackendMemoryAPIError.invalidResponse }
@@ -531,7 +531,7 @@ actor OfflineTalkOutbox {
             return existing
         }
         let plan = OfflineTalkPageDeliveryPlan(id: UUID(), receiptID: receiptID, projectID: projectID,
-            documentID: documentID, beforeDraft: beforeDraft, afterDraft: afterDraft)
+            documentID: documentID, beforeDraft: beforeDraft, afterDraft: afterDraft, baseVersionID: baseVersionID)
         try plan.validate(response: packet.response)
         record.version = 3; record.pageDelivery = plan
         record.pageDeliveryDigest = try plan.integrityDigest()

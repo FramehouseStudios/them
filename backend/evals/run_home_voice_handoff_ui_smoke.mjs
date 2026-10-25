@@ -31,6 +31,7 @@ const allowedTests = [
   'themUITests/V1SmokeUITests/test_studio_refused_write_preserves_saved_page_despite_page_selection',
   'themUITests/V1SmokeUITests/test_pages_navigator_controls_jump_and_preserve_source',
   'themUITests/V1SmokeUITests/test_queued_talk_reply_plays_appends_saves_and_restores_once',
+  'themUITests/V1SmokeUITests/test_queued_talk_reply_plays_resumes_saved_plan_after_project_switch_without_resaving',
 ];
 const tests = process.env.ONLY_TESTING ? [process.env.ONLY_TESTING] : allowedTests.slice(0, 2);
 if (tests.some(test => !allowedTests.includes(test))) throw new Error('Unsupported Home voice proof test');

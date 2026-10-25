@@ -70,7 +70,9 @@ struct OfflineTalkReplyReviewView: View {
                                 .accessibilityHint("Opens the screenplay that requested this reply. Does not add or discard text.")
                         } else if destinationVerified, !needsOriginalProject,
                                   let onAppend, let packet, result.screenplayOutput?.writesToPage == true, !delivered {
-                            Text("Append this scene to \(destinationTitle ?? "the selected project"). Existing text will not be replaced.")
+                            Text(packet.pageDelivery == nil
+                                ? "Append this scene to \(destinationTitle ?? "the selected project"). Existing text will not be replaced."
+                                : "Finish the original recovery. Already-saved text will not be appended or saved again.")
                                 .font(.caption).foregroundStyle(.secondary)
                             Button(packet.pageDelivery == nil ? "Append & save scene" : "Finish saved recovery") {
                                 player.stop(); playing = false; applying = true; error = ""; status = "Confirming the recovered scene and saved version…"
