@@ -560,6 +560,25 @@
   safely local325cfb5, not included here. Details and actual archive paths
   in `docs/native-export-presentation-identity-2026-10-24.md`.
 
+### T-1135 — Preserve a deferred page save's original owner and project
+
+- **Owner:** codex (Jarvis), original parent #974 branch. Combined descendant
+  `codex/T-1135-deferred-page-save-owner` remains preserved at ef62fb8.
+- **Reproduced:** actual model adopted A, selected B before its Task started,
+  and durably queued A's scene under B; focused0/1/0, no HTTP/provider. The
+  canonical request was built after deferral from the later selected project.
+- **Fix:** capture request before scheduling; changed auth/project/loaded base
+  or cancellation parks that original request. Reject stale-account page
+  adoption before editing. Reuse for programmatic autosaves, existing outbox and
+  request UUIDs. Only the shared small fix is ported, not child recovery/hooks.
+- **Proof:** combined runtime2b13d98 has focused39/0/0, full signed960/0/0,
+  save-admission recovery1/0/0, newer-writer acknowledgement1/0/0, Mac0. These
+  are not earlier-parent proof. Earlier-parent runtimef7eba21 passes signed
+  953/0/0, Mac0 and D009/diff; unchanged current writer1/0/0, offline recovery3/0/0.
+  No fresh backend or paid calls.
+- **Next:** prove/publish earlier parent normally before advancing original
+  child #975. `docs/deferred-page-save-parent-2026-10-24.md`.
+
 ### T-1134 — Repair hosted duplicate save and false one-copy conflict assertion
 
 - **Owner:** codex (Jarvis), local `codex/T-1134-hosted-save-recovery` from exact
