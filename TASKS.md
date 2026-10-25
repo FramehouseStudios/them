@@ -5,6 +5,34 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1153 — Preserve original Studio voice actions on the current Pages writer
+
+- **Owner:** codex (Jarvis). **Branch:** `codex/T-1153-original-643-actions`.
+- **Base:** preserved published Pages84659a6a; fresh original642 hosted gate
+  must clear its compiler repair. Original641 required checks are green.
+- **Scope:** preserve original64386cc5b24 and additive879eaed4e61 via no-ff
+  merges; reuse existing2299191b/dd2f3db8/ebcaaa0/04bc973 safety fixes with
+  attribution. Keep current Home/refusal/Stop, Pages/source and save owners.
+- **Binary success:** only offered supported actions dispatch; duplicates,
+  changed account/session/project/exact draft, Page-fiction and recognized
+  refusals/offers/quotes cannot trigger writes; undo synchronous and same-
+  project/exact-byte guarded; revision status only after acknowledgement;
+  no raw scene/beat arguments in diagnostics. No god-file growth vs642.
+- **Proof:** focused real parser/dispatcher regressions, current signed erased
+  native and full Node20 integration, authenticated writer + inspector UI,
+  macOS/D009/diff. No paid calls or unchanged test loops. Do not claim complete
+  live voice control before original648 prompt/reply/authority reconciliation.
+- **Current:** original643/879 preserved; existing safety repairs replayed.
+  New retry seam red0/1/0 (two saves per logical request) → full signed722/0/0
+  after8c50e09. First backend2852/1/2 fetch failure; canonical ephemeral server
+  reused only in cancellation fixtures,7/0/0 then full2853/0/2. Those native
+  results predate the Pages parent repair. Actual merged122a4f76 now has signed
+  units722/0/0,inspector+writer2/0/0,syntheticHome2/0/0,Macbuild,D009/diff pass.
+  Backend tree byte-identical to da05's2853/0/2. No paid call, original643 head
+  change, main change or production claim. Public643 waits for exact642 hosted
+  clearance; normal task-branch backup is not a replacement PR or green CI.
+- **Evidence:** `docs/original-643-actions-2026-10-25.md`.
+
 ### T-1154 — Repair hosted Pages preview type-check failure
 
 - **Owner:** codex. **Branch:** `codex/T-1154-pages-preview-typecheck`.
@@ -2207,6 +2235,17 @@ as history, not new proof or active assignments for this original639 repair.
 ## Active work — quick view
 
 Historical Pages/security records below are dated context, not current proof.
+### T-952 — Preserve Studio actions and guard current-document execution
+
+- **Owner:** codex. **Status:** in-progress. **Pillar:** voice-to-scene.
+- **Branch:** `codex/T-952-studio-actions-integration`, based on T-951.
+- **Scope:** preserve original #643 and #879; reject duplicate/stale actions,
+  failed Studio mount and explicitly unsupported capability lists.
+- **Done when:** response-to-action behavioral regressions, signed units and
+  UI, full Node20 backend, macOS, offline golden, D009 and diff are recorded.
+- **Hold:** #648 already owns later prompt/action inference wiring. Preserve
+  that implementation; do not claim live voice actions proven at this boundary.
+
 ### T-951 — Integrate and re-prove original pagination
 
 - **Owner:** codex. **Status:** review (historical; current integration T-1096). **Pillar:** mobile-first.
@@ -2289,6 +2328,22 @@ reconciliation. These dated states are not current verification or new lanes.
 - Scope: repair Home/Studio boundaries, rewrite and dialogue-notes routing, project-memory contracts, fresh Page-lane behavior and distress/freshness precedence.
 - Done: behavioral backend tests, signed Swift proof coordinated by integration owner, D009 and diff checks; no main merge or replacement PR.
 - Current proof: Node 20 full backend 2,768/0/2; focused 61/61; offline mentor golden and D009 pass. Signed units/UI and integrated proof pending with integration owner. Evidence: `docs/filmmaker-review-corrections-2026-10-08.md`.
+
+Historical additive Studio-action gate record follows; T-1153 owns current work.
+### T-studio-actions-gate — Preserve Studio voice actions without root-view growth
+- Owner: codex
+- Branch: codex/T-studio-actions-gate
+- Status: review
+- Pillar: voice→scene
+- Done when: #643's capability metadata and response actions retain their
+  behavior, existing action types own the integration, the god-file gate passes
+  against #642, and focused/full signed iOS and backend proof pass.
+- Scope: additive extraction on Claude's original #643 commits, no replacement
+  implementation or merge ahead of #766 and #770.
+- Proof: 10/10 focused Studio-action tests, 654/654 signed iOS unit tests,
+  2/2 signed iPhone UI tests (typing and all inspector destinations), and
+  backend 2,779 passed / 0 failed / 2 skipped. God-file gate passes against
+  both #642 and #643; see docs/audits/studio-actions-gate-2026-09-30.md.
 
 | ID   | Title                                              | Owner  | Status            |
 |------|----------------------------------------------------|--------|-------------------|

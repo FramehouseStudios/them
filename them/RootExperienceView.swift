@@ -6765,7 +6765,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 shouldWriteToPage: preparedPrompt.shouldWriteToPage
             )
         }
-        let initialStudioMetadata = initialStudioTalkMetadata(from: preparedPrompt)
+        let initialStudioMetadata = StudioCapabilitiesSnapshot.attaching(to: initialStudioTalkMetadata(from: preparedPrompt), snapshot: .current(bridge: screenplayDraftBridge, studioOpen: isStudioSurfaceActive))
         let talkScreenplayGenerationTranscript: String? = {
             guard preparedPrompt.shouldWriteToPage else { return nil }
             let confirmedContext = confirmedStudioPageWriteContext(for: preparedPrompt.directorText)
@@ -7046,7 +7046,113 @@ Write this approved story direction directly into screenplay pages now. Maintain
             } else {
                 screenplayDraftBridge.resetSyncedVoiceTurnTracking()
             }
-            let requestTalk = {
+            let requestTalk: () async throws -> BackendTalkResult = StudioActionDispatcher.handlingRequest(bridge: screenplayDraftBridge, studioOpen: { isStudioSurfaceActive }, openStudio: { openStudio() }, isCurrent: { isTurnSubmitting && lastSubmittedFingerprint == fingerprint && lastSubmittedAt == now }, onResponse: { metadata in
+                Task { @MainActor in
+                    if preparedPrompt.useScreenplayMode {
+                        screenplayDraftBridge.updateScreenplayQualityStatus(
+                            quality: metadata.screenplayQuality,
+                            output: metadata.screenplayOutput
+                        )
+                    }
+                    presentCanonClarificationIfNeeded(
+                        metadata.creativeMemoryTrace.canonClarification
+                    )
+#if DEBUG || os(macOS)
+                    debugTimingSource = metadata.timingSource?
+                        .trimmingCharacters(in: .whitespacesAndNewlines) ?? debugTimingSource
+                    if let screenplayOutput = metadata.screenplayOutput {
+                        debugScreenplayOutputTarget = screenplayOutput.target
+                            .trimmingCharacters(in: .whitespacesAndNewlines)
+                        debugScreenplayOutputSource = screenplayOutput.source
+                            .trimmingCharacters(in: .whitespacesAndNewlines)
+                        debugScreenplayOutputText = screenplayOutput.text
+                            .trimmingCharacters(in: .whitespacesAndNewlines)
+                    }
+                    if let quality = metadata.screenplayQuality ?? metadata.screenplayOutput?.quality {
+                        debugScreenplayQualityReason = quality.reason
+                            .trimmingCharacters(in: .whitespacesAndNewlines)
+                        debugScreenplayQualityConfidence = quality.confidence
+                            .trimmingCharacters(in: .whitespacesAndNewlines)
+                        debugScreenplayQualityFeatureAct = (quality.featureAct ?? "")
+                            .trimmingCharacters(in: .whitespacesAndNewlines)
+                    }
+                    debugScreenplayRepairAttempted = metadata.screenplayTrace.repairAttempted
+                    debugScreenplayRepairOutcome = metadata.screenplayTrace.repairOutcome
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                    debugScreenplayRepairMs = metadata.screenplayTrace.repairMs
+                    debugScreenplayRepairReason = (metadata.screenplayTrace.repairReason ?? "")
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                    updateDebugCreativeMemoryTrace(metadata.creativeMemoryTrace)
+                    self.screenplayDraftBridge.noteTalkCreativeMemoryTrace(
+                        metadata.creativeMemoryTrace,
+                        source: "talk_response_metadata"
+                    )
+                    if !metadata.screenplayCues.isEmpty {
+                        debugScreenplayCues = metadata.screenplayCues
+                    }
+                    if let metadataDialogueTimeline = metadata.dialogueTimeline {
+                        debugDialogueTimeline = metadataDialogueTimeline
+                    }
+                    if let debugVoiceTurnToken {
+                        let headerTarget = metadata.screenplayOutput?.target
+                            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                        let headerSource = metadata.screenplayOutput?.source
+                            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                        let headerTimingSource = metadata.timingSource?
+                            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                        let headerQuality = metadata.screenplayQuality ?? metadata.screenplayOutput?.quality
+                        let headerQualityReason = headerQuality?.reason
+                            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                        let headerQualityConfidence = headerQuality?.confidence
+                            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                        let headerRepairOutcome = metadata.screenplayTrace.repairOutcome
+                            .trimmingCharacters(in: .whitespacesAndNewlines)
+                        let headerRepairMs = metadata.screenplayTrace.repairMs ?? 0
+                        let memoryCharacters = metadata.creativeMemoryTrace.characters
+                            .map { $0.name.trimmingCharacters(in: .whitespacesAndNewlines) }
+                            .filter { !$0.isEmpty }
+                            .prefix(4)
+                            .joined(separator: ",")
+                        let memoryCorrections = metadata.creativeMemoryTrace.correctionReplacements
+                            .prefix(3)
+                            .joined(separator: ",")
+                            .replacingOccurrences(of: " ", with: "_")
+                        appendStudioDebugVoiceDraftBreadcrumb(
+                            event: "talk_response_metadata_ready",
+                            detail: "Talk response metadata ready. output_target=\(headerTarget.isEmpty ? "none" : headerTarget) output_source=\(headerSource.isEmpty ? "none" : headerSource) timing_source=\(headerTimingSource.isEmpty ? "none" : headerTimingSource) quality_reason=\(headerQualityReason.isEmpty ? "none" : headerQualityReason) quality_confidence=\(headerQualityConfidence.isEmpty ? "none" : headerQualityConfidence) repair_attempted=\(metadata.screenplayTrace.repairAttempted ? "1" : "0") repair_outcome=\(headerRepairOutcome.isEmpty ? "none" : headerRepairOutcome) repair_ms=\(headerRepairMs) memory_applied=\(metadata.creativeMemoryTrace.applied ? "1" : "0") memory_characters=\(metadata.creativeMemoryTrace.characterCount) memory_episodes=\(metadata.creativeMemoryTrace.episodicCount) memory_corrections=\(metadata.creativeMemoryTrace.correctionCount) memory_names=\(memoryCharacters.isEmpty ? "none" : memoryCharacters) memory_repairs=\(memoryCorrections.isEmpty ? "none" : memoryCorrections) cue_count=\(metadata.screenplayCues.count)",
+                            replyPreview: String((metadata.screenplayOutput?.text ?? "").prefix(220)),
+                            tokenOverride: debugVoiceTurnToken,
+                            promptPreviewOverride: preparedPrompt.directorText
+                        )
+                        persistDebugVoiceTurnProgress()
+                    }
+#endif
+                    guard preparedPrompt.useScreenplayMode else { return }
+                    guard preparedPrompt.shouldWriteToPage else { return }
+                    let voiceTimeline = studioDialogueTimeline(from: metadata.dialogueTimeline)
+                    let voiceInsertCues = studioVoiceInsertCues(
+                        from: metadata.screenplayCues,
+                        timeline: voiceTimeline
+                    )
+                    let renderContract = syncedVoiceRenderContract(from: metadata.renderContract)
+                    let resolvedTimingSource = resolvedPendingSyncedVoiceInsertTimingSource(
+                        metadata.timingSource,
+                        cues: voiceInsertCues
+                    )
+                    screenplayDraftBridge.updateSyncedVoiceTurnRenderContract(renderContract)
+                    screenplayDraftBridge.stageSyncedVoiceTurnAuthoritativeContent(
+                        text: authoritativePageWriteText(from: metadata.screenplayOutput),
+                        cues: voiceInsertCues,
+                        timeline: voiceTimeline,
+                        timingSource: resolvedTimingSource,
+                        audioDuration: metadata.audioDurationMs.map { TimeInterval($0) / 1_000.0 },
+                        renderContract: renderContract
+                    )
+                    if didStartEarlyStreamPlayback, renderContract.syncReady {
+                        startSyncedVoiceInsertIfPossible(trigger: "response_metadata_ready")
+                    }
+                }
+            }, request: { onResponseMetadataReady in
                 try await backend.talk(
                     fileURL: wavURL,
                     fileDataOverride: wavData,
@@ -7070,113 +7176,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
                     studioMetadata: initialStudioMetadata,
                     clientTranscriptOverride: cleanClientTranscriptOverride.isEmpty ? nil : cleanClientTranscriptOverride,
                     screenplayGenerationTranscriptOverride: talkScreenplayGenerationTranscript,
-                    onResponseMetadataReady: { metadata in
-                        Task { @MainActor in
-                            if preparedPrompt.useScreenplayMode {
-                                screenplayDraftBridge.updateScreenplayQualityStatus(
-                                    quality: metadata.screenplayQuality,
-                                    output: metadata.screenplayOutput
-                                )
-                            }
-                            presentCanonClarificationIfNeeded(
-                                metadata.creativeMemoryTrace.canonClarification
-                            )
-#if DEBUG || os(macOS)
-                            debugTimingSource = metadata.timingSource?
-                                .trimmingCharacters(in: .whitespacesAndNewlines) ?? debugTimingSource
-                            if let screenplayOutput = metadata.screenplayOutput {
-                                debugScreenplayOutputTarget = screenplayOutput.target
-                                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                                debugScreenplayOutputSource = screenplayOutput.source
-                                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                                debugScreenplayOutputText = screenplayOutput.text
-                                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                            }
-                            if let quality = metadata.screenplayQuality ?? metadata.screenplayOutput?.quality {
-                                debugScreenplayQualityReason = quality.reason
-                                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                                debugScreenplayQualityConfidence = quality.confidence
-                                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                                debugScreenplayQualityFeatureAct = (quality.featureAct ?? "")
-                                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                            }
-                            debugScreenplayRepairAttempted = metadata.screenplayTrace.repairAttempted
-                            debugScreenplayRepairOutcome = metadata.screenplayTrace.repairOutcome
-                                .trimmingCharacters(in: .whitespacesAndNewlines)
-                            debugScreenplayRepairMs = metadata.screenplayTrace.repairMs
-                            debugScreenplayRepairReason = (metadata.screenplayTrace.repairReason ?? "")
-                                .trimmingCharacters(in: .whitespacesAndNewlines)
-                            updateDebugCreativeMemoryTrace(metadata.creativeMemoryTrace)
-                            self.screenplayDraftBridge.noteTalkCreativeMemoryTrace(
-                                metadata.creativeMemoryTrace,
-                                source: "talk_response_metadata"
-                            )
-                            if !metadata.screenplayCues.isEmpty {
-                                debugScreenplayCues = metadata.screenplayCues
-                            }
-                            if let metadataDialogueTimeline = metadata.dialogueTimeline {
-                                debugDialogueTimeline = metadataDialogueTimeline
-                            }
-                            if let debugVoiceTurnToken {
-                                let headerTarget = metadata.screenplayOutput?.target
-                                    .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                                let headerSource = metadata.screenplayOutput?.source
-                                    .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                                let headerTimingSource = metadata.timingSource?
-                                    .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                                let headerQuality = metadata.screenplayQuality ?? metadata.screenplayOutput?.quality
-                                let headerQualityReason = headerQuality?.reason
-                                    .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                                let headerQualityConfidence = headerQuality?.confidence
-                                    .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                                let headerRepairOutcome = metadata.screenplayTrace.repairOutcome
-                                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                                let headerRepairMs = metadata.screenplayTrace.repairMs ?? 0
-                                let memoryCharacters = metadata.creativeMemoryTrace.characters
-                                    .map { $0.name.trimmingCharacters(in: .whitespacesAndNewlines) }
-                                    .filter { !$0.isEmpty }
-                                    .prefix(4)
-                                    .joined(separator: ",")
-                                let memoryCorrections = metadata.creativeMemoryTrace.correctionReplacements
-                                    .prefix(3)
-                                    .joined(separator: ",")
-                                    .replacingOccurrences(of: " ", with: "_")
-                                appendStudioDebugVoiceDraftBreadcrumb(
-                                    event: "talk_response_metadata_ready",
-                                    detail: "Talk response metadata ready. output_target=\(headerTarget.isEmpty ? "none" : headerTarget) output_source=\(headerSource.isEmpty ? "none" : headerSource) timing_source=\(headerTimingSource.isEmpty ? "none" : headerTimingSource) quality_reason=\(headerQualityReason.isEmpty ? "none" : headerQualityReason) quality_confidence=\(headerQualityConfidence.isEmpty ? "none" : headerQualityConfidence) repair_attempted=\(metadata.screenplayTrace.repairAttempted ? "1" : "0") repair_outcome=\(headerRepairOutcome.isEmpty ? "none" : headerRepairOutcome) repair_ms=\(headerRepairMs) memory_applied=\(metadata.creativeMemoryTrace.applied ? "1" : "0") memory_characters=\(metadata.creativeMemoryTrace.characterCount) memory_episodes=\(metadata.creativeMemoryTrace.episodicCount) memory_corrections=\(metadata.creativeMemoryTrace.correctionCount) memory_names=\(memoryCharacters.isEmpty ? "none" : memoryCharacters) memory_repairs=\(memoryCorrections.isEmpty ? "none" : memoryCorrections) cue_count=\(metadata.screenplayCues.count)",
-                                    replyPreview: String((metadata.screenplayOutput?.text ?? "").prefix(220)),
-                                    tokenOverride: debugVoiceTurnToken,
-                                    promptPreviewOverride: preparedPrompt.directorText
-                                )
-                                persistDebugVoiceTurnProgress()
-                            }
-#endif
-                            guard preparedPrompt.useScreenplayMode else { return }
-                            guard preparedPrompt.shouldWriteToPage else { return }
-                            let voiceTimeline = studioDialogueTimeline(from: metadata.dialogueTimeline)
-                            let voiceInsertCues = studioVoiceInsertCues(
-                                from: metadata.screenplayCues,
-                                timeline: voiceTimeline
-                            )
-                            let renderContract = syncedVoiceRenderContract(from: metadata.renderContract)
-                            let resolvedTimingSource = resolvedPendingSyncedVoiceInsertTimingSource(
-                                metadata.timingSource,
-                                cues: voiceInsertCues
-                            )
-                            screenplayDraftBridge.updateSyncedVoiceTurnRenderContract(renderContract)
-                            screenplayDraftBridge.stageSyncedVoiceTurnAuthoritativeContent(
-                                text: authoritativePageWriteText(from: metadata.screenplayOutput),
-                                cues: voiceInsertCues,
-                                timeline: voiceTimeline,
-                                timingSource: resolvedTimingSource,
-                                audioDuration: metadata.audioDurationMs.map { TimeInterval($0) / 1_000.0 },
-                                renderContract: renderContract
-                            )
-                            if didStartEarlyStreamPlayback, renderContract.syncReady {
-                                startSyncedVoiceInsertIfPossible(trigger: "response_metadata_ready")
-                            }
-                        }
-                    },
+                    onResponseMetadataReady: onResponseMetadataReady,
                     onFirstAudioSegmentReady: { firstSegmentURL in
                         Task { @MainActor in
                             guard allowEarlyStreamPlayback else { return }
@@ -7298,7 +7298,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
                     },
                     onDebugEvent: onBackendTalkDebugEvent
                 )
-            }
+            })
             let result: BackendTalkResult
             do {
                 result = try await requestTalk()
