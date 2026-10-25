@@ -5,6 +5,123 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1150 — Make the Craft override page keyboard explicitly dismissible
+
+- **Owner:** codex (Jarvis). **Branch:** `codex/T-1150-craft-keyboard-recovery`.
+- **Base:** preserved local6403c88c50; original public640 remains unchanged.
+- **Observed:** dedicated authenticated Craft UI0/1/0, Save Override not
+  reachable after typing12. Video confirms keyboard covers the save row;
+  default drawer swipe may begin on keyboard. This does not prove manual
+  scrolling is impossible. Existing Page has no explicit submit dismissal.
+- **Fix:** standard SwiftUI page focus and Done submit releases keyboard;
+  clearing the composer clears that focus. Keep the current request/auth/
+  acknowledgement path; no system-wide responder action or new UI framework.
+- **Success:** real Page Done dismisses keyboard without losing12; existing
+  Save action receives acknowledgement and independent API read proves the
+  saved override's project/version/framework. Explicit framework choice still
+  survives Refresh. Preserve existing strict assertions and source history.
+- **Proof:** before bundle `/private/tmp/them-1150-craft-ui.DFwXcS/`; no paid
+  model key, external fetch blocked, authenticated disposable backend. After
+  proof1/0/0 on changed source, exact unchanged source/diff asserted. Inspected
+  selection/acknowledgement/explicit-choice screenshots; external fetch audit
+  empty. Mac compile exit0; current committed-source writer checkpoint1/0/0,
+  empty key and no external fetch. No unchanged
+  retry, main/production or public-head change.
+- **Evidence:** `docs/craft-keyboard-recovery-2026-10-25.md`.
+- **Status:** locally proven; prepare preserving original640 normal advance,
+  not a replacement PR or a main merge. Exact-head hosted checks still required.
+
+### T-1147 — Preserve Craft integration on the corrected original639 parent
+
+- **Owner:** codex (Jarvis). **Branch:** `codex/T-1147-original-640-parent`.
+- **Status:** in-progress. **Base:** repaired local64022bf182; preserving
+  parent965a507, original639 and original640c8eb36b. Public640 unchanged.
+- **Scope:** retain all seven upheld craft/routing/default/prompt corrections,
+  report-operation ownership and strict D009 baseline tests. Include parent's
+  exact simulator/evidence/title-focus/selected-tab fixes without replacing
+  original history. Keep both ledger sides; no squash/force/main merge.
+- **Additional verified source gaps:** makeCraftRequest still lacks canonical
+  bearer attachment; rail hides nonempty infoText once a report exists. Prior
+  follow-up6190d61a already fixes both plus public-discovery/protected-context
+  sequencing. Reuse its scoped runtime/tests, not its later cumulative branch.
+- **Done when:** root reproductions/owned contracts pass, protected context and
+  canonical auth remain enforced, backend/offline/D009 checks pass, and native
+  Craft/writer checkpoint is completed when GUI observation is available.
+- **Proof:** current full Node20 backend2785/0/2, offline40 pairs/8 checks,
+  strict numeric D009 and its7/0/0 contracts, focused signed native15/0/0,
+  full signed erased native647/0/0. Initial sandbox invocation executed no
+  tests; permitted execution passed, with a907s file-store-test outlier whose
+  cause is unclassified. No responsiveness claim.
+- **Hold at T1147 checkpoint:** Mac locked then; now unlocked by human and
+  dedicated Craft case proven with T1150 keyboard fix. Original63940203301919
+  is terminal green at965a507. No public640
+  advance until its current Craft/writer/Mac checkpoint is complete. Separately
+  original97540208473954 failed the second Files presentation; later T1148
+  corrected it and a754cac passed all required gates. No paid call, production
+  change or review bypass.
+- **Evidence:** `docs/original-640-parent-refresh-2026-10-25.md`.
+
+### T-1139 — Preserve original640 with proven craft/routing corrections
+
+- **Owner:** codex (Jarvis). **Branch:** `codex/T-1139-original-640-craft`.
+- **Status:** locally proven; publication waits for parent checks. Public
+  heads unchanged. Original640 `c8eb36b`
+  and proven original639 candidate `f2cf7b5` preserved by merge8821a16.
+- **Parent refresh:** locally include refreshed639candidate4c61d5a and its
+  preserved638repair0b56861. Clean merge; backend, craft/native report-slot and
+  gate source unchanged. This does not advance either public child or turn
+  previous646-unit/full-backend results into fresh combined-tree executions.
+- **Reproduced:** exact four non-knowledge writer messages all route to
+  knowledge_answer; genuine inciting-incident question remains knowledge.
+  Lexical dialogue retrieval returns no craft card. Correctly permitted
+  production-function probe reports5 failed expectations; earlier EPERM
+  initialization is not product-defect proof.
+- **Fix:** backport existing attributed62828f3 andbd6c536 as72bf237/45b75b1:
+  intent restoration, trimmed contracts/craft retention, one framework default,
+  feature-map precedence, context-scoped lexical craft retrieval, corpus layout
+  and deployment count. Backport12396da as4199bb5 to reconcile stored reports,
+  explicit writer choice and stale project/version/auth responses on the rail.
+- **Integration:** initializer retains this boundary's existing save/recovery
+  ownership; add only craft-client injection, not later unrelated dependencies.
+  Historical ledger context is preserved, not treated as fresh proof.
+- **Success:** focused defects, real HTTP prompt path, canonical persona,
+  full Node20 backend, signed erased iOS units including framework/report
+  regression, writer UI, macOS, D009 and diff pass. No paid call or production
+  change. Publish originals bottom-up only after actual parent checks clear.
+- **Evidence:** `docs/original-640-craft-2026-10-25.md`.
+- **Additional root fix:** a held Analyze request remained busy after project
+  reset (signed red0/1/0). Extend existing operation-ID ownership to Analyze
+  and Override; project reset/framework change releases UI authority, old
+  completions cannot retire or publish into a newer request. No server-cancel
+  or exactly-once claim.
+- **Verified:** Node20 focused79/0/0 and full2779/0/2; all40 offline exemplar
+  pairs/eight prompt checks; initial signed645/0/0 before the new slot fix,
+  focused correction8/0/0, final signed646/0/0 including eight held success/error
+  context variants; final writer1/0/0; macOS exit0. Corpus all110 contents and
+  metadata unchanged; D009 index-45/Studio-4/others0; diff passes.
+
+### T-1140 — Make a missing D009 comparison baseline fail explicitly
+
+- **Owner:** codex. **Branch:** `codex/T-1140-god-baseline-authority`.
+- **Status:** locally proven on640 descendanta0bab6a; script-only lane.
+- **Observed:** an explicit GITHUB_BASE_REF with no local tracking ref returns
+  base/delta null but status ok/exit0. It is not comparison proof. T-1139
+  fetched the exact existing parent and reran with real counts; final proof
+  is valid. Current hosted checkout uses fetch-depth0, mitigating that case.
+- **Target:** canonical `scripts/check_god_files.mjs`; reject an explicitly
+  unavailable comparison ref, without weakening growth detection or changing
+  valid-baseline behavior. Verify using isolated fixture repos, not more
+  backend/native reruns. No new framework or production change.
+- **Root/fix:** validate actual baseline commit, mark unavailable comparisons
+  unverified/failed, reject unreadable comparison content, count a file absent
+  from a valid parent as zero. `--allow-growth` cannot authorize no comparison.
+- **Proof:** isolated fixture repos before2 pass/5 fail/0 skip; fixed7/0/0;
+  syntax/diff pass; real original-parent comparison passes with actual numeric
+  baselines. Native/backend trees are byte-unchanged froma0bab6a. The existing
+  required D009 job runs the regressions; workflow binding checked statically,
+  fresh hosted execution pending. No paid/live workflow is introduced.
+- **Evidence:** `docs/god-baseline-authority-2026-10-25.md`. Preserve original
+  #640 history; fresh hosted checks/review still required before landing.
 ### T-1146 — Connect project creation focus and trustworthy writer proof
 
 - **Owner:** codex (Jarvis). **Branch:** `codex/T-1146-original-639-writer-input`.
@@ -1890,6 +2007,33 @@ as history, not new proof or active assignments for this original639 repair.
 ---
 
 ## Active work — quick view
+
+Historical backport record below: these are the dated T-945 branch results,
+not fresh proof for the current original640 candidate.
+
+### T-945 — Resolve #640 three-act review findings before integration
+
+- **Owner:** codex. **Branch:** `codex/T-945-three-act-review-fixes`.
+- **Status:** review. **Pillar:** living companion / longitudinal learning.
+- **Done when:** planner intent regressions, trimmed craft survival, canonical
+  defaults, feature-map precedence and lexical retrieval are proven; all 110
+  cards retain their contents; Node 20 backend, offline golden, signed Swift
+  selection tests and D009 pass against `claude/mentor-golden-port`.
+- **Boundary:** retain original #640 `c8eb36ba`; no replacement PR, original-head
+  rewrite, squash or main merge. Post evidence on the original PR.
+- **Proof:** Node 20.20.2 full backend 2,765 pass / 0 fail / 2 skip; offline
+  golden gate passes; signed Swift selection/resilience 9/9 after owned erase;
+  macOS scaffold build, D009 and diff checks pass. See
+  `docs/three-act-review-corrections-2026-10-08.md` for all outcomes and boundaries.
+
+### T-948 — Persisted craft report rail reconciliation
+
+- **Owner:** codex. **Status:** ready. **Pillar:** mobile-first / living companion.
+- **Scope:** prefer a loaded report's framework if the writer has not explicitly
+  chosen one; preserve explicit choices. Separate from the T-945 allocator fix.
+- **Done when:** stored Save the Cat report, chip and successful Save Override
+  agree; explicit Three-Act selection stays selected. Signed behavioral tests
+  and narrow Studio runtime proof required. Known minor issue, not fixed yet.
 
 | ID   | Title                                              | Owner  | Status            |
 |------|----------------------------------------------------|--------|-------------------|

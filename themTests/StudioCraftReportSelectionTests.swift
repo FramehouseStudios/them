@@ -1,0 +1,300 @@
+import XCTest
+import ScreenplayStudio
+@testable import them
+
+@MainActor
+final class StudioCraftReportSelectionTests: XCTestCase {
+    func testStoredReportReplacesAutomaticDefaultAndScopesOverrideToThatFramework() async throws {
+        var overrideBody: [String: Any]?
+        let model = try makeModel { stub in
+            if stub.request.url?.path == "/craft/overrides" {
+                overrideBody = try? JSONSerialization.jsonObject(with: self.body(stub.request)) as? [String: Any]
+                stub.respond(#"{"id":"override-1","turnId":"all-is-lost","action":"mark-present","projectId":"craft-project","versionId":"v1","frameworkId":"save-the-cat"}"#)
+            } else { self.respondNormally(stub) }
+        }
+        await model.loadCraftReport()
+        XCTAssertEqual(model.craftReport?.framework.id, "save-the-cat")
+        XCTAssertEqual(model.selectedCraftFrameworkID, "save-the-cat")
+        await model.createCraftTurnOverride(.init(turnId: "all-is-lost", action: "mark-present",
+            reason: nil, sceneId: nil, page: 76, userId: nil, expiresAt: nil))
+        XCTAssertEqual(overrideBody?["frameworkId"] as? String, "save-the-cat")
+        XCTAssertEqual(overrideBody?["projectId"] as? String, "craft-project")
+        XCTAssertEqual(overrideBody?["versionId"] as? String, "v1")
+        XCTAssertTrue(model.craftInfoText.hasPrefix("Override saved"))
+        model.resetCraftReportForProjectChange()
+        XCTAssertEqual(model.selectedCraftFrameworkID, "three-act")
+        await model.loadCraftReport()
+        XCTAssertEqual(model.selectedCraftFrameworkID, "save-the-cat", "A reset default is still automatic")
+    }
+
+    func testExplicitSelectionIsNotOverriddenByAnIncompatibleStoredReport() async throws {
+        let model = try makeModel { self.respondNormally($0) }
+        model.selectCraftFramework("three-act")
+        await model.loadCraftReport()
+        XCTAssertEqual(model.selectedCraftFrameworkID, "three-act")
+        XCTAssertNil(model.craftReport)
+        XCTAssertTrue(model.craftInfoText.contains("Analyze with the selected framework"))
+    }
+
+    func testWriterChoiceDuringFetchWinsOverTheIncomingReport() async throws {
+        for pendingPath in ["/craft/reports/", "/craft/twist/accepted"] {
+            var model: ScreenplayStudioViewModel!
+            model = try makeModel { stub in
+                if stub.request.url?.path.contains(pendingPath) == true {
+                    model.selectCraftFramework("story-circle")
+                }
+                self.respondNormally(stub)
+            }
+            await model.loadCraftReport()
+            XCTAssertEqual(model.selectedCraftFrameworkID, "story-circle")
+            XCTAssertNil(model.craftReport)
+            XCTAssertFalse(model.craftInfoText.contains("report loaded"))
+        }
+    }
+
+    func testAnalysisCannotReplaceAnExplicitChoiceWithADifferentResponseFramework() async throws {
+        let model = try makeModel { stub in
+            if stub.request.url?.path == "/craft/analyze" { stub.respond(self.report()) }
+            else { self.respondNormally(stub) }
+        }
+        model.selectCraftFramework("three-act")
+        await model.analyzeCraftReport()
+        XCTAssertEqual(model.selectedCraftFrameworkID, "three-act")
+        XCTAssertNil(model.craftReport)
+        XCTAssertTrue(model.craftErrorText.contains("framework"))
+    }
+
+    func testLateSuccessAndErrorCannotApplyAcrossProjectVersionOrAuthenticationChanges() async throws {
+        for change in ["project", "version", "auth"] {
+            for status in [200, 404] {
+                var model: ScreenplayStudioViewModel!
+                model = try makeModel { stub in
+                    if stub.request.url?.path.contains("/craft/reports/") == true {
+                        switch change {
+                        case "project":
+                            model.selectedProjectID = "other-project"
+                            model.resetCraftReportForProjectChange()
+                        case "version": model.latestVersionID = "v2"
+                        default: _ = BackendAuthClient.reserveAuthSessionIntent()
+                        }
+                        stub.respond(status == 200 ? self.report() : "{}", status: status)
+                    } else { self.respondNormally(stub) }
+                }
+                await model.loadCraftReport(force: true)
+                XCTAssertNil(model.craftReport, "\(change)/\(status)")
+                XCTAssertEqual(model.craftInfoText, "", "\(change)/\(status)")
+                XCTAssertEqual(model.craftErrorText, "", "\(change)/\(status)")
+                XCTAssertFalse(model.isCraftLoading)
+            }
+        }
+    }
+
+    func testOldRequestCompletionCannotClearNewProjectLoadingState() async throws {
+        let firstStarted = expectation(description: "first report request")
+        let secondStarted = expectation(description: "second report request")
+        var held: [CraftReportURLProtocol] = []
+        let model = try makeModel { stub in
+            if stub.request.url?.path.contains("/craft/reports/") == true {
+                held.append(stub)
+                if held.count == 1 { firstStarted.fulfill() } else { secondStarted.fulfill() }
+            } else { self.respondNormally(stub) }
+        }
+        let old = Task { await model.loadCraftReport() }
+        await fulfillment(of: [firstStarted], timeout: 3)
+        model.selectedProjectID = "other-project"
+        model.selectedProject = try project("other-project")
+        model.resetCraftReportForProjectChange()
+        let current = Task { await model.loadCraftReport() }
+        await fulfillment(of: [secondStarted], timeout: 3)
+        guard held.count == 2 else { return XCTFail("Expected both scoped requests") }
+        held[0].respond(report())
+        await old.value
+        XCTAssertTrue(model.isCraftLoading)
+        XCTAssertNil(model.craftReport)
+        held[1].respond(report(projectID: "other-project"))
+        await current.value
+        XCTAssertFalse(model.isCraftLoading)
+        XCTAssertEqual(model.craftReport?.projectId, "other-project")
+        XCTAssertEqual(model.selectedCraftFrameworkID, "save-the-cat")
+    }
+
+    func testWrongProjectPayloadIsNotPresentedAsTheSelectedProjectsReport() async throws {
+        let model = try makeModel { stub in
+            if stub.request.url?.path.contains("/craft/reports/") == true {
+                stub.respond(self.report(projectID: "unexpected-project"))
+            } else { self.respondNormally(stub) }
+        }
+        await model.loadCraftReport()
+        XCTAssertNil(model.craftReport)
+        XCTAssertTrue(model.craftErrorText.contains("doesn't match"))
+    }
+
+    func testProjectResetReleasesMutationSlotsAndOldCompletionCannotClearNewWork() async throws {
+        for (operation, changesProject, oldStatus) in [
+            ("analysis", true, 200), ("override", true, 200),
+            ("analysis", true, 400), ("override", true, 400),
+            ("analysis", false, 200), ("override", false, 200),
+            ("analysis", false, 400), ("override", false, 400)
+        ] {
+            let firstStarted = expectation(description: "old \(operation) request")
+            var secondStarted: XCTestExpectation?
+            let path = operation == "analysis" ? "/craft/analyze" : "/craft/overrides"
+            var held: [CraftReportURLProtocol] = []
+            let model = try makeModel { stub in
+                if stub.request.url?.path == path {
+                    held.append(stub)
+                    if held.count == 1 { firstStarted.fulfill() } else { secondStarted?.fulfill() }
+                } else { self.respondNormally(stub) }
+            }
+            let perform: @MainActor () async -> Void = {
+                if operation == "analysis" { await model.analyzeCraftReport() }
+                else {
+                    await model.createCraftTurnOverride(.init(turnId: "all-is-lost", action: "mark-present",
+                        reason: nil, sceneId: nil, page: 76, userId: nil, expiresAt: nil))
+                }
+            }
+            let isBusy: @MainActor () -> Bool = {
+                operation == "analysis" ? model.isCraftAnalyzing : model.isCraftOverrideSaving
+            }
+            func respond(_ stub: CraftReportURLProtocol, projectID: String, status: Int = 200) {
+                if status != 200 { stub.respond("{}", status: status) }
+                else if operation == "analysis" { stub.respond(report(projectID: projectID)) }
+                else {
+                    stub.respond("{\"id\":\"override-\(projectID)\",\"turnId\":\"all-is-lost\",\"action\":\"mark-present\",\"projectId\":\"\(projectID)\",\"versionId\":\"v1\",\"frameworkId\":\"save-the-cat\"}")
+                }
+            }
+            model.selectCraftFramework("save-the-cat")
+            let old = Task { await perform() }
+            await fulfillment(of: [firstStarted], timeout: 3)
+            guard held.count == 1 else { return XCTFail("Missing old \(operation) request") }
+            XCTAssertTrue(isBusy())
+            if changesProject {
+                model.selectedProjectID = "other-project"
+                model.selectedProject = try project("other-project")
+                model.resetCraftReportForProjectChange()
+            } else { model.selectCraftFramework("story-circle") }
+            XCTAssertFalse(isBusy(), "Context change must release the old \(operation) slot immediately")
+            guard !isBusy() else {
+                respond(held[0], projectID: "craft-project", status: oldStatus)
+                await old.value
+                continue
+            }
+            model.selectCraftFramework("save-the-cat")
+            let newRequestStarted = expectation(description: "new \(operation) request")
+            secondStarted = newRequestStarted
+            let current = Task { await perform() }
+            await fulfillment(of: [newRequestStarted], timeout: 3)
+            guard held.count == 2 else {
+                respond(held[0], projectID: "craft-project", status: oldStatus)
+                await old.value
+                await current.value
+                return XCTFail("New project must admit its own \(operation)")
+            }
+            respond(held[0], projectID: "craft-project", status: oldStatus)
+            await old.value
+            XCTAssertTrue(isBusy(), "Old \(operation) completion must not release the new request")
+            XCTAssertNil(model.craftReport)
+            XCTAssertEqual(model.craftInfoText, "")
+            XCTAssertEqual(model.craftErrorText, "")
+            let currentProjectID = changesProject ? "other-project" : "craft-project"
+            respond(held[1], projectID: currentProjectID)
+            await current.value
+            XCTAssertFalse(isBusy())
+            if operation == "analysis" { XCTAssertEqual(model.craftReport?.projectId, currentProjectID) }
+            else { XCTAssertTrue(model.craftInfoText.hasPrefix("Override saved")) }
+        }
+    }
+
+    func testPublicFrameworkDiscoveryCanFinishBeforeProtectedReportContextIsCaptured() async throws {
+        for transition in ["version", "auth"] {
+            var model: ScreenplayStudioViewModel!
+            model = try makeModel { stub in
+                if stub.request.url?.path == "/craft/frameworks" {
+                    if transition == "version" { model.latestVersionID = "v2" }
+                    else { _ = BackendAuthClient.reserveAuthSessionIntent() }
+                    self.respondNormally(stub)
+                } else if stub.request.url?.path.contains("/craft/reports/") == true {
+                    let expectedVersion = transition == "version" ? "v2" : "v1"
+                    XCTAssertTrue(stub.request.url!.path.hasSuffix("/\(expectedVersion)"))
+                    stub.respond(self.report(versionID: expectedVersion))
+                } else { self.respondNormally(stub) }
+            }
+            await model.loadCraftReport()
+            XCTAssertEqual(model.selectedCraftFrameworkID, "save-the-cat", transition)
+            XCTAssertEqual(model.craftReport?.versionId, transition == "version" ? "v2" : "v1")
+            XCTAssertFalse(model.isCraftLoading)
+        }
+    }
+
+    private func makeModel(handler: @escaping @MainActor (CraftReportURLProtocol) -> Void) throws -> ScreenplayStudioViewModel {
+        CraftReportURLProtocol.handler = handler
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [CraftReportURLProtocol.self]
+        let url = URL(string: "https://craft-report.test")!
+        let client = BackendClient(baseURL: url, fallbackURL: url,
+            urlSession: URLSession(configuration: configuration), persistBackendBaseURL: false, attachUserIDHeader: false)
+        let store = ScreenplayLocalDraftRecoveryStore(defaults: UserDefaults(suiteName: "craft-report-\(UUID())")!)
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store, craftClient: client)
+        model.autosaveEnabled = false
+        model.selectedProjectID = "craft-project"
+        model.selectedProject = try project("craft-project")
+        model.latestVersionID = "v1"
+        return model
+    }
+
+    private func project(_ id: String) throws -> BackendScreenplayProjectSummary {
+        try JSONDecoder().decode(BackendScreenplayProjectSummary.self, from: Data("{\"id\":\"\(id)\",\"title\":\"Craft fixture\"}".utf8))
+    }
+
+    private func respondNormally(_ stub: CraftReportURLProtocol) {
+        switch stub.request.url?.path {
+        case "/craft/frameworks":
+            stub.respond(#"{"schemaVersion":1,"frameworks":[{"id":"three-act","title":"Three Act"},{"id":"save-the-cat","title":"Save the Cat"},{"id":"story-circle","title":"Story Circle"}]}"#)
+        case let path? where path.contains("/craft/reports/"): stub.respond(report())
+        case "/craft/twist/accepted":
+            let projectID = URLComponents(url: stub.request.url!, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "projectId" }?.value ?? "craft-project"
+            stub.respond("{\"schemaVersion\":1,\"projectId\":\"\(projectID)\",\"entries\":[]}")
+        default: stub.respond("{}", status: 404)
+        }
+    }
+
+    private func report(projectID: String = "craft-project", versionID: String = "v1") -> String {
+        """
+        {"id":"report-1","schemaVersion":1,"projectId":"\(projectID)","versionId":"\(versionID)",
+        "framework":{"id":"save-the-cat","title":"Save the Cat"},
+        "coverage":{"requiredMajorTurnCount":0,"detectedMajorTurnCount":0,"overriddenMajorTurnCount":0,"missingMajorTurnCount":0,"complete":true},
+        "beatSheet":{"id":"beats-1","frameworkId":"save-the-cat","title":"Craft fixture","beats":[]},
+        "majorTurns":[],"drift":{"status":"aligned","timeline":[]},"overrides":[]}
+        """
+    }
+
+    private func body(_ request: URLRequest) -> Data {
+        if let data = request.httpBody { return data }
+        guard let stream = request.httpBodyStream else { return Data() }
+        stream.open()
+        defer { stream.close() }
+        var bytes = Data()
+        var buffer = [UInt8](repeating: 0, count: 1024)
+        while true {
+            let count = stream.read(&buffer, maxLength: buffer.count)
+            guard count > 0 else { break }
+            bytes.append(contentsOf: buffer.prefix(count))
+        }
+        return bytes
+    }
+}
+
+private final class CraftReportURLProtocol: URLProtocol, @unchecked Sendable {
+    @MainActor static var handler: ((CraftReportURLProtocol) -> Void)?
+    override class func canInit(with request: URLRequest) -> Bool { request.url?.host == "craft-report.test" }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() { Task { @MainActor in Self.handler?(self) } }
+    override func stopLoading() {}
+    func respond(_ json: String, status: Int = 200) {
+        let response = HTTPURLResponse(url: request.url!, statusCode: status,
+            httpVersion: "HTTP/1.1", headerFields: ["Content-Type": "application/json"])!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Data(json.utf8))
+        client?.urlProtocolDidFinishLoading(self)
+    }
+}

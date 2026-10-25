@@ -1479,7 +1479,11 @@ final class ScreenplayStudioViewModel: ObservableObject {
     @Published var pendingScreenplayQuestion: BackendPendingScreenplayQuestion?
 
     @Published var craftFrameworks: [ScreenplayCraftFrameworkReference] = []
-    @Published var selectedCraftFrameworkID: String = ""
+    @Published private(set) var selectedCraftFrameworkID: String = ""
+    private var craftFrameworkWasExplicitlySelected = false
+    private var activeCraftReportRequestID: UUID?
+    private var activeCraftAnalysisRequestID: UUID?
+    private var activeCraftOverrideRequestID: UUID?
     @Published var craftReport: ScreenplayCraftReport?
     @Published var isCraftLoading: Bool = false
     @Published var isCraftAnalyzing: Bool = false
@@ -1687,7 +1691,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
     private let localDraftRecoveryStore: ScreenplayLocalDraftRecoveryStore
     private let draftSaveOutbox = ScreenplayDraftSaveOutbox.shared
     private let outlineMutationOutbox = ScreenplayOutlineMutationOutbox.shared
-    private let craftClient = BackendClient()
+    private let craftClient: BackendClient
     private let projectSelectionAPI = BackendMemoryAPI()
     private var clientTokenOwnedProjectIDs: Set<String> = []
     private var activeLoadRequestID: UUID?
@@ -1696,8 +1700,10 @@ final class ScreenplayStudioViewModel: ObservableObject {
         self.init(localDraftRecoveryStore: ScreenplayLocalDraftRecoveryStore())
     }
 
-    init(localDraftRecoveryStore: ScreenplayLocalDraftRecoveryStore) {
+    init(localDraftRecoveryStore: ScreenplayLocalDraftRecoveryStore,
+         craftClient: BackendClient = BackendClient()) {
         self.localDraftRecoveryStore = localDraftRecoveryStore
+        self.craftClient = craftClient
         fountainDraft = ScreenplayLiveDraftBridge.shared.draftText
         draftDebounceCancellable = $fountainDraft
             .removeDuplicates()
@@ -4399,7 +4405,20 @@ final class ScreenplayStudioViewModel: ObservableObject {
         await recomputeRevision(for: fountainDraft, source: source)
     }
 
+    private func invalidateCraftRequests() {
+        activeCraftReportRequestID = nil
+        activeCraftAnalysisRequestID = nil
+        activeCraftOverrideRequestID = nil
+        isCraftLoading = false
+        isCraftAnalyzing = false
+        isCraftOverrideSaving = false
+    }
+
     func resetCraftReportForProjectChange(clearFrameworks: Bool = false) {
+        invalidateCraftRequests()
+        craftFrameworkWasExplicitlySelected = false
+        selectedCraftFrameworkID = clearFrameworks ? "" : StudioCraftResilience.preferredFrameworkID(
+            selected: "", availableIDs: craftFrameworks.map(\.id))
         craftReport = nil
         craftErrorText = ""
         craftInfoText = ""
@@ -4418,8 +4437,15 @@ final class ScreenplayStudioViewModel: ObservableObject {
         clearCoverageSimulation()
         if clearFrameworks {
             craftFrameworks = []
-            selectedCraftFrameworkID = ""
         }
+    }
+
+    func selectCraftFramework(_ frameworkID: String) {
+        let cleanFrameworkID = frameworkID.trimmingCharacters(in: .whitespacesAndNewlines)
+        if cleanFrameworkID != selectedCraftFrameworkID { invalidateCraftRequests() }
+        selectedCraftFrameworkID = cleanFrameworkID
+        craftFrameworkWasExplicitlySelected = !selectedCraftFrameworkID.isEmpty
+        noteCraftFrameworkSelectionChanged()
     }
 
     func noteCraftFrameworkSelectionChanged() {
@@ -4442,33 +4468,62 @@ final class ScreenplayStudioViewModel: ObservableObject {
             craftInfoText = "Select a screenplay project to see craft analysis."
             return
         }
-        if !force, craftReport?.projectId == project.id {
+        if !force, craftReport?.projectId == project.id, craftReport?.versionId == activeCraftVersionID {
             return
         }
+        guard selectedProjectID == project.id else { return }
 
+        let requestID = UUID()
+        var contextIsCurrent = makeCraftContextGuard()
+        var versionID = activeCraftVersionID
+        activeCraftReportRequestID = requestID
         isCraftLoading = true
-        defer { isCraftLoading = false }
+        defer {
+            if activeCraftReportRequestID == requestID {
+                activeCraftReportRequestID = nil
+                isCraftLoading = false
+            }
+        }
         craftErrorText = ""
         let source = force ? "Manual check" : "Craft rail"
         let hadExistingReport = craftReport != nil
         do {
+            // Framework discovery is public metadata, not a versioned report.
+            // Bind the protected read only after startup metadata converges.
+            try await ensureCraftFrameworksLoaded()
+            guard activeCraftReportRequestID == requestID, selectedProjectID == project.id else { return }
+            versionID = activeCraftVersionID
+            contextIsCurrent = makeCraftContextGuard()
             let report = try await StudioCraftResilience.run(source: source) {
-                try await ensureCraftFrameworksLoaded()
+                guard contextIsCurrent() else { throw CancellationError() }
                 return try await craftClient.fetchCraftReport(
                     projectId: project.id,
-                    versionId: activeCraftVersionID
+                    versionId: versionID
                 )
             }
-            craftReport = report
-            if selectedCraftFrameworkID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                selectedCraftFrameworkID = report.framework.id
+            guard contextIsCurrent(), activeCraftReportRequestID == requestID else { return }
+            guard report.projectId == project.id, versionID == nil || report.versionId == versionID else {
+                craftErrorText = "The saved craft report doesn't match this screenplay version. Run Analyze to refresh it."
+                return
             }
+            guard !craftFrameworkWasExplicitlySelected || selectedCraftFrameworkID == report.framework.id else {
+                craftReport = nil
+                craftInfoText = "Analyze with the selected framework to update the beat sheet."
+                return
+            }
+            craftReport = report
+            selectedCraftFrameworkID = report.framework.id
+            noteCraftFrameworkSelectionChanged()
             await loadAcceptedCraftTwists(projectId: project.id, source: "Craft report")
+            guard contextIsCurrent(), activeCraftReportRequestID == requestID,
+                  craftReport?.id == report.id, selectedCraftFrameworkID == report.framework.id else { return }
             craftInfoText = report.generatedAt.map { "Craft report updated at \($0)." } ?? "Craft report loaded."
         } catch BackendError.http(let status, _) where status == 404 {
+            guard contextIsCurrent(), activeCraftReportRequestID == requestID else { return }
             craftReport = nil
             craftInfoText = "No craft report exists for this screenplay version yet."
         } catch {
+            guard contextIsCurrent(), activeCraftReportRequestID == requestID else { return }
             craftErrorText = StudioCraftResilience.presentedError(
                 error,
                 source: source,
@@ -4490,22 +4545,47 @@ final class ScreenplayStudioViewModel: ObservableObject {
             return
         }
 
+        guard selectedProjectID == project.id else { return }
+        let contextIsCurrent = makeCraftContextGuard()
+        let versionID = activeCraftVersionID
+        var requestedFrameworkID = selectedCraftFrameworkID
+        let requestID = UUID()
+        activeCraftAnalysisRequestID = requestID
         isCraftAnalyzing = true
-        defer { isCraftAnalyzing = false }
+        defer {
+            if activeCraftAnalysisRequestID == requestID {
+                activeCraftAnalysisRequestID = nil
+                isCraftAnalyzing = false
+            }
+        }
         craftErrorText = ""
         do {
             try await ensureCraftFrameworksLoaded()
+            guard contextIsCurrent(), activeCraftAnalysisRequestID == requestID else { return }
+            requestedFrameworkID = selectedCraftFrameworkID
             let report = try await craftClient.analyzeCraft(
                 projectId: project.id,
-                versionId: activeCraftVersionID,
+                versionId: versionID,
                 frameworkId: normalizedOrNil(selectedCraftFrameworkID),
                 screenplay: craftAnalysisScreenplay(for: project)
             )
+            guard contextIsCurrent(), activeCraftAnalysisRequestID == requestID,
+                  selectedCraftFrameworkID == requestedFrameworkID else { return }
+            guard report.projectId == project.id, versionID == nil || report.versionId == versionID,
+                  requestedFrameworkID.isEmpty || report.framework.id == requestedFrameworkID else {
+                craftErrorText = "The analysis doesn't match the selected screenplay, version or framework. Run Analyze again."
+                return
+            }
             craftReport = report
             selectedCraftFrameworkID = report.framework.id
+            noteCraftFrameworkSelectionChanged()
             await loadAcceptedCraftTwists(projectId: project.id, source: "Craft report")
+            guard contextIsCurrent(), activeCraftAnalysisRequestID == requestID,
+                  selectedCraftFrameworkID == report.framework.id else { return }
             craftInfoText = report.generatedAt.map { "Craft report updated at \($0)." } ?? "Craft analysis complete."
         } catch {
+            guard contextIsCurrent(), activeCraftAnalysisRequestID == requestID,
+                  selectedCraftFrameworkID == requestedFrameworkID else { return }
             craftErrorText = StudioCraftResilience.presentedError(
                 error,
                 source: "Manual check",
@@ -4526,19 +4606,33 @@ final class ScreenplayStudioViewModel: ObservableObject {
             craftInfoText = "Choose a craft framework before saving an override."
             return
         }
+        guard selectedProjectID == project.id else { return }
+        let contextIsCurrent = makeCraftContextGuard()
+        let versionID = activeCraftVersionID
 
+        let requestID = UUID()
+        activeCraftOverrideRequestID = requestID
         isCraftOverrideSaving = true
-        defer { isCraftOverrideSaving = false }
+        defer {
+            if activeCraftOverrideRequestID == requestID {
+                activeCraftOverrideRequestID = nil
+                isCraftOverrideSaving = false
+            }
+        }
         craftErrorText = ""
         do {
             let scopedOverride = override.scoped(
                 projectId: project.id,
-                versionId: activeCraftVersionID,
+                versionId: versionID,
                 frameworkId: frameworkId
             )
             let stored = try await craftClient.recordCraftTurnOverride(scopedOverride)
+            guard contextIsCurrent(), activeCraftOverrideRequestID == requestID,
+                  selectedCraftFrameworkID == frameworkId else { return }
             craftInfoText = "Override saved for \(stored.turnId). Run Analyze to rebuild craft coverage."
         } catch {
+            guard contextIsCurrent(), activeCraftOverrideRequestID == requestID,
+                  selectedCraftFrameworkID == frameworkId else { return }
             craftErrorText = StudioCraftResilience.presentedError(
                 error,
                 source: "Manual check",
@@ -4870,15 +4964,17 @@ final class ScreenplayStudioViewModel: ObservableObject {
     }
 
     private func loadAcceptedCraftTwists(projectId: String, source: String) async {
+        let contextIsCurrent = makeCraftContextGuard()
         do {
             let response = try await StudioCraftResilience.run(source: source) {
                 try await craftClient.fetchAcceptedCraftTwists(projectId: projectId)
             }
-            guard selectedProject?.id == projectId else { return }
+            guard contextIsCurrent(), selectedProject?.id == projectId else { return }
             acceptedCraftTwists = response.entries
             acceptedCraftTwistErrorText = ""
             acceptedCraftTwistInfoText = source
         } catch {
+            guard contextIsCurrent(), selectedProject?.id == projectId else { return }
             acceptedCraftTwistErrorText = StudioCraftResilience.presentedError(
                 error,
                 source: source,
@@ -4985,7 +5081,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
     }
 
     private func preferredCraftTwistContext() -> CraftTwistContext {
-        let selectedFramework = normalizedOrNil(selectedCraftFrameworkID) ?? craftReport?.framework.id ?? "save-the-cat"
+        let selectedFramework = normalizedOrNil(selectedCraftFrameworkID) ?? craftReport?.framework.id ?? StudioCraftResilience.defaultFrameworkID
         if let report = craftReport {
             let unsatisfied = report.majorTurns.first { !$0.isSatisfied }
             let drifting = report.majorTurns.first { abs($0.driftPages ?? 0) >= 4 }
@@ -5039,7 +5135,19 @@ final class ScreenplayStudioViewModel: ObservableObject {
         }
         let cleanSelected = selectedCraftFrameworkID.trimmingCharacters(in: .whitespacesAndNewlines)
         if cleanSelected.isEmpty || !craftFrameworks.contains(where: { $0.id == cleanSelected }) {
-            selectedCraftFrameworkID = craftFrameworks.first?.id ?? ""
+            selectedCraftFrameworkID = StudioCraftResilience.preferredFrameworkID(selected: cleanSelected, availableIDs: craftFrameworks.map(\.id))
+            noteCraftFrameworkSelectionChanged()
+        }
+    }
+
+    private func makeCraftContextGuard() -> () -> Bool {
+        let projectID = selectedProjectID
+        let versionID = activeCraftVersionID
+        let authContext = currentStudioAuthContext()
+        return { [weak self] in
+            guard let self else { return false }
+            return self.selectedProjectID == projectID && self.activeCraftVersionID == versionID &&
+                self.authContextIsCurrent(authContext)
         }
     }
 

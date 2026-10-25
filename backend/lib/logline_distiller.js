@@ -27,6 +27,7 @@
 // own opening pitch.
 
 import { createDefaultClassifier } from "./craft_classifier.js";
+import { DEFAULT_FRAMEWORK_ID } from "./craft_frameworks.js";
 
 const LOGLINE_SCHEMA_VERSION = 1;
 const DOMAIN = "craft_loglines";
@@ -129,7 +130,7 @@ async function llmLogline({ text, frameworkId, classifier }) {
   // robust against free-form model variation.
   try {
     const result = await classifier.classifyScene({
-      framework: frameworkId || "save-the-cat",
+      framework: frameworkId || DEFAULT_FRAMEWORK_ID,
       scene: {
         title: "LOGLINE REQUEST",
         text:

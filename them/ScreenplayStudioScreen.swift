@@ -900,10 +900,6 @@ Replace is best when this file should become the script you edit. Append is safe
             .onChange(of: selectedInspectorSection) { _, _ in
                 persistInspectorWorkspaceState()
             }
-            .onChange(of: vm.selectedCraftFrameworkID) { _, _ in
-                guard directionOneRightPanelTab == .craft else { return }
-                vm.noteCraftFrameworkSelectionChanged()
-            }
             .onChange(of: selectedBeatInspectorID) { _, _ in
                 persistInspectorWorkspaceState()
             }
@@ -3915,7 +3911,7 @@ Detail:
         ScreenplayCraftRailView(
             projectTitle: vm.selectedProject?.title ?? "",
             versionId: vm.latestVersionID,
-            selectedFrameworkID: $vm.selectedCraftFrameworkID,
+            selectedFrameworkID: Binding(get: { vm.selectedCraftFrameworkID }, set: vm.selectCraftFramework),
             frameworks: vm.craftFrameworks,
             report: vm.craftReport,
             isLoading: vm.isCraftLoading,
