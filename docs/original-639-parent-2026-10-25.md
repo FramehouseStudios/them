@@ -104,7 +104,7 @@ export preview or integrated-main proof follows from this local checkpoint.
 ## Integration action and stopping boundary
 
 Keep original639 remote5722514 and its base `claude/mentor-core-port` unchanged
-until original638 head612bf170 has fresh green hosted checks. Then normally
+until corrected original638 head0b56861 has fresh green hosted checks. Then normally
 fast-forward the original child, preserving all history, and require its own
 fresh checks and independent human review. Main is still78b8c94. No approval,
 merge, deployment, force-push or replacement PR was performed here.
@@ -113,3 +113,31 @@ VERIFIED next actual boundary: original640 `c8eb36bad5979748130e2da7ed9ea2b9b6ab
 is based on `claude/mentor-golden-port`, not inferred from its number. Review its
 original body/follow-ups and preserve existing three-act corrections rather than
 reimplementing them. Fix the first actual integration failure before advancing.
+
+## Parent touch-target refresh
+
+VERIFIED: original638's prior612bf17/run40171307411 is terminal red: one
+Snapshots tap left Revisions selected. T-1142 repaired the existing tab label's
+hit region with one content shape and proved it with a failing-before/passing-
+after minimum-target/padding-tap workflow. Original638 now publishes0b56861;
+run40176990546 is live, backend/D009 green, full gate not yet terminal. Main and
+original6395722514 remain unchanged.
+
+Locally preserve both639candidatef2cf7b5 and638repair0b56861 with a no-ff
+merge2ef41fd. Only TASKS conflicted; both task entries and historical ledger context
+are kept. This is preparation, not a child publication past a pending parent.
+
+Inherited T-1142 proof is UI3/0/0, units633/0/0, writer1/0/0 and Mac compile;
+those are the parent tree's results, not fresh635-unit/combined-child results.
+The earlier candidate proof above is retained with its original scope. Recheck
+the offline identity/approval guard and numeric D009 here; full updated-child
+native/hosted integration proof remains necessary before landing. No paid call,
+live golden run, production change or independent-review bypass is authorized.
+
+VERIFIED on2ef41fd: refreshed offline40 exemplar pairs and8 prompt checks pass;
+Node20.20.2 scorer/approval guards8/0/0; all five D009 numeric deltas0 against
+verified origin/main78b8c94; diff check pass. Backend, workflow, native identity
+and Swift test source are byte-identical to priorf2cf7b5. DraftToolsViews and
+V1SmokeUITests are byte-identical to tested parent0b56861. Earlier full-suite
+and parent UI counts remain inherited, not newly executed combined-native proof.
+Raw refreshed artifacts: `/private/tmp/them-1138-parent-refresh.1AAh99/`.

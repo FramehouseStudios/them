@@ -172,6 +172,22 @@ heads and bases have not been advanced by this local preparation, nor was main.
 No public child advance until the original parent is proven through its required
 checks; no direct main push, replacement PR, squash, force-push or fake approval.
 
+### Parent tab repair carried forward
+
+VERIFIED: locally merge refreshed639candidate4c61d5a, preserving638repair
+0b56861 and all earlier640 corrections. The merge is clean, including both
+ledger histories. Its only native runtime addition versus11326e3 is the full
+rectangular draft-tools hit shape; existing UI regression gains minimum44pt
+targets, single padding taps and selected-state assertions. Backend, craft
+report-slot fixes, gate script/workflow and Swift unit source are byte-unchanged.
+
+Parent638run40176990546 is live, backend/D009 green, native gate pending.
+Separate974run40175219157 has passed its required writer step and is in broad
+V1 UI; neither whole run is declared green. Original6395722514 and640c8eb36b
+remain unchanged. No paid call or new full-suite/native result is claimed by
+this preparation. Earlier646/0/0,2779/0/2 and writer1/0/0 remain scoped to the
+documented earlier candidate, alongside the parent repair's independent proof.
+
 ## Exact authored/backported file set versus the proven639 parent
 
 - `TASKS.md`
