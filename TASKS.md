@@ -535,6 +535,12 @@
   review found a real cached-summary/failed-hydration contamination risk; current
   local correction adds loaded-draft authority and guarded selection/outline
   rollback. Do not push or call this slice verified until rerun coherently.
+- **Coherent checkpoint:** preserving merge `61c0566` retains `00be9dc` and
+  #974's compiler fix `10557ad`; the saved-tree failed-load/loaded-authority
+  regression now passes2/0/0 in `/tmp/them-1126-destination-v2.xcresult`.
+  Full recovery UI/full units still pending. Stop again for #974's next first
+  red: hosted947 signed units pass, integrated writer workflow fails in
+  run40124255938. Preserve this work locally while diagnosing that boundary.
 
 ### T-1127 — Clear the hosted Pages-card compile failure on original #974
 
