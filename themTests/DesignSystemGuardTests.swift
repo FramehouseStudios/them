@@ -20,7 +20,9 @@ final class DesignSystemGuardTests: XCTestCase {
             "them/NumberedChoiceViews.swift",
             "them/RootExperienceView.swift",
             "them/ScreenplayCraftRailView.swift",
-            "them/ScreenplayStudioScreen.swift"
+            "them/ScreenplayStudioScreen.swift",
+            // Verbatim legacy move (D009 gate compensation); styling unchanged.
+            "them/ScreenplayStudioScreen+StudioActions.swift"
         ]
 
         let files = try swiftFiles(

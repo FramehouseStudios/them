@@ -1416,6 +1416,9 @@ nonisolated struct BackendStudioThreadCommitMetadata: Hashable {
     var screenplayEmotionalContinuity: String = ""
     var screenplayPageCount: Int? = nil
     var screenplayTargetPages: Int? = nil
+    /// What the Studio offers this turn (tabs, sections, colors, scenes), so
+    /// Clementine can operate only what exists. See StudioCapabilitiesSnapshot.
+    var studioCapabilitiesJSON: String = ""
 
     var isMeaningful: Bool {
         !screenplayProjectId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
@@ -2916,28 +2919,6 @@ nonisolated struct BackendScreenplayVersionMutationResponse: Decodable {
     let schemaVersion: Int?
     let backendBuild: String?
     let backendBootId: String?
-}
-
-nonisolated struct BackendScreenplayPaginationPage: Decodable, Hashable {
-    let page: Int
-    let startLine: Int
-    let endLine: Int
-    let lineCount: Int
-    let preview: String?
-    let estMinutes: Double?
-}
-
-nonisolated struct BackendScreenplayPaginateResponse: Decodable {
-    let stage: String?
-    let mode: String?
-    let title: String?
-    let phase: String?
-    let targetPages: Int?
-    let pageCount: Int
-    let lineCount: Int
-    let linesPerPage: Int
-    let pages: [BackendScreenplayPaginationPage]
-    let lengthProfile: String?
 }
 
 nonisolated struct BackendScreenplayRevisionSummary: Decodable, Hashable {
