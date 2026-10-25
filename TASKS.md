@@ -33,6 +33,10 @@
   macOS exit0; scorer/approval guards8/0/0, all40 offline exemplar pairs and8
   prompt checks; D009/diff and static workflow safety pass. Evidence:
   `docs/original-639-parent-2026-10-25.md`.
+- **Parent refresh:** preserving merge2ef41fd includes638repair0b56861; only
+  ledger conflict, both histories kept. Fresh offline40pairs/8checks, guards
+  8/0/0, D009/diff pass. No unchanged full/native rerun or child push; earlier
+  complete checkpoints remain dated/inherited until updated-child proof.
 
 ### T-1142 — Fix the original638 hosted Snapshots-pane failure
 

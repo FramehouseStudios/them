@@ -124,7 +124,7 @@ run40176990546 is live, backend/D009 green, full gate not yet terminal. Main and
 original6395722514 remain unchanged.
 
 Locally preserve both639candidatef2cf7b5 and638repair0b56861 with a no-ff
-merge. Only TASKS conflicted; both task entries and historical ledger context
+merge2ef41fd. Only TASKS conflicted; both task entries and historical ledger context
 are kept. This is preparation, not a child publication past a pending parent.
 
 Inherited T-1142 proof is UI3/0/0, units633/0/0, writer1/0/0 and Mac compile;
@@ -133,3 +133,11 @@ The earlier candidate proof above is retained with its original scope. Recheck
 the offline identity/approval guard and numeric D009 here; full updated-child
 native/hosted integration proof remains necessary before landing. No paid call,
 live golden run, production change or independent-review bypass is authorized.
+
+VERIFIED on2ef41fd: refreshed offline40 exemplar pairs and8 prompt checks pass;
+Node20.20.2 scorer/approval guards8/0/0; all five D009 numeric deltas0 against
+verified origin/main78b8c94; diff check pass. Backend, workflow, native identity
+and Swift test source are byte-identical to priorf2cf7b5. DraftToolsViews and
+V1SmokeUITests are byte-identical to tested parent0b56861. Earlier full-suite
+and parent UI counts remain inherited, not newly executed combined-native proof.
+Raw refreshed artifacts: `/private/tmp/them-1138-parent-refresh.1AAh99/`.
