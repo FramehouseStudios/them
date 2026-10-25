@@ -5,6 +5,29 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1150 — Make the Craft override page keyboard explicitly dismissible
+
+- **Owner:** codex (Jarvis). **Branch:** `codex/T-1150-craft-keyboard-recovery`.
+- **Base:** preserved local6403c88c50; original public640 remains unchanged.
+- **Observed:** dedicated authenticated Craft UI0/1/0, Save Override not
+  reachable after typing12. Video confirms keyboard covers the save row;
+  default drawer swipe may begin on keyboard. This does not prove manual
+  scrolling is impossible. Existing Page has no explicit submit dismissal.
+- **Fix:** standard SwiftUI page focus and Done submit releases keyboard;
+  clearing the composer clears that focus. Keep the current request/auth/
+  acknowledgement path; no system-wide responder action or new UI framework.
+- **Success:** real Page Done dismisses keyboard without losing12; existing
+  Save action receives acknowledgement and independent API read proves the
+  saved override's project/version/framework. Explicit framework choice still
+  survives Refresh. Preserve existing strict assertions and source history.
+- **Proof:** before bundle `/private/tmp/them-1150-craft-ui.DFwXcS/`; no paid
+  model key, external fetch blocked, authenticated disposable backend. After
+  proof1/0/0 on changed source, exact unchanged source/diff asserted. Inspected
+  selection/acknowledgement/explicit-choice screenshots; external fetch audit
+  empty. Mac compile exit0; current writer checkpoint pending. No unchanged
+  retry, main/production or public-head change.
+- **Evidence:** `docs/craft-keyboard-recovery-2026-10-25.md`.
+
 ### T-1147 — Preserve Craft integration on the corrected original639 parent
 
 - **Owner:** codex (Jarvis). **Branch:** `codex/T-1147-original-640-parent`.
@@ -26,11 +49,13 @@
   full signed erased native647/0/0. Initial sandbox invocation executed no
   tests; permitted execution passed, with a907s file-store-test outlier whose
   cause is unclassified. No responsiveness claim.
-- **Hold:** Mac currently locked; no new local GUI workflow until manual
-  unlock. Original63940203301919 is now terminal green at965a507. No public640
+- **Hold at T1147 checkpoint:** Mac locked then; now unlocked by human and
+  dedicated Craft case proven with T1150 keyboard fix. Original63940203301919
+  is terminal green at965a507. No public640
   advance until its current Craft/writer/Mac checkpoint is complete. Separately
-  original97540208473954 failed the second Files presentation; inspect evidence
-  before correction. No paid call, production change or review bypass.
+  original97540208473954 failed the second Files presentation; later T1148
+  corrected it and a754cac passed all required gates. No paid call, production
+  change or review bypass.
 - **Evidence:** `docs/original-640-parent-refresh-2026-10-25.md`.
 
 ### T-1139 — Preserve original640 with proven craft/routing corrections

@@ -389,6 +389,14 @@ final class V1SmokeUITests: XCTestCase {
         }
         page.tap()
         page.typeText("12")
+        let done = app.keyboards.buttons["Done"]
+        guard waitForHittability(of: done, timeout: 4) else {
+            XCTFail("Override Page must offer a reachable Done action")
+            return
+        }
+        done.tap()
+        XCTAssertTrue(waitForDisappearance(of: app.keyboards.firstMatch, timeout: 4))
+        XCTAssertEqual(page.value as? String, "12", "Dismissing the keyboard must retain the override page")
         let save = app.buttons["studio.craft.override.save"]
         guard revealInStudioDrawer(save, drawer: drawer, scrollingUp: true, maxSwipes: 4) else {
             XCTFail("Save Override was not reachable above the keyboard")

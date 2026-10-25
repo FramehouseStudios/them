@@ -160,6 +160,7 @@ struct ScreenplayCraftRailView: View {
     @State private var activeOverrideTurn: ScreenplayCraftTurnDrift?
     @State private var overrideReasonText: String = ""
     @State private var overridePageText: String = ""
+    @FocusState private var isOverridePageFocused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -610,6 +611,9 @@ struct ScreenplayCraftRailView: View {
                 TextField("Page", text: $overridePageText)
                     .accessibilityIdentifier("studio.craft.override.page")
                     .textFieldStyle(.roundedBorder)
+                    .focused($isOverridePageFocused)
+                    .submitLabel(.done)
+                    .onSubmit { isOverridePageFocused = false }
                     .frame(width: 72)
                 TextField("Reason", text: $overrideReasonText, axis: .vertical)
                     .textFieldStyle(.roundedBorder)
@@ -935,6 +939,7 @@ struct ScreenplayCraftRailView: View {
     }
 
     private func clearOverrideComposer() {
+        isOverridePageFocused = false
         activeOverrideTurn = nil
         overrideReasonText = ""
         overridePageText = ""
