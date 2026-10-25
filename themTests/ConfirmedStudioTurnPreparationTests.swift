@@ -2,6 +2,19 @@ import XCTest
 @testable import them
 
 final class ConfirmedStudioTurnPreparationTests: XCTestCase {
+    func test_refused_commands_never_open_studio_but_a_separate_positive_request_can() {
+        for text in ["Don't write a story. Just listen.", "Do not open Studio.", "I don't want you to write a screenplay.", "Never launch Studio.", "Stop writing the scene."] {
+            let active = ConfirmedStudioTurnPreparation.prepare(
+                transcript: text, isStudioActive: { false },
+                openStudio: { XCTFail("Refused command opened Studio: \(text)") },
+                build: { _, active in active }
+            )
+            XCTAssertFalse(active, text)
+        }
+        XCTAssertTrue(ScreenplayIntentClassifier.hasExplicitScriptIntent("Don't write a story; open Studio instead."))
+        XCTAssertTrue(ScreenplayIntentClassifier.hasExplicitScriptIntent("Don't open Studio; write a scene about an astronaut."))
+    }
+
     func test_write_a_story_is_explicit_but_personal_story_distress_is_not() {
         XCTAssertTrue(ScreenplayIntentClassifier.hasExplicitScriptIntent("Write a story about two astronauts."))
         XCTAssertFalse(ScreenplayIntentClassifier.hasExplicitScriptIntent("I feel so lost, I don't know what my story is anymore"))

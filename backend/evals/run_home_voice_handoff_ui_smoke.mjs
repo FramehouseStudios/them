@@ -25,6 +25,7 @@ const fixtureURL = new URL('./home_voice_provider_fixture.mjs', import.meta.url)
 const server = await startBackend({ unsetEnv: ['DATABASE_URL', 'REDIS_URL'], env: {
   APP_TOKEN: 'them-dev', REQUIRE_USER_AUTH: '1', CLEMENTINE_PROVIDER: 'openai',
   CLEMENTINE_MUSE_ENABLED: '0', TALK_TEST_DEBUG_TRANSCRIPT_ENABLED: '0',
+  MUSE_ENABLED: '0', LLM_PROVIDER: 'openai',
   TALK_TEST_DEBUG_OFFLINE_ENABLED: '0', TALK_STREAM_AUDIO_ENABLED: '0',
   KNOWLEDGE_RAG_EMBEDDINGS_ENABLED: '0', THEM_HOME_VOICE_PROVIDER_FIXTURE: '1',
   THEM_HOME_VOICE_LONG_AUDIO: process.env.THEM_HOME_VOICE_LONG_AUDIO === '1' ? '1' : '0',
