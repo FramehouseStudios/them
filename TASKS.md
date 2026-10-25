@@ -23,8 +23,13 @@
   code, then focused engine/mounted HTTP/shared Swift fixtures, necessary native
   workflow and integration gates. No paid models, padding to target length,
   new framework, main merge, protected-review bypass or production change.
-- **Current:** original engine and macOS modifier guard preserved; no fresh
-  engine/native pass claimed. Full next-boundary proof remains outstanding.
+- **Current:** original engine and macOS guard preserved. Actual imported
+  engine3/3 failed probes; same probes3/0 after attributed repairs. Focused
+  Node20 engine/mounted route28/0/0. Current draft/density/source-range repair
+  reused, not a second pagination owner. No fresh native/full-suite pass here.
+- **Next:** original613 + existingaae4425/e32ade0, then narrow1ee9269, current
+  source/visual/native proof. Full next-boundary proof remains outstanding.
+- **Evidence:** `docs/original-642-pages-2026-10-25.md`.
 
 ### T-1151 — Reconcile original641 with the now-published corrected Craft parent
 
