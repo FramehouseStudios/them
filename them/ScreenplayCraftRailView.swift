@@ -160,11 +160,20 @@ struct ScreenplayCraftRailView: View {
     @State private var activeOverrideTurn: ScreenplayCraftTurnDrift?
     @State private var overrideReasonText: String = ""
     @State private var overridePageText: String = ""
+    @FocusState private var isOverridePageFocused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             header
             frameworkPicker
+            if report != nil, !infoText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Text(infoText)
+                    .font(.system(size: 11, weight: .regular))
+                    .foregroundStyle(Color.herText.opacity(0.70))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("studio.craft.status")
+            }
             loglinePanel
             ScreenplayCraftReaderPreviewView(
                 report: coverageSimulationReport,
@@ -264,6 +273,7 @@ struct ScreenplayCraftRailView: View {
                 Button(action: onRefresh) {
                     Label("Refresh", systemImage: "arrow.clockwise")
                 }
+                .accessibilityIdentifier("studio.craft.refresh")
                 .buttonStyle(.bordered)
                 .controlSize(.small)
                 .disabled(isLoading || isAnalyzing)
@@ -342,6 +352,9 @@ struct ScreenplayCraftRailView: View {
         }
         .buttonStyle(.plain)
         .disabled(isLoading || isAnalyzing)
+        .accessibilityIdentifier("studio.craft.framework.\(framework.id)")
+        .accessibilityValue(isSelected ? "Selected" : "Not selected")
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
     private var loglinePanel: some View {
@@ -570,6 +583,7 @@ struct ScreenplayCraftRailView: View {
                     } label: {
                         Label("Override", systemImage: "checkmark.seal")
                     }
+                    .accessibilityIdentifier("studio.craft.override.\(turn.turnId)")
                     .buttonStyle(.bordered)
                     .controlSize(.mini)
                     .disabled(isSavingOverride)
@@ -595,7 +609,11 @@ struct ScreenplayCraftRailView: View {
 
             HStack(spacing: 8) {
                 TextField("Page", text: $overridePageText)
+                    .accessibilityIdentifier("studio.craft.override.page")
                     .textFieldStyle(.roundedBorder)
+                    .focused($isOverridePageFocused)
+                    .submitLabel(.done)
+                    .onSubmit { isOverridePageFocused = false }
                     .frame(width: 72)
                 TextField("Reason", text: $overrideReasonText, axis: .vertical)
                     .textFieldStyle(.roundedBorder)
@@ -614,6 +632,7 @@ struct ScreenplayCraftRailView: View {
                 } label: {
                     Label(isSavingOverride ? "Saving" : "Save Override", systemImage: isSavingOverride ? "hourglass" : "checkmark")
                 }
+                .accessibilityIdentifier("studio.craft.override.save")
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
                 .disabled(isSavingOverride)
@@ -630,6 +649,7 @@ struct ScreenplayCraftRailView: View {
                 sectionLabel("Beat sheet")
                 Spacer(minLength: 0)
                 Text(report.framework.title)
+                    .accessibilityIdentifier("studio.craft.report.framework")
                     .font(.system(size: 9, weight: .medium, design: .default))
                     .foregroundStyle(Color.herText.opacity(0.48))
                     .lineLimit(1)
@@ -919,6 +939,7 @@ struct ScreenplayCraftRailView: View {
     }
 
     private func clearOverrideComposer() {
+        isOverridePageFocused = false
         activeOverrideTurn = nil
         overrideReasonText = ""
         overridePageText = ""
