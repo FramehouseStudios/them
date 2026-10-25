@@ -601,19 +601,31 @@ final class V1SmokeUITests: XCTestCase {
         let pagesTab = app.buttons["studio.draft.tools.pages"]
         let revisionsTab = app.buttons["studio.draft.tools.revisions"]
         let snapshotsTab = app.buttons["studio.draft.tools.snapshots"]
+        let rightDrawer = element(identifier: "studio.sidebar.right.drawer", in: app)
         XCTAssertTrue(pagesTab.waitForExistence(timeout: 8))
         XCTAssertTrue(revisionsTab.exists)
         XCTAssertTrue(snapshotsTab.exists)
+        XCTAssertTrue(rightDrawer.exists)
+        for tab in [pagesTab, revisionsTab, snapshotsTab] {
+            XCTAssertTrue(revealFullyInStudioDrawer(tab, drawer: rightDrawer, maxSwipes: 8))
+            guard tab.frame.height >= 44 else {
+                XCTFail("The entire \(tab.label) tile must be an accessible touch target, not just its icon/text: \(tab.frame).")
+                return
+            }
+        }
         XCTAssertTrue(app.descendants(matching: .any)["studio.draft.page-tools"].waitForExistence(timeout: 4))
 
-        revisionsTab.tap()
+        // Plain buttons must also accept a single tap in the label's padding.
+        // The hosted failure tapped the clear gap between Snapshots' icon and
+        // text, leaving Revisions selected despite the visually larger tile.
+        revisionsTab.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.1)).tap()
+        XCTAssertTrue(waitForSelection(of: revisionsTab, timeout: 3))
         XCTAssertTrue(app.descendants(matching: .any)["studio.draft.revision-tools"].waitForExistence(timeout: 4))
 
-        snapshotsTab.tap()
+        snapshotsTab.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.1)).tap()
+        XCTAssertTrue(waitForSelection(of: snapshotsTab, timeout: 3))
         XCTAssertTrue(app.descendants(matching: .any)["studio.draft.snapshot-tools"].waitForExistence(timeout: 4))
-        let rightDrawer = element(identifier: "studio.sidebar.right.drawer", in: app)
         let snapshotNote = element(identifier: "studio.draft.snapshot.note", in: app)
-        XCTAssertTrue(rightDrawer.exists)
         XCTAssertTrue(
             revealInStudioDrawer(snapshotNote, drawer: rightDrawer, scrollingUp: true, maxSwipes: 8),
             "The Snapshots panel did not reveal its optional note field."
@@ -625,7 +637,9 @@ final class V1SmokeUITests: XCTestCase {
         )
         XCTAssertTrue(createSnapshotButton.label.localizedCaseInsensitiveContains("Create Snapshot"))
 
-        pagesTab.tap()
+        XCTAssertTrue(revealFullyInStudioDrawer(pagesTab, drawer: rightDrawer, maxSwipes: 8))
+        pagesTab.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.1)).tap()
+        XCTAssertTrue(waitForSelection(of: pagesTab, timeout: 3))
         XCTAssertTrue(app.descendants(matching: .any)["studio.draft.page-tools"].waitForExistence(timeout: 4))
     }
 
