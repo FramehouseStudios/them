@@ -57,8 +57,13 @@ Reserved export-evidence simulator
 The refreshed two native Files paths passed **2/0/0**, retained in
 `/private/tmp/them-1144-export-readiness.xcresult`, process exit0 and positive
 xcresult summary. Actual Save, cancel/re-export and no-resend assertions remain.
-The run was unusually slow (1567s bundle interval;1004s test operation). No
-latency/release-readiness claim follows from these passes; timing remains noted.
+The run was unusually slow (1567s bundle interval;1004s test operation). The
+received-reply case took16m while the other took28s. Its activity tree has a
+926.266s gap between a first-match button query and XCTest's internal retry.
+This identifies an observation/query stall, not its app/system root cause; do
+not attribute it to a provider or claim acceptable latency from the pass.
+Completed proof is preserved under
+`/Users/halfmutantfilms/io.them-worktrees/_proof/T-1144-20261025.ErqmHC/`.
 
 Remaining connected checkpoints: resumed original-project delivery with a newer
 saved writer edit and no second save; insertion interrupted before save admission;
