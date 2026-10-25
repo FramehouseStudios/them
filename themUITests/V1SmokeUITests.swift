@@ -2216,7 +2216,7 @@ final class V1SmokeUITests: XCTestCase {
         app.alerts.firstMatch.buttons["Cancel"].tap()
         XCTAssertTrue(review.exists, "Cancelling review must leave the recovered request held.")
         export.tap()
-        XCTAssertTrue(waitForNativeFilesExporter(in: app, presented: true, timeout: 5), "Recovery export did not open the native file exporter.")
+        XCTAssertTrue(waitForNativeFilesExporter(in: app, presented: true, timeout: writerLoopWait(5)), "Recovery export did not reach the real native Files UI within its readiness budget.")
         XCTAssertTrue(dismissNativeFilesExporter(in: app))
         let delete = app.buttons["data.controls.talk.delete-parked"]
         XCTAssertTrue(delete.waitForExistence(timeout: 5))
@@ -2227,9 +2227,10 @@ final class V1SmokeUITests: XCTestCase {
         alert.buttons["Cancel"].tap()
         XCTAssertTrue(export.exists, "Cancel deleted the queued turn.")
         export.tap()
-        XCTAssertTrue(waitForNativeFilesExporter(in: app, presented: true, timeout: 5))
+        XCTAssertTrue(waitForNativeFilesExporter(in: app, presented: true, timeout: writerLoopWait(5)))
+        XCTAssertTrue(waitForHittability(of: app.buttons["Save"], timeout: writerLoopWait(5)), "Recovery export must offer a real, hittable native Save action.")
         app.buttons["Save"].tap()
-        XCTAssertTrue(waitForNativeFilesExporter(in: app, presented: false, timeout: 8))
+        XCTAssertTrue(waitForNativeFilesExporter(in: app, presented: false, timeout: writerLoopWait(8)))
         XCTAssertTrue(staticText(containing: "Queued turn recovery export saved", in: app).waitForExistence(timeout: 5))
         let saved = XCTAttachment(screenshot: app.screenshot())
         saved.name = "talk-recovery-after-real-files-save.png"
@@ -2267,9 +2268,10 @@ final class V1SmokeUITests: XCTestCase {
         XCTAssertTrue(staticText(containing: "Reply received", in: app).waitForExistence(timeout: 5))
         XCTAssertEqual(export.label, "Export received reply")
         export.tap()
-        XCTAssertTrue(waitForNativeFilesExporter(in: app, presented: true, timeout: 5))
+        XCTAssertTrue(waitForNativeFilesExporter(in: app, presented: true, timeout: writerLoopWait(5)))
+        XCTAssertTrue(waitForHittability(of: app.buttons["Save"], timeout: writerLoopWait(5)), "Received-reply export must offer a real, hittable native Save action.")
         app.buttons["Save"].tap()
-        XCTAssertTrue(waitForNativeFilesExporter(in: app, presented: false, timeout: 8))
+        XCTAssertTrue(waitForNativeFilesExporter(in: app, presented: false, timeout: writerLoopWait(8)))
         XCTAssertTrue(staticText(containing: "Queued turn recovery export saved", in: app).waitForExistence(timeout: 5))
         XCTAssertTrue(export.exists, "Export must not acknowledge page/audio delivery.")
     }
@@ -4517,7 +4519,20 @@ final class V1SmokeUITests: XCTestCase {
             if nativeFilesExporterIsPresented(in: app) == presented { return true }
             RunLoop.current.run(until: Date().addingTimeInterval(0.1))
         }
-        return nativeFilesExporterIsPresented(in: app) == presented
+        let matched = nativeFilesExporterIsPresented(in: app) == presented
+        if !matched {
+            XCTContext.runActivity(named: "Native Files \(presented ? "appearance" : "dismissal") did not settle within \(timeout)s") { _ in
+                let screenshot = XCTAttachment(screenshot: app.screenshot())
+                screenshot.name = "native-files-readiness-timeout.png"
+                screenshot.lifetime = .keepAlways
+                add(screenshot)
+                let hierarchy = XCTAttachment(string: app.debugDescription)
+                hierarchy.name = "native-files-readiness-timeout-hierarchy.txt"
+                hierarchy.lifetime = .keepAlways
+                add(hierarchy)
+            }
+        }
+        return matched
     }
 
     private func dismissNativeFilesExporter(in app: XCUIApplication) -> Bool {
