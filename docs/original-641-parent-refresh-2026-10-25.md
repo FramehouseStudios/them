@@ -67,7 +67,7 @@ outside-export simulator7F1A14C1 was not erased or used for these runs.
 
 Answered here: original source/history retained, critical routing/Home runtime
 unchanged, current local default/auth/framework coexistence, saved-marker single
-version/restore and refusal regressions in full suite. Existing678/681/earlier
+version/restore and refusal regressions in full suite. Existing681/earlier
 raw-long/Stop/refusal UI totals are historical, not reruns on this source.
 
 Partially addressed: client stale-context ownership has held-response unit
