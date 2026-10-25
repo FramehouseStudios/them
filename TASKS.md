@@ -5,12 +5,39 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1145 — Repair original639's unnecessary selected-tab hit-point query
+
+- **Owner:** codex (Jarvis). **Branch:** `codex/T-1145-original-639-hosted-rail`.
+- **Status:** review (local correction proven; fresh hosted gate required).
+  **Base:** original6399bb54ec, unchanged original638
+  base. Native run40185550749 is terminal red: V1 27/1/9; signed units and
+  required writer passed, later voice/Mac skipped. Backend/D009 passed.
+- **Observed:** restored story-obligation snapshot succeeds after relaunch;
+  opening the drawer then querying the already-selected Clementine tab's hit
+  point fails at the reveal helper before its text assertions. Retain the
+  actual hosted artifact; do not claim saved memory is lost from this failure.
+- **Target:** reuse the relevant existing04a993f shared reveal correction,
+  not its unrelated runtime/navigation changes: recheck content after opening,
+  use stable tab identity and check selection before requesting a hit point.
+  Keep exact result/evidence/correction/relaunch assertions and all timeouts.
+- **Ownership:** this entry, the UI helper and bounded regression/evidence.
+  No app/backend/provider change, retries, skips, main merge or paid calls.
+- **Done when:** the affected real UI journeys pass with positive counts,
+  D009/diff pass, source identity is recorded for inherited gates, and original
+  PR advances normally once for fresh hosted proof; no red is called green.
+- **Proof:** signed memory/relaunch + answer/skip + explicit option selection
+  **3/0/0** on the erased owned simulator; D009 numeric deltas0/diff pass.
+  App/backend/unit sources unchanged; inherited exact-head hosted backend
+  2758/0/2, units635/0/0 and strict writer pass. Later hosted voice/Mac skipped.
+  Evidence: `docs/original-639-hosted-reveal-2026-10-25.md`.
+
 ### T-1138 — Preserve original golden-set PR639 with explicit spend approval
 
 - **Owner:** codex (Jarvis). **Branch:** `codex/T-1138-original-639-parent`.
-- **Status:** refreshed local checkpoint complete; parent6380b56861 now has
-  all required hosted checks green. Eligible for normal original639 draft
-  publication, not main merge; independent reviews/checks remain required.
+- **Status:** original6399bb54ec published; parent6380b56861 has all required
+  hosted checks green, but child run40185550749 is terminal red in the memory
+  reveal UI helper. Correction/proof at T-1145 above; no further stack advance
+  until its fresh exact-head checks pass. Independent reviews remain required.
   Original639 `5722514` and prior original638 `612bf17` are preserved by
   merge `946a3c9`; actual base remains
   `claude/mentor-core-port`. No replacement PR or main change.
