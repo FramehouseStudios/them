@@ -5,6 +5,34 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1138 — Preserve original golden-set PR639 with explicit spend approval
+
+- **Owner:** codex (Jarvis). **Branch:** `codex/T-1138-original-639-parent`.
+- **Status:** locally proven, publication held for parent CI. Original639
+  `5722514` and updated
+  original638 `612bf17` preserved by merge `946a3c9`; actual base remains
+  `claude/mentor-core-port`. No replacement PR or main change.
+- **Root:** original weekly workflow spent automatically. Attributed existing
+  fix6c55d9b backported as49486db: scheduled offline-only; explicit live approval;
+  selectors passed as data; fail fast on provider errors; unknown selector fails.
+- **Reconciliation:** preserve both historical ledger sides, clearly marked
+  as old context. Reuse dc8af7b's client pitch-priority correction so the app
+  matches the safe runner; a direct request outranks an unsolicited pitch.
+  Shared canonical mentor file must match the flexible120-page native literal.
+- **Verified red:** offline gate after preserving merge/backport exits1 at
+  flexible120-page prompt assertion; original shared file still prescribed110.
+  Fix the shared text, not the assertion; all original golden/weak pairs remain.
+- **Done when:** offline gate, guard/scorer contracts, exact Node20 backend,
+  signed erased native units, writer workflow, macOS, D009/diff pass and proof
+  is recorded. Do not publish child until the updated parent checks are green.
+- **Holds:** no paid call, production change, review bypass, native resource
+  collision, force push or unverified real-phone claim.
+- **Verified:** full Node20 backend2758/0/2; signed iOS635/0/0 including
+  canonical persona parity and request-priority regression; local writer1/0/0;
+  macOS exit0; scorer/approval guards8/0/0, all40 offline exemplar pairs and8
+  prompt checks; D009/diff and static workflow safety pass. Evidence:
+  `docs/original-639-parent-2026-10-25.md`.
+
 ### T-1137 — Preserve original mentor-core PR 638 on current main
 
 - **Owner:** codex (Jarvis). **Branch:** `codex/T-1137-original-638-mainline`.
