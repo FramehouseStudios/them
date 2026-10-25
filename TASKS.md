@@ -512,6 +512,26 @@
   any undelivered result safely through crashes, owner/origin changes and retry.
   Reuse canonical talk/result/receipt handling; no second conversation store.
 
+### T-1130 — Resume interrupted page recovery without a second write
+
+- **Owner:** codex (Jarvis), `codex/T-1130-recovery-plan-continuity`, parent
+  `80a2f66`; local runtime `aa8cc35`. Original #974/#975 heads unchanged.
+- **Root/fix:** interrupted-ack UI exposed startup debounce journaling A under
+  newly selected, not-yet-loaded B; require loaded-project authority. Check the
+  retained plan's exact server result before retrying, so a renewed local document
+  UUID cannot strand an already-saved scene or cause another save. New plans keep
+  their canonical base; continuation refuses newer text/version without rebasing.
+  Legacy journal digest encoding stays unchanged and unknown bases stay strict.
+- **Proof:** signed focused9/0/0, actual authenticated interrupted-save/relaunch/
+  other-project/original-project/retry/exact-restore UI1/0/0; no extra saved
+  version and B unchanged. ASR/chat/TTS intercepted1/2/23. D009/diff/syntax pass.
+  Earlier UI0/1/0 attempts and one compile-only failed test attempt are retained.
+  Full units, normal recovery UI and Mac remain pending on this source.
+- **Next/stop:** #974 run40160014884 is now terminal red on the second native
+  Files export after cancel (units/backend/D009 passed). Preserve this slice
+  locally, fix that earlier hosted boundary first, then complete broader proof.
+  See `docs/recovery-plan-continuity-2026-10-24.md`; no live/phone/main claim.
+
 ### T-1126 — Recover a kept scene in its original project
 
 - **Owner:** codex (Jarvis); branch `codex/T-1126-original-project-recovery`,
