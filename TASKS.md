@@ -5,11 +5,25 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1142 — Fix the original638 hosted Snapshots-pane failure
+
+- **Owner:** codex. **Status:** ready; exact failure triaged, runtime cause
+  not established. Original638 head612bf17/run40171307411 is terminal red.
+- **Observed:** broad V1 test `test_draft_tools_tabs_route_to_each_presentation_pane`
+  reaches Pages and Revisions, taps Snapshots, then fails the snapshot-tools
+  element assertion at line613. Later voice/macOS step is skipped. Do not
+  treat earlier local633/0/0 or writer1/0/0 as clearing this hosted failure.
+- **Next:** inspect that test's retained recording/hierarchy and actual UI
+  state, then reproduce/fix the smallest pane-routing or test-readiness cause.
+  No guessed timeout, repeated CI retry, weakened assertion or child advance.
+- **Evidence:** `docs/hosted-draft-pane-failure-2026-10-25.md`. Main unchanged;
+  no further review action needed until a corrected exact head is provided.
+
 ### T-1137 — Preserve original mentor-core PR 638 on current main
 
 - **Owner:** codex (Jarvis). **Branch:** `codex/T-1137-original-638-mainline`.
-- **Status:** locally proven; original draft publication pending fresh checks
-  and independent review. No main or production change.
+- **Status:** published612bf17, hosted gate red at T-1142 above. Independent
+  review remains required after correction; no main or production change.
 - **Target:** update original #638 with a preserving merge of current main,
   not a replacement PR or rehearsal rollup. Preserve original638 `6ad4117`
   and main `78b8c94`; clean merge checkpoint `8bc3f5a`.
