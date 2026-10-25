@@ -5,6 +5,27 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1152 — Preserve original Pages and reconcile the existing safety repairs
+
+- **Owner:** codex (Jarvis). **Branch:** `codex/T-1152-original-642-pages`.
+- **Base:** proven local641a45d904; original641 public head remains held for
+  actual parent640 Quality Gate. Preserve original6427c40428b and89358c3ff33
+  as no-ff merges88b9d83/134b5c6, not a replacement PR or broad backup merge.
+- **Scope:** existing Letter pagination/overview, source mapping and current
+  draft/density ownership; reuse isolated964bb7a7/eddb2ed5/0f67802a repairs
+  with attribution. Inspect/reconcile original613 and existing narrow Pages
+  navigator1ee9269 before declaring the entire Pages workflow complete.
+- **Binary criteria:** every speech page bounded, Unicode parity, exact source
+  line ranges without rewriting draft bytes, current counts/density and stale
+  recompute ownership, navigation/recalculate controls connected and readable.
+  Retain existing Home/refusal/Stop/auth/recovery policies and original tests.
+- **Proof plan:** reproduce documented engine defects on the actual imported
+  code, then focused engine/mounted HTTP/shared Swift fixtures, necessary native
+  workflow and integration gates. No paid models, padding to target length,
+  new framework, main merge, protected-review bypass or production change.
+- **Current:** original engine and macOS modifier guard preserved; no fresh
+  engine/native pass claimed. Full next-boundary proof remains outstanding.
+
 ### T-1151 — Reconcile original641 with the now-published corrected Craft parent
 
 - **Owner:** codex (Jarvis). **Branch:** `codex/T-1151-original-641-parent`.
