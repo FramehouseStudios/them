@@ -75,8 +75,12 @@ voice-fault1/0/0, Mac/D009/Docker pass. No independent-review waiver follows.
 Original640 remains draft at publicc8eb36bad5979748130e2da7ed9ea2b9b6abe061,
 based on claude/mentor-golden-port. Do not merge that uncorrected public head.
 
-The Mac remains locked at fresh computer-use observation. Current authenticated
-Craft GUI and required writer workflow checkpoints are pending.
+At the T1147 checkpoint the Mac was locked; current authenticated Craft GUI
+and writer checkpoints were then pending. T1150 follow-through, after the
+human unlocked it: real Craft case first failed0/1/0 on keyboard obstruction;
+the scoped Done-focus correction then passed1/0/0, and current writer passed
+1/0/0. Current Mac compile passed. See craft-keyboard-recovery-2026-10-25.md
+for exact source/proof limits; the older647 units were not rerun for five UI lines.
 The older6190 GUI proof is historical, not this combined head's proof. Expired
 Craft-session refresh, cross-account transitions and initial host trust are not
 established by the focused model cases. No live model/microphone/physical phone,
@@ -90,4 +94,5 @@ unchanged or weaken the real Cancel/re-export/Save requirement.
 
 No paid call, main merge, force/squash/replacement, secret access, production
 deployment or protection change. Original638 still requires personal non-author
-review. Continue status: READY FOR CONTINUE with visible proof human-gated.
+review. Continue status: READY FOR CONTINUE; visible local proof now complete,
+fresh exact-head hosted checks and independent review gate protected landing.

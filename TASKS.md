@@ -24,9 +24,12 @@
   model key, external fetch blocked, authenticated disposable backend. After
   proof1/0/0 on changed source, exact unchanged source/diff asserted. Inspected
   selection/acknowledgement/explicit-choice screenshots; external fetch audit
-  empty. Mac compile exit0; current writer checkpoint pending. No unchanged
+  empty. Mac compile exit0; current committed-source writer checkpoint1/0/0,
+  empty key and no external fetch. No unchanged
   retry, main/production or public-head change.
 - **Evidence:** `docs/craft-keyboard-recovery-2026-10-25.md`.
+- **Status:** locally proven; prepare preserving original640 normal advance,
+  not a replacement PR or a main merge. Exact-head hosted checks still required.
 
 ### T-1147 — Preserve Craft integration on the corrected original639 parent
 

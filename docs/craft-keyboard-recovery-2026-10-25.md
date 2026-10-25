@@ -51,8 +51,19 @@ Packages, workflows, scripts, project and unit sources unchanged from3c88c50.
 Prior T1147 backend2785/0/2 and units647/0/0 are prior checkpoint results,
 not reruns for this five-line UI correction. Current Mac scaffold compile
 completed with exit0 and BUILD SUCCEEDED on the same corrected source.
-Required updated-parent writer checkpoint and original640 publication remain
-pending; public original640 is still uncorrectedc8eb36b and must not merge.
+VERIFIED required updated-parent writer checkpoint on committedaec698a:
+**1/0/0**, exit0, erased owned91693AF0, signing on, authenticated isolated
+Node20.20.2 backend with empty OpenAI key and zero external-fetch attempts.
+The existing case proves UI-created project, typed marker, one acknowledged
+server version, Markdown artifact creation and exact authenticated relaunch
+restore. At this early stack boundary it does not Save through Files or open
+the artifact externally, nor use microphone/model generation. Do not relabel
+the separately observed reserved-simulator export as this case's output.
+
+Prepared normal original640 advance retains originalc8eb36b, all corrected
+history and actual parent965a507 as ancestors. Original PR/base/draft identity
+is preserved; fresh exact-head hosted checks remain mandatory. No claim of
+hosted success follows from either this UI pass or earlier647-unit checkpoint.
 Private completed before/after archive:
 /Users/halfmutantfilms/io.them-worktrees/_proof/T-1150-20261025.2KIHOX/.
 
