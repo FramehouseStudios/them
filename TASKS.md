@@ -57,7 +57,9 @@
   from a valid parent as zero. `--allow-growth` cannot authorize no comparison.
 - **Proof:** isolated fixture repos before2 pass/5 fail/0 skip; fixed7/0/0;
   syntax/diff pass; real original-parent comparison passes with actual numeric
-  baselines. Native/backend/workflow trees are byte-unchanged froma0bab6a.
+  baselines. Native/backend trees are byte-unchanged froma0bab6a. The existing
+  required D009 job runs the regressions; workflow binding checked statically,
+  fresh hosted execution pending. No paid/live workflow is introduced.
 - **Evidence:** `docs/god-baseline-authority-2026-10-25.md`. Preserve original
   #640 history; fresh hosted checks/review still required before landing.
 

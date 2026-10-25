@@ -102,6 +102,9 @@ jobs:
         with:
           node-version: "20"
 
+      - name: Test god-file comparison authority
+        run: node --test scripts/check_god_files.test.mjs
+
       - name: Check god-file growth vs base
         run: node scripts/check_god_files.mjs
 

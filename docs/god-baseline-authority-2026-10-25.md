@@ -6,7 +6,8 @@ Worktree `/Users/halfmutantfilms/io.them-worktrees/codex-god-baseline-authority`
 branch `codex/T-1140-god-baseline-authority`, base
 `a0bab6a58240c289c232117ca862ef2a8966cd08`, the locally proven original640
 candidate. This changes the canonical gate, its isolated regressions and docs,
-not app/backend runtime, providers, workflows, protections or production.
+not app/backend runtime, providers, protections or production. The existing
+required D009 job also runs these seven regressions before checking real counts.
 
 ## Reproduction and root cause
 
@@ -47,7 +48,7 @@ Cleanup is restricted to those test-created temporary directories.
 - `node --check scripts/check_god_files.mjs` and `git diff --check`: pass.
 - Real original-parent comparison with the fetched5722514 baseline: index
   33626→33581, Studio17435→17431, other three unchanged; exit0 with real counts.
-- `git diff --exit-code a0bab6a -- backend them themTests themUITests Packages .github`:
+- `git diff --exit-code a0bab6a -- backend them themTests themUITests Packages`:
   pass. Therefore no unchanged backend/native/writer run was repeated. Those
   source-identical inherited proofs remain backend2779/0/2, signed646/0/0,
   writer1/0/0 and Mac build; they are not new runs on this script-only slice.
@@ -55,7 +56,9 @@ Cleanup is restricted to those test-created temporary directories.
   retains before/fixed logs and actual-parent JSON.
 
 Exact files: `scripts/check_god_files.mjs`, `scripts/check_god_files.test.mjs`,
-`TASKS.md`, `docs/god-baseline-authority-2026-10-25.md`.
+`.github/workflows/quality-gate.yml`, `TASKS.md`,
+`docs/god-baseline-authority-2026-10-25.md`. YAML parsing and the required-job
+step binding are checked statically; fresh hosted execution is not claimed.
 
 This gate proves line-count comparison only, not correctness/security or a
 working physical iPhone. Preserve all required checks and independent human
