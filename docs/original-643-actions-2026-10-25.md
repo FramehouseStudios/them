@@ -57,10 +57,36 @@ precomputed String/concrete Text subview, preserves exact230pt PNG and passes
 local705/Pages1/Mac/D009/diff. Preserve this parent by no-ff merge; TASKS-only
 conflict retains both. Fresh642 hosted clearance still required, not assumed.
 
-The722 result predates that merged preview repair. Final combined native,
-actual inspector/writer/Home and Mac proof remain due, not inherited from
-either parent. Backend tree unchanged by this parent update; retain zero diff
-rather than repeat unchanged tests. No source edits during native proof.
+The initial722 result predates that parent repair. Actual preserving merge
+122a4f76c9bfeefa7fee2d4cb28d9b3d1ac84e75 now has its own signed erased
+units722/0/0 (positive current xcresult), inspector+authenticated writer2/0/0,
+synthetic Home pair2/0/0 and Mac BUILD SUCCEEDED. All local handles terminal;
+no source edits while a native proof ran. No pass inherited from either parent.
+Backend tree unchanged from da05's2853/0/2, explicit zero diff retained rather
+than repeat unchanged tests. Offline prompt/module source is also unchanged
+from the separately identified earlier offline gate; no live model scoring.
+
+The actual UI2 proves all six inspector destinations/selected states and UI
+project create→one saved version→Markdown artifact→exact authenticated relaunch.
+Empty provider key, external fetch blocked, zero attempts. It emits no current
+screenshots; do not claim a visual review of six panels. Early writer artifact
+is NOT Save through Files or observed external-open. Current Home2 confirms
+current words and raw audio with stale transcript→native page→saved version→
+relaunch equality under the existing outer-whitespace comparison. ASR1/chat4/
+TTS24 are synthetic, external real providers blocked. No actual speech/model.
+
+The injected retry operation calls the real production dispatcher's seam and
+throws URLError after delivering metadata; it is not a faulted live HTTP or
+physical-device retry. Late-callback guard tested separately in that case.
+Other metadata still forwards unchanged, not claimed isolated by this action
+guard. The0.6s mount delay remains, not acknowledged control-delivery proof.
+Live action execution still needs original648 and real provider/phone proof.
+
+Final D009 versus freshly fetched published64284659a6a: index33557 unchanged,
+Studio17423→17402(-21),Root14992 unchanged,bridge12926 unchanged,
+Memory10865→10846(-19). Initial tracking comparison used old78dc3be, not falsely
+presented as the current parent even though its monitored counts are identical.
+Diff and syntax checks pass. Existing actor/Sendable/Swift6 warnings remain.
 
 Producer /private/tmp/them-1153.WQTFDf; completed archive
 /Users/halfmutantfilms/io.them-worktrees/_proof/T-1153-20261025.1LCAaj/.
@@ -75,8 +101,12 @@ authority work read: it still owns protected controls/coverage prompt blocks,
 reply shaping and writer-command authority. Do not blindly import intervening
 PRs or claim this boundary proves reliable live controls. Preserve orb/Clementine/
 aesthetic/flexible120. Original643 stays86cc5b24/draft/baseclaude/pages-port
-until combined proof and exact parent642 required checks pass. Next child644
-follows actual bases. Human non-author review/protections and production hold
+until exact parent642 required checks pass; combined local proof is complete
+within the limits above, not hosted clearance. A scoped Codex branch backup
+does not replace the original PR or authorize main landing. Next actual child
+644047672ac and its three follow-ups read, including additive880/881 and dated
+coverage-current-writer ledger pointers. Preserve those fixes, not a second
+coverage owner. Human non-author review/protections and production hold
 remain. No main push/merge, force/squash, replacement PR or secrets change.
 
 Goal active/incomplete. READY FOR CONTINUE.

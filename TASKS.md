@@ -26,9 +26,11 @@
   New retry seam red0/1/0 (two saves per logical request) → full signed722/0/0
   after8c50e09. First backend2852/1/2 fetch failure; canonical ephemeral server
   reused only in cancellation fixtures,7/0/0 then full2853/0/2. Those native
-  results predate the new Pages compiler-only parent; no combined pass assumed.
-  Preserve parent84659a6a and prove the actual merged native/UI/Mac tree.
-  No paid call, original643 head change, main change or production claim.
+  results predate the Pages parent repair. Actual merged122a4f76 now has signed
+  units722/0/0,inspector+writer2/0/0,syntheticHome2/0/0,Macbuild,D009/diff pass.
+  Backend tree byte-identical to da05's2853/0/2. No paid call, original643 head
+  change, main change or production claim. Public643 waits for exact642 hosted
+  clearance; normal task-branch backup is not a replacement PR or green CI.
 - **Evidence:** `docs/original-643-actions-2026-10-25.md`.
 
 ### T-1154 — Repair hosted Pages preview type-check failure
