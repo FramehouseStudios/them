@@ -11,6 +11,12 @@ XCRUN_BIN="${XCRUN:-xcrun}"
 ARTIFACT_DIR="${ARTIFACT_DIR:-${RUNNER_TEMP:-${TMPDIR:-/tmp}}/them-v1-ui-smoke}"
 mkdir -p "${ARTIFACT_DIR}"
 result_bundle_path="${V1_UI_RESULT_BUNDLE_PATH:-${ARTIFACT_DIR}/v1-ui-smoke-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}-$$.xcresult}"
+if [[ -n "${IOS_DERIVED_DATA_PATH:-}" ]]; then
+  if [[ "$IOS_DERIVED_DATA_PATH" != /* ]]; then
+    echo "run-v1-ui-smoke: IOS_DERIVED_DATA_PATH must be an absolute task-owned path." >&2
+    exit 2
+  fi
+fi
 
 # These invariants belong to this runner, not appended Xcode arguments.
 # Otherwise a later destination/parallel option can bypass the exact-device
@@ -98,6 +104,9 @@ for arg in "$@"; do
 done
 if [[ "$caller_has_result_bundle" == 0 ]]; then
   build_args+=(-resultBundlePath "$result_bundle_path")
+fi
+if [[ -n "${IOS_DERIVED_DATA_PATH:-}" ]]; then
+  build_args+=(-derivedDataPath "$IOS_DERIVED_DATA_PATH")
 fi
 build_args+=("$@")
 

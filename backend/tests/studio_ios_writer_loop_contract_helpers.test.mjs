@@ -89,3 +89,13 @@ test("[studio-ios-writer-loop] extracts only actionable xcresult failure records
   assert.match(details, /failure: XCTAssertTrue failed.*Save Now did not commit/);
   assert.doesNotMatch(details, /unrelated passing test|irrelevant/);
 });
+
+test("[studio-ios-writer-loop] retains the first assertion before an oversized UI hierarchy", () => {
+  const output = xcresultFailureDetails({ testNodes: [{ nodeType: "Failure Message",
+    name: "Real export did not present the native Files picker.",
+    details: "Observed native picker hierarchy: " + "x".repeat(FAILURE_OUTPUT_LIMIT * 2),
+  }] });
+  assert.match(failureOutputTail(output), /Real export did not present the native Files picker/);
+  assert.match(output, /see retained xcresult/);
+  assert.ok(output.length < FAILURE_OUTPUT_LIMIT);
+});
