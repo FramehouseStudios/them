@@ -3,6 +3,35 @@ import XCTest
 
 @MainActor
 final class StudioThreadViewStateSupportTests: XCTestCase {
+    func testActiveStreamBaselineCannotResetNativeTextAfterDeferredQueueDrains() {
+        XCTAssertFalse(ScreenplayDeferredPublicationGate.shouldApplyBoundText("", currentText: "INT. OBSERVATORY - NIGHT", pendingExpectedText: nil, pendingText: nil, activeStreamingBaseText: ""))
+        XCTAssertTrue(ScreenplayDeferredPublicationGate.shouldApplyBoundText("Writer's new draft", currentText: "INT. OBSERVATORY - NIGHT", pendingExpectedText: nil, pendingText: nil, activeStreamingBaseText: ""))
+    }
+
+    func testNewChunkDoesNotDiscardStillCurrentNativeTextButCannotCommitOldReceipt() {
+        let old = UUID(), next = UUID()
+        XCTAssertFalse(ScreenplayDeferredPublicationGate.requestIsCurrent(old, lastAppliedInsertionID: old, activeInsertionRequestID: next))
+        XCTAssertTrue(ScreenplayDeferredPublicationGate.acceptsNativeTextPublication(expectedBinding: "", currentBinding: "", queuedText: "INT. OBSERVATORY - NIGHT", nativeText: "INT. OBSERVATORY - NIGHT", requestID: old, activeRequestID: next))
+        XCTAssertFalse(ScreenplayDeferredPublicationGate.acceptsNativeTextPublication(expectedBinding: "", currentBinding: "", queuedText: "INT. OBSERVATORY - NIGHT", nativeText: "INT. OBSERVATORY - NIGHT", requestID: old, activeRequestID: nil))
+    }
+
+    func testQueuedNativeTextCannotOverwriteAnExternalEditOrNewerNativeText() {
+        XCTAssertFalse(ScreenplayDeferredPublicationGate.acceptsNativeTextPublication(expectedBinding: "", currentBinding: "Writer's correction", queuedText: "Old chunk", nativeText: "Old chunk"))
+        XCTAssertFalse(ScreenplayDeferredPublicationGate.acceptsNativeTextPublication(expectedBinding: "", currentBinding: "", queuedText: "Old chunk", nativeText: "New chunk"))
+    }
+
+    func testStaleBindingCannotReplaceNewerNativeStreamingTextBeforePublication() {
+        XCTAssertFalse(ScreenplayDeferredPublicationGate.shouldApplyBoundText("", currentText: "INT. OBSERVATORY - NIGHT", pendingExpectedText: "", pendingText: "INT. OBSERVATORY - NIGHT"))
+    }
+
+    func testGenuineExternalTextChangeStillWinsOverPendingNativePublication() {
+        XCTAssertTrue(ScreenplayDeferredPublicationGate.shouldApplyBoundText("Another project", currentText: "INT. OBSERVATORY - NIGHT", pendingExpectedText: "", pendingText: "INT. OBSERVATORY - NIGHT"))
+    }
+
+    func testBindingAppliesNormallyWithoutAnUnpublishedNativeChange() {
+        XCTAssertTrue(ScreenplayDeferredPublicationGate.shouldApplyBoundText("Restored draft", currentText: "", pendingExpectedText: nil, pendingText: nil))
+    }
+
     func testDeferredEditorTransactionRejectsMetadataWhenQueuedTextLosesItsBaseline() {
         let generation = 41
         let requirements = [

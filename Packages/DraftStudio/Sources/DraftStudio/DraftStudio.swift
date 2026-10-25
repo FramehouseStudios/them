@@ -29,7 +29,7 @@ public enum DraftStudioPromptRouter {
         signals: DraftStudioPromptSignals = DraftStudioPromptSignals()
     ) -> Bool {
         let clean = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !clean.isEmpty else { return false }
+        guard !clean.isEmpty, !DraftStudioPageWritePolicy.analyze(clean).refusesPageWrite else { return false }
 
         switch preferredTarget {
         case .page:

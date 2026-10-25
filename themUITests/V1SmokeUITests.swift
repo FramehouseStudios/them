@@ -170,6 +170,135 @@ final class V1SmokeUITests: XCTestCase {
         XCTAssertTrue(waitForDraft(in: app, containing: "INT. KITCHEN - DAY", timeout: 10))
     }
 
+    @MainActor
+    func test_confirmed_home_voice_turn_opens_studio_writes_and_restores() async throws {
+        try await assertHomeVoiceHandoff(rawAudio: false)
+    }
+
+    @MainActor
+    func test_home_raw_audio_uses_current_server_transcript_writes_and_restores() async throws {
+        try await assertHomeVoiceHandoff(rawAudio: true)
+    }
+
+    @MainActor
+    func test_home_raw_audio_studio_stop_ends_capture_and_cancels_page() async throws {
+        try await assertHomeVoiceHandoff(rawAudio: true, stopAfterFirstChunk: true)
+    }
+
+    @MainActor
+    func test_studio_refused_write_preserves_saved_page_despite_page_selection() async throws {
+#if os(iOS)
+        guard let port = Int(ProcessInfo.processInfo.environment["THEM_UITEST_WRITER_LOOP_BACKEND_PORT"] ?? ""),
+              (1...65_535).contains(port) else {
+            throw XCTSkip("Dedicated authenticated backend required; a skip is not refusal proof")
+        }
+        let baseURL = try XCTUnwrap(URL(string: "http://127.0.0.1:\(port)"))
+        let fixture = try await createWriterLoopAuthenticationFixture(baseURL: baseURL)
+        let id = "refusal-ui-\(UUID().uuidString.lowercased())"
+        let created = try await requestJSON(baseURL: baseURL, path: "/screenplay/projects", method: "POST",
+            headers: fixture.authorizedHeaders, body: ["project_id": id, "title": "Keep my words", "activate": true])
+        try assertHTTP(created, context: "refusal UI project")
+        let draft = "INT. OBSERVATORY - NIGHT\n\nMARA\nKeep every word on this page.\n"
+        let saved = try await requestJSON(baseURL: baseURL, path: "/screenplay/projects/\(id)/version", method: "POST",
+            headers: fixture.authorizedHeaders, body: ["draft": draft, "phase": "scene_draft", "base_version_id": ""])
+        try assertHTTP(saved, context: "refusal UI baseline")
+        let versionID = try firstNonEmptyString(saved.payload["version_id"], saved.payload["server_version_id"], message: "Saved baseline needs a version")
+        let before = try await writerLoopProject(id: id, fixture: fixture)
+        let app = launchApp(openStudio: true, openCommandBar: true, routePage: true,
+            restoreProjectID: id, restoreVersionID: versionID, restoreLoadToken: Int(Date().timeIntervalSince1970),
+            submitTransportMode: "live-backend", launchEnvironment: fixture.appLaunchEnvironment)
+        defer { app.terminate() }
+        XCTAssertTrue(waitForExactWriterLoopDraft(draft.trimmingCharacters(in: .whitespacesAndNewlines), in: app, timeout: 25))
+        try submitStudioWriterBlockPrompt("Do not rewrite this scene. Just discuss the ending.", in: app)
+        // The transport fixture deliberately returns screenplay-shaped text.
+        // Even a bad model answer must stay in the pin, never the saved page.
+        XCTAssertTrue(waitForAccessibilityText(identifier: "studio.voice-pin.latest.output", containing: "HOME VOICE HANDOFF", in: app, timeout: 30))
+        XCTAssertTrue(waitForExactWriterLoopDraft(draft.trimmingCharacters(in: .whitespacesAndNewlines), in: app, timeout: 5))
+        let after = try await writerLoopProject(id: id, fixture: fixture)
+        XCTAssertEqual(stringValue(after["latest_version_id"]), stringValue(before["latest_version_id"]))
+        let beforeVersions = before["versions"] as? [[String: Any]] ?? []
+        let afterVersions = after["versions"] as? [[String: Any]] ?? []
+        XCTAssertFalse(beforeVersions.isEmpty)
+        XCTAssertTrue(NSArray(array: beforeVersions).isEqual(to: afterVersions), "Discussion changed saved versions")
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "Refused Page write stays in Voice Pin"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+#else
+        throw XCTSkip("iPhone-only refusal routing proof")
+#endif
+    }
+
+    @MainActor
+    private func assertHomeVoiceHandoff(rawAudio: Bool, stopAfterFirstChunk: Bool = false) async throws {
+#if os(iOS)
+        let rawPort = ProcessInfo.processInfo.environment["THEM_UITEST_WRITER_LOOP_BACKEND_PORT"] ?? ""
+        guard let port = Int(rawPort), (1...65_535).contains(port) else {
+            throw XCTSkip("A task-owned writer-loop backend is required; a skipped fixture is not proof")
+        }
+        let baseURL = try XCTUnwrap(URL(string: "http://127.0.0.1:\(port)"))
+        let fixture = try await createWriterLoopAuthenticationFixture(baseURL: baseURL)
+        let marker = "HOME VOICE HANDOFF"
+        var environment = fixture.appLaunchEnvironment
+        environment["THEM_UITEST_HOME_VOICE_PROMPT"] = "Write a story about two astronauts who discover the observatory sky is a painted set. Put HOME VOICE HANDOFF on the panel."
+        if rawAudio { environment["THEM_UITEST_HOME_VOICE_RAW_AUDIO"] = "1" }
+        var app = launchApp(submitTransportMode: "live", launchEnvironment: environment)
+        defer { app.terminate() }
+        XCTAssertTrue(element(identifier: "home.surface", in: app).waitForExistence(timeout: 15))
+        XCTAssertFalse(element(identifier: "studio.surface", in: app).exists, "The harness must not pre-open Studio")
+        let talk = app.buttons["home.talk.button"]
+        XCTAssertTrue(waitForHittability(of: talk, timeout: 15))
+        talk.tap()
+        XCTAssertTrue(element(identifier: "studio.surface", in: app).waitForExistence(timeout: 20))
+        XCTAssertTrue(waitForDraft(in: app, containing: marker, timeout: 45), "Confirmed Home speech did not reach the real page path")
+        let editor = textInput("studio.draft.editor", in: app)
+        if stopAfterFirstChunk {
+            let stop = app.buttons["studio.compact.talk"]
+            XCTAssertTrue(waitForHittability(of: stop, timeout: 10))
+            XCTAssertEqual(stop.label, "Stop talking")
+            stop.tap()
+            let stopped = NSPredicate { object, _ in
+                (object as? XCUIElement)?.label == "Start talking"
+            }
+            XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: stopped, object: stop)], timeout: 5), .completed, "Stop resumed microphone capture instead of ending the session")
+            let baselineRestored = NSPredicate { object, _ in
+                ((object as? XCUIElement)?.value as? String) == ""
+            }
+            XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: baselineRestored, object: editor)], timeout: 5), .completed, "Stop failed to cancel the generated page and restore the empty baseline")
+            try await Task.sleep(nanoseconds: 2_000_000_000)
+            XCTAssertTrue(editor.exists)
+            XCTAssertEqual(editor.value as? String, "", "Cancelled write emitted more text after Stop")
+            XCTAssertEqual(stop.label, "Start talking", "Voice rearmed after Stop")
+            return
+        }
+        XCTAssertTrue(waitForTextInputValue(in: editor, containing: "Someone on the other side pulls back.", timeout: 45), "The complete generated scene must reach the native editor, not a truncated preview")
+        let draft = (editor.value as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        XCTAssertEqual(occurrenceCount(of: marker, in: draft), 1)
+        var snapshot: [String: Any] = [:]
+        let selected = waitForRestoreSnapshot(in: app, timeout: 20) { value in
+            snapshot = value
+            return !stringValue(value["selected_project_id"]).isEmpty
+        }
+        guard selected else {
+            XCTFail("First project missing: " + String(describing: snapshot.filter { ["autosave_status_text", "error_text", "draft_character_count"].contains($0.key) }))
+            return
+        }
+        let projectID = try XCTUnwrap(snapshot["selected_project_id"] as? String)
+        _ = try await waitForWriterLoopSavedVersion(projectID: projectID, draft: draft, fixture: fixture, app: app, timeout: 30)
+        app.terminate()
+        environment.removeValue(forKey: "THEM_UITEST_HOME_VOICE_PROMPT")
+        environment.removeValue(forKey: "THEM_UITEST_HOME_VOICE_RAW_AUDIO")
+        app = launchApp(openStudio: true, resetState: false, launchEnvironment: environment)
+        let restoredEditor = textInput("studio.draft.editor", in: app)
+        let exact = NSPredicate { object, _ in
+            ((object as? XCUIElement)?.value as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) == draft
+        }
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: exact, object: restoredEditor)], timeout: 30), .completed)
+#else
+        throw XCTSkip("iPhone-only Home voice handoff")
+#endif
+    }
+
     func test_record_voice_turn_round_trips_to_screenplay() {
         let app = launchApp(
             openStudio: true,

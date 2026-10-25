@@ -16,10 +16,34 @@ enum ClementineVoiceSettings {
     static let endSilenceScaleKey = "vad_end_silence_scale"
     static let minSpeechSecondsKey = "vad_min_speech_seconds"
     static let voiceSpeedKey = "clementine_voice_speed"
+    /// Barge-in (cutting the assistant off when the listener starts talking)
+    /// relies on acoustic echo cancellation to ignore the assistant's own
+    /// playback. The iOS Simulator has none: the Mac speakers feed the Mac
+    /// microphone and every reply would cut itself off after one loud frame,
+    /// so barge-in defaults off there. Set this key to force either value.
+    static let bargeInEnabledKey = "clementine_barge_in_enabled"
 
     static func vadSensitivity(defaults: UserDefaults = .standard) -> Double {
         let raw = defaults.object(forKey: vadSensitivityKey) as? Double ?? 0.62
         return min(max(raw, 0), 1)
+    }
+
+    static func bargeInEnabled(
+        defaults: UserDefaults = .standard,
+        isSimulator: Bool = ClementineVoiceSettings.runningOnSimulator
+    ) -> Bool {
+        if let override = defaults.object(forKey: bargeInEnabledKey) as? Bool {
+            return override
+        }
+        return !isSimulator
+    }
+
+    static var runningOnSimulator: Bool {
+        #if targetEnvironment(simulator)
+        return true
+        #else
+        return false
+        #endif
     }
 
     static func silenceThresholdMs(defaults: UserDefaults = .standard) -> Int {
@@ -485,6 +509,7 @@ final class HerVoiceController: ObservableObject {
     private let bargeInMinHoldSeconds: TimeInterval = 0.012
     private let bargeInGraceAfterPlaybackStartSeconds: TimeInterval = 0.012
     private let bargeInThresholdScale: Float = 0.92
+    private let bargeInEnabled: Bool = ClementineVoiceSettings.bargeInEnabled()
     private let bargeInNoiseMultiplier: Float = 1.65
     private let bargeInMinAbsoluteRMS: Float = 0.0028
     private let bargeInImmediateAbsoluteRMS: Float = 0.0042
@@ -871,6 +896,13 @@ final class HerVoiceController: ObservableObject {
                 consecutiveLoudFrames = 0
                 // Continue this frame through normal capture path below.
             } else if assistantPlaying || hasPendingUtterance {
+                if assistantPlaying, !bargeInEnabled {
+                    // No echo cancellation available (simulator) or barge-in
+                    // switched off: let the assistant finish, keep listening armed.
+                    bargeInCandidateStartedAt = nil
+                    consecutiveLoudFrames = 0
+                    return
+                }
                 if assistantPlaying {
                     let assistantSample = max(noiseFloorRMS, smoothedRMS)
                     let elapsedSincePlaybackStart = now.timeIntervalSince(assistantPlaybackStartedAt ?? now)

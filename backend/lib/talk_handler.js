@@ -27,6 +27,7 @@
 // amendment: it returns the handler; it does not register routes.
 
 import { randomUUID } from "node:crypto";
+import { enforceScreenplayWriteRefusal } from "./screenplay_turn_target.js";
 import {
   createChatSupplier,
   createSttSupplier,
@@ -2045,6 +2046,7 @@ function createTalkHandler(deps) {
       studioMeta.screenplayPromptSource = "short_film_beta";
       isScreenplayPageWriteTurn = true;
     }
+    if (enforceScreenplayWriteRefusal(req, studioMeta, transcript)) isScreenplayPageWriteTurn = false;
     const forcedErrorStageRaw = TALK_TEST_DEBUG_FAILURE_ENABLED
       ? normalizeSnippet(
         req.get("x-debug-force-error") ?? req.body?.debug_force_error ?? req.body?.debugForceError,

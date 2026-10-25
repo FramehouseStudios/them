@@ -12,11 +12,13 @@
 
 import { classifyIntent, INTENT } from "./intents.js";
 import { laneForIntent, LANE } from "./lanes.js";
+import { currentScreenplayInstruction } from "../screenplay_write_instruction.js";
 import {
   peekKnownFacts,
   peekVoiceSpecHints,
   tryTalkEdgeReflex,
   sendReflexReply,
+  peekConversationFreshness,
 } from "./talk_edge_adapter.js";
 import {
   isPageMultipassEnabled,
@@ -48,18 +50,7 @@ function expectsAudioTalkResponse(req) {
 }
 
 function peekUtterance(req) {
-  const body = req?.body && typeof req.body === "object" ? req.body : {};
-  return pickString(
-    body.client_transcript,
-    body.clientTranscript,
-    body.debug_transcript,
-    body.debugTranscript,
-    body.screenplay_generation_transcript,
-    body.screenplayGenerationTranscript,
-    body.transcript,
-    body.text,
-    body.utterance
-  );
+  return currentScreenplayInstruction(req?.body);
 }
 
 function peekPageHints(req) {
@@ -138,6 +129,21 @@ function resolveTalkLane(utterance, hints = {}) {
   return { intent, ...laneInfo };
 }
 
+function markTalkAsDiscussion(req, res) {
+  Object.assign(req.clementine, {
+    ...resolveTalkLane("", { intent: INTENT.ADVISE }), pageMultipass: false,
+    reservationId: null, reservation: null, walletReservationId: null,
+    walletReservation: null, commitWallet: null, abortSignal: null, reflex: null,
+    proceed: () => ({ ok: true, code: "no_page_reservation", reservation: null }),
+  });
+  if (!res.headersSent) {
+    res.removeHeader("x-clementine-page-reservation");
+    res.removeHeader("x-clementine-reflex");
+    res.removeHeader("x-clementine-reflex-template");
+    res.setHeader("x-clementine-lane", req.clementine.lane);
+  }
+}
+
 /**
  * If lane is Page, create a reservation. Returns { lane, reservation|null }.
  * Does not throw on missing session — uses resolveSessionId fallback.
@@ -168,8 +174,7 @@ function beginPageWork(store, {
     lane.lane === LANE.PAGE ||
     lane.intent === INTENT.PAGE_EDIT ||
     lane.intent === INTENT.PAGE_CONTINUE ||
-    lane.intent === INTENT.PAGE_REWRITE ||
-    hints.pageMode === true;
+    lane.intent === INTENT.PAGE_REWRITE;
 
   if (!isPage) {
     return { lane, reservation: null, reserved: false, walletReservation: null };
@@ -246,13 +251,18 @@ function createPageLaneTalkAdapter({
     // --- Reflex short-circuit (before wallet / Spark) ---
     // greetings / thanks / check-ins / acks / soft silence via templates.
     // See talk_edge_adapter.js + reflex_lane.js. No CoreML / Glimmer yet.
-    const earlyLane = resolveTalkLane(utterance, hints);
+    const freshConversation = peekConversationFreshness(req);
+    const earlyLane = resolveTalkLane(utterance, { ...hints, fresh: freshConversation });
     const reflexHit = tryTalkEdgeReflex({
       text: utterance,
       laneInfo: earlyLane,
       knownFacts: peekKnownFacts(req),
       voiceSpecHints: peekVoiceSpecHints(req),
+      freshConversation,
     });
+    if (!reflexHit?.handled && freshConversation && earlyLane?.intent === INTENT.PITCH) {
+      logger?.log?.("[clementine/reflex] skipped greeting template on a fresh conversation (scene pitch goes to the model)");
+    }
     if (reflexHit?.handled) {
       req.clementine = {
         intent: earlyLane.intent,
@@ -266,6 +276,7 @@ function createPageLaneTalkAdapter({
         commitWallet: null,
         abortSignal: null,
         reflex: reflexHit,
+        refusePageWrite: () => markTalkAsDiscussion(req, res),
         proceed: () => ({ ok: true, code: "reflex_short_circuit", reservation: null }),
       };
       // Voice /talk (multipart audio) must still TTS the template — JSON short-circuit
@@ -297,7 +308,7 @@ function createPageLaneTalkAdapter({
     try {
       const started = beginPageWork(pageReservationStore, {
         utterance,
-        hints,
+        hints: { ...hints, fresh: freshConversation },
         sessionId,
         userId,
         meta: { source: "talk_edge" },
@@ -332,6 +343,16 @@ function createPageLaneTalkAdapter({
       effort: lane.effort,
       walletMeter: lane.walletMeter,
       pageMultipass,
+      refusePageWrite: () => {
+        // Cancel through the existing owner so linked wallet/cancel observers
+        // see the revocation. A conversation must not inherit its aborted signal.
+        if (reservation?.id) pageReservationStore.cancel(reservation.id, { reason: "writer_refused" });
+        // cancel releases a linked hold when the store has wallet DI. The
+        // adapter also supports an independently supplied wallet; release is
+        // idempotent, so both configurations use the same canonical owner.
+        if (walletReservation?.reservationId) walletStore?.release?.(walletReservation.reservationId);
+        markTalkAsDiscussion(req, res);
+      },
       reservationId: reservation?.id || null,
       reservation,
       walletReservationId: walletReservation?.reservationId || null,

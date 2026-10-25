@@ -8,6 +8,8 @@
 
 import { parseShortFilmIntent } from "./short_film_intent.js";
 import { isShortFilmBetaEnabled } from "./short_film_beta.js";
+import { asksForDialogueNotes, isScreenplayRevisionRequest } from "../dialogue_notes.js";
+import { analyzeScreenplayWriteInstruction } from "../screenplay_write_instruction.js";
 
 const INTENT = Object.freeze({
   GREETING: "greeting",
@@ -23,6 +25,8 @@ const INTENT = Object.freeze({
   PLAN: "plan",
   THINK_HARD: "think_hard",
   SHORT_FILM_BETA: "short_film_beta",
+  STORY_HELP: "story_help",
+  PITCH: "pitch",
   UNKNOWN: "unknown",
 });
 
@@ -37,6 +41,13 @@ function normalizeText(input) {
  * Returns one of INTENT values.
  */
 function classifyIntent(utterance, hints = {}) {
+  const instruction = analyzeScreenplayWriteInstruction(utterance);
+  if (instruction.refusesPageWrite) return INTENT.ADVISE;
+  // Current permission outranks stale lane/task hints, including on mixed asks.
+  if (instruction.hadRefusal) {
+    utterance = instruction.routingText;
+    hints = { ...hints, intent: "", pageMode: false, continuePage: false };
+  }
   const forced = String(hints?.intent || "").trim().toLowerCase();
   if (forced && INTENT_VALUES.includes(forced)) return forced;
 
@@ -61,6 +72,11 @@ function classifyIntent(utterance, hints = {}) {
     return INTENT.SILENCE;
   }
 
+  // Use the server task's policy before inspecting verbs inside dialogue.
+  // Explicit page/continue hints still belong to their existing Page path.
+  if (hints?.pageMode !== true && hints?.continuePage !== true
+    && asksForDialogueNotes(utterance)) return INTENT.STORY_HELP;
+
   // Page lane cues (sacred — must win over casual talk)
   if (/\b(write|draft|type|insert|propose)\b.*\b(scene|beat|page|action|dialogue|line)\b/.test(text)
     || /\b(page|scene|beat)\b.*\b(edit|change|fix|rewrite)\b/.test(text)
@@ -72,7 +88,7 @@ function classifyIntent(utterance, hints = {}) {
     || hints?.continuePage === true) {
     return INTENT.PAGE_CONTINUE;
   }
-  if (/\b(rewrite|tighten|sharpen|soften|shorten|punch up)\b/.test(text)) {
+  if (isScreenplayRevisionRequest(text) || /\b(sharpen|punch up)\b/.test(text)) {
     return INTENT.PAGE_REWRITE;
   }
 
@@ -85,6 +101,23 @@ function classifyIntent(utterance, hints = {}) {
     return INTENT.PLAN;
   }
 
+  // Explicit distress outranks an incidental "stuck" story-help cue.
+  if (/\b(comfort|anxious|overwhelmed|can'?t cope|falling apart)\b/.test(text)) {
+    return INTENT.COMFORT;
+  }
+  // Story help (mentor lane): ordinary writer's block without distress.
+  if (/\b(stuck|writer'?s? block|feels (flat|thin|slow|off)|not working|what('?s| is) (missing|wrong)|what (should|would|could) happen|what comes next|where (does|should) (this|it|the story|act \w+) go|help me (figure|find|fix)|any ideas|notes on|is this (scene|working)|does this (scene|work))\b/.test(text)
+    || (/\b(help me|how (do|should) i|what (should|would) (she|he|they|i))\b/.test(text)
+      && /\b(scene|script|screenplay|story|act|midpoint|climax|ending|opening|beat|outline|character|dialogue|line|page)\b/.test(text))) {
+    return INTENT.STORY_HELP;
+  }
+
+  // Pitch (fresh conversation openers with no page cue): she offers a scene.
+  if (hints?.fresh === true
+    && /^(hi|hey|hello|yo|morning|good (morning|evening|afternoon)|talk to me|let'?s (write|talk|go)|what should we (write|do)( today)?|give me (a scene|anything|something)|i('?ve| have) got nothing|i'?m here|what do you (want|have)|i have nothing)\b/.test(text)) {
+    return INTENT.PITCH;
+  }
+
   // Companion-ish
   if (/\b(remember|recall|what did i|my character|last time)\b/.test(text)) {
     return INTENT.RECALL;
@@ -94,9 +127,6 @@ function classifyIntent(utterance, hints = {}) {
   }
   if (/\b(tease|roast|playful|banter)\b/.test(text)) {
     return INTENT.TEASE;
-  }
-  if (/\b(comfort|i'?m stuck|writer'?s? block|anxious|overwhelmed)\b/.test(text)) {
-    return INTENT.COMFORT;
   }
   if (/^(hi|hey|hello|yo|gm|good (morning|evening|night)|how('?s| is) it going)\b/.test(text)
     || /^(what'?s up)\??$/.test(text)) {

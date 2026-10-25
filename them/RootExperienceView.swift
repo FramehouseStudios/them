@@ -840,7 +840,6 @@ struct RootExperienceView: View {
     @State private var liveScreenplayUpdatedAt: Date = .distantPast
     @State private var conversationLoopEnabled = false
     @State private var pendingGoodbyeStopAfterPlayback = false
-    @State private var lastAutoOpenedStudioTurnID = ""
     @State private var isAutoCreatingStudioProject = false
     @State private var lastAutoCreatedStudioProjectKey = ""
     @State private var realtimeBridgeRequest: URLRequest?
@@ -963,7 +962,7 @@ struct RootExperienceView: View {
         #endif
     }
 
-    private var isStudioSurfaceActive: Bool {
+    var isStudioSurfaceActive: Bool {
         primarySurface == .studio || uiTestForceStudioSurface
     }
 
@@ -1391,6 +1390,11 @@ struct RootExperienceView: View {
                 .onReceive(NotificationCenter.default.publisher(for: .themToggleStudioRequested)) { _ in
                     handleWorkspaceNavigationCommand(.toggleStudio)
                 }
+                .onChange(of: screenplayDraftBridge.lastCommittedWrite?.id) { _, _ in
+                    if let write = screenplayDraftBridge.lastCommittedWrite {
+                        autoCreateStudioProjectIfNeeded(draft: write.committedDraft, pack: screenplayDraftBridge.latestPack, phase: screenplayDraftBridge.latestPhase, existingProjectID: screenplayDraftBridge.preferredProjectID)
+                    }
+                }
                 .onChange(of: isStudioSurfaceActive) { _, newValue in
                     DispatchQueue.main.async {
                         handleStudioSurfaceActiveChange(newValue)
@@ -1476,7 +1480,7 @@ struct RootExperienceView: View {
         #endif
     }
 
-    private func handleStudioDebugVoiceTurnCommand(
+    func handleStudioDebugVoiceTurnCommand(
         token: Int,
         promptOverride: String?,
         projectIDOverride: String?
@@ -1867,16 +1871,17 @@ struct RootExperienceView: View {
             liveScreenplayProjectID = debugProjectID
             liveScreenplayVersionID = ""
         }
-        openStudio()
+        if !(IOThemRuntime.isRunningUITests && ProcessInfo.processInfo.environment["THEM_UITEST_HOME_VOICE_PROMPT"] != nil) { openStudio() }
         hideReplyEcho()
-        transcript = cleanPrompt
+        let injectRawAudio = IOThemRuntime.isRunningUITests && ProcessInfo.processInfo.environment["THEM_UITEST_HOME_VOICE_RAW_AUDIO"] == "1"
+        transcript = injectRawAudio ? "Write a scene about an old bakery." : cleanPrompt
         livePartialTranscript = ""
         lastNonEmptyPartialTranscriptHint = String(cleanPrompt.prefix(320))
 
         let durationMs = 1800 + (token % 17)
         await sendUtterance(
             silentTalkWavData(durationMs: durationMs),
-            clientTranscriptOverride: cleanPrompt,
+            clientTranscriptOverride: injectRawAudio ? nil : cleanPrompt,
             debugVoiceTurnToken: token
         )
     }
@@ -2722,7 +2727,7 @@ struct RootExperienceView: View {
         voice.onSpeechProgressSnapshot = { audioSnapshot, partial, speechAge in
             let cleaned = partial.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !cleaned.isEmpty else { return }
-            let screenplayModeHint = isStudioSurfaceActive || shouldAutoOpenStudioForScriptIntent(cleaned)
+            let screenplayModeHint = isStudioSurfaceActive
             let speculativePreparedPrompt = buildPreparedTurnPrompt(
                 confirmedTranscript: cleaned,
                 partialHint: cleaned,
@@ -2881,9 +2886,8 @@ struct RootExperienceView: View {
         realtimeTransport.onUserTranscriptFinal = { finalTranscript in
             let cleaned = finalTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !cleaned.isEmpty else { return }
-            let preparedPrompt = buildPreparedTurnPrompt(
-                confirmedTranscript: cleaned,
-                partialHint: cleaned,
+            let preparedPrompt = prepareConfirmedTurnPrompt(
+                cleaned,
                 turnKeyNamespace: "realtime"
             )
             screenplayDraftBridge.applyCompanionSignalState(
@@ -2895,9 +2899,6 @@ struct RootExperienceView: View {
                     from: preparedPrompt.directorText,
                     isScreenplayMode: preparedPrompt.useScreenplayMode
                 )
-            }
-            if preparedPrompt.shouldAutoOpenStudio, !isStudioSurfaceActive {
-                openStudio()
             }
             transcript = preparedPrompt.directorText
             livePartialTranscript = ""
@@ -3862,7 +3863,7 @@ struct RootExperienceView: View {
                 startConversationLoopIfNeeded()
             },
             onStopTalk: {
-                stopStudioTalkFlow()
+                stopCurrentInteraction()
             },
             onOpenVoiceSettings: {
                 showingVoiceSettings = true
@@ -4110,7 +4111,7 @@ struct RootExperienceView: View {
         showingMemories = true
     }
 
-    private func openStudio() {
+    func openStudio() {
         let authSession = BackendAuthClient.currentAuthSessionState()
         switch ThemWorkspaceAuthenticationPolicy.accessDecision(
             isAuthenticated: authSession.isAuthenticated,
@@ -4283,7 +4284,7 @@ struct RootExperienceView: View {
         return cleanExisting + "\n\n" + cleanInsertion
     }
 
-    private struct PreparedTurnPrompt {
+    struct PreparedTurnPrompt {
         let directorText: String
         let partialHint: String
         let useScreenplayMode: Bool
@@ -4983,7 +4984,7 @@ You're okay. Let's slow it down for one beat and get our footing back. Pick the 
     }
 
     @MainActor
-    private func buildPreparedTurnPrompt(
+    func buildPreparedTurnPrompt(
         confirmedTranscript: String,
         partialHint: String,
         isScreenplayModeOverride: Bool? = nil,
@@ -5010,7 +5011,7 @@ You're okay. Let's slow it down for one beat and get our footing back. Pick the 
             ? shouldAutoOpenStudioForScriptIntent(directorText)
             : false
         let useScreenplayModeForTurn = isScreenplayModeOverride
-            ?? (isStudioSurfaceActive || shouldAutoOpenStudioForTurn)
+            ?? ScreenplayIntentClassifier.canUseFilmmakerMode(isStudioActive: isStudioSurfaceActive, hasExplicitScriptIntent: shouldAutoOpenStudioForTurn)
         let memoryDomain = useScreenplayModeForTurn
             ? studioMemoryDomain(for: directorText, preferredTarget: .automatic)
             : .companion
@@ -5026,7 +5027,7 @@ You're okay. Let's slow it down for one beat and get our footing back. Pick the 
             for: memoryDomain,
             isScreenplayMode: useScreenplayModeForTurn
         )
-        let shouldWriteToPage = useScreenplayModeForTurn
+        let shouldWriteToPage = ScreenplayIntentClassifier.canWriteToPage(isStudioActive: isStudioSurfaceActive, useScreenplayMode: useScreenplayModeForTurn)
             ? shouldRouteStudioPromptToPage(
                 directorText,
                 preferredTarget: .automatic
@@ -5059,6 +5060,7 @@ You're okay. Let's slow it down for one beat and get our footing back. Pick the 
             isClimax: director.isClimax,
             isOpeningOrClosing: director.isOpeningOrClosing,
             isLongFormScreenplayRequest: director.isLongFormScreenplayRequest,
+            isDialogueNotesPrompt: director.isDialogueNotesPrompt,
             isDirectScreenplayPageWrite: shouldWriteToPage,
             hasConfirmedScreenplayPageWrite: shouldWriteToPage || confirmedStudioStoryContext != nil,
             confirmedScreenplayStoryDirection: shouldWriteToPage ? directorText : (confirmedStudioStoryContext ?? ""),
@@ -5206,7 +5208,7 @@ You're okay. Let's slow it down for one beat and get our footing back. Pick the 
     }
 
     private func confirmedStudioPageWriteContext(for userText: String) -> String? {
-        guard isStudioPageWriteConfirmationCue(userText) else { return nil }
+        guard let routingText = ScreenplayIntentClassifier.permittedPageRoutingText(userText), isStudioPageWriteConfirmationCue(routingText) else { return nil }
         let context = latestStudioCopilotContext()?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard !context.isEmpty else { return nil }
         return context
@@ -5243,6 +5245,7 @@ You're okay. Let's slow it down for one beat and get our footing back. Pick the 
         preferredTarget: ScreenplayStudioScreen.PromptRoutingMode = .automatic
     ) -> String {
         let cleanUser = userMessage.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard ScreenplayIntentClassifier.permittedPageRoutingText(cleanUser) != nil else { return cleanUser }
         let cleanContext = studioApprovedStoryDirection(
             from: confirmedContext?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         )
@@ -5343,20 +5346,18 @@ Write this approved story direction directly into screenplay pages now. Maintain
     }
 
     private func shouldForceStudioPageWrite(for userText: String) -> Bool {
-        let normalized = " \(userText.lowercased()) "
-        if isSynopsisDevelopmentPrompt(userText) && !isExplicitStudioPageDestinationCue(userText) {
+        guard let routingText = ScreenplayIntentClassifier.permittedPageRoutingText(userText) else { return false }
+        let normalized = ScreenplayIntentClassifier.normalize(routingText)
+        if isSynopsisDevelopmentPrompt(routingText) && !isExplicitStudioPageDestinationCue(routingText) {
             return false
         }
-        let directPageWritePatterns = [
-            #"\bwrite\b.*\b(?:screenplay\s+)?action\s+line(?:s)?\b"#,
-            #"\bwrite\b.*\b(?:screenplay\s+)?dialogue\s+line(?:s)?\b"#
-        ]
-        if directPageWritePatterns.contains(where: {
-            normalized.range(of: $0, options: .regularExpression) != nil
-        }) {
+        if ScreenplayIntentClassifier.directPageWriteLinesCue(in: normalized) {
             return true
         }
         let cues = [
+            " write a story ",
+            " write the story ",
+            " write this story ",
             " write the scene ",
             " write a scene ",
             " write a longer scene ",
@@ -5425,17 +5426,15 @@ Write this approved story direction directly into screenplay pages now. Maintain
     }
 
     private func isExplicitStudioPageWritePrompt(_ userText: String) -> Bool {
-        let normalized = " \(userText.lowercased()) "
-        let directPageWritePatterns = [
-            #"\bwrite\b.*\b(?:screenplay\s+)?action\s+line(?:s)?\b"#,
-            #"\bwrite\b.*\b(?:screenplay\s+)?dialogue\s+line(?:s)?\b"#
-        ]
-        if directPageWritePatterns.contains(where: {
-            normalized.range(of: $0, options: .regularExpression) != nil
-        }) {
+        guard let routingText = ScreenplayIntentClassifier.permittedPageRoutingText(userText) else { return false }
+        let normalized = ScreenplayIntentClassifier.normalize(routingText)
+        if ScreenplayIntentClassifier.directPageWriteLinesCue(in: normalized) {
             return true
         }
         let cues = [
+            " write a story ",
+            " write the story ",
+            " write this story ",
             " write the scene ",
             " write a scene ",
             " write a longer scene ",
@@ -5687,7 +5686,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
         preferredTarget: ScreenplayStudioScreen.PromptRoutingMode = .automatic
     ) -> Bool {
         let clean = userText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !clean.isEmpty else { return false }
+        guard isStudioSurfaceActive, !clean.isEmpty else { return false }
         let target: DraftStudioPromptTarget
         switch preferredTarget {
         case .automatic:
@@ -5944,6 +5943,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
 
     @MainActor
     private func promoteRestoredLiveDraftToStudioProjectIfNeeded() {
+        guard screenplayDraftBridge.streamingProgress == 0 else { return }
         let cleanProjectID = screenplayDraftBridge.preferredProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
         let fallbackProjectID = liveScreenplayProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
         let projectID = cleanProjectID.isEmpty ? fallbackProjectID : cleanProjectID
@@ -5982,6 +5982,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
         }
 
         isAutoCreatingStudioProject = true
+        let creatingOwnerID = BackendAuthClient.currentAuthSessionState().user?.userId
         screenplayDraftBridge.autoInsertStatusText = "Creating a Studio project for this script..."
 
         Task { @MainActor in
@@ -6020,11 +6021,9 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 let resolvedVersionID = (versionResult.payload.versionId ?? versionResult.payload.version?.id ?? "")
                     .trimmingCharacters(in: .whitespacesAndNewlines)
 
+                guard BackendAuthClient.currentAuthSessionState().user?.userId == creatingOwnerID, screenplayDraftBridge.preferredProjectID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
                 screenplayDraftBridge.preferredProjectID = resolvedProject.id
                 screenplayDraftBridge.preferredVersionID = resolvedVersionID
-                if screenplayDraftBridge.draftText != cleanDraft {
-                    screenplayDraftBridge.draftText = cleanDraft
-                }
 
                 liveScreenplayProjectID = resolvedProject.id
                 liveScreenplayVersionID = resolvedVersionID
@@ -6047,6 +6046,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
         realtimeAssistantTranscriptFallbackTask?.cancel()
         realtimeAssistantTranscriptFallbackTask = nil
         cancelRealtimeRecovery(clearTurn: true)
+        screenplayDraftBridge.cancelStream(reason: .cancel)
         cancelRealtimeStudioDraftStream(restorePreview: true)
         realtimeTransport.disconnect()
         speculativeTalk.cancel()
@@ -6194,6 +6194,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
         // Phase 1 latency pass: start playback on the first streamed segment as soon
         // as it is ready. We stop recording before playback begins to avoid bleed.
         let allowEarlyStreamPlayback = true
+        let startedOnHome = !isStudioSurfaceActive
         var didStartEarlyStudioDraftStream = false
         var didStartEarlyStreamPlayback = false
         var didRecordAssistantPlaybackStart = false
@@ -6294,11 +6295,9 @@ Write this approved story direction directly into screenplay pages now. Maintain
         var debugSyncedInsertCancelTask: Task<Void, Never>?
         let cleanClientTranscriptOverride = String(clientTranscriptOverride ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        let effectiveTranscript = cleanClientTranscriptOverride.isEmpty
-            ? transcript
-            : cleanClientTranscriptOverride
+        let effectiveTranscript = ConfirmedStudioTurnPreparation.currentTranscript(clientOverride: clientTranscriptOverride)
         let effectivePartialHintForTalk = cleanClientTranscriptOverride.isEmpty
-            ? currentPartialHintForTalk()
+            ? (startedOnHome ? "" : currentPartialHintForTalk())
             : String(cleanClientTranscriptOverride.prefix(320))
 
 #if DEBUG || os(macOS)
@@ -6642,10 +6641,9 @@ Write this approved story direction directly into screenplay pages now. Maintain
         }
 
         // Director-context prompt pattern (per-turn)
-        let preparedPrompt = buildPreparedTurnPrompt(
-            confirmedTranscript: effectiveTranscript,
-            partialHint: effectivePartialHintForTalk
-        )
+        let preparedPrompt = cleanClientTranscriptOverride.isEmpty
+            ? buildPreparedTurnPrompt(confirmedTranscript: "", partialHint: effectivePartialHintForTalk, isScreenplayModeOverride: !startedOnHome)
+            : prepareConfirmedTurnPrompt(effectiveTranscript)
         screenplayDraftBridge.applyCompanionSignalState(
             preparedPrompt.companionSignals,
             persist: false
@@ -6655,9 +6653,6 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 from: preparedPrompt.directorText,
                 isScreenplayMode: preparedPrompt.useScreenplayMode
             )
-        }
-        if preparedPrompt.shouldAutoOpenStudio, !isStudioSurfaceActive {
-            openStudio()
         }
         let localStudioCommand = runLocalStudioCommandIfNeeded(
             preparedPrompt.directorText,
@@ -6906,6 +6901,11 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 return
             }
             didStartSyncedVoiceInsert = true
+            autoCreateStudioProjectIfNeeded(
+                draft: mergedStudioDraft(existing: screenplayDraftBridge.previewFormattingBaseDraft, insertion: cleanText),
+                pack: screenplayDraftBridge.latestPack, phase: screenplayDraftBridge.latestPhase,
+                existingProjectID: screenplayDraftBridge.preferredProjectID
+            )
 #if DEBUG || os(macOS)
             debugInsertedPreview = String(cleanText.prefix(220))
             if let debugVoiceTurnToken {
@@ -7309,6 +7309,10 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 result = try await requestTalk()
             }
             didReceiveTalkResponse = true
+            let confirmedPrompt = prepareConfirmedTurnPrompt(
+                ConfirmedStudioTurnPreparation.currentTranscript(clientOverride: clientTranscriptOverride, serverTranscript: result.transcript),
+                allowOpeningStudio: startedOnHome && cleanClientTranscriptOverride.isEmpty
+            )
             if !(result.reply ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 clientLatency.recordFirstText(turnID: clientLatencyTurnID)
             }
@@ -7461,15 +7465,15 @@ Write this approved story direction directly into screenplay pages now. Maintain
             let talkInsertedScreenplayText = applyLiveScreenplayPreview(
                 from: result,
                 promptSource: .voice,
-                memoryDomainOverride: preparedPrompt.memoryDomain,
-                preferredTargetOverride: preparedPrompt.shouldWriteToPage ? .page : .voicePin,
+                memoryDomainOverride: confirmedPrompt.memoryDomain,
+                preferredTargetOverride: confirmedPrompt.shouldWriteToPage ? .page : .voicePin,
                 skipCommitIfMatchesActiveText: didStartSyncedVoiceInsert
                     ? screenplayDraftBridge.syncedVoiceTurnState.authoritativeText
                     : nil,
                 allowImmediateCommit: !shouldUseSyncedStudioVoiceInsert,
                 requireAuthoritativePageOutput: shouldUseSyncedStudioVoiceInsert
             )
-            let insertedScreenplayText: String?
+            var insertedScreenplayText: String?
             if let talkInsertedScreenplayText {
                 insertedScreenplayText = talkInsertedScreenplayText
                 if didStartEarlyStudioDraftStream {
@@ -7512,13 +7516,21 @@ Write this approved story direction directly into screenplay pages now. Maintain
                     restoreRealtimeStudioDraftPreview()
                 }
             }
+            if insertedScreenplayText == nil, !preparedPrompt.shouldWriteToPage,
+               confirmedPrompt.shouldWriteToPage, screenplayDraftBridge.autoInsertEnabled {
+                let previousWriteID = screenplayDraftBridge.lastCommittedWrite?.id
+                _ = await renderRealtimeStudioDraftIfNeeded(userMessage: confirmedPrompt.directorText, fallbackAssistantMessage: result.reply ?? "")
+                if let write = screenplayDraftBridge.lastCommittedWrite, write.id != previousWriteID {
+                    insertedScreenplayText = write.insertedText
+                }
+            }
             let effectiveInsertedScreenplayText: String? = {
                 let cleanInsertedText = (insertedScreenplayText ?? "")
                     .trimmingCharacters(in: .whitespacesAndNewlines)
                 if !cleanInsertedText.isEmpty {
                     return cleanInsertedText
                 }
-                guard preparedPrompt.shouldWriteToPage else { return nil }
+                guard shouldUseSyncedStudioVoiceInsert else { return nil }
                 let syncedInsertedText = screenplayDraftBridge.syncedVoiceTurnState.authoritativeText
                     .trimmingCharacters(in: .whitespacesAndNewlines)
                 if !syncedInsertedText.isEmpty {
@@ -7530,13 +7542,13 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 from: result,
                 insertedText: effectiveInsertedScreenplayText,
                 promptSource: .voice,
-                promptTextOverride: preparedPrompt.directorText,
-                promptTargetOverride: preparedPrompt.shouldWriteToPage ? .page : .voicePin
+                promptTextOverride: confirmedPrompt.directorText,
+                promptTargetOverride: confirmedPrompt.shouldWriteToPage ? .page : .voicePin
             )
             await annotateStudioTalkTurnIfNeeded(
                 result: result,
                 promptSource: .voice,
-                targetOverride: preparedPrompt.shouldWriteToPage ? .page : .voicePin,
+                targetOverride: confirmedPrompt.shouldWriteToPage ? .page : .voicePin,
                 insertedTextOverride: effectiveInsertedScreenplayText
             )
 
@@ -7546,8 +7558,8 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 recordStudioConversationMemoryIfNeeded(
                     user: confirmedTranscript,
                     assistant: confirmedReply,
-                    memoryDomain: preparedPrompt.memoryDomain,
-                    isScreenplayMode: preparedPrompt.useScreenplayMode,
+                    memoryDomain: confirmedPrompt.memoryDomain,
+                    isScreenplayMode: confirmedPrompt.useScreenplayMode,
                     source: .voice
                 )
                 showReplyEcho(user: confirmedTranscript, assistant: confirmedReply)
@@ -7588,26 +7600,9 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 }
                 await syncEvolutionForMemoryDomain(
                     userMessage: text,
-                    memoryDomain: preparedPrompt.memoryDomain,
-                    isScreenplayMode: preparedPrompt.useScreenplayMode
+                    memoryDomain: confirmedPrompt.memoryDomain,
+                    isScreenplayMode: confirmedPrompt.useScreenplayMode
                 )
-                if containsStudioOpenCommand(text) {
-                    let turnId = result.commit?.turnId ?? ""
-                    if turnId.isEmpty || turnId != lastAutoOpenedStudioTurnID {
-                        openStudio()
-                        if !turnId.isEmpty {
-                            lastAutoOpenedStudioTurnID = turnId
-                        }
-                    }
-                } else if shouldAutoOpenStudioForScriptIntent(text) {
-                    let turnId = result.commit?.turnId ?? ""
-                    if turnId.isEmpty || turnId != lastAutoOpenedStudioTurnID {
-                        openStudio()
-                        if !turnId.isEmpty {
-                            lastAutoOpenedStudioTurnID = turnId
-                        }
-                    }
-                }
             }
             if let persistedName = result.userName?.trimmingCharacters(in: .whitespacesAndNewlines),
                !persistedName.isEmpty {
@@ -7919,6 +7914,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
             isClimax: director.isClimax,
             isOpeningOrClosing: director.isOpeningOrClosing,
             isLongFormScreenplayRequest: director.isLongFormScreenplayRequest,
+            isDialogueNotesPrompt: director.isDialogueNotesPrompt,
             isDirectScreenplayPageWrite: shouldWriteToPage,
             hasConfirmedScreenplayPageWrite: shouldWriteToPage || confirmedStudioStoryContext != nil,
             confirmedScreenplayStoryDirection: shouldWriteToPage ? cleanPrompt : (confirmedStudioStoryContext ?? ""),
@@ -8906,6 +8902,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
         userTranscript: String = "",
         promptSource: ScreenplayStudioUserPrompt.Source = .voice
     ) -> String {
+        guard isStudioSurfaceActive else { return "" }
         let cleanText = textToInsert.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanText.isEmpty else { return "" }
         if let lastCommittedWrite = screenplayDraftBridge.lastCommittedWrite {
@@ -8931,14 +8928,6 @@ Write this approved story direction directly into screenplay pages now. Maintain
         liveScreenplayText = cleanText
         liveScreenplayUpdatedAt = Date()
 
-        let draftForStudio = mergedStudioDraft(
-            existing: screenplayDraftBridge.previewFormattingBaseDraft,
-            insertion: cleanText
-        )
-        if screenplayDraftBridge.draftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            screenplayDraftBridge.draftText = draftForStudio
-        }
-
         if screenplayDraftBridge.isStreamingDraftPreviewActive {
             screenplayDraftBridge.commitStreamingVoiceTurn(
                 cleanText,
@@ -8961,12 +8950,6 @@ Write this approved story direction directly into screenplay pages now. Maintain
             )
         }
 
-        autoCreateStudioProjectIfNeeded(
-            draft: draftForStudio,
-            pack: cleanPack,
-            phase: cleanPhase,
-            existingProjectID: cleanProject
-        )
         return cleanText
     }
 
@@ -9037,7 +9020,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
 
         guard let textToInsert = resolvedStudioScreenplayInsertionText(
             reply: rawReply,
-            userMessage: "",
+            userMessage: userTranscript,
             existingDraft: screenplayDraftBridge.previewFormattingBaseDraft,
             forceWriteToPage: true,
             memoryDomainOverride: memoryDomainOverride,
@@ -9071,6 +9054,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
         requireAuthoritativePageOutput: Bool = false
     ) -> String? {
         let trace = result.screenplayTrace
+        guard isStudioSurfaceActive else { return nil }
         guard trace.modeEnabled || result.screenplayOutput != nil else { return nil }
 
         let cleanPack = trace.pack.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -9151,6 +9135,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
         preferredTargetOverride: ScreenplayStudioScreen.PromptRoutingMode = .automatic
     ) -> String? {
         let cleanReply = reply.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard ScreenplayIntentClassifier.permittedPageRoutingText(userMessage) != nil else { return nil }
         let typedReply = screenplayOutput?.text.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard !cleanReply.isEmpty || !typedReply.isEmpty else { return nil }
         let effectivePreferredTarget: ScreenplayStudioScreen.PromptRoutingMode =
@@ -9892,6 +9877,8 @@ Write this approved story direction directly into screenplay pages now. Maintain
         let cleanFallback = fallbackAssistantMessage.trimmingCharacters(in: .whitespacesAndNewlines)
         guard isStudioSurfaceActive else { return cleanFallback }
         guard !cleanUser.isEmpty else { return cleanFallback }
+        let renderProjectID = screenplayDraftBridge.preferredProjectID
+        let renderOwnerID = BackendAuthClient.currentAuthSessionState().user?.userId
         let confirmedContext = confirmedStudioPageWriteContext(for: cleanUser)
         let renderTranscript = studioRenderTranscript(
             for: cleanUser,
@@ -9940,6 +9927,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
             }
         }
 
+        guard !Task.isCancelled, isStudioSurfaceActive, screenplayDraftBridge.preferredProjectID == renderProjectID, BackendAuthClient.currentAuthSessionState().user?.userId == renderOwnerID else { return cleanFallback }
         let resolvedReply = renderedReply.isEmpty ? cleanFallback : renderedReply
         if !resolvedReply.isEmpty {
             let realtimeStudioResult = makeRealtimeStudioTalkResult(
@@ -10450,15 +10438,16 @@ Write this approved story direction directly into screenplay pages now. Maintain
         var promptSceneSummary = sceneSummary
         var promptCurrentBeat = currentBeat
         var promptFeatureSequence = featureGuide.map { "\($0.currentAct) - \($0.sequenceLabel) (\($0.pageRangeText))" } ?? ""
-        var promptFeatureObligation = featureGuide?.dueNow ?? ""
-        var promptActPressureState = featureGuide?.dueNow ?? ""
+        var promptFeatureObligation = ""
+        var promptActPressureState = ""
         var promptCharacterArcState = promptProtagonistNeed.isEmpty ? promptThemeArgument : "Need: \(promptProtagonistNeed)"
         var promptLastSceneOutcome = screenplayDraftBridge.lastCommittedWrite.map {
             clippedStudioAssistantText($0.insertedText, limit: 240)
         } ?? ""
-        var promptNextScenePlan = featureGuide?.nextScenePlan ?? ""
-        var promptNextSceneMoves = featureGuide?.nextMoves ?? []
-        var promptNextThreeTurns = Array((featureGuide?.nextMoves ?? []).prefix(3))
+        // Generic craft guidance stays in continuityNotes, never accepted story events.
+        var promptNextScenePlan = ""
+        var promptNextSceneMoves: [String] = []
+        var promptNextThreeTurns: [String] = []
         var promptActThreePayoffPath: [String] = []
         var promptUnresolvedStoryThreads: [String] = []
         var promptCharacterArcTurns: [String] = []
@@ -10468,9 +10457,6 @@ Write this approved story direction directly into screenplay pages now. Maintain
         var promptTargetPages = hasFeatureGuideContext ? ScreenplayFeatureProgressionGuide.defaultTargetPages : 0
         var promptBeatSequence: [String] = []
 
-        if promptSceneObjective.isEmpty {
-            promptSceneObjective = featureGuide?.dueNow ?? ""
-        }
         if promptCurrentBeat.isEmpty {
             promptCurrentBeat = draftCurrentBeat
         }
@@ -11483,6 +11469,9 @@ Write this approved story direction directly into screenplay pages now. Maintain
 
     @MainActor
     private func startConversationLoopIfNeeded() {
+        #if DEBUG
+        if consumeUITestHomeVoiceTurnIfNeeded() { return }
+        #endif
         conversationLoopEnabled = true
         pendingGoodbyeStopAfterPlayback = false
         if voiceTransportMode == .realtimePreview,
@@ -12390,90 +12379,6 @@ Write this approved story direction directly into screenplay pages now. Maintain
         }
     }
 
-    private func containsStudioOpenCommand(_ text: String) -> Bool {
-        let normalized = " \(text.lowercased()) "
-        guard normalized.contains("studio") else { return false }
-        let commandCues = [
-            "open",
-            "go to",
-            "take me to",
-            "switch to",
-            "bring up",
-            "launch"
-        ]
-        return commandCues.contains { normalized.contains($0) }
-    }
-
-    private func shouldAutoOpenStudioForScriptIntent(_ text: String) -> Bool {
-        let normalized = " \(text.lowercased()) "
-        guard !normalized.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
-        if containsStudioOpenCommand(text) { return true }
-
-        let directIntentPhrases = [
-            " write a script ",
-            " write the script ",
-            " write my script ",
-            " write a screenplay ",
-            " work on my script ",
-            " work on the script ",
-            " work on a script ",
-            " help me write a script ",
-            " help me write my script ",
-            " help me write a screenplay ",
-            " let's write a script ",
-            " lets write a script ",
-            " let's write my script ",
-            " lets write my script ",
-            " let's write a screenplay ",
-            " lets write a screenplay ",
-            " start a script ",
-            " start my script ",
-            " start a screenplay ",
-            " draft a scene ",
-            " write a scene ",
-            " outline my script ",
-            " outline a screenplay ",
-            " build this scene ",
-            " develop this scene "
-        ]
-        if directIntentPhrases.contains(where: normalized.contains) {
-            return true
-        }
-
-        let writingVerbs = [
-            " write ",
-            " drafting ",
-            " draft ",
-            " outline ",
-            " outlining ",
-            " revise ",
-            " rewriting ",
-            " rewrite ",
-            " edit ",
-            " editing ",
-            " polish ",
-            " finish ",
-            " build ",
-            " develop ",
-            " brainstorming ",
-            " brainstorm "
-        ]
-        let scriptObjects = [
-            " script ",
-            " screenplay ",
-            " scene ",
-            " beat ",
-            " slugline ",
-            " dialogue ",
-            " pilot ",
-            " short film ",
-            " feature ",
-            " movie ",
-            " film "
-        ]
-        return writingVerbs.contains(where: normalized.contains) &&
-            scriptObjects.contains(where: normalized.contains)
-    }
 
     private func isGoodbyeIntent(_ text: String) -> Bool {
         let normalized = " \(text.lowercased()) "
@@ -12569,31 +12474,6 @@ Write this approved story direction directly into screenplay pages now. Maintain
         }
     }
 
-    @MainActor
-    private func stopStudioTalkFlow() {
-        conversationLoopEnabled = false
-        pendingGoodbyeStopAfterPlayback = false
-        inFlightTalkTask?.cancel()
-        inFlightTalkTask = nil
-        isTurnSubmitting = false
-        isThinking = false
-        realtimeAssistantTranscriptFallbackTask?.cancel()
-        realtimeAssistantTranscriptFallbackTask = nil
-        cancelRealtimeRecovery(clearTurn: true)
-        cancelRealtimeStudioDraftStream(restorePreview: true)
-        realtimeTransport.disconnect()
-        speculativeTalk.cancel()
-        orbAudio.stop()
-        promptSpeaker.stop()
-        typedReplySpeaker.cancel()
-        voice.markRequestFailed()
-        if voiceTransportMode == .realtimePreview {
-            voice.stopRecording()
-            voice.teardown()
-            return
-        }
-        voice.resumeRecordingIfNeeded()
-    }
 }
 
 private struct InAppNoteItem: Codable, Identifiable, Hashable {

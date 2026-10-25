@@ -5,6 +5,103 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1151 — Reconcile original641 with the now-published corrected Craft parent
+
+- **Owner:** codex (Jarvis). **Branch:** `codex/T-1151-original-641-parent`.
+- **Base:** proven local641466d449; preserve original641232098ba and all
+  attributed routing/Home/refusal/Stop fixes. Bring in actual64015c5868 with
+  a preserving no-ff merge, never squash or replace the original PR.
+- **Scope:** only parent integration and any reproduced interaction at the
+  existing owners. TASKS conflict keeps both full histories; automatic native
+  merge must retain the Home/refusal methods and authenticated Craft workflow.
+- **Binary success:** canonical bearer/context/report-slot guards coexist with
+  confirmed-current Home words, refusal and full Stop; source/contract checks,
+  full Node20 and signed erased native boundary, connected local UI and Mac/
+  D009 checks pass. No repeated unchanged run merely for reassurance.
+- **Publication hold:** exact parent64015c5868 Quality Gate still active, not
+  declared green. New original641 head needs its own fresh required checks
+  and human review. No paid model, main merge, production or review bypass.
+- **Completed local proof:** preserving merge76db805; full Node20 backend
+  2809/0/2, signed erased units682/0/0, runner contracts21/0/0, offline40/8,
+  Home pair2/0/0, authenticated Craft+writer2/0/0, Mac0. Current-parent D009
+  index-24/Root-120/bridge-26/Studio+memory0; diff passes. No paid model call.
+- **Status:** locally proven, publication waits for actual parent Quality Gate.
+  Public health URL currently fails TLS in curl and Node20; DNS returns Porkbun
+  target. No production change or shipping/physical readiness claim.
+- **Evidence:** `docs/original-641-parent-refresh-2026-10-25.md`.
+
+### T-1143 — Preserve original641 and connect its filmmaker routing safely
+
+- **Owner:** codex (Jarvis). **Branch:** `codex/T-1143-original-641-routing`.
+- **Status:** in-progress, local only; base22bf182, proven640 preparation.
+  Original641232098ba still targets `claude/three-act-port`; public head/base
+  remain held. Body and all four correction/follow-up comments read.
+- **Target:** preserving merge of existing corrected641descendantb85e391f,
+  not a replacement implementation/rehearsal rollup. Retain original232098ba,
+  current parent22bf182, craft trimming/default/report-slot ownership and the
+  parent touch-target repair. Declare all edits within original641 routing,
+  dialogue/intent/freshness modules, associated Swift intent/root/voice seams,
+  focused tests, this entry and the task handoff. No wallet/result-store lane.
+- **Binary criteria:** rewriting stays Page; everyday Home speech stays
+  Companion; server owns dialogue-note detection/contract and project memory;
+  fresh greetings reach the real pitch lane; trimmed craft/notes survive.
+  Existing comments document payload-versus-command and confirmed Home voice
+  follow-ups: reconcile their isolated fixes before declaring this boundary
+  ready. Do not claim typed Studio proof covers a first Home utterance.
+- **Holds:** parent638/974 hosted gates remain live; no child push, main merge,
+  paid provider call, production/credential change or review bypass. Keep
+  native proof isolated/signed and erase only task-owned simulator91693AF0.
+- **Current checkpoint:** preserving merge060bf00; original232098ba and
+  correctedb85e391f remain ancestors. Quoted-dialogue command confusion and
+  swallowed trailing tighten instruction reproduced (focused5/2/0), repaired
+  using the isolated existingb04e16c policy (7/0/0); full Node20 backend
+  2795/0/2; syntax/diff and numeric D009 pass. No new641native/UI/Mac proof.
+  Home confirmed-input/open-before-prepare gap remains the next actual fix;
+  do not declare this boundary ready. `docs/original-641-routing-2026-10-25.md`.
+- **Home continuation:** reconcile isolated6e7138b1 with attribution in this
+  same owned lane: current confirmed words before Studio preparation, no stale
+  Home partial, existing native publication/committed-save ownership, synthetic
+  loopback-only Home fixture and exact saved/relaunch equality. Include its
+  documented refusal and simulator barge-in follow-ups before final proof.
+  Own only the existing Root/intent/bridge seams, extracted canonical helpers,
+  associated native/fixture tests/runner and handoff. No broader backup merge,
+  parallel STT service, production or paid-provider work.
+- **Home checkpoint:** attributed250161c/9dd2332/6213992/ba8e808 preserve
+  existing Home/refusal/echo/Stop work. Adapted old test initializer; native
+  compound-open regression0/1/0 and Node refusal13/2/0 corrected at canonical
+  owners, not by weaker assertions. Final Node20 backend2803/0/2, signed full
+  units681/0/0, Home pair2/0/0, long raw1/0/0, Stop1/0/0, refusal1/0/0,
+  unchanged writer1/0/0, Mac exit0, offline40pairs/8checks and D009/diff pass.
+  No physical/live/production/main completion claim. Parent638/974 now hosted
+  green;638 exact0b56861 awaits independent review. Public children stay held.
+
+### Historical T-1093 — Confirmed Home writer checkpoint (not current proof)
+
+- **Owner:** codex. **Branch:** `codex/T-1093-confirmed-home-writer-sync`.
+- **Status:** review (current-parent local proof; protected landing pending).
+  **Pillar:** voice-to-scene / durable writer text.
+- **Scope:** reuse isolated T-949 `6e7138b1` above `fc873384`, not its older
+  cumulative rehearsal. Reconcile its editor gate into the existing package
+  owner, preserving current typing/echo/document-switch safeguards.
+- **Root:** confirmed words open authenticated Studio before preparation;
+  no stale/partial Home instruction, duplicate document writer or partial
+  first-save snapshot. Refused commands no longer count as Home open consent.
+- **Current proof:** signed focused67/0/0; Node20 fixture3/0/0; authenticated
+  running-app Home pair2/0/0 with exact complete saved/relaunched editor text;
+  macOS scaffold pass. Synthetic providers, no microphone/model/phone claim.
+- **Evidence:** `docs/confirmed-home-writer-sync-2026-10-20.md`.
+- **Reopened:** short Home2/0/0 did not settle narration: long raw0/1/0, then
+  instrumented0/1/0. Exact call stack identifies bargeIn from microphone frames.
+  Reused original #623's native simulator policy/tests verbatim; its backend
+  changes remain preserved/deferred, not silently absorbed or dismissed.
+- **Final:** signed focused71/0/0; unchanged failing long-audio workflow1/0/0
+  after the native root fix; final macOS scaffold passes. Both long failures
+  retained, no assertion/timeout relaxation. D009 passes; no paid provider calls.
+- **Next:** saved at `f9235d54`; address T-1095 preview-cleanup ownership
+  and T-1094 active-Studio refusals, then continue original #642.
+  #807 remains the canonical later transcribe-first boundary. Main/production
+  holds and independent review requirements remain.
+
 ### T-1150 — Make the Craft override page keyboard explicitly dismissible
 
 - **Owner:** codex (Jarvis). **Branch:** `codex/T-1150-craft-keyboard-recovery`.
@@ -175,6 +272,26 @@
   App/backend/unit sources unchanged; inherited exact-head hosted backend
   2758/0/2, units635/0/0 and strict writer pass. Later hosted voice/Mac skipped.
   Evidence: `docs/original-639-hosted-reveal-2026-10-25.md`.
+
+### Historical T-1095 — Preview cancellation checkpoint (not current proof)
+
+- **Owner:** codex. **Branch:** `codex/T-1095-preview-cancel-ownership`.
+- **Status:** review (scoped current-parent proof; protected landing pending).
+  **Pillar:** durable voice-to-scene / explicit writer control.
+- **Source finding:** cancelStreamingVoiceTurnPreview cancels a stream before
+  checking preview activity. This was NOT T-1093's traced bargeIn caller.
+- **Done when:** inactive preview cleanup leaves a normal stream alone, active
+  preview cancellation still restores its baseline, and explicit Stop/barge-in
+  still interrupts the actual page owner. Prove the real bridge behavior.
+- **Root:** bridge red0/1/0 -> guard fix14/0/0 focused signed/native checks;
+  longer-audio Home/save/relaunch1/0/0. Actual iPhone-simulator Stop button then
+  exposed duplicate handler resuming capture: UI red0/1/0 -> unchanged1/0/0
+  after routing to existing full-stop owner and deleting the duplicate.
+- **Verified:** final macOS scaffold/D009/diff pass; Root shrank24 lines versus
+  parent. Both red runs retained. No paid providers or physical-phone claim.
+- **Evidence:** `docs/preview-cancellation-2026-10-20.md`.
+- **Next:** T-1094 active-Studio refusals, then original #642; original-head
+  review, integrated-main/phone proof and production hold remain.
 
 ### T-1138 — Preserve original golden-set PR639 with explicit spend approval
 
@@ -2034,6 +2151,36 @@ not fresh proof for the current original640 candidate.
 - **Done when:** stored Save the Cat report, chip and successful Save Override
   agree; explicit Three-Act selection stays selected. Signed behavioral tests
   and narrow Studio runtime proof required. Known minor issue, not fixed yet.
+
+Historical T-947/T-949 context follows; the active T-1143 task owns current
+reconciliation. These dated states are not current verification or new lanes.
+
+### T-949 — Prove confirmed Home-to-Studio first-turn writing
+
+- **Owner:** codex. **Status:** review. **Pillar:** voice-to-scene.
+- **Branch:** `codex/T-949-confirmed-home-page-routing`, based on preserved
+  rehearsal `5cfa52bb`. App Store work deferred by the human on 2026-10-16.
+- **Historical state:** previously ready, then proven/review on that dated
+  branch only. T-1143 owns the present reconciliation; no inherited pass is new.
+- **Scope:** current confirmed script request opens authenticated Studio before
+  page prompt preparation; never use a previous microphone transcript.
+- **Done when:** Home first utterance writes/saves; everyday/partial/stale words
+  never promote mode; authentication refusal blocks writing. The prior writer
+  UI begins in Studio; dedicated Home runtime proof is recorded below.
+- **Proof:** local Node20 backend 2,788/0/2; complete signed units 657/0/0;
+  Home pair 2/0/0; long-audio raw 1/0/0; existing writer UI 1/0/0. Scaffold,
+  offline golden, D009 and diff pass. Full evidence and failed attempts:
+  docs/confirmed-home-voice-routing-2026-10-16.md.
+- **Boundary:** deterministic local proof, not shipping/phone/model proof.
+  Preserve #807's canonical transcribe-first implementation and reconcile the
+  raw two-generation path there before production promotion. No main merge.
+
+### T-947 — Filmmaker/dialogue review corrections
+- Owner: Codex; status: review.
+- Branch: `codex/T-947-filmmaker-review-fixes`; original #641 `232098ba` preserved.
+- Scope: repair Home/Studio boundaries, rewrite and dialogue-notes routing, project-memory contracts, fresh Page-lane behavior and distress/freshness precedence.
+- Done: behavioral backend tests, signed Swift proof coordinated by integration owner, D009 and diff checks; no main merge or replacement PR.
+- Current proof: Node 20 full backend 2,768/0/2; focused 61/61; offline mentor golden and D009 pass. Signed units/UI and integrated proof pending with integration owner. Evidence: `docs/filmmaker-review-corrections-2026-10-08.md`.
 
 | ID   | Title                                              | Owner  | Status            |
 |------|----------------------------------------------------|--------|-------------------|
