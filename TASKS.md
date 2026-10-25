@@ -8,7 +8,8 @@
 ### T-1146 — Connect project creation focus and trustworthy writer proof
 
 - **Owner:** codex (Jarvis). **Branch:** `codex/T-1146-original-639-writer-input`.
-- **Status:** in-progress. **Base:** original6396ec372d; hosted run40190222594
+- **Status:** review (coherent local checkpoint proven; fresh hosted required).
+  **Base:** original6396ec372d; hosted run40190222594
   fails the writer's project-title keyboard dismissal before V1/voice/Mac.
 - **Evidence:** log erases B34C2F57 but Xcode selects E839A11B by duplicate
   name. Runner then deletes its own writer result, so the failure upload has
@@ -25,6 +26,12 @@
   Projects sidebar and writer UI contract; this entry and report. No new
   persistence/auth/provider owner, god-file growth, paid call or production
   change. Original PR/base/history preserved; no publication until proven.
+- **Proof:** real Create-owned dismissal red0/1/0 -> full authenticated writer
+  1/0/0; full signed units635/0/0; Node20 full2764/0/2; runner contracts27/0/0;
+  Mac build0, proper-parent D009 deltas0 and diff/syntax pass. Initial contracts
+  22/5/0 lacked dependencies, retained separately; no product regression claim.
+  Existing Swift warnings and live/phone/production gaps remain. Evidence:
+  `docs/original-639-project-focus-2026-10-25.md`.
 
 ### T-1145 — Repair original639's unnecessary selected-tab hit-point query
 

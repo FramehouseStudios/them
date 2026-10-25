@@ -385,8 +385,8 @@ final class V1SmokeUITests: XCTestCase {
             timeout: writerLoopWait(20)
         )
 
-        guard dismissWriterLoopProjectKeyboard(in: app) else {
-            XCTFail("The project-title keyboard blocked the Studio inspector controls.")
+        guard waitForDisappearance(of: app.keyboards.firstMatch, timeout: writerLoopWait(3)) else {
+            XCTFail("Create must dismiss the project-title keyboard without an extra test tap before Studio navigation.")
             app.terminate()
             return
         }
@@ -3238,29 +3238,6 @@ final class V1SmokeUITests: XCTestCase {
             element.tap()
         }
         return waitForWriterLoopSwitch(element, toBeOn: expected, timeout: max(1, timeout * 3 / 4))
-    }
-
-    private func dismissWriterLoopProjectKeyboard(in app: XCUIApplication) -> Bool {
-#if os(iOS)
-        let keyboard = app.keyboards.firstMatch
-        guard keyboard.exists else { return true }
-        let returnKey = keyboard.buttons
-            .matching(NSPredicate(
-                format: "label ==[c] %@ OR label ==[c] %@",
-                "return",
-                "done"
-            ))
-            .firstMatch
-        if returnKey.waitForExistence(timeout: 2), returnKey.isHittable {
-            returnKey.tap()
-            if waitForDisappearance(of: keyboard, timeout: 3) {
-                return true
-            }
-        }
-        return dismissKeyboardIfPresent(in: app)
-#else
-        return true
-#endif
     }
 
     private func staticText(containing text: String, in app: XCUIApplication) -> XCUIElement {
