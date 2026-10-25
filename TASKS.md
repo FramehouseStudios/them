@@ -42,7 +42,8 @@
 
 ### T-1140 — Make a missing D009 comparison baseline fail explicitly
 
-- **Owner:** codex. **Status:** ready, not implemented in T-1139.
+- **Owner:** codex. **Branch:** `codex/T-1140-god-baseline-authority`.
+- **Status:** locally proven on640 descendanta0bab6a; script-only lane.
 - **Observed:** an explicit GITHUB_BASE_REF with no local tracking ref returns
   base/delta null but status ok/exit0. It is not comparison proof. T-1139
   fetched the exact existing parent and reran with real counts; final proof
@@ -51,6 +52,16 @@
   unavailable comparison ref, without weakening growth detection or changing
   valid-baseline behavior. Verify using isolated fixture repos, not more
   backend/native reruns. No new framework or production change.
+- **Root/fix:** validate actual baseline commit, mark unavailable comparisons
+  unverified/failed, reject unreadable comparison content, count a file absent
+  from a valid parent as zero. `--allow-growth` cannot authorize no comparison.
+- **Proof:** isolated fixture repos before2 pass/5 fail/0 skip; fixed7/0/0;
+  syntax/diff pass; real original-parent comparison passes with actual numeric
+  baselines. Native/backend trees are byte-unchanged froma0bab6a. The existing
+  required D009 job runs the regressions; workflow binding checked statically,
+  fresh hosted execution pending. No paid/live workflow is introduced.
+- **Evidence:** `docs/god-baseline-authority-2026-10-25.md`. Preserve original
+  #640 history; fresh hosted checks/review still required before landing.
 
 ### T-1138 — Preserve original golden-set PR639 with explicit spend approval
 
