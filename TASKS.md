@@ -560,6 +560,26 @@
   safely local325cfb5, not included here. Details and actual archive paths
   in `docs/native-export-presentation-identity-2026-10-24.md`.
 
+### T-1136 — Separate old save receipts from the current page
+
+- **Owner:** codex (Jarvis), local `codex/T-1136-save-completion-context`
+  directly from published parent34b9bc5; runtime111bc4d.
+- **Reproduced:** hold A's actual-model save response, load/edit B, release A;
+  model reselected A. Focused0/1/0 with intercepted transport, not a live server.
+- **Fix:** acknowledge the original durable request independently of UI rights;
+  fence version/document/backend/owner/project across awaits, preserve original
+  recovery on late errors/conflicts, and retain B's captured waiting save with
+  B's base. Rebase only a true same-owner/project/base successor. Reuse canonical
+  model API for writes; no parallel framework or backend change.
+- **Proof:** corrected focused5/0/0; final signed959/0/0 includes six cases,
+  Mac0/D009/diff pass. First expanded1/4 was our B-dirty fixture mistake; retained
+  and corrected without relaxing assertions. Earlier958 checkpoint predates the
+  final taskless-inflight edge fix. Current writer/native export/relaunch1/0/0;
+  required connected recovery3/0/0. No paid or production claim.
+- **Next:** complete current connected proof, then inspect existing #974 hosted
+  handle before a normal scoped advance; preserve original #975 and combined
+  recovery. `docs/save-completion-context-2026-10-24.md`.
+
 ### T-1135 — Preserve a deferred page save's original owner and project
 
 - **Owner:** codex (Jarvis), original parent #974 branch. Combined descendant
