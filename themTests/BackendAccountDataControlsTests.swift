@@ -1530,6 +1530,16 @@ final class BackendCredentialMigrationTests: XCTestCase {
         )
         XCTAssertFalse(
             UITestLaunchConfiguration.shouldBypassStudioHydration(
+                arguments: ["them", "--ui-testing", "--ui-open-studio", "--ui-talk-page-recovery-fixture"]
+            ), "The real queued-page workflow must retain ordinary backend refreshes."
+        )
+        XCTAssertFalse(
+            UITestLaunchConfiguration.shouldBypassStudioHydration(
+                arguments: ["them", "--ui-testing", "--ui-open-studio", "-studio_debug_load_project_id", "actual-project"]
+            ), "An authenticated project restore is not an isolated presentation fixture."
+        )
+        XCTAssertFalse(
+            UITestLaunchConfiguration.shouldBypassStudioHydration(
                 arguments: ["them", "--ui-show-draft-conflict"]
             )
         )

@@ -2038,6 +2038,11 @@ final class ScreenplayStudioViewModel: ObservableObject {
     }
 
     func refreshPendingScreenplayQuestion() async {
+        #if DEBUG
+        // Isolated presentation fixtures skip server hydration at launch;
+        // outbox notifications must respect that same explicit boundary.
+        guard !UITestLaunchConfiguration.shouldBypassStudioHydration() else { return }
+        #endif
         guard !IOThemRuntime.isRunningTests else { return }
         let owner = currentStudioAuthContext()
         let selectedID = selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
