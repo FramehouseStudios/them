@@ -2359,9 +2359,21 @@ final class V1SmokeUITests: XCTestCase {
             "Recovery did not confirm the saved version: \(status.label)")
         app.buttons["Close"].tap()
         XCTAssertFalse(review.exists, "Only a confirmed saved page may release the retained reply")
-        app.buttons["studio.sidebar.right.toggle"].tap()
+        let inspectorToggle = app.buttons["studio.sidebar.right.toggle"]
+        if inspectorToggle.label == "Close Studio inspector" { inspectorToggle.tap() }
+        guard waitForDisappearance(of: originalDrawer, timeout: 8) else {
+            XCTFail("Recovery inspector did not close before reading the native page.\n\(app.debugDescription)")
+            return
+        }
         let editor = textInput("studio.draft.editor", in: app)
-        XCTAssertTrue(waitForTextInputValue(in: editor, containing: "Someone on the other side pulls back.", timeout: 10))
+        guard waitForTextInputValue(in: editor, containing: "Someone on the other side pulls back.", timeout: 10) else {
+            let screen = XCTAttachment(screenshot: app.screenshot())
+            screen.name = "original-project-recovery-editor-boundary.png"
+            screen.lifetime = .keepAlways
+            add(screen)
+            XCTFail("Saved recovery did not expose its full native editor.\n\(app.debugDescription)")
+            return
+        }
         let draft = editor.value as? String ?? ""
         XCTAssertEqual(Data(draft.utf8), Data(expectedDraft.utf8), "The full native page must match the reviewed result, not the 1,000-character debug preview")
         XCTAssertTrue(draft.utf8.starts(with: before.utf8), "Recovery changed existing writer bytes")

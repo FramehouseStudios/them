@@ -5693,8 +5693,19 @@ final class ScreenplayStudioViewModel: ObservableObject {
             outlineRevision = 0
             outline = .empty
         }
+        let versionBeforeRefresh = latestVersionID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let loadedProjectBeforeRefresh = loadedDraftProjectID
+        func readAuthorityIsCurrent() -> Bool {
+            authContextIsCurrent(authContext)
+                && selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines) == id
+                && loadedDraftProjectID == loadedProjectBeforeRefresh
+                && latestVersionID.trimmingCharacters(in: .whitespacesAndNewlines) == versionBeforeRefresh
+        }
+        func deferChangedReadAuthority() {
+            if authContextIsCurrent(authContext), selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines) == id,
+               !readAuthorityIsCurrent() { lastSeenScreenplayStateVersion = "" }
+        }
         do {
-            let versionBeforeRefresh = latestVersionID.trimmingCharacters(in: .whitespacesAndNewlines)
             let ownerHeaders = projectOwnerHeaderOptions(forProjectID: id)
             let shouldUseClientTokenOwner = ownerHeaders.usesDebugClientTokenOwner
             let detailResult: BackendReadResult<BackendScreenplayProjectResponse>
@@ -5716,10 +5727,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
                     versionLimit: 24
                 )
             }
-            guard authContextIsCurrent(authContext),
-                  selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines) == id else {
-                return
-            }
+            guard readAuthorityIsCurrent() else { return }
             updateClientTokenOwnerContext(
                 forProjectID: id,
                 loadedWithClientTokenOwner: detailLoadedWithClientTokenOwner,
@@ -5738,21 +5746,24 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 includeAuthToken: refreshedOwnerHeaders.includeAuthToken,
                 clientTokenOverride: refreshedOwnerHeaders.clientTokenOverride
             )
-            guard authContextIsCurrent(authContext),
-                  selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines) == id else {
-                return
-            }
+            // A save/selection completed while these reads were suspended.
+            // Its confirmed page is newer authority than this response snapshot.
+            guard readAuthorityIsCurrent() else { return }
             if let project = detailResult.payload.project {
                 selectedProject = project
                 selectedProjectID = project.id
                 upsertProject(project)
-                guard await hydrateDraftRestoringQueuedSaves(from: project) else { return }
+                guard await hydrateDraftRestoringQueuedSaves(from: project, readIsCurrent: readAuthorityIsCurrent) else {
+                    deferChangedReadAuthority(); return
+                }
                 hydrateCollaboration(from: project)
             } else if let project = outlineResult?.payload.project {
                 selectedProject = project
                 selectedProjectID = project.id
                 upsertProject(project)
-                guard await hydrateDraftRestoringQueuedSaves(from: project) else { return }
+                guard await hydrateDraftRestoringQueuedSaves(from: project, readIsCurrent: readAuthorityIsCurrent) else {
+                    deferChangedReadAuthority(); return
+                }
                 hydrateCollaboration(from: project)
             } else {
                 selectedProject = projects.first(where: { $0.id == id })
@@ -5780,10 +5791,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
             await refreshOutlineMutationOutboxStatus()
             await resumeQueuedOutlineMutationsIfNeeded()
         } catch {
-            guard authContextIsCurrent(authContext),
-                  selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines) == id else {
-                return
-            }
+            guard readAuthorityIsCurrent() else { return }
             clearTransientProjectStateForSelectionChange(to: id)
             selectedProject = projects.first(where: { $0.id == id })
             reconcileSceneSessionState(with: outline)
@@ -5984,13 +5992,14 @@ final class ScreenplayStudioViewModel: ObservableObject {
     }
 
     @discardableResult
-    func hydrateDraftRestoringQueuedSaves(from project: BackendScreenplayProjectSummary) async -> Bool {
+    func hydrateDraftRestoringQueuedSaves(from project: BackendScreenplayProjectSummary,
+                                        readIsCurrent: (() -> Bool)? = nil) async -> Bool {
         let context = currentStudioAuthContext()
-        guard project.id == selectedProjectID else { return false }
+        guard project.id == selectedProjectID, readIsCurrent?() ?? true else { return false }
         // Selection and detail refresh can run independently of load()'s
         // bootstrap. Restore the durable writer copy before either hydrates.
         guard await restorePendingDraftSaveBeforeProjectHydration() else { return false }
-        guard authContextIsCurrent(context), project.id == selectedProjectID else { return false }
+        guard authContextIsCurrent(context), project.id == selectedProjectID, readIsCurrent?() ?? true else { return false }
         let retained: ScreenplayDraftSaveOutboxEntry?
         do {
             retained = try await draftSaveOutbox.pendingEntry(projectId: project.id, ownerUserId: context.userID)
@@ -6000,7 +6009,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
             errorText = ScreenplayDraftSaveRecoveryPresentationPolicy.unreadableQueueError
             return false
         }
-        guard authContextIsCurrent(context), project.id == selectedProjectID else { return false }
+        guard authContextIsCurrent(context), project.id == selectedProjectID, readIsCurrent?() ?? true else { return false }
         if let retained, retained.status == .parked,
            retained.lastError == ScreenplayDraftSaveOutbox.conflictReason,
            !draftSaveSlot.isClaimed, !isSaving, loadedDraftProjectID == project.id, hasUnsavedDraftChanges,
