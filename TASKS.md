@@ -554,9 +554,10 @@
 - **Proof:** signed focused19/0/0; unchanged actual writer/native cancel/re-export/
   save/relaunch UI1/0/0; full signed948/0/0; Mac build0, D009/diff pass. Backend
   unchanged, parent Node20 backend2964/0/4 inherited. No paid/phone/deploy claim.
-- **Next:** normal descendant push on original #974, fresh hosted26.5 checks;
-  preserve this into #975/T-1130 and finish that combined checkpoint. T-1130
-  remains safely local389de8c, not included here. Details and actual archive paths
+- **Next:** published9b1c279 run40162533820 passed hosted26.5 writer and is in
+  broad UI; this is not a whole-gate pass. Shared T1134 save correction is now
+  locally integrated below, pending its normal push/fresh checks. T-1130 remains
+  safely local325cfb5, not included here. Details and actual archive paths
   in `docs/native-export-presentation-identity-2026-10-24.md`.
 
 ### T-1134 — Repair hosted duplicate save and false one-copy conflict assertion
@@ -573,10 +574,13 @@
   rather than assuming one immutable copy. Explicit writes/changed bytes stay.
 - **Proof:** unchanged auth baseline1/0/0 is timing evidence only; changed focused
   queue37/0/0 and connected signed recovery3/0/0, syntax/D009/diff pass. No full
-  unit/backend/Mac proof claimed yet on the first child-source checkpoint.
-- **Next:** source comparison proves the failed save routine and outbox/policy
-  are shared by earlier #974. Apply the scoped fix there first, re-prove parent,
-  publish normally, then bring preserved children forward. No main/deploy/paid
+  unit/backend/Mac proof claimed on that first child-source checkpoint. Exact
+  earlier-parent runtime1eb6b7d now passes full signed951/0/0, actual recovery3/0/0,
+  unchanged writer/native-export/relaunch1/0/0, Mac0 and D009/diff. Backend unchanged;
+  no repeated local backend suite. Both task entries survive the docs conflict.
+- **Next:** normally publish the scoped fix on original #974 first and require
+  fresh hosted26.5/full-gate proof, then bring preserved children forward.
+  T1130 at325cfb5 and T1133 at6fe19b1 remain separate. No main/deploy/paid
   call. `docs/hosted-save-recovery-2026-10-24.md` retains exact artifact/results.
 
 ### T-1129 — Keep isolated question fixtures stable through outbox notifications
