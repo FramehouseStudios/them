@@ -21,8 +21,14 @@
 - **Publication hold:** exact parent64015c5868 Quality Gate still active, not
   declared green. New original641 head needs its own fresh required checks
   and human review. No paid model, main merge, production or review bypass.
-- **Evidence:** `docs/original-641-parent-refresh-2026-10-25.md` (to be written
-  from actual completed checks, not inherited success claims).
+- **Completed local proof:** preserving merge76db805; full Node20 backend
+  2809/0/2, signed erased units682/0/0, runner contracts21/0/0, offline40/8,
+  Home pair2/0/0, authenticated Craft+writer2/0/0, Mac0. Current-parent D009
+  index-24/Root-120/bridge-26/Studio+memory0; diff passes. No paid model call.
+- **Status:** locally proven, publication waits for actual parent Quality Gate.
+  Public health URL currently fails TLS in curl and Node20; DNS returns Porkbun
+  target. No production change or shipping/physical readiness claim.
+- **Evidence:** `docs/original-641-parent-refresh-2026-10-25.md`.
 
 ### T-1143 — Preserve original641 and connect its filmmaker routing safely
 
