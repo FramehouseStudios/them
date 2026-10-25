@@ -2611,10 +2611,11 @@ final class V1SmokeUITests: XCTestCase {
         )
         revealStudioPendingQuestion(in: answerApp)
         let answerCard = element(identifier: "studio.pending-question", in: answerApp)
-        XCTAssertTrue(
-            answerCard.waitForExistence(timeout: 8),
-            "The restored Clementine question was not visible. Accessibility hierarchy:\n\(answerApp.debugDescription)"
-        )
+        guard answerCard.waitForExistence(timeout: 8) else {
+            XCTFail("The restored Clementine question was not visible. Accessibility hierarchy:\n\(answerApp.debugDescription)")
+            answerApp.terminate()
+            return
+        }
         let questionText = element(identifier: "studio.pending-question.text", in: answerApp)
         XCTAssertTrue(questionText.waitForExistence(timeout: 3), "The restored question text was missing.")
         let questionTextContent = [
@@ -2644,7 +2645,10 @@ final class V1SmokeUITests: XCTestCase {
         defer { skipApp.terminate() }
         revealStudioPendingQuestion(in: skipApp)
         let skipCard = element(identifier: "studio.pending-question", in: skipApp)
-        XCTAssertTrue(skipCard.waitForExistence(timeout: 8))
+        guard skipCard.waitForExistence(timeout: 8) else {
+            XCTFail("The fresh question did not survive startup queue refresh.\n\(skipApp.debugDescription)")
+            return
+        }
         XCTAssertEqual(
             skipApp.descendants(matching: .any).matching(identifier: "studio.pending-question").count,
             1,
@@ -2669,7 +2673,10 @@ final class V1SmokeUITests: XCTestCase {
         revealStudioPendingQuestion(in: app)
 
         let card = element(identifier: "studio.pending-question", in: app)
-        XCTAssertTrue(card.waitForExistence(timeout: 8))
+        guard card.waitForExistence(timeout: 8) else {
+            XCTFail("The provisional choices did not survive startup queue refresh.\n\(app.debugDescription)")
+            return
+        }
         XCTAssertTrue(
             element(identifier: "studio.pending-question.options", in: app)
                 .waitForExistence(timeout: 3)
