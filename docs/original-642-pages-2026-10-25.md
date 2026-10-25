@@ -1,4 +1,121 @@
-# T-1152 — Original Pages engine and current source-safety reconciliation
+# T-1152 — Preserved Pages and readable source-safe navigation
+
+## Current completed boundary — supersedes the historical checkpoint below
+
+Branch codex/T-1152-original-642-pages, worktree
+/Users/halfmutantfilms/io.them-worktrees/codex-original-642-pages.
+Runtime59acc80;40708ab adds only a duplicate-Send UI assertion. Parent is
+original641a45d904, normally published after original64015c5868 passed all
+required hosted checks. Original641's own Quality Gate is still active.
+
+Original6427c40428b,89358c3ff33,6134143d9c3 and selected5977b120904 are exact
+ancestors through preserving no-ff merges88b9d83/134b5c6/f75d3f4/a7b7df1.
+Bodies and follow-ups read. No replacement PR, squash, force or main change.
+Existing repairs reused with attribution:964bb7a7→e6d44c6,eddb2ed5→d5f06b8,
+0f67802a→a0f9f3b,aae4425→3ea98fe,e32ade0→82e21fe,1ee9269→2d108a6,
+13fe618→7b4f8b1. No broad cumulative backup merge/new framework/dependency.
+
+Original613's ViewModel conflict retains current requestID/draft/density
+ownership, canonical title-only guard and full-source server ranges. Send full
+source once; no client-strip/server-reparse/double offset. TASKS conflicts keep
+both histories. Original1ee's authored Pages case retained; two unrelated tests
+from its backup-parent context were not blindly imported. Reuse current drawer
+helpers and exact recognized keyboard tutorial handling in d0f1487. Do not
+relax byte equality, visibility or one-request assertions. Existing ca9764f
+phone-width and c80c073 caret fixes inspected, not falsely claimed applied.
+
+The first actual Pages workflow passed but its screenshot exposed false HARD
+title/action cue errors. Identical source probes red2/2. Preserve original597,
+then reuse only the e5b7efa linter/title-mask seam in59acc80. Context-aware cues
+and existing Fountain title parser fix the source, not UI severity suppression.
+Probes now2/0; real lowercasejune still warns on line6 with normalized UTF16
+range across six line-ending variants. Source is never edited. Existing real
+Pages HTTP workflow now checks that lint response before displaying the draft.
+
+### Completed evidence and exact source boundaries
+
+- Final Node20.20.2 backend **2839 pass /0 fail /2 skip**, source59acc80, exit0.
+  Only later40708ab changes a UI assertion. Skips: real Postgres prefix-query
+  without DATABASE_URL and existing talk Page preview-header case. Empty real
+  provider key, Muse disabled, task-isolated default stores. Host run, not a
+  network-disabled-container claim. Earlier d0f1487 backend2830/0/2 is separate.
+- Focused final lint/source **36/0/0**; failed and repaired standalone2 probes
+  retained. Earlier engine red3/3→green3/0 and focused route28/0/0 remain below.
+- Signed full units **705/0/0**, erased owned91693AF0-AE2C-4FAD-9F4C-
+  EC4C92AA382A, iPhone17Pro/iOS26.2/23C54/Xcode26.3, source d0f1487.
+  Explicit git diff proves final them/,themTests/,Packages/,Xcode project and
+  scripts byte-identical. Later backend lint/UITest edits do not justify
+  repeating unchanged units; this is matching-source evidence, not a rerun.
+- Package **23/0/0**, positive Swift Testing total inspected, not the XCTest
+  zero-suite line. Lossless title/body/source handling included.
+- Repaired authenticated Pages **1/0/0**, source59acc80. Prev/Next bounds,
+  53/54/reset, full-width selected card, exact UTF8 and exactly one unchanged
+  server version.8 pagination200s across setup/density/recalculation; a single
+  Recalculate press adds exactly1 request and1 success. Zero provider calls.
+  Original misleading-lint and current corrected screenshots both retained.
+- Typing + numbered overview + authenticated writer **3/0/0**, source40708ab,
+  one signed invocation. No command Send under page focus; overview count/jump;
+  UI project create→one acknowledged version→Markdown artifact→exact relaunch.
+  External fetches blocked, zero attempted. This early writer case DOES NOT
+  Save through Files or prove external-open. Previous external Files observation
+  is from a different proof and cannot be substituted here.
+- Current synthetic Home pair **2/0/0**, source40708ab: confirmed-current words
+  and raw audio with stale transcript→complete native page→saved version→
+  relaunch equality under existing outer-whitespace comparison. Synthetic
+  ASR1/chat4/TTS24, external real providers blocked. No real mic/model proof.
+- macOS scaffold BUILD SUCCEEDED at d0f1487; final native sources byte-identical
+  as above. Build-only signing policy, never unsigned iOS tests. Existing actor/
+  Sendable/Swift6 compatibility warnings are not declared resolved.
+- Offline mentor40 exemplar/weak pairs +8 prompt checks, including flexible120
+  recommendation, passed. NOT live model output/scoring.
+- D009 versus freshly fetched published641a45d904: index33557 unchanged,
+  Studio17431→17423(-8),Root14992/bridge12926/Memory10865 unchanged. Diff passes.
+
+No native source edits or checkouts while a proof ran. All local handles
+terminal. A staging command initially used the backend subdirectory and staged
+nothing; corrected from repo root before committing. No unrelated file staged.
+
+### Visual review, adversarial scope and handoff
+
+PDF skill/read-only Poppler inspection: actual native title-only, both title+
+body pages, and all8 CRLF script pages (9 total including title). Upright text,
+unnumbered separate title, numbered script, MORE/CONT'D, no observed clipping/
+overlap in those samples. Tests pin all120 markers exactly once and LF/CRLF/CR
+text/page equality. This is NOT universal editor/print element parity (#80).
+Complete230pt component and actual light iPhone navigator/overview screenshots
+inspected: normal word wrapping, full-width previews, explicit preview-density
+scope and labeled real controls. Preview truncation never edits source.
+
+Answered: stale recalculation ownership, title-only zero screenplay pages,
+source ranges, bounded Unicode speech, read-only controls/no extra versions,
+observed title/action false lint, command-only keyboard Send. Legacy chess_edit
+remains fail-closed without a proven caller; hints are not edit authorization.
+Not covered: precise arbitrary voice targeting, current in-flight account/
+project transition UI, real long narration/physical mic, paid model quality,
+power-loss/storage-pressure durability, cross-device undo, dark/Dynamic Type,
+full120-page responsiveness, #80 parity or intended-backend phone journey.
+
+Completed private archive:
+/Users/halfmutantfilms/io.them-worktrees/_proof/T-1152-combined-20261025.zA1GT5/.
+Earlier engine-only Ncu4WA archive remains separate. Producer root
+/private/tmp/them-1152-integrated.a9CpuO. Copy only explicit completed logs,
+bundles, renders and manifests; no private environment/backend stores. The
+owned exact-lock node_modules symlink is removed after proof, target untouched.
+
+Original642 remains draft7c40428b/baseclaude/filmmaker-dialogue-port until exact
+parent641a45d904 required checks are green; local proof is not hosted clearance,
+independent review, integrated main or deployment. Original638 still requires
+personal non-author review, not an agent substitute. Next actual product child
+is original64386cc5b24; its body/all follow-ups, additive879eaed4e61 and dated
+current-writer ledger7b8d185 read. Preserve originals and bounded2299191b/
+dd2f3db8/ebcaaa0/04bc973 repairs; no blind backup. Original648 remains later
+prompt/reply/writer-authority work. No paid model call, main/production/DNS/
+secret/protection mutation. Production hold and physical proof remain. Preserve
+orb/Clementine/aesthetic and flexible120. Goal incomplete; READY FOR CONTINUE.
+
+---
+
+## Historical engine-only checkpoint — not current status or next-task authority
 
 ## Preserved boundary
 

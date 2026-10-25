@@ -8,8 +8,9 @@
 ### T-1152 — Preserve original Pages and reconcile the existing safety repairs
 
 - **Owner:** codex (Jarvis). **Branch:** `codex/T-1152-original-642-pages`.
-- **Base:** proven local641a45d904; original641 public head remains held for
-  actual parent640 Quality Gate. Preserve original6427c40428b and89358c3ff33
+- **Base:** published original641a45d904; parent64015c5868 is hosted green.
+  Original641 still needs its own active Quality Gate and human review.
+  Preserve original6427c40428b and89358c3ff33
   as no-ff merges88b9d83/134b5c6, not a replacement PR or broad backup merge.
 - **Scope:** existing Letter pagination/overview, source mapping and current
   draft/density ownership; reuse isolated964bb7a7/eddb2ed5/0f67802a repairs
@@ -23,12 +24,19 @@
   code, then focused engine/mounted HTTP/shared Swift fixtures, necessary native
   workflow and integration gates. No paid models, padding to target length,
   new framework, main merge, protected-review bypass or production change.
-- **Current:** original engine and macOS guard preserved. Actual imported
-  engine3/3 failed probes; same probes3/0 after attributed repairs. Focused
-  Node20 engine/mounted route28/0/0. Current draft/density/source-range repair
-  reused, not a second pagination owner. No fresh native/full-suite pass here.
-- **Next:** original613 + existingaae4425/e32ade0, then narrow1ee9269, current
-  source/visual/native proof. Full next-boundary proof remains outstanding.
+- **Current:** original642/893/613/597 preserved by no-ff merges; isolated
+  engine/source/consumer/narrow navigator and duplicate-Send repairs reused.
+  Engine probes red3/3 → green3/0. Actual Pages screenshot exposed false HARD
+  title/action lint; unchanged probes red2/2 → green2/0 after original597 plus
+  existing e5b7efa title-mask seam. No second writer/pagination owner.
+- **Proof:** final Node20.20.2 backend2839/0/2; focused lint/source36/0/0;
+  signed units705/0/0 and package23/0/0 on byte-identical final native source;
+  final Pages1/0/0, typing+overview+writer3/0/0, synthetic Home2/0/0; Mac build,
+  offline40/8, current-parent D009/diff pass. Inspected current230pt/actual UI
+  and native PDF artifacts. Existing warnings and both skips remain explicit.
+- **Next:** original643 +879 and existing bounded safety corrections on the
+  actual next boundary. Do not advance original642 until original641 required
+  hosted checks are green. No main/production/paid/physical-phone claim.
 - **Evidence:** `docs/original-642-pages-2026-10-25.md`.
 
 ### T-1151 — Reconcile original641 with the now-published corrected Craft parent
@@ -44,14 +52,15 @@
   confirmed-current Home words, refusal and full Stop; source/contract checks,
   full Node20 and signed erased native boundary, connected local UI and Mac/
   D009 checks pass. No repeated unchanged run merely for reassurance.
-- **Publication hold:** exact parent64015c5868 Quality Gate still active, not
-  declared green. New original641 head needs its own fresh required checks
-  and human review. No paid model, main merge, production or review bypass.
+- **Publication:** exact parent64015c5868 passed all required hosted checks;
+  original641 advanced normally232098ba→a45d904 with draft/base/history retained.
+  Its own fresh Quality Gate40232439824 is active, not a pass. Human review,
+  no-paid/main/production/bypass constraints remain.
 - **Completed local proof:** preserving merge76db805; full Node20 backend
   2809/0/2, signed erased units682/0/0, runner contracts21/0/0, offline40/8,
   Home pair2/0/0, authenticated Craft+writer2/0/0, Mac0. Current-parent D009
   index-24/Root-120/bridge-26/Studio+memory0; diff passes. No paid model call.
-- **Status:** locally proven, publication waits for actual parent Quality Gate.
+- **Status:** locally proven and published; fresh child Quality Gate active.
   Public health URL currently fails TLS in curl and Node20; DNS returns Porkbun
   target. No production change or shipping/physical readiness claim.
 - **Evidence:** `docs/original-641-parent-refresh-2026-10-25.md`.
