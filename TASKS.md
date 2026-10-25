@@ -8,8 +8,8 @@
 ### T-1155 — Preserve coverage and scope every read to its document
 
 - **Owner:** codex (Jarvis). **Branch:** `codex/T-1155-original-644-coverage`.
-- **Base:** proven actionscdd463f5; original643 publication still waits for
-  exact64284659a6a required hosted checks. No assumed public-head clearance.
+- **Base:** actionscdd463f5, now normally published to original643 after
+  exact64284659a6a hosted clearance. Fresh643 Quality still running.
 - **Scope:** no-ff preserve original644047672ac,880b619d7d,881b7a0ea5;
   reuse a28c7e1/619f988/e5b7efa/0919fc8 and reconcile the existing connected
   workflow4dc346a. Retain current Craft selector, auth/recovery and action owners.
@@ -22,7 +22,17 @@
   call, no main merge/review bypass or original-head replacement. Preserve646/
   774 refresh/quiet policy at their actual boundaries; completed-read freshness
   must be assessed, not assumed solved by in-flight guards. Production held.
-- **Status:** in-progress. Original bodies/follow-ups and T1100 ledger read.
+- **Status:** local review. Original644/880/881 preserved with no-ff merges;
+  existing body/byte/accessibility fixes reused. Freshness-only5f71ec5 reused
+  without importing646/774 policy. Missing redirect dependency reused from
+  canonicalfc759311, retaining one origin validator. First compile0 executed;
+  corrected747/0/0. Actual UI2/1/0 exposed same-version polling surfacing a
+  recovery modal over active edits. Root fixc9949f2c keeps durable recovery,
+  relaunch and changed-version decisions; signed749/0/0, unchanged UI3/0/0,
+  Node20 backend2863/0/2, Mac/D009/offline mentor/diff pass. No paid calls.
+  Original644 stays047672ac/draft/base643 pending exact643 hosted clearance.
+- **Evidence:** `docs/original-644-coverage-2026-10-25.md` and completed proof
+  `/Users/halfmutantfilms/io.them-worktrees/_proof/T-1155-20261025.94VE7f/`.
 
 ### T-1153 — Preserve original Studio voice actions on the current Pages writer
 
