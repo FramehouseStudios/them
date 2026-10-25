@@ -2182,7 +2182,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
 
     @discardableResult
     func adoptCommittedPageWriteIfNeeded(_ committedWrite: ScreenplayCommittedWrite) -> Bool {
-        guard committedWrite.isAuthoritativeWrite else { return false }
+        guard committedWrite.isAuthoritativeWrite, authContextIsCurrent(committedWrite.authContext) else { return false }
         let bridge = ScreenplayLiveDraftBridge.shared
         let committedProjectID = ScreenplayLiveDraftBridge.resolvedCommittedWriteProjectID(
             committedWrite,
@@ -2216,13 +2216,10 @@ final class ScreenplayStudioViewModel: ObservableObject {
             dirty: true
         )
         let saveIntent = resolvedDraftSaveIntent(for: committedDraft)
-        Task {
-            await saveCurrentDraft(
-                source: saveIntent.source,
-                notes: saveIntent.notes,
-                draftOverride: committedDraft
-            )
-        }
+        guard let request = makeDraftSaveRequest(draft: committedDraft, source: saveIntent.source,
+            notes: saveIntent.notes, baseVersionOverride: nil,
+            requestIDOverride: committedWrite.id.uuidString.lowercased()) else { return true }
+        Task { await submitDeferredDraftSave(request) }
         return true
     }
 
@@ -6150,7 +6147,9 @@ final class ScreenplayStudioViewModel: ObservableObject {
             return
         }
 
-        Task { await saveCurrentDraft(source: source) }
+        guard let request = makeDraftSaveRequest(draft: fountainDraft, source: source, notes: "",
+            baseVersionOverride: nil) else { return }
+        Task { await submitDeferredDraftSave(request) }
     }
 
     func handleDraftDebouncedChange(_ draft: String) async {
@@ -6249,14 +6248,15 @@ final class ScreenplayStudioViewModel: ObservableObject {
         draft: String,
         source: String,
         notes: String,
-        baseVersionOverride: String?
+        baseVersionOverride: String?,
+        requestIDOverride: String? = nil
     ) -> DraftSaveRequest? {
         guard let project = selectedProject else { return nil }
         let ownerUserId = BackendAuthClient.currentAuthSessionState().user?.userId
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let authContext = currentStudioAuthContext()
         return DraftSaveRequest(
-            id: UUID().uuidString.lowercased(),
+            id: requestIDOverride ?? UUID().uuidString.lowercased(),
             projectId: project.id,
             ownerUserId: ownerUserId,
             draft: draft,
@@ -6442,6 +6442,27 @@ final class ScreenplayStudioViewModel: ObservableObject {
             return
         }
 
+        await submitDraftSave(request)
+    }
+
+    /// Capture before deferring. A later selection, login or receipt cannot
+    /// reinterpret an earlier page as a save of the newly selected project.
+    private func submitDeferredDraftSave(_ request: DraftSaveRequest) async {
+        guard !Task.isCancelled, authContextIsCurrent(request.authContext),
+              selectedProjectID == request.projectId, selectedProject?.id == request.projectId,
+              loadedDraftProjectID == request.projectId, latestVersionID == request.baseVersionId else {
+            do {
+                var retained = request.outboxEntry
+                retained.status = .parked
+                retained.nextAttemptAt = 0
+                retained.lastError = "Page save retained after its account, project, or saved version changed."
+                try await draftSaveOutbox.enqueue(retained)
+            } catch {
+                guard authContextIsCurrent(request.authContext), selectedProjectID == request.projectId else { return }
+                errorText = "Your local page is preserved, but its waiting save could not be retained: \(error.localizedDescription)"
+            }
+            return
+        }
         await submitDraftSave(request)
     }
 
