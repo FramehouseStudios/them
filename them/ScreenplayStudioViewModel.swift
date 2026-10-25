@@ -1645,6 +1645,9 @@ final class ScreenplayStudioViewModel: ObservableObject {
         return publishedCoverageReport
     }
     private var publishedCoverageContext: ScreenplayCoverageContext?
+    var isCoverageReadCurrent: Bool {
+        coverageReport == nil || publishedCoverageContext == currentCoverageContext()
+    }
     private var publishedCoverageRequestID: UUID?
     private var activeCoverageRequestID: UUID?
     private var activeCoverageContext: ScreenplayCoverageContext?

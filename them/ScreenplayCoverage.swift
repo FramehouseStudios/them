@@ -64,6 +64,11 @@ extension Notification.Name {
 
 enum ScreenplayCoveragePresentation {
     static let pillarOrder = ["structure", "pacing", "dialogue", "character", "format"]
+    static let earlierSnapshotText = "Earlier snapshot — your pages have changed. Read again for the current draft."
+
+    static func speechText(for report: BackendScreenplayCoverageReport, isCurrent: Bool) -> String {
+        isCurrent ? report.spoken : "This read is from an earlier snapshot, before your latest edits. \(report.spoken)"
+    }
 
     static func title(for pillar: String) -> String {
         switch pillar {

@@ -10,6 +10,7 @@ extension ScreenplayStudioScreen {
             frameworks: vm.craftFrameworks,
             report: vm.craftReport,
             coverageReport: vm.coverageReport,
+            isCoverageReadCurrent: vm.isCoverageReadCurrent,
             isCoverageRefreshing: vm.isCoverageRefreshing,
             coverageErrorText: vm.coverageErrorText,
             onRefreshCoverage: { Task { await vm.refreshCoverage(source: "Craft") } },

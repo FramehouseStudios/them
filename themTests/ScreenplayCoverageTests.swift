@@ -3,6 +3,51 @@ import XCTest
 
 final class ScreenplayCoverageTests: XCTestCase {
     @MainActor
+    func testConversationDoesNotQuoteAnEarlierDraftRead() throws {
+        let bridge = ScreenplayLiveDraftBridge.shared
+        let originalDraft = bridge.draftText
+        let originalProject = bridge.preferredProjectID
+        defer {
+            StudioOutlineRegistry.shared.clearCoverage()
+            bridge.draftText = originalDraft
+            bridge.preferredProjectID = originalProject
+        }
+        let before = "INT. CAFE - NIGHT\n\nA caf\u{00e9} closes.\n"
+        bridge.preferredProjectID = "coverage-freshness"
+        bridge.draftText = before
+        let context = ScreenplayCoverageContext(auth: .current(), projectID: bridge.preferredProjectID, draft: before)
+        StudioOutlineRegistry.shared.publishCoverage(try decodeSample(), context: context, requestID: UUID())
+        XCTAssertNotNil(StudioCapabilitiesSnapshot.current(bridge: bridge, studioOpen: true).coverage)
+        bridge.draftText = "INT. CAFE - NIGHT\n\nA cafe\u{0301} closes.\n"
+        XCTAssertNil(StudioCapabilitiesSnapshot.current(bridge: bridge, studioOpen: true).coverage,
+                     "A byte-distinct edit must not send the earlier score as current context.")
+        bridge.draftText = before + " "
+        XCTAssertNil(StudioCapabilitiesSnapshot.current(bridge: bridge, studioOpen: true).coverage,
+                     "The production snapshot must compare raw bytes, not trimmed text.")
+        bridge.draftText = before
+        XCTAssertNotNil(StudioCapabilitiesSnapshot.current(bridge: bridge, studioOpen: true).coverage,
+                        "Undoing to the exact read snapshot can reuse its useful result without a request.")
+    }
+
+    @MainActor
+    func testCompletedReadIsRetainedAndLabeledUntilExactSnapshotReturns() async throws {
+        let vm = makeCoverageVM()
+        defer { StudioOutlineRegistry.shared.clearCoverage() }
+        let before = vm.fountainDraft
+        let report = try decodeSample()
+        await vm.refreshCoverage { _, _ in report }
+        XCTAssertTrue(vm.isCoverageReadCurrent)
+        vm.fountainDraft += " A different word."
+        XCTAssertEqual(vm.coverageReport, report, "Keep useful notes from the same writer/project.")
+        XCTAssertFalse(vm.isCoverageReadCurrent)
+        XCTAssertTrue(ScreenplayCoveragePresentation.earlierSnapshotText.contains("Earlier snapshot"))
+        XCTAssertTrue(ScreenplayCoveragePresentation.speechText(for: report, isCurrent: false).hasPrefix("This read is from an earlier snapshot"))
+        vm.fountainDraft = before
+        XCTAssertTrue(vm.isCoverageReadCurrent)
+        XCTAssertEqual(ScreenplayCoveragePresentation.speechText(for: report, isCurrent: true), report.spoken)
+    }
+
+    @MainActor
     func testUnicodeEquivalentByteChangeRejectsInflightReadAndSpeech() async throws {
         let vm = makeCoverageVM()
         defer { StudioOutlineRegistry.shared.clearCoverage() }
@@ -160,14 +205,14 @@ final class ScreenplayCoverageTests: XCTestCase {
         await vm.refreshCoverage { _, _ in report }
         auth = ScreenplayStudioAuthContext(userID: "writer-a", sessionIntentGeneration: 2)
         XCTAssertNil(vm.coverageReport)
-        XCTAssertNil(StudioOutlineRegistry.shared.coverage(for: auth, projectID: "project-a"))
+        XCTAssertNil(StudioOutlineRegistry.shared.coverage(for: auth, projectID: "project-a", draft: vm.fountainDraft))
         await vm.refreshCoverage { _, _ in
             await Task.yield()
             auth = ScreenplayStudioAuthContext(userID: "writer-b", sessionIntentGeneration: 3)
             return report
         }
         XCTAssertNil(vm.coverageReport)
-        XCTAssertNil(StudioOutlineRegistry.shared.coverage(for: auth, projectID: "project-a"))
+        XCTAssertNil(StudioOutlineRegistry.shared.coverage(for: auth, projectID: "project-a", draft: vm.fountainDraft))
     }
 
     @MainActor
@@ -184,7 +229,7 @@ final class ScreenplayCoverageTests: XCTestCase {
         DispatchQueue.main.async { drained.fulfill() }
         await fulfillment(of: [drained], timeout: 2)
         XCTAssertEqual(vm.coverageReport, report)
-        XCTAssertEqual(StudioOutlineRegistry.shared.coverage(for: auth, projectID: "project-a"), StudioCoverageSummary(report: report))
+        XCTAssertEqual(StudioOutlineRegistry.shared.coverage(for: auth, projectID: "project-a", draft: vm.fountainDraft), StudioCoverageSummary(report: report))
     }
 
     @MainActor
@@ -195,10 +240,10 @@ final class ScreenplayCoverageTests: XCTestCase {
         let registry = StudioOutlineRegistry.shared
         defer { registry.clearCoverage() }
         registry.publishCoverage(report, context: context, requestID: UUID())
-        XCTAssertNotNil(registry.coverage(for: auth, projectID: "project-a"))
-        XCTAssertNil(registry.coverage(for: auth, projectID: "project-b"))
-        XCTAssertNil(registry.coverage(for: auth, projectID: ""))
-        XCTAssertNil(registry.coverage(for: ScreenplayStudioAuthContext(userID: "writer-b", sessionIntentGeneration: 1), projectID: "project-a"))
+        XCTAssertNotNil(registry.coverage(for: auth, projectID: "project-a", draft: "pages"))
+        XCTAssertNil(registry.coverage(for: auth, projectID: "project-b", draft: "pages"))
+        XCTAssertNil(registry.coverage(for: auth, projectID: "", draft: "pages"))
+        XCTAssertNil(registry.coverage(for: ScreenplayStudioAuthContext(userID: "writer-b", sessionIntentGeneration: 1), projectID: "project-a", draft: "pages"))
     }
 
     @MainActor

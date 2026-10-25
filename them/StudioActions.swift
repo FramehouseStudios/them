@@ -112,10 +112,11 @@ final class StudioOutlineRegistry {
         coverageRequestID = nil
     }
 
-    func coverage(for auth: ScreenplayStudioAuthContext, projectID: String) -> StudioCoverageSummary? {
+    func coverage(for auth: ScreenplayStudioAuthContext, projectID: String, draft: String) -> StudioCoverageSummary? {
         guard !projectID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               let context = coverageContext,
-              context.hasSameOwner(as: ScreenplayCoverageContext(auth: auth, projectID: projectID, draft: "")) else { return nil }
+              context.hasSameOwner(as: ScreenplayCoverageContext(auth: auth, projectID: projectID, draft: draft)),
+              context.draft.utf8.elementsEqual(draft.utf8) else { return nil }
         return coverageSummary
     }
 
@@ -163,7 +164,8 @@ struct StudioCapabilitiesSnapshot: Codable, Equatable {
         var snapshot = StudioCapabilitiesSnapshot()
         snapshot.sceneLabels = Array(labels.prefix(40))
         snapshot.beatLabels = Array(StudioOutlineRegistry.shared.beatLabels.prefix(40))
-        snapshot.coverage = draft.isEmpty ? nil : StudioOutlineRegistry.shared.coverage(for: .current(), projectID: bridge.preferredProjectID)
+        snapshot.coverage = draft.isEmpty ? nil : StudioOutlineRegistry.shared.coverage(
+            for: .current(), projectID: bridge.preferredProjectID, draft: bridge.draftText)
         snapshot.currentTab = currentTab
         snapshot.hasProject = !bridge.preferredProjectID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         snapshot.hasDraft = !draft.isEmpty
