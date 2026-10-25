@@ -5,6 +5,49 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1144 — Preserve current recovery repairs on original #975
+
+- **Owner:** codex (Jarvis). **Branch:** `codex/T-1144-original-975-parent`.
+- **Status:** in-progress. **Pillar:** writer ownership / recoverable voice-to-page.
+- **Base:** committed combined recovery `01bbeda`; original #975 remains
+  `80a2f66` publicly. Preserve both, then merge green original parent #974
+  `f4aca4a` without squash, force or replacement PR.
+- **Scope:** retain original-project routing, correlated interrupted delivery,
+  save-drain/late-response authority and exact-word recovery. Parent refresh
+  changes only the two native Files readiness checks and their diagnostics;
+  no new backend runtime or native production changes.
+- **Done when:** updated combined signed units, connected recovery/essential
+  writer and Mac checks pass; proper-parent D009/diff pass; source identity
+  supports explicitly inherited backend proof. Normally advance original #975
+  only after inspecting the exact parent/child and preserving all history.
+- **Boundaries:** no paid calls, production changes, native resource sharing,
+  simulated-live claim or main merge. Zora owns a separate backend lane.
+
+### T-1141 — Diagnose the exact hosted recovery-export failure
+
+- **Owner:** codex (Jarvis). **Branch:** `codex/T-1141-recovery-export-presentation`.
+- **Base:** actual published974 `8d519bd`; run40170181825 is terminal red.
+- **Verified boundary:** hosted signed959/0/0 and writer1/0/0 pass; broad V1
+  is35 pass/1 fail/22 skip. Failure: queued-turn export after cancelling Review
+  did not reach detected native Files UI. Later recovery/voice/Mac steps skipped.
+- **Observation:** retained hosted recording shows a blank white panel after
+  Export, not just a missing private filename field. Exact test passes1/0/0
+  locally on26.2. Do not invent a runtime root cause from that difference.
+- **Candidate:** use existing bounded hosted readiness scaling for the two
+  recovery Files paths, assert real Save hittability and retain timeout screen/
+  hierarchy. No sleep, tap retry, skip, bypass, synthetic Save or app/runtime edit.
+- **Proof:** local two-path check2/0/0, summary positively requires exactly2
+  executed passes and zero skips/failures. Reject the initial unsupported
+  comma-selector invocation (zero tests/unknown) rather than call it a pass.
+  Use separate xcodebuild only-testing flags and require2/0/0.
+- **Inherited exact-head checks:** hosted backend2964/0/4, units959/0/0 and
+  writer1/0/0; not new runs on this UI-test-only change. App/backend/scripts/
+  Packages/workflows byte-unchanged. No broad rerun solely for reassurance.
+- **Done when:** relevant local proof passes, original974 advances normally
+  once with explicit uncertainty and fresh hosted checks resolve the failure.
+  Do not merge or advance975 while parent red. Evidence:
+  `docs/recovery-export-readiness-2026-10-25.md`.
+
 ### T-968 — Exact document identity for coverage (historical; current T-1100)
 
 - **Owner:** codex. **Branch:** `codex/T-968-coverage-document-identity`.
