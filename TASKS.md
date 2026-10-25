@@ -5,6 +5,22 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1154 — Repair hosted Pages preview type-check failure
+
+- **Owner:** codex. **Branch:** `codex/T-1154-pages-preview-typecheck`.
+- **Base:** original64278dc3be, published only after641a45d904 required checks
+  completed green.642 run40234585048 backend/D009 green, Quality red during
+  compile at ScreenplayStudioDraftPageTools.swift:167, before tests executed.
+- **Root/fix:** the nested rich preview expression exceeds the hosted Swift
+  compiler's type-check budget. Precompute its String once and extract the
+  unchanged modifiers into a concrete Text(verbatim:) subview; no AnyView,
+  style/control/label change, timeout increase or disabled check.
+- **Done when:** signed units and unchanged real Pages UI pass, same230pt
+  rendering inspected, macOS/D009/diff pass; normal original642 fast-forward
+  with preserved history/base/draft, then fresh hosted gate (not assumed green).
+- **Status:** in-progress. Current6438c50e09 held, its signed unit proof is
+  separate; its backend fetch failure remains a tracked first red to repair.
+
 ### T-1152 — Preserve original Pages and reconcile the existing safety repairs
 
 - **Owner:** codex (Jarvis). **Branch:** `codex/T-1152-original-642-pages`.

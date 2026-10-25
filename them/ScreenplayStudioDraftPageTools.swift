@@ -153,6 +153,7 @@ struct ScreenplayStudioDraftPageTools: View {
 
     private func pageCard(_ row: ScreenplayStudioPaginationPagePresentation) -> some View {
         let isSelected = selectedPage?.id == row.id
+        let previewText = row.visiblePreviewLines.joined(separator: "\n")
         return Button { jump(to: row) } label: {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(alignment: .firstTextBaseline) {
@@ -163,14 +164,8 @@ struct ScreenplayStudioDraftPageTools: View {
                 Text("Lines \(row.page.startLine)–\(row.page.endLine) · \(row.durationText)")
                     .font(IOThemTypography.UI.microRegular)
                     .fixedSize(horizontal: false, vertical: true)
-                if !row.visiblePreviewLines.isEmpty {
-                    Text(row.visiblePreviewLines.joined(separator: "\n"))
-                        .font(IOThemTypography.UI.monoPrompt)
-                        .foregroundStyle(Color.black.opacity(0.82))
-                        .lineSpacing(3).lineLimit(5)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(10)
-                        .background(Color.white.opacity(0.94), in: RoundedRectangle(cornerRadius: 8))
+                if !previewText.isEmpty {
+                    pagePreview(previewText)
                 }
                 Label("Open page text", systemImage: "arrow.turn.down.right")
                     .font(IOThemTypography.UI.labelMedium)
@@ -185,9 +180,21 @@ struct ScreenplayStudioDraftPageTools: View {
         .buttonStyle(.plain)
         .accessibilityIdentifier("studio.draft.page.\(row.id)")
         .accessibilityLabel("Page \(row.id), lines \(row.page.startLine) through \(row.page.endLine), \(row.durationText)\(isSelected ? ", selected preview" : "")")
-        .accessibilityValue(row.visiblePreviewLines.joined(separator: "\n"))
+        .accessibilityValue(previewText)
         .accessibilityHint("Opens original source line \(row.page.startLine) in the editor; it does not replace text")
         .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    /// A concrete Text owner keeps the rich card's result builder tractable
+    /// across Swift compiler versions; the displayed preview stays unchanged.
+    private func pagePreview(_ text: String) -> some View {
+        Text(verbatim: text)
+            .font(IOThemTypography.UI.monoPrompt)
+            .foregroundStyle(Color.black.opacity(0.82))
+            .lineSpacing(3).lineLimit(5)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(10)
+            .background(Color.white.opacity(0.94), in: RoundedRectangle(cornerRadius: 8))
     }
 
     private func jump(to row: ScreenplayStudioPaginationPagePresentation) {
