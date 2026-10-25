@@ -5,6 +5,67 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1137 — Preserve original mentor-core PR 638 on current main
+
+- **Owner:** codex (Jarvis). **Branch:** `codex/T-1137-original-638-mainline`.
+- **Status:** locally proven; original draft publication pending fresh checks
+  and independent review. No main or production change.
+- **Target:** update original #638 with a preserving merge of current main,
+  not a replacement PR or rehearsal rollup. Preserve original638 `6ad4117`
+  and main `78b8c94`; clean merge checkpoint `8bc3f5a`.
+- **Reconciliation:** the original mentor identity hard-coded a110-page
+  feature. Reuse the accepted flexible120-page wording from the existing
+  writer candidate, without importing its unrelated features. This follows
+  the human's newer explicit direction; chosen lengths remain authoritative.
+- **Done when:** Node20 focused/full backend, signed units on a separately
+  task-owned erased simulator, required writer workflow, macOS scaffold,
+  D009 and whitespace checks pass on the exact candidate; record all failures
+  and skips. Only then normally advance original #638 for fresh hosted checks
+  and independent human review. Preserve its main base and every original commit.
+- **Resources:** task-owned simulator `91693AF0-AE2C-4FAD-9F4C-EC4C92AA382A`.
+  Reserved export-evidence simulator7F1A14C1 remains untouched. No paid calls,
+  production change, secret access, force-push, squash or protection bypass.
+- **Evidence:** `docs/original-638-mainline-2026-10-24.md`.
+- **Verified:** Node20.20.2 backend2750 pass/0 fail/2 skip; signed iOS633/0/0;
+  authenticated local writer workflow1/0/0; macOS scaffold build exit0; D009
+  deltas0 and diff check pass. No paid/live-model/physical-phone proof.
+
+### T-1042 — Promote the minimal original dependency-security correction
+
+- **Owner:** codex. **Branch:** `codex/T-1042-dependency-boundary-refresh`.
+- **Status:** review; minimal current-main integration locally proven.
+  **Pillar:** trustworthy screenplay service.
+- **Scope:** original #909 `788e0107` + actual main `deac1a6d`, preserving
+  merge `c111f711`; no unrelated #964 runner work from the older proof branch.
+- **Root:** yesterday's zero registry audit missed four freshly disclosed
+  URI normalization defects. Preserve existing Multer/proxy fixes and update
+  only the compatible locked fast-uri patch to3.1.9. Exact tested backend
+  comes from preserved preparation `a0abd56`; no copied product/UI changes.
+- **Done when:** scoped before/after regressions, exact integrated-tree pinned
+  Node20 full backend, locked install/audit, D009 and diff pass; advance only
+  original #909 normally with fresh hosted checks and independent review.
+- **Holds:** no production/main change, paid call or personal-device action.
+  This is not live exploitability, whole-app security or writer-loop proof.
+- **Verified:** corrected before0/4/0, patched focused5/0/0; exact minimal
+  integrated-tree full Node20 backend2744/0/2, native exit0. Registry scans0
+  are bounded metadata, not security certification. All five D009 deltas0,
+  whitespace/syntax pass; no client, script or workflow delta versus main.
+- **Evidence:** `docs/dependency-boundary-refresh-2026-10-20.md`. Original
+  #909 requires fresh exact-head hosted checks and independent review.
+
+### T-969 — Truthful required checks on original #906
+
+- **Owner:** codex. **Task branch:** `codex/T-969-truthful-906-gate`.
+- **Status:** review. **Pillar:** trustworthy writer/recovery proof.
+- **Landing:** original #906, not a replacement PR. Preserve #904's CI prefix
+  and its remaining later recovery/inspector work separately.
+- **Done when:** signed units/failing UI cases, canonical erased voice entry,
+  Node20 runner contracts, macOS, D009 and diff pass; fresh hosted gate required.
+- **Evidence:** signed units624 + UI2 all pass; final voice1/0/0 and macOS pass;
+  Node20 contracts11/0/0, D009 deltas0. Original hidden hosted reds retained.
+  `docs/906-required-gate-repair-2026-10-16.md`.
+- **Hold:** changed head requires fresh independent approval and real green CI.
+
 ## Branch conventions
 - `codex/<task-id>-<short-name>`
 - `support/backend-<short-name>`
