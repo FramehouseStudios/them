@@ -5,6 +5,24 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1157 — Preserve bounded, quiet coverage refresh as pages land
+
+- **Owner:** codex (Jarvis). **Branch:** `codex/T-1157-original-646-refresh`.
+- **Base:** savede803262a mentor integration. Original643 hosted Quality
+  still running;644/645 public advancement remains gated bottom-up.
+- **Scope:** no-ff preserve original64672f9375e; reuse remaining5f71ec5c
+  refresh/normalization and original774 quiet-announcement dependency without
+  cumulative ancestry. Keep existing exact-byte earlier-card/conversation and
+  account/project/request guards plus the active-poll recovery fix.
+- **Binary success:** automatic reads are quiet, suppressed while streaming,
+  empty/unowned/inflight; one attempt per changed page/scene shape and owner,
+  never retry-per-word after failure; manual Read again works. Canonical
+  Fountain body/newline shape; no title-page penalties or new AI-cost loop.
+- **Proof:** current signed erased units, authenticated connected freshness
+  UI, Mac/D009/diff; count only actual results, reuse unchanged backend proof
+  with explicit source equivalence. No paid calls or production/main change.
+- **Status:** in-progress; current646/774 bodies/comments and prior fix read.
+
 ### T-1156 — Preserve target-aware mentor guidance and actual prompt delivery
 
 - **Owner:** codex (Jarvis). **Branch:** `codex/T-1156-original-645-mentor`.
