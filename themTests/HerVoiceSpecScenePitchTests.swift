@@ -75,6 +75,16 @@ final class HerVoiceSpecScenePitchTests: XCTestCase {
         XCTAssertTrue(block.contains("If the user opens a new thread"))
     }
 
+    func test_specific_requests_outrank_unsolicited_pitches_even_on_the_first_turn() {
+        for ctx in [makeContext(), makeContext(recentTurns: [(user: "hi", assistant: "hey")])] {
+            let block = HerVoiceSpec.scenePitchBlock(ctx)
+            XCTAssertTrue(block.contains("A specific request comes first"))
+            XCTAssertTrue(block.contains("Never interrupt that request with an unsolicited scene pitch"))
+            XCTAssertTrue(block.contains("or require permission to begin work they already asked for"))
+            XCTAssertFalse(block.contains("Before anything else, pitch one scene"))
+        }
+    }
+
     func test_building_on_the_users_idea_is_always_part_of_the_rule() {
         for ctx in [makeContext(), makeContext(recentTurns: [(user: "a", assistant: "b")])] {
             let block = HerVoiceSpec.scenePitchBlock(ctx)
