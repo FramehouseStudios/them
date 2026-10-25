@@ -22,7 +22,14 @@
 - **Limits:** no paid model call, simulated quality claim, production change,
   whole-backup merge, original-head replacement, main push or review bypass.
   Preserve orb/Clementine, exact writer/recovery and reply/action authority.
-- **Status:** in-progress; existing T1102 evidence read, current proof required.
+- **Status:** local review. Original645 preserved by e208cc55; scoped02e9bee
+  replayed as206f7a79, authenticated delivery regression f44a6f68. Fresh full
+  Node20 backend2867/0/2, signed erased751/0/0, Home/raw-audio+writer3/0/0,
+  Mac/D009/diff/offline exemplar gate pass. Actual Swift fresh/Studio prompts
+  each pass authenticated real local talk delivery with/without feature map;
+  full shared core/pitch survive. No paid/generated-quality/phone claim.
+- **Evidence:** `docs/original-645-mentor-2026-10-25.md`; completed archive
+  `/Users/halfmutantfilms/io.them-worktrees/_proof/T-1156-20261025.ALFBnf/`.
 
 ### T-1155 — Preserve coverage and scope every read to its document
 
