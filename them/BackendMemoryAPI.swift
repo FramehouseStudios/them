@@ -1117,38 +1117,6 @@ nonisolated struct BackendAccountExportArtifact: Equatable {
     let data: Data
 }
 
-nonisolated struct BackendMemoryStatsCounts: Decodable, Hashable {
-    let characters: Int
-    let charactersWithVoice: Int
-    let charactersWithTraits: Int
-    let toneSignals: Int
-    let habitSignals: Int
-}
-
-nonisolated struct BackendMemoryStatsResponse: Decodable, Hashable {
-    let schemaVersion: Int
-    let hasMemory: Bool
-    let counts: BackendMemoryStatsCounts
-    let lastUpdatedMs: TimeInterval?
-    let error: String?
-
-    var lastUpdatedDate: Date? {
-        guard let lastUpdatedMs, lastUpdatedMs > 0 else { return nil }
-        return Date(timeIntervalSince1970: lastUpdatedMs / 1000.0)
-    }
-
-    var diagnosticsSummary: String {
-        guard hasMemory else { return "No companion memory yet." }
-        return [
-            "\(counts.characters) characters",
-            "\(counts.charactersWithVoice) voices",
-            "\(counts.charactersWithTraits) trait sets",
-            "\(counts.toneSignals) tone signals",
-            "\(counts.habitSignals) habit signals",
-        ].joined(separator: " · ")
-    }
-}
-
 nonisolated struct BackendCharacterMentionReceipt: Decodable, Equatable {
     let ok: Bool?
     let action: String?
@@ -8811,6 +8779,37 @@ actor BackendMemoryAPI {
         let decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase
         let parsed = try decoder.decode(BackendScreenplayRevisionResponse.self, from: data)
+        let headerSync = syncFromHeaders(http, fallbackStatus: "up")
+        updateSyncState(headerSync, emitTurnEvent: false)
+        return BackendReadResult(payload: parsed, sync: syncState, notModified: false)
+    }
+
+    func fetchScreenplayCoverage(
+        draft: String,
+        title: String = ""
+    ) async throws -> BackendReadResult<BackendScreenplayCoverageReport> {
+        _ = try? await bootstrapSession(force: false)
+        let trimmedDraft = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedDraft.isEmpty else {
+            throw BackendMemoryAPIError.server(status: 400, message: "draft_required")
+        }
+        var request = try makeWriteRequest(path: "/screenplay/coverage")
+        let payload: [String: Any] = [
+            "draft": trimmedDraft,
+            "title": title,
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        guard (200...299).contains(http.statusCode) else {
+            let message = decodeErrorMessage(from: data)
+            throw BackendMemoryAPIError.server(status: http.statusCode, message: message)
+        }
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        let parsed = try decoder.decode(BackendScreenplayCoverageReport.self, from: data)
         let headerSync = syncFromHeaders(http, fallbackStatus: "up")
         updateSyncState(headerSync, emitTurnEvent: false)
         return BackendReadResult(payload: parsed, sync: syncState, notModified: false)

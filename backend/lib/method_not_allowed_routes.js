@@ -63,6 +63,7 @@ function registerMethodNotAllowedRoutes(app) {
   app.all("/screenplay/projects/:projectId/version", methodNotAllowed("POST"));
   app.all("/screenplay/prompt/build", methodNotAllowed("POST"));
   app.all("/screenplay/paginate", methodNotAllowed("POST"));
+  app.all("/screenplay/coverage", methodNotAllowed("POST"));
   app.all("/screenplay/revision-colors", methodNotAllowed("POST"));
   app.all("/screenplay/export", methodNotAllowed("POST"));
   app.all("/history/annotate_turn", methodNotAllowed("POST"));
