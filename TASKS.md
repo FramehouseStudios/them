@@ -8,8 +8,9 @@
 ### T-1138 — Preserve original golden-set PR639 with explicit spend approval
 
 - **Owner:** codex (Jarvis). **Branch:** `codex/T-1138-original-639-parent`.
-- **Status:** prior local proof retained; refresh includes original638's
-  proven tab hit-target repair0b56861. Publication held for parent CI.
+- **Status:** refreshed local checkpoint complete; parent6380b56861 now has
+  all required hosted checks green. Eligible for normal original639 draft
+  publication, not main merge; independent reviews/checks remain required.
   Original639 `5722514` and prior original638 `612bf17` are preserved by
   merge `946a3c9`; actual base remains
   `claude/mentor-core-port`. No replacement PR or main change.
@@ -37,12 +38,16 @@
   ledger conflict, both histories kept. Fresh offline40pairs/8checks, guards
   8/0/0, D009/diff pass. No unchanged full/native rerun or child push; earlier
   complete checkpoints remain dated/inherited until updated-child proof.
+- **Refreshed proof:** signed635/0/0, inspector UI3/0/0, authenticated writer
+  1/0/0, Mac build exit0, numeric D009/diff pass. Same backend tree83217712
+  as original full2758/0/2 checkpoint; no unchanged backend rerun. Offline
+  40pairs/8checks and scorer/approval guards8/0/0 remain source-identical.
 
 ### T-1142 — Fix the original638 hosted Snapshots-pane failure
 
 - **Owner:** codex. **Branch:** `codex/T-1142-draft-pane-navigation`.
-  **Status:** original638 advanced normally to0b56861; fresh hosted run
-  40176990546 is in progress, not a declared pass.
+  **Status:** original6380b56861/run40176990546 completed all three required
+  jobs successfully; independent non-author review remains required.
   Retained recording/hierarchy shows Revisions stays
   selected after the Snapshots tap. The inactive button's icon/text-only
   accessibility frame is33.6pt high; the event lands in its clear inter-item gap.
@@ -67,7 +72,7 @@
 
 - **Owner:** codex (Jarvis). **Branch:** `codex/T-1137-original-638-mainline`.
 - **Status:** prior612bf17 hosted failure retained at T-1142 above; corrected
-  head0b56861 is published with fresh checks running. Independent review still
+  head0b56861 is published with fresh checks green. Independent review still
   required; no main or production change.
 - **Target:** update original #638 with a preserving merge of current main,
   not a replacement PR or rehearsal rollup. Preserve original638 `6ad4117`

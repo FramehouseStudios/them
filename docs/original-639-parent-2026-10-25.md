@@ -1,6 +1,6 @@
 # T-1138 — Preserve original mentor golden set safely
 
-VERIFIED: original639 `57225143908b8fa0b3c832372f9f8676d4cdf43c` is based
+VERIFIED initial head: original639 `57225143908b8fa0b3c832372f9f8676d4cdf43c` is based
 on `claude/mentor-core-port`. Its body was read before changes. Merge946a3c9
 preserves it and updated original638 `612bf17023854a3a5ba5890418b17ac1acc33b5e`.
 No public head, base, main or production was changed by this local preparation.
@@ -141,3 +141,37 @@ and Swift test source are byte-identical to priorf2cf7b5. DraftToolsViews and
 V1SmokeUITests are byte-identical to tested parent0b56861. Earlier full-suite
 and parent UI counts remain inherited, not newly executed combined-native proof.
 Raw refreshed artifacts: `/private/tmp/them-1138-parent-refresh.1AAh99/`.
+
+## Exact updated-parent publication checkpoint
+
+VERIFIED on runtime4c61d5a: signed full units635/0/0, signed inspector UI3/0/0,
+canonical authenticated writer1/0/0 and Mac scaffold BUILD SUCCEEDED/exit0.
+All native proofs erase only owned91693AF0, normal signing enabled; no unsigned
+iOS test. UI includes the inherited44pt/padding-tap regression and both adjacent
+inspector workflows. Writer covers save/export handoff/relaunch, not opening a
+file outside THEM. UI orchestration uses Node24.19.0; full backend Node20.20.2.
+
+Backend tree8321771242c662d84b91da33759a9f782b11ab0c is identical to prior
+f2cf7b5's complete2758/0/2 proof, including lockfile, runner and safety guards.
+That complete backend result is reused, not described as a new execution.
+Offline40 exemplar pairs/eight prompt checks and approval/scorer8/0/0 at2ef41fd
+are also source-identical. No live golden/provider call is authorized or made.
+
+The first refreshed D009 command used a stale but valid tracking ref6ad4117;
+it was not labeled a comparison against0b. Fetch the actual unchanged PR parent,
+confirm origin/claude/mentor-core-port is0b56861, then run the canonical
+GITHUB_BASE_REF=claude/mentor-core-port comparison: all five numeric deltas0.
+Diff check passes. No ignored/missing baseline or line padding accepted.
+
+Distinct final artifacts are retained at
+`/Users/halfmutantfilms/io.them-worktrees/_proof/T-1138-Refresh-20261025.yoA5mQ/`:
+units, UI, writer bundles; Mac/Node/offline logs; task-local writer retention
+wrapper. It preserves canonical selectors/signing/timeouts/status and refuses
+to overwrite its destination; the older writer wrapper was not reused.
+
+Original6380b56861/run40176990546 now has all three required hosted jobs
+successful. It remains draft/REVIEW_REQUIRED; main78b8c94 is unchanged. This
+clears the child-publication hold, not independent approval or a main merge.
+Normally fast-forward original6395722514 to the proven descendant and preserve
+its original base/history; require its own fresh hosted checks and human review.
+No production, physical-phone, live quality or integrated-main claim follows.
