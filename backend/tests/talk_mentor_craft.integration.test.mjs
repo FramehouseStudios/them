@@ -7,8 +7,9 @@ import { once } from "node:events";
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), "them-mentor-talk-"));
 Object.assign(process.env, {
-  RUN_SERVER: "0", NODE_ENV: "test", REQUIRE_USER_AUTH: "0",
+  RUN_SERVER: "0", NODE_ENV: "test", REQUIRE_USER_AUTH: "1",
   APP_TOKEN: "mentor-talk-test", OPENAI_API_KEY: "not-a-real-provider-key",
+  JWT_SECRET: "mentor-delivery-isolated-test-secret",
   TALK_TEST_DEBUG_TRANSCRIPT_ENABLED: "1", TALK_STREAM_AUDIO_ENABLED: "0",
   TALK_TEST_DEBUG_OFFLINE_ENABLED: "0",
   KNOWLEDGE_RAG_EMBEDDINGS_ENABLED: "0", OUTBOX_WORKER_ENABLED: "0",
@@ -42,7 +43,22 @@ test("[640-talk] real talk path carries mentor craft and suppresses it for a fea
   await once(server, "listening");
   const base = `http://127.0.0.1:${server.address().port}`;
   try {
-    const session = await realFetch(`${base}/session`, { method: "POST", headers: { "X-APP-TOKEN": "mentor-talk-test" } });
+    const denied = await realFetch(`${base}/talk`, {
+      method: "POST", headers: { "X-APP-TOKEN": "mentor-talk-test" },
+    });
+    assert.equal(denied.status, 401, "The actual handler proof must not disable the user-auth boundary");
+    await denied.arrayBuffer();
+    assert.equal(systems.length, 0, "A signed-out request must never reach the provider");
+    // Synthetic account in this test's temporary store; no production login.
+    const signup = await realFetch(`${base}/auth/signup`, {
+      method: "POST", headers: { "X-APP-TOKEN": "mentor-talk-test", "Content-Type": "application/json" },
+      body: JSON.stringify({ email: "mentor-delivery@example.test", password: "synthetic-mentor-password-123" }),
+    });
+    assert.equal(signup.status, 201);
+    const { token } = await signup.json();
+    assert.ok(token);
+    const headers = { "X-APP-TOKEN": "mentor-talk-test", Authorization: `Bearer ${token}` };
+    const session = await realFetch(`${base}/session`, { method: "POST", headers });
     assert.equal(session.status, 201);
     const { client_token } = await session.json();
     for (const feature of [false, true]) {
@@ -55,7 +71,7 @@ test("[640-talk] real talk path carries mentor craft and suppresses it for a fea
         : `<mentor_core>\n${mentorCore}\n</mentor_core>\n<scene_pitch>SCENE PITCH (standing collaborator rule)\nKeep the writer's premise.</scene_pitch>\n${map}`;
       form.append("system_prompt", source + "\nDisposable continuity detail. ".repeat(600));
       form.append("file", new Blob([Buffer.alloc(64)], { type: "audio/wav" }), "test.wav");
-      const response = await realFetch(`${base}/talk`, { method: "POST", headers: { "X-APP-TOKEN": "mentor-talk-test", "X-Client-Token": client_token }, body: form });
+      const response = await realFetch(`${base}/talk`, { method: "POST", headers: { ...headers, "X-Client-Token": client_token }, body: form });
       await response.arrayBuffer();
       assert.equal(response.status, 200);
       const prompt = systems.slice(before).find((value) => value.includes("<mentor_output>"));
