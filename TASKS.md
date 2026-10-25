@@ -7,15 +7,25 @@
 
 ### T-1142 — Fix the original638 hosted Snapshots-pane failure
 
-- **Owner:** codex. **Status:** ready; exact failure triaged, runtime cause
-  not established. Original638 head612bf17/run40171307411 is terminal red.
+- **Owner:** codex. **Branch:** `codex/T-1142-draft-pane-navigation`.
+  **Status:** local fix proven; preparing original638 normal advancement.
+  Retained recording/hierarchy shows Revisions stays
+  selected after the Snapshots tap. The inactive button's icon/text-only
+  accessibility frame is33.6pt high; the event lands in its clear inter-item gap.
+  Original638 head612bf17/run40171307411 remains terminal red.
 - **Observed:** broad V1 test `test_draft_tools_tabs_route_to_each_presentation_pane`
   reaches Pages and Revisions, taps Snapshots, then fails the snapshot-tools
   element assertion at line613. Later voice/macOS step is skipped. Do not
   treat earlier local633/0/0 or writer1/0/0 as clearing this hosted failure.
-- **Next:** inspect that test's retained recording/hierarchy and actual UI
-  state, then reproduce/fix the smallest pane-routing or test-readiness cause.
-  No guessed timeout, repeated CI retry, weakened assertion or child advance.
+- **Target:** one full rectangular touch target per draft-tools tile, retaining
+  current visuals/selection/routing. Own only DraftToolsViews, its existing UI
+  workflow regression, this entry and the failure handoff; basee63c6e0.
+  Prove minimum44pt target height and one padding tap per route, selected state,
+  real pane/note/create controls, and return to Pages. No longer timeout or retry.
+- **Proof:** signed red0/1/0 (inactive target34.24pt); corrected UI3/0/0,
+  full units633/0/0, authenticated local writer1/0/0, Mac build exit0, D009
+  numeric deltas0/diff pass. Backend unchanged, same tree as hosted2750/0/2;
+  not rerun. Fresh hosted checks and independent review remain required.
 - **Evidence:** `docs/hosted-draft-pane-failure-2026-10-25.md`. Main unchanged;
   no further review action needed until a corrected exact head is provided.
 
