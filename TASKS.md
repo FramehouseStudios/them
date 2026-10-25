@@ -21,9 +21,17 @@
 - **Done when:** root reproductions/owned contracts pass, protected context and
   canonical auth remain enforced, backend/offline/D009 checks pass, and native
   Craft/writer checkpoint is completed when GUI observation is available.
+- **Proof:** current full Node20 backend2785/0/2, offline40 pairs/8 checks,
+  strict numeric D009 and its7/0/0 contracts, focused signed native15/0/0,
+  full signed erased native647/0/0. Initial sandbox invocation executed no
+  tests; permitted execution passed, with a907s file-store-test outlier whose
+  cause is unclassified. No responsiveness claim.
 - **Hold:** Mac currently locked; no new local GUI workflow until manual
-  unlock. Original63940203301919 remains active; no public640 advance until
-  that parent gate clears. No paid call, production change or review bypass.
+  unlock. Original63940203301919 is now terminal green at965a507. No public640
+  advance until its current Craft/writer/Mac checkpoint is complete. Separately
+  original97540208473954 failed the second Files presentation; inspect evidence
+  before correction. No paid call, production change or review bypass.
+- **Evidence:** `docs/original-640-parent-refresh-2026-10-25.md`.
 
 ### T-1139 — Preserve original640 with proven craft/routing corrections
 
