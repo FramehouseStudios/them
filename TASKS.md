@@ -5,6 +5,25 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1156 — Preserve target-aware mentor guidance and actual prompt delivery
+
+- **Owner:** codex (Jarvis). **Branch:** `codex/T-1156-original-645-mentor`.
+- **Base:** saved coverage/recovery42d6f746. Original644 publication waits for
+  exact643cdd463f5 hosted Quality; no assumed parent clearance or main merge.
+- **Scope:** no-ff preserve original6458a7f367a; reuse scoped02e9bee repair,
+  stronger current prompt allocator and canonical dialogue/memory ownership.
+  Original649 identity/budget dependencies may be brought forward narrowly,
+  not its ancestry across intervening originals. Read645/649 bodies/comments.
+- **Binary success:** shared native/backend mentor identity honors active
+  chosen target/map, offers120 only flexibly; scorer still rejects original
+  weak fixtures; actual Swift fresh/Studio prompts deliver full core/pitch
+  through local talk normalization/trimming with and without a feature map.
+  Signed erased native, connected writer UI, full pinned Node20, D009/Mac/diff.
+- **Limits:** no paid model call, simulated quality claim, production change,
+  whole-backup merge, original-head replacement, main push or review bypass.
+  Preserve orb/Clementine, exact writer/recovery and reply/action authority.
+- **Status:** in-progress; existing T1102 evidence read, current proof required.
+
 ### T-1155 — Preserve coverage and scope every read to its document
 
 - **Owner:** codex (Jarvis). **Branch:** `codex/T-1155-original-644-coverage`.
