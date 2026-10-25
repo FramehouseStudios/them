@@ -8,7 +8,8 @@
 ### T-1144 — Preserve current recovery repairs on original #975
 
 - **Owner:** codex (Jarvis). **Branch:** `codex/T-1144-original-975-parent`.
-- **Status:** in-progress. **Pillar:** writer ownership / recoverable voice-to-page.
+- **Status:** review (local checkpoint; publication held at earlier #639 red).
+  **Pillar:** writer ownership / recoverable voice-to-page.
 - **Base:** committed combined recovery `01bbeda`; original #975 remains
   `80a2f66` publicly. Preserve both, then merge green original parent #974
   `f4aca4a` without squash, force or replacement PR.
@@ -22,6 +23,11 @@
   only after inspecting the exact parent/child and preserving all history.
 - **Boundaries:** no paid calls, production changes, native resource sharing,
   simulated-live claim or main merge. Zora owns a separate backend lane.
+- **Current proof:** new signed966/0/0 and real native Files two-path2/0/0;
+  proper-parent D009 deltas0/diff pass. The Files run was unusually slow; no
+  latency claim. Further connected checkpoint/publication stops for exact
+  #639 run40185550749 native V1 failure. Evidence:
+  `docs/original-975-parent-refresh-2026-10-25.md`.
 
 ### T-1141 — Diagnose the exact hosted recovery-export failure
 
