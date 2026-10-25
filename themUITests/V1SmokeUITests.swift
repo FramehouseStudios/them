@@ -3735,12 +3735,38 @@ final class V1SmokeUITests: XCTestCase {
             || revealInStudioDrawer(tab, drawer: drawer, scrollingUp: false, maxSwipes: 16)
     }
 
+    // Preserved 2fcdc772 helper used by the original narrow Pages proof.
+    // A keyboard tutorial is not permission to tap an arbitrary Continue.
+    private func dismissKeyboardTypingTutorialIfPresent(in app: XCUIApplication) -> Bool {
+#if os(iOS)
+        let tutorial = app.staticTexts.matching(NSPredicate(
+            format: "label BEGINSWITH %@", "Speed up your typing by sliding"
+        )).firstMatch
+        guard tutorial.waitForExistence(timeout: 0.5) else { return true }
+        let continueTyping = app.buttons["Continue"].firstMatch
+        guard continueTyping.exists, continueTyping.isHittable else {
+            XCTFail("The keyboard tutorial did not expose its Continue action.")
+            return false
+        }
+        continueTyping.tap()
+        guard waitForDisappearance(of: tutorial, timeout: 5) else {
+            XCTFail("The keyboard tutorial still covers the Studio controls.")
+            return false
+        }
+#endif
+        return true
+    }
+
     private func revealInStudioDrawer(
         _ target: XCUIElement,
         drawer: XCUIElement,
         scrollingUp: Bool,
-        maxSwipes: Int
+        maxSwipes: Int,
+        fullyVisible: Bool = false
     ) -> Bool {
+        if fullyVisible {
+            return revealFullyInStudioDrawer(target, drawer: drawer, maxSwipes: maxSwipes)
+        }
         if target.exists, target.isHittable {
             return true
         }
