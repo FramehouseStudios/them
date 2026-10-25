@@ -146,9 +146,13 @@ The historical 2026-10-08 results are not claimed as new proof.
 The first explicit-parent D009 invocation had no local tracking ref and reported
 null base/delta fields despite exit0. That output was not counted as proof.
 Fetch of the exact original parent confirmed5722514, and the corrected run shows
-the real33626→33581 and17435→17431 comparisons. T-1140 tracks the canonical
-script's misleading missing-baseline success; current hosted checkout fetches
-full history, but that does not excuse the local diagnostic gap.
+the real33626→33581 and17435→17431 comparisons. T-1140 corrects the canonical
+script's misleading missing-baseline success. Commits26dd548 and90e2cb7 are
+preserved by local merge628e55c: unavailable comparisons fail, new files compare
+from zero, and seven isolated regressions run in the existing required D009 job.
+App/backend source is byte-identical toa0bab6a, so no unchanged native/backend
+rerun is presented as new evidence. Fresh hosted execution of the new script
+binding remains pending original publication.
 
 No paid provider, microphone, live voice quality, real-phone, shipping backend
 or integrated-main proof follows from these local checks. Existing Swift6
@@ -157,9 +161,13 @@ responses, not an actually stalled WAN connection. The Mac was still locked at
 the post-check observation; the separate actual exported-file preview is not
 claimed and its earlier simulator/file remains preserved.
 
-Original638/974 hosted runs are still live, not whole-gate green. Required
-independent human approval remains separate; original639/640 public heads and
-bases have not been advanced by this local preparation.
+At the local proof checkpoint, original638/974 hosted runs were still live.
+Subsequently original974 run40170181825 at8d519bd finished red: broad V135/1/22;
+its later offline-save and voice/Mac steps were skipped. T-1141 now owns that
+first failure, with minimal UI-only readiness candidatef4aca4a on the original
+parent and fresh run40175219157 in progress; it is not declared resolved.
+Required independent human approval remains separate. Original639/640 public
+heads and bases have not been advanced by this local preparation, nor was main.
 
 No public child advance until the original parent is proven through its required
 checks; no direct main push, replacement PR, squash, force-push or fake approval.
@@ -167,6 +175,7 @@ checks; no direct main push, replacement PR, squash, force-push or fake approval
 ## Exact authored/backported file set versus the proven639 parent
 
 - `TASKS.md`
+- `.github/workflows/quality-gate.yml`
 - `backend/.dockerignore`
 - `backend/DEPLOY.md`
 - `backend/index.js`
@@ -190,6 +199,9 @@ checks; no direct main push, replacement PR, squash, force-push or fake approval
 - `docs/T21-craft-prompts-and-classification.md`
 - `docs/three-act-review-corrections-2026-10-08.md` (dated historical proof)
 - `docs/original-640-craft-2026-10-25.md`
+- `docs/god-baseline-authority-2026-10-25.md`
+- `scripts/check_god_files.mjs`
+- `scripts/check_god_files.test.mjs`
 - `them/ScreenplayStudioScreen.swift`
 - `them/ScreenplayStudioViewModel.swift`
 - `them/StudioCraftResilience.swift`
