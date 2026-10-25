@@ -85,17 +85,23 @@ external exported-file opening, main integration or release completion.
 Permanent archive, including retained red and earlier combined journeys:
 `/Users/halfmutantfilms/io.them-worktrees/_proof/T-1135-20261024.KooJKq/`.
 
-Source review confirms the original earlier parent has the same deferred
-selection read, although it predates the optional request-ID override. Port the
-small capture/hold correction there before advancing a child; do not import
-T1130 continuation or the T1133 hooks wholesale into that earlier parent.
+The earlier-parent fix is now normally published in original #974 at `34b9bc5`
+(runtime `f7eba21`): signed953/0/0, writer/native export/relaunch1/0/0, required
+offline recovery3/0/0, Mac0 and D009/diff pass. No T1130 continuation or T1133
+hooks were imported into that earlier parent. Its fresh required run40167414308
+was pending at the last observation, not a green check claim.
+
+That parent is now preserve-merged into this local combined branch. The single
+native conflict was the equivalent loaded-project guard: keep the already-proven
+child's canonical property, which checks selected ID, selected summary and loaded
+draft ID. TASKS consolidates both evidence scopes. Direct
+`git diff --exit-code ef62fb8 -- them themTests themUITests backend scripts Packages`
+passes: runtime and tests remain byte-identical to the proven combined source.
+Only task/evidence documentation changes, so there is no unchanged native rerun.
 
 The combined checkpoint is locally proven within the scopes above. No standalone
 writer/export, three-case offline suite, full backend or hosted suite was rerun
-on this combined descendant. Port the shared fix to the earlier parent next.
-Original
-parent #974 at `bb005cd8` has backend/D009 and writer step green, broad V1 UI
-active within required QualityGate at the last check;
-it must clear before advancing original child #975. Original #975 remains
+on this combined descendant; the parent writer/recovery proof is separate.
+The earlier hosted gate must clear before advancing original child #975, which remains
 `80a2f66` remotely with its red hosted result retained. Do not waive those checks
 because local descendants pass. Zora's backend T1131 remains a separate lane.

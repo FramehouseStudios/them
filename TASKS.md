@@ -647,25 +647,35 @@
   safely local325cfb5, not included here. Details and actual archive paths
   in `docs/native-export-presentation-identity-2026-10-24.md`.
 
-### T-1135 — Capture a deferred page save before its project changes
+### T-1135 — Preserve a deferred page save's original owner and project
 
-- **Owner:** codex (Jarvis), local `codex/T-1135-deferred-page-save-owner`.
-  Preserving combined parent6ca496f includes T1130/T1133 and publishedbb005cd8.
-- **Reproduced:** actual model adopts A, selects unhydrated B before the task
-  starts, then enqueues A's scene behind B's earlier pending save under B's ID.
-  Focused0/1/0, no HTTP or provider. Selection was read after deferral.
-- **Fix:** runtime2b13d98 captures the canonical immutable save request before
-  scheduling; changed account/project/loaded version or cancellation parks that
-  original request. Reuse for programmatic autosaves; reject stale-account page
-  adoption before editor mutation. No second save store or public contract change.
-- **Proof:** focused signed39/0/0, full signed960/0/0, Mac0, D009/diff pass. Combined6ca before this
-  fix passes save-admission recovery1/0/0 and newer-writer lost-ack recovery1/0/0,
-  intercepted providers only; these are not current-runtime UI proof. Current
-  save-admission recovery also1/0/0 on current2b13d98; newer-writer acknowledgement
-  recovery1/0/0 preserves newer exact words without another version. No fresh backend run.
-- **Next:** port the shared capture/hold correction
-  to earlier #974 before advancing original #975. No wholesale continuation/hook
-  import. `docs/deferred-page-save-owner-2026-10-24.md`.
+- **Owner:** codex (Jarvis), original parent #974 and local combined descendant
+  `codex/T-1135-deferred-page-save-owner`; both histories preserved.
+- **Reproduced:** actual model adopted A, selected B before its Task started,
+  and durably queued A's scene under B; focused0/1/0, no HTTP/provider. The
+  canonical request was built after deferral from the later selected project.
+- **Fix:** capture request before scheduling; changed auth/project/loaded base
+  or cancellation parks that original request. Reject stale-account page
+  adoption before editing. Reuse for programmatic autosaves, existing outbox and
+  request UUIDs. Only the shared small fix was ported into the earlier parent,
+  not child continuation/hooks. Its existing selected/loaded fields implement
+  the later child's equivalent canonical loaded-project property.
+- **Proof:** combined runtime2b13d98 has focused39/0/0, full signed960/0/0,
+  save-admission recovery1/0/0, newer-writer acknowledgement1/0/0, Mac0. These
+  are not earlier-parent proof. Earlier-parent runtimef7eba21 passes signed
+  953/0/0, Mac0 and D009/diff; unchanged current writer1/0/0, offline recovery3/0/0.
+  No fresh backend or paid calls.
+- **Published:** original parent #974 normally advanced bb005cd8 ->34b9bc5;
+  fresh required run40167414308 pending. Original child #975 remains80a2f66.
+  Parent/base/draft/protections unchanged; no main merge or deployment.
+- **Integration:** preserve-merged that parent into the combined local branch;
+  retain the already-proven canonical loaded-project property and both task
+  evidence scopes. All native/backend/script sources and tests are directly
+  verified byte-identical to ef62fb8; its960-unit/recovery proof applies without
+  an unchanged rerun. No new runtime difference is claimed as a new test result.
+- **Next:** resolve the earlier hosted gate before advancing original child.
+  `docs/deferred-page-save-parent-2026-10-24.md` and
+  `docs/deferred-page-save-owner-2026-10-24.md` retain both exact scopes.
 
 ### T-1134 — Repair hosted duplicate save and false one-copy conflict assertion
 
