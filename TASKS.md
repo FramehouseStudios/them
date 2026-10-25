@@ -5,6 +5,28 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1143 — Preserve original641 and connect its filmmaker routing safely
+
+- **Owner:** codex (Jarvis). **Branch:** `codex/T-1143-original-641-routing`.
+- **Status:** in-progress, local only; base22bf182, proven640 preparation.
+  Original641232098ba still targets `claude/three-act-port`; public head/base
+  remain held. Body and all four correction/follow-up comments read.
+- **Target:** preserving merge of existing corrected641descendantb85e391f,
+  not a replacement implementation/rehearsal rollup. Retain original232098ba,
+  current parent22bf182, craft trimming/default/report-slot ownership and the
+  parent touch-target repair. Declare all edits within original641 routing,
+  dialogue/intent/freshness modules, associated Swift intent/root/voice seams,
+  focused tests, this entry and the task handoff. No wallet/result-store lane.
+- **Binary criteria:** rewriting stays Page; everyday Home speech stays
+  Companion; server owns dialogue-note detection/contract and project memory;
+  fresh greetings reach the real pitch lane; trimmed craft/notes survive.
+  Existing comments document payload-versus-command and confirmed Home voice
+  follow-ups: reconcile their isolated fixes before declaring this boundary
+  ready. Do not claim typed Studio proof covers a first Home utterance.
+- **Holds:** parent638/974 hosted gates remain live; no child push, main merge,
+  paid provider call, production/credential change or review bypass. Keep
+  native proof isolated/signed and erase only task-owned simulator91693AF0.
+
 ### T-1139 — Preserve original640 with proven craft/routing corrections
 
 - **Owner:** codex (Jarvis). **Branch:** `codex/T-1139-original-640-craft`.
