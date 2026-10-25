@@ -385,8 +385,8 @@ final class V1SmokeUITests: XCTestCase {
             timeout: writerLoopWait(20)
         )
 
-        guard dismissWriterLoopProjectKeyboard(in: app) else {
-            XCTFail("The project-title keyboard blocked the Studio inspector controls.")
+        guard waitForDisappearance(of: app.keyboards.firstMatch, timeout: writerLoopWait(3)) else {
+            XCTFail("Create must dismiss the project-title keyboard without an extra test tap before Studio navigation.")
             app.terminate()
             return
         }
@@ -2959,35 +2959,28 @@ final class V1SmokeUITests: XCTestCase {
 #endif
 
     private func revealStudioPendingQuestion(in app: XCUIApplication) {
-        let card = element(identifier: "studio.pending-question", in: app)
-        let deadline = Date().addingTimeInterval(8)
-        let rightToggle = app.buttons["studio.sidebar.right.toggle"]
-        while Date() < deadline, !card.exists {
-            if rightToggle.waitForExistence(timeout: 0.5),
-               rightToggle.isHittable,
-               rightToggle.label.localizedCaseInsensitiveContains("Open") {
-                rightToggle.tap()
-            }
-            let themTab = app.buttons["io.them"]
-            if themTab.exists, themTab.isHittable, !themTab.isSelected {
-                themTab.tap()
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.2))
-        }
+        revealStudioPartnerContent(identifier: "studio.pending-question", in: app)
     }
 
     private func revealStudioAppliedMemory(in app: XCUIApplication) {
-        let memory = element(identifier: "studio.story-obligation.current", in: app)
+        revealStudioPartnerContent(identifier: "studio.story-obligation.current", in: app)
+    }
+
+    private func revealStudioPartnerContent(identifier: String, in app: XCUIApplication) {
+        let content = element(identifier: identifier, in: app)
         let deadline = Date().addingTimeInterval(8)
         let rightToggle = app.buttons["studio.sidebar.right.toggle"]
-        while Date() < deadline, !memory.exists {
+        while Date() < deadline, !content.exists {
             if rightToggle.waitForExistence(timeout: 0.5),
-               rightToggle.isHittable,
-               rightToggle.label.localizedCaseInsensitiveContains("Open") {
+               rightToggle.label.localizedCaseInsensitiveContains("Open"),
+               rightToggle.isHittable {
                 rightToggle.tap()
             }
-            let themTab = app.buttons["io.them"]
-            if themTab.exists, themTab.isHittable, !themTab.isSelected {
+            // Opening the drawer may already reveal the selected panel.
+            // Do not request an unnecessary hit point on its selected tab.
+            if content.exists { return }
+            let themTab = app.buttons["studio.right-panel.them"]
+            if themTab.exists, !themTab.isSelected, themTab.isHittable {
                 themTab.tap()
             }
             RunLoop.current.run(until: Date().addingTimeInterval(0.2))
@@ -3245,29 +3238,6 @@ final class V1SmokeUITests: XCTestCase {
             element.tap()
         }
         return waitForWriterLoopSwitch(element, toBeOn: expected, timeout: max(1, timeout * 3 / 4))
-    }
-
-    private func dismissWriterLoopProjectKeyboard(in app: XCUIApplication) -> Bool {
-#if os(iOS)
-        let keyboard = app.keyboards.firstMatch
-        guard keyboard.exists else { return true }
-        let returnKey = keyboard.buttons
-            .matching(NSPredicate(
-                format: "label ==[c] %@ OR label ==[c] %@",
-                "return",
-                "done"
-            ))
-            .firstMatch
-        if returnKey.waitForExistence(timeout: 2), returnKey.isHittable {
-            returnKey.tap()
-            if waitForDisappearance(of: keyboard, timeout: 3) {
-                return true
-            }
-        }
-        return dismissKeyboardIfPresent(in: app)
-#else
-        return true
-#endif
     }
 
     private func staticText(containing text: String, in app: XCUIApplication) -> XCUIElement {
