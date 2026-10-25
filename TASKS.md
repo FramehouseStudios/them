@@ -523,7 +523,7 @@
   Show Open original project instead of a wrong-project append; use canonical
   selection only after current work is saved and conflict/queue/stream guards
   pass. Navigation alone must never acknowledge the reply.
-- **Proof in progress:** actual queued A response retained across relaunch into
+- **Connected proof:** actual queued A response retained across relaunch into
   B; open A, append/save once, restore exact A and confirm B unchanged. No paid
   calls or production change. Unbound/precise-rewrite context and interrupted
   delivery-plan document continuity remain separate unfinished boundaries.
@@ -541,6 +541,17 @@
   Full recovery UI/full units still pending. Stop again for #974's next first
   red: hosted947 signed units pass, integrated writer workflow fails in
   run40124255938. Preserve this work locally while diagnosing that boundary.
+- **Current correction / proof:** preserving merge16000d6 retains #974's2369367
+  Files-picker correction. Runtime f2b7fbc fixes a reproduced stale project read:
+  held HTTP read after a newer confirmed page, focused red2/1/0 ->3/0/0. The
+  connected UI exposed an additional outbox-suspension gap; content-free stack
+  identified cross-device refresh hydration. The same read-authority fence now
+  spans HTTP and local recovery awaits; changed authority defers the read for the
+  normal poll. Failed selection also cannot label another loaded draft as its own.
+  Final signed full950/0/0, two-project recovery/playback/single-save/relaunch
+  UI1/0/0, macOS/D009/diff pass. No temporary trace ships. Earlier intermittent
+  passes and subsequent reversion failures are retained, not erased by the green
+  run. `docs/original-project-recovery-2026-10-24.md` records exact boundaries.
 
 ### T-1128 — Recognize real native Files presentation in the hosted writer loop
 
