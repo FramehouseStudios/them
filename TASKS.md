@@ -559,6 +559,26 @@
   remains safely local389de8c, not included here. Details and actual archive paths
   in `docs/native-export-presentation-identity-2026-10-24.md`.
 
+### T-1134 — Repair hosted duplicate save and false one-copy conflict assertion
+
+- **Owner:** codex (Jarvis), local `codex/T-1134-hosted-save-recovery` from exact
+  failed #975 head80a2f66; source d511eda. Hosted40160039304 recovery1/2/0:
+  manual+autosave created two versions, while conflict text remained87 characters
+  with two parked copies. Do not mislabel a journal-count predicate as lost text.
+- **Fix:** adapt preserved original #962 runtime1ffa52e, not another framework:
+  exact acknowledged passive autosave/same nonempty version/empty notes only;
+  durable removal of only that request with rollback on failed disk persistence.
+  Keep raw acknowledged revision-base bytes. Conflict test now proves exact text,
+  loaded/selected project, conflict version, no premature server save and cleanup,
+  rather than assuming one immutable copy. Explicit writes/changed bytes stay.
+- **Proof:** unchanged auth baseline1/0/0 is timing evidence only; changed focused
+  queue37/0/0 and connected signed recovery3/0/0, syntax/D009/diff pass. No full
+  unit/backend/Mac proof claimed yet on the first child-source checkpoint.
+- **Next:** source comparison proves the failed save routine and outbox/policy
+  are shared by earlier #974. Apply the scoped fix there first, re-prove parent,
+  publish normally, then bring preserved children forward. No main/deploy/paid
+  call. `docs/hosted-save-recovery-2026-10-24.md` retains exact artifact/results.
+
 ### T-1129 — Keep isolated question fixtures stable through outbox notifications
 
 - **Owner:** codex (Jarvis), original #974 branch; parent2369367. Hosted
