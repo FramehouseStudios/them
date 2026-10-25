@@ -762,6 +762,16 @@ final class V1SmokeUITests: XCTestCase {
 
     @MainActor
     func test_integrated_iphone_writer_loop_creates_saves_exports_and_restores() async throws {
+        try await runIntegratedWriterLoop(coverageFreshnessOnly: false)
+    }
+
+    @MainActor
+    func test_coverage_read_labels_earlier_snapshot_and_refreshes_current_draft() async throws {
+        try await runIntegratedWriterLoop(coverageFreshnessOnly: true)
+    }
+
+    @MainActor
+    private func runIntegratedWriterLoop(coverageFreshnessOnly: Bool) async throws {
 #if os(iOS)
         let portRaw = (ProcessInfo.processInfo.environment["THEM_UITEST_WRITER_LOOP_BACKEND_PORT"] ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -966,6 +976,40 @@ final class V1SmokeUITests: XCTestCase {
         let verdict = stringValue(coverage.payload["verdict"]).capitalized
         XCTAssertTrue(staticText(containing: "\(grade.label) · \(verdict) · 1 page, 0 scenes", in: app).exists,
                       "The card must describe this writer's saved one-page draft, not another script.")
+        if coverageFreshnessOnly {
+            // Preserve the separate one-copy/export/relaunch gate. Exercise a
+            // real same-page edit without assuming the caret's insertion point.
+            rightDrawerToggle.tap()
+            guard waitForHittability(of: editor, timeout: writerLoopWait(5)) else {
+                XCTFail("The saved screenplay editor was not reachable.")
+                return
+            }
+            editor.tap()
+            let revision = "REVISION "
+            editor.typeText(revision)
+            let editedDraft = accessibleDraftText(in: app)
+            XCTAssertEqual(editedDraft.replacingOccurrences(of: revision, with: ""), marker)
+            XCTAssertNotEqual(editedDraft, marker)
+            rightDrawerToggle.tap()
+            guard waitForDisappearance(of: app.keyboards.firstMatch, timeout: writerLoopWait(5)),
+                  revealInStudioDrawer(readPages, drawer: rightDrawer, scrollingUp: true, maxSwipes: 8) else {
+                XCTFail("Opening the Craft inspector did not end editing and expose Read again.")
+                return
+            }
+            let earlierRead = app.staticTexts["studio.craft.coverage.earlier-snapshot"]
+            XCTAssertTrue(earlierRead.waitForExistence(timeout: writerLoopWait(5)),
+                          "A completed earlier read must not masquerade as the edited draft.")
+            XCTAssertTrue(app.buttons["studio.craft.coverage.speak"].label.contains("earlier"))
+            let earlierImage = XCTAttachment(screenshot: app.screenshot())
+            earlierImage.name = "Craft read clearly marks earlier snapshot"
+            earlierImage.lifetime = .keepAlways
+            add(earlierImage)
+            readPages.tap()
+            XCTAssertTrue(grade.waitForExistence(timeout: writerLoopWait(15)))
+            XCTAssertTrue(waitForDisappearance(of: earlierRead, timeout: writerLoopWait(5)))
+            XCTAssertEqual(app.buttons["studio.craft.coverage.speak"].label, "Hear her read")
+            return
+        }
         XCTAssertTrue(waitForHittability(of: draftInspector, timeout: writerLoopWait(5)), "The pinned Draft tab must be reachable")
         if !draftInspector.isSelected {
             draftInspector.tap()
