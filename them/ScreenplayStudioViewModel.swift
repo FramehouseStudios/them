@@ -6321,8 +6321,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
     }
 
     private func recomputePagination(for draft: String, source: String) async {
-        let normalized = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalized.isEmpty else {
+        let paginationSource = FountainPaginationSource.make(from: draft)
+        guard paginationSource.shouldPaginate else {
             activePaginationRequestID = nil
             isPaginationRefreshing = false
             paginationPages = []
