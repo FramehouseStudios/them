@@ -5,6 +5,31 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1137 — Preserve original mentor-core PR 638 on current main
+
+- **Owner:** codex (Jarvis). **Branch:** `codex/T-1137-original-638-mainline`.
+- **Status:** locally proven; original draft publication pending fresh checks
+  and independent review. No main or production change.
+- **Target:** update original #638 with a preserving merge of current main,
+  not a replacement PR or rehearsal rollup. Preserve original638 `6ad4117`
+  and main `78b8c94`; clean merge checkpoint `8bc3f5a`.
+- **Reconciliation:** the original mentor identity hard-coded a110-page
+  feature. Reuse the accepted flexible120-page wording from the existing
+  writer candidate, without importing its unrelated features. This follows
+  the human's newer explicit direction; chosen lengths remain authoritative.
+- **Done when:** Node20 focused/full backend, signed units on a separately
+  task-owned erased simulator, required writer workflow, macOS scaffold,
+  D009 and whitespace checks pass on the exact candidate; record all failures
+  and skips. Only then normally advance original #638 for fresh hosted checks
+  and independent human review. Preserve its main base and every original commit.
+- **Resources:** task-owned simulator `91693AF0-AE2C-4FAD-9F4C-EC4C92AA382A`.
+  Reserved export-evidence simulator7F1A14C1 remains untouched. No paid calls,
+  production change, secret access, force-push, squash or protection bypass.
+- **Evidence:** `docs/original-638-mainline-2026-10-24.md`.
+- **Verified:** Node20.20.2 backend2750 pass/0 fail/2 skip; signed iOS633/0/0;
+  authenticated local writer workflow1/0/0; macOS scaffold build exit0; D009
+  deltas0 and diff check pass. No paid/live-model/physical-phone proof.
+
 ### T-1042 — Promote the minimal original dependency-security correction
 
 - **Owner:** codex. **Branch:** `codex/T-1042-dependency-boundary-refresh`.
