@@ -5,6 +5,26 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1153 — Preserve original Studio voice actions on the current Pages writer
+
+- **Owner:** codex (Jarvis). **Branch:** `codex/T-1153-original-643-actions`.
+- **Base:** clean/pushed Pages78dc3be; original642 publication waits for its
+  own parent641 required Quality Gate. No public parent/head assumptions.
+- **Scope:** preserve original64386cc5b24 and additive879eaed4e61 via no-ff
+  merges; reuse existing2299191b/dd2f3db8/ebcaaa0/04bc973 safety fixes with
+  attribution. Keep current Home/refusal/Stop, Pages/source and save owners.
+- **Binary success:** only offered supported actions dispatch; duplicates,
+  changed account/session/project/exact draft, Page-fiction and recognized
+  refusals/offers/quotes cannot trigger writes; undo synchronous and same-
+  project/exact-byte guarded; revision status only after acknowledgement;
+  no raw scene/beat arguments in diagnostics. No god-file growth vs642.
+- **Proof:** focused real parser/dispatcher regressions, current signed erased
+  native and full Node20 integration, authenticated writer + inspector UI,
+  macOS/D009/diff. No paid calls or unchanged test loops. Do not claim complete
+  live voice control before original648 prompt/reply/authority reconciliation.
+- **Status:** in-progress. Bodies/all current643/879 follow-ups and dated
+  current-writer ledger7b8d185 read; no original head or main change.
+
 ### T-1152 — Preserve original Pages and reconcile the existing safety repairs
 
 - **Owner:** codex (Jarvis). **Branch:** `codex/T-1152-original-642-pages`.
