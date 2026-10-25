@@ -1,30 +1,37 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { paginateFountainDraft, buildPageFlipPayload } from "../lib/clementine/page_flip.js";
-import { generateOfflineShortFilmDraft } from "../lib/clementine/short_film_prompt.js";
+import { buildLivePaperPayload } from "../lib/clementine/studio_live_paper.js";
 
-test("paginate offline 5p → 5 pages flippable", () => {
-  const parsed = { setting:"bedroom", characters:["John","Sally","Sam"], requestedPages:5 };
-  const draft = generateOfflineShortFilmDraft(parsed);
+test("short scenes share a printed page; prefixes and title/body boundaries survive", () => {
+  const body = "FADE IN:\n\nINT. A - DAY\n\nA clock ticks.\n\nEXT. B - NIGHT\n\nA bell rings.";
+  const draft = "Title: ASHES\n\n" + body;
   const pages = paginateFountainDraft(draft);
-  assert.equal(pages.length, 5);
-  assert.ok(pages[0].includes("INT. BEDROOM"));
-  const payload = buildPageFlipPayload({ project:{id:"p1", logline:"L"}, draft, currentPage:1 });
-  assert.equal(payload.totalPages, 5);
-  assert.equal(payload.hasNext, true);
-  assert.equal(payload.hasPrev, false);
-  assert.ok(payload.pageText.includes("INT. BEDROOM"));
+  assert.equal(pages.length, 1);
+  assert.ok(pages[0].startsWith("FADE IN:"));
+  assert.ok(pages[0].includes("A clock ticks.") && pages[0].includes("A bell rings."));
+  assert.ok(!pages[0].includes("ASHES"));
+  assert.equal(buildLivePaperPayload({ id: "p1", latestDraft: draft }).totalPages, 1);
 });
 
-test("flip through when more pages added (5→6)", () => {
-  const d5 = generateOfflineShortFilmDraft({ setting:"bedroom", characters:["A","B","C"], requestedPages:5 });
-  const d6 = generateOfflineShortFilmDraft({ setting:"bedroom", characters:["A","B","C"], requestedPages:6 });
-  const p5 = buildPageFlipPayload({ project:{id:"p1"}, draft:d5, currentPage:5 });
-  const p6 = buildPageFlipPayload({ project:{id:"p1"}, draft:d6, currentPage:6 });
-  assert.equal(p5.totalPages, 5);
-  assert.equal(p6.totalPages, 6);
-  assert.equal(p6.hasNext, false);
-  assert.ok(p6.pageText.includes("INT. BEDROOM"));
-  // flipping: totalPages grows, pageText for last page exists
-  assert.ok(p6.pages[5].includes("INT. BEDROOM"));
+test("appended formatted content grows pages; flip cursor is bounded", () => {
+  const draft = Array.from({ length: 54 }, (_, i) => `Action ${i + 1}.`).join("\n");
+  assert.equal(buildPageFlipPayload({ draft }).totalPages, 1);
+  const payload = buildPageFlipPayload({ project: { id: "p1" }, draft: draft + "\nAction 55.", currentPage: 99 });
+  assert.equal(payload.totalPages, 2);
+  assert.equal(payload.currentPage, 2);
+  assert.equal(payload.pageText, "Action 55.");
+  assert.equal(payload.hasNext, false);
+  assert.equal(payload.hasPrev, true);
+});
+
+test("title-only and explicitly empty current draft cannot show remembered pages", () => {
+  for (const draft of ["", "Title: ASHES\n\n"]) {
+    const payload = buildPageFlipPayload({ draft });
+    assert.equal(payload.totalPages, 0);
+    assert.deepEqual(payload.pages, []);
+    assert.equal(payload.hasNext, false);
+    assert.equal(payload.hasPrev, false);
+    assert.equal(buildLivePaperPayload({ latestDraft: "Remembered text." }, { draft }).totalPages, 0);
+  }
 });

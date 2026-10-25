@@ -5,6 +5,68 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1154 — Repair hosted Pages preview type-check failure
+
+- **Owner:** codex. **Branch:** `codex/T-1154-pages-preview-typecheck`.
+- **Base:** original64278dc3be, published only after641a45d904 required checks
+  completed green.642 run40234585048 backend/D009 green, Quality red during
+  compile at ScreenplayStudioDraftPageTools.swift:167, before tests executed.
+- **Root/fix:** the nested rich preview expression exceeds the hosted Swift
+  compiler's type-check budget. Precompute its String once and extract the
+  unchanged modifiers into a concrete Text(verbatim:) subview; no AnyView,
+  style/control/label change, timeout increase or disabled check.
+- **Done when:** signed units and unchanged real Pages UI pass, same230pt
+  rendering inspected, macOS/D009/diff pass; normal original642 fast-forward
+  with preserved history/base/draft, then fresh hosted gate (not assumed green).
+- **Proof:** e2a5f9c signed erased units705/0/0; unchanged authenticated Pages
+  workflow1/0/0,8 actual pagination200s and one request per Recalculate;
+  complete230pt render inspected and PNG SHA1 identical94f2b548 to the old
+  sample. Mac/D009/diff pass. Backend is byte-identical to T1152's2839/0/2
+  source, not rerun. Local Xcode26.3 does not prove hosted26.6 success.
+- **Status:** locally proven candidate; normally advance original642 and wait
+  for its fresh hosted gate. Current643da05e289 remains separate: units722/0/0
+  after retry fix; first backend2852/1/2, unchanged cancellation assertions7/0/0
+  after canonical fixture repair, final backend2853/0/2. Parent reconciliation,
+  combined final native/UI/macOS proof and original643 publication still due.
+- **Evidence:** `docs/pages-preview-typecheck-2026-10-25.md`.
+
+### T-1152 — Preserve original Pages and reconcile the existing safety repairs
+
+- **Owner:** codex (Jarvis). **Branch:** `codex/T-1152-original-642-pages`.
+- **Base:** published original641a45d904; parent64015c5868 is hosted green.
+  Original641 still needs its own active Quality Gate and human review.
+  Preserve original6427c40428b and89358c3ff33
+  as no-ff merges88b9d83/134b5c6, not a replacement PR or broad backup merge.
+- **Scope:** existing Letter pagination/overview, source mapping and current
+  draft/density ownership; reuse isolated964bb7a7/eddb2ed5/0f67802a repairs
+  with attribution. Inspect/reconcile original613 and existing narrow Pages
+  navigator1ee9269 before declaring the entire Pages workflow complete.
+- **Binary criteria:** every speech page bounded, Unicode parity, exact source
+  line ranges without rewriting draft bytes, current counts/density and stale
+  recompute ownership, navigation/recalculate controls connected and readable.
+  Retain existing Home/refusal/Stop/auth/recovery policies and original tests.
+- **Proof plan:** reproduce documented engine defects on the actual imported
+  code, then focused engine/mounted HTTP/shared Swift fixtures, necessary native
+  workflow and integration gates. No paid models, padding to target length,
+  new framework, main merge, protected-review bypass or production change.
+- **Current:** original642/893/613/597 preserved by no-ff merges; isolated
+  engine/source/consumer/narrow navigator and duplicate-Send repairs reused.
+  Engine probes red3/3 → green3/0. Actual Pages screenshot exposed false HARD
+  title/action lint; unchanged probes red2/2 → green2/0 after original597 plus
+  existing e5b7efa title-mask seam. No second writer/pagination owner.
+- **Proof:** final Node20.20.2 backend2839/0/2; focused lint/source36/0/0;
+  signed units705/0/0 and package23/0/0 on byte-identical final native source;
+  final Pages1/0/0, typing+overview+writer3/0/0, synthetic Home2/0/0; Mac build,
+  offline40/8, current-parent D009/diff pass. Inspected current230pt/actual UI
+  and native PDF artifacts. Existing warnings and both skips remain explicit.
+- **Publication:** original642 normally advanced7c40428b→78dc3be after exact
+  original641a45d904 completed required checks green.642's fresh hosted compile
+  then failed before tests; T1154 owns the scoped repair, not a blind rerun.
+- **Next:** original643 +879 and bounded safety repairs on the actual next
+  boundary; publication held on fresh642 clearance. No main/production/paid/
+  physical-phone claim.
+- **Evidence:** `docs/original-642-pages-2026-10-25.md`.
+
 ### T-1151 — Reconcile original641 with the now-published corrected Craft parent
 
 - **Owner:** codex (Jarvis). **Branch:** `codex/T-1151-original-641-parent`.
@@ -18,14 +80,16 @@
   confirmed-current Home words, refusal and full Stop; source/contract checks,
   full Node20 and signed erased native boundary, connected local UI and Mac/
   D009 checks pass. No repeated unchanged run merely for reassurance.
-- **Publication hold:** exact parent64015c5868 Quality Gate still active, not
-  declared green. New original641 head needs its own fresh required checks
-  and human review. No paid model, main merge, production or review bypass.
+- **Publication:** exact parent64015c5868 passed all required hosted checks;
+  original641 advanced normally232098ba→a45d904 with draft/base/history retained.
+  Its own Quality Gate40232439824 completed green: backend2809/0/2,
+  units682/0/0, strictwriter pass,V1 28/0/14,voicefault1/0/0,Macbuild. Human
+  review and no-paid/main/production/bypass constraints remain.
 - **Completed local proof:** preserving merge76db805; full Node20 backend
   2809/0/2, signed erased units682/0/0, runner contracts21/0/0, offline40/8,
   Home pair2/0/0, authenticated Craft+writer2/0/0, Mac0. Current-parent D009
   index-24/Root-120/bridge-26/Studio+memory0; diff passes. No paid model call.
-- **Status:** locally proven, publication waits for actual parent Quality Gate.
+- **Status:** locally proven and published; exact-head required checks green.
   Public health URL currently fails TLS in curl and Node20; DNS returns Porkbun
   target. No production change or shipping/physical readiness claim.
 - **Evidence:** `docs/original-641-parent-refresh-2026-10-25.md`.
@@ -74,6 +138,23 @@
   unchanged writer1/0/0, Mac exit0, offline40pairs/8checks and D009/diff pass.
   No physical/live/production/main completion claim. Parent638/974 now hosted
   green;638 exact0b56861 awaits independent review. Public children stay held.
+
+### Historical T-1096 — Original Pages work on the dated writer foundation
+
+- **Owner:** codex. **Branch:** `codex/T-1096-pages-writer-sync`.
+- **Status:** in-progress. **Pillar:** mobile-first / trustworthy page navigation.
+- **Scope:** preserving merges of original #642 `7c40428b` and #893 `58c3ff33`
+  above `e3faeca6`; replay isolated existing bounded-speech/Unicode repair
+  `964bb7a7` and ASCII performance correction `eddb2ed5`, not old T-951's
+  cumulative foundation. Keep original histories and all current typing tests.
+- **Done when:** current header/overview/inspector/Craft counts use the same
+  cached draft/density engine, no stale server page count wins, source jumps
+  preserve blank-prefix/CR ranges, and focused parity plus integration gates
+  have fresh recorded outcomes. Retain actual numbered-page and writer UI.
+- **Boundary:** no original-head rewrite, replacement PR, main merge, paid
+  provider or production deployment. #80 export/editor classification, legacy
+  page_flip/visual_pagination reconciliation, narrow inspector redesign and
+  physical-phone proof are not claimed by importing a printed-page engine.
 
 ### Historical T-1093 — Confirmed Home writer checkpoint (not current proof)
 
@@ -2124,6 +2205,33 @@ as history, not new proof or active assignments for this original639 repair.
 ---
 
 ## Active work — quick view
+
+Historical Pages/security records below are dated context, not current proof.
+### T-951 — Integrate and re-prove original pagination
+
+- **Owner:** codex. **Status:** review (historical; current integration T-1096). **Pillar:** mobile-first.
+- **Branch:** `codex/T-951-pages-integration-proof`, from T-950 `ccb50270`.
+- **Scope:** preserving merge of original #642 `7c40428b`; fix reproduced
+  unbounded multi-page speech and Unicode phone/backend wrapping disagreement.
+- **Done when:** bounded pages without missing dialogue, Unicode-safe shared
+  fixtures, signed full units, numbered overview UI, Node20 backend, macOS,
+  offline golden, D009 and diff checks have recorded outcomes.
+- **Boundary:** no main merge or replacement PR; #80 export/editor element
+  agreement and physical/shipping proof remain separate unmet requirements.
+
+### T-950 — Re-prove original security patch with the writing rehearsal
+
+- **Owner:** codex. **Status:** review. **Pillar:** voice-to-scene.
+- **Branch:** `codex/T-950-security-integration-proof`.
+- **Scope:** preserving local merge of existing #909 `788e0107` onto #942
+  `6e7138b1`; no replacement dependency patch or original-head rewrite.
+- **Done when:** fresh lockfile install, Node20 full backend, signed Home
+  transcript/raw-audio save-and-restore UI, D009 and diff checks are recorded.
+- **Boundary:** not a main merge, shipping deployment, live provider or phone
+  proof. Original #883/#884/#926 runtime hardening remains separately required.
+- **Evidence:** `docs/security-integration-proof-2026-10-16.md`.
+- **Proof:** Node20 backend 2,789/0/2; signed Home UI 2/0/0 after owned-simulator
+  erase; fresh lockfile install, D009 and diff pass. No paid provider calls.
 
 Historical backport record below: these are the dated T-945 branch results,
 not fresh proof for the current original640 candidate.

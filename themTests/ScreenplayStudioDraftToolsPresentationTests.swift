@@ -1,9 +1,70 @@
 import XCTest
 import ScreenplayStudio
+import SwiftUI
 @testable import them
 
 @MainActor
 final class ScreenplayStudioDraftToolsPresentationTests: XCTestCase {
+#if os(iOS)
+    func testEntireNavigatorRendersAt230PointInspectorWidth() throws {
+        let rows = (1...2).map { number in
+            ScreenplayStudioPaginationPagePresentation(page: BackendScreenplayPaginationPage(page: number, startLine: number == 1 ? 4 : 58, endLine: number == 1 ? 57 : 70, lineCount: number == 1 ? 54 : 13, preview: nil, estMinutes: nil), thumbnailLines: ["INT. OBSERVATORY - NIGHT", "Mara counts the stars twice before she notices that one of them is a nail.", "MARA", "Who has been answering Houston?"], isActive: number == 1)
+        }
+        let presentation = ScreenplayStudioDraftPagesPresentation(isRefreshing: false, isDraftEmpty: false, errorText: "", pages: rows)
+        let view = ScreenplayStudioDraftPageTools(linesPerPage: .constant(54), presentation: presentation, onRefresh: {}, onJumpToPage: { _ in })
+            .frame(width: 230).fixedSize(horizontal: false, vertical: true)
+            .padding(12).background(Color.white).environment(\.colorScheme, .light)
+        let renderer = ImageRenderer(content: view)
+        renderer.scale = 2
+        let image = try XCTUnwrap(renderer.uiImage)
+        XCTAssertGreaterThan(image.size.height, 600, "The complete navigator, not a clipped viewport, must render")
+        let sample = XCTAttachment(image: image)
+        sample.name = "Complete Pages navigator at 230pt"
+        sample.lifetime = .keepAlways
+        add(sample)
+    }
+#endif
+
+    func testNavigatorUsesCurrentSourcePageAndBoundsPreviousNext() {
+        let pages = (1...3).map { number in
+            ScreenplayStudioPaginationPagePresentation(page: BackendScreenplayPaginationPage(page: number, startLine: number * 10, endLine: number * 10 + 9, lineCount: 54, preview: "Page \(number) text", estMinutes: nil), thumbnailLines: ["Page \(number) text"], isActive: number == 2)
+        }
+        let presentation = ScreenplayStudioDraftPagesPresentation(isRefreshing: false, isDraftEmpty: false, errorText: "", pages: pages)
+        XCTAssertEqual(presentation.summary(selection: nil), "Page 2 of 3")
+        XCTAssertEqual(presentation.adjacentPage(to: nil, offset: -1)?.id, 1)
+        XCTAssertEqual(presentation.adjacentPage(to: nil, offset: 1)?.id, 3)
+        XCTAssertNil(presentation.adjacentPage(to: 1, offset: -1))
+        XCTAssertNil(presentation.adjacentPage(to: 3, offset: 1))
+        XCTAssertEqual(presentation.selectedPage(99)?.id, 2, "An expired preview selection falls back to current source")
+        XCTAssertEqual(presentation.runtimeText, "Estimated screenplay time: about 3 min")
+    }
+
+    func testNavigatorCanSelectPreviewWhenOneSourceLineSpansSeveralPages() {
+        let rows = (1...3).map { number in
+            ScreenplayStudioPaginationPagePresentation(page: BackendScreenplayPaginationPage(page: number, startLine: 2, endLine: 3, lineCount: 24, preview: "Speech continuation", estMinutes: nil), thumbnailLines: ["", "Speech continuation", "  "], isActive: true)
+        }
+        let presentation = ScreenplayStudioDraftPagesPresentation(isRefreshing: false, isDraftEmpty: false, errorText: "", pages: rows)
+        XCTAssertEqual(presentation.activePageCount, 3)
+        XCTAssertEqual(presentation.cursorPageID, 1)
+        XCTAssertEqual(presentation.selectedPage(2)?.id, 2)
+        XCTAssertEqual(presentation.adjacentPage(to: 2, offset: 1)?.id, 3)
+        XCTAssertEqual(rows[0].visiblePreviewLines, ["Speech continuation"])
+        XCTAssertEqual(ScreenplayStudioDraftPagesPresentation.durationText(lineCount: 54), "about 1 min")
+        XCTAssertEqual(ScreenplayStudioDraftPagesPresentation.durationText(lineCount: 0), "not available")
+    }
+
+    func testReadablePreviewKeepsWordsInsteadOfMiniatureClippingAndPadding() {
+        let line = "Mara counts the stars twice before she notices that one of them is a nail."
+        let page = BackendScreenplayPaginationPage(page: 1, startLine: 2, endLine: 3, lineCount: 2, preview: line + "\r\n\r\nThe paint is wet.", estMinutes: nil)
+        XCTAssertEqual(ScreenplayStudioDraftToolsPresentationPlanner.paginationPreviewLines(for: page, draft: "Wrong source"), [line, "The paint is wet."])
+        let fallback = BackendScreenplayPaginationPage(page: 1, startLine: 3, endLine: 5, lineCount: 3, preview: nil, estMinutes: nil)
+        XCTAssertEqual(ScreenplayStudioDraftToolsPresentationPlanner.paginationPreviewLines(for: fallback, draft: "Title: ASHES\r\n\r\nINT. A - DAY\r\n\r\nZoë waits."), ["INT. A - DAY", "Zoë waits."])
+        let empty = ScreenplayStudioDraftPagesPresentation(isRefreshing: false, isDraftEmpty: true, errorText: "", pages: [])
+        XCTAssertEqual(empty.summary(selection: nil), "No screenplay pages yet")
+        XCTAssertNil(empty.adjacentPage(to: nil, offset: 1))
+        XCTAssertTrue(empty.refreshDisabled)
+    }
+
     func testPaginationProjectionPreservesPreviewPrecedenceClippingPaddingAndActiveBounds() {
         let longPreviewLine = String(repeating: "x", count: 45)
         let page = BackendScreenplayPaginationPage(

@@ -115,49 +115,39 @@ function isParenthetical(line) {
   return /^\(.*\)$/.test(trimmed);
 }
 
-function parseTitlePage(rawLines) {
-  // Title page is the leading block where every line either contains
-  // ":" (a field) or starts with indentation (a continuation). Ends
-  // at the first blank line followed by non-title content (scene
-  // heading, action, etc).
+function titleField(line) {
+  const match = String(line).replace(/^\uFEFF/, "").match(/^([\p{L}\p{N} _()/&.'-]{1,64}):\s*(.*)$/u);
+  if (!match || match[1] !== match[1].trim()) return null;
+  return { key: match[1], value: match[2].trim() };
+}
+
+function leadingTitle(rawLines, { requireTitle = true } = {}) {
+  const first = titleField(rawLines[0] ?? "");
+  // Full-document operations require an explicit first Title field. The
+  // structured import endpoint retains its historical Author-only support.
+  if (!first || (requireTitle ? first.key.toLowerCase().replace(/[^\p{L}\p{N}]/gu, "") !== "title" : !TITLE_FIELDS[first.key.toLowerCase()])) {
+    return { title: null, consumedLineCount: 0 };
+  }
   let i = 0;
   const out = {};
   let currentKey = null;
   while (i < rawLines.length) {
     const line = rawLines[i];
-    if (line === "") {
-      // Look ahead: blank line ends title page only when followed by
-      // non-title content (which we treat as anything that's not a
-      // "Field: value" pattern).
-      const next = rawLines[i + 1];
-      if (next === undefined) { i += 1; break; }
-      if (/^[A-Za-z][A-Za-z ]*:/.test(next)) {
-        i += 1;
-        continue;
-      }
-      i += 1; // skip the blank
+    if (!line.trim()) {
+      do { i += 1; } while (i < rawLines.length && !rawLines[i].trim());
       break;
     }
-    const m = line.match(/^([A-Za-z][A-Za-z ]*):\s*(.*)$/);
-    if (m) {
-      const rawKey = m[1].toLowerCase();
+    const field = titleField(line);
+    if (field) {
+      const rawKey = field.key.toLowerCase();
       const mapped = TITLE_FIELDS[rawKey];
-      if (!mapped) {
-        // Unknown title field — bail out; everything was probably
-        // body, not title.
-        if (Object.keys(out).length === 0) return { title: null, consumedLineCount: 0 };
-        currentKey = null;
-        i += 1;
-        continue;
-      }
-      currentKey = mapped;
-      out[mapped] = m[2].trim();
+      currentKey = mapped ?? null;
+      if (mapped) out[mapped] = field.value;
       i += 1;
       continue;
     }
-    if (currentKey && /^ {2,}|\t/.test(line)) {
-      // Indented continuation.
-      out[currentKey] = `${out[currentKey] || ""}\n${line.trim()}`;
+    if (/^[ \t]/.test(line)) {
+      if (currentKey) out[currentKey] = [out[currentKey], line.trim()].filter(Boolean).join("\n");
       i += 1;
       continue;
     }
@@ -166,6 +156,20 @@ function parseTitlePage(rawLines) {
   }
   if (Object.keys(out).length === 0) return { title: null, consumedLineCount: 0 };
   return { title: out, consumedLineCount: i };
+}
+
+function parseTitlePage(rawLines) {
+  return leadingTitle(rawLines, { requireTitle: false });
+}
+
+// A lossless source view, never an import/export round trip. Offsets refer to
+// the original complete document; body bytes and original terminators survive.
+export function splitFountainDocument(document) {
+  const source = typeof document === "string" ? document : "";
+  const physical = [...source.matchAll(/([^\r\n\u0085\u2028\u2029]*)(\r\n|[\r\n\u0085\u2028\u2029]|$)/gu)];
+  const { title, consumedLineCount } = leadingTitle(physical.map(part => part[1]));
+  const bodyStart = title ? (physical[consumedLineCount]?.index ?? source.length) : 0;
+  return { hasTitlePage: title !== null, scriptText: source.slice(bodyStart), documentLineOffset: title ? consumedLineCount : 0 };
 }
 
 function parseBody(rawLines, startIdx) {

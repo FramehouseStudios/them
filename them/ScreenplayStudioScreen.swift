@@ -67,7 +67,7 @@ struct ScreenplayStudioScreen: View {
         self.shouldRoutePromptToPage = shouldRoutePromptToPage
     }
 
-    @StateObject private var vm = ScreenplayStudioViewModel()
+    @StateObject var vm = ScreenplayStudioViewModel()
     @StateObject private var creativeInstincts = StudioCreativeInstinctsModel()
     @AppStorage("studio_debug_overlay_enabled") private var studioDebugOverlayEnabled = false
     @State private var navigatorRootURL: URL?
@@ -545,6 +545,7 @@ Replace is best when this file should become the script you edit. Append is safe
             .sheet(isPresented: $showingFullStudioThread) {
                 fullStudioThreadSheet
             }
+            .sheet(isPresented: $vm.isPagesOverviewPresented) { screenplayPagesOverviewSheet }
             .background(studioFocusShortcutLayer)
     }
 
@@ -2331,17 +2332,22 @@ Replace is best when this file should become the script you edit. Append is safe
                     .accessibilityIdentifier("studio.prompt.field")
 #if os(iOS)
                     .toolbar {
+                        // Keyboard toolbar items show for every focused field on
+                        // the screen, so without this check a Send for the command
+                        // bar floated over the keyboard while writing the page.
                         ToolbarItemGroup(placement: .keyboard) {
-                            Spacer()
-                            Button("Send") {
-                                submitStudioPromptSeed()
+                            if studioPromptFocused {
+                                Spacer()
+                                Button("Send") {
+                                    submitStudioPromptSeed()
+                                }
+                                .accessibilityIdentifier("studio.prompt.keyboard-send")
+                                .disabled(
+                                    isSubmittingStudioPrompt ||
+                                    isSubmittingPrompt ||
+                                    studioPromptSeed.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                )
                             }
-                            .accessibilityIdentifier("studio.prompt.keyboard-send")
-                            .disabled(
-                                isSubmittingStudioPrompt ||
-                                isSubmittingPrompt ||
-                                studioPromptSeed.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                            )
                         }
                     }
 #endif
@@ -5099,7 +5105,7 @@ private var projectsSidebarContent: some View {
             ),
             pages: ScreenplayStudioDraftPagesPresentation(
                 isRefreshing: vm.isPaginationRefreshing,
-                isDraftEmpty: isDraftEmpty,
+                isDraftEmpty: vm.localPaginationPages.isEmpty,
                 errorText: vm.paginationErrorText,
                 pages: draftPaginationPagePresentations
             ),
@@ -5117,10 +5123,11 @@ private var projectsSidebarContent: some View {
     }
 
     private var draftPaginationPagePresentations: [ScreenplayStudioPaginationPagePresentation] {
-        vm.paginationPages.map { page in
-            ScreenplayStudioPaginationPagePresentation(
+        vm.localPaginationPages.map { layoutPage in
+            let page = layoutPage.backendPage(linesPerPage: vm.linesPerPage)
+            return ScreenplayStudioPaginationPagePresentation(
                 page: page,
-                thumbnailLines: ScreenplayStudioDraftToolsPresentationPlanner.paginationThumbnailLines(
+                thumbnailLines: ScreenplayStudioDraftToolsPresentationPlanner.paginationPreviewLines(
                     for: page,
                     draft: vm.fountainDraft
                 ),
@@ -8754,6 +8761,7 @@ Current draft version:
                 Spacer(minLength: 0)
 
                 HStack(spacing: 8) {
+                    screenplayPagesOverviewChip
                     if vm.selectedProject == nil {
                         screenplayPageActionChipButton(
                             title: "Create Project",
@@ -8911,18 +8919,7 @@ Current draft version:
     }
 
     private var screenplayPagePageCountText: String {
-        if !vm.paginationPages.isEmpty {
-            return "\(vm.paginationPages.count)"
-        }
-        guard !screenplayPageShouldShowEmptyPlaceholder else {
-            return "0"
-        }
-        let normalized = vm.fountainDraft
-            .replacingOccurrences(of: "\r\n", with: "\n")
-            .replacingOccurrences(of: "\r", with: "\n")
-        let lineCount = max(1, normalized.components(separatedBy: "\n").count)
-        let estimated = Int(ceil(Double(lineCount) / Double(max(vm.linesPerPage, 1))))
-        return "\(max(1, estimated))"
+        "\(vm.estimatedFeaturePageCount)"
     }
 
     private var screenplayPageRevisionStateText: String {
@@ -17296,11 +17293,6 @@ Look at the city.
             options: .regularExpression
         )
         return collapsed.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private func jumpToPaginationPage(_ page: BackendScreenplayPaginationPage) {
-        liveDraftBridge.jumpToLine(page.startLine)
-        liveDraftBridge.highlightLineRange(startLine: page.startLine, endLine: page.endLine)
     }
 
     @MainActor

@@ -1562,13 +1562,12 @@ final class ScreenplayStudioViewModel: ObservableObject {
     }
 
     var estimatedFeaturePageCount: Int {
-        if !paginationPages.isEmpty {
-            return paginationPages.count
-        }
-        let cleanDraft = fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !cleanDraft.isEmpty else { return 0 }
-        let lineCount = max(1, fountainDraft.components(separatedBy: .newlines).count)
-        return max(1, Int(ceil(Double(lineCount) / 55.0)))
+        localPaginationPages.count
+    }
+
+    private var pageLayoutCache = ScreenplayPageLayout.Cache()
+    var localPaginationPages: [ScreenplayPageLayout.Page] {
+        pageLayoutCache.pages(for: fountainDraft, linesPerPage: linesPerPage)
     }
 
     var featureProgressionGuide: ScreenplayFeatureProgressionGuide {
@@ -1626,9 +1625,11 @@ final class ScreenplayStudioViewModel: ObservableObject {
     @Published var isStreamingDraftPreviewActive: Bool = false
     @Published var isManualDraftEditing: Bool = false
     @Published var paginationPages: [BackendScreenplayPaginationPage] = []
+    @Published var isPagesOverviewPresented: Bool = false
     @Published var isPaginationRefreshing: Bool = false
     @Published var paginationErrorText: String = ""
-    @Published var linesPerPage: Int = 55
+    private var activePaginationRequestID: UUID?
+    @Published var linesPerPage: Int = ScreenplayPageLayout.defaultLinesPerPage
     @Published var revisionColor: String = "blue"
     @Published var revisionSummary: BackendScreenplayRevisionSummary?
     @Published var revisionRanges: [BackendScreenplayRevisionRange] = []
@@ -5180,12 +5181,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
     }
 
     var craftFallbackPageCount: Int {
-        let wordCount = fountainDraft
-            .components(separatedBy: .whitespacesAndNewlines)
-            .filter { !$0.isEmpty }
-            .count
-        let wordEstimate = max(1, Int((Double(wordCount) / 180.0).rounded()))
-        return max(max(1, paginationPages.count), wordEstimate)
+        max(1, estimatedFeaturePageCount)
     }
 
     func exportArtifact(format: String) async throws -> BackendScreenplayExportArtifact {
@@ -6325,28 +6321,34 @@ final class ScreenplayStudioViewModel: ObservableObject {
     }
 
     private func recomputePagination(for draft: String, source: String) async {
-        let normalized = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalized.isEmpty else {
+        let paginationSource = FountainPaginationSource.make(from: draft)
+        guard paginationSource.shouldPaginate else {
+            activePaginationRequestID = nil
+            isPaginationRefreshing = false
             paginationPages = []
             paginationErrorText = ""
             return
         }
 
+        let requestID = UUID()
+        activePaginationRequestID = requestID
         isPaginationRefreshing = true
-        defer { isPaginationRefreshing = false }
+        defer { if activePaginationRequestID == requestID { isPaginationRefreshing = false } }
+        let requestedDensity = linesPerPage
         do {
             let result = try await StudioCraftResilience.run(source: source) {
                 try await BackendMemoryAPI.shared.paginateScreenplayDraft(
                     draft: draft,
                     title: selectedProject?.title ?? "",
                     phase: selectedProject?.lastPhase ?? "scene_draft",
-                    linesPerPage: linesPerPage
+                    linesPerPage: requestedDensity
                 )
             }
-            guard normalized == fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines) else { return }
+            guard activePaginationRequestID == requestID, draft == fountainDraft, requestedDensity == linesPerPage else { return }
             paginationPages = result.payload.pages
             paginationErrorText = ""
         } catch {
+            guard activePaginationRequestID == requestID, draft == fountainDraft, requestedDensity == linesPerPage else { return }
             paginationErrorText = StudioCraftResilience.presentedError(
                 error,
                 source: source,

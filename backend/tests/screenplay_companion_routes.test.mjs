@@ -339,6 +339,37 @@ test("[screenplay-companion-routes] POST /paginate rejects empty draft with 400"
   });
 });
 
+test("[screenplay-companion-routes] POST /paginate keeps full-document source lines at the default density", async () => {
+  await withTestServer(defaultDeps(), async (baseURL) => {
+    for (const newline of ["\n", "\r\n", "\r"]) {
+      const draft = ['', '', 'INT. ROOM - DAY', '', 'Mara waits.', ''].join(newline);
+      const r = await postJson(baseURL, "/screenplay/paginate", { draft });
+      assert.equal(r.status, 200);
+      assert.equal(r.body.lines_per_page, 54);
+      assert.equal(r.body.line_count, 3);
+      assert.equal(r.body.engine, 'element-aware');
+      assert.deepEqual(r.body.pages.map(p => [p.start_line, p.end_line]), [[3, 5]]);
+    }
+  });
+});
+
+test("[screenplay-companion-routes] title-only has zero pages; title+body returns original document ranges", async () => {
+  await withTestServer(defaultDeps(), async (baseURL) => {
+    const titleOnly = await postJson(baseURL, "/screenplay/paginate", { draft: "Title: ASHES\nAuthor: Zoë Chen\n\n" });
+    assert.equal(titleOnly.status, 200);
+    assert.equal(titleOnly.body.page_count, 0);
+    assert.deepEqual(titleOnly.body.pages, []);
+    for (const nl of ["\n", "\r\n", "\r"]) {
+      const draft = ["Title: ASHES", "Author: Zoë Chen", "    ", "INT. CAFÉ - DAY", "", "Zoë waits. 👩🏽‍🚀"].join(nl);
+      const result = await postJson(baseURL, "/screenplay/paginate", { draft });
+      assert.equal(result.status, 200);
+      assert.equal(result.body.page_count, 1);
+      assert.deepEqual(result.body.pages.map(page => [page.start_line, page.end_line]), [[4, 6]]);
+      assert.ok(!JSON.stringify(result.body.pages).includes("ASHES"));
+    }
+  });
+});
+
 test("[screenplay-companion-routes] POST /paginate clamps lines_per_page to [24, 120]", async () => {
   await withTestServer(defaultDeps(), async (baseURL) => {
     const r = await postJson(baseURL, "/screenplay/paginate", {
