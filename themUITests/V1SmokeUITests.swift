@@ -60,6 +60,10 @@ final class V1SmokeUITests: XCTestCase {
         let created = try await requestJSON(baseURL: base, path: "/screenplay/projects", method: "POST", headers: fixture.authorizedHeaders, body: ["project_id": projectID, "title": "Pages navigator proof", "activate": true])
         try assertHTTP(created, context: "Pages project")
         let draft = (["Title: NIGHT SIGNAL", "Author: Zoë Chen", "", "INT. OBSERVATORY - NIGHT", ""] + (1...65).map { "Action\($0)." }).joined(separator: "\n")
+        let lint = try await requestJSON(baseURL: base, path: "/craft/format/lint", method: "POST", headers: fixture.authorizedHeaders, body: ["text": draft])
+        try assertHTTP(lint, context: "Pages source format lint")
+        let lintSuggestions = lint.payload["suggestions"] as? [[String: Any]] ?? []
+        XCTAssertFalse(lintSuggestions.contains { stringValue($0["rule"]) == "character_cue_caps" }, "Title metadata and complete short action lines cannot become character-cue errors")
         let saved = try await requestJSON(baseURL: base, path: "/screenplay/projects/\(projectID)/version", method: "POST", headers: fixture.authorizedHeaders, body: ["draft": draft, "phase": "scene_draft", "base_version_id": ""])
         try assertHTTP(saved, context: "Pages saved source")
         let versionID = try firstNonEmptyString(saved.payload["version_id"], saved.payload["server_version_id"], message: "Pages version missing")

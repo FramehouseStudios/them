@@ -38,6 +38,8 @@
 //     ]
 //   }
 
+import { splitFountainDocument, normalizeFountainText } from "./fountain_import.js";
+
 const FORMAT_LINT_SCHEMA_VERSION = 1;
 const RULE_SET_VERSION = "v1";
 
@@ -446,8 +448,11 @@ const RULES = [
 ];
 
 function lintScreenplay({ text = "", frameworkId = null } = {}) {
-  const safeText = trimToString(text).replace(/\r\n?/g, "\n");
+  const safeText = normalizeFountainText(trimToString(text));
   const lines = safeText.split("\n");
+  // Preserve normalized full-document coordinates, but title metadata is not
+  // screenplay action or a character cue. The writer's source is never edited.
+  lines.fill("", 0, splitFountainDocument(safeText).documentLineOffset);
   const suggestions = [];
   for (const rule of RULES) {
     try {
