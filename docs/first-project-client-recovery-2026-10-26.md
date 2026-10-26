@@ -54,9 +54,10 @@ request ownership/HTTP helpers, bridge journal and local recovery slots.
   clone exact CRLF/NFD/trailing bytes into one initial version, leave the source
   version unchanged, then relaunch the named project. Providers **0/0/0**.
 - Existing blank-project writer UI **1/0/0**: actual Create, typing, keyboard
-  Save, saved version, Markdown artifact response and restored draft. Provider
-  fixture ASR/chat/TTS **0/1/0**. The export assertion checks artifact receipt;
-  it does not establish native Files Save/open outside THEM.
+  Save, saved version and restored draft. Provider fixture ASR/chat/TTS **0/1/0**.
+  T-1169's source audit clarifies that its export assertion receives a DEBUG-
+  made local Markdown artifact, bypassing backend export. It does not prove
+  the production export path, native Files Save or external screenplay opening.
 - Raw-audio Home -> formatted page -> one project/save -> restored draft UI
   **1/0/0**, intercepted ASR/chat/TTS **1/2/1**. Not real microphone, audible
   reply, live model quality or paid-provider evidence.

@@ -17,11 +17,17 @@
   notice reproduce then pass; no acknowledged/deleted request resurrects.
   Signed units, actual recovery UI, exact native Files export bytes, writer/
   voice-save regressions, Mac/D009/diff. No paid model calls or private cleanup.
-- **Status:** in-progress. Current signed filesystem red0/2/0 at46e4b64;
-  canonical transport inventory red0/2/0 at865c851 found remaining main client/
-  streaming/TTS/live-sync callers as well as queue. Reusefc75931 through the
-  same origin policy, not a second guard; native Foundation loopback proof and
-  final connected recovery checks pending. No paid calls.
+- **Status:** local review atb8cfd54. Signed filesystem red0/2/0 at46e4b64;
+  transport inventory red0/2/0 at865c851. Reusefc75931/c1e9255 through existing
+  owners. Final signed867/0/0; Review/queue/relaunch1/0/0, authenticated native
+  Files export/delete1/0/0, raw voice/save/restore1/0/0; Mac/D009/diff pass.
+  Native Foundation8 cases:0 foreign requests,4 valid same-origin requests;
+  focused Node20 contracts5/0/0. Actual307-byte export and retained foreign/
+  unassigned binary bodies independently verified; opened JSON in Files.
+- **Evidence:** `docs/interrupted-talk-recovery-2026-10-26.md`; permanent
+  T-1169-20261026.2psnxr. No paid calls or original/main advance. Next accepted
+  offline replies must reach page; retained setup/overlap and real screenplay
+  export remain unproven. Prior writer-export proof clarified as DEBUG-local.
 
 ### T-1168 — Recover the iPhone's interrupted first project save
 
