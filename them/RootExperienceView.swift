@@ -1301,6 +1301,7 @@ struct RootExperienceView: View {
     private var bodyWithObservedChanges: AnyView {
         AnyView(
             rootBodyView
+                .overlay(alignment: .topLeading) { ScreenplayProjectPromotionDiagnostics(isCreating: isAutoCreatingStudioProject) }
                 .onChange(of: studioDebugOpenToken) { _, _ in
                     DispatchQueue.main.async {
                         handleStudioDebugOpenChange()
@@ -5908,10 +5909,6 @@ Write this approved story direction directly into screenplay pages now. Maintain
         }
     }
 
-    private func autoCreatedStudioProjectTitle(for draft: String, pack: String) -> String {
-        ScreenplayProjectAutoTitle.title(for: draft, pack: pack)
-    }
-
     @MainActor
     private func promoteRestoredLiveDraftToStudioProjectIfNeeded() {
         guard screenplayDraftBridge.streamingProgress == 0 else { return }
@@ -5960,7 +5957,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
             defer { isAutoCreatingStudioProject = false }
 
             do {
-                let title = autoCreatedStudioProjectTitle(for: draft, pack: pack)
+                let title = ScreenplayProjectAutoTitle.title(for: draft, pack: pack)
                 let normalizedPhase = phase.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                     ? "scene_draft"
                     : phase.trimmingCharacters(in: .whitespacesAndNewlines)

@@ -2,6 +2,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, unlinkSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { startBackend } from '../tests/helpers/backend_test_server.mjs';
+import { startPromotionDelayProxy } from './promotion_delay_proxy.mjs';
 
 // Deterministic transport/insertion/save proof, never microphone or model proof.
 // Caller must erase a TASK-OWNED simulator before invoking this runner.
@@ -17,10 +18,10 @@ const allowedTests = [
   'themUITests/V1SmokeUITests/test_integrated_iphone_writer_loop_creates_saves_exports_and_restores',
   'themUITests/V1SmokeUITests/test_coverage_read_labels_earlier_snapshot_and_refreshes_current_draft',
   'themUITests/V1SmokeUITests/test_restored_unbound_draft_keeps_title_and_exact_bytes_after_promotion_and_relaunch',
+  'themUITests/V1SmokeUITests/test_delayed_project_creation_cannot_save_or_bind_a_changed_page',
   'themUITests/V1SmokeUITests/test_screenplay_save_outbox_survives_relaunch_and_reconnects_once',
   'themUITests/V1SmokeUITests/test_studio_refused_write_preserves_saved_page_despite_page_selection',
   'themUITests/V1SmokeUITests/test_pages_navigator_controls_jump_and_preserve_source',
-  'themUITests/V1SmokeUITests/test_coverage_read_labels_earlier_snapshot_and_refreshes_current_draft',
 ];
 const tests = process.env.ONLY_TESTING ? [process.env.ONLY_TESTING] : allowedTests.slice(0, 2);
 if (tests.some(test => !allowedTests.includes(test))) throw new Error('Unsupported Home voice proof test');
@@ -39,8 +40,10 @@ const server = await startBackend({ unsetEnv: ['DATABASE_URL', 'REDIS_URL'], env
   THEM_PAGE_NAVIGATOR_PROOF: tests.some(test => test.includes('test_pages_navigator_controls')) ? '1' : '0',
   NODE_OPTIONS: `--import=${fixtureURL.href}`,
 } });
+let promotionProxy;
 try {
-  writeFileSync(config, `THEM_UITEST_WRITER_LOOP_BACKEND_PORT = ${server.port}\n`, {mode: 0o600});
+  if (tests.some(test => test.includes('test_delayed_project_creation'))) promotionProxy = await startPromotionDelayProxy(server.baseUrl);
+  writeFileSync(config, `THEM_UITEST_WRITER_LOOP_BACKEND_PORT = ${promotionProxy?.port || server.port}\n`, {mode: 0o600});
   const child = spawn('bash', ['scripts/run_v1_ui_smoke.sh', '-quiet', '-resultBundlePath', bundle, ...tests.slice(1).map(test => '-only-testing:' + test)], {
     cwd: root, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env,
       ONLY_TESTING: tests[0], THEM_UITEST_RESTORE_XCCONFIG_PATH: config,
@@ -68,6 +71,7 @@ try {
   if (tests.some(test => test.includes('home_')) && counts.chat < 1) throw new Error('Home test never reached mocked generation');
   if (tests.some(test => test.includes('studio_refused_write')) && counts.chat < 1) throw new Error('Refusal test never reached mocked generation');
 } finally {
+  await promotionProxy?.stop();
   await server.stop();
   if (existsSync(config)) unlinkSync(config);
 }

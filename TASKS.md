@@ -5,6 +5,25 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1162 — Keep delayed first-project results with their initiating page
+
+- **Owner:** codex (Jarvis). **Branch:** `codex/T-1162-promotion-authority`.
+- **Base:** saved647 safetyb3024bc plus preserving no-ff bd4d738 of published
+ 64592b55f7. Original645 fresh hosted gate still live;646+ public heads held.
+- **Scope:** reuse canonical b65a52f callback ownership/existing document context,
+  real loopback delay proof, unbound-page hydration fix and committed-write
+  initiation. Preserve raw bytes and current queued/auth/recovery guards.
+- **Binary success:** real delayed create reply cannot submit old page bytes
+  after native edit or bind a stale context; positive exact promotion/relaunch
+  still creates one version. No cancelled/unauthed/changed owner/session/project/
+  bytes may continue. No selection must preserve an unbound writer page.
+- **Proof:** retain genuine failing HTTP/native repro, focused proxy checks,
+  final signed erased units, delayed and positive UI, Mac/D009/diff. No paid run.
+- **Limits:** callback checks do not establish request-header isolation across
+  bootstrap/401 awaits (T1107), or atomic/idempotent first creation/orphans
+  (T1108). Keep those remaining boundaries explicit before648/phone proof.
+- **Status:** in-progress; existing T1105 report and full repair read before reuse.
+
 ### T-1160 — Preserve byte-distinct pending and offline saves
 
 - **Owner:** codex (Jarvis). **Branch:** `codex/T-1160-raw-queued-save-identity`.
