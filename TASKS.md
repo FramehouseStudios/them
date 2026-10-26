@@ -5,6 +5,24 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1165 — Keep Studio requests and sync with their initiating login
+
+- **Owner:** codex (Jarvis). **Branch:** `codex/T-1165-studio-request-owner`.
+- **Base:** saved647 eab6787. Public646 acfe2d8 fresh hosted gate is still live;
+  original647 advancement remains held. Preserve all original heads/history.
+- **Scope:** reuse08b92cd's canonical caller ownership/shared screenplay sync
+  decoding for15 Studio methods. Carry checked headers through bootstrap/HTTP,
+  reject stale read/write/sync, preserve same-login refresh and outline errors.
+  Wire existing redirect guard on these requests plus auth/bootstrap transport.
+- **Binary success:** current activation/outline account-switch red then green;
+  13 newly protected routes cover changed account/same-user new login, late
+  responses, header/admission races and valid rotation. Full signed units,
+  unchanged authenticated recovery/writer workflows, Mac/D009/diff pass.
+- **Status:** in-progress. Signed current red0/2/0,6 assertions, retained695ae22.
+  Full proof pending. No paid provider call or production/main change.
+- **Limits:** not all derived/queued/batch/notification ownership, atomic first
+  creation, real Postgres/collaborator authorization or physical phone proof.
+
 ### T-1163 — Pin save transport to its initiating login and prove real refresh
 
 - **Owner:** codex (Jarvis). **Branch:** `codex/T-1163-project-write-owner`.

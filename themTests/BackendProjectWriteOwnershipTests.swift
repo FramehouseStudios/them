@@ -16,6 +16,149 @@ final class BackendProjectWriteOwnershipTests: XCTestCase {
         try await assertBootstrapSwitchIsRejected(version: true)
     }
 
+    func testActivationCannotFollowAnAccountChangeDuringBootstrap() async {
+        await assertRemainingMutationBootstrapSwitch(outline: false)
+    }
+
+    func testOutlineCannotFollowAnAccountChangeDuringBootstrap() async {
+        await assertRemainingMutationBootstrapSwitch(outline: true)
+    }
+
+    private func assertRemainingMutationBootstrapSwitch(outline: Bool) async {
+        let state = ProjectWriteOwnershipState()
+        ProjectWriteOwnershipProtocol.handler = { request in
+            state.record(request)
+            if request.url?.path == "/session" {
+                state.changeOwner()
+                return .json(#"{"error":"user_auth_required"}"#, status: 401)
+            }
+            return .json(Self.mutation, status: 201)
+        }
+        let api = makeAPI(state)
+        await assertSuperseded {
+            if outline {
+                _ = try await api.upsertScreenplayOutline(projectId: "project-a", acts: [], scenes: [], beats: [],
+                    expectedOutlineRevision: 0, clientRequestId: "owned-outline", initiatingIdentity: state.identity())
+            } else { _ = try await api.activateScreenplayProject(projectId: "project-a", initiatingIdentity: state.identity()) }
+        }
+        XCTAssertEqual(state.requests().filter { $0.url?.path == "/session" }.count, 1,
+                       "The reproduction must reach the actual bootstrap await.")
+        XCTAssertTrue(state.requests().filter { $0.url?.path.hasPrefix("/screenplay/projects") == true }.isEmpty)
+    }
+
+    func testRemainingScreenplayRoutesRejectChangedOwnerDuringBootstrap() async {
+        await assertRemainingRoutes(mode: .bootstrapSwitch)
+    }
+
+    func testRemainingScreenplayRoutesRejectSameUserNewLoginDuringBootstrap() async {
+        await assertRemainingRoutes(mode: .loginSwitch)
+    }
+
+    func testRemainingScreenplayRoutesRejectLateSuccessOrOutlineConflict() async {
+        await assertRemainingRoutes(mode: .lateReply)
+    }
+
+    func testRemainingScreenplayRoutesPinCheckedHeadersInsteadOfAdoptingNextOwner() async {
+        await assertRemainingRoutes(mode: .headerSwitch)
+    }
+
+    func testRemainingScreenplayRoutesAcceptSameOwnerTokenRotation() async {
+        await assertRemainingRoutes(mode: .rotation)
+    }
+
+    func testRemainingScreenplayRoutesRejectOwnerChangedBeforeActorAdmission() async {
+        await assertRemainingRoutes(mode: .admissionSwitch)
+    }
+
+    private enum RouteBoundary { case bootstrapSwitch, loginSwitch, lateReply, headerSwitch, rotation, admissionSwitch }
+
+    private func assertRemainingRoutes(mode: RouteBoundary) async {
+        for route in ScreenplayOwnedRoute.allCases {
+            let state = ProjectWriteOwnershipState()
+            let owner = state.identity()
+            if mode == .admissionSwitch { state.changeOwner() }
+            ProjectWriteOwnershipProtocol.handler = { request in
+                state.record(request)
+                if request.url?.path == "/session" {
+                    switch mode {
+                    case .bootstrapSwitch: state.changeOwner()
+                    case .loginSwitch: state.changeOwner(sameUser: true)
+                    case .headerSwitch: state.changeAfterNextSnapshot()
+                    case .rotation: state.rotateToken()
+                    default: break
+                    }
+                    return .json(#"{"error":"unavailable"}"#, status: 503)
+                }
+                if mode == .lateReply { state.changeOwner() }
+                return .json(Self.routeEnvelope, status: mode == .lateReply && route == .outlineWrite ? 409 : 200)
+            }
+            let api = makeAPI(state)
+            let operation = { try await route.perform(api, owner: owner) }
+            if mode == .rotation {
+                do { try await operation() } catch { XCTFail("\(route) rejected valid rotation: \(error)") }
+                let sync = await api.currentSyncState()
+                XCTAssertEqual(sync.stateVersion, "stale-owner-state", "\(route)")
+            } else {
+                await assertSuperseded(operation)
+                let sync = await api.currentSyncState()
+                XCTAssertNotEqual(sync.stateVersion, "stale-owner-state", "\(route)")
+            }
+            let requests = state.requests()
+            XCTAssertEqual(requests.filter { $0.url?.path == "/session" }.count,
+                           mode == .admissionSwitch ? 0 : 1, "\(route): exercise bootstrap, not an early fixture mismatch")
+            let scoped = requests.filter { $0.url?.path != "/session" }
+            let expectsRequest = mode == .lateReply || mode == .headerSwitch || mode == .rotation
+            XCTAssertEqual(scoped.count, expectsRequest ? 1 : 0, "\(route)")
+            XCTAssertTrue(scoped.allSatisfy { $0.value(forHTTPHeaderField: "X-User-Id") == "writer-a" }, "\(route)")
+            if mode == .rotation {
+                XCTAssertEqual(scoped.first?.value(forHTTPHeaderField: "Authorization"), "Bearer fixture-rotated", "\(route)")
+            }
+        }
+    }
+
+    private enum ScreenplayOwnedRoute: CaseIterable {
+        case activation, outlineWrite, scene, beat, collaboratorWrite, commentWrite, companionWrite
+        case projects, project, outline, collaborators, comments, companion
+
+        func perform(_ api: BackendMemoryAPI, owner: BackendAuthRequestIdentity) async throws {
+            switch self {
+            case .activation:
+                _ = try await api.activateScreenplayProject(projectId: "project-a", initiatingIdentity: owner)
+            case .outlineWrite:
+                _ = try await api.upsertScreenplayOutline(projectId: "project-a", acts: [], scenes: [], beats: [],
+                    expectedOutlineRevision: 0, clientRequestId: "request-a", initiatingIdentity: owner)
+            case .scene:
+                _ = try await api.upsertScreenplayScene(projectId: "project-a", scene: .init(title: "A"), initiatingIdentity: owner)
+            case .beat:
+                _ = try await api.upsertScreenplayBeat(projectId: "project-a", beat: .init(label: "A"), initiatingIdentity: owner)
+            case .collaboratorWrite:
+                _ = try await api.upsertScreenplayCollaborator(projectId: "project-a", email: "writer@example.invalid", initiatingIdentity: owner)
+            case .commentWrite:
+                _ = try await api.upsertScreenplayComment(projectId: "project-a", text: "Exact comment", initiatingIdentity: owner)
+            case .companionWrite:
+                let analytics = try JSONDecoder().decode(ScreenplayCompanionAnalyticsSnapshot.self, from: Data("{}".utf8))
+                let result = try await api.updateScreenplayCompanionState(mode: .coWriter, recentTurns: [],
+                    analytics: analytics, signals: .empty, initiatingIdentity: owner)
+                XCTAssertEqual(result.payload.analytics.updatedAt.timeIntervalSince1970, 1_700_000_000)
+            case .projects:
+                _ = try await api.fetchScreenplayProjects(initiatingIdentity: owner)
+            case .project:
+                _ = try await api.fetchScreenplayProject(projectId: "project-a", initiatingIdentity: owner)
+            case .outline:
+                _ = try await api.fetchScreenplayOutline(projectId: "project-a", initiatingIdentity: owner)
+            case .collaborators:
+                _ = try await api.fetchScreenplayCollaborators(projectId: "project-a", initiatingIdentity: owner)
+            case .comments:
+                _ = try await api.fetchScreenplayComments(projectId: "project-a", initiatingIdentity: owner)
+            case .companion:
+                let result = try await api.fetchScreenplayCompanionState(initiatingIdentity: owner)
+                XCTAssertEqual(result.payload.analytics.updatedAt.timeIntervalSince1970, 1_700_000_000)
+            }
+        }
+    }
+
+    private static let routeEnvelope = #"{"state_version":"stale-owner-state","screenplay_projects":[],"collaborators":[],"comments":[],"analytics":{"updatedAt":"2023-11-14T22:13:20Z"}}"#
+
     func testSameAccountNewLoginIntentAlsoInvalidatesPendingWrites() async throws {
         for version in [false, true] { try await assertBootstrapSwitchIsRejected(version: version, sameUser: true) }
     }

@@ -51,9 +51,9 @@ final class BackendProjectWriteBoundaryRegressionTests: XCTestCase {
             requestIdentityProvider: { _ in state.identity() })
         let initiatingIdentity = state.identity()
         do {
-            if extraMutation == "activation" { _ = try await api.activateScreenplayProject(projectId: "project-a") }
+            if extraMutation == "activation" { _ = try await api.activateScreenplayProject(projectId: "project-a", initiatingIdentity: initiatingIdentity) }
             else if extraMutation == "outline" {
-                _ = try await api.upsertScreenplayOutline(projectId: "project-a", acts: [], scenes: [], beats: [], expectedOutlineRevision: 0, clientRequestId: "owned-outline")
+                _ = try await api.upsertScreenplayOutline(projectId: "project-a", acts: [], scenes: [], beats: [], expectedOutlineRevision: 0, clientRequestId: "owned-outline", initiatingIdentity: initiatingIdentity)
             }
             else if version { _ = try await api.upsertScreenplayProjectVersion(projectId: "project-a", draft: "Writer A exact words", initiatingIdentity: initiatingIdentity) }
             else { _ = try await api.upsertScreenplayProject(title: "Writer A story", initiatingIdentity: initiatingIdentity) }
