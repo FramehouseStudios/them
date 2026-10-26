@@ -911,8 +911,15 @@ final class V1SmokeUITests: XCTestCase {
             waitForHittability(of: editor, timeout: writerLoopWait(8)),
             "The UI-created project did not expose its screenplay editor."
         )
-        editor.tap()
-        editor.typeText(marker)
+        // This text view extends below the viewport. Target its visible first
+        // lines, not its geometric centre, and avoid XCUI's element typeText
+        // visibility scroll dismissing the keyboard before event synthesis.
+        editor.coordinate(withNormalizedOffset: CGVector(dx: 0.15, dy: 0.05)).tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: writerLoopWait(5)),
+                      "Tapping the visible page did not open the editor keyboard.")
+        XCTAssertTrue(app.buttons["studio.draft.keyboard-save"].waitForExistence(timeout: writerLoopWait(5)),
+                      "The screenplay editor did not own its Save draft keyboard accessory.")
+        app.typeText(marker)
         XCTAssertTrue(
             waitForExactWriterLoopDraft(marker, in: app, timeout: writerLoopWait(8)),
             "The unique writer-loop marker was not entered exactly once. Draft: \(accessibleDraftText(in: app))"
