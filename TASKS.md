@@ -31,6 +31,30 @@
 - **Evidence:** `docs/original-645-mentor-2026-10-25.md`; completed archive
   `/Users/halfmutantfilms/io.them-worktrees/_proof/T-1156-20261025.ALFBnf/`.
 
+### T-1159 — Fix hosted writer-loop keyboard focus at original644
+
+- **Owner:** codex (Jarvis). **Branch:** `codex/T-1159-hosted-writer-focus`.
+- **Base:** exact original64442d6f746, failed hosted run40248016339.
+- **Scope:** preserve original head/history; inspect retained hosted recording,
+  hierarchy and native editor before adjusting the test's typing interaction.
+  Editor extends below viewport; focus opens then is lost before typeText.
+- **Binary success:** one visible-page tap establishes editor keyboard, real
+  keystrokes enter exactly once; unchanged authenticated writer-loop contract
+  saves one version, exports and restores. No retry/timeout increase/seeded text.
+- **Proof:** signed erased owned simulator, strict writer contract plus the
+  shared coverage workflow; D009/diff. Production source unchanged means parent
+  unit/backend/Mac evidence is explicitly parent evidence, not newly executed.
+- **Limits:** no main merge, review bypass, paid call or production change;
+  public645+ stays held pending fresh exact644 hosted green.
+- **Status:** local review; strict authenticated writer contract1/0/0 and shared
+  coverage1/0/0 pass signed/erased without retries, same writer/version/export/
+  restore assertions. Reused existing646 allowlist entry after runner rejected
+  the first coverage invocation before execution. D009/diff pass. Runtime,
+  backend tests and unit source unchanged; retain parent proof, not rerun it.
+  Raw647 saved425d354 and proof remain separate. Fresh hosted result required.
+- **Evidence:** `docs/hosted-writer-focus-2026-10-25.md`; permanent archive
+  `/Users/halfmutantfilms/io.them-worktrees/_proof/T-1159-20261025.oBhRux/`.
+
 ### T-1155 — Preserve coverage and scope every read to its document
 
 - **Owner:** codex (Jarvis). **Branch:** `codex/T-1155-original-644-coverage`.
