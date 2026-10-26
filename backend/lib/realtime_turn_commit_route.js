@@ -360,20 +360,30 @@ function mountRealtimeTurnCommitRoute(app, deps = {}) {
 
     const readMeta = buildReadStateMeta(req, persisted, requesterIp);
     if (readMeta.lastTurnId) {
-      storeTalkTurnMeta({
-        turnId: readMeta.lastTurnId,
-        sessionId: readMeta.sessionId,
-        stateVersion: readMeta.stateVersion,
-        transcript,
-        reply,
-        renderContract: {
-          reply_role: "final",
-          authoritative_page_text_available: false,
-          sync_ready: false,
-        },
-        requestId: requestId || rid,
-        now: nowTs,
-      });
+      try {
+        await storeTalkTurnMeta({
+          turnId: readMeta.lastTurnId,
+          sessionId: readMeta.sessionId,
+          userId: String(context.authenticatedUserId || req?.authUser?.id || "").trim(),
+          stateVersion: readMeta.stateVersion,
+          transcript,
+          reply,
+          renderContract: {
+            reply_role: "final",
+            authoritative_page_text_available: false,
+            sync_ready: false,
+          },
+          requestId: requestId || rid,
+          now: nowTs,
+        });
+      } catch (_error) {
+        // Memory may already be committed; do not claim that the recoverable
+        // turn metadata was published or leak a storage error to the client.
+        return res.status(503).json({
+          stage: "realtime_turn_commit",
+          error: "turn_metadata_write_failed",
+        });
+      }
     }
 
     res.setHeader("Cache-Control", "no-store");
