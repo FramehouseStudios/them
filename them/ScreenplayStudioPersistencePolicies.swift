@@ -142,6 +142,37 @@ struct ScreenplayUnconfirmedSaveRecoveryPolicy {
     }
 }
 
+struct ScreenplayQueuedDraftAdoptionPolicy {
+    static func shouldAdopt(
+        selectedProjectID: String, loadedProjectID: String, latestVersionID: String,
+        queuedProjectID: String, queuedBaseVersionID: String,
+        hasUnsavedChanges: Bool, isManualEditing: Bool,
+        currentDraftFingerprint: String, lastSavedDraftFingerprint: String
+    ) -> Bool {
+        let projectID = selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !projectID.isEmpty && projectID == loadedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
+            && projectID == queuedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
+            && latestVersionID.trimmingCharacters(in: .whitespacesAndNewlines)
+                == queuedBaseVersionID.trimmingCharacters(in: .whitespacesAndNewlines)
+            && !hasUnsavedChanges && !isManualEditing
+            && !currentDraftFingerprint.isEmpty && currentDraftFingerprint == lastSavedDraftFingerprint
+    }
+}
+
+struct ScreenplayQueuedDraftHydrationPolicy {
+    static func shouldRestoreBeforeServerHydration(
+        expectedAuthContext: ScreenplayStudioAuthContext, currentAuthContext: ScreenplayStudioAuthContext,
+        selectedProjectID: String, queuedProjectID: String, queuedDraft: String,
+        hasUnsavedChanges: Bool, isManualEditing: Bool
+    ) -> Bool {
+        let selectedID = selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        return ScreenplayStudioAuthContextPolicy.matches(expected: expectedAuthContext, current: currentAuthContext)
+            && !selectedID.isEmpty && selectedID == queuedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
+            && !queuedDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !hasUnsavedChanges && !isManualEditing
+    }
+}
+
 struct ScreenplayProgrammaticDraftAutosavePolicy {
     static func shouldAutosave(
         hasSelectedProject: Bool,

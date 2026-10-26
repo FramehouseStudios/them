@@ -1721,7 +1721,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
     private var pendingDraftSaveRequest: DraftSaveRequest?
     private var shouldQueuePendingDraftSaveAfterFailure = false
     private let localDraftRecoveryStore: ScreenplayLocalDraftRecoveryStore
-    private let draftSaveOutbox = ScreenplayDraftSaveOutbox.shared
+    private let draftSaveOutbox: ScreenplayDraftSaveOutbox
     private let outlineMutationOutbox = ScreenplayOutlineMutationOutbox.shared
     private let craftClient: BackendClient
     private let projectSelectionAPI = BackendMemoryAPI()
@@ -1734,9 +1734,11 @@ final class ScreenplayStudioViewModel: ObservableObject {
     }
 
     init(localDraftRecoveryStore: ScreenplayLocalDraftRecoveryStore,
+         draftSaveOutbox: ScreenplayDraftSaveOutbox = .shared,
          craftClient: BackendClient = BackendClient(),
          coverageAuthContextProvider: (() -> ScreenplayStudioAuthContext)? = nil) {
         self.localDraftRecoveryStore = localDraftRecoveryStore
+        self.draftSaveOutbox = draftSaveOutbox
         self.craftClient = craftClient
         self.coverageAuthContextProvider = coverageAuthContextProvider
         fountainDraft = ScreenplayLiveDraftBridge.shared.draftText
@@ -1845,6 +1847,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
             preferredProjectId: bridgePreferredProjectID,
             projects: projects
         )
+        guard await restorePendingDraftSaveBeforeProjectHydration() else { return }
         await loadSelectedProjectOutline()
         guard authContextIsCurrent(authContext) else { return }
         await refreshPendingScreenplayQuestion()
@@ -1854,6 +1857,41 @@ final class ScreenplayStudioViewModel: ObservableObject {
 
     func refresh() async {
         await load()
+    }
+
+    private func restorePendingDraftSaveBeforeProjectHydration() async -> Bool {
+        let projectID = selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let context = currentStudioAuthContext()
+        guard !projectID.isEmpty else { return true }
+        let pendingEntry: ScreenplayDraftSaveOutboxEntry?
+        do {
+            pendingEntry = try await draftSaveOutbox.pendingEntry(projectId: projectID, ownerUserId: context.userID)
+        } catch {
+            guard authContextIsCurrent(context), selectedProjectID == projectID else { return false }
+            autosaveStatusText = ScreenplayDraftSaveRecoveryPresentationPolicy.unreadableQueueStatus
+            errorText = ScreenplayDraftSaveRecoveryPresentationPolicy.unreadableQueueError
+            return false
+        }
+        guard authContextIsCurrent(context), selectedProjectID == projectID else { return false }
+        if errorText == ScreenplayDraftSaveRecoveryPresentationPolicy.unreadableQueueError { errorText = "" }
+        guard let entry = pendingEntry,
+              ScreenplayQueuedDraftHydrationPolicy.shouldRestoreBeforeServerHydration(
+                expectedAuthContext: context, currentAuthContext: currentStudioAuthContext(),
+                selectedProjectID: selectedProjectID, queuedProjectID: entry.projectId, queuedDraft: entry.draft,
+                hasUnsavedChanges: hasUnsavedDraftChanges, isManualEditing: isManualDraftEditing
+              ) else { return true }
+        isHydratingDraft = true
+        fountainDraft = entry.draft
+        isHydratingDraft = false
+        loadedDraftProjectID = projectID
+        if !entry.baseVersionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { latestVersionID = entry.baseVersionId }
+        isManualDraftEditing = true
+        lastManualDraftEditAt = Date()
+        hasUnsavedDraftChanges = true
+        autosaveStatusText = "Queued locally - reconnecting"
+        infoText = "Restored your local screenplay save and reconnecting."
+        persistLocalDraftRecovery(projectId: projectID, draft: entry.draft, baseVersionId: entry.baseVersionId, dirty: true)
+        return true
     }
 
     func refreshSelectedProjectForDebug() async {
@@ -5502,13 +5540,13 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 selectedProject = project
                 selectedProjectID = project.id
                 upsertProject(project)
-                hydrateDraft(from: project)
+                guard await hydrateDraftRestoringQueuedSaves(from: project) else { return }
                 hydrateCollaboration(from: project)
             } else if let project = outlineResult?.payload.project {
                 selectedProject = project
                 selectedProjectID = project.id
                 upsertProject(project)
-                hydrateDraft(from: project)
+                guard await hydrateDraftRestoringQueuedSaves(from: project) else { return }
                 hydrateCollaboration(from: project)
             } else {
                 selectedProject = projects.first(where: { $0.id == id })
@@ -5735,6 +5773,16 @@ final class ScreenplayStudioViewModel: ObservableObject {
         if ScreenplaySceneSessionRestorePolicy.shouldClearSelection(editingBeatID, validIDs: beatIDs) {
             cancelEditingBeat()
         }
+    }
+
+    @discardableResult
+    func hydrateDraftRestoringQueuedSaves(from project: BackendScreenplayProjectSummary) async -> Bool {
+        let context = currentStudioAuthContext()
+        guard project.id == selectedProjectID else { return false }
+        guard await restorePendingDraftSaveBeforeProjectHydration() else { return false }
+        guard authContextIsCurrent(context), project.id == selectedProjectID else { return false }
+        hydrateDraft(from: project)
+        return true
     }
 
     private func hydrateDraft(from project: BackendScreenplayProjectSummary) {
@@ -5995,7 +6043,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
             return
         }
         let projectId = selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !projectId.isEmpty else {
+        guard !projectId.isEmpty, loadedDraftProjectID.trimmingCharacters(in: .whitespacesAndNewlines) == projectId,
+              selectedProject?.id.trimmingCharacters(in: .whitespacesAndNewlines) == projectId else {
             await refreshDraftSaveOutboxStatus()
             return
         }
@@ -6022,11 +6071,30 @@ final class ScreenplayStudioViewModel: ObservableObject {
             guard currentContext.userID == entry.ownerUserId.trimmingCharacters(in: .whitespacesAndNewlines) else {
                 break
             }
+            adoptQueuedDraftIntoUnchangedEditorIfNeeded(entry)
             let didSave = await performDraftSave(DraftSaveRequest(entry: entry, authContext: currentContext))
             guard didSave else { break }
             completedCount += 1
         }
         await refreshDraftSaveOutboxStatus()
+    }
+
+    private func adoptQueuedDraftIntoUnchangedEditorIfNeeded(_ entry: ScreenplayDraftSaveOutboxEntry) {
+        guard ScreenplayQueuedDraftAdoptionPolicy.shouldAdopt(
+            selectedProjectID: selectedProjectID, loadedProjectID: loadedDraftProjectID,
+            latestVersionID: latestVersionID, queuedProjectID: entry.projectId, queuedBaseVersionID: entry.baseVersionId,
+            hasUnsavedChanges: hasUnsavedDraftChanges, isManualEditing: isManualDraftEditing,
+            currentDraftFingerprint: fingerprint(for: fountainDraft), lastSavedDraftFingerprint: lastSavedDraftFingerprint
+        ), !fountainDraft.utf8.elementsEqual(entry.draft.utf8) else { return }
+        isHydratingDraft = true
+        fountainDraft = entry.draft
+        isHydratingDraft = false
+        isManualDraftEditing = true
+        lastManualDraftEditAt = Date()
+        hasUnsavedDraftChanges = true
+        autosaveStatusText = "Queued locally - reconnecting"
+        infoText = "Restored your local screenplay save and reconnecting."
+        persistLocalDraftRecovery(projectId: entry.projectId, draft: entry.draft, baseVersionId: entry.baseVersionId, dirty: true)
     }
 
     func reconnectAndResumeQueuedDraftSaves() async {

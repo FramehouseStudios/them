@@ -2,6 +2,27 @@ import XCTest
 @testable import them
 
 final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
+    func testQueuedHydrationRejectsChangedAccountSessionProjectAndNewerEdits() {
+        let expected = ScreenplayStudioAuthContext(userID: "writer", sessionIntentGeneration: 7)
+        for current in [ScreenplayStudioAuthContext(userID: "other", sessionIntentGeneration: 7),
+                        ScreenplayStudioAuthContext(userID: "writer", sessionIntentGeneration: 8)] {
+            XCTAssertFalse(ScreenplayQueuedDraftHydrationPolicy.shouldRestoreBeforeServerHydration(
+                expectedAuthContext: expected, currentAuthContext: current,
+                selectedProjectID: "project", queuedProjectID: "project", queuedDraft: "Writer words",
+                hasUnsavedChanges: false, isManualEditing: false))
+        }
+        for (project, dirty, editing) in [("other", false, false), ("project", true, false), ("project", false, true)] {
+            XCTAssertFalse(ScreenplayQueuedDraftHydrationPolicy.shouldRestoreBeforeServerHydration(
+                expectedAuthContext: expected, currentAuthContext: expected,
+                selectedProjectID: project, queuedProjectID: "project", queuedDraft: "Writer words",
+                hasUnsavedChanges: dirty, isManualEditing: editing))
+        }
+        XCTAssertTrue(ScreenplayQueuedDraftHydrationPolicy.shouldRestoreBeforeServerHydration(
+            expectedAuthContext: expected, currentAuthContext: expected,
+            selectedProjectID: "project", queuedProjectID: "project", queuedDraft: "Writer words",
+            hasUnsavedChanges: false, isManualEditing: false))
+    }
+
     private let defaultsSuiteName = "io.them.ScreenplayStudioDraftRecoveryTests"
     private let recoveryKey = "screenplay.studio.localDraftRecovery.tests"
     private let ownerUserID = "user-recovery"

@@ -80,6 +80,9 @@ struct ScreenplayStudioHistoryMigrationPolicy {
 }
 
 struct ScreenplayDraftSaveRecoveryPresentationPolicy {
+    static let unreadableQueueStatus = "Local saves need attention"
+    static let unreadableQueueError = "Local saves cannot be read. Your current page was kept. Export it before retrying."
+
     static func failureStatus(source: String) -> String {
         switch normalizedSource(source) {
         case "studio_manual", "studio_conflict_resolve":

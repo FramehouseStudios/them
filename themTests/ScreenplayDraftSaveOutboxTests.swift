@@ -2,6 +2,53 @@ import XCTest
 @testable import them
 
 final class ScreenplayDraftSaveOutboxTests: XCTestCase {
+    @MainActor
+    func testProjectHydrationRestoresQueuedWriterBeforeRemoteDraft() async throws {
+        let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let local = "\r\nWriter words cafe\u{0301}\r\n \t "
+        try await queue.enqueue(replacingOwner(of: makeEntry(id: "queued", draft: local), with: ScreenplayStudioAuthContext.current().userID))
+        let suite = "them.queued-hydration.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let recovery = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "recovery")
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: recovery, draftSaveOutbox: queue)
+        model.autosaveEnabled = false
+        model.selectedProjectID = "project-1"
+        let data = try JSONSerialization.data(withJSONObject: ["id": "project-1", "title": "Test",
+            "activeVersionId": "remote", "versions": [["id": "remote", "draft": "Collaborator words"]]])
+        let applied = await model.hydrateDraftRestoringQueuedSaves(from: try JSONDecoder().decode(BackendScreenplayProjectSummary.self, from: data))
+        XCTAssertTrue(applied)
+        XCTAssertEqual(Data(model.fountainDraft.utf8), Data(local.utf8))
+        XCTAssertTrue(model.hasUnsavedDraftChanges)
+        XCTAssertNotNil(model.conflictState)
+        let retained = try await queue.entriesForTesting()
+        XCTAssertEqual(retained.map { Data($0.draft.utf8) }, [Data(local.utf8)])
+    }
+
+    @MainActor
+    func testUnreadableQueueCannotReplaceCurrentPageDuringHydration() async throws {
+        try FileManager.default.createDirectory(at: storageDirectory, withIntermediateDirectories: true)
+        let file = storageDirectory.appendingPathComponent("queue.json")
+        let corrupt = Data("{not-json".utf8)
+        try corrupt.write(to: file)
+        let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let suite = "them.corrupt-hydration.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "recovery"), draftSaveOutbox: queue)
+        model.autosaveEnabled = false
+        model.selectedProjectID = "project-1"
+        let writer = "My exact cafe\u{0301} words. \r\n"
+        model.applyServerDraft(writer, versionId: "base")
+        let data = try JSONSerialization.data(withJSONObject: ["id": "project-1", "title": "Test",
+            "versions": [["id": "remote", "draft": "Remote words"]]])
+        let applied = await model.hydrateDraftRestoringQueuedSaves(from: try JSONDecoder().decode(BackendScreenplayProjectSummary.self, from: data))
+        XCTAssertFalse(applied)
+        XCTAssertEqual(Data(model.fountainDraft.utf8), Data(writer.utf8))
+        XCTAssertEqual(model.errorText, ScreenplayDraftSaveRecoveryPresentationPolicy.unreadableQueueError)
+        XCTAssertEqual(try Data(contentsOf: file), corrupt)
+    }
+
     private var storageDirectory: URL!
 
     override func setUp() {
