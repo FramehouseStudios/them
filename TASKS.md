@@ -15,8 +15,13 @@
   project writes; same-login token rotation remains functional. Real local
   version401 -> refresh200 -> returned-bearer201 occurs once, exact queued bytes
   survive another relaunch. No secret read or paid provider call.
-- **Status:** in-progress. Current signed original-boundary reproduction0/4/0
-  (10 assertion failures), retained at a09778a. Full proof pending.
+- **Status:** local review at e97982f+d551759. Signed original-boundary red0/4/0
+  (10 assertions) retaineda09778a; final full800/0/0; real auth/offline/conflict
+  recovery3/0/0; positive title/raw promotion/relaunch1/0/0; Node20 focused15/0/0;
+  Mac/D009/diff pass. Original64592b hosted now allgreen (audited751 units,
+  backend2867/0/2, writer pass, V1 29/0/16, voice1, Mac). No main/deploy change.
+- **Evidence:** `docs/project-write-refresh-2026-10-25.md`; permanent archive
+  `/Users/halfmutantfilms/io.them-worktrees/_proof/T-1163-20261025.rWsaNN/`.
 - **Limits:** not app-wide transport isolation, atomic creation, physical phone,
   shipping-backend or audible/model-quality proof. NextT1109/T1108 remain.
 
