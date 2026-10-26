@@ -53,7 +53,7 @@ final class OfflineTalkRecoveryBoundaryRegressionTests: XCTestCase {
         let visible = await reopened.allEntries()
         XCTAssertTrue(visible.isEmpty, "Current account was shown another owner's recovery row.")
         do {
-            _ = try await reopened.deleteParkedEntries()
+            _ = try await reopened.deleteParkedEntries(confirmedEntryIDs: [rows[0].id], initiatingIdentity: BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: true), backendURL: BackendAuthClient.resolvedBackendBaseURL())
             XCTFail("Current account deleted another owner's parked work.")
         } catch { }
         XCTAssertEqual(try readEntries().count, 1)

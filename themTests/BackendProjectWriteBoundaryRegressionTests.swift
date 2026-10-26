@@ -65,11 +65,11 @@ final class BackendProjectWriteBoundaryRegressionTests: XCTestCase {
         do {
             if extraMutation == "question" {
                 let pending = BackendPendingScreenplayQuestion(id: "question-a", projectId: "project-a", projectTitle: "A", targetField: "theme", targetLabel: "Theme", question: "What is it about?", provisionalOptions: nil, askedAt: nil)
-                _ = try await api.resolvePendingScreenplayQuestion(pending, responseStatus: "answered", answer: "Exact answer")
+                _ = try await api.resolvePendingScreenplayQuestion(pending, responseStatus: "answered", answer: "Exact answer", initiatingIdentity: initiatingIdentity)
             }
-            else if extraMutation == "realtime" { _ = try await api.commitRealtimeTurn(userMessage: "My story", assistantMessage: "A scene", requestId: "request-a") }
+            else if extraMutation == "realtime" { _ = try await api.commitRealtimeTurn(userMessage: "My story", assistantMessage: "A scene", requestId: "request-a", initiatingIdentity: initiatingIdentity) }
             else if extraMutation == "batch" {
-                try await api.recordCharacterMentionsFromScreenplayReply([.init(characterName: "JOHN", line: 1, tags: []), .init(characterName: "SAM", line: 3, tags: [])], writeID: "write-a", projectID: "project-a")
+                try await api.recordCharacterMentionsFromScreenplayReply([.init(characterName: "JOHN", line: 1, tags: []), .init(characterName: "SAM", line: 3, tags: [])], writeID: "write-a", projectID: "project-a", initiatingIdentity: initiatingIdentity)
             }
             else if extraMutation == "activation" { _ = try await api.activateScreenplayProject(projectId: "project-a", initiatingIdentity: initiatingIdentity) }
             else if extraMutation == "outline" {

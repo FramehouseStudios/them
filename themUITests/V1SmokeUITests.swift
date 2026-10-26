@@ -1900,6 +1900,54 @@ final class V1SmokeUITests: XCTestCase {
         XCTAssertTrue(staticText(containing: "deterministic stub path", in: app).waitForExistence(timeout: 5))
     }
 
+    @MainActor
+    func test_talk_recovery_exports_current_owner_and_confirms_exact_deletion() async throws {
+#if os(iOS)
+        guard let port = Int(ProcessInfo.processInfo.environment["THEM_UITEST_WRITER_LOOP_BACKEND_PORT"] ?? ""),
+              let baseURL = URL(string: "http://127.0.0.1:\(port)"),
+              await backendRestoreContractIsAvailable(baseURL: baseURL) else {
+            throw XCTSkip("A dedicated authenticated local backend is required.")
+        }
+        let fixture = try await createWriterLoopAuthenticationFixture(baseURL: baseURL)
+        let app = launchApp(openDataControls: true, showTalkRecovery: true, launchEnvironment: fixture.appLaunchEnvironment)
+        defer { app.terminate() }
+        XCTAssertTrue(app.otherElements["data.controls.screen"].waitForExistence(timeout: 8))
+        let export = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "data.controls.talk.export.")).firstMatch
+        for _ in 0..<8 where !export.isHittable { app.swipeUp() }
+        XCTAssertTrue(export.waitForExistence(timeout: 5))
+        XCTAssertEqual(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "data.controls.talk.export.")).count, 1)
+        XCTAssertFalse(staticText(containing: "UI recovery fixture: ui-foreign-talk", in: app).exists)
+        XCTAssertTrue(staticText(containing: "Older unassigned queued work", in: app).exists)
+        export.tap()
+        XCTAssertTrue(waitForNativeFilesExporter(in: app, presented: true, timeout: 5), "Recovery export did not open the native file exporter.")
+        XCTAssertTrue(dismissNativeFilesExporter(in: app))
+        let delete = app.buttons["data.controls.talk.delete-parked"]
+        XCTAssertTrue(delete.waitForExistence(timeout: 5))
+        delete.tap()
+        let alert = app.alerts.firstMatch
+        XCTAssertTrue(alert.waitForExistence(timeout: 5))
+        XCTAssertTrue(alert.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "1 confirmed parked turn")).firstMatch.exists)
+        alert.buttons["Cancel"].tap()
+        XCTAssertTrue(export.exists, "Cancel deleted the queued turn.")
+        export.tap()
+        XCTAssertTrue(waitForNativeFilesExporter(in: app, presented: true, timeout: 5))
+        app.buttons["Save"].tap()
+        XCTAssertTrue(waitForNativeFilesExporter(in: app, presented: false, timeout: 8))
+        XCTAssertTrue(staticText(containing: "Queued turn recovery export saved", in: app).waitForExistence(timeout: 5))
+        let saved = XCTAttachment(screenshot: app.screenshot())
+        saved.name = "talk-recovery-after-real-files-save.png"
+        saved.lifetime = .keepAlways
+        add(saved)
+        delete.tap()
+        app.alerts.firstMatch.buttons["Delete Parked Turns"].tap()
+        XCTAssertTrue(staticText(containing: "Deleted 1 confirmed parked", in: app).waitForExistence(timeout: 5))
+        XCTAssertFalse(export.exists)
+        XCTAssertTrue(staticText(containing: "Older unassigned queued work", in: app).exists)
+#else
+        throw XCTSkip("iPhone queued recovery workflow")
+#endif
+    }
+
     func test_outline_recovery_exposes_stale_chain_without_unsafe_retry() {
         let app = launchApp(openDataControls: true, showOutlineRecovery: true)
 
@@ -3447,6 +3495,7 @@ final class V1SmokeUITests: XCTestCase {
         showCanonClarification: Bool = false,
         showDraftConflict: Bool = false,
         showOutlineRecovery: Bool = false,
+        showTalkRecovery: Bool = false,
         conflictSaveSuccess: Bool = false,
         liveMemory: Bool = false,
         showPendingScreenplayQuestion: Bool = false,
@@ -3521,6 +3570,9 @@ final class V1SmokeUITests: XCTestCase {
         }
         if showOutlineRecovery {
             arguments.append("--ui-outline-recovery-fixture")
+        }
+        if showTalkRecovery {
+            arguments.append("--ui-talk-recovery-fixture")
         }
         if conflictSaveSuccess {
             arguments.append("--ui-conflict-save-success")
@@ -3912,6 +3964,33 @@ final class V1SmokeUITests: XCTestCase {
         app.staticTexts
             .matching(NSPredicate(format: "label CONTAINS[c] %@", text))
             .firstMatch
+    }
+
+    private func nativeFilesExporterIsPresented(in app: XCUIApplication) -> Bool {
+        // Reuse2369367: runtimes expose either the Browse picker or its filename field.
+        app.otherElements["Browse View (Picker)"].exists || app.textFields["DOCPicker.filenameTextField"].exists
+    }
+
+    private func waitForNativeFilesExporter(in app: XCUIApplication, presented: Bool, timeout: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if nativeFilesExporterIsPresented(in: app) == presented { return true }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        }
+        return nativeFilesExporterIsPresented(in: app) == presented
+    }
+
+    private func dismissNativeFilesExporter(in app: XCUIApplication) -> Bool {
+        guard nativeFilesExporterIsPresented(in: app) else { return false }
+        let backToBrowse = app.buttons["BackButton"]
+        if backToBrowse.waitForExistence(timeout: writerLoopWait(3)),
+           backToBrowse.isHittable, backToBrowse.frame.midX < app.frame.midX {
+            backToBrowse.tap()
+            guard waitForDisappearance(of: backToBrowse, timeout: writerLoopWait(3)) else { return false }
+        }
+        // The real leading close control has no stable identifier on all runtimes.
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.095, dy: 0.126)).tap()
+        return waitForNativeFilesExporter(in: app, presented: false, timeout: writerLoopWait(8))
     }
 
     private func element(identifier: String, in app: XCUIApplication) -> XCUIElement {

@@ -8,7 +8,7 @@ import AppKit
 private enum DataControlAction: Identifiable, Equatable {
     case clearHistory
     case clearMemories
-    case clearParkedOutbox
+    case clearParkedOutbox(entryIDs: Set<String>, scope: OfflineTalkRecoveryScope)
     case discardOutlineRecovery(
         headID: String,
         projectId: String,
@@ -53,8 +53,8 @@ private enum DataControlAction: Identifiable, Equatable {
             return "This removes stored conversation history and transcript trail for this assistant context. This cannot be undone."
         case .clearMemories:
             return "This removes remembered names, themes, and continuity memory context. This cannot be undone."
-        case .clearParkedOutbox:
-            return "This deletes queued talk turns that could not be retried. This cannot be undone."
+        case .clearParkedOutbox(let ids, _):
+            return "This deletes \(ids.count) confirmed parked \(ids.count == 1 ? "turn" : "turns") in this account and backend. Export first if you need the work. Other accounts and newly arrived turns are not deleted. This cannot be undone."
         case .discardOutlineRecovery(_, _, let confirmedEntryIDs, _):
             let removalCount = confirmedEntryIDs.count
             let noun = removalCount == 1 ? "saved outline snapshot" : "causally linked outline snapshots"
@@ -96,6 +96,14 @@ private enum DataControlAction: Identifiable, Equatable {
     }
 }
 
+private struct DataControlConfirmation: Identifiable {
+    let action: DataControlAction
+    let owner: BackendAuthRequestIdentity
+    let backendURL: URL
+    var id: String { action.id }
+    var scope: OfflineTalkRecoveryScope { .init(identity: owner, backendURL: backendURL) }
+}
+
 struct DataControlsScreen: View {
     var onDone: () -> Void = {}
 
@@ -105,13 +113,14 @@ struct DataControlsScreen: View {
     private var realtimeSupplierModeRaw: String = ClementineRealtimeSupplierMode.serverDefault.rawValue
     @AppStorage("clementine_visual_context_enabled")
     private var visualContextEnabled: Bool = false
-    @State private var pendingAction: DataControlAction?
+    @State private var pendingAction: DataControlConfirmation?
     @State private var runningAction: DataControlAction?
     @State private var isExporting = false
     @State private var isRefreshingOutbox = false
     @State private var isRetryingOutbox = false
-    @State private var offlineOutboxSnapshot = OfflineTalkOutboxSnapshot.empty
-    @State private var offlineOutboxEntries: [OfflineTalkOutboxEntry] = []
+    @State private var offlineTalkRecovery = OfflineTalkRecoveryState.empty
+    private var offlineOutboxSnapshot: OfflineTalkOutboxSnapshot { offlineTalkRecovery.snapshot }
+    private var offlineOutboxEntries: [OfflineTalkOutboxEntry] { offlineTalkRecovery.entries }
     @State private var outlineRecoveryChains: [ScreenplayOutlineMutationRecoveryChain] = []
     @State private var outlineRecoveryOwnerScope: Set<String> = []
     @State private var outlineRecoveryError = ""
@@ -121,6 +130,8 @@ struct DataControlsScreen: View {
     @State private var outlineRecoveryExportDocument: ScreenplayOutlineMutationRecoveryDocument?
     @State private var outlineRecoveryExportFilename = "io-them-screenplay-outline-recovery.json"
     @State private var isPresentingOutlineRecoveryExporter = false
+    @State private var recoveryExportLabel = "Outline recovery"
+    @State private var recoveryExportScope: OfflineTalkRecoveryScope?
     @State private var isRefreshingMemoryStats = false
     @State private var memoryStats: BackendMemoryStatsResponse?
     @State private var memoryStatsError = ""
@@ -133,6 +144,7 @@ struct DataControlsScreen: View {
     @State private var accountDeletionPassword = ""
     @State private var accountDeletionError = ""
     @State private var accountDeletionAppleRawNonce: String?
+    @State private var accountDeletionOwner: OfflineTalkRecoveryScope?
     #if DEBUG
     @State private var didInstallOutlineRecoveryUITestFixture = false
     #endif
@@ -187,15 +199,17 @@ struct DataControlsScreen: View {
                 #endif
             }
         }
-        .alert(item: $pendingAction) { action in
-            Alert(
+        .alert(item: $pendingAction) { confirmation in
+            let action = confirmation.action
+            return Alert(
                 title: Text(action.title),
                 message: Text(action.message),
                 primaryButton: .destructive(Text(action.confirmLabel)) {
+                    guard confirmation.scope.isCurrent else { return }
                     if action == .deleteAccount {
                         presentAccountDeletionReauthentication()
                     } else {
-                        runAction(action)
+                        runAction(action, initiatingIdentity: confirmation.owner, backendURL: confirmation.backendURL)
                     }
                 },
                 secondaryButton: .cancel()
@@ -204,13 +218,15 @@ struct DataControlsScreen: View {
         .task {
             #if DEBUG
             await installOutlineRecoveryUITestFixtureIfNeeded()
+            do { try await OfflineTalkOutbox.shared.installRecoveryUITestFixture() }
+            catch { statusMessage = "Queued recovery fixture failed: \(error.localizedDescription)" }
             #endif
             await refreshOutlineRecovery(startMonitoring: true)
             await refreshOfflineOutbox(startMonitoring: true)
             await refreshMemoryStats(force: false)
         }
         .onReceive(NotificationCenter.default.publisher(for: .themOfflineTalkOutboxUpdated)) { notification in
-            offlineOutboxSnapshot = OfflineTalkOutboxSnapshot(notification: notification)
+            guard OfflineTalkOutboxSnapshot(notification: notification) != nil else { return }
             Task { @MainActor in
                 await refreshOfflineOutbox(startMonitoring: false)
             }
@@ -225,8 +241,18 @@ struct DataControlsScreen: View {
         .onReceive(
             NotificationCenter.default.publisher(for: .themBackendIdentityPartitionChanged)
         ) { _ in
+            offlineTalkRecovery = .empty
+            isRefreshingOutbox = false
+            isRetryingOutbox = false
+            isExporting = false
+            pendingAction = nil
+            accountDeletionOwner = nil
+            showingAccountDeletionReauth = false
+            runningAction = nil
+            statusMessage = ""
             clearOutlineRecoveryPresentation()
             Task { @MainActor in
+                await refreshOfflineOutbox(startMonitoring: false)
                 await refreshOutlineRecovery(startMonitoring: false)
             }
         }
@@ -262,13 +288,14 @@ struct DataControlsScreen: View {
             contentType: .json,
             defaultFilename: outlineRecoveryExportFilename
         ) { result in
+            defer { outlineRecoveryExportDocument = nil; recoveryExportScope = nil }
+            guard recoveryExportScope?.isCurrent != false else { return }
             switch result {
             case .success(let url):
-                statusMessage = "Outline recovery export saved: \(url.lastPathComponent)"
+                statusMessage = "\(recoveryExportLabel) export saved: \(url.lastPathComponent)"
             case .failure(let error):
-                statusMessage = "Outline recovery export failed: \(error.localizedDescription)"
+                statusMessage = "\(recoveryExportLabel) export failed: \(error.localizedDescription)"
             }
-            outlineRecoveryExportDocument = nil
         }
     }
 
@@ -496,9 +523,13 @@ struct DataControlsScreen: View {
                 .font(.system(size: 14, weight: .regular, design: .default))
                 .foregroundStyle(Color.herText.opacity(0.78))
 
-            let visibleEntries = offlineOutboxEntries.prefix(3)
+            if offlineTalkRecovery.hasUnassignedEntries {
+                Text("Older unassigned queued work is kept on this device. It is not sent or deleted from this account.")
+                    .font(.system(size: 13)).foregroundStyle(Color.herText.opacity(0.72))
+            }
+            let visibleEntries = offlineOutboxEntries
             if !visibleEntries.isEmpty {
-                VStack(alignment: .leading, spacing: 8) {
+                LazyVStack(alignment: .leading, spacing: 8) {
                     ForEach(Array(visibleEntries)) { entry in
                         HStack(alignment: .firstTextBaseline, spacing: 8) {
                             Image(systemName: outboxIconName(for: entry.status))
@@ -516,6 +547,10 @@ struct DataControlsScreen: View {
                                 }
                             }
                             Spacer(minLength: 0)
+                            Button("Export") { Task { @MainActor in await exportOfflineTurn(entry.id) } }
+                                .buttonStyle(.bordered).disabled(isBusy)
+                                .accessibilityLabel("Export queued turn")
+                                .accessibilityIdentifier("data.controls.talk.export.\(entry.id)")
                         }
                     }
                 }
@@ -523,7 +558,8 @@ struct DataControlsScreen: View {
 
             if offlineOutboxSnapshot.parkedCount > 0 {
                 Button {
-                    pendingAction = .clearParkedOutbox
+                    guard let scope = offlineTalkRecovery.scope, scope.isCurrent else { return }
+                    presentAction(.clearParkedOutbox(entryIDs: Set(offlineOutboxEntries.filter { $0.status == .parked }.map(\.id)), scope: scope))
                 } label: {
                     HStack(spacing: 8) {
                         Image(systemName: "trash")
@@ -534,6 +570,7 @@ struct DataControlsScreen: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(isBusy)
+                .accessibilityIdentifier("data.controls.talk.delete-parked")
             }
         }
         .padding(16)
@@ -588,12 +625,12 @@ struct DataControlsScreen: View {
                     }
                     return
                 }
-                pendingAction = .discardOutlineRecovery(
+                presentAction(.discardOutlineRecovery(
                     headID: chain.parkedHead.id,
                     projectId: chain.projectId,
                     confirmedEntryIDs: chain.entries.map(\.id),
                     ownerScope: ownerScope
-                )
+                ))
             }
         )
     }
@@ -791,7 +828,7 @@ struct DataControlsScreen: View {
 
     private func actionButton(title: String, subtitle: String, action: DataControlAction) -> some View {
         Button {
-            pendingAction = action
+            presentAction(action)
         } label: {
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 4) {
@@ -960,23 +997,68 @@ struct DataControlsScreen: View {
     @MainActor
     private func refreshOfflineOutbox(startMonitoring: Bool) async {
         if isRefreshingOutbox { return }
+        let owner = BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: true)
+        let backendURL = BackendAuthClient.resolvedBackendBaseURL()
+        let scope = OfflineTalkRecoveryScope(identity: owner, backendURL: backendURL)
         isRefreshingOutbox = true
-        defer { isRefreshingOutbox = false }
+        defer { if scope.isCurrent { isRefreshingOutbox = false } }
         if startMonitoring {
             await OfflineTalkOutbox.shared.startNetworkMonitoring()
         }
-        offlineOutboxSnapshot = await OfflineTalkOutbox.shared.snapshot()
-        offlineOutboxEntries = await OfflineTalkOutbox.shared.allEntries()
+        do {
+            let state = try await OfflineTalkOutbox.shared.recoveryState(initiatingIdentity: owner, backendURL: backendURL)
+            guard scope.isCurrent else { return }
+            offlineTalkRecovery = state
+        } catch {
+            guard scope.isCurrent else { return }
+            offlineTalkRecovery = .empty
+            statusMessage = "Queued recovery could not be read. Its files were kept unchanged."
+        }
     }
 
     @MainActor
     private func retryOfflineOutbox() async {
         if isRetryingOutbox { return }
+        let owner = BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: true)
+        let backendURL = BackendAuthClient.resolvedBackendBaseURL()
+        let scope = OfflineTalkRecoveryScope(identity: owner, backendURL: backendURL)
         isRetryingOutbox = true
-        defer { isRetryingOutbox = false }
-        offlineOutboxSnapshot = await OfflineTalkOutbox.shared.drainDue()
-        offlineOutboxEntries = await OfflineTalkOutbox.shared.allEntries()
+        defer { if scope.isCurrent { isRetryingOutbox = false } }
+        _ = await OfflineTalkOutbox.shared.drainDue(initiatingIdentity: owner, backendURL: backendURL)
+        guard scope.isCurrent else { return }
+        await refreshOfflineOutbox(startMonitoring: false)
+        guard scope.isCurrent else { return }
         statusMessage = offlineOutboxSnapshot.userVisibleStatus ?? "Queued turns are clear."
+    }
+
+    @MainActor
+    private func exportOfflineTurn(_ id: String) async {
+        guard !isBusy else { return }
+        let owner = BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: true)
+        let url = BackendAuthClient.resolvedBackendBaseURL()
+        let scope = OfflineTalkRecoveryScope(identity: owner, backendURL: url)
+        isExporting = true
+        defer { if scope.isCurrent { isExporting = false } }
+        do {
+            let artifact = try await OfflineTalkOutbox.shared.exportRecoveryEntry(id, initiatingIdentity: owner, backendURL: url)
+            guard scope.isCurrent else { return }
+            outlineRecoveryExportDocument = ScreenplayOutlineMutationRecoveryDocument(data: artifact.data)
+            outlineRecoveryExportFilename = artifact.filename
+            recoveryExportLabel = "Queued turn recovery"
+            recoveryExportScope = scope
+            isPresentingOutlineRecoveryExporter = true
+            statusMessage = "Choose where to save this private turn payload. HTTP credential headers are not included."
+        } catch {
+            guard scope.isCurrent else { return }
+            statusMessage = "Queued turn export failed: \(error.localizedDescription)"
+        }
+    }
+
+    @MainActor
+    private func presentAction(_ action: DataControlAction) {
+        pendingAction = .init(action: action,
+            owner: BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: true),
+            backendURL: BackendAuthClient.resolvedBackendBaseURL())
     }
 
     @MainActor
@@ -1021,6 +1103,7 @@ struct DataControlsScreen: View {
         inspectingOutlineRecovery = nil
         outlineRecoveryExportDocument = nil
         isPresentingOutlineRecoveryExporter = false
+        recoveryExportScope = nil
     }
 
     @MainActor
@@ -1084,6 +1167,8 @@ struct DataControlsScreen: View {
                 data: artifact.data
             )
             outlineRecoveryExportFilename = artifact.filename
+            recoveryExportLabel = "Outline recovery"
+            recoveryExportScope = .current()
             isPresentingOutlineRecoveryExporter = true
             statusMessage = "Choose where to save the owner-redacted outline recovery file."
         } catch {
@@ -1102,6 +1187,7 @@ struct DataControlsScreen: View {
             statusMessage = "Sign in before requesting account deletion."
             return
         }
+        accountDeletionOwner = .current()
         accountDeletionAuthProvider = (session.user?.authProvider ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased() == "apple" ? "apple" : "email"
@@ -1113,6 +1199,7 @@ struct DataControlsScreen: View {
 
     @MainActor
     private func clearAccountDeletionReauthentication() {
+        accountDeletionOwner = nil
         accountDeletionPassword = ""
         accountDeletionError = ""
         accountDeletionAppleRawNonce = nil
@@ -1121,13 +1208,16 @@ struct DataControlsScreen: View {
 
     @MainActor
     private func submitPasswordAccountDeletion() {
+        let owner = BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: true)
+        guard let scope = accountDeletionOwner,
+              scope.matches(identity: owner, backendURL: BackendAuthClient.resolvedBackendBaseURL()) else { return }
         let password = accountDeletionPassword
         guard !password.isEmpty else {
             accountDeletionError = "Enter your current password."
             return
         }
         clearAccountDeletionReauthentication()
-        runAction(.deleteAccount, accountDeletionProof: .password(password))
+        runAction(.deleteAccount, accountDeletionProof: .password(password), initiatingIdentity: owner, backendURL: scope.backendURL)
     }
 
     @MainActor
@@ -1150,6 +1240,9 @@ struct DataControlsScreen: View {
     ) {
         switch result {
         case .success(let authorization):
+            let owner = BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: true)
+            guard let scope = accountDeletionOwner,
+                  scope.matches(identity: owner, backendURL: BackendAuthClient.resolvedBackendBaseURL()) else { return }
             guard let rawNonce = accountDeletionAppleRawNonce, !rawNonce.isEmpty else {
                 accountDeletionError = "Apple could not complete the security check. Please try again."
                 return
@@ -1165,7 +1258,8 @@ struct DataControlsScreen: View {
             clearAccountDeletionReauthentication()
             runAction(
                 .deleteAccount,
-                accountDeletionProof: .apple(identityToken: identityToken, rawNonce: rawNonce)
+                accountDeletionProof: .apple(identityToken: identityToken, rawNonce: rawNonce),
+                initiatingIdentity: owner, backendURL: scope.backendURL
             )
         case .failure(let error):
             accountDeletionAppleRawNonce = nil
@@ -1180,25 +1274,32 @@ struct DataControlsScreen: View {
     @MainActor
     private func runAction(
         _ action: DataControlAction,
-        accountDeletionProof: BackendAccountDeletionProof? = nil
+        accountDeletionProof: BackendAccountDeletionProof? = nil,
+        initiatingIdentity owner: BackendAuthRequestIdentity = BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: true),
+        backendURL: URL = BackendAuthClient.resolvedBackendBaseURL()
     ) {
-        guard runningAction == nil else { return }
+        let scope = OfflineTalkRecoveryScope(identity: owner, backendURL: backendURL)
+        guard runningAction == nil, scope.isCurrent else { return }
         runningAction = action
         statusMessage = ""
 
         Task { @MainActor in
-            defer { runningAction = nil }
+            defer { if scope.isCurrent { runningAction = nil } }
             do {
+                try owner.requireCurrentOwner(BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: false))
+                guard scope.isCurrent else { return }
                 switch action {
                 case .clearHistory:
-                    let result = try await BackendMemoryAPI.shared.clearHistory()
+                    let result = try await BackendMemoryAPI.shared.clearHistory(initiatingIdentity: owner, backendURL: backendURL)
+                    guard scope.isCurrent else { return }
                     stateVersion = result.sync.stateVersion
                     statusMessage = "History cleared."
                     _ = try? await BackendMemoryAPI.shared.fetchHistory(limit: 140, force: true, sinceTurnId: nil)
                     _ = try? await BackendMemoryAPI.shared.fetchMemories(limit: 72, force: true, sinceVersion: nil)
                     await refreshMemoryStats(force: true)
                 case .clearMemories:
-                    let result = try await BackendMemoryAPI.shared.clearMemories()
+                    let result = try await BackendMemoryAPI.shared.clearMemories(initiatingIdentity: owner, backendURL: backendURL)
+                    guard scope.isCurrent else { return }
                     ScreenplayLiveDraftBridge.shared.clearCharacterVoiceMemoryCache()
                     stateVersion = result.sync.stateVersion
                     statusMessage = "All memories deleted."
@@ -1214,8 +1315,10 @@ struct DataControlsScreen: View {
                     }
                     let result = try await BackendMemoryAPI.shared.requestAccountDeletion(
                         reason: "Requested from Data Controls",
-                        proof: accountDeletionProof
+                        proof: accountDeletionProof,
+                        initiatingIdentity: owner
                     )
+                    guard !BackendAuthClient.currentAuthSessionState().isAuthenticated || scope.isCurrent else { return }
                     ScreenplayLiveDraftBridge.shared.clearCharacterVoiceMemoryCache()
                     clearOutlineRecoveryPresentation()
                     stateVersion = ""
@@ -1227,10 +1330,13 @@ struct DataControlsScreen: View {
                     memoryStats = nil
                     memoryStatsError = ""
                     await refreshOutlineRecovery(startMonitoring: false)
-                case .clearParkedOutbox:
-                    offlineOutboxSnapshot = try await OfflineTalkOutbox.shared.deleteParkedEntries()
-                    offlineOutboxEntries = await OfflineTalkOutbox.shared.allEntries()
-                    statusMessage = "Parked queued turns deleted."
+                case .clearParkedOutbox(let ids, let confirmedScope):
+                    guard confirmedScope == scope else { return }
+                    _ = try await OfflineTalkOutbox.shared.deleteParkedEntries(confirmedEntryIDs: ids, initiatingIdentity: owner, backendURL: backendURL)
+                    guard scope.isCurrent else { return }
+                    await refreshOfflineOutbox(startMonitoring: false)
+                    guard scope.isCurrent else { return }
+                    statusMessage = "Deleted \(ids.count) confirmed parked \(ids.count == 1 ? "turn" : "turns"). Other saved work was not changed."
                 case .discardOutlineRecovery(
                     let headID,
                     let projectId,
@@ -1255,6 +1361,7 @@ struct DataControlsScreen: View {
                     await refreshOutlineRecovery(startMonitoring: false)
                 }
             } catch {
+                guard scope.isCurrent else { return }
                 if case .discardOutlineRecovery = action {
                     await refreshOutlineRecovery(startMonitoring: false)
                 }
@@ -1266,13 +1373,17 @@ struct DataControlsScreen: View {
     @MainActor
     private func runExport() {
         guard !isBusy else { return }
+        let owner = BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: false)
+        let scope = OfflineTalkRecoveryScope(identity: owner, backendURL: BackendAuthClient.resolvedBackendBaseURL())
         isExporting = true
         statusMessage = ""
 
         Task { @MainActor in
-            defer { isExporting = false }
+            defer { if scope.isCurrent { isExporting = false } }
             do {
-                let result = try await BackendMemoryAPI.shared.exportAccountData()
+                guard scope.isCurrent else { return }
+                let result = try await BackendMemoryAPI.shared.exportAccountData(initiatingIdentity: owner, backendURL: scope.backendURL)
+                guard scope.isCurrent else { return }
                 stateVersion = ""
                 let url = try writeExportFile(
                     filename: result.filename,
@@ -1283,6 +1394,7 @@ struct DataControlsScreen: View {
                 NSWorkspace.shared.activateFileViewerSelecting([url])
                 #endif
             } catch {
+                guard scope.isCurrent else { return }
                 statusMessage = "Export failed: \(error.localizedDescription)"
             }
         }

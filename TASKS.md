@@ -5,6 +5,25 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1166 — Preserve queued work through ownership, replay and cleanup
+
+- **Owner:** codex (Jarvis). **Branch:** `codex/T-1166-owned-talk-recovery`.
+- **Base:** verified higher64731b90b9. Original647/public main remain held.
+- **Scope:** reuse canonicalac81718 request/batch/cache/deferred ownership and
+  aa913df owner+origin recovery, exact payload dedupe, manifest-before-unlink,
+  confirmation-bound Data Controls/replay/export. Keep one queue/auth/client.
+- **Binary success:** seven current real-client/disk failures become green;
+  other owners/legacy bytes stay exact, changed payload is parked not falsely
+  acknowledged, token refresh/retries remain idempotent, stale confirmation or
+  delivery rejected. Final signed units, authenticated recovery UI, voice save,
+  Mac/D009/diff. No paid calls or human-data deletion.
+- **Status:** in-progress. Actual signed red0/7/0,18 assertions at7f0dc45.
+  Canonical fixes applied; final proof pending. Reuse2369367 native picker
+  helper only, not later product/export ancestry; new recovery UI requires a
+  dedicated authenticated local backend and strict runner requires1 pass.
+- **Limits:** not full app-wide isolation, live phone/provider or atomic
+  first creation; multi-file enqueue/orphan reconciliation remainsT1112.
+
 ### T-1165 — Keep Studio requests and sync with their initiating login
 
 - **Owner:** codex (Jarvis). **Branch:** `codex/T-1165-studio-request-owner`.
