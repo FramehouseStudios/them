@@ -8,8 +8,8 @@
 ### T-1165 — Keep Studio requests and sync with their initiating login
 
 - **Owner:** codex (Jarvis). **Branch:** `codex/T-1165-studio-request-owner`.
-- **Base:** saved647 eab6787. Public646 acfe2d8 fresh hosted gate is still live;
-  original647 advancement remains held. Preserve all original heads/history.
+- **Base:** saved647 eab6787 plus no-ffc2bd5be of exact required-green646acfe2d8;
+  zero runtime/unit/UI/backend diff after parent merge. Original647 held.
 - **Scope:** reuse08b92cd's canonical caller ownership/shared screenplay sync
   decoding for15 Studio methods. Carry checked headers through bootstrap/HTTP,
   reject stale read/write/sync, preserve same-login refresh and outline errors.
@@ -23,9 +23,12 @@
   Raw-audio Home->Studio journey exposed first-project failure0/1/0:1064chars
   on page but unbound/Create project to save. Reuse canonical7b6b298 full-commit/
   settled-editor publication guard, preserving exact bytes/login/one-project.
-  Tool-approval workspace credit warning interrupted archive; current read-only
-  approval recheck succeeded. Final voice/held-create/native/Mac proof pending.
-  No paid provider call or production/main change.
+  Tool-approval warning resolved on explicit recheck, no bypass. Final runtime
+  f3771d1: signed813/0/0, raw-audio one-project/save/restore1/0/0, held-create/
+  native-edit1/0/0, Mac/D009/diff pass. Earlier recovery3 stays scoped tof5c5660.
+  No paid provider call or production/main change. Normal scoped backup only.
+- **Evidence:** `docs/studio-request-ownership-and-voice-save-2026-10-26.md`;
+  permanent T-1165-20261026.hzdPRW,5930files SHA256-readback verified.
 - **Limits:** not all derived/queued/batch/notification ownership, atomic first
   creation, real Postgres/collaborator authorization or physical phone proof.
 
