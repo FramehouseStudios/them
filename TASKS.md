@@ -5,6 +5,20 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1169 — Recover interrupted queued voice work without unsafe replay
+
+- **Owner:** codex (Jarvis). **Branch:** `codex/T-1169-interrupted-talk-recovery`.
+- **Base:** saved higher647 2978d4c. Original647/main remain held.
+- **Scope:** reuse canonicalc1e9255 in the existing talk outbox: atomic body+
+  metadata record, orphan reconciliation, explicit original-intent recovery,
+  durable settlement before cleanup, legacy quarantine and live redirect guard.
+  Keep one queue/auth implementation; no automatic paid recovery request.
+- **Binary success:** real manifest-write interruption and unassigned-body
+  notice reproduce then pass; no acknowledged/deleted request resurrects.
+  Signed units, actual recovery UI, exact native Files export bytes, writer/
+  voice-save regressions, Mac/D009/diff. No paid model calls or private cleanup.
+- **Status:** in-progress; current filesystem reproduction pending.
+
 ### T-1168 — Recover the iPhone's interrupted first project save
 
 - **Owner:** codex (Jarvis). **Branch:** `codex/T-1168-first-project-client`.
