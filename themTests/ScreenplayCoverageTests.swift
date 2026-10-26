@@ -29,6 +29,16 @@ final class ScreenplayCoverageTests: XCTestCase {
                         "Undoing to the exact read snapshot can reuse its useful result without a request.")
     }
 
+    func testRefreshShapeUsesBodyAndPhysicalNewlines() {
+        XCTAssertNil(ScreenplayCoverageRefreshPolicy.shape(of: "Title: Orbit\nAuthor: A Writer\n"))
+        let body = "INT. ROOM - NIGHT\n\nA lamp dims.\n\nEXT. PORCH - DAWN\n\nA bird calls."
+        let expected = ScreenplayCoverageRefreshPolicy.Shape(pageCount: 1, sceneCount: 2)
+        for separator in ["\n", "\r\n", "\r", "\u{0085}", "\u{2028}", "\u{2029}"] {
+            let document = "Title: Orbit\nAuthor: A Writer\n\n" + body
+            XCTAssertEqual(ScreenplayCoverageRefreshPolicy.shape(of: document.replacingOccurrences(of: "\n", with: separator)), expected)
+        }
+    }
+
     @MainActor
     func testCompletedReadIsRetainedAndLabeledUntilExactSnapshotReturns() async throws {
         let vm = makeCoverageVM()
@@ -45,6 +55,82 @@ final class ScreenplayCoverageTests: XCTestCase {
         vm.fountainDraft = before
         XCTAssertTrue(vm.isCoverageReadCurrent)
         XCTAssertEqual(ScreenplayCoveragePresentation.speechText(for: report, isCurrent: true), report.spoken)
+    }
+
+    @MainActor
+    func testAutomaticReadIsQuietAndWordEditsDoNotRequestAgain() async throws {
+        let vm = makeCoverageVM()
+        defer { StudioOutlineRegistry.shared.clearCoverage() }
+        let report = try decodeSample()
+        vm.infoText = "Keep writing."
+        var requests = 0
+        var speechCount = 0
+        let token = NotificationCenter.default.addObserver(forName: .themClementineSpeakRequested,
+            object: nil, queue: nil) { _ in speechCount += 1 }
+        defer { NotificationCenter.default.removeObserver(token) }
+        await vm.refreshCoverageIfNeeded { _, _ in requests += 1; return report }
+        XCTAssertEqual(requests, 1)
+        XCTAssertEqual(vm.coverageReport, report)
+        XCTAssertEqual(vm.infoText, "Keep writing.")
+        XCTAssertEqual(speechCount, 0)
+        vm.fountainDraft += " Another word."
+        await vm.refreshCoverageIfNeeded { _, _ in requests += 1; return report }
+        XCTAssertEqual(requests, 1)
+        XCTAssertFalse(vm.isCoverageReadCurrent)
+        await vm.refreshCoverage { _, _ in requests += 1; return report }
+        XCTAssertEqual(requests, 2)
+        XCTAssertTrue(vm.isCoverageReadCurrent)
+        XCTAssertTrue(vm.infoText.contains("Clementine's read:"), "Explicit reads retain their announcement.")
+    }
+
+    @MainActor
+    func testAutomaticReadBoundsFailedAttemptsButManualRetryAndNewShapeWork() async throws {
+        let vm = makeCoverageVM()
+        defer { StudioOutlineRegistry.shared.clearCoverage() }
+        var requests = 0
+        let offline: (String, String) async throws -> BackendScreenplayCoverageReport = { _, _ in
+            requests += 1
+            throw URLError(.notConnectedToInternet)
+        }
+        await vm.refreshCoverageIfNeeded(request: offline)
+        for _ in 0..<3 {
+            vm.fountainDraft += " word"
+            await vm.refreshCoverageIfNeeded(request: offline)
+        }
+        XCTAssertEqual(requests, 1, "A failed automatic read must not retry after each word.")
+        let report = try decodeSample()
+        await vm.refreshCoverage { _, _ in requests += 1; return report }
+        XCTAssertEqual(requests, 2, "Read again is the explicit recovery action.")
+        vm.fountainDraft += "\n\nEXT. PORCH - DAWN\n\nA bird calls."
+        await vm.refreshCoverageIfNeeded(request: offline)
+        XCTAssertEqual(requests, 3, "A new scene permits a new bounded automatic attempt.")
+        vm.selectedProjectID = "project-b"
+        await vm.refreshCoverageIfNeeded(request: offline)
+        XCTAssertEqual(requests, 4, "Attempts cannot suppress another project's first read.")
+    }
+
+    @MainActor
+    func testAutomaticReadSkipsStreamingInflightEmptyAndUnownedDrafts() async throws {
+        let vm = makeCoverageVM()
+        defer { StudioOutlineRegistry.shared.clearCoverage() }
+        let report = try decodeSample()
+        var requests = 0
+        let fetch: (String, String) async throws -> BackendScreenplayCoverageReport = { _, _ in requests += 1; return report }
+        vm.isStreamingDraftPreviewActive = true
+        await vm.refreshCoverageIfNeeded(request: fetch)
+        vm.isStreamingDraftPreviewActive = false
+        vm.isCoverageRefreshing = true
+        await vm.refreshCoverageIfNeeded(request: fetch)
+        vm.isCoverageRefreshing = false
+        vm.selectedProjectID = ""
+        await vm.refreshCoverageIfNeeded(request: fetch)
+        vm.selectedProjectID = "project-a"
+        vm.fountainDraft = "Title: Orbit\nAuthor: A Writer\n"
+        await vm.refreshCoverageIfNeeded(request: fetch)
+        XCTAssertEqual(requests, 0)
+        vm.fountainDraft = "INT. ROOM - NIGHT\n\nA light dims."
+        await vm.refreshCoverageIfNeeded(request: fetch)
+        XCTAssertEqual(requests, 1)
     }
 
     @MainActor
@@ -384,6 +470,23 @@ final class ScreenplayCoverageTests: XCTestCase {
         XCTAssertEqual((coverage["pillars"] as? [String: Double])?["dialogue"] ?? 0, 9.1, accuracy: 0.001)
         XCTAssertEqual((coverage["missing"] as? [String])?.count, 1)
         XCTAssertNil(StudioCapabilitiesSnapshot().coverage)
+    }
+
+    func test_refresh_policy_follows_page_and_scene_count_only() throws {
+        let report = try decodeSample() // 1 page, 1 scene
+        let onePage = "INT. KITCHEN - NIGHT\n\nMARA stands at the sink.\n\nMARA\nYou said you would call.\n"
+        XCTAssertEqual(ScreenplayCoverageRefreshPolicy.shape(of: onePage), .init(pageCount: 1, sceneCount: 1))
+        // Same shape: a word edit inside the page does not re-read.
+        XCTAssertFalse(ScreenplayCoverageRefreshPolicy.shouldRefresh(current: report, draft: onePage, isRefreshing: false, isStreaming: false))
+        // A new scene re-reads.
+        let twoScenes = onePage + "\nEXT. PORCH - DAWN\n\nFRANK sits on the step.\n"
+        XCTAssertTrue(ScreenplayCoverageRefreshPolicy.shouldRefresh(current: report, draft: twoScenes, isRefreshing: false, isStreaming: false))
+        // No read yet and pages exist: read.
+        XCTAssertTrue(ScreenplayCoverageRefreshPolicy.shouldRefresh(current: nil, draft: onePage, isRefreshing: false, isStreaming: false))
+        // Empty draft, in-flight read, or live streaming: never.
+        XCTAssertFalse(ScreenplayCoverageRefreshPolicy.shouldRefresh(current: nil, draft: "   ", isRefreshing: false, isStreaming: false))
+        XCTAssertFalse(ScreenplayCoverageRefreshPolicy.shouldRefresh(current: report, draft: twoScenes, isRefreshing: true, isStreaming: false))
+        XCTAssertFalse(ScreenplayCoverageRefreshPolicy.shouldRefresh(current: report, draft: twoScenes, isRefreshing: false, isStreaming: true))
     }
 }
 

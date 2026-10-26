@@ -226,6 +226,49 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
     }
 
     @MainActor
+    func testStaleBlankObserverCannotClearActiveWriterRecoveryOrDirtyState() async {
+        // Adapt 636ddfc4 to the existing injected recovery owner at this
+        // earlier boundary; no later queue-injection framework is required.
+        let projectID = "stale-observer-\(UUID().uuidString)"
+        let owner = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store)
+        model.autosaveEnabled = false
+        model.selectedProjectID = projectID
+        model.applyServerDraft("", versionId: "base")
+        let writer = "INT. ROOM - NIGHT\n\nThe writer's exact cafe\u{0301} words.  \n"
+        model.fountainDraft = writer
+        model.noteManualDraftEdit()
+        await model.handleDraftDebouncedChange("")
+        XCTAssertTrue(model.hasUnsavedDraftChanges)
+        XCTAssertTrue(model.isManualDraftEditing)
+        XCTAssertTrue(model.fountainDraft.utf8.elementsEqual(writer.utf8))
+        let persisted = store.payloads(ownerUserId: owner)[projectID]?["draft"] as? String
+        XCTAssertTrue(persisted?.utf8.elementsEqual(writer.utf8) == true,
+                      "An obsolete blank callback must never erase the durable writer copy.")
+    }
+
+    @MainActor
+    func testByteDistinctStaleObserverCannotReplaceUnicodeWriterRecovery() async {
+        let projectID = "unicode-observer-\(UUID().uuidString)"
+        let owner = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store)
+        model.autosaveEnabled = false
+        model.selectedProjectID = projectID
+        model.applyServerDraft("", versionId: "base")
+        let writer = "INT. CAFE - NIGHT\n\nA cafe\u{0301} stays open.  \n"
+        let stale = "INT. CAFE - NIGHT\n\nA caf\u{00e9} stays open.  \n"
+        XCTAssertEqual(writer, stale, "String equality alone cannot identify this obsolete snapshot.")
+        XCTAssertFalse(writer.utf8.elementsEqual(stale.utf8))
+        model.fountainDraft = writer
+        model.noteManualDraftEdit()
+        await model.handleDraftDebouncedChange(stale)
+        XCTAssertTrue(model.hasUnsavedDraftChanges)
+        XCTAssertTrue(model.fountainDraft.utf8.elementsEqual(writer.utf8))
+        let persisted = store.payloads(ownerUserId: owner)[projectID]?["draft"] as? String
+        XCTAssertTrue(persisted?.utf8.elementsEqual(writer.utf8) == true)
+    }
+
+    @MainActor
     func testSameVersionPollKeepsActiveEditsWithoutRecoveryModalAndRetainsRelaunchRecovery() {
         let projectID = "active-poll-\(UUID().uuidString)"
         let owner = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""

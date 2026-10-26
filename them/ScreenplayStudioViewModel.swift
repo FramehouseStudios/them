@@ -1648,6 +1648,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
     var isCoverageReadCurrent: Bool {
         coverageReport == nil || publishedCoverageContext == currentCoverageContext()
     }
+    private var lastAutomaticCoverageAttempt: (context: ScreenplayCoverageContext, shape: ScreenplayCoverageRefreshPolicy.Shape)?
     private var publishedCoverageRequestID: UUID?
     private var activeCoverageRequestID: UUID?
     private var activeCoverageContext: ScreenplayCoverageContext?
@@ -4440,7 +4441,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
     /// after an import and on demand from the Craft tab; `speak` hands the
     /// spoken read to the home voice.
     func refreshCoverage(
-        source: String = "Draft", speak: Bool = false,
+        source: String = "Draft", speak: Bool = false, announce: Bool = true,
         request: ((String, String) async throws -> BackendScreenplayCoverageReport)? = nil
     ) async {
         guard !Task.isCancelled else { return }
@@ -4480,8 +4481,10 @@ final class ScreenplayStudioViewModel: ObservableObject {
             publishedCoverageReport = report
             coverageErrorText = ""
             StudioOutlineRegistry.shared.publishCoverage(report, context: context, requestID: requestID)
-            let readLine = "Clementine's read: \(report.grade), \(report.verdict.lowercased())."
-            infoText = infoText.isEmpty ? readLine : "\(infoText) \(readLine)"
+            if announce {
+                let readLine = "Clementine's read: \(report.grade), \(report.verdict.lowercased())."
+                infoText = infoText.isEmpty ? readLine : "\(infoText) \(readLine)"
+            }
             if speak {
                 ScreenplayCoveragePresentation.requestSpeech(report.spoken)
             }
@@ -4491,6 +4494,22 @@ final class ScreenplayStudioViewModel: ObservableObject {
             let presented = StudioCraftResilience.presentedError(error, source: source, subject: "coverage")
             coverageErrorText = presented.isEmpty ? "Clementine could not read the pages right now." : presented
         }
+    }
+
+    /// One silent attempt per changed page/scene shape, not one retry per word
+    /// after an offline/error response. An explicit Read again always retries.
+    func refreshCoverageIfNeeded(
+        request: ((String, String) async throws -> BackendScreenplayCoverageReport)? = nil
+    ) async {
+        guard !Task.isCancelled, !isCoverageRefreshing, !isStreamingDraftPreviewActive else { return }
+        let context = currentCoverageContext()
+        guard !context.projectID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              let shape = ScreenplayCoverageRefreshPolicy.shape(of: context.draft),
+              ScreenplayCoverageRefreshPolicy.shouldRefresh(current: coverageReport, shape: shape) else { return }
+        if let last = lastAutomaticCoverageAttempt,
+           last.context.hasSameOwner(as: context), last.shape == shape { return }
+        lastAutomaticCoverageAttempt = (context, shape)
+        await refreshCoverage(source: "Draft", announce: false, request: request)
     }
 
     private func currentCoverageContext() -> ScreenplayCoverageContext {
@@ -4514,6 +4533,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
     }
 
     private func invalidateCoverage() {
+        lastAutomaticCoverageAttempt = nil
         activeCoverageRequestID = nil
         activeCoverageContext = nil
         if isCoverageRefreshing { isCoverageRefreshing = false }
@@ -5830,8 +5850,17 @@ final class ScreenplayStudioViewModel: ObservableObject {
         Task { await saveCurrentDraft(source: source) }
     }
 
-    private func handleDraftDebouncedChange(_ draft: String) async {
-        guard !isHydratingDraft else { return }
+    func handleDraftDebouncedChange(_ draft: String) async {
+        let projectID = selectedProjectID
+        let authContext = currentStudioAuthContext()
+        func isCurrentDraft() -> Bool {
+            !Task.isCancelled && !isHydratingDraft && selectedProjectID == projectID
+                && authContextIsCurrent(authContext) && fountainDraft.utf8.elementsEqual(draft.utf8)
+        }
+        // Reuse 636ddfc4: a queued callback may start after newer edits,
+        // and network waits permit project/session changes. Never let an old
+        // snapshot retire or persist the current writer's page.
+        guard isCurrentDraft() else { return }
         let normalized = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         let hasCoveragePresentation = coverageSimulationReport != nil ||
             !coverageSimulationErrorText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -5854,8 +5883,11 @@ final class ScreenplayStudioViewModel: ObservableObject {
         }
 
         await recomputePagination(for: draft, source: "Draft")
+        guard isCurrentDraft() else { return }
         await recomputeRevision(for: draft, source: "Draft")
+        guard isCurrentDraft() else { return }
         Task { await self.refreshFormatLint(source: "Draft") }
+        Task { await self.refreshCoverageIfNeeded() }
 
         if isStreamingDraftPreviewActive {
             autosaveStatusText = "Receiving live draft..."

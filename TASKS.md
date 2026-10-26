@@ -5,6 +5,53 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1164 — Refresh original646 on the exact hosted-green mentor parent
+
+- **Owner:** codex (Jarvis). **Branch:** `codex/T-1164-original-646-parent-refresh`.
+- **Base:** saved646968428e plus preserving no-ff7694a19 of original64592b55f7.
+- **Scope:** retain original64672f9375e and quiet refresh/observer safety;
+  carry forward the verified writer typing correction, keep both task histories.
+- **Binary success:** strict writer and shared coverage workflows pass signed
+  on an erased owned simulator at the merged tree; D009/diff/source equivalence
+  pass. Normal original646 fast-forward only after exact645 required-green;
+  fresh646 hosted checks gate647. No squash/replacement/main/deploy/paid call.
+- **Status:** local review at preserving7694a19. Current64592b read back allfour green. Production,
+  backend/test, native/unit/project source diff vs968428e is zero. Parent758
+  units, Node20 backend2867/0/2 and Mac are explicitly inherited proof, not
+  newly run. Current strict writer1/0/0 and shared coverage1/0/0 pass signed/
+  erased, no retries/skips; D009/diff/syntax pass. Ready for guarded normal
+  original646 advancement and fresh hosted proof. Higher saved647 safety
+  eab6787 remains separate; this prefix is not declared releasable.
+- **Evidence:** `docs/original-646-parent-refresh-2026-10-25.md`; archive
+  `/Users/halfmutantfilms/io.them-worktrees/_proof/T-1164-20261025.tu9AiK/`.
+
+### T-1157 — Preserve bounded, quiet coverage refresh as pages land
+
+- **Owner:** codex (Jarvis). **Branch:** `codex/T-1157-original-646-refresh`.
+- **Base:** savede803262a mentor integration. Original643 hosted Quality
+  still running;644/645 public advancement remains gated bottom-up.
+- **Scope:** no-ff preserve original64672f9375e; reuse remaining5f71ec5c
+  refresh/normalization and original774 quiet-announcement dependency without
+  cumulative ancestry. Keep existing exact-byte earlier-card/conversation and
+  account/project/request guards plus the active-poll recovery fix.
+- **Binary success:** automatic reads are quiet, suppressed while streaming,
+  empty/unowned/inflight; one attempt per changed page/scene shape and owner,
+  never retry-per-word after failure; manual Read again works. Canonical
+  Fountain body/newline shape; no title-page penalties or new AI-cost loop.
+- **Proof:** current signed erased units, authenticated connected freshness
+  UI, Mac/D009/diff; count only actual results, reuse unchanged backend proof
+  with explicit source equivalence. No paid calls or production/main change.
+- **Status:** local review. Original646 preserved e4ec30a, remaining5f71ec5c
+  reused71a7b32. Initial signed756/0/0; direct observer audit found obsolete
+  callbacks can clear newer dirty authority/recovery. Adapted real-VM red0/1/0
+  (two failed assertions); reused636ddfc4 guard as a701979, final signed758/0/0,
+  canonical authenticated freshnessUI1/0/0, Mac/D009/diff pass. Production
+  backend unchanged from parent2867/0/2; only runner allowlist changes, exercised
+  by this UI, no repeated unchanged full Node suite or paid call. Original643
+  now hosted green; normally advanced644 to42d6f746, fresh Quality running.
+- **Evidence:** `docs/original-646-refresh-2026-10-25.md`; completed archive
+  `/Users/halfmutantfilms/io.them-worktrees/_proof/T-1157-20261025.Yjdll4/`.
+
 ### T-1161 — Publish original645 on its green preserving parent
 
 - **Owner:** codex (Jarvis). **Branch:** `codex/T-1161-original-645-parent-refresh`.

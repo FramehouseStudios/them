@@ -62,6 +62,41 @@ extension Notification.Name {
     static let themClementineSpeakRequested = Notification.Name("io.them.them.clementineSpeakRequested")
 }
 
+/// When her read should follow the draft on its own. She re-reads silently
+/// after typing settles when the printed page count or the scene count moved;
+/// a word-level edit inside a page does not trigger a new read.
+enum ScreenplayCoverageRefreshPolicy {
+    struct Shape: Equatable {
+        let pageCount: Int
+        let sceneCount: Int
+    }
+
+    static func shape(of draft: String) -> Shape? {
+        let normalized = FountainPaginationSource.make(from: draft).normalizedScriptText
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else { return nil }
+        let lines = normalized.components(separatedBy: "\n")
+        let scenes = ScreenplayPageLayout.classify(lines).filter { $0 == .sceneHeading }.count
+        return Shape(pageCount: ScreenplayPageLayout.pageCount(for: draft), sceneCount: scenes)
+    }
+
+    static func shouldRefresh(
+        current: BackendScreenplayCoverageReport?,
+        draft: String,
+        isRefreshing: Bool,
+        isStreaming: Bool
+    ) -> Bool {
+        guard !isRefreshing, !isStreaming else { return false }
+        return shouldRefresh(current: current, shape: shape(of: draft))
+    }
+
+    static func shouldRefresh(current: BackendScreenplayCoverageReport?, shape: Shape?) -> Bool {
+        guard let shape else { return false }
+        guard let current else { return true }
+        return current.pageCount != shape.pageCount || current.sceneCount != shape.sceneCount
+    }
+}
+
 enum ScreenplayCoveragePresentation {
     static let pillarOrder = ["structure", "pacing", "dialogue", "character", "format"]
     static let earlierSnapshotText = "Earlier snapshot — your pages have changed. Read again for the current draft."

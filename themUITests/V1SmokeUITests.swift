@@ -995,8 +995,11 @@ final class V1SmokeUITests: XCTestCase {
             let revision = "REVISION "
             editor.typeText(revision)
             let editedDraft = accessibleDraftText(in: app)
-            XCTAssertEqual(editedDraft.replacingOccurrences(of: revision, with: ""), marker)
+            XCTAssertEqual(editedDraft.replacingOccurrences(of: revision, with: ""), marker,
+                           "Read the actual insertion position instead of assuming the caret moved to the end.")
             XCTAssertNotEqual(editedDraft, marker)
+            // The existing inspector opener explicitly ends compact editing.
+            // The command-bar toggle opens another input; it is not dismissal.
             rightDrawerToggle.tap()
             guard waitForDisappearance(of: app.keyboards.firstMatch, timeout: writerLoopWait(5)),
                   revealInStudioDrawer(readPages, drawer: rightDrawer, scrollingUp: true, maxSwipes: 8) else {
