@@ -32,6 +32,33 @@
 - **Evidence:** `docs/original-646-refresh-2026-10-25.md`; completed archive
   `/Users/halfmutantfilms/io.them-worktrees/_proof/T-1157-20261025.Yjdll4/`.
 
+### T-1161 — Publish original645 on its green preserving parent
+
+- **Owner:** codex (Jarvis). **Branch:** `codex/T-1161-original-645-parent-refresh`.
+- **Base:** saved645e803262a plus no-ff eb752e8 of exact green6445759e5a.
+  Read refreshed original645 body/follow-ups; retain both task-ledger records.
+- **Scope:** preserve original8a7f367a and all mentor repair commits; carry
+  parent's connected typing correction forward without importing646/647 work.
+- **Binary success:** strict authenticated writer UI passes at the exact
+  updated645 tree; D009/diff pass; native/backend/unit source-equivalence to
+  saved645 established. Normal original-branch fast-forward only after fresh
+  parent644 hosted green; fresh645 checks then gate public646 advancement.
+- **Verification boundary:** parent751/0/0 units, Node20 backend2867/0/2,
+  native mentor delivery and Mac are parent proof, not newly executed. Avoid
+  unchanged full-suite repetition for a test/docs-only parent merge.
+- **Limits:** no paid call, squash/force/replacement PR/main merge/deployment.
+  Intermediate645 is not releasable without the preserved observer/retention/
+  queued-hydration fixes in later saved646/647; do not substitute their counts.
+- **Status:** local review at eb752e8. Refreshed original body/current follow-ups,
+  parent6445759e5a terminal required-green. Strict authenticated signed erased
+  writer UI1/0/0 on exact merged tree; D009/diff pass. Production/native/unit/
+  backend source identical to e803262a (retained zero-byte diff), so parent
+  full-suite evidence remains explicitly parent evidence, not a new run.
+  Ready for normal original645 fast-forward and fresh required hosted checks;
+  original646+ stays held. Saved647 safety descendantb3024bc stays separate.
+- **Evidence:** `docs/original-645-parent-refresh-2026-10-25.md`; archive
+  `/Users/halfmutantfilms/io.them-worktrees/_proof/T-1161-20261025.ah6cXZ/`.
+
 ### T-1156 — Preserve target-aware mentor guidance and actual prompt delivery
 
 - **Owner:** codex (Jarvis). **Branch:** `codex/T-1156-original-645-mentor`.
@@ -57,6 +84,30 @@
   full shared core/pitch survive. No paid/generated-quality/phone claim.
 - **Evidence:** `docs/original-645-mentor-2026-10-25.md`; completed archive
   `/Users/halfmutantfilms/io.them-worktrees/_proof/T-1156-20261025.ALFBnf/`.
+
+### T-1159 — Fix hosted writer-loop keyboard focus at original644
+
+- **Owner:** codex (Jarvis). **Branch:** `codex/T-1159-hosted-writer-focus`.
+- **Base:** exact original64442d6f746, failed hosted run40248016339.
+- **Scope:** preserve original head/history; inspect retained hosted recording,
+  hierarchy and native editor before adjusting the test's typing interaction.
+  Editor extends below viewport; focus opens then is lost before typeText.
+- **Binary success:** one visible-page tap establishes editor keyboard, real
+  keystrokes enter exactly once; unchanged authenticated writer-loop contract
+  saves one version, exports and restores. No retry/timeout increase/seeded text.
+- **Proof:** signed erased owned simulator, strict writer contract plus the
+  shared coverage workflow; D009/diff. Production source unchanged means parent
+  unit/backend/Mac evidence is explicitly parent evidence, not newly executed.
+- **Limits:** no main merge, review bypass, paid call or production change;
+  public645+ stays held pending fresh exact644 hosted green.
+- **Status:** local review; strict authenticated writer contract1/0/0 and shared
+  coverage1/0/0 pass signed/erased without retries, same writer/version/export/
+  restore assertions. Reused existing646 allowlist entry after runner rejected
+  the first coverage invocation before execution. D009/diff pass. Runtime,
+  backend tests and unit source unchanged; retain parent proof, not rerun it.
+  Raw647 saved425d354 and proof remain separate. Fresh hosted result required.
+- **Evidence:** `docs/hosted-writer-focus-2026-10-25.md`; permanent archive
+  `/Users/halfmutantfilms/io.them-worktrees/_proof/T-1159-20261025.oBhRux/`.
 
 ### T-1155 — Preserve coverage and scope every read to its document
 
