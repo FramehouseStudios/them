@@ -5,6 +5,23 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1172 — Keep accepted turn results and replay across backend restart
+
+- **Owner:** codex (Jarvis). **Branch:** `codex/T-1172-durable-talk-replay`.
+- **Base:** saved higher647 c073882. Original647/main and production held.
+- **Scope:** reuse preserved T1118/T1121 durable metadata and completed replay
+  through the existing shared JSON/Postgres adapter. Await result publication,
+  bind trusted owner identity, preserve rotated-token replay and capacity, wire
+  account export/purge. No parallel store or automatic second generation.
+- **Binary success:** actual authenticated accepted turn -> graceful restart
+  and immediate owned-process SIGKILL -> same turn/audio/replay header with
+  zero new provider calls; owner200/other403. Focused negatives, full Node20,
+  actual native normal/queued page-save workflows and D009/diff. No paid calls.
+- **Status:** in-progress. Current metadata map and completed replay are
+  process-local; run the preserved process probe before porting. Wallet
+  budgeting/durable settlement and multi-worker atomicity remain separate
+  required boundaries; unchanged balance without a debit is not billing proof.
+
 ### T-1171 — Recover owned replies through confirmed screenplay saves
 
 - **Owner:** codex (Jarvis). **Branch:** `codex/T-1171-received-scene-delivery`.
