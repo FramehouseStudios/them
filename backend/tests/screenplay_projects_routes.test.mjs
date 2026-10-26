@@ -8,6 +8,102 @@ import express from "express";
 
 import { mountScreenplayProjectsRoutes } from "../lib/screenplay_projects_routes.js";
 
+function initialProjectBody(draft = "Title: The Reel\r\n\r\nINT. ROOM - NIGHT\r\nCafe\u0301. \t ") {
+  return { project_id: "project-initial", title: "The Reel", phase: "scene_draft",
+    initial_draft: { draft, client_request_id: "initial-request-1" } };
+}
+
+test("[initial-project] metadata and exact first draft commit together and replay without another write", async () => {
+  const deps = defaultDeps();
+  const stats = { calls: 0, writes: 0 };
+  deps.commitScreenplayOwnerMutation = serializedCommitter(deps._owner, stats);
+  await withTestServer(deps, async (base) => {
+    const body = initialProjectBody();
+    const first = await postJson(base, "/screenplay/projects", body);
+    assert.equal(first.status, 201);
+    assert.ok(first.body.version_id);
+    const project = deps._owner.projects.find(p => p.id === body.project_id);
+    assert.equal(project.versions.length, 1);
+    assert.equal(project.versions[0].draft, body.initial_draft.draft);
+    const replay = await postJson(base, "/screenplay/projects", body);
+    assert.equal(replay.status, 200);
+    assert.equal(replay.body.replayed, true);
+    assert.equal(replay.body.version_id, first.body.version_id);
+    assert.equal(stats.writes, 1);
+    assert.equal(deps._owner.projects.filter(p => p.id === body.project_id).length, 1);
+  });
+});
+
+test("[initial-project] concurrent retries cannot duplicate or acknowledge different intent", async () => {
+  const deps = defaultDeps();
+  const stats = { calls: 0, writes: 0 };
+  deps.commitScreenplayOwnerMutation = serializedCommitter(deps._owner, stats);
+  await withTestServer(deps, async (base) => {
+    const body = initialProjectBody();
+    const results = await Promise.all([postJson(base, "/screenplay/projects", body), postJson(base, "/screenplay/projects", body)]);
+    assert.deepEqual(results.map(r => r.status).sort(), [200, 201]);
+    assert.equal(results[0].body.version_id, results[1].body.version_id);
+    const changed = structuredClone(body); changed.initial_draft.draft = changed.initial_draft.draft.normalize("NFC");
+    const conflict = await postJson(base, "/screenplay/projects", changed);
+    assert.equal(conflict.status, 409);
+    assert.equal(conflict.body.error, "screenplay_initial_request_reused");
+    const changedTitle = await postJson(base, "/screenplay/projects", { ...body, title: "A different title" });
+    assert.equal(changedTitle.status, 409);
+    assert.equal(deps._owner.projects.find(p => p.id === body.project_id).title, body.title);
+    assert.equal(stats.writes, 1);
+  });
+});
+
+test("[initial-project] failed persistence publishes neither an empty project nor an acknowledged draft", async () => {
+  const deps = defaultDeps();
+  const before = structuredClone(deps._owner);
+  deps.markScreenplayOwnerDirty = () => false;
+  deps.commitScreenplayOwnerMutation = async ({ mutate }) => {
+    await mutate(structuredClone(deps._owner), { currentOwner: structuredClone(deps._owner), attempt: 1 });
+    return { ok: false, committed: false, persistenceKind: "test" };
+  };
+  await withTestServer(deps, async (base) => {
+    const result = await postJson(base, "/screenplay/projects", initialProjectBody());
+    assert.equal(result.status, 503);
+    assert.equal(result.body.error, "screenplay_persistence_failed");
+    assert.deepEqual(deps._owner, before);
+  });
+});
+
+test("[initial-project] missing durable identity or blank draft fails before mutation", async () => {
+  for (const changes of [{ project_id: "" }, { initial_draft: { draft: "  ", client_request_id: "r" } },
+    { initial_draft: { draft: "Exact words", client_request_id: "" } }]) {
+    const deps = defaultDeps(), before = structuredClone(deps._owner);
+    await withTestServer(deps, async (base) => {
+      const result = await postJson(base, "/screenplay/projects", { ...initialProjectBody(), ...changes });
+      assert.equal(result.status, 400);
+      assert.deepEqual(deps._owner, before);
+    });
+  }
+});
+
+test("[initial-project] waits for the owner transaction and does not expose a pending project", async () => {
+  const deps = defaultDeps(), before = structuredClone(deps._owner);
+  let started, release;
+  const pending = new Promise(resolve => { started = resolve; });
+  const gate = new Promise(resolve => { release = resolve; });
+  const committer = serializedCommitter(deps._owner);
+  deps.commitScreenplayOwnerMutation = args => committer({ ...args, mutate: async (...parameters) => {
+    const result = await args.mutate(...parameters);
+    started();
+    await gate;
+    return result;
+  } });
+  await withTestServer(deps, async base => {
+    const response = postJson(base, "/screenplay/projects", initialProjectBody());
+    try {
+      await assertRequestReachedPersistenceGate(pending, response, "initial project");
+      assert.deepEqual(deps._owner, before, "Uncommitted metadata must not enter the live owner.");
+    } finally { release(); }
+    assert.equal((await response).status, 201);
+  });
+});
+
 function defaultOwner() {
   return {
     ownerKey: "owner:screenplay-route-test-user",

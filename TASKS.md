@@ -5,6 +5,21 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1167 — Commit the first project and draft together
+
+- **Owner:** codex (Jarvis). **Branch:** `codex/T-1167-first-project-transaction`.
+- **Base:** saved higher647 f7ebad7; original647 and main remain held.
+- **Scope:** reuse canonical370fd41 through the existing authenticated owner
+  transaction. Metadata and exact first version publish together; immutable
+  intent replays once after restart, changed intent fails closed. Preserve the
+  metadata-only contract and shared stored-version normalizer. No second store.
+- **Binary success:** reproduce current handler failures, then final handler,
+  actual backend restart/lost-receipt/owner-isolation and full Node20 pass;
+  D009/diff pass. No paid calls or deployment. Swift client follow-through is
+  a separate required boundary, not proven by this server checkpoint.
+- **Status:** in-progress; current reproduction pending. Client durable first
+  creation2b51d72 and interrupted talk enqueuec1e9255 remain required.
+
 ### T-1166 — Preserve queued work through ownership, replay and cleanup
 
 - **Owner:** codex (Jarvis). **Branch:** `codex/T-1166-owned-talk-recovery`.
