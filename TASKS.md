@@ -17,7 +17,11 @@
   notice reproduce then pass; no acknowledged/deleted request resurrects.
   Signed units, actual recovery UI, exact native Files export bytes, writer/
   voice-save regressions, Mac/D009/diff. No paid model calls or private cleanup.
-- **Status:** in-progress; current filesystem reproduction pending.
+- **Status:** in-progress. Current signed filesystem red0/2/0 at46e4b64;
+  canonical transport inventory red0/2/0 at865c851 found remaining main client/
+  streaming/TTS/live-sync callers as well as queue. Reusefc75931 through the
+  same origin policy, not a second guard; native Foundation loopback proof and
+  final connected recovery checks pending. No paid calls.
 
 ### T-1168 — Recover the iPhone's interrupted first project save
 

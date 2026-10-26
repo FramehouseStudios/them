@@ -22,7 +22,7 @@ final class OfflineTalkRecoveryBoundaryRegressionTests: XCTestCase {
         }
         let rows = try readEntries()
         XCTAssertEqual(rows.count, 3, "Unrelated work collapsed into one request ID.")
-        XCTAssertEqual(Set(try rows.map { try Data(contentsOf: bodyURL($0)) }), Set((0..<3).map { Data("body-\($0)".utf8) }))
+        XCTAssertEqual(Set(try rows.map { try storedBytes($0) }), Set((0..<3).map { Data("body-\($0)".utf8) }))
     }
 
     func testChangedBodyCannotAcknowledgeAnEarlierPayload() async throws {
@@ -37,7 +37,7 @@ final class OfflineTalkRecoveryBoundaryRegressionTests: XCTestCase {
         } catch { }
         let rows = try readEntries()
         XCTAssertEqual(rows.count, 2)
-        XCTAssertEqual(Set(try rows.map { try Data(contentsOf: bodyURL($0)) }), Set([first, second]))
+        XCTAssertEqual(Set(try rows.map { try storedBytes($0) }), Set([first, second]))
     }
 
     func testForeignParkedWorkIsNotPresentedOrDeleted() async throws {
@@ -80,6 +80,13 @@ final class OfflineTalkRecoveryBoundaryRegressionTests: XCTestCase {
     }
     private func bodyURL(_ entry: OfflineTalkOutboxEntry) -> URL {
         directory.appendingPathComponent("blobs").appendingPathComponent(entry.bodyRef)
+    }
+    private func storedBytes(_ entry: OfflineTalkOutboxEntry) throws -> Data {
+        let data = try Data(contentsOf: bodyURL(entry))
+        if entry.bodyRef.hasSuffix(".turn") {
+            return try PropertyListDecoder().decode(OfflineTalkStoredBody.self, from: data).validatedBody(matching: entry)
+        }
+        return data
     }
     private func readEntries() throws -> [OfflineTalkOutboxEntry] {
         let data = try Data(contentsOf: directory.appendingPathComponent("queue.jsonl"))

@@ -81,7 +81,8 @@ final class OfflineTalkOutboxTests: XCTestCase {
         XCTAssertEqual(Set(ids).count, 3, "An unrelated account/destination must retain its own queued bytes.")
         let entries = try manifestEntries()
         XCTAssertEqual(entries.count, 3)
-        let restored = try entries.map { try Data(contentsOf: directory.appendingPathComponent("blobs").appendingPathComponent($0.bodyRef)) }
+        let restored = try entries.map { try PropertyListDecoder().decode(OfflineTalkStoredBody.self,
+            from: Data(contentsOf: directory.appendingPathComponent("blobs").appendingPathComponent($0.bodyRef))).validatedBody(matching: $0) }
         XCTAssertEqual(Set(restored), Set(bodies))
     }
 

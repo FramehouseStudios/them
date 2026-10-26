@@ -2013,7 +2013,8 @@ final class V1SmokeUITests: XCTestCase {
             throw XCTSkip("A dedicated authenticated local backend is required.")
         }
         let fixture = try await createWriterLoopAuthenticationFixture(baseURL: baseURL)
-        let app = launchApp(openDataControls: true, showTalkRecovery: true, launchEnvironment: fixture.appLaunchEnvironment)
+        let app = launchApp(openDataControls: true, showTalkRecovery: true, interruptTalkEnqueue: true,
+            launchEnvironment: fixture.appLaunchEnvironment)
         defer { app.terminate() }
         XCTAssertTrue(app.otherElements["data.controls.screen"].waitForExistence(timeout: 8))
         let export = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "data.controls.talk.export.")).firstMatch
@@ -2022,6 +2023,13 @@ final class V1SmokeUITests: XCTestCase {
         XCTAssertEqual(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "data.controls.talk.export.")).count, 1)
         XCTAssertFalse(staticText(containing: "UI recovery fixture: ui-foreign-talk", in: app).exists)
         XCTAssertTrue(staticText(containing: "Older unassigned queued work", in: app).exists)
+        let review = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "data.controls.talk.resume.")).firstMatch
+        XCTAssertTrue(review.exists)
+        review.tap()
+        XCTAssertTrue(app.alerts.firstMatch.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.alerts.firstMatch.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "may use Clementine credits")).firstMatch.exists)
+        app.alerts.firstMatch.buttons["Cancel"].tap()
+        XCTAssertTrue(review.exists, "Cancelling review must leave the recovered request held.")
         export.tap()
         XCTAssertTrue(waitForNativeFilesExporter(in: app, presented: true, timeout: 5), "Recovery export did not open the native file exporter.")
         XCTAssertTrue(dismissNativeFilesExporter(in: app))
@@ -2050,6 +2058,41 @@ final class V1SmokeUITests: XCTestCase {
 #else
         throw XCTSkip("iPhone queued recovery workflow")
 #endif
+    }
+
+    @MainActor
+    func test_interrupted_talk_recovery_requires_confirmation_and_keeps_original_queue_on_relaunch() throws {
+#if os(iOS)
+        var app = launchApp(openDataControls: true, showTalkRecovery: true, interruptTalkEnqueue: true,
+            launchEnvironment: interruptedTalkRecoveryEnvironment)
+        defer { app.terminate() }
+        XCTAssertTrue(app.otherElements["data.controls.screen"].waitForExistence(timeout: 8))
+        let reviews = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "data.controls.talk.resume."))
+        for _ in 0..<8 where !reviews.firstMatch.isHittable { app.swipeUp() }
+        XCTAssertEqual(reviews.count, 1)
+        reviews.firstMatch.tap()
+        let alert = app.alerts.firstMatch
+        XCTAssertTrue(alert.waitForExistence(timeout: 5))
+        alert.buttons["Queue Request"].tap()
+        XCTAssertTrue(staticText(containing: "Recovered request queued with its original ID", in: app).waitForExistence(timeout: 5))
+        XCTAssertEqual(reviews.count, 0)
+        app.terminate()
+        app = launchApp(openDataControls: true, resetState: false, launchEnvironment: interruptedTalkRecoveryEnvironment)
+        let exports = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "data.controls.talk.export."))
+        for _ in 0..<8 where !exports.firstMatch.isHittable { app.swipeUp() }
+        XCTAssertEqual(exports.count, 1)
+        XCTAssertEqual(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "data.controls.talk.resume.")).count, 0)
+        XCTAssertTrue(staticText(containing: "Queued - will send when online", in: app).exists)
+#else
+        throw XCTSkip("iPhone interrupted queued request workflow")
+#endif
+    }
+
+    private var interruptedTalkRecoveryEnvironment: [String: String] {
+        // No authenticated transport/provider calls. The actor-level replay
+        // cases separately exercise the original bytes/key and current auth.
+        ["THEM_UITEST_BACKEND_BASE_URL": "http://127.0.0.1:9", "THEM_UITEST_USER_ID": "talk-recovery-ui-owner",
+         "THEM_UITEST_AUTH_DEBUG_ACCESS_TOKEN_ENABLED": "0", "THEM_UITEST_AUTH_SIGNED_IN": "0"]
     }
 
     func test_outline_recovery_exposes_stale_chain_without_unsafe_retry() {
@@ -3600,6 +3643,7 @@ final class V1SmokeUITests: XCTestCase {
         showDraftConflict: Bool = false,
         showOutlineRecovery: Bool = false,
         showTalkRecovery: Bool = false,
+        interruptTalkEnqueue: Bool = false,
         conflictSaveSuccess: Bool = false,
         liveMemory: Bool = false,
         showPendingScreenplayQuestion: Bool = false,
@@ -3678,6 +3722,7 @@ final class V1SmokeUITests: XCTestCase {
         if showTalkRecovery {
             arguments.append("--ui-talk-recovery-fixture")
         }
+        if interruptTalkEnqueue { arguments.append("--ui-talk-interrupted-enqueue-fixture") }
         if conflictSaveSuccess {
             arguments.append("--ui-conflict-save-success")
         }

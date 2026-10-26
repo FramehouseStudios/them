@@ -103,6 +103,8 @@ nonisolated struct OfflineTalkOutboxEntry: Identifiable, Codable, Equatable {
     var retries: Int
     var nextAttemptAt: TimeInterval
     var lastError: String?
+    var interruptedEnqueue: Bool? = nil
+    var canResumeInterruptedEnqueue: Bool { interruptedEnqueue == true && status == .parked }
 }
 
 nonisolated struct OfflineTalkOutboxSendResult {
@@ -163,6 +165,7 @@ actor OfflineTalkOutbox {
     private var drainingScope: OfflineTalkRecoveryScope?
     private var didLoad = false
     private var entries: [OfflineTalkOutboxEntry] = []
+    private var hasUnassignedBodies = false
     private var networkMonitor: NWPathMonitor?
     private let networkMonitorQueue = DispatchQueue(label: "io.them.offline-talk-outbox.network")
 
@@ -208,6 +211,10 @@ actor OfflineTalkOutbox {
     }
 
     #if DEBUG
+    nonisolated static func resetStoredQueueForUITesting() {
+        try? FileManager.default.removeItem(at: defaultStorageDirectory())
+    }
+
     func installRecoveryUITestFixture() throws {
         guard IOThemRuntime.isRunningUITests,
               ProcessInfo.processInfo.arguments.contains("--ui-talk-recovery-fixture") else { return }
@@ -215,13 +222,23 @@ actor OfflineTalkOutbox {
         guard entries.isEmpty else { return }
         let identity = requestIdentityProvider(true)
         guard !identity.userID.isEmpty else { return }
+        let interrupt = ProcessInfo.processInfo.arguments.contains("--ui-talk-interrupted-enqueue-fixture")
+        var interruptedID: String?
         for (id, user) in [("ui-owned-talk", identity.userID), ("ui-foreign-talk", "fixture-other-owner"), ("ui-legacy-talk", "")] {
             var request = URLRequest(url: backendURLProvider().appendingPathComponent("talk"))
             request.httpMethod = "POST"
             if !user.isEmpty { request.setValue(user, forHTTPHeaderField: "X-User-Id") }
             request.setValue("text/plain; charset=utf-8", forHTTPHeaderField: "Content-Type")
-            _ = try persistNewEntry(request: request, body: Data("Recovery \(id)\r\n \t ".utf8),
-                idempotencyKey: id, status: .parked, reason: "UI recovery fixture: \(id)")
+            let entry = try persistNewEntry(request: request, body: Data("Recovery \(id)\r\n \t ".utf8),
+                idempotencyKey: id, status: interrupt && id == "ui-owned-talk" ? .pending : .parked,
+                reason: "UI recovery fixture: \(id)")
+            if interrupt && id == "ui-owned-talk" { interruptedID = entry.id }
+        }
+        if let interruptedID {
+            let remaining = entries.filter { $0.id != interruptedID }
+            try persist(remaining)
+            entries = remaining; didLoad = false
+            try loadIfNeeded()
         }
         publishSnapshot()
     }
@@ -260,7 +277,7 @@ actor OfflineTalkOutbox {
         let visible = visibleEntries(scope: scope)
         try requireScope(owner, backendURL: backendURL)
         return .init(scope: scope, snapshot: snapshotFor(visible, scope: scope), entries: visible,
-                     hasUnassignedEntries: entries.contains { headerValue(named: "X-User-Id", in: $0.headers) == nil })
+                     hasUnassignedEntries: hasUnassignedBodies || entries.contains { headerValue(named: "X-User-Id", in: $0.headers) == nil })
     }
 
     func pendingScreenplayQuestionResolutionIDs() -> Set<String> {
@@ -313,11 +330,11 @@ actor OfflineTalkOutbox {
         if let existingIndex = entries.firstIndex(where: {
             $0.idempotencyKey == idempotencyKey && sameRequestScope($0, request: request)
         }) {
-            let existingBody = try Data(contentsOf: blobURL(for: entries[existingIndex].bodyRef))
+            let existingBody = try storedBody(for: entries[existingIndex])
             if existingBody != body {
                 if let kept = entries.first(where: { entry in
                     entry.status == .parked && entry.idempotencyKey == idempotencyKey && sameRequestScope(entry, request: request)
-                        && (try? Data(contentsOf: blobURL(for: entry.bodyRef))) == body
+                        && (try? storedBody(for: entry)) == body
                 }) { throw OfflineTalkPayloadConflictError(entryID: kept.id) }
                 let kept = try persistNewEntry(request: request, body: body, idempotencyKey: idempotencyKey,
                     status: .parked, reason: "Different payload reused a request ID. This copy was kept and was not sent. Export before deleting.")
@@ -342,16 +359,21 @@ actor OfflineTalkOutbox {
 
     private func persistNewEntry(request: URLRequest, body: Data, idempotencyKey: String,
                                  status: OfflineTalkOutboxStatus, reason: String) throws -> OfflineTalkOutboxEntry {
+        guard let url = request.url, OfflineTalkRecoveryScope.sameBackend(url, url),
+              Self.supportedEndpoints.contains(url.path), body.count <= Self.maxBodyBytes,
+              request.timeoutInterval.isFinite else {
+            throw BackendError.stage("offline_outbox", "This request cannot be stored safely. Its recovery queue was not changed.")
+        }
         let id = UUID().uuidString.lowercased()
-        let bodyRef = "blob-\(id).multipart"
+        let bodyRef = "blob-\(id).turn"
         let now = Date().timeIntervalSince1970
         let entry = OfflineTalkOutboxEntry(
             id: id,
             createdAt: now,
             updatedAt: now,
-            endpoint: request.url!.path,
+            endpoint: url.path,
             method: "POST",
-            urlString: request.url!.absoluteString,
+            urlString: url.absoluteString,
             headers: normalizedHeaders(request.allHTTPHeaderFields ?? [:], idempotencyKey: idempotencyKey),
             bodyRef: bodyRef,
             bodyByteCount: body.count,
@@ -363,11 +385,46 @@ actor OfflineTalkOutbox {
             lastError: normalizedReason(reason)
         )
 
-        try writeProtectedData(body, to: blobURL(for: bodyRef))
-        let next = entries + [entry]
+        do {
+            let encoded = try OfflineTalkStoredBody(entry: entry, body: body).encoded()
+            guard encoded.count <= Self.maxBodyBytes + 1_048_576 else {
+                throw BackendError.stage("offline_outbox", "Queued request metadata is too large.")
+            }
+            try writeProtectedData(encoded, to: blobURL(for: bodyRef))
+            let next = entries + [entry]
+            try persist(next)
+            entries = next
+        } catch {
+            // The complete, owner-bound body may already be durable. Rescan
+            // before another enqueue, not just after the next app launch.
+            didLoad = false
+            throw error
+        }
+        return entry
+    }
+
+    func resumeInterruptedEntry(_ id: String, initiatingIdentity owner: BackendAuthRequestIdentity,
+                                backendURL: URL) throws -> OfflineTalkOutboxSnapshot {
+        try requireScope(owner, backendURL: backendURL)
+        try loadIfNeeded()
+        guard let index = entries.firstIndex(where: { $0.id == id }),
+              entries[index].canResumeInterruptedEnqueue,
+              belongs(entries[index], scope: .init(identity: owner, backendURL: backendURL)) else {
+            throw BackendError.stage("offline_outbox", "This interrupted request cannot be queued from the current account and backend.")
+        }
+        _ = try storedBody(for: entries[index])
+        var next = entries
+        next[index].status = .pending
+        next[index].interruptedEnqueue = nil
+        next[index].updatedAt = Date().timeIntervalSince1970
+        next[index].nextAttemptAt = 0
+        next[index].lastError = "Recovered request queued by you."
+        try requireScope(owner, backendURL: backendURL)
         try persist(next)
         entries = next
-        return entry
+        let snapshot = snapshotFor(entries)
+        publish(snapshot)
+        return snapshot
     }
 
     @discardableResult
@@ -460,7 +517,13 @@ actor OfflineTalkOutbox {
         let parked = entries.filter { confirmedEntryIDs.contains($0.id) }
         let remaining = entries.filter { !confirmedEntryIDs.contains($0.id) }
         try requireScope(owner, backendURL: backendURL)
-        try persist(remaining)
+        do {
+            for entry in parked { try settleStoredBody(entry) }
+            try persist(remaining)
+        } catch {
+            if parked.contains(where: { $0.bodyRef.hasSuffix(".turn") }) { didLoad = false }
+            throw error
+        }
         entries = remaining
         for entry in parked {
             try? fileManager.removeItem(at: blobURL(for: entry.bodyRef))
@@ -494,9 +557,7 @@ actor OfflineTalkOutbox {
 
     private func loadIfNeeded() throws {
         guard !didLoad else { return }
-        guard fileManager.fileExists(atPath: manifestURL.path) else { entries = []; didLoad = true; return }
-
-        let data = try Data(contentsOf: manifestURL)
+        let data = fileManager.fileExists(atPath: manifestURL.path) ? try Data(contentsOf: manifestURL) : Data()
         guard let raw = String(data: data, encoding: .utf8) else {
             throw BackendError.stage("offline_outbox", "Recovery files could not be read. They were kept unchanged.")
         }
@@ -509,7 +570,7 @@ actor OfflineTalkOutbox {
                       var entry = try? decoder.decode(OfflineTalkOutboxEntry.self, from: lineData),
                       entry.method == "POST", Self.supportedEndpoints.contains(entry.endpoint),
                       let url = URL(string: entry.urlString), url.path == entry.endpoint,
-                      entry.bodyRef.hasPrefix("blob-"), entry.bodyRef.hasSuffix(".multipart"),
+                      entry.bodyRef.hasPrefix("blob-"), (entry.bodyRef.hasSuffix(".multipart") || entry.bodyRef.hasSuffix(".turn")),
                       !entry.bodyRef.contains("/"), !entry.bodyRef.contains("\\"), !entry.bodyRef.contains("..") else {
                     throw BackendError.stage("offline_outbox", "Recovery files need repair. They were kept unchanged.")
                 }
@@ -523,8 +584,96 @@ actor OfflineTalkOutbox {
         guard Set(loaded.map(\.id)).count == loaded.count, Set(loaded.map(\.bodyRef)).count == loaded.count else {
             throw BackendError.stage("offline_outbox", "Recovery identifiers need repair. All files were kept unchanged.")
         }
-        entries = loaded
+        let reconciled = try reconcileStoredBodies(loaded)
+        if reconciled.entries != loaded { try persist(reconciled.entries) }
+        entries = reconciled.entries
+        hasUnassignedBodies = reconciled.unassigned
         didLoad = true
+        // A durable settled record is safe even if this best-effort unlink
+        // fails. It can never become a newly recovered request.
+        for url in reconciled.settled { try? fileManager.removeItem(at: url) }
+    }
+
+    private func reconcileStoredBodies(_ loaded: [OfflineTalkOutboxEntry]) throws
+        -> (entries: [OfflineTalkOutboxEntry], unassigned: Bool, settled: [URL]) {
+        guard fileManager.fileExists(atPath: blobsDirectory.path) else {
+            guard !loaded.contains(where: { $0.bodyRef.hasSuffix(".turn") }) else {
+                throw BackendError.stage("offline_outbox", "Queued body files are missing. The manifest was kept.")
+            }
+            return (loaded, false, [])
+        }
+        let files = try fileManager.contentsOfDirectory(at: blobsDirectory,
+            includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey], options: [.skipsHiddenFiles])
+        var next = loaded, unassigned = false, settled: [URL] = [], seen = Set<String>()
+        let indexed = Set(loaded.map(\.bodyRef))
+        for url in files {
+            if url.lastPathComponent.hasSuffix(".multipart"), !indexed.contains(url.lastPathComponent) { unassigned = true; continue }
+            guard url.lastPathComponent.hasSuffix(".turn") else { continue }
+            let values = try url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
+            guard values.isRegularFile == true, values.isSymbolicLink != true else {
+                throw BackendError.stage("offline_outbox", "Queued body files need repair. They were kept unchanged.")
+            }
+            let record = try readStoredRecord(url)
+            let entry = record.entry
+            guard record.body.count <= Self.maxBodyBytes, UUID(uuidString: entry.id) != nil, entry.bodyRef == url.lastPathComponent,
+                  entry.bodyRef == "blob-\(entry.id).turn", entry.method == "POST",
+                  Self.supportedEndpoints.contains(entry.endpoint), let requestURL = URL(string: entry.urlString),
+                  requestURL.path == entry.endpoint, OfflineTalkRecoveryScope.sameBackend(requestURL, requestURL),
+                  !entry.idempotencyKey.isEmpty else {
+                throw BackendError.stage("offline_outbox", "Queued request identity needs repair. All files were kept.")
+            }
+            let row = loaded.first { $0.id == entry.id }
+            _ = try record.validatedBody(matching: row)
+            guard row != nil || !indexed.contains(entry.bodyRef) else {
+                throw BackendError.stage("offline_outbox", "Queued body references disagree. All files were kept.")
+            }
+            seen.insert(entry.bodyRef)
+            if record.state == .settled {
+                next.removeAll { $0.id == entry.id }
+                settled.append(url)
+            } else if row == nil {
+                guard headerValue(named: "X-User-Id", in: entry.headers) != nil else { unassigned = true; continue }
+                var recovered = entry
+                recovered.status = .parked
+                if entry.status == .pending {
+                    recovered.interruptedEnqueue = true
+                    recovered.lastError = "Interrupted before queue setup finished. Export or review this request before sending."
+                }
+                next.append(recovered)
+            }
+        }
+        guard loaded.filter({ $0.bodyRef.hasSuffix(".turn") }).allSatisfy({ seen.contains($0.bodyRef) }) else {
+            throw BackendError.stage("offline_outbox", "Queued body files are missing. All remaining files were kept.")
+        }
+        next.sort { $0.createdAt == $1.createdAt ? $0.id < $1.id : $0.createdAt < $1.createdAt }
+        return (next, unassigned, settled)
+    }
+
+    private func readStoredRecord(_ url: URL) throws -> OfflineTalkStoredBody {
+        let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
+        guard size <= Self.maxBodyBytes + 1_048_576 else {
+            throw BackendError.stage("offline_outbox", "Queued body exceeds the recovery limit. Its file was kept.")
+        }
+        return try PropertyListDecoder().decode(OfflineTalkStoredBody.self, from: Data(contentsOf: url))
+    }
+
+    private func storedBody(for entry: OfflineTalkOutboxEntry) throws -> Data {
+        guard entry.bodyRef.hasSuffix(".turn") else { return try Data(contentsOf: blobURL(for: entry.bodyRef)) }
+        let record = try readStoredRecord(blobURL(for: entry.bodyRef))
+        guard record.state == .ready else {
+            didLoad = false
+            throw BackendError.stage("offline_outbox", "This request has already settled. Refresh recovery before retrying.")
+        }
+        return try record.validatedBody(matching: entry)
+    }
+
+    private func settleStoredBody(_ entry: OfflineTalkOutboxEntry) throws {
+        guard entry.bodyRef.hasSuffix(".turn") else { return }
+        let url = blobURL(for: entry.bodyRef)
+        var record = try readStoredRecord(url)
+        _ = try record.validatedBody(matching: entry)
+        record.state = .settled
+        try writeProtectedData(record.encoded(), to: url)
     }
 
     private func persist(_ nextEntries: [OfflineTalkOutboxEntry]? = nil) throws {
@@ -580,7 +729,7 @@ actor OfflineTalkOutbox {
         guard let url = URL(string: entry.urlString) else {
             throw BackendError.stage("offline_outbox", "Queued talk request URL is invalid.")
         }
-        let body = try Data(contentsOf: blobURL(for: entry.bodyRef))
+        let body = try storedBody(for: entry)
         var request = URLRequest(url: url)
         request.httpMethod = entry.method
         request.timeoutInterval = entry.timeoutInterval
@@ -603,7 +752,7 @@ actor OfflineTalkOutbox {
         guard let entry = entries.first(where: { $0.id == id && belongs($0, scope: .init(identity: owner, backendURL: backendURL)) }) else {
             throw BackendError.stage("offline_outbox", "This queued turn is not available in the current account and backend.")
         }
-        let body = try Data(contentsOf: blobURL(for: entry.bodyRef))
+        let body = try storedBody(for: entry)
         let data = try JSONSerialization.data(withJSONObject: [
             "format": "them-queued-turn-recovery", "version": 1, "entry_id": entry.id,
             "endpoint": entry.endpoint, "created_at": entry.createdAt, "status": entry.status.rawValue,
@@ -624,7 +773,13 @@ actor OfflineTalkOutbox {
         if (200...299).contains(status) {
             let entry = entries[index]
             let remaining = entries.filter { $0.id != entryID }
-            try persist(remaining)
+            do {
+                try settleStoredBody(entry)
+                try persist(remaining)
+            } catch {
+                if entry.bodyRef.hasSuffix(".turn") { didLoad = false }
+                throw error
+            }
             entries = remaining
             try? fileManager.removeItem(at: blobURL(for: entry.bodyRef))
             return
