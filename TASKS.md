@@ -18,12 +18,17 @@
   relaunch; actual queued HTTP -> reviewed scene -> exact append -> one saved
   copy -> exact restored text. Retry never replans against newer words. Focused
   failures first, then full Node20/signed units, essential UI/Mac/D009/diff.
-- **Status:** in-progress. Current handler red0/1/0 at390e47d observed other
-  login with prior token200 and authentic owner without token403; stored owner
-  prefixed repeatedly. Canonical policy fix44c98d5 passes Node20 focused3/0/0.
-  Metadata/page custody, actual review/play/append/save and immutable retry
-  journal adapted; combined native and full backend proof pending. Original
-  heads held; no paid model call or production change.
+- **Status:** local review atc5b686b. Owner red0/1/0 at390e47d (foreign prior
+  token200, owner without token403); policy repair3/0/0. Initial signed882/0/0,
+  then project-routing red0/1/0 atca5f78a; canonicalb2d95df fix final884/0/0.
+  Actual queued HTTP/play/append/one saved copy/exact restore1/0/0 on final;
+  raw voice1/0/0 and native review/export1/0/0 on unchanged initial paths.
+  Node20 full2887/0/2 on byte-identical backend; Mac/D009/diff pass. Index-25,
+  bridge-64; other guarded files unchanged. No paid calls or original advance.
+- **Evidence:** `docs/received-scene-delivery-2026-10-26.md`; permanent
+  T-1171-20261026.3E9iEq. Real restart durability/settlement, original/unbound
+  context, retained setup/overlap and actual screenplay export remain open.
+  Original647/main/production and overall completion remain held/unproven.
 
 ### T-1170 — Keep accepted offline replies until confirmed writer delivery
 
