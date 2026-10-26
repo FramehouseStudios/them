@@ -321,6 +321,9 @@ struct ScreenplayStudioDraftToolsCard: View {
     let presentation: ScreenplayStudioDraftToolsPresentation
     let actions: ScreenplayStudioDraftToolsActions
 
+    var recoveryVM: ScreenplayStudioViewModel? = nil
+    var onStopTalk: () -> Void = {}
+
     var body: some View {
         sectionCard(title: "Document") {
             VStack(alignment: .leading, spacing: 16) {
@@ -329,6 +332,7 @@ struct ScreenplayStudioDraftToolsCard: View {
                     presentation: presentation.document,
                     actions: actions
                 )
+                if let recoveryVM { OfflineTalkPageRecoveryPanel(vm: recoveryVM, onStopTalk: onStopTalk) }
 
                 if !presentation.integrityIssues.isEmpty {
                     ScreenplayStudioDraftIntegrityWarningSection(

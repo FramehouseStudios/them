@@ -12,6 +12,8 @@ nonisolated struct OfflineTalkStoredBody: Codable {
     let sha256: Data
     var state: State
     var response: OfflineTalkStoredResponse? = nil
+    var pageDelivery: OfflineTalkPageDeliveryPlan? = nil
+    var pageDeliveryDigest: Data? = nil
 
     init(entry: OfflineTalkOutboxEntry, body: Data) {
         version = 1; self.entry = entry; self.body = body
@@ -19,13 +21,19 @@ nonisolated struct OfflineTalkStoredBody: Codable {
     }
 
     func validatedBody(matching row: OfflineTalkOutboxEntry? = nil, migratingLegacyReference: Bool = false) throws -> Data {
-        guard [1, 2].contains(version), body.count == entry.bodyByteCount,
+        guard [1, 2, 3].contains(version), body.count == entry.bodyByteCount,
               sha256 == Data(SHA256.hash(data: body)),
               row.map({ matches($0, migratingLegacyReference: migratingLegacyReference) }) ?? true,
-              state != .received || (version == 2 && response != nil) else {
+              state != .received || (version >= 2 && response != nil) else {
             throw BackendError.stage("offline_outbox", "Queued body identity could not be verified. All recovery files were kept.")
         }
         try response?.validate()
+        guard (pageDelivery == nil) == (pageDeliveryDigest == nil) else { throw BackendMemoryAPIError.invalidResponse }
+        if let pageDelivery {
+            guard version == 3, let response else { throw BackendMemoryAPIError.invalidResponse }
+            try pageDelivery.validate(response: response)
+            guard pageDeliveryDigest == (try pageDelivery.integrityDigest()) else { throw BackendMemoryAPIError.invalidResponse }
+        }
         return body
     }
 
@@ -73,6 +81,7 @@ nonisolated struct OfflineTalkStoredResponse: Codable {
     let body: Data
     let originalBodyBytes: Int
     let bodyOmitted: Bool
+    let turnMetadata: Data?
     let sha256: Data
 
     init(_ result: OfflineTalkOutboxSendResult) throws {
@@ -84,29 +93,55 @@ nonisolated struct OfflineTalkStoredResponse: Codable {
         originalBodyBytes = result.body.count
         bodyOmitted = result.body.count > Self.maxBodyBytes
         body = bodyOmitted ? Data() : result.body
+        turnMetadata = nil
         sha256 = try Self.digest(id: id, status: statusCode, headers: headers, body: body, originalBytes: originalBodyBytes, omitted: bodyOmitted)
+    }
+
+    func retainingTurnMetadata(_ data: Data) throws -> Self {
+        try validate()
+        return try Self(original: self, metadata: BackendTalkTurnMetaPayload.retainedData(data, expectedTurnID: headers["x-turn-id"] ?? ""))
+    }
+
+    private init(original: Self, metadata: Data) throws {
+        // A reader of the earlier, incomplete result cannot acknowledge the
+        // enriched result. Request/idempotency identity stays on the entry.
+        id = UUID().uuidString.lowercased(); statusCode = original.statusCode; headers = original.headers; body = original.body
+        originalBodyBytes = original.originalBodyBytes; bodyOmitted = original.bodyOmitted; turnMetadata = metadata
+        sha256 = try Self.digest(id: id, status: statusCode, headers: headers, body: body,
+            originalBytes: originalBodyBytes, omitted: bodyOmitted, metadata: metadata)
     }
 
     func validate() throws {
         guard UUID(uuidString: id) != nil, (200...299).contains(statusCode), body.count <= Self.maxBodyBytes,
               Set(headers.keys).isSubset(of: Self.allowedHeaders),
               (bodyOmitted ? (body.isEmpty && originalBodyBytes > Self.maxBodyBytes) : originalBodyBytes == body.count),
-              sha256 == (try Self.digest(id: id, status: statusCode, headers: headers, body: body, originalBytes: originalBodyBytes, omitted: bodyOmitted)) else {
+              (turnMetadata?.count ?? 0) <= 2 * 1024 * 1024,
+              sha256 == (try Self.digest(id: id, status: statusCode, headers: headers, body: body,
+                  originalBytes: originalBodyBytes, omitted: bodyOmitted, metadata: turnMetadata)) else {
             throw BackendError.stage("offline_outbox", "Saved reply integrity could not be verified. Recovery files were kept.")
+        }
+        if let turnMetadata {
+            let sanitized = try BackendTalkTurnMetaPayload.retainedData(turnMetadata, expectedTurnID: headers["x-turn-id"] ?? "")
+            guard sanitized == (try JSONSerialization.data(withJSONObject: JSONSerialization.jsonObject(with: turnMetadata), options: [.sortedKeys])) else {
+                throw BackendMemoryAPIError.invalidResponse
+            }
         }
     }
 
     var exportPayload: [String: Any] {
-        ["format": "them-received-talk-response", "version": 1, "receipt_id": id,
+        var payload: [String: Any] = ["format": "them-received-talk-response", "version": turnMetadata == nil ? 1 : 2, "receipt_id": id,
          "status_code": statusCode, "headers": headers, "body_base64": body.base64EncodedString(),
          "body_omitted": bodyOmitted, "original_body_bytes": originalBodyBytes]
+        if let turnMetadata { payload["turn_metadata_base64"] = turnMetadata.base64EncodedString() }
+        return payload
     }
 
     private static func digest(id: String, status: Int, headers: [String: String], body: Data,
-                               originalBytes: Int, omitted: Bool) throws -> Data {
+                               originalBytes: Int, omitted: Bool, metadata: Data? = nil) throws -> Data {
         var bytes = Data("talk-response-v1\n\(id)\n\(status)\n\(originalBytes)\n\(omitted)\n".utf8)
         bytes.append(try JSONSerialization.data(withJSONObject: headers, options: [.sortedKeys]))
         bytes.append(0x0A); bytes.append(body)
+        if let metadata { bytes.append(Data("\nturn-metadata-v1:\(metadata.count)\n".utf8)); bytes.append(metadata) }
         return Data(SHA256.hash(data: bytes))
     }
 }
@@ -114,6 +149,7 @@ nonisolated struct OfflineTalkStoredResponse: Codable {
 nonisolated struct OfflineTalkReceivedReply {
     let entry: OfflineTalkOutboxEntry
     let response: OfflineTalkStoredResponse
+    var pageDelivery: OfflineTalkPageDeliveryPlan? = nil
 }
 
 nonisolated struct OfflineTalkRecoveryScope: Equatable, Sendable {

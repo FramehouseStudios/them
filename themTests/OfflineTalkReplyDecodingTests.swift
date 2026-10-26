@@ -38,6 +38,7 @@ final class OfflineTalkReplyDecodingTests: XCTestCase {
 
     func testIncompletePageOrInvalidAudioStaysHeldAndNeverGeneratesAgain() async throws {
         for headers in [
+            ["content-type": "audio/mpeg", "x-turn-meta-available": "1", "x-turn-id": "audio-before-metadata", "x-reply": ""],
             ["content-type": "audio/mpeg", "x-screenplay-output-available": "1", "x-turn-meta-available": "1"],
             ["content-type": "audio/mpeg", "x-screenplay-authoritative": "1"],
             ["content-type": "application/json", "x-reply": "Not audio"]

@@ -18,9 +18,12 @@
   relaunch; actual queued HTTP -> reviewed scene -> exact append -> one saved
   copy -> exact restored text. Retry never replans against newer words. Focused
   failures first, then full Node20/signed units, essential UI/Mac/D009/diff.
-- **Status:** in-progress. Current source has owner-mismatch session/IP
-  fallback; metadata/page recovery still disconnected. Preserve all prior proof
-  and original heads, and report real failures rather than inherited counts.
+- **Status:** in-progress. Current handler red0/1/0 at390e47d observed other
+  login with prior token200 and authentic owner without token403; stored owner
+  prefixed repeatedly. Canonical policy fix44c98d5 passes Node20 focused3/0/0.
+  Metadata/page custody, actual review/play/append/save and immutable retry
+  journal adapted; combined native and full backend proof pending. Original
+  heads held; no paid model call or production change.
 
 ### T-1170 — Keep accepted offline replies until confirmed writer delivery
 

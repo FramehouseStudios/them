@@ -303,7 +303,7 @@ struct DataControlsScreen: View {
             )
         }
         .sheet(item: $inspectingReceivedReply) { review in
-            OfflineTalkReplyReviewView(review: review) { inspectingReceivedReply = nil }
+            OfflineTalkReplyReviewView(review: review, onDone: { inspectingReceivedReply = nil })
         }
         .fileExporter(
             isPresented: $isPresentingOutlineRecoveryExporter,

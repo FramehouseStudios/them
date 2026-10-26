@@ -449,12 +449,15 @@ actor OfflineTalkOutbox {
         _ = try record.validatedBody(matching: entry)
         guard record.state == .received, let response = record.response else { throw BackendMemoryAPIError.invalidResponse }
         try requireScope(owner, backendURL: backendURL)
-        return .init(entry: entry, response: response)
+        return .init(entry: entry, response: response, pageDelivery: record.pageDelivery)
     }
 
     func acknowledgeReceivedReply(_ id: String, receiptID: String, initiatingIdentity owner: BackendAuthRequestIdentity,
-                                  backendURL: URL) throws {
+                                  backendURL: URL, deliveryPlanID: UUID? = nil) throws {
         let reply = try receivedReply(id, initiatingIdentity: owner, backendURL: backendURL)
+        if let plan = reply.pageDelivery, plan.id != deliveryPlanID {
+            throw BackendError.stage("offline_outbox", "This reply has a pending page delivery. Confirm its saved page before acknowledging it.")
+        }
         guard reply.response.id == receiptID else {
             throw BackendError.stage("offline_outbox", "The saved reply changed. Reopen it before acknowledging delivery.")
         }
@@ -465,6 +468,56 @@ actor OfflineTalkOutbox {
         entries = remaining
         try? fileManager.removeItem(at: blobURL(for: reply.entry.bodyRef))
         publishSnapshot()
+    }
+
+    /// The audio receipt is committed before this optional GET. Never repeat
+    /// generation to repair missing metadata, and never resurrect a deleted or
+    /// acknowledged entry after an outstanding lookup returns.
+    func captureReceivedTurnMetadata(_ id: String, initiatingIdentity owner: BackendAuthRequestIdentity,
+        backendURL: URL, client: BackendClient? = nil) async throws -> OfflineTalkReceivedReply {
+        let packet = try receivedReply(id, initiatingIdentity: owner, backendURL: backendURL)
+        let advertised = packet.response.headers["x-turn-meta-available"]?.lowercased() ?? ""
+        guard packet.pageDelivery == nil, packet.response.turnMetadata == nil, ["1", "true"].contains(advertised) else { return packet }
+        let identity = requestIdentityProvider(false)
+        try requireScope(owner, backendURL: backendURL)
+        let api: BackendClient
+        if let client { api = client }
+        else { api = await BackendClient(baseURL: backendURL, fallbackURL: backendURL, persistBackendBaseURL: false) }
+        let currentScope = OfflineTalkRecoveryScope(identity: identity, backendURL: backendURL)
+        let provider = requestIdentityProvider, originProvider = backendURLProvider
+        let metadata = try await api.captureReceivedTurnMetadata(packet, initiatingIdentity: identity, backendURL: backendURL,
+            currentScopeProvider: { .init(identity: provider(false), backendURL: originProvider()) })
+        try requireScope(owner, backendURL: backendURL)
+        guard currentScope.matches(identity: requestIdentityProvider(false), backendURL: backendURLProvider()) else { throw OfflineTalkPreviousOwnerError() }
+        let fresh = try receivedReply(id, initiatingIdentity: owner, backendURL: backendURL)
+        if fresh.pageDelivery != nil || fresh.response.turnMetadata != nil { return fresh }
+        guard fresh.response.id == packet.response.id else { throw BackendMemoryAPIError.invalidResponse }
+        var record = try readStoredRecord(blobURL(for: fresh.entry.bodyRef))
+        _ = try record.validatedBody(matching: fresh.entry)
+        record.response = try fresh.response.retainingTurnMetadata(metadata)
+        try writeProtectedData(record.encoded(), to: blobURL(for: fresh.entry.bodyRef))
+        return try receivedReply(id, initiatingIdentity: owner, backendURL: backendURL)
+    }
+
+    func preparePageDelivery(_ id: String, receiptID: String, projectID: String, documentID: String?,
+        beforeDraft: String, afterDraft: String, initiatingIdentity owner: BackendAuthRequestIdentity,
+        backendURL: URL) throws -> OfflineTalkPageDeliveryPlan {
+        let packet = try receivedReply(id, initiatingIdentity: owner, backendURL: backendURL)
+        guard packet.response.id == receiptID else { throw BackendMemoryAPIError.invalidResponse }
+        if let existing = packet.pageDelivery {
+            guard existing.projectID == projectID,
+                  existing.documentID == nil || existing.documentID == documentID else { throw OfflineTalkPreviousOwnerError() }
+            return existing
+        }
+        let plan = OfflineTalkPageDeliveryPlan(id: UUID(), receiptID: receiptID, projectID: projectID,
+            documentID: documentID, beforeDraft: beforeDraft, afterDraft: afterDraft)
+        try plan.validate(response: packet.response)
+        var record = try readStoredRecord(blobURL(for: packet.entry.bodyRef))
+        _ = try record.validatedBody(matching: packet.entry)
+        record.version = 3; record.pageDelivery = plan
+        record.pageDeliveryDigest = try plan.integrityDigest()
+        try writeProtectedData(record.encoded(), to: blobURL(for: packet.entry.bodyRef))
+        return plan
     }
 
     @discardableResult
@@ -524,6 +577,9 @@ actor OfflineTalkOutbox {
                     }
                 }
                 try handleSendResult(result, forEntryID: entry.id, now: now)
+                if transport == nil, entry.endpoint == Self.talkEndpoint, result.statusCode == 200 {
+                    _ = try? await captureReceivedTurnMetadata(entry.id, initiatingIdentity: owner, backendURL: backendURL)
+                }
             } catch {
                 if !scope.matches(identity: requestIdentityProvider(false), backendURL: backendURLProvider()) {
                     if let retained = entries.firstIndex(where: { $0.id == entry.id }) { entries[retained].status = .pending }
@@ -701,7 +757,7 @@ actor OfflineTalkOutbox {
 
     private func readStoredRecord(_ url: URL) throws -> OfflineTalkStoredBody {
         let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
-        guard size <= Self.maxBodyBytes + OfflineTalkStoredResponse.maxBodyBytes + 1_048_576 else {
+        guard size <= Self.maxBodyBytes + OfflineTalkStoredResponse.maxBodyBytes + 7_340_032 else {
             throw BackendError.stage("offline_outbox", "Queued body exceeds the recovery limit. Its file was kept.")
         }
         return try PropertyListDecoder().decode(OfflineTalkStoredBody.self, from: Data(contentsOf: url))
@@ -809,11 +865,16 @@ actor OfflineTalkOutbox {
             "content_type": headerValue(named: "Content-Type", in: entry.headers) ?? "application/octet-stream",
             "body_base64": body.base64EncodedString()
         ]
-        if entry.receivedReply == true { payload["response"] = try receivedReply(id, initiatingIdentity: owner, backendURL: backendURL).response.exportPayload }
+        if entry.receivedReply == true {
+            let packet = try receivedReply(id, initiatingIdentity: owner, backendURL: backendURL)
+            payload["response"] = packet.response.exportPayload
+            if let plan = packet.pageDelivery { payload["page_delivery"] = try JSONSerialization.jsonObject(with: JSONEncoder().encode(plan)) }
+        }
         let data = try JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys, .prettyPrinted])
         try requireScope(owner, backendURL: backendURL)
         return .init(filename: "them-queued-turn-\(UUID().uuidString.lowercased()).json", data: data)
     }
+
 
     private func handleSendResult(
         _ result: OfflineTalkOutboxSendResult,

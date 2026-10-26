@@ -5036,7 +5036,7 @@ private var projectsSidebarContent: some View {
             revisionColor: $vm.revisionColor,
             snapshotLabel: $vm.snapshotLabel,
             presentation: draftToolsPresentation,
-            actions: draftToolsActions
+            actions: draftToolsActions, recoveryVM: vm, onStopTalk: onStopTalk
         )
     }
 
