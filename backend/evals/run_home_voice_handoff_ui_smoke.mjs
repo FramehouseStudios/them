@@ -26,6 +26,9 @@ const allowedTests = [
 const tests = process.env.ONLY_TESTING ? [process.env.ONLY_TESTING] : allowedTests.slice(0, 2);
 if (tests.some(test => !allowedTests.includes(test))) throw new Error('Unsupported Home voice proof test');
 if (process.env.THEM_HOME_VOICE_LONG_AUDIO === '1' && (tests.length !== 1 || !tests[0].includes('home_raw_audio'))) throw new Error('Long audio regression requires the raw-audio case alone');
+// Reuse the measured audio asset so Stop interrupts an active turn, rather
+// than racing the short silence fixture; production timing is unchanged.
+const needsInterruptibleAudio = tests.some(test => test.endsWith('/test_home_raw_audio_studio_stop_ends_capture_and_cancels_page'));
 const bundle = process.env.THEM_HOME_VOICE_RESULT_BUNDLE || `/tmp/them-home-voice-${process.pid}.xcresult`;
 if (existsSync(bundle)) throw new Error('Refusing to overwrite an existing result bundle');
 const config = `/tmp/them-home-voice-${process.pid}.xcconfig`;
@@ -36,7 +39,7 @@ const server = await startBackend({ unsetEnv: ['DATABASE_URL', 'REDIS_URL'], env
   MUSE_ENABLED: '0', LLM_PROVIDER: 'openai',
   TALK_TEST_DEBUG_OFFLINE_ENABLED: '0', TALK_STREAM_AUDIO_ENABLED: '0',
   KNOWLEDGE_RAG_EMBEDDINGS_ENABLED: '0', THEM_HOME_VOICE_PROVIDER_FIXTURE: '1',
-  THEM_HOME_VOICE_LONG_AUDIO: process.env.THEM_HOME_VOICE_LONG_AUDIO === '1' ? '1' : '0',
+  THEM_HOME_VOICE_LONG_AUDIO: process.env.THEM_HOME_VOICE_LONG_AUDIO === '1' || needsInterruptibleAudio ? '1' : '0',
   THEM_PAGE_NAVIGATOR_PROOF: tests.some(test => test.includes('test_pages_navigator_controls')) ? '1' : '0',
   NODE_OPTIONS: `--import=${fixtureURL.href}`,
 } });

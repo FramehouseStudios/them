@@ -5471,7 +5471,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
             outlineRevisionProjectID = ""
             reconcileSceneSessionState(with: outline)
             resetCraftReportForProjectChange()
-            applyServerDraft("", versionId: "", allowOverwriteDirtyLocalDraft: true)
+            clearBoundDraftForEmptyProjectSelection()
             collaborators = []
             approvedEmails = []
             comments = []
@@ -5783,6 +5783,14 @@ final class ScreenplayStudioViewModel: ObservableObject {
         guard authContextIsCurrent(context), project.id == selectedProjectID else { return false }
         hydrateDraft(from: project)
         return true
+    }
+
+    /// No selection is not an empty saved draft. Keep the unbound writer page;
+    /// detach only text actually loaded from a previously selected project.
+    func clearBoundDraftForEmptyProjectSelection() {
+        guard selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              !loadedDraftProjectID.isEmpty else { return }
+        applyServerDraft("", versionId: "", allowOverwriteDirtyLocalDraft: true)
     }
 
     private func hydrateDraft(from project: BackendScreenplayProjectSummary) {
