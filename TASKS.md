@@ -5,6 +5,21 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1163 — Pin save transport to its initiating login and prove real refresh
+
+- **Owner:** codex (Jarvis). **Branch:** `codex/T-1163-project-write-owner`.
+- **Base:** saved647 safety47be66d. Preserve original heads and production hold.
+- **Scope:** reuse canonical8fba5bb request ownership and26f6a07 auth lock-order
+  correction; repair the masked DEBUG refresh seam and signed recovery runner.
+- **Binary success:** changed owner/login intent cannot submit or publish old
+  project writes; same-login token rotation remains functional. Real local
+  version401 -> refresh200 -> returned-bearer201 occurs once, exact queued bytes
+  survive another relaunch. No secret read or paid provider call.
+- **Status:** in-progress. Current signed original-boundary reproduction0/4/0
+  (10 assertion failures), retained at a09778a. Full proof pending.
+- **Limits:** not app-wide transport isolation, atomic creation, physical phone,
+  shipping-backend or audible/model-quality proof. NextT1109/T1108 remain.
+
 ### T-1162 — Keep delayed first-project results with their initiating page
 
 - **Owner:** codex (Jarvis). **Branch:** `codex/T-1162-promotion-authority`.

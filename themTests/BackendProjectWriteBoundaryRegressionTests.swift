@@ -41,9 +41,10 @@ final class BackendProjectWriteBoundaryRegressionTests: XCTestCase {
         let api = BackendMemoryAPI(session: URLSession(configuration: configuration),
             baseURL: URL(string: "https://project-boundary.test")!,
             requestIdentityProvider: { _ in state.identity() })
+        let initiatingIdentity = state.identity()
         do {
-            if version { _ = try await api.upsertScreenplayProjectVersion(projectId: "project-a", draft: "Writer A exact words") }
-            else { _ = try await api.upsertScreenplayProject(title: "Writer A story") }
+            if version { _ = try await api.upsertScreenplayProjectVersion(projectId: "project-a", draft: "Writer A exact words", initiatingIdentity: initiatingIdentity) }
+            else { _ = try await api.upsertScreenplayProject(title: "Writer A story", initiatingIdentity: initiatingIdentity) }
             XCTFail("Superseded work returned a current-owner receipt.")
         } catch BackendMemoryAPIError.server(let status, let message) {
             XCTAssertEqual(status, 409)

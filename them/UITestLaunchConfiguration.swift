@@ -73,7 +73,10 @@ nonisolated enum UITestLaunchConfiguration {
         copyLaunchArgumentInt("studio_debug_load_project_ack_token", from: arguments, to: defaults)
 
         copyEnvironmentValue("THEM_UITEST_BACKEND_BASE_URL", from: environment, to: "backend_base_url", defaults: defaults)
-        seedCredentialEnvironmentValues(from: environment, defaults: defaults)
+        let storedAuth = BackendAuthDebugSessionPolicy.usesStoredCredentials(arguments: arguments, environment: environment)
+        let session = storedAuth ? BackendAuthClient.currentAuthSessionState() : .signedOut
+        let preserveAuth = storedAuth && session.isAuthenticated && session.user?.userId == environment["THEM_UITEST_USER_ID"]
+        if !preserveAuth { seedCredentialEnvironmentValues(from: environment, defaults: defaults) }
         // Use typed storage for multiline restore fixtures: NSArgumentDomain's
         // property-list parsing can truncate an unquoted title page at a newline.
         if let ownerID = nonEmptyEnvironmentValue("THEM_UITEST_USER_ID", in: environment),
@@ -84,10 +87,17 @@ nonisolated enum UITestLaunchConfiguration {
         }
         copyEnvironmentValue("THEM_UITEST_CLIENT_TOKEN_BASE_URL", from: environment, to: "client_token_base_url", defaults: defaults)
         copyEnvironmentDouble("THEM_UITEST_CLIENT_TOKEN_CACHED_AT", from: environment, to: "client_token_cached_at", defaults: defaults)
-        copyEnvironmentValue("THEM_UITEST_AUTH_DEBUG_ACCESS_TOKEN", from: environment, to: "auth_debug_access_token", defaults: defaults)
-        copyEnvironmentBool("THEM_UITEST_AUTH_DEBUG_ACCESS_TOKEN_ENABLED", from: environment, to: "auth_debug_access_token_enabled", defaults: defaults)
-        copyEnvironmentValue("THEM_UITEST_AUTH_DEBUG_REFRESH_TOKEN", from: environment, to: "auth_debug_refresh_token", defaults: defaults)
-        copyEnvironmentBool("THEM_UITEST_AUTH_SIGNED_IN", from: environment, to: "auth_signed_in", defaults: defaults)
+        if !preserveAuth {
+            copyEnvironmentValue("THEM_UITEST_AUTH_DEBUG_ACCESS_TOKEN", from: environment, to: "auth_debug_access_token", defaults: defaults)
+            copyEnvironmentBool("THEM_UITEST_AUTH_DEBUG_ACCESS_TOKEN_ENABLED", from: environment, to: "auth_debug_access_token_enabled", defaults: defaults)
+            copyEnvironmentValue("THEM_UITEST_AUTH_DEBUG_REFRESH_TOKEN", from: environment, to: "auth_debug_refresh_token", defaults: defaults)
+            copyEnvironmentBool("THEM_UITEST_AUTH_SIGNED_IN", from: environment, to: "auth_signed_in", defaults: defaults)
+            if storedAuth, defaults === UserDefaults.standard, let user = BackendAuthDebugSessionPolicy.syntheticUser(signedIn: true,
+                accessToken: environment["THEM_UITEST_AUTH_DEBUG_ACCESS_TOKEN"] ?? "",
+                userID: environment["THEM_UITEST_USER_ID"] ?? "", email: "") {
+                assert(BackendAuthClient.seedStoredAuthUserForUITesting(user))
+            }
+        }
         copyEnvironmentValue("THEM_UITEST_STUDIO_FULL_THREAD_STATE_JSON", from: environment, to: "studio.full.thread.state.v1", defaults: defaults)
         copyEnvironmentValue("THEM_UITEST_STUDIO_ASK_NOTE_HISTORY_JSON", from: environment, to: "studio.ask.note.history.v2", defaults: defaults)
         copyEnvironmentValue("THEM_UITEST_STUDIO_DIFF_ACKNOWLEDGED_JSON", from: environment, to: "studio.diff.keep-current.v1", defaults: defaults)
