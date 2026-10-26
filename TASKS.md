@@ -17,8 +17,14 @@
   actual backend restart/lost-receipt/owner-isolation and full Node20 pass;
   D009/diff pass. No paid calls or deployment. Swift client follow-through is
   a separate required boundary, not proven by this server checkpoint.
-- **Status:** in-progress; current reproduction pending. Client durable first
-  creation2b51d72 and interrupted talk enqueuec1e9255 remain required.
+- **Status:** local review at77da2e6. Current handler red0/5,68 unselected at
+  0d8e85e; focused137/0/0. First full2874/7/2 exposed non-executable fixture
+  tmp mount; corrected harness19/0/0, final full Node20 2881/0/2. No code or
+  assertions changed for the harness repair. D009 index33557->33538(-19),
+  other guarded files unchanged; syntax/diff pass. No Swift change/rerun.
+- **Evidence:** `docs/first-project-transaction-2026-10-26.md`; permanent
+  T-1167-20261026.l42vfZ. Client durable first creation2b51d72 and interrupted
+  talk enqueuec1e9255 remain required; original647/main unchanged.
 
 ### T-1166 — Preserve queued work through ownership, replay and cleanup
 
