@@ -1960,8 +1960,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         isHydratingDraft = true
         fountainDraft = text
         isHydratingDraft = false
-        let normalized = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        hasUnsavedDraftChanges = fingerprint(for: normalized) != lastSavedDraftFingerprint
+        hasUnsavedDraftChanges = fingerprint(for: text) != lastSavedDraftFingerprint
         conflictState = nil
         autosaveStatusText = remoteLiveDraftStatusText
         return true
@@ -1977,7 +1976,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         let normalizedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanProjectID.isEmpty,
               !normalizedText.isEmpty,
-              fingerprint(for: normalizedText) != lastSavedDraftFingerprint else { return }
+              fingerprint(for: text) != lastSavedDraftFingerprint else { return }
 
         let savedAt = Date().timeIntervalSince1970
         let ownerUserID = currentStudioAuthContext().userID
@@ -2031,9 +2030,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
             return
         }
         latestVersionID = cleanVersionID
-        let normalized = fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-        lastSavedDraftFingerprint = fingerprint(for: normalized)
-        lastRevisionBaseDraft = normalized
+        lastSavedDraftFingerprint = fingerprint(for: fountainDraft)
+        lastRevisionBaseDraft = fountainDraft
         hasUnsavedDraftChanges = false
         stopFollowingRemoteLiveDraft()
         isManualDraftEditing = false
@@ -2117,16 +2115,15 @@ final class ScreenplayStudioViewModel: ObservableObject {
 
         let cleanProjectID = projectID.trimmingCharacters(in: .whitespacesAndNewlines)
         let cleanVersionID = versionID.trimmingCharacters(in: .whitespacesAndNewlines)
-        let normalizedCommittedDraft = committedDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedLocalDraft = fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedLocalDraft.isEmpty else { return false }
-        let committedFingerprint = fingerprint(for: normalizedCommittedDraft)
+        let committedFingerprint = fingerprint(for: committedDraft)
 
         latestVersionID = cleanVersionID
         loadedDraftProjectID = cleanProjectID
         lastSavedDraftFingerprint = committedFingerprint
-        lastRevisionBaseDraft = normalizedCommittedDraft
-        hasUnsavedDraftChanges = fingerprint(for: normalizedLocalDraft) != committedFingerprint
+        lastRevisionBaseDraft = committedDraft
+        hasUnsavedDraftChanges = fingerprint(for: fountainDraft) != committedFingerprint
         if hasUnsavedDraftChanges {
             autosaveStatusText = "Unsaved changes"
         } else {
@@ -2172,7 +2169,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         stopFollowingRemoteLiveDraft()
         lastManualDraftEditAt = Date()
         let normalized = fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-        hasUnsavedDraftChanges = fingerprint(for: normalized) != lastSavedDraftFingerprint
+        hasUnsavedDraftChanges = fingerprint(for: fountainDraft) != lastSavedDraftFingerprint
         if !normalized.isEmpty {
             persistLocalDraftRecovery(
                 projectId: selectedProjectID,
@@ -4191,8 +4188,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
         loadedDraftProjectID = selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
         isManualDraftEditing = false
         lastManualDraftEditAt = .distantPast
-        lastSavedDraftFingerprint = fingerprint(for: normalizedDraft)
-        lastRevisionBaseDraft = normalizedDraft
+        lastSavedDraftFingerprint = fingerprint(for: draft)
+        lastRevisionBaseDraft = draft
         hasUnsavedDraftChanges = false
         autosaveStatusText = normalizedDraft.isEmpty ? "Ready" : "Loaded latest draft"
         recoveryCandidate = nil
@@ -5735,7 +5732,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
 
     private func hydrateDraft(from project: BackendScreenplayProjectSummary) {
         let selectedVersion = ScreenplayProjectDraftRestorePolicy.preferredVersion(in: project)
-        let nextDraft = (selectedVersion?.draft ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let nextDraft = selectedVersion?.draft ?? ""
         studioWriteAnchors = (selectedVersion?.studioWriteAnchors ?? []).filter { anchor in
             !anchor.writeId.trimmingCharacters(in: .whitespacesAndNewlines).lowercased().hasPrefix("binding:")
         }
@@ -5871,7 +5868,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
            ) != true {
             clearCoverageSimulation()
         }
-        let currentFingerprint = fingerprint(for: normalized)
+        let currentFingerprint = fingerprint(for: draft)
         hasUnsavedDraftChanges = currentFingerprint != lastSavedDraftFingerprint
         if hasUnsavedDraftChanges && isManualDraftEditing {
             autosaveStatusText = "Unsaved changes"
@@ -6158,8 +6155,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
            request.source == "studio_conflict_resolve",
            ProcessInfo.processInfo.arguments.contains("--ui-conflict-save-success") {
             latestVersionID = "ui-local-version"
-            lastSavedDraftFingerprint = fingerprint(for: normalized)
-            lastRevisionBaseDraft = normalized
+            lastSavedDraftFingerprint = fingerprint(for: request.draft)
+            lastRevisionBaseDraft = request.draft
             hasUnsavedDraftChanges = false
             isManualDraftEditing = false
             lastManualDraftEditAt = .distantPast
@@ -6354,8 +6351,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 screenplayBindings = savedBindings
             }
             syncLiveDraftBridgeProjectContext()
-            lastSavedDraftFingerprint = fingerprint(for: normalized)
-            lastRevisionBaseDraft = normalized
+            lastSavedDraftFingerprint = fingerprint(for: request.draft)
+            lastRevisionBaseDraft = request.draft
             hasUnsavedDraftChanges = ScreenplayDraftSaveCompletionPolicy.hasUnsavedChanges(
                 currentDraft: fountainDraft,
                 savedDraft: request.draft

@@ -226,6 +226,23 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
     }
 
     @MainActor
+    func testUnchangedRawServerDraftStaysCleanAndWhitespaceEditStaysDirty() async {
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store)
+        model.autosaveEnabled = false
+        model.selectedProjectID = "raw-fingerprint-\(UUID().uuidString)"
+        let saved = "\r\nINT. CAFE - NIGHT\r\n\r\nA cafe\u{0301} stays open.\r\n \t "
+        model.applyServerDraft(saved, versionId: "raw-version")
+        await model.handleDraftDebouncedChange(saved)
+        XCTAssertFalse(model.hasUnsavedDraftChanges, "Loading identical raw bytes must not trigger a duplicate autosave.")
+        XCTAssertTrue(model.fountainDraft.utf8.elementsEqual(saved.utf8))
+        model.fountainDraft = saved + " "
+        model.noteManualDraftEdit()
+        XCTAssertTrue(model.hasUnsavedDraftChanges, "A whitespace-only change still belongs to the writer.")
+        await model.handleDraftDebouncedChange(model.fountainDraft)
+        XCTAssertTrue(model.hasUnsavedDraftChanges)
+    }
+
+    @MainActor
     func testStaleBlankObserverCannotClearActiveWriterRecoveryOrDirtyState() async {
         // Adapt 636ddfc4 to the existing injected recovery owner at this
         // earlier boundary; no later queue-injection framework is required.
