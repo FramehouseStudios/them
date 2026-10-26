@@ -24,7 +24,15 @@ final class BackendProjectWriteBoundaryRegressionTests: XCTestCase {
         await assertBoundary(version: true, switchDuringBootstrap: false)
     }
 
-    private func assertBoundary(version: Bool, switchDuringBootstrap: Bool) async {
+    func testActivationDoesNotAdoptAnotherOwnerDuringBootstrap() async {
+        await assertBoundary(version: false, switchDuringBootstrap: true, extraMutation: "activation")
+    }
+
+    func testOutlineDoesNotAdoptAnotherOwnerDuringBootstrap() async {
+        await assertBoundary(version: false, switchDuringBootstrap: true, extraMutation: "outline")
+    }
+
+    private func assertBoundary(version: Bool, switchDuringBootstrap: Bool, extraMutation: String? = nil) async {
         let state = ProjectBoundaryState()
         ProjectBoundaryProtocol.handler = { request in
             state.record(request)
@@ -43,7 +51,11 @@ final class BackendProjectWriteBoundaryRegressionTests: XCTestCase {
             requestIdentityProvider: { _ in state.identity() })
         let initiatingIdentity = state.identity()
         do {
-            if version { _ = try await api.upsertScreenplayProjectVersion(projectId: "project-a", draft: "Writer A exact words", initiatingIdentity: initiatingIdentity) }
+            if extraMutation == "activation" { _ = try await api.activateScreenplayProject(projectId: "project-a") }
+            else if extraMutation == "outline" {
+                _ = try await api.upsertScreenplayOutline(projectId: "project-a", acts: [], scenes: [], beats: [], expectedOutlineRevision: 0, clientRequestId: "owned-outline")
+            }
+            else if version { _ = try await api.upsertScreenplayProjectVersion(projectId: "project-a", draft: "Writer A exact words", initiatingIdentity: initiatingIdentity) }
             else { _ = try await api.upsertScreenplayProject(title: "Writer A story", initiatingIdentity: initiatingIdentity) }
             XCTFail("Superseded work returned a current-owner receipt.")
         } catch BackendMemoryAPIError.server(let status, let message) {
