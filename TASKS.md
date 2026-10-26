@@ -5,6 +5,59 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1161 — Publish original645 on its green preserving parent
+
+- **Owner:** codex (Jarvis). **Branch:** `codex/T-1161-original-645-parent-refresh`.
+- **Base:** saved645e803262a plus no-ff eb752e8 of exact green6445759e5a.
+  Read refreshed original645 body/follow-ups; retain both task-ledger records.
+- **Scope:** preserve original8a7f367a and all mentor repair commits; carry
+  parent's connected typing correction forward without importing646/647 work.
+- **Binary success:** strict authenticated writer UI passes at the exact
+  updated645 tree; D009/diff pass; native/backend/unit source-equivalence to
+  saved645 established. Normal original-branch fast-forward only after fresh
+  parent644 hosted green; fresh645 checks then gate public646 advancement.
+- **Verification boundary:** parent751/0/0 units, Node20 backend2867/0/2,
+  native mentor delivery and Mac are parent proof, not newly executed. Avoid
+  unchanged full-suite repetition for a test/docs-only parent merge.
+- **Limits:** no paid call, squash/force/replacement PR/main merge/deployment.
+  Intermediate645 is not releasable without the preserved observer/retention/
+  queued-hydration fixes in later saved646/647; do not substitute their counts.
+- **Status:** local review at eb752e8. Refreshed original body/current follow-ups,
+  parent6445759e5a terminal required-green. Strict authenticated signed erased
+  writer UI1/0/0 on exact merged tree; D009/diff pass. Production/native/unit/
+  backend source identical to e803262a (retained zero-byte diff), so parent
+  full-suite evidence remains explicitly parent evidence, not a new run.
+  Ready for normal original645 fast-forward and fresh required hosted checks;
+  original646+ stays held. Saved647 safety descendantb3024bc stays separate.
+- **Evidence:** `docs/original-645-parent-refresh-2026-10-25.md`; archive
+  `/Users/halfmutantfilms/io.them-worktrees/_proof/T-1161-20261025.ah6cXZ/`.
+
+### T-1156 — Preserve target-aware mentor guidance and actual prompt delivery
+
+- **Owner:** codex (Jarvis). **Branch:** `codex/T-1156-original-645-mentor`.
+- **Base:** saved coverage/recovery42d6f746. Original644 publication waits for
+  exact643cdd463f5 hosted Quality; no assumed parent clearance or main merge.
+- **Scope:** no-ff preserve original6458a7f367a; reuse scoped02e9bee repair,
+  stronger current prompt allocator and canonical dialogue/memory ownership.
+  Original649 identity/budget dependencies may be brought forward narrowly,
+  not its ancestry across intervening originals. Read645/649 bodies/comments.
+- **Binary success:** shared native/backend mentor identity honors active
+  chosen target/map, offers120 only flexibly; scorer still rejects original
+  weak fixtures; actual Swift fresh/Studio prompts deliver full core/pitch
+  through local talk normalization/trimming with and without a feature map.
+  Signed erased native, connected writer UI, full pinned Node20, D009/Mac/diff.
+- **Limits:** no paid model call, simulated quality claim, production change,
+  whole-backup merge, original-head replacement, main push or review bypass.
+  Preserve orb/Clementine, exact writer/recovery and reply/action authority.
+- **Status:** local review. Original645 preserved by e208cc55; scoped02e9bee
+  replayed as206f7a79, authenticated delivery regression f44a6f68. Fresh full
+  Node20 backend2867/0/2, signed erased751/0/0, Home/raw-audio+writer3/0/0,
+  Mac/D009/diff/offline exemplar gate pass. Actual Swift fresh/Studio prompts
+  each pass authenticated real local talk delivery with/without feature map;
+  full shared core/pitch survive. No paid/generated-quality/phone claim.
+- **Evidence:** `docs/original-645-mentor-2026-10-25.md`; completed archive
+  `/Users/halfmutantfilms/io.them-worktrees/_proof/T-1156-20261025.ALFBnf/`.
+
 ### T-1159 — Fix hosted writer-loop keyboard focus at original644
 
 - **Owner:** codex (Jarvis). **Branch:** `codex/T-1159-hosted-writer-focus`.

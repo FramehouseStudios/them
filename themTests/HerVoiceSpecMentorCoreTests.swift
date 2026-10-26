@@ -2,7 +2,7 @@ import XCTest
 @testable import them
 
 final class HerVoiceSpecMentorCoreTests: XCTestCase {
-    private func makeContext(isScreenplayMode: Bool = false, recentTurns: [(user: String, assistant: String)] = []) -> HerVoiceSpec.Context {
+    private func makeContext(isScreenplayMode: Bool = false, recentTurns: [(user: String, assistant: String)] = [], isDirectScreenplayPageWrite: Bool = false) -> HerVoiceSpec.Context {
         HerVoiceSpec.Context(
             stage: 3, depthScore: 6.5, romanceTension: 4.0, personaPreset: .clementine,
             isLoveTopic: false, preferredName: "", subtleMemoryCue: "",
@@ -12,7 +12,7 @@ final class HerVoiceSpecMentorCoreTests: XCTestCase {
             screenplayGenre: .drama, isAskingForStoryHelp: false, isSynopsisFocused: false,
             isOutlineFocused: false, isStoryDirectionPrompt: false, isCharacterFocused: false,
             isClimax: false, isOpeningOrClosing: false, isLongFormScreenplayRequest: false,
-            isDirectScreenplayPageWrite: false, hasConfirmedScreenplayPageWrite: false,
+            isDirectScreenplayPageWrite: isDirectScreenplayPageWrite, hasConfirmedScreenplayPageWrite: false,
             confirmedScreenplayStoryDirection: "", isUserVulnerable: false, isUserPlayful: false,
             isUserDirect: false, isNostalgic: false, hasCommitmentSignals: false,
             hasRomanticChemistrySignals: false, isLowEnergyAnalytical: false, isGrief: false,
@@ -62,5 +62,29 @@ final class HerVoiceSpecMentorCoreTests: XCTestCase {
         let prompt = HerVoiceSpec.makeSystemPrompt(makeContext())
         XCTAssertTrue(prompt.contains("2-6 short lines; a craft answer or a structure walk-through may run to 8."))
         XCTAssertFalse(prompt.contains("1-4 short lines max."))
+    }
+
+    func test_native_mentor_identity_and_pitch_use_protected_tags_without_changing_the_literal() {
+        for studio in [false, true] {
+            let prompt = HerVoiceSpec.makeSystemPrompt(makeContext(isScreenplayMode: studio))
+            XCTAssertTrue(prompt.contains("<mentor_core>\n\(HerVoiceSpec.mentorCoreBlock)\n</mentor_core>"))
+            XCTAssertEqual(prompt.components(separatedBy: "<mentor_core>").count, 2)
+            XCTAssertTrue(prompt.contains("<scene_pitch>\nSCENE PITCH"))
+            XCTAssertTrue(prompt.contains("</scene_pitch>"))
+            let attachment = XCTAttachment(string: prompt)
+            attachment.name = studio ? "Native Studio mentor prompt" : "Native fresh mentor prompt"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
+        let page = HerVoiceSpec.makeSystemPrompt(makeContext(isDirectScreenplayPageWrite: true))
+        XCTAssertFalse(page.contains("<scene_pitch>"), "Protecting a pitch must not enable one during a page write")
+    }
+
+    func test_structure_guidance_respects_chosen_length_and_labels_reference_pages_as_estimates() {
+        let prompt = HerVoiceSpec.makeSystemPrompt(makeContext(isScreenplayMode: true))
+        XCTAssertTrue(prompt.contains("use the active target-scaled feature-film map and the writer's chosen length first"))
+        XCTAssertTrue(prompt.contains("not compulsory page counts"))
+        XCTAssertFalse(prompt.contains("say the page for a 110-page feature"))
+        XCTAssertFalse(prompt.contains("never past 15"))
     }
 }

@@ -17,6 +17,7 @@ function composeTalkSystemPrompt({
   flags = null,
   routingLane = "",
   chatModelPlan = null,
+  richMaxChars = undefined,
 } = {}) {
   if (typeof appendDirectorAddendum !== "function") {
     throw new Error("composeTalkSystemPrompt requires appendDirectorAddendum");
@@ -82,6 +83,7 @@ function composeTalkSystemPrompt({
     flags,
     routingLane,
     chatModelPlan,
+    ...(Number.isFinite(richMaxChars) && richMaxChars > 0 ? { richMaxChars } : {}),
   });
   return { rawSystem, system };
 }
