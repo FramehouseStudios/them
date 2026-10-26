@@ -15,11 +15,15 @@
   on an erased owned simulator at the merged tree; D009/diff/source equivalence
   pass. Normal original646 fast-forward only after exact645 required-green;
   fresh646 hosted checks gate647. No squash/replacement/main/deploy/paid call.
-- **Status:** in-progress. Current64592b read back allfour green. Production,
+- **Status:** local review at preserving7694a19. Current64592b read back allfour green. Production,
   backend/test, native/unit/project source diff vs968428e is zero. Parent758
   units, Node20 backend2867/0/2 and Mac are explicitly inherited proof, not
-  newly run. New connected workflow proof pending. Higher saved647 safety
+  newly run. Current strict writer1/0/0 and shared coverage1/0/0 pass signed/
+  erased, no retries/skips; D009/diff/syntax pass. Ready for guarded normal
+  original646 advancement and fresh hosted proof. Higher saved647 safety
   eab6787 remains separate; this prefix is not declared releasable.
+- **Evidence:** `docs/original-646-parent-refresh-2026-10-25.md`; archive
+  `/Users/halfmutantfilms/io.them-worktrees/_proof/T-1164-20261025.tu9AiK/`.
 
 ### T-1157 — Preserve bounded, quiet coverage refresh as pages land
 
