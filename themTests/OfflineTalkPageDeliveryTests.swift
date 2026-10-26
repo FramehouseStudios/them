@@ -3,6 +3,41 @@ import XCTest
 @testable import them
 
 final class OfflineTalkPageDeliveryTests: XCTestCase {
+    func testOriginalRequestProjectSurvivesRelaunchAndCannotBeDeliveredToAnotherProject() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("TalkOrigin-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let owner = BackendAuthRequestIdentity(sessionEpoch: 1, userID: "writer", clientToken: "fixture",
+            accessToken: "fixture", sessionIntentGeneration: 1)
+        let url = URL(string: "https://them.test")!
+        func queue() -> OfflineTalkOutbox {
+            .init(storageDirectory: directory, requestIdentityProvider: { _ in owner }, backendURLProvider: { url })
+        }
+        let boundary = "THEM-original-project"
+        let body = Data("--\(boundary)\r\nContent-Disposition: form-data; name=\"screenplay_project_id\"\r\n\r\nproject-a\r\n--\(boundary)--\r\n".utf8)
+        var request = URLRequest(url: url.appendingPathComponent("talk")); request.httpMethod = "POST"
+        request.setValue(owner.userID, forHTTPHeaderField: "X-User-Id")
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        let original = queue()
+        let entry = try await original.enqueue(request: request, body: body, reason: "offline").entry
+        _ = await original.drainDue(now: .distantFuture, initiatingIdentity: owner, backendURL: url) { _ in
+            .init(statusCode: 200, headers: ["x-reply": "A scene without a project trace"], body: Data("audio".utf8))
+        }
+        let relaunched = queue()
+        let packet = try await relaunched.receivedReply(entry.id, initiatingIdentity: owner, backendURL: url)
+        do {
+            _ = try await relaunched.preparePageDelivery(entry.id, receiptID: packet.response.id, projectID: "project-b",
+                documentID: "document-b", beforeDraft: "B original", afterDraft: "B original\n\nA scene",
+                initiatingIdentity: owner, backendURL: url)
+            XCTFail("A missing response trace allowed an original-project scene into another screenplay.")
+        } catch {}
+        let kept = try await queue().receivedReply(entry.id, initiatingIdentity: owner, backendURL: url)
+        XCTAssertNil(kept.pageDelivery, "A refused destination must not lock the reply to the wrong document.")
+        XCTAssertEqual(kept.response.id, packet.response.id)
+        _ = try await relaunched.preparePageDelivery(entry.id, receiptID: packet.response.id, projectID: "project-a",
+            documentID: "document-a", beforeDraft: "A original", afterDraft: "A original\n\nA scene",
+            initiatingIdentity: owner, backendURL: url)
+    }
+
     func testEmptyOutputCannotHideTheSpokenReply() {
         XCTAssertEqual(offlineTalkReplyDisplayText(outputText: "", reply: "Your reply is kept."), "Your reply is kept.")
         XCTAssertEqual(offlineTalkReplyDisplayText(outputText: " \n", reply: "…"), "…")
