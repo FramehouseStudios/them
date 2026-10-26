@@ -17,12 +17,23 @@
   and immediate owned-process SIGKILL -> same turn/audio/replay header with
   zero new provider calls; owner200/other403. Focused negatives, full Node20,
   actual native normal/queued page-save workflows and D009/diff. No paid calls.
-- **Status:** in-progress. Default Node20 probe first hit header overflow;
-  bounded diagnostic measured17.7-20.6KiB headers, then owner metadata404 and
-  fresh providers after both restart types. Baseline wallet was not debited;
-  unchanged balance is not billing proof. Canonical durable capability/wiring
-  adapted; shared8KiB success-header budget defers full page/timing to existing
-  metadata and omits optional rich hints. Combined verification pending.
+- **Status:** local review, runtime52b3703/gate-sourcea9f7a56. Original default
+  probe failed header overflow; bounded diagnostic measured17691-20626header
+  bytes, then metadata404/fresh providers after both restart types. New default
+  Node20 probe passes graceful/immediate-SIGKILL replay, exact15456audio bytes,
+  full1026byte scene, zero new providers, headers5298/5244/7325bytes.
+  Focused88/0/0 at56bd977. Export-token leak reproduced then allowlisted out.
+  Realtime missed await/owner red0/2; follow-up3/0/0 committed52b3703. First
+  full2910/1/2 exposed stale inline-timeline assertion; preserve full content/
+  anchor checks through canonical metadata, focused7/0/1 then final2911/0/2.
+  Owned PG13migrations/repeat0, live-prefix1/0/0 and full restart proof pass.
+  Signed queued page/play/save/exact restore1/0/0 and raw voice1/0/0; D009/diff
+  pass, index-19/native files unchanged. No paid calls or original advance.
+- **Evidence:** `docs/durable-talk-replay-2026-10-26.md`; permanent
+  T-1172-20261026.IXtIpZ. Earlier approval-credit rejection recorded; original
+  readiness recheck succeeded through same review, access recovered without
+  bypass. Task PG stopped after identity checks. Native units884/Mac inherited
+  from unchanged T1171; fresh main gates still required. Production/main held.
 - **Remaining:** server-owned budgeting/durable settlement and multi-worker
   atomicity are separate required boundaries; no billing-completion claim.
 
