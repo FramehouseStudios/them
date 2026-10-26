@@ -22,7 +22,16 @@
 - **Limits:** callback checks do not establish request-header isolation across
   bootstrap/401 awaits (T1107), or atomic/idempotent first creation/orphans
   (T1108). Keep those remaining boundaries explicit before648/phone proof.
-- **Status:** in-progress; existing T1105 report and full repair read before reuse.
+- **Status:** local review at2020f8a. Real held-response native repro0/1/0:
+  one stale Root-source version submission after native edit. Reused b65a52f
+  context guards/extracted policy, committed-page initiation, empty-selection
+  retention and proof; preserved newer queued/auth/raw fixes. Final signed
+ 780/0/0, unchanged delayed UI1/0/0, positive exact promotion/relaunch1/0/0,
+  active-turn Stop1/0/0, Mac/D009/diff pass. Root shrank8 lines. Proxy2/0/0;
+  backend production unchanged, retain parent Node20 full2869/0/2 explicitly.
+  Original64592b55f7 hosted Quality still live;646+ public heads unchanged.
+- **Evidence:** `docs/promotion-authority-2026-10-25.md`; explicit archive
+  `/Users/halfmutantfilms/io.them-worktrees/_proof/T-1162-20261025.GgxFFW/`.
 
 ### T-1160 — Preserve byte-distinct pending and offline saves
 
