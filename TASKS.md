@@ -5,6 +5,23 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1173 — Fund actual server Page budgets across typed and voice turns
+
+- **Owner:** codex (Jarvis). **Branch:** `codex/T-1173-server-page-budget`.
+- **Base:** saved higher647 c128ec2. Original647/main/production held.
+- **Scope:** reuse preserved server-owned budgetd832be8 and required existing
+  raw-ASR routing/failed-turn refund prerequisites through one Page/wallet
+  adapter. Client hints cannot underfund/inflate holds or truncate the story;
+  decline before generation if the real cap cannot be funded. No paid calls.
+- **Binary success:** omitted/zero/one client caps with0.1turn fail402 before
+  generation; funded cap/actual usage settle once, cancellation/listening/failure
+  refund, raw authoritative ASR reaches Page without a second transcription.
+  Full backend, funded signed normal/queued writing, D009/diff; no fake grants
+  in shipping code. Durable settlement/retry remains the next distinct boundary.
+- **Status:** in-progress. Current restart fixtureinitialDebitObserved=false.
+  Inspect and preserve all prerequisite commits before applying budget changes;
+  prove current failures first. No original head/main change.
+
 ### T-1172 — Keep accepted turn results and replay across backend restart
 
 - **Owner:** codex (Jarvis). **Branch:** `codex/T-1172-durable-talk-replay`.
