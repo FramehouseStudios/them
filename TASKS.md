@@ -5,6 +5,27 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1158 — Preserve naming and exact raw version/promotion retention
+
+- **Owner:** codex (Jarvis). **Branch:** `codex/T-1158-original-647-raw-retention`.
+- **Base:** saved646968428ed; original64442d6f746 hosted Quality running;
+  public645/646/647 advancement stays bottom-up and gated, not assumed green.
+- **Scope:** no-ff preserve original647848e59d0; reuse canonical-title fix
+  d2dc719 and raw version/replay/promotion2c401de plus its existing DEBUG-only
+  fixture corrections. Read original647 body/both follow-ups and855 final
+  word-list work; do not replace its distinct FirstPageFreshProject caller.
+- **Binary success:** chosen title metadata wins, in-scene Title is not a
+  project title; raw UTF8/CRLF/trailing/decomposed bytes survive real authenticated
+  save/receipt/read/restart/exact replay; changed-byte replay409, foreign404,
+  blank400. Native Root promotes raw source once and restores it after relaunch.
+- **Proof:** focused real HTTP, full pinned Node20, signed full erased native,
+  authenticated raw-promotion UI, Mac/D009/diff. No paid model or phone claim.
+- **Limits:** no new persistence/format framework, main push/merge, original
+  replacement, force/squash/bypass/deploy; retain current recovery/auth/observer.
+  Later T1105 delayed-creation/account/document authority remains required;
+  happy promotion is not crash-atomic creation or stale-response proof.
+- **Status:** in-progress; prior T1103/T1104 repair evidence read before reuse.
+
 ### T-1157 — Preserve bounded, quiet coverage refresh as pages land
 
 - **Owner:** codex (Jarvis). **Branch:** `codex/T-1157-original-646-refresh`.
