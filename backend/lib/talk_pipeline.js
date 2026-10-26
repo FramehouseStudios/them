@@ -182,7 +182,8 @@ function mountTalkPipelineRoutes(app, {
   walletStore = null,
   logger = console,
 } = {}) {
-  app.get("/talk/turn/:turnId", (req, res) => {
+  app.get("/talk/turn/:turnId", async (req, res) => {
+    try {
     if (turnReadRateLimiter && typeof turnReadRateLimiter.attempt === "function") {
       const key = turnReadRateLimitKey(req);
       const verdict = turnReadRateLimiter.attempt(key);
@@ -201,7 +202,7 @@ function mountTalkPipelineRoutes(app, {
     if (!turnId) {
       return res.status(400).json({ error: "invalid_turn_id" });
     }
-    const meta = getTalkTurnMeta(turnId);
+    const meta = await getTalkTurnMeta(turnId, req);
     if (!meta) {
       return res.status(404).json({ error: "turn_not_found" });
     }
@@ -231,6 +232,9 @@ function mountTalkPipelineRoutes(app, {
       request_id: meta.requestId || null,
       updated_at: Math.max(0, Number(meta.updatedAt || meta.createdAt || 0)) || null,
     });
+    } catch (_error) {
+      return res.status(503).json({ error: "turn_unavailable" });
+    }
   });
 
   let talkHandler = handleTalkRequest;

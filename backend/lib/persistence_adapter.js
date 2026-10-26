@@ -50,6 +50,10 @@ const KNOWN_DOMAINS = Object.freeze([
   // Postgres prod uses dedicated wallet_balances / iap_transactions tables (012).
   "wallet_balances",
   "iap_transactions",
+  // T-1118: accepted /talk results and their turn metadata must survive a
+  // backend restart for the bounded replay/recovery retention window.
+  "talk_idempotency",
+  "talk_turns",
 ]);
 
 function isKnownDomain(domain) {

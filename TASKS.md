@@ -17,10 +17,14 @@
   and immediate owned-process SIGKILL -> same turn/audio/replay header with
   zero new provider calls; owner200/other403. Focused negatives, full Node20,
   actual native normal/queued page-save workflows and D009/diff. No paid calls.
-- **Status:** in-progress. Current metadata map and completed replay are
-  process-local; run the preserved process probe before porting. Wallet
-  budgeting/durable settlement and multi-worker atomicity remain separate
-  required boundaries; unchanged balance without a debit is not billing proof.
+- **Status:** in-progress. Default Node20 probe first hit header overflow;
+  bounded diagnostic measured17.7-20.6KiB headers, then owner metadata404 and
+  fresh providers after both restart types. Baseline wallet was not debited;
+  unchanged balance is not billing proof. Canonical durable capability/wiring
+  adapted; shared8KiB success-header budget defers full page/timing to existing
+  metadata and omits optional rich hints. Combined verification pending.
+- **Remaining:** server-owned budgeting/durable settlement and multi-worker
+  atomicity are separate required boundaries; no billing-completion claim.
 
 ### T-1171 — Recover owned replies through confirmed screenplay saves
 

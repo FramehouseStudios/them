@@ -2,6 +2,17 @@ import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 
+const TALK_IDEMPOTENCY_DOMAIN = "talk_idempotency";
+
+class TalkIdempotencyCapacityError extends Error {
+  constructor(capacity) {
+    super(`talk idempotency capacity exhausted (${capacity})`);
+    this.name = "TalkIdempotencyCapacityError";
+    this.code = "TALK_IDEMPOTENCY_CAPACITY";
+    this.capacity = capacity;
+  }
+}
+
 function nowMs() {
   return Date.now();
 }
@@ -29,6 +40,33 @@ function toStatus(value, fallback = "pending") {
   const v = String(value || "").trim().toLowerCase();
   if (v === "pending" || v === "completed" || v === "failed") return v;
   return fallback;
+}
+
+function encodeIdempotencyRecord(value) {
+  const source = value && typeof value === "object" ? value : {};
+  const body = Buffer.isBuffer(source.body)
+    ? { encoding: "base64", data: source.body.toString("base64") }
+    : source.body;
+  return normalizeJson({ ...source, body }, {});
+}
+
+function decodeIdempotencyRecord(value) {
+  if (!value || typeof value !== "object") return null;
+  const encoded = value.body;
+  let body = Buffer.alloc(0);
+  if (Buffer.isBuffer(encoded)) {
+    body = Buffer.from(encoded);
+  } else if (encoded?.encoding === "base64" && typeof encoded.data === "string") {
+    body = Buffer.from(encoded.data, "base64");
+  } else if (encoded?.type === "Buffer" && Array.isArray(encoded.data)) {
+    body = Buffer.from(encoded.data);
+  }
+  return { ...value, body };
+}
+
+function isExpiredIdempotencyRecord(value, now = nowMs()) {
+  const expiresAt = Math.max(0, Number(value?.expiresAt || 0));
+  return expiresAt > 0 && expiresAt <= now;
 }
 
 class FileOutboxStore {
@@ -191,6 +229,7 @@ export async function createScaleBackplane({
   redisUrl = "",
   postgresUrl = "",
   outboxFilePath = "",
+  persistence = null,
   logger = console,
 } = {}) {
   const state = {
@@ -200,6 +239,13 @@ export async function createScaleBackplane({
     postgresEnabled: false,
     outbox: new FileOutboxStore(outboxFilePath || path.resolve(process.cwd(), "outbox_store.json")),
   };
+  let idempotencyAdmissionChain = Promise.resolve();
+
+  function withIdempotencyAdmissionLock(operation) {
+    const next = idempotencyAdmissionChain.then(operation, operation);
+    idempotencyAdmissionChain = next.catch(() => {});
+    return next;
+  }
 
   async function initRedis() {
     const url = String(redisUrl || "").trim();
@@ -506,23 +552,90 @@ export async function createScaleBackplane({
       try {
         const redisKey = `them:talk:idemp:${key}`;
         const raw = await state.redis.get(redisKey);
-        if (!raw) return null;
-        const parsed = JSON.parse(raw);
-        return parsed && typeof parsed === "object" ? parsed : null;
+        if (raw) {
+          const parsed = decodeIdempotencyRecord(JSON.parse(raw));
+          if (parsed && !isExpiredIdempotencyRecord(parsed)) return parsed;
+          if (parsed) await state.redis.del(redisKey);
+        }
       } catch (err) {
         logger?.log?.(`[scale_backplane] idempotency_get_error key=${key} err=${String(err?.message || err)}`);
+      }
+    }
+    if (persistence && typeof persistence.get === "function") {
+      try {
+        const stored = decodeIdempotencyRecord(await persistence.get({
+          domain: TALK_IDEMPOTENCY_DOMAIN,
+          key,
+        }));
+        if (!stored) return null;
+        if (isExpiredIdempotencyRecord(stored)) {
+          await persistence.delete({ domain: TALK_IDEMPOTENCY_DOMAIN, key });
+          return null;
+        }
+        if (state.redisEnabled && state.redis) {
+          const remainingMs = Math.max(1_000, Number(stored.expiresAt || 0) - nowMs());
+          void state.redis.set(
+            `them:talk:idemp:${key}`,
+            JSON.stringify(encodeIdempotencyRecord(stored)),
+            { PX: remainingMs }
+          ).catch((err) => {
+            logger?.log?.(`[scale_backplane] idempotency_warm_error key=${key} err=${String(err?.message || err)}`);
+          });
+        }
+        return stored;
+      } catch (err) {
+        logger?.log?.(`[scale_backplane] idempotency_persistence_get_error key=${key} err=${String(err?.message || err)}`);
+        throw err;
       }
     }
     return null;
   }
 
-  async function setIdempotency(cacheKey, value, ttlMs = 300_000) {
+  async function setIdempotency(cacheKey, value, ttlMs = 300_000, maxEntries = 160) {
     const key = safeString(cacheKey, 320);
     if (!key) return;
+    const encoded = encodeIdempotencyRecord(value);
+    if (persistence && typeof persistence.put === "function") {
+      if (typeof persistence.list !== "function" || typeof persistence.delete !== "function") {
+        const err = new Error("durable idempotency admission requires persistence list/delete methods");
+        err.code = "TALK_IDEMPOTENCY_CAPACITY_UNAVAILABLE";
+        throw err;
+      }
+      const capacity = Math.min(10_000, toPositiveInt(maxEntries, 160));
+      await withIdempotencyAdmissionLock(async () => {
+        try {
+          const rows = await persistence.list({
+            domain: TALK_IDEMPOTENCY_DOMAIN,
+            limit: Math.min(10_000, Math.max(1_000, capacity + 1)),
+          });
+          const current = nowMs();
+          let liveCount = 0;
+          let updatesExisting = false;
+          for (const row of rows) {
+            if (isExpiredIdempotencyRecord(row?.value, current)) {
+              await persistence.delete({ domain: TALK_IDEMPOTENCY_DOMAIN, key: row.key });
+            } else {
+              liveCount += 1;
+              if (row.key === key) updatesExisting = true;
+            }
+          }
+          if (!updatesExisting && liveCount >= capacity) {
+            throw new TalkIdempotencyCapacityError(capacity);
+          }
+          // This lock closes same-process list/put races. The generic adapter
+          // cannot make admission atomic across multiple backend processes;
+          // clustered Postgres needs a transactional/advisory-lock extension.
+          await persistence.put({ domain: TALK_IDEMPOTENCY_DOMAIN, key, value: encoded });
+        } catch (err) {
+          logger?.log?.(`[scale_backplane] idempotency_persistence_set_error key=${key} err=${String(err?.message || err)}`);
+          throw err;
+        }
+      });
+    }
     if (state.redisEnabled && state.redis) {
       try {
         const redisKey = `them:talk:idemp:${key}`;
-        const payload = JSON.stringify(value && typeof value === "object" ? value : {});
+        const payload = JSON.stringify(encoded);
         await state.redis.set(redisKey, payload, { PX: Math.max(1_000, Number(ttlMs || 300_000)) });
       } catch (err) {
         logger?.log?.(`[scale_backplane] idempotency_set_error key=${key} err=${String(err?.message || err)}`);
@@ -539,6 +652,13 @@ export async function createScaleBackplane({
         await state.redis.del(redisKey);
       } catch (err) {
         logger?.log?.(`[scale_backplane] idempotency_delete_error key=${key} err=${String(err?.message || err)}`);
+      }
+    }
+    if (persistence && typeof persistence.delete === "function") {
+      try {
+        await persistence.delete({ domain: TALK_IDEMPOTENCY_DOMAIN, key });
+      } catch (err) {
+        logger?.log?.(`[scale_backplane] idempotency_persistence_delete_error key=${key} err=${String(err?.message || err)}`);
       }
     }
   }
@@ -584,3 +704,10 @@ export async function createScaleBackplane({
     },
   };
 }
+
+export {
+  TALK_IDEMPOTENCY_DOMAIN,
+  TalkIdempotencyCapacityError,
+  encodeIdempotencyRecord,
+  decodeIdempotencyRecord,
+};

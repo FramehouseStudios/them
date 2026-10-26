@@ -27,6 +27,7 @@
 // amendment: it returns the handler; it does not register routes.
 
 import { randomUUID } from "node:crypto";
+import { applyTalkResponseHeaderBudget, setTalkInlineJSONHeader } from "./talk_response_headers.js";
 import { enforceScreenplayWriteRefusal } from "./screenplay_turn_target.js";
 import {
   createChatSupplier,
@@ -3100,7 +3101,7 @@ function createTalkHandler(deps) {
         })
         : null;
       if (committedTurnId) {
-        storeTalkTurnMeta({
+        await storeTalkTurnMeta({
           turnId: committedTurnId,
           sessionId: committedSessionId,
           userId: trustedUserId,
@@ -3173,12 +3174,7 @@ function createTalkHandler(deps) {
       applyCreativeMemoryTraceHeaders(res, req.creativeMemoryTrace);
       applyCanonClarificationHeader(res, creativeMemoryWriteSummary);
       applyTalkScreenplayQualityHeaders(res, talkScreenplayOutput);
-      if (talkScreenplayOutput) {
-        const screenplayOutputJson = JSON.stringify(talkScreenplayOutput);
-        if (screenplayOutputJson.length <= 5000) {
-          res.setHeader("x-screenplay-output", encodeURIComponent(screenplayOutputJson));
-        }
-      }
+      setTalkInlineJSONHeader(res, "x-screenplay-output", talkScreenplayOutput, 5000);
       // Legacy debug metadata only. The canonical editor owns live text;
       // this response has no authoritative complete draft to paginate.
       try {
@@ -3211,18 +3207,8 @@ function createTalkHandler(deps) {
         try { res.setHeader("x-live-paper-available", "0"); } catch (_) {}
         try { res.setHeader("x-live-paper-pagination-available", "0"); } catch (_) {}
       }
-      if (Array.isArray(talkScreenplayCues) && talkScreenplayCues.length) {
-        const screenplayCuesJson = JSON.stringify(talkScreenplayCues);
-        if (screenplayCuesJson.length <= 5000) {
-          res.setHeader("x-screenplay-cues", encodeURIComponent(screenplayCuesJson));
-        }
-      }
-      if (talkDialogueTimeline) {
-        const dialogueTimelineJson = JSON.stringify(talkDialogueTimeline);
-        if (dialogueTimelineJson.length <= 12000) {
-          res.setHeader("x-dialogue-timeline", encodeURIComponent(dialogueTimelineJson));
-        }
-      }
+      setTalkInlineJSONHeader(res, "x-screenplay-cues", talkScreenplayCues, 5000);
+      setTalkInlineJSONHeader(res, "x-dialogue-timeline", talkDialogueTimeline, 12000);
       // Clementine headers: x-suggestion / x-uncertainty / x-collab-cursor (D009, no index.js growth)
       try {
         const _clemProject = (typeof memoryProject !== "undefined" && memoryProject && typeof memoryProject === "object") ? memoryProject : (typeof studioMeta === "object" && studioMeta ? studioMeta : {});
@@ -3232,7 +3218,8 @@ function createTalkHandler(deps) {
         const _clemCursor = req.body?.collabCursor ?? req.body?.collab_cursor ?? null;
         applyClementineTalkHeaders(res, { project: _clemProject, draft: _clemDraft, parsed: _clemParsed, quality: _clemQuality, collabCursor: _clemCursor, ownerKey: trustedUserId });
       } catch (_) {}
-      commitTalkIdempotencySuccess(req, {
+      applyTalkResponseHeaderBudget(res);
+      await commitTalkIdempotencySuccess(req, {
         statusCode: 200,
         headers: captureTalkResponseHeaders(res),
         body: audioBuffer,
@@ -5065,18 +5052,8 @@ ${directorOutputRule}
     applyCanonClarificationHeader(res, creativeMemoryWriteSummary);
     applyTalkScreenplayQualityHeaders(res, talkScreenplayOutput);
     applyTalkScreenplayRepairHeaders(res, talkScreenplayRepairTrace);
-    if (talkScreenplayOutput) {
-      const screenplayOutputJson = JSON.stringify(talkScreenplayOutput);
-      if (screenplayOutputJson.length <= 5000) {
-        res.setHeader("x-screenplay-output", encodeURIComponent(screenplayOutputJson));
-      }
-    }
-    if (Array.isArray(talkScreenplayCues) && talkScreenplayCues.length) {
-      const screenplayCuesJson = JSON.stringify(talkScreenplayCues);
-      if (screenplayCuesJson.length <= 5000) {
-        res.setHeader("x-screenplay-cues", encodeURIComponent(screenplayCuesJson));
-      }
-    }
+    setTalkInlineJSONHeader(res, "x-screenplay-output", talkScreenplayOutput, 5000);
+    setTalkInlineJSONHeader(res, "x-screenplay-cues", talkScreenplayCues, 5000);
     // Clementine headers: x-suggestion / x-uncertainty / x-collab-cursor + presence/voice (D009, no index.js growth)
     try {
       const _clemProject2 = (typeof memoryProject !== "undefined" && memoryProject && typeof memoryProject === "object") ? memoryProject : (typeof studioMeta === "object" && studioMeta ? studioMeta : {});
@@ -5128,14 +5105,9 @@ ${directorOutputRule}
         studioMeta,
       })
       : null;
-    if (talkDialogueTimeline) {
-      const dialogueTimelineJson = JSON.stringify(talkDialogueTimeline);
-      if (dialogueTimelineJson.length <= 12000) {
-        res.setHeader("x-dialogue-timeline", encodeURIComponent(dialogueTimelineJson));
-      }
-    }
+    setTalkInlineJSONHeader(res, "x-dialogue-timeline", talkDialogueTimeline, 12000);
     if (committedTurnId) {
-        storeTalkTurnMeta({
+        await storeTalkTurnMeta({
           turnId: committedTurnId,
           sessionId: committedSessionId,
           userId: trustedUserId,
@@ -5244,7 +5216,8 @@ ${directorOutputRule}
         "Server-Timing",
         `stt;dur=${Math.max(0, sttMs)}, llm;dur=${Math.max(0, chatMs)}, repair;dur=${Math.max(0, Math.round(Number(talkScreenplayRepairTrace.elapsedMs || 0) + Number(structuralQualityTrace.elapsedMs || 0)))}, tts;dur=${Math.max(0, ttsMs)}, total;dur=${Math.max(0, total_ms)}`
       );
-      commitTalkIdempotencySuccess(req, {
+      applyTalkResponseHeaderBudget(res);
+      await commitTalkIdempotencySuccess(req, {
         statusCode: 200,
         headers: captureTalkResponseHeaders(res),
         body: streamedAudioBuffer,
@@ -5381,7 +5354,8 @@ ${directorOutputRule}
       "Server-Timing",
       `stt;dur=${Math.max(0, sttMs)}, llm;dur=${Math.max(0, chatMs)}, repair;dur=${Math.max(0, Math.round(Number(talkScreenplayRepairTrace.elapsedMs || 0) + Number(structuralQualityTrace.elapsedMs || 0)))}, tts;dur=${Math.max(0, ttsMs)}, total;dur=${Math.max(0, total_ms)}`
     );
-    commitTalkIdempotencySuccess(req, {
+    applyTalkResponseHeaderBudget(res);
+    await commitTalkIdempotencySuccess(req, {
       statusCode: 200,
       headers: captureTalkResponseHeaders(res),
       body: audioBuffer,
@@ -5584,7 +5558,8 @@ ${directorOutputRule}
           res.setHeader("x-backend-build", BACKEND_BUILD);
           res.setHeader("x-backend-boot-id", BACKEND_BOOT_ID);
           res.setHeader("Content-Length", String(recoveryAudio.length));
-          commitTalkIdempotencySuccess(req, {
+          applyTalkResponseHeaderBudget(res);
+          await commitTalkIdempotencySuccess(req, {
             statusCode: 200,
             headers: captureTalkResponseHeaders(res),
             body: recoveryAudio,
