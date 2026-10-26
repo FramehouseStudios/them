@@ -8716,7 +8716,7 @@ Current draft version:
 
                 HStack(spacing: 8) {
                     screenplayPagesOverviewChip
-                    if vm.selectedProject == nil {
+                    if vm.selectedProject == nil && !vm.hasPendingInitialProject {
                         screenplayPageActionChipButton(
                             title: "Create Project",
                             systemImage: "rectangle.stack.badge.plus",
@@ -8729,9 +8729,9 @@ Current draft version:
                                 selectedSidebarSection = .projects
                             }
                         }
-                    } else if vm.hasUnsavedDraftChanges {
+                    } else if vm.hasUnsavedDraftChanges || vm.hasPendingInitialProject {
                         screenplayPageActionChipButton(
-                            title: vm.isSaving ? "Saving…" : "Save now",
+                            title: vm.isSaving ? "Saving…" : (vm.hasPendingInitialProject ? "Finish setup" : "Save now"),
                             systemImage: vm.isSaving ? "arrow.clockwise" : "square.and.arrow.down",
                             tint: vm.isSaving ? Color.orange.opacity(0.86) : Color.blue.opacity(0.84),
                             fill: vm.isSaving ? Color.orange.opacity(0.08) : Color.blue.opacity(0.08),

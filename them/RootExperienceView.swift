@@ -5931,8 +5931,9 @@ Write this approved story direction directly into screenplay pages now. Maintain
         }
 
         let creationContext = StudioActionDocumentContext.current(bridge: screenplayDraftBridge)
+        let creationBackendURL = BackendAuthClient.resolvedBackendBaseURL()
         func creationIsCurrent() -> Bool {
-            ScreenplayRestoredLiveDraftProjectPromotionPolicy.canContinue(initiating: creationContext,
+            OfflineTalkRecoveryScope.sameBackend(creationBackendURL, BackendAuthClient.resolvedBackendBaseURL()) && ScreenplayRestoredLiveDraftProjectPromotionPolicy.canContinue(initiating: creationContext,
                 current: .current(bridge: screenplayDraftBridge), isStudioActive: isStudioSurfaceActive, isCancelled: Task.isCancelled)
         }
         guard creationContext.draft.utf8.elementsEqual(draft.utf8), creationIsCurrent() else { return }
@@ -5958,43 +5959,22 @@ Write this approved story direction directly into screenplay pages now. Maintain
                     ? "scene_draft"
                     : phase.trimmingCharacters(in: .whitespacesAndNewlines)
 
-                let projectResult = try await BackendMemoryAPI.shared.upsertScreenplayProject(
-                    title: title,
-                    phase: normalizedPhase
-                )
+                let owner = BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: false)
+                let documentID = try screenplayDraftBridge.initialProjectDocumentID(owner: owner)
+                let entry = try await ScreenplayDraftSaveOutbox.shared.prepareInitialProject(ownerUserID: owner.userID,
+                    backendURL: creationBackendURL, documentID: documentID,
+                    sourceProjectID: creationContext.projectID, draft: draft, title: title, phase: normalizedPhase,
+                    source: "studio_first_turn_auto_create")
                 guard creationIsCurrent() else { return }
-                guard let createdProject = projectResult.payload.project else {
-                    throw NSError(
-                        domain: "StudioAutoCreate",
-                        code: 1,
-                        userInfo: [NSLocalizedDescriptionKey: "Backend did not return a screenplay project."]
-                    )
-                }
-
-                let versionResult = try await BackendMemoryAPI.shared.upsertScreenplayProjectVersion(
-                    projectId: createdProject.id,
-                    draft: draft,
-                    title: createdProject.title,
-                    phase: createdProject.lastPhase ?? normalizedPhase,
-                    notes: "Auto-created from first Studio turn",
-                    source: "studio_first_turn_auto_create",
-                    baseVersionId: "",
-                    conflictStrategy: "reject_if_stale"
-                )
-
-                let resolvedProject = versionResult.payload.project ?? createdProject
-                let resolvedVersionID = (versionResult.payload.versionId ?? versionResult.payload.version?.id ?? "")
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !resolvedVersionID.isEmpty else { throw BackendMemoryAPIError.invalidResponse }
-
+                let receipt = try await ScreenplayInitialProjectCreation.save(entry, owner: owner, localDraft: draft)
                 guard creationIsCurrent() else { return }
-                screenplayDraftBridge.preferredProjectID = resolvedProject.id
-                screenplayDraftBridge.preferredVersionID = resolvedVersionID
-
-                liveScreenplayProjectID = resolvedProject.id
-                liveScreenplayVersionID = resolvedVersionID
+                guard screenplayDraftBridge.adoptInitialProjectReceipt(receipt, initiating: creationContext) else { return }
+                liveScreenplayProjectID = receipt.project.id
+                liveScreenplayVersionID = receipt.versionID
                 lastAutoCreatedStudioProjectKey = createKey
-                screenplayDraftBridge.autoInsertStatusText = "Saved to Studio project: \(resolvedProject.title)"
+                screenplayDraftBridge.autoInsertStatusText = draft.utf8.elementsEqual(entry.draft.utf8)
+                    ? "Saved to Studio project: \(receipt.project.title)" : "Project setup recovered. Your newer edits still need saving."
+                try await ScreenplayDraftSaveOutbox.shared.finishInitialProjectBinding(id: entry.id, versionID: receipt.versionID, owner: owner)
             } catch {
                 guard creationIsCurrent() else { return }
                 screenplayDraftBridge.autoInsertStatusText = "Studio project save failed: \(error.localizedDescription)"

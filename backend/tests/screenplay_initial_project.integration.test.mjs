@@ -7,6 +7,7 @@ import { startBackend, apiRequest } from "./helpers/backend_test_server.mjs";
 const options = { unsetEnv: ["DATABASE_URL", "REDIS_URL"], env: { REQUIRE_USER_AUTH: "1" } };
 const draft = "\r\nTitle: The Reel\r\n\r\nINT. CAFE - NIGHT\r\nCafe\u0301.\r\n\t ";
 const bytes = value => Buffer.from(value, "utf8");
+const initializePath = "/screenplay/projects/initialize";
 const body = () => ({ project_id: `project-${randomUUID()}`, title: "The Reel", phase: "scene_draft",
   initial_draft: { draft, client_request_id: randomUUID() } });
 
@@ -22,7 +23,7 @@ test("initial project survives abrupt server restart, lost acknowledgement and c
   let server = await startBackend(options);
   try {
     const headers = await writer(server), request = body();
-    const send = () => apiRequest(server, "/screenplay/projects", { method: "POST", headers, json: request });
+    const send = () => apiRequest(server, initializePath, { method: "POST", headers, json: request });
     const results = await Promise.all([send(), send()]);
     assert.deepEqual(results.map(r => r.status).sort(), [200, 201]);
     assert.ok(results[0].json.version_id);
@@ -68,14 +69,14 @@ test("initial project requires server-authenticated ownership and keeps same pro
   const server = await startBackend(options);
   try {
     const alice = await writer(server), bob = await writer(server), request = body();
-    const anonymous = await apiRequest(server, "/screenplay/projects", { method: "POST", json: request });
+    const anonymous = await apiRequest(server, initializePath, { method: "POST", json: request });
     assert.equal(anonymous.status, 401);
-    const created = await apiRequest(server, "/screenplay/projects", { method: "POST", headers: alice, json: request });
+    const created = await apiRequest(server, initializePath, { method: "POST", headers: alice, json: request });
     assert.equal(created.status, 201);
     const foreign = await apiRequest(server, `/screenplay/projects/${request.project_id}?include_drafts=1`, { headers: bob });
     assert.equal(foreign.status, 404);
     assert.equal(JSON.stringify(foreign.json).includes("The Reel"), false);
-    const other = await apiRequest(server, "/screenplay/projects", { method: "POST", headers: bob,
+    const other = await apiRequest(server, initializePath, { method: "POST", headers: bob,
       json: { ...request, title: "Bob's project", initial_draft: { ...request.initial_draft, draft: "Bob's exact words. " } } });
     assert.equal(other.status, 201);
     assert.notEqual(other.json.version_id, created.json.version_id);

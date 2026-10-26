@@ -2,6 +2,17 @@ import XCTest
 @testable import them
 
 final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
+    @MainActor
+    func testBridgeDraftAdoptionPreservesRawWhitespaceAndUnicode() async {
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store)
+        model.selectedProjectID = ""
+        model.fountainDraft = ""
+        let raw = "\r\nINT. CAFE - NIGHT\r\nCafe\u{0301}.\r\n \t "
+        model.replaceDraftFromVoiceBridgeIfNeeded(raw, draftOriginProjectID: "")
+        XCTAssertEqual(Data(model.fountainDraft.utf8), Data(raw.utf8))
+        await Task.yield()
+    }
+
     func testQueuedHydrationRejectsChangedAccountSessionProjectAndNewerEdits() {
         let expected = ScreenplayStudioAuthContext(userID: "writer", sessionIntentGeneration: 7)
         for current in [ScreenplayStudioAuthContext(userID: "other", sessionIntentGeneration: 7),

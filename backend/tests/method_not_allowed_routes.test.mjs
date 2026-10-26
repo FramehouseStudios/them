@@ -44,6 +44,7 @@ const EXPECTED = [
   ["/recap", "GET"],
   ["/recap/today", "GET"],
   ["/screenplay/projects", "GET, POST"],
+  ["/screenplay/projects/initialize", "POST"],
   ["/screenplay/projects/:projectId", "GET"],
   ["/screenplay/projects/:projectId/outline", "GET, POST"],
   ["/screenplay/projects/:projectId/scenes", "POST"],

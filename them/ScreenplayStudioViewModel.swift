@@ -1693,12 +1693,21 @@ final class ScreenplayStudioViewModel: ObservableObject {
     @Published var conflictState: SaveConflictState?
     @Published var queuedDraftSaveCount: Int = 0
     @Published var parkedDraftSaveCount: Int = 0
+    @Published private var pendingInitialProject: ScreenplayDraftSaveOutboxEntry?
+    var hasPendingInitialProject: Bool {
+        guard let entry = pendingInitialProject, let metadata = entry.initialization else { return false }
+        return !entry.ownerUserId.isEmpty && entry.ownerUserId == currentStudioAuthContext().userID
+            && metadata.documentID == ScreenplayLiveDraftBridge.shared.draftOrigin.documentID
+            && (metadata.sourceProjectID == selectedProjectID || entry.projectId == selectedProjectID)
+            && OfflineTalkRecoveryScope.sameBackend(metadata.backendURL, BackendAuthClient.resolvedBackendBaseURL())
+    }
     @Published var queuedOutlineMutationCount: Int = 0
     @Published var parkedOutlineMutationCount: Int = 0
     @Published private(set) var isOutlineMutationDrainInFlight: Bool = false
 
     private var draftDebounceCancellable: AnyCancellable?
     private var bridgePreferredVersionCancellable: AnyCancellable?
+    private var bridgeInitialProjectCancellable: AnyCancellable?
     private var isHydratingDraft = false
     /// True while the editor mirrors another device's live typing. Autosave
     /// waits for that device's version announcement instead of racing it.
@@ -1759,6 +1768,11 @@ final class ScreenplayStudioViewModel: ObservableObject {
                     self?.adoptSavedPageWriteVersionFromBridgeIfNeeded(versionID)
                 }
             }
+        bridgeInitialProjectCancellable = ScreenplayLiveDraftBridge.shared.$initialProjectReceipt
+            .sink { [weak self] receipt in
+                guard !IOThemRuntime.isRunningTests || IOThemRuntime.isRunningUITests, let receipt else { return }
+                Task { @MainActor [weak self] in _ = self?.adoptInitialProjectReceipt(receipt) }
+            }
         Task { [weak self] in
             guard let self else { return }
             await self.draftSaveOutbox.startNetworkMonitoring()
@@ -1773,6 +1787,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         coverageIdentityCancellable?.cancel()
         draftDebounceCancellable?.cancel()
         bridgePreferredVersionCancellable?.cancel()
+        bridgeInitialProjectCancellable?.cancel()
         outlineMutationRetryTask?.cancel()
     }
 
@@ -1841,6 +1856,27 @@ final class ScreenplayStudioViewModel: ObservableObject {
         lastSeenScreenplayStateVersion = result.payload.stateVersion?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         projects = result.payload.screenplayProjects
+        // A committed first save can appear as the server's active project
+        // before its receipt reaches this device. It is not permission to
+        // hydrate over the newer, still-unbound local page on relaunch.
+        let bridge = ScreenplayLiveDraftBridge.shared
+        if let documentID = bridge.draftOrigin.documentID {
+            do {
+                let pending = try await draftSaveOutbox.pendingInitialProject(ownerUserID: authContext.userID,
+                    backendURL: BackendAuthClient.resolvedBackendBaseURL(), documentID: documentID,
+                    sourceProjectID: bridge.preferredProjectID)
+                guard authContextIsCurrent(authContext), activeLoadRequestID == requestID,
+                      selectedProjectID == selectedProjectIDAtStart else { return }
+                if pending != nil {
+                    infoText = "Your local page is kept while its first save reconnects."
+                    return
+                }
+            } catch {
+                guard authContextIsCurrent(authContext), activeLoadRequestID == requestID else { return }
+                errorText = "Project setup recovery could not be read. Your local page is kept: \(error.localizedDescription)"
+                return
+            }
+        }
         let bridgePreferredProjectID = ScreenplayLiveDraftBridge.shared.preferredProjectID
         selectedProjectID = ScreenplayProjectSelectionRestorePolicy.selectedProjectId(
             activeProjectId: result.payload.screenplayActiveProjectId,
@@ -1978,8 +2014,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         ) else {
             return
         }
-        let clean = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        applyServerDraft(clean, versionId: latestVersionID, allowOverwriteDirtyLocalDraft: true)
+        applyServerDraft(draft, versionId: latestVersionID, allowOverwriteDirtyLocalDraft: true)
     }
 
     /// Live typing from another device of the same account. Replaces the
@@ -2233,62 +2268,95 @@ final class ScreenplayStudioViewModel: ObservableObject {
         }
     }
 
+    private var initialProjectContext: StudioActionDocumentContext {
+        let state = BackendAuthClient.currentAuthSessionState()
+        return .init(auth: currentStudioAuthContext(), projectID: selectedProjectID, draft: fountainDraft,
+                     isAuthenticated: state.isAuthenticated && !state.accessExpired)
+    }
+
+    @discardableResult
+    func adoptInitialProjectReceipt(_ receipt: ScreenplayInitialProjectReceipt) -> Bool {
+        guard let metadata = receipt.entry.initialization,
+              ScreenplayStudioAuthContextPolicy.matches(expected: receipt.owner.ownerContext, current: currentStudioAuthContext()),
+              OfflineTalkRecoveryScope.sameBackend(metadata.backendURL, BackendAuthClient.resolvedBackendBaseURL()),
+              ScreenplayLiveDraftBridge.shared.draftOrigin.documentID == metadata.documentID,
+              (selectedProjectID == metadata.sourceProjectID || selectedProjectID == receipt.project.id),
+              fountainDraft.utf8.elementsEqual(receipt.localDraft.utf8) else { return false }
+        let dirty = !fountainDraft.utf8.elementsEqual(receipt.entry.draft.utf8)
+        localDraftRecoveryStore.save(ownerUserId: receipt.owner.userID, projectId: receipt.project.id,
+            draft: fountainDraft, baseVersionId: receipt.versionID, dirty: dirty)
+        clearTransientProjectStateForSelectionChange(to: receipt.project.id)
+        upsertProject(receipt.project)
+        selectedProject = receipt.project
+        selectedProjectID = receipt.project.id
+        loadedDraftProjectID = receipt.project.id
+        latestVersionID = receipt.versionID
+        lastSavedDraftFingerprint = fingerprint(for: receipt.entry.draft)
+        lastRevisionBaseDraft = receipt.entry.draft
+        hasUnsavedDraftChanges = dirty
+        isManualDraftEditing = dirty
+        autosaveStatusText = dirty ? "Unsaved changes" : "Saved now"
+        infoText = dirty ? "Project recovered. Your newer local edits are kept; Save now to sync them." : "Project and first draft saved."
+        return true
+    }
+
+    private func finishInitialProject(_ entry: ScreenplayDraftSaveOutboxEntry,
+                                      initiating: StudioActionDocumentContext,
+                                      owner: BackendAuthRequestIdentity) async throws -> Bool {
+        guard initiating.matches(initialProjectContext), let metadata = entry.initialization,
+              ScreenplayLiveDraftBridge.shared.draftOrigin.documentID == metadata.documentID,
+              (initiating.projectID == metadata.sourceProjectID || initiating.projectID == entry.projectId) else { return false }
+        let receipt = try await ScreenplayInitialProjectCreation.save(entry, owner: owner,
+            localDraft: initiating.draft, outbox: draftSaveOutbox)
+        guard initiating.matches(initialProjectContext) else { return false }
+        let bridge = ScreenplayLiveDraftBridge.shared
+        guard bridge.adoptInitialProjectReceipt(receipt, initiating: initiating),
+              adoptInitialProjectReceipt(receipt) else { return false }
+        try await draftSaveOutbox.finishInitialProjectBinding(id: entry.id, versionID: receipt.versionID, owner: owner)
+        return true
+    }
+
     func createProject() async {
+        guard !isSaving else { return }
         let title = newProjectTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !title.isEmpty else {
-            errorText = "Enter a project title first."
-            return
-        }
-        let seededDraft = fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty else { errorText = "Enter a project title first."; return }
+        let initiating = initialProjectContext
+        let owner = BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: false)
+        let backendURL = BackendAuthClient.resolvedBackendBaseURL()
+        let scope = OfflineTalkRecoveryScope(identity: owner, backendURL: backendURL)
+        let seededDraft = fountainDraft
         isSaving = true
-        defer { isSaving = false }
+        defer { if scope.isCurrent { isSaving = false } }
         errorText = ""
         do {
-            let result = try await BackendMemoryAPI.shared.upsertScreenplayProject(
-                title: title,
-                phase: "scene_draft"
-            )
-            if let project = result.payload.project {
-                upsertProject(project)
-                selectedProjectID = project.id
-                selectedProject = project
-                if !seededDraft.isEmpty {
-                    let versionResult = try await BackendMemoryAPI.shared.upsertScreenplayProjectVersion(
-                        projectId: project.id,
-                        draft: seededDraft,
-                        title: project.title,
-                        phase: project.lastPhase ?? "scene_draft",
-                        notes: "Initial Studio draft",
-                        source: "studio_initial_seed",
-                        baseVersionId: "",
-                        conflictStrategy: "reject_if_stale"
-                    )
-                    if let nextProject = versionResult.payload.project {
-                        upsertProject(nextProject)
-                        selectedProject = nextProject
-                        selectedProjectID = nextProject.id
-                    }
-                    let nextVersionId = (versionResult.payload.versionId ?? versionResult.payload.version?.id ?? "")
-                        .trimmingCharacters(in: .whitespacesAndNewlines)
-                    if !nextVersionId.isEmpty {
-                        latestVersionID = nextVersionId
-                    }
-                    lastSavedDraftFingerprint = fingerprint(for: seededDraft)
-                    lastRevisionBaseDraft = seededDraft
-                    hasUnsavedDraftChanges = false
-                    autosaveStatusText = "Saved now"
+            if seededDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                // Intentional blank/title setup is not a failed first-draft fallback.
+                let result = try await BackendMemoryAPI.shared.upsertScreenplayProject(title: title,
+                    phase: "scene_draft", initiatingIdentity: owner)
+                guard initiating.matches(initialProjectContext), newProjectTitle.trimmingCharacters(in: .whitespacesAndNewlines) == title,
+                      scope.isCurrent, let project = result.payload.project else { return }
+                upsertProject(project); selectedProjectID = project.id; selectedProject = project
+                infoText = "Project created. The empty page is kept locally."
+            } else {
+                let bridge = ScreenplayLiveDraftBridge.shared
+                guard initiating.matches(initialProjectContext), bridge.preferredProjectID == selectedProjectID else {
+                    throw BackendMemoryAPIError.server(status: 409, message: "The selected page changed. Your words are kept.")
                 }
+                bridge.draftText = seededDraft
+                let documentID = try bridge.initialProjectDocumentID(owner: owner)
+                let entry = try await draftSaveOutbox.prepareInitialProject(ownerUserID: owner.userID, backendURL: backendURL,
+                    documentID: documentID, sourceProjectID: selectedProjectID, draft: seededDraft, title: title,
+                    phase: "scene_draft", source: "studio_initial_seed", explicitTitle: true)
+                guard initiating.matches(initialProjectContext), scope.isCurrent else { return }
+                guard try await finishInitialProject(entry, initiating: initiating, owner: owner) else { return }
             }
-            newProjectTitle = ""
-            infoText = seededDraft.isEmpty
-                ? "Project saved."
-                : "Project created with the live Studio draft."
+            if scope.isCurrent, newProjectTitle.trimmingCharacters(in: .whitespacesAndNewlines) == title { newProjectTitle = "" }
             await loadSelectedProjectOutline()
         } catch {
+            guard scope.isCurrent else { return }
             errorText = error.localizedDescription
         }
     }
-
     func pushOutlineSnapshot() async {
         _ = await persistOutlineMutation(
             acts: outline.acts,
@@ -4215,6 +4283,25 @@ final class ScreenplayStudioViewModel: ObservableObject {
     }
 
     func manualSaveDraft() async {
+        let owner = BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: false)
+        let scope = OfflineTalkRecoveryScope(identity: owner, backendURL: BackendAuthClient.resolvedBackendBaseURL())
+        if !isSaving, let documentID = ScreenplayLiveDraftBridge.shared.draftOrigin.documentID {
+            do {
+                if let entry = try await draftSaveOutbox.pendingInitialProject(ownerUserID: owner.userID,
+                    backendURL: scope.backendURL, documentID: documentID, sourceProjectID: selectedProjectID) {
+                    let initiating = initialProjectContext
+                    isSaving = true
+                    let recovered: Bool
+                    do { recovered = try await finishInitialProject(entry, initiating: initiating, owner: owner) }
+                    catch { if scope.isCurrent { isSaving = false }; throw error }
+                    if scope.isCurrent { isSaving = false }
+                    guard recovered, scope.isCurrent else { return }
+                }
+            } catch {
+                if scope.isCurrent { errorText = "Project setup is kept locally: \(error.localizedDescription)" }
+                return
+            }
+        }
         await saveCurrentDraft(source: "studio_manual")
     }
 
@@ -6030,9 +6117,22 @@ final class ScreenplayStudioViewModel: ObservableObject {
     }
 
     func refreshDraftSaveOutboxStatus() async {
-        let ownerUserId = BackendAuthClient.currentAuthSessionState().user?.userId
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let owner = currentStudioAuthContext()
+        let ownerUserId = owner.userID
+        let bridge = ScreenplayLiveDraftBridge.shared
+        let documentID = bridge.draftOrigin.documentID
+        let projectID = selectedProjectID
+        let backendURL = BackendAuthClient.resolvedBackendBaseURL()
         let snapshot = await draftSaveOutbox.snapshot(ownerUserId: ownerUserId)
+        let pending = if let documentID {
+            try? await draftSaveOutbox.pendingInitialProject(ownerUserID: ownerUserId, backendURL: backendURL,
+                documentID: documentID, sourceProjectID: projectID)
+        } else { nil as ScreenplayDraftSaveOutboxEntry? }
+        guard authContextIsCurrent(owner),
+              OfflineTalkRecoveryScope.sameBackend(backendURL, BackendAuthClient.resolvedBackendBaseURL()),
+              documentID == bridge.draftOrigin.documentID, projectID == selectedProjectID else { return }
+        pendingInitialProject = pending
+        if hasPendingInitialProject, projectID.isEmpty { hasUnsavedDraftChanges = true }
         queuedDraftSaveCount = snapshot.activeCount
         parkedDraftSaveCount = snapshot.parkedCount
         guard !isSaving, conflictState == nil else { return }

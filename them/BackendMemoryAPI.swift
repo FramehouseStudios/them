@@ -2574,6 +2574,8 @@ nonisolated struct BackendScreenplayProjectResponse: Decodable {
 }
 
 nonisolated struct BackendScreenplayProjectMutationResponse: Decodable {
+    var versionId: String? = nil
+    var version: BackendScreenplayVersion? = nil
     let stage: String?
     let status: String?
     let created: Bool?
@@ -7678,98 +7680,6 @@ actor BackendMemoryAPI {
                                         owner: owner)
     }
 
-    func upsertScreenplayProject(
-        projectId: String? = nil,
-        title: String,
-        phase: String = "scene_draft",
-        tags: [String] = [],
-        characters: [String] = [],
-        setting: String = "",
-        tone: String = "",
-        logline: String? = nil,
-        themeArgument: String? = nil,
-        centralQuestion: String? = nil,
-        protagonistWant: String? = nil,
-        protagonistNeed: String? = nil,
-        antagonisticForce: String? = nil,
-        actPosition: String? = nil,
-        endingImage: String? = nil,
-        unresolvedSetups: [String]? = nil,
-        studioThreadViewState: BackendScreenplayThreadViewState? = nil,
-        studioDiffAcknowledgedKeys: [String]? = nil,
-        studioDiffAcknowledgedEntries: [BackendScreenplayDiffAcknowledgementEntry]? = nil,
-        studioAskNoteHistory: [BackendScreenplayStudioExchange]? = nil,
-        initiatingIdentity owner: BackendAuthRequestIdentity = BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: true)
-    ) async throws -> BackendReadResult<BackendScreenplayProjectMutationResponse> {
-        let identity = try await screenplayRequestIdentity(owner)
-        var request = try makeWriteRequest(path: "/screenplay/projects", identity: identity)
-        var payload: [String: Any] = [
-            "title": title,
-            "phase": phase,
-            "tags": tags,
-            "characters": characters,
-            "setting": setting,
-            "tone": tone,
-            "activate": true,
-        ]
-        if let logline {
-            payload["logline"] = logline
-        }
-        if let themeArgument {
-            payload["theme_argument"] = themeArgument
-        }
-        if let centralQuestion {
-            payload["central_question"] = centralQuestion
-        }
-        if let protagonistWant {
-            payload["protagonist_want"] = protagonistWant
-        }
-        if let protagonistNeed {
-            payload["protagonist_need"] = protagonistNeed
-        }
-        if let antagonisticForce {
-            payload["antagonistic_force"] = antagonisticForce
-        }
-        if let actPosition {
-            payload["act_position"] = actPosition
-        }
-        if let endingImage {
-            payload["ending_image"] = endingImage
-        }
-        if let unresolvedSetups {
-            payload["unresolved_setups"] = unresolvedSetups
-        }
-        if let projectId, !projectId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            payload["project_id"] = projectId
-        }
-        if let studioThreadViewState,
-           let encoded = try? JSONEncoder().encode(studioThreadViewState),
-           let statePayload = try? JSONSerialization.jsonObject(with: encoded) {
-            payload["studio_thread_view_state"] = statePayload
-        }
-        if let studioDiffAcknowledgedKeys {
-            payload["studio_diff_acknowledged_keys"] = studioDiffAcknowledgedKeys
-        }
-        if let studioDiffAcknowledgedEntries,
-           let encoded = try? JSONEncoder().encode(studioDiffAcknowledgedEntries),
-           let entriesPayload = try? JSONSerialization.jsonObject(with: encoded) {
-            payload["studio_diff_acknowledged_entries"] = entriesPayload
-        }
-        if let studioAskNoteHistory,
-           let encoded = try? JSONEncoder().encode(studioAskNoteHistory),
-           let historyPayload = try? JSONSerialization.jsonObject(with: encoded) {
-            payload["studio_ask_note_history"] = historyPayload
-        }
-        request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
-        let (data, http) = try await screenplayHTTPResponse(for: request, owner: owner)
-        try owner.requireCurrentOwner(requestIdentityProvider(false))
-        guard (200...299).contains(http.statusCode) else {
-            let message = decodeErrorMessage(from: data)
-            throw BackendMemoryAPIError.server(status: http.statusCode, message: message)
-        }
-        return try screenplayReadResult(BackendScreenplayProjectMutationResponse.self, data: data, response: http,
-                                        owner: owner)
-    }
 
     func activateScreenplayProject(
         projectId: String,
@@ -9510,7 +9420,7 @@ actor BackendMemoryAPI {
 
     // Preserve caller ownership across bootstrap without introducing another
     // auth store or transport. Ordinary token refresh keeps the same login intent.
-    private func screenplayRequestIdentity(_ owner: BackendAuthRequestIdentity) async throws -> BackendAuthRequestIdentity {
+    func screenplayRequestIdentity(_ owner: BackendAuthRequestIdentity) async throws -> BackendAuthRequestIdentity {
         try owner.requireCurrentOwner(requestIdentityProvider(false))
         _ = try? await bootstrapSession(force: false)
         let identity = requestIdentityProvider(false)
@@ -9518,14 +9428,14 @@ actor BackendMemoryAPI {
         return identity
     }
 
-    private func screenplayHTTPResponse(for request: URLRequest, owner: BackendAuthRequestIdentity) async throws -> (Data, HTTPURLResponse) {
+    func screenplayHTTPResponse(for request: URLRequest, owner: BackendAuthRequestIdentity) async throws -> (Data, HTTPURLResponse) {
         let (data, response) = try await session.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
         try owner.requireCurrentOwner(requestIdentityProvider(false))
         guard let http = response as? HTTPURLResponse else { throw BackendMemoryAPIError.invalidResponse }
         return (data, http)
     }
 
-    private func screenplayReadResult<Payload: BackendScreenplaySyncEnvelope>(
+    func screenplayReadResult<Payload: BackendScreenplaySyncEnvelope>(
         _ type: Payload.Type, data: Data, response: HTTPURLResponse,
         owner: BackendAuthRequestIdentity,
         dateDecodingStrategy: JSONDecoder.DateDecodingStrategy = .deferredToDate
@@ -9618,7 +9528,7 @@ actor BackendMemoryAPI {
         return request
     }
 
-    private func makeWriteRequest(path: String, identity: BackendAuthRequestIdentity? = nil) throws -> URLRequest {
+    func makeWriteRequest(path: String, identity: BackendAuthRequestIdentity? = nil) throws -> URLRequest {
         guard var components = URLComponents(url: baseURL(), resolvingAgainstBaseURL: false) else {
             throw BackendMemoryAPIError.invalidBaseURL
         }
@@ -10326,7 +10236,7 @@ actor BackendMemoryAPI {
         }
     }
 
-    private func decodeErrorMessage(from data: Data) -> String {
+    func decodeErrorMessage(from data: Data) -> String {
         struct ErrorPayload: Decodable {
             let error: String?
             let stage: String?
@@ -10372,7 +10282,7 @@ actor BackendMemoryAPI {
         return BackendMemoryAPIError.server(status: status, message: decodeErrorMessage(from: data))
     }
 
-    private func baseURL() -> URL {
+    func baseURL() -> URL {
         if let baseURLOverride {
             return baseURLOverride
         }
