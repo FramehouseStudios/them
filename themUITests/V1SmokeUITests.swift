@@ -2088,6 +2088,53 @@ final class V1SmokeUITests: XCTestCase {
 #endif
     }
 
+    @MainActor
+    func test_received_talk_reply_is_reviewed_and_exported_without_resend_after_relaunch() async throws {
+#if os(iOS)
+        guard let port = Int(ProcessInfo.processInfo.environment["THEM_UITEST_WRITER_LOOP_BACKEND_PORT"] ?? ""),
+              let baseURL = URL(string: "http://127.0.0.1:\(port)"),
+              await backendRestoreContractIsAvailable(baseURL: baseURL) else {
+            throw XCTSkip("A dedicated authenticated local backend is required.")
+        }
+        let fixture = try await createWriterLoopAuthenticationFixture(baseURL: baseURL)
+        var app = launchApp(openDataControls: true, showTalkRecovery: true, receiveTalkReply: true,
+            launchEnvironment: fixture.appLaunchEnvironment)
+        defer { app.terminate() }
+        let readID = NSPredicate(format: "identifier BEGINSWITH %@", "data.controls.talk.read.")
+        let exportID = NSPredicate(format: "identifier BEGINSWITH %@", "data.controls.talk.export.")
+        var read = app.buttons.matching(readID).firstMatch
+        for _ in 0..<8 where !read.isHittable { app.swipeUp() }
+        XCTAssertEqual(app.buttons.matching(readID).count, 1)
+        XCTAssertTrue(staticText(containing: "Reply received", in: app).waitForExistence(timeout: 5))
+        read.tap()
+        XCTAssertTrue(app.staticTexts["talk.recovery.reply.text"].waitForExistence(timeout: 5))
+        XCTAssertEqual(app.staticTexts["talk.recovery.reply.text"].label, "A held fixture reply")
+        XCTAssertTrue(staticText(containing: "does not add it to your screenplay", in: app).exists)
+        app.buttons["Close"].tap()
+        XCTAssertTrue(read.waitForExistence(timeout: 5), "Reading is not confirmed page delivery.")
+        XCTAssertFalse(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "data.controls.talk.resume.")).firstMatch.exists)
+        app.terminate()
+        app = launchApp(openDataControls: true, resetState: false, launchEnvironment: fixture.appLaunchEnvironment)
+        read = app.buttons.matching(readID).firstMatch
+        for _ in 0..<8 where !read.isHittable { app.swipeUp() }
+        XCTAssertTrue(read.waitForExistence(timeout: 5))
+        let export = app.buttons.matching(exportID).firstMatch
+        XCTAssertEqual(export.label, "Export received reply")
+        export.tap()
+        XCTAssertTrue(waitForNativeFilesExporter(in: app, presented: true, timeout: 5))
+        XCTAssertTrue(dismissNativeFilesExporter(in: app))
+        XCTAssertTrue(read.waitForExistence(timeout: 5), "Cancelling export discarded a reply.")
+        export.tap()
+        XCTAssertTrue(waitForNativeFilesExporter(in: app, presented: true, timeout: 5))
+        app.buttons["Save"].tap()
+        XCTAssertTrue(waitForNativeFilesExporter(in: app, presented: false, timeout: 8))
+        XCTAssertTrue(staticText(containing: "Queued turn recovery export saved", in: app).waitForExistence(timeout: 5))
+        XCTAssertTrue(read.exists, "Export must not acknowledge or discard a reply.")
+#else
+        throw XCTSkip("iPhone accepted reply recovery workflow")
+#endif
+    }
+
     private var interruptedTalkRecoveryEnvironment: [String: String] {
         // No authenticated transport/provider calls. The actor-level replay
         // cases separately exercise the original bytes/key and current auth.
@@ -3644,6 +3691,7 @@ final class V1SmokeUITests: XCTestCase {
         showOutlineRecovery: Bool = false,
         showTalkRecovery: Bool = false,
         interruptTalkEnqueue: Bool = false,
+        receiveTalkReply: Bool = false,
         conflictSaveSuccess: Bool = false,
         liveMemory: Bool = false,
         showPendingScreenplayQuestion: Bool = false,
@@ -3723,6 +3771,7 @@ final class V1SmokeUITests: XCTestCase {
             arguments.append("--ui-talk-recovery-fixture")
         }
         if interruptTalkEnqueue { arguments.append("--ui-talk-interrupted-enqueue-fixture") }
+        if receiveTalkReply { arguments.append("--ui-talk-received-reply-fixture") }
         if conflictSaveSuccess {
             arguments.append("--ui-conflict-save-success")
         }

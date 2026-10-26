@@ -120,6 +120,8 @@ final class OfflineTalkEnqueueRecoveryTests: XCTestCase {
         let outbox = queue(fileManager: RetainingTalkBodyFileManager())
         let entry = try await outbox.enqueue(request: request(), body: exact, reason: "offline").entry
         _ = await outbox.drainDue(now: .distantFuture, initiatingIdentity: owner(), backendURL: backend) { _ in .init(statusCode: 200) }
+        let reply = try await outbox.receivedReply(entry.id, initiatingIdentity: owner(), backendURL: backend)
+        try await outbox.acknowledgeReceivedReply(entry.id, receiptID: reply.response.id, initiatingIdentity: owner(), backendURL: backend)
         let bodyURL = directory.appendingPathComponent("blobs").appendingPathComponent(entry.bodyRef)
         let record = try PropertyListDecoder().decode(OfflineTalkStoredBody.self, from: Data(contentsOf: bodyURL))
         XCTAssertEqual(record.state, .settled)
@@ -134,7 +136,7 @@ final class OfflineTalkEnqueueRecoveryTests: XCTestCase {
         XCTAssertEqual(calls, 0)
     }
 
-    func testSettledBodyReconcilesAnOldManifestAfterAcknowledgementPersistenceFails() async throws {
+    func testReceivedBodyReconcilesOldManifestWhenIndexPersistenceFails() async throws {
         let outbox = queue()
         let entry = try await outbox.enqueue(request: request(), body: exact, reason: "offline").entry
         let manifest = directory.appendingPathComponent("queue.jsonl"), backup = directory.appendingPathComponent("manifest-backup")
@@ -145,11 +147,22 @@ final class OfflineTalkEnqueueRecoveryTests: XCTestCase {
         }
         let record = try PropertyListDecoder().decode(OfflineTalkStoredBody.self,
             from: Data(contentsOf: directory.appendingPathComponent("blobs").appendingPathComponent(entry.bodyRef)))
-        XCTAssertEqual(record.state, .settled)
+        XCTAssertEqual(record.state, .received)
         try FileManager.default.removeItem(at: manifest)
         try FileManager.default.moveItem(at: backup, to: manifest)
-        let state = try await queue().recoveryState(initiatingIdentity: owner(), backendURL: backend)
-        XCTAssertTrue(state.entries.isEmpty, "An acknowledged request was recovered as new work.")
+        let relaunched = queue()
+        let state = try await relaunched.recoveryState(initiatingIdentity: owner(), backendURL: backend)
+        XCTAssertEqual(state.entries.map(\.id), [entry.id])
+        XCTAssertEqual(state.entries.first?.receivedReply, true)
+        var calls = 0
+        _ = await relaunched.drainDue(now: .distantFuture, initiatingIdentity: owner(), backendURL: backend) { _ in
+            calls += 1; return .init(statusCode: 200)
+        }
+        XCTAssertEqual(calls, 0, "An accepted response must not become another generation.")
+        let reply = try await relaunched.receivedReply(entry.id, initiatingIdentity: owner(), backendURL: backend)
+        try await relaunched.acknowledgeReceivedReply(entry.id, receiptID: reply.response.id, initiatingIdentity: owner(), backendURL: backend)
+        let delivered = try await relaunched.recoveryState(initiatingIdentity: owner(), backendURL: backend)
+        XCTAssertTrue(delivered.entries.isEmpty)
     }
 
     func testConfirmedDeletionCannotRecoverAgainWhenBodyUnlinkFails() async throws {

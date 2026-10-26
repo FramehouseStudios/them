@@ -4984,6 +4984,69 @@ final class BackendClient {
             throw BackendError.http(statusCode, raw)
         }
 
+        return try await decodeTalkSuccess(data: data, http: http, contentType: contentType,
+            baseURL: baseURL, userID: userID, clientToken: clientToken, emittedFirstSegment: emittedFirstSegment,
+            retryAudioValidationIfAllowed: retryAudioValidationIfAllowed)
+    }
+
+    /// Decode already-paid transport evidence, never send it again or adopt a
+    /// persisted session token. The outbox remains the durable owner until the
+    /// writer's delivery is acknowledged separately.
+    func decodeReceivedTalkReply(
+        _ packet: OfflineTalkReceivedReply, initiatingIdentity owner: BackendAuthRequestIdentity,
+        backendURL: URL, currentScopeProvider: () -> OfflineTalkRecoveryScope = { .current() }
+    ) async throws -> BackendTalkResult {
+        func requireScope() throws {
+            try Task.checkCancellation()
+            let scope = currentScopeProvider()
+            guard !owner.userID.isEmpty, packet.entry.receivedReply == true,
+                  scope.matches(identity: owner, backendURL: backendURL),
+                  packet.entry.endpoint == "/talk", packet.entry.method == "POST",
+                  let url = URL(string: packet.entry.urlString), url.path == "/talk",
+                  OfflineTalkRecoveryScope.sameBackend(url, backendURL),
+                  packet.entry.headers.first(where: { $0.key.lowercased() == "x-user-id" })?.value == owner.userID else {
+                throw OfflineTalkPreviousOwnerError()
+            }
+        }
+        try requireScope()
+        try packet.response.validate()
+        guard !packet.response.bodyOmitted else {
+            throw BackendError.stage("offline_outbox", "The saved reply's audio exceeded the recovery limit. Its retained metadata is available to export.")
+        }
+        guard packet.response.statusCode == 200,
+              let url = URL(string: packet.entry.urlString),
+              let http = HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: packet.response.headers) else {
+            throw BackendError.stage("offline_outbox", "This saved turn has no playable response. It remains kept on this device.")
+        }
+        // Metadata lookups are volatile and can require a different session
+        // after relaunch. Recovery must be self-contained, not silently turn a
+        // partial page into a completed delivery or trigger another generation.
+        if parseHeaderBool(http, field: "x-screenplay-output-available", default: false),
+           parseScreenplayOutput(from: http) == nil {
+            throw BackendError.stage("offline_outbox", "The saved reply references page text that was not included. Its files remain kept; delivery is not acknowledged.")
+        }
+        if parseHeaderBool(http, field: "x-screenplay-authoritative", default: false),
+           parseScreenplayOutput(from: http)?.writesToPage != true {
+            throw BackendError.stage("offline_outbox", "The saved reply's authoritative page text is unavailable. Its files remain kept; delivery is not acknowledged.")
+        }
+        let result = try await decodeTalkSuccess(data: packet.response.body, http: http,
+            contentType: http.value(forHTTPHeaderField: "content-type") ?? "", baseURL: backendURL,
+            userID: owner.userID, clientToken: "", emittedFirstSegment: false,
+            allowTurnMetaLookup: false, allowSessionBootstrap: false,
+            retryAudioValidationIfAllowed: { _ in nil })
+        do { try requireScope() }
+        catch { try? FileManager.default.removeItem(at: result.audioURL); throw error }
+        return result
+    }
+
+    /// One successful-response decoder for live and retained turns. Recovery
+    /// callers disable networking/bootstrap; a decoding failure is not a new turn.
+    private func decodeTalkSuccess(
+        data: Data, http: HTTPURLResponse?, contentType: String, baseURL: URL,
+        userID: String, clientToken: String, emittedFirstSegment: Bool,
+        allowTurnMetaLookup: Bool = true, allowSessionBootstrap: Bool = true,
+        retryAudioValidationIfAllowed: (String) async throws -> BackendTalkResult?
+    ) async throws -> BackendTalkResult {
         let normalizedType = contentType.lowercased()
         let mimeType = normalizedType
             .split(separator: ";", maxSplits: 1)
@@ -5005,7 +5068,7 @@ final class BackendClient {
         }
 
         let commitSignal = parseCommitSignal(from: http)
-        if let commitSignal,
+        if allowSessionBootstrap, let commitSignal,
            clientToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
            !commitSignal.sessionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             let bootstrapExpiresIn = parseHeaderInt(
@@ -5086,7 +5149,7 @@ final class BackendClient {
             (knowledgeTopics.isEmpty && knowledgeCitations.isEmpty)
         )
         var turnMetaRateLimitNotice: BackendTalkTurnMetaRateLimitNotice?
-        if shouldFetchTurnMeta, let commitSignal {
+        if allowTurnMetaLookup, shouldFetchTurnMeta, let commitSignal {
             do {
                 let payload = try await fetchTurnMeta(
                     baseURL: baseURL,

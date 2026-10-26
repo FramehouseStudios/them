@@ -5,6 +5,22 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1170 — Keep accepted offline replies until confirmed writer delivery
+
+- **Owner:** codex (Jarvis). **Branch:** `codex/T-1170-accepted-talk-replies`.
+- **Base:** saved higher647 289e21f. Original647/main and production held.
+- **Scope:** reuse preserved9ac8c30/4943017 receipt custody and canonical
+  decoding in the existing outbox; authenticated read-only Data Controls
+  review/export, no generation retry or session adoption. Page insertion/save
+  confirmation and full metadata custody remain the next coupled boundary.
+- **Binary success:** current signed relaunch loss reproduces, then exact
+  response/request ownership survives interruption/relaunch without resend;
+  review/export never acknowledges delivery. Signed units, authenticated
+  review/Files UI and raw voice/save regression, Mac/D009/diff; no paid calls.
+- **Status:** in-progress. Signed red0/1/0 at5fca02d: HTTP200 removed an unseen
+  reply from recovery. Preserve the original regression and existing safety
+  fixtures while adapting canonical code. Not page delivery or phone proof.
+
 ### T-1169 — Recover interrupted queued voice work without unsafe replay
 
 - **Owner:** codex (Jarvis). **Branch:** `codex/T-1169-interrupted-talk-recovery`.
