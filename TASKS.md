@@ -17,9 +17,16 @@
   response/request ownership survives interruption/relaunch without resend;
   review/export never acknowledges delivery. Signed units, authenticated
   review/Files UI and raw voice/save regression, Mac/D009/diff; no paid calls.
-- **Status:** in-progress. Signed red0/1/0 at5fca02d: HTTP200 removed an unseen
-  reply from recovery. Preserve the original regression and existing safety
-  fixtures while adapting canonical code. Not page delivery or phone proof.
+- **Status:** local review atc839caa. Signed red0/1/0 at5fca02d; final signed
+  units874/0/0. Authenticated read/relaunch/native Files export1/0/0 with
+  providers0/0/0; raw-audio page/save/restore1/0/0 with intercepted1/2/1.
+  Actual742-byte JSON opened outside THEM, original/response exact; received,
+  foreign and unassigned records retained. Node20 contracts5/0/0, Mac/D009/
+  diff pass. Full backend2882/0/2 explicitly inherited, production unchanged.
+- **Evidence:** `docs/accepted-talk-reply-recovery-2026-10-26.md`; permanent
+  T-1170-20261026.aPBkTM. No paid call, original advance or main merge. Next:
+  owner-isolate metadata GET before full metadata/page-save recovery. Not
+  recovered page delivery, speech or physical-phone proof.
 
 ### T-1169 — Recover interrupted queued voice work without unsafe replay
 
