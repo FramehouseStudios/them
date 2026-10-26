@@ -2,11 +2,25 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  assertPassedTestSummary,
   assertSinglePassedTestSummary,
   failureOutputTail,
   FAILURE_OUTPUT_LIMIT,
   xcresultFailureDetails,
 } from "../evals/studio_ios_writer_loop_contract_helpers.mjs";
+
+test("[recovery-summary] requires all three real passes, with no failures or skips", () => {
+  assert.doesNotThrow(() => assertPassedTestSummary({
+    totalTestCount: 3, passedTests: 3, failedTests: 0, skippedTests: 0,
+  }, 3, "Incomplete recovery"));
+  for (const counts of [
+    {},
+    { totalTestCount: 0, passedTests: 0, failedTests: 0, skippedTests: 0 },
+    { totalTestCount: 3, passedTests: 2, failedTests: 0, skippedTests: 1 },
+    { totalTestCount: 3, passedTests: 2, failedTests: 1, skippedTests: 0 },
+    { totalTestCount: 1, passedTests: 1, failedTests: 0, skippedTests: 0 },
+  ]) assert.throws(() => assertPassedTestSummary(counts, 3, "Incomplete recovery"), /Incomplete recovery/);
+});
 
 test("[studio-ios-writer-loop] accepts exactly one passed, unskipped test", () => {
   assert.doesNotThrow(() => assertSinglePassedTestSummary({
