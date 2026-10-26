@@ -5,6 +5,23 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1171 — Recover owned replies through confirmed screenplay saves
+
+- **Owner:** codex (Jarvis). **Branch:** `codex/T-1171-received-scene-delivery`.
+- **Base:** saved higher647 615a88a. Original647/main and production held.
+- **Scope:** reuse preserved6b2d83d server turn ownership before enabling
+  f8db1d7 metadata custody; then3784636 reviewed audio/page recovery through
+  the existing editor, immutable delivery plan and acknowledged saved version.
+  No parallel auth, conversation store, automatic duplicate append or paid call.
+- **Binary success:** current real handler owner-token bypass red then403;
+  authentic owner still200, signed-out401. Full accepted result survives
+  relaunch; actual queued HTTP -> reviewed scene -> exact append -> one saved
+  copy -> exact restored text. Retry never replans against newer words. Focused
+  failures first, then full Node20/signed units, essential UI/Mac/D009/diff.
+- **Status:** in-progress. Current source has owner-mismatch session/IP
+  fallback; metadata/page recovery still disconnected. Preserve all prior proof
+  and original heads, and report real failures rather than inherited counts.
+
 ### T-1170 — Keep accepted offline replies until confirmed writer delivery
 
 - **Owner:** codex (Jarvis). **Branch:** `codex/T-1170-accepted-talk-replies`.
