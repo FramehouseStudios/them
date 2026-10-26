@@ -5,6 +5,33 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1160 — Preserve byte-distinct pending and offline saves
+
+- **Owner:** codex (Jarvis). **Branch:** `codex/T-1160-raw-queued-save-identity`.
+- **Base:** saved647425d354 plus preserving no-ff merge69505f1 of the current
+  original644 focus repair5759e5a; both task-ledger histories retained.
+- **Scope:** existing save completion/coalescing/intent and durable outbox owners
+  must use exact UTF8 identity, not trim/newline or Unicode-equivalent equality.
+- **Binary success:** a whitespace/line-ending/decomposed-Unicode pending edit
+  remains dirty and queued across store restart; same ID with changed bytes409;
+  identical retries dedupe; acknowledged earlier save rebases, never drops, the
+  later byte-distinct entries. Preserve existing account/project boundaries.
+- **Proof:** reproduce on existing actor/policy tests; smallest root fix; signed
+  erased full units, connected recovery UI, D009/diff/Mac. Backend production
+  unchanged, retain explicit parent Node20 proof instead of repeating it.
+- **Limits:** no new queue/framework, paid call, original-head replacement,
+  force/main merge/deploy. Public645+ remains gated on exact644 hosted result.
+- **Status:** local review at0446849. Raw regressions0/3/0, fixed units775/0/0;
+  connected recovery first failed before fixture setup, then after relaunch.
+  Reused48be183 fixture/queued restoration, e0477d5 scope revalidation,
+ 0209a12 independent detail hydration and baaf39e unreadable-queue guard.
+  Final signed778/0/0, strengthened real authenticated offline/relaunch/reconnect
+  UI1/0/0 with full bytes and one server version, provider0/0/0. Mac/D009/diff
+  pass. Backend production/tests unchanged; parent Node20 evidence2869/0/2.
+  Original6445759e5a hosted Quality still live; no public645+ advancement.
+- **Evidence:** `docs/raw-queued-save-identity-2026-10-25.md`; permanent archive
+  `/Users/halfmutantfilms/io.them-worktrees/_proof/T-1160-20261025.DpxJPt/`.
+
 ### T-1158 — Preserve naming and exact raw version/promotion retention
 
 - **Owner:** codex (Jarvis). **Branch:** `codex/T-1158-original-647-raw-retention`.
