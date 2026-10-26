@@ -894,6 +894,110 @@ final class V1SmokeUITests: XCTestCase {
     }
 
     @MainActor
+    func test_initial_project_relaunch_replays_saved_identity_and_preserves_newer_edits() async throws {
+#if os(iOS)
+        guard let port = Int(ProcessInfo.processInfo.environment["THEM_UITEST_WRITER_LOOP_BACKEND_PORT"] ?? ""),
+              let baseURL = URL(string: "http://127.0.0.1:\(port)") else {
+            throw XCTSkip("A dedicated held-response local backend is required.")
+        }
+        let fixture = try await createWriterLoopAuthenticationFixture(baseURL: baseURL)
+        let original = "INT. ROOM - NIGHT\n\nA writer keeps every word."
+        var app = launchApp(openStudio: true, restoreUnboundDraft: original, launchEnvironment: fixture.appLaunchEnvironment)
+        defer { app.terminate() }
+        let deadline = Date().addingTimeInterval(15)
+        var projectID = ""
+        repeat {
+            let state = try await requestJSON(baseURL: baseURL, path: "/__them-proof/promotion", method: "GET", headers: [:], body: nil)
+            if intValue(state.payload["pending_creates"]) == 1 { projectID = stringValue(state.payload["held_project_id"]); break }
+            try await Task.sleep(nanoseconds: 100_000_000)
+        } while Date() < deadline
+        XCTAssertFalse(projectID.isEmpty, "The first draft must really commit before its receipt is withheld.")
+        let savedBeforeKill = try await writerLoopProject(id: projectID, fixture: fixture)
+        let firstVersions = savedBeforeKill["versions"] as? [[String: Any]] ?? []
+        XCTAssertEqual(firstVersions.count, 1)
+        XCTAssertEqual(Data(stringValue(firstVersions.first?["draft"]).utf8), Data(original.utf8))
+        let editor = app.textViews["studio.draft.editor"]
+        XCTAssertTrue(waitForHittability(of: editor, timeout: 5))
+        editor.tap(); editor.typeText("NEW LOCAL WORDS ")
+        let newer = accessibleDraftText(in: app)
+        XCTAssertNotEqual(Data(newer.utf8), Data(original.utf8))
+        app.terminate()
+        // Do not seed the draft again: restore actual disk state and original IDs.
+        app = launchApp(openStudio: true, resetState: false, launchEnvironment: fixture.appLaunchEnvironment)
+        XCTAssertTrue(waitForExactWriterLoopDraft(newer, in: app, timeout: 10), "Relaunch lost newer manual text.")
+        XCTAssertTrue(app.buttons["studio.draft.page.save"].waitForExistence(timeout: 5), "Interrupted setup needs a real recovery action on the page.")
+        let released = try await requestJSON(baseURL: baseURL, path: "/__them-proof/promotion/release", method: "POST", headers: [:], body: nil)
+        try assertHTTP(released, context: "release resumed creation receipt")
+        XCTAssertTrue(waitForRestoreSnapshot(in: app, timeout: 15) { snapshot in
+            stringValue(snapshot["selected_project_id"]) == projectID && boolValue(snapshot["has_unsaved_draft_changes"])
+        }, "The saved first version must bind without acknowledging newer text as saved.")
+        XCTAssertEqual(Data(accessibleDraftText(in: app).utf8), Data(newer.utf8))
+        let listed = try await requestJSON(baseURL: baseURL, path: "/screenplay/projects", method: "GET", headers: fixture.authorizedHeaders, body: nil)
+        try assertHTTP(listed, context: "projects after creation retry")
+        XCTAssertEqual((listed.payload["screenplay_projects"] as? [[String: Any]])?.count, 1, "Lost receipt created a duplicate project.")
+        let recovered = try await writerLoopProject(id: projectID, fixture: fixture)
+        XCTAssertEqual((recovered["versions"] as? [[String: Any]])?.count, 1)
+        let save = app.buttons["studio.draft.page.save"]
+        XCTAssertTrue(waitForHittability(of: save, timeout: 5))
+        save.tap()
+        _ = try await waitForWriterLoopSavedVersion(projectID: projectID, draft: newer, fixture: fixture, app: app, timeout: 15)
+        app.terminate()
+        app = launchApp(openStudio: true, resetState: false, launchEnvironment: fixture.appLaunchEnvironment)
+        XCTAssertTrue(waitForExactWriterLoopDraft(newer, in: app, timeout: 10))
+        let final = try await writerLoopProject(id: projectID, fixture: fixture)
+        let versions = final["versions"] as? [[String: Any]] ?? []
+        XCTAssertEqual(versions.count, 2, "The original and explicitly saved edit must each be stored once.")
+        XCTAssertEqual(versions.filter { Data(stringValue($0["draft"]).utf8) == Data(newer.utf8) }.count, 1)
+#else
+        throw XCTSkip("This is an iPhone crash/relaunch workflow.")
+#endif
+    }
+
+    @MainActor
+    func test_explicit_project_creation_preserves_existing_page_bytes() async throws {
+#if os(iOS)
+        guard let port = Int(ProcessInfo.processInfo.environment["THEM_UITEST_WRITER_LOOP_BACKEND_PORT"] ?? ""),
+              let baseURL = URL(string: "http://127.0.0.1:\(port)") else {
+            throw XCTSkip("An authenticated local backend is required.")
+        }
+        let fixture = try await createWriterLoopAuthenticationFixture(baseURL: baseURL)
+        let sourceID = "project-\(UUID().uuidString.lowercased())"
+        let draft = "\r\nINT. CAFE - NIGHT\r\n\r\nCafe\u{0301}.\r\n \t "
+        let seed = try await requestJSON(baseURL: baseURL, path: "/screenplay/projects/initialize", method: "POST",
+            headers: fixture.authorizedHeaders, body: ["project_id": sourceID, "title": "Original page",
+                "initial_draft": ["draft": draft, "client_request_id": UUID().uuidString]])
+        try assertHTTP(seed, context: "source project")
+        let sourceVersion = stringValue(seed.payload["version_id"])
+        var app = launchApp(openStudio: true, launchEnvironment: fixture.appLaunchEnvironment)
+        defer { app.terminate() }
+        XCTAssertTrue(waitForRestoreSnapshot(in: app, timeout: 15) { stringValue($0["selected_project_id"]) == sourceID })
+        XCTAssertEqual(Data(accessibleDraftText(in: app).utf8), Data(draft.utf8))
+        let drawer = app.buttons["studio.sidebar.left.toggle"]
+        XCTAssertTrue(waitForHittability(of: drawer, timeout: 5)); drawer.tap()
+        let title = "Exact page \(UUID().uuidString.prefix(8))"
+        let field = app.textFields["New project title"]
+        XCTAssertTrue(waitForHittability(of: field, timeout: 5)); field.tap(); field.typeText(title)
+        let create = app.buttons["Create"]
+        XCTAssertTrue(waitForHittability(of: create, timeout: 5)); create.tap()
+        let createdID = try await waitForWriterLoopProject(titled: title, fixture: fixture, timeout: 15)
+        XCTAssertNotEqual(createdID, sourceID)
+        let created = try await writerLoopProject(id: createdID, fixture: fixture)
+        let versions = created["versions"] as? [[String: Any]] ?? []
+        XCTAssertEqual(versions.count, 1)
+        XCTAssertEqual(Data((versions.first?["draft"] as? String ?? "").utf8), Data(draft.utf8))
+        let source = try await writerLoopProject(id: sourceID, fixture: fixture)
+        XCTAssertEqual((source["versions"] as? [[String: Any]])?.count, 1)
+        XCTAssertEqual(stringValue(source["active_version_id"]), sourceVersion)
+        app.terminate()
+        app = launchApp(openStudio: true, resetState: false, launchEnvironment: fixture.appLaunchEnvironment)
+        XCTAssertTrue(waitForRestoreSnapshot(in: app, timeout: 15) { stringValue($0["selected_project_id"]) == createdID })
+        XCTAssertEqual(Data(accessibleDraftText(in: app).utf8), Data(draft.utf8))
+#else
+        throw XCTSkip("This is an iPhone project-creation workflow.")
+#endif
+    }
+
+    @MainActor
     private func runIntegratedWriterLoop(coverageFreshnessOnly: Bool) async throws {
 #if os(iOS)
         let portRaw = (ProcessInfo.processInfo.environment["THEM_UITEST_WRITER_LOOP_BACKEND_PORT"] ?? "")

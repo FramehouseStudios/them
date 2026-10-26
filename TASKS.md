@@ -5,6 +5,20 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1168 — Recover the iPhone's interrupted first project save
+
+- **Owner:** codex (Jarvis). **Branch:** `codex/T-1168-first-project-client`.
+- **Base:** saved higher647 5b0049d; original647 and main remain held.
+- **Scope:** reuse canonical2b51d72: immutable first-save intent in the existing
+  draft outbox, atomic endpoint, durable receipt, guarded binding, same-document
+  retry and connected Finish setup. Retain newer manual bytes on relaunch; no
+  second store or unsafe fallback. Preserve named/blank project setup.
+- **Binary success:** current interrupted first-save workflow red then green;
+  exact text/IDs/versions survive relaunch and named creation. Signed units,
+  authenticated recovery/voice, Node20, Mac/D009/diff. No paid provider calls.
+- **Status:** in-progress. Current native reproduction pending; interrupted
+  talk enqueue/reconciliationc1e9255 remains a separate required next boundary.
+
 ### T-1167 — Commit the first project and draft together
 
 - **Owner:** codex (Jarvis). **Branch:** `codex/T-1167-first-project-transaction`.

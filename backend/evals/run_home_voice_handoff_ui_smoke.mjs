@@ -23,6 +23,8 @@ const allowedTests = [
   'themUITests/V1SmokeUITests/test_studio_refused_write_preserves_saved_page_despite_page_selection',
   'themUITests/V1SmokeUITests/test_pages_navigator_controls_jump_and_preserve_source',
   'themUITests/V1SmokeUITests/test_talk_recovery_exports_current_owner_and_confirms_exact_deletion',
+  'themUITests/V1SmokeUITests/test_initial_project_relaunch_replays_saved_identity_and_preserves_newer_edits',
+  'themUITests/V1SmokeUITests/test_explicit_project_creation_preserves_existing_page_bytes',
 ];
 const tests = process.env.ONLY_TESTING ? [process.env.ONLY_TESTING] : allowedTests.slice(0, 2);
 if (tests.some(test => !allowedTests.includes(test))) throw new Error('Unsupported Home voice proof test');
@@ -46,7 +48,7 @@ const server = await startBackend({ unsetEnv: ['DATABASE_URL', 'REDIS_URL'], env
 } });
 let promotionProxy;
 try {
-  if (tests.some(test => test.includes('test_delayed_project_creation'))) promotionProxy = await startPromotionDelayProxy(server.baseUrl);
+  if (tests.some(test => test.includes('test_delayed_project_creation') || test.includes('test_initial_project_relaunch'))) promotionProxy = await startPromotionDelayProxy(server.baseUrl);
   writeFileSync(config, `THEM_UITEST_WRITER_LOOP_BACKEND_PORT = ${promotionProxy?.port || server.port}\n`, {mode: 0o600});
   const child = spawn('bash', ['scripts/run_v1_ui_smoke.sh', '-quiet', '-resultBundlePath', bundle, ...tests.slice(1).map(test => '-only-testing:' + test)], {
     cwd: root, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env,

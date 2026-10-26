@@ -47,8 +47,9 @@ export async function startPromotionDelayProxy(targetURL) {
         let requestPayload = {}, responsePayload = {};
         try { requestPayload = JSON.parse(Buffer.concat(requestChunks).toString('utf8')); } catch {}
         try { responsePayload = JSON.parse(body.toString('utf8')); } catch {}
-        const isCreation = req.method === 'POST' && pathname === '/screenplay/projects'
-          && !requestPayload.project_id && response.statusCode >= 200 && response.statusCode < 300;
+        const isCreation = req.method === 'POST' && response.statusCode >= 200 && response.statusCode < 300
+          && (pathname === '/screenplay/projects/initialize'
+              || (pathname === '/screenplay/projects' && (!requestPayload.project_id || requestPayload.initial_draft)));
         if (isCreation && !heldProjectID) heldProjectID = responsePayload.project_id || responsePayload.project?.id || '';
         const deliver = () => {
           pending.delete(deliver);
