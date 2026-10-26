@@ -11,7 +11,7 @@ const metadataHeaders = [
 // canonical project/memory data stays on the server; never truncate JSON.
 const optionalHeaders = [
   'x-live-paper', 'x-live-paper-beats40', 'x-live-paper-synopsis',
-  'x-live-paper-logline', 'x-creative-memory-trace',
+  'x-live-paper-logline', 'x-creative-memory-trace', 'x-canon-clarification',
 ];
 
 export function talkResponseHeaderBytes(headers) {

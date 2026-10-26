@@ -39,10 +39,11 @@ test('a page without metadata is refused rather than silently truncated or disca
 });
 
 test('optional rich hints may be omitted while essential action and ownership fields remain', () => {
-  const res = response({'x-creative-memory-trace': 'x'.repeat(9_000), 'x-studio-actions': 'owned-action',
+  const res = response({'x-creative-memory-trace': 'x'.repeat(9_000), 'x-canon-clarification': 'x'.repeat(9_000), 'x-studio-actions': 'owned-action',
     'x-screenplay-project-id': 'project-a', 'www-authenticate': 'fixture-challenge'});
   applyTalkResponseHeaderBudget(res);
   assert.equal(res.getHeader('x-creative-memory-trace'), undefined);
+  assert.equal(res.getHeader('x-canon-clarification'), undefined);
   assert.equal(res.getHeader('x-studio-actions'), 'owned-action');
   assert.equal(res.getHeader('x-screenplay-project-id'), 'project-a');
   assert.equal(res.getHeader('www-authenticate'), 'fixture-challenge');

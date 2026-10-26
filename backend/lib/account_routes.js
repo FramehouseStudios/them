@@ -26,6 +26,20 @@ const EXPORTABLE_DOMAINS = Object.freeze([
   "talk_idempotency",
 ]);
 
+// Export writer-owned content, never the private session authority needed to
+// replay an accepted HTTP response. Existing non-talk domains keep their shape.
+function accountExportPersistenceValue(domain, value) {
+  if (domain !== 'talk_turns' && domain !== 'talk_idempotency') return value;
+  const source = value && typeof value === 'object' ? value : {};
+  const keys = domain === 'talk_turns'
+    ? ['turnId', 'userId', 'stateVersion', 'transcript', 'reply', 'audioDurationMs', 'timingSource',
+      'screenplayCues', 'screenplayOutput', 'dialogueTimeline', 'renderContract', 'knowledgeTopics',
+      'knowledgeCitations', 'knowledgeQueryRaw', 'knowledgeQueryRewrite', 'knowledgeContradictionRisk',
+      'requestId', 'createdAt', 'updatedAt', 'expiresAt']
+    : ['key', 'userId', 'status', 'statusCode', 'body', 'createdAt', 'completedAt', 'expiresAt'];
+  return Object.fromEntries(keys.filter(key => Object.hasOwn(source, key)).map(key => [key, source[key]]));
+}
+
 function mountAccountRoutes(app, deps) {
   if (!app || typeof app.post !== "function") {
     throw new Error("mountAccountRoutes requires an Express app");
@@ -161,6 +175,7 @@ function mountAccountRoutes(app, deps) {
 }
 
 export {
+  accountExportPersistenceValue,
   mountAccountRoutes,
   EXPORTABLE_DOMAINS,
   DEFAULT_SOFT_DELETE_WINDOW_MS,

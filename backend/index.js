@@ -211,7 +211,7 @@ import {
   createAccountMemoryTurnCommitter,
 } from "./lib/account_memory_turn_commit.js";
 import { mountScreenplayQuestionRoutes } from "./lib/screenplay_question_routes.js";
-import { mountAccountRoutes, EXPORTABLE_DOMAINS } from "./lib/account_routes.js";
+import { mountAccountRoutes, EXPORTABLE_DOMAINS, accountExportPersistenceValue } from "./lib/account_routes.js";
 import { mountAuthRoutes } from "./lib/auth_routes.js";
 import { createAccountLifecycleStore } from "./lib/account_lifecycle_store.js";
 import {
@@ -5095,7 +5095,7 @@ async function exportAuthenticatedUserData({ userId, domains = EXPORTABLE_DOMAIN
     });
     payload[domain] = rows.map((row) => ({
       key: row.key,
-      value: row.value,
+      value: accountExportPersistenceValue(domain, row.value),
     }));
   }
   return { domains: payload };

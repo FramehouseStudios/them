@@ -8,11 +8,16 @@ import { once } from "node:events";
 import { randomUUID } from "node:crypto";
 
 import { startBackend, apiRequest } from "../tests/helpers/backend_test_server.mjs";
-import { createJsonPersistence } from "../lib/persistence_json.js";
-import { createAdapterWalletPersistence } from "../lib/clementine/wallet_persistence.js";
+import { createPersistence } from "../lib/persistence_adapter.js";
+import { createAdapterWalletPersistence, createPostgresWalletPersistence } from "../lib/clementine/wallet_persistence.js";
+
+const databaseUrl = String(process.env.THEM_TALK_RESTART_TEST_DATABASE_URL || '');
+if (databaseUrl && !['127.0.0.1', 'localhost'].includes(new URL(databaseUrl).hostname)) throw new Error('Only an explicitly task-owned localhost database is allowed');
+const unsetEnv = databaseUrl ? ['REDIS_URL'] : ['DATABASE_URL', 'REDIS_URL'];
 
 const appToken = "them-t1118-local-proof";
 const env = {
+  ...(databaseUrl ? {DATABASE_URL: databaseUrl} : {}),
   APP_TOKEN: appToken,
   REQUIRE_USER_AUTH: "1",
   CLEMENTINE_PROVIDER: "openai",
@@ -89,6 +94,7 @@ async function talk(server, headers, projectId, idempotencyKey) {
   return {
     status: response.status,
     body,
+    headerBytes: [...response.headers].reduce((total, [name, value]) => total + Buffer.byteLength(`${name}: ${value}\r\n`), 0),
     turnId: response.headers.get("x-turn-id"),
     replay: response.headers.get("x-idempotency-replay"),
     authoritative: response.headers.get("x-screenplay-authoritative"),
@@ -103,24 +109,26 @@ async function forcedStop(server) {
   await once(server.child, "exit");
 }
 
-let server = await startBackend({ unsetEnv: ["DATABASE_URL", "REDIS_URL"], env });
+let server = await startBackend({ unsetEnv, env });
 const dataDir = server.dataDir;
-const observations = { providerMode: "intercepted; no paid calls" };
+const observations = { providerMode: "intercepted; no paid calls", persistence: databaseUrl ? 'postgres' : 'json' };
 try {
   const owner = await writer(server, "owner");
   const other = await writer(server, "other");
   await server.stop();
 
-  const persistence = createJsonPersistence({ jsonRoot: path.join(dataDir, "persistence") });
-  await createAdapterWalletPersistence({ persistence }).putBalance({
+  const persistence = createPersistence({ databaseUrl, jsonRoot: path.join(dataDir, "persistence") });
+  const funding = databaseUrl ? createPostgresWalletPersistence({client: persistence}) : createAdapterWalletPersistence({persistence});
+  await funding.putBalance({
     ownerId: owner.userId,
     pageMilliturns: 100_000,
     companionMilliturns: 0,
     grantedPageMilliturns: 100_000,
     grantedCompanionMilliturns: 0,
   });
+  await persistence.close();
 
-  server = await startBackend({ dataDir, unsetEnv: ["DATABASE_URL", "REDIS_URL"], env });
+  server = await startBackend({ dataDir, unsetEnv, env });
   let ownerHeaders = await sessionHeaders(server, owner);
   const otherHeaders = await sessionHeaders(server, other);
   const created = await apiRequest(server, "/screenplay/projects", {
@@ -163,15 +171,30 @@ try {
   };
   assert.equal(preRestartOwner.status, 200);
   assert.equal(preRestartOther.status, 403);
+  const scene = String(preRestartOwner.json.screenplay_output?.text || '');
+  assert.ok(scene.includes('HOME VOICE HANDOFF'));
+  assert.ok(accepted.headerBytes <= 8192, 'Actual reply headers exceeded the product budget.');
+  const exported = await apiRequest(server, '/account/export', { headers: owner.auth });
+  const otherExported = await apiRequest(server, '/account/export', { headers: other.auth });
+  assert.equal(exported.status, 200);
+  assert.equal(otherExported.status, 200);
+  assert.ok(exported.json.domains.talk_turns.some(row => row.value.userId === owner.userId));
+  assert.ok(exported.json.domains.talk_idempotency.some(row => row.value.userId === owner.userId));
+  assert.equal(otherExported.json.domains.talk_turns.length, 0);
+  assert.equal(otherExported.json.domains.talk_idempotency.length, 0);
+  const exportedTalk = JSON.stringify([exported.json.domains.talk_turns, exported.json.domains.talk_idempotency]);
+  assert.ok(!exportedTalk.includes(ownerHeaders['X-Client-Token']), 'New recovery exports exposed session authority.');
   const gracefulStop = await server.stop();
 
-  server = await startBackend({ dataDir, unsetEnv: ["DATABASE_URL", "REDIS_URL"], env });
+  server = await startBackend({ dataDir, unsetEnv, env });
   ownerHeaders = await sessionHeaders(server, owner);
   const ownerAfterRestart = await apiRequest(server, `/talk/turn/${accepted.turnId}`, { headers: owner.auth });
   const otherAfterRestart = await apiRequest(server, `/talk/turn/${accepted.turnId}`, { headers: other.auth });
   const gracefulReplay = await talk(server, ownerHeaders, projectId, gracefulKey);
   const gracefulReplayCalls = providerCounts(server);
   const balanceAfterReplay = await balance();
+  assert.ok(Buffer.from(String(ownerAfterRestart.json.screenplay_output?.text || '')).equals(Buffer.from(scene)), 'Graceful restart lost full page text.');
+  assert.ok(gracefulReplay.headerBytes <= 8192);
   observations.gracefulRestart = {
     forced: gracefulStop.forced,
     ownerRead: ownerAfterRestart.status,
@@ -186,22 +209,29 @@ try {
   const forcedKey = `t1118-forced-${randomUUID()}`;
   const acceptedBeforeKill = await talk(server, ownerHeaders, projectId, forcedKey);
   assert.equal(acceptedBeforeKill.status, 200);
-  const balanceBeforeKill = await balance();
+  // Terminate directly after accepting the HTTP body. An extra balance read
+  // could give fire-and-forget writes time to finish and hide the real window.
   await forcedStop(server);
-  server = await startBackend({ dataDir, unsetEnv: ["DATABASE_URL", "REDIS_URL"], env });
+  server = await startBackend({ dataDir, unsetEnv, env });
   ownerHeaders = await sessionHeaders(server, owner);
   const forcedRead = await apiRequest(server, `/talk/turn/${acceptedBeforeKill.turnId}`, { headers: owner.auth });
   const forcedReplay = await talk(server, ownerHeaders, projectId, forcedKey);
   const forcedReplayCalls = providerCounts(server);
   const balanceAfterForcedReplay = await balance();
+  assert.ok(Buffer.from(String(forcedRead.json.screenplay_output?.text || '')).equals(Buffer.from(scene)), 'Forced termination lost full page text.');
+  assert.ok(forcedReplay.headerBytes <= 8192);
+  observations.transport = {acceptedHeaderBytes: accepted.headerBytes, gracefulReplayHeaderBytes: gracefulReplay.headerBytes,
+    forcedReplayHeaderBytes: forcedReplay.headerBytes, fullSceneBytes: Buffer.byteLength(scene), canonicalSceneRestored: true};
   observations.forcedTermination = {
     ownerRead: forcedRead.status,
     replayHeader: forcedReplay.replay,
     sameTurn: forcedReplay.turnId === acceptedBeforeKill.turnId,
     sameBody: forcedReplay.body.equals(acceptedBeforeKill.body),
     providerCalls: forcedReplayCalls,
-    sameBalance: JSON.stringify(balanceAfterForcedReplay) === JSON.stringify(balanceBeforeKill),
   };
+  observations.billing = {initialDebitObserved: observations.beforeRestart.balanceChanged,
+    forcedRestartBalance: balanceAfterForcedReplay.pageTurnsLeft,
+    proof: 'Response replay only; funded durable debit/settlement requires its own boundary.'};
 
   console.log(JSON.stringify(observations));
   assert.deepEqual(observations.gracefulRestart, {
@@ -220,7 +250,6 @@ try {
     sameTurn: true,
     sameBody: true,
     providerCalls: { stt: 0, chat: 0, tts: 0 },
-    sameBalance: true,
   });
 } finally {
   await server.stop();
