@@ -45,6 +45,24 @@ final class OfflineTalkPageDeliveryTests: XCTestCase {
         XCTAssertEqual(offlineTalkReplyDisplayText(outputText: nil, reply: nil), "No reply text was included.")
     }
 
+    func testProjectExtractionUsesMultipartHeadersNotBinaryAudioOrResponseText() throws {
+        let boundary = "THEM-original-project"
+        let headers = ["content-type": "multipart/form-data; boundary=\"\(boundary)\""]
+        let opening = "--\(boundary)\r\nContent-Disposition: form-data; name=\"screenplay_project_id\"\r\n\r\nproject-a\r\n"
+        let audioHeader = "--\(boundary)\r\nContent-Disposition: form-data; name=\"file\"; filename=\"recording.wav\"\r\nContent-Type: audio/wav\r\n\r\n"
+        var body = Data((opening + audioHeader).utf8)
+        body.append(Data([0, 255, 128]))
+        body.append(Data("name=\"screenplay_project_id\"\r\n\r\nproject-b".utf8))
+        body.append(Data("\r\n--\(boundary)--\r\n".utf8))
+        XCTAssertEqual(try offlineTalkRequestProjectID(body: body, headers: headers), "project-a")
+        let duplicate = Data((opening + opening + "--\(boundary)--\r\n").utf8)
+        XCTAssertThrowsError(try offlineTalkRequestProjectID(body: duplicate, headers: headers))
+        XCTAssertThrowsError(try offlineTalkRequestProjectID(body: Data("malformed".utf8), headers: headers))
+        XCTAssertNil(try offlineTalkRequestProjectID(body: body, headers: ["Content-Type": "application/octet-stream"]))
+        XCTAssertThrowsError(try offlineTalkRequestProjectID(body: body,
+            headers: ["Content-Type": "multipart/form-data; boundary=a; boundary=b"]))
+    }
+
     func testDeliveryIntentSurvivesRelaunchAndNeverReplansAgainstNewerWords() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("TalkDelivery-\(UUID())")
         defer { try? FileManager.default.removeItem(at: directory) }
