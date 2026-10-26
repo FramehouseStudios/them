@@ -21,7 +21,16 @@
 - **Proof:** current signed erased units, authenticated connected freshness
   UI, Mac/D009/diff; count only actual results, reuse unchanged backend proof
   with explicit source equivalence. No paid calls or production/main change.
-- **Status:** in-progress; current646/774 bodies/comments and prior fix read.
+- **Status:** local review. Original646 preserved e4ec30a, remaining5f71ec5c
+  reused71a7b32. Initial signed756/0/0; direct observer audit found obsolete
+  callbacks can clear newer dirty authority/recovery. Adapted real-VM red0/1/0
+  (two failed assertions); reused636ddfc4 guard as a701979, final signed758/0/0,
+  canonical authenticated freshnessUI1/0/0, Mac/D009/diff pass. Production
+  backend unchanged from parent2867/0/2; only runner allowlist changes, exercised
+  by this UI, no repeated unchanged full Node suite or paid call. Original643
+  now hosted green; normally advanced644 to42d6f746, fresh Quality running.
+- **Evidence:** `docs/original-646-refresh-2026-10-25.md`; completed archive
+  `/Users/halfmutantfilms/io.them-worktrees/_proof/T-1157-20261025.Yjdll4/`.
 
 ### T-1156 — Preserve target-aware mentor guidance and actual prompt delivery
 
