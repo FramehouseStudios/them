@@ -5,6 +5,33 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1161 — Publish original645 on its green preserving parent
+
+- **Owner:** codex (Jarvis). **Branch:** `codex/T-1161-original-645-parent-refresh`.
+- **Base:** saved645e803262a plus no-ff eb752e8 of exact green6445759e5a.
+  Read refreshed original645 body/follow-ups; retain both task-ledger records.
+- **Scope:** preserve original8a7f367a and all mentor repair commits; carry
+  parent's connected typing correction forward without importing646/647 work.
+- **Binary success:** strict authenticated writer UI passes at the exact
+  updated645 tree; D009/diff pass; native/backend/unit source-equivalence to
+  saved645 established. Normal original-branch fast-forward only after fresh
+  parent644 hosted green; fresh645 checks then gate public646 advancement.
+- **Verification boundary:** parent751/0/0 units, Node20 backend2867/0/2,
+  native mentor delivery and Mac are parent proof, not newly executed. Avoid
+  unchanged full-suite repetition for a test/docs-only parent merge.
+- **Limits:** no paid call, squash/force/replacement PR/main merge/deployment.
+  Intermediate645 is not releasable without the preserved observer/retention/
+  queued-hydration fixes in later saved646/647; do not substitute their counts.
+- **Status:** local review at eb752e8. Refreshed original body/current follow-ups,
+  parent6445759e5a terminal required-green. Strict authenticated signed erased
+  writer UI1/0/0 on exact merged tree; D009/diff pass. Production/native/unit/
+  backend source identical to e803262a (retained zero-byte diff), so parent
+  full-suite evidence remains explicitly parent evidence, not a new run.
+  Ready for normal original645 fast-forward and fresh required hosted checks;
+  original646+ stays held. Saved647 safety descendantb3024bc stays separate.
+- **Evidence:** `docs/original-645-parent-refresh-2026-10-25.md`; archive
+  `/Users/halfmutantfilms/io.them-worktrees/_proof/T-1161-20261025.ah6cXZ/`.
+
 ### T-1156 — Preserve target-aware mentor guidance and actual prompt delivery
 
 - **Owner:** codex (Jarvis). **Branch:** `codex/T-1156-original-645-mentor`.
