@@ -32,6 +32,18 @@ final class BackendProjectWriteBoundaryRegressionTests: XCTestCase {
         await assertBoundary(version: false, switchDuringBootstrap: true, extraMutation: "outline")
     }
 
+    func testQuestionDoesNotAdoptAnotherOwnerDuringBootstrap() async {
+        await assertBoundary(version: false, switchDuringBootstrap: true, extraMutation: "question")
+    }
+
+    func testRealtimeDoesNotAdoptAnotherOwnerDuringBootstrap() async {
+        await assertBoundary(version: false, switchDuringBootstrap: true, extraMutation: "realtime")
+    }
+
+    func testCharacterBatchDoesNotMoveRemainingWordsToAnotherOwner() async {
+        await assertBoundary(version: false, switchDuringBootstrap: false, extraMutation: "batch")
+    }
+
     private func assertBoundary(version: Bool, switchDuringBootstrap: Bool, extraMutation: String? = nil) async {
         let state = ProjectBoundaryState()
         ProjectBoundaryProtocol.handler = { request in
@@ -42,7 +54,7 @@ final class BackendProjectWriteBoundaryRegressionTests: XCTestCase {
             }
             if !switchDuringBootstrap { state.switchOwner() }
             return (version ? 409 : 201,
-                #"{"stage":"screenplay_project","status":"saved","project_id":"project-a","version_id":"version-a","state_version":"old-owner-state","project":{"id":"project-a","title":"A"}}"#)
+                #"{"ok":true,"action":"saved","question_id":"question-a","response_status":"answered","character_name":"JOHN","stage":"screenplay_project","status":"saved","project_id":"project-a","version_id":"version-a","state_version":"old-owner-state","project":{"id":"project-a","title":"A"}}"#)
         }
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [ProjectBoundaryProtocol.self]
@@ -51,7 +63,15 @@ final class BackendProjectWriteBoundaryRegressionTests: XCTestCase {
             requestIdentityProvider: { _ in state.identity() })
         let initiatingIdentity = state.identity()
         do {
-            if extraMutation == "activation" { _ = try await api.activateScreenplayProject(projectId: "project-a", initiatingIdentity: initiatingIdentity) }
+            if extraMutation == "question" {
+                let pending = BackendPendingScreenplayQuestion(id: "question-a", projectId: "project-a", projectTitle: "A", targetField: "theme", targetLabel: "Theme", question: "What is it about?", provisionalOptions: nil, askedAt: nil)
+                _ = try await api.resolvePendingScreenplayQuestion(pending, responseStatus: "answered", answer: "Exact answer")
+            }
+            else if extraMutation == "realtime" { _ = try await api.commitRealtimeTurn(userMessage: "My story", assistantMessage: "A scene", requestId: "request-a") }
+            else if extraMutation == "batch" {
+                try await api.recordCharacterMentionsFromScreenplayReply([.init(characterName: "JOHN", line: 1, tags: []), .init(characterName: "SAM", line: 3, tags: [])], writeID: "write-a", projectID: "project-a")
+            }
+            else if extraMutation == "activation" { _ = try await api.activateScreenplayProject(projectId: "project-a", initiatingIdentity: initiatingIdentity) }
             else if extraMutation == "outline" {
                 _ = try await api.upsertScreenplayOutline(projectId: "project-a", acts: [], scenes: [], beats: [], expectedOutlineRevision: 0, clientRequestId: "owned-outline", initiatingIdentity: initiatingIdentity)
             }
@@ -64,7 +84,7 @@ final class BackendProjectWriteBoundaryRegressionTests: XCTestCase {
         } catch { XCTFail("Unexpected error: \(error)") }
         let sync = await api.currentSyncState()
         XCTAssertNotEqual(sync.stateVersion, "old-owner-state")
-        let writes = state.requests().filter { $0.url?.path.hasPrefix("/screenplay/projects") == true }
+        let writes = state.requests().filter { $0.url?.path != "/session" }
         if switchDuringBootstrap { XCTAssertTrue(writes.isEmpty, "Old work was submitted after account switch.") }
         else {
             XCTAssertEqual(writes.count, 1)
