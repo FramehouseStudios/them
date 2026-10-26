@@ -1358,7 +1358,7 @@ struct RootExperienceView: View {
 
     private var bodyWithLifecycleObservers: AnyView {
         AnyView(
-            bodyWithObservedChanges
+            ScreenplayCoveragePresentation.observingSpeech(in: bodyWithObservedChanges, stop: { promptSpeaker.stop() }, speak: { promptSpeaker.speak($0) })
                 .onAppear {
                     DispatchQueue.main.async {
                         handleContentViewAppear()

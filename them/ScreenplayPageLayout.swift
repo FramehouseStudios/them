@@ -133,9 +133,7 @@ struct ScreenplayPageLayout {
     static func paginate(_ draft: String, linesPerPage requested: Int = defaultLinesPerPage) -> [Page] {
         let linesPerPage = min(max(requested, minimumLinesPerPage), maximumLinesPerPage)
         let paginationSource = FountainPaginationSource.make(from: draft)
-        let source = paginationSource.scriptText
-            .replacingOccurrences(of: "\r\n", with: "\n")
-            .replacingOccurrences(of: "\r", with: "\n")
+        let source = paginationSource.normalizedScriptText
         let normalized = source.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalized.isEmpty else { return [] }
         let lines = normalized.components(separatedBy: "\n")

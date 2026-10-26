@@ -43,6 +43,7 @@ import {
   estimatedMinutes as paginationEstimatedMinutes,
   LINES_PER_PAGE as PAGINATION_LINES_PER_PAGE,
 } from "./screenplay_pagination.js";
+import { rateScreenplay } from "./screenplay_coverage.js";
 
 function mountScreenplayCompanionRoutes(app, deps = {}) {
   if (!app || typeof app.post !== "function" || typeof app.get !== "function") {
@@ -234,6 +235,26 @@ function mountScreenplayCompanionRoutes(app, deps = {}) {
       pages,
       length_profile: lengthProfile,
     });
+  });
+
+  // Clementine's coverage: grade, verdict, five pillars, what works / what's
+  // missing / the move, and the spoken read. Stateless and deterministic.
+  app.post("/screenplay/coverage", express.json({ limit: "2mb" }), (req, res, next) => {
+    const draft = String(req.body?.draft || "");
+    if (!draft.trim()) {
+      return res.status(400).json({ stage: "screenplay_coverage", error: "draft_required" });
+    }
+    try {
+      const report = rateScreenplay({
+        draft,
+        title: normalizeSnippet(req.body?.title, 160),
+        linesPerPage: parsePositiveInt(req.body?.lines_per_page, 0) || undefined,
+      });
+      return res.status(200).json({ stage: "screenplay_coverage", mode: "computed", ...report });
+    } catch (error) {
+      if (error.code === "draft_required") return res.status(400).json({ stage: "screenplay_coverage", error: "draft_required" });
+      return next(error);
+    }
   });
 
   app.post("/screenplay/revision-colors", express.json({ limit: "2mb" }), (req, res) => {

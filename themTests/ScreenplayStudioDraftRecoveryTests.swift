@@ -226,6 +226,51 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
     }
 
     @MainActor
+    func testSameVersionPollKeepsActiveEditsWithoutRecoveryModalAndRetainsRelaunchRecovery() {
+        let projectID = "active-poll-\(UUID().uuidString)"
+        let owner = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""
+        let server = "INT. ROOM - NIGHT\n\nA lamp dims."
+        let local = server + "\nA cafe\u{0301} stays open.  \n"
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store)
+        model.selectedProjectID = projectID
+        model.applyServerDraft(server, versionId: "base")
+        model.fountainDraft = local
+        model.hasUnsavedDraftChanges = true
+        store.save(ownerUserId: owner, projectId: projectID, draft: local,
+                   baseVersionId: "base", dirty: true)
+        model.applyServerDraft(server, versionId: "base")
+        XCTAssertTrue(model.fountainDraft.utf8.elementsEqual(local.utf8))
+        XCTAssertTrue(model.hasUnsavedDraftChanges)
+        XCTAssertNil(model.conflictState)
+        XCTAssertNil(model.recoveryCandidate, "Polling must not block controls for edits already on the page.")
+
+        let relaunchedStore = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: recoveryKey)
+        let relaunched = ScreenplayStudioViewModel(localDraftRecoveryStore: relaunchedStore)
+        relaunched.selectedProjectID = projectID
+        relaunched.applyServerDraft(server, versionId: "base")
+        XCTAssertTrue(relaunched.recoveryCandidate?.draft.utf8.elementsEqual(local.utf8) == true,
+                      "Suppressing a redundant modal must not erase the durable recovery copy.")
+        relaunched.restoreDraftFromRecovery()
+        XCTAssertTrue(relaunched.fountainDraft.utf8.elementsEqual(local.utf8))
+    }
+
+    @MainActor
+    func testNewServerVersionStillRequiresConflictDecisionForActiveEdits() {
+        let projectID = "changed-poll-\(UUID().uuidString)"
+        let server = "INT. ROOM - NIGHT\n\nA lamp dims."
+        let local = server + "\nMy unfinished line."
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store)
+        model.selectedProjectID = projectID
+        model.applyServerDraft(server, versionId: "base")
+        model.fountainDraft = local
+        model.hasUnsavedDraftChanges = true
+        model.applyServerDraft(server + "\nAnother device's line.", versionId: "new-version")
+        XCTAssertEqual(model.fountainDraft, local)
+        XCTAssertEqual(model.conflictState?.serverVersionId, "new-version")
+        XCTAssertEqual(model.recoveryCandidate?.draft, local)
+    }
+
+    @MainActor
     func testLiveSyncVersionAdoptionKeepsExactLocalDraftAvailableToRecover() async {
         let local = "INT. DINER - NIGHT\n\nShe waits.\n\nA phone BUZZES."
         let remote = "INT. DINER - NIGHT\n\nShe waits."

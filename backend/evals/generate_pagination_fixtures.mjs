@@ -11,6 +11,9 @@ const out = path.resolve(__dirname, "..", "..", "docs", "pagination", "fixtures.
 
 const longSpeech = Array.from({ length: 9 }, (_, i) => `Sentence ${i + 1} of a speech that keeps going past the foot of the page because he cannot stop.`).join(" ");
 const drafts = {
+  unicode_line_separator: { linesPerPage: 54, draft: "Title: ORBIT\u2028Author: Zoë\u2028\u2028INT. SHIP - NIGHT\u2028\u2028MARA\u2028The light is still on.\u2028" },
+  unicode_paragraph_separator: { linesPerPage: 54, draft: "Title: ORBIT\u2029Author: Zoë\u2029\u2029INT. SHIP - NIGHT\u2029\u2029MARA\u2029The light is still on.\u2029" },
+  unicode_next_line: { linesPerPage: 54, draft: "Title: ORBIT\u0085Author: Zoë\u0085\u0085INT. SHIP - NIGHT\u0085\u0085MARA\u0085The light is still on.\u0085" },
   heading_then_oversized_action: { linesPerPage: 54, draft: "Title: NIGHT SIGNAL\n\nINT. OBSERVATORY - NIGHT\n\n" + Array.from({ length: 65 }, (_, i) => `Action${i + 1}.`).join("\n") },
   heading_then_page_sized_action: { linesPerPage: 24, draft: "INT. OBSERVATORY - NIGHT\n\n" + Array.from({ length: 24 }, (_, i) => `Action${i + 1}.`).join("\n") },
   title_only: { linesPerPage: 54, draft: "Title: ASHES\nAuthor: Zoë Chen\n\n" },

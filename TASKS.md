@@ -5,6 +5,59 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1159 — Fix hosted writer-loop keyboard focus at original644
+
+- **Owner:** codex (Jarvis). **Branch:** `codex/T-1159-hosted-writer-focus`.
+- **Base:** exact original64442d6f746, failed hosted run40248016339.
+- **Scope:** preserve original head/history; inspect retained hosted recording,
+  hierarchy and native editor before adjusting the test's typing interaction.
+  Editor extends below viewport; focus opens then is lost before typeText.
+- **Binary success:** one visible-page tap establishes editor keyboard, real
+  keystrokes enter exactly once; unchanged authenticated writer-loop contract
+  saves one version, exports and restores. No retry/timeout increase/seeded text.
+- **Proof:** signed erased owned simulator, strict writer contract plus the
+  shared coverage workflow; D009/diff. Production source unchanged means parent
+  unit/backend/Mac evidence is explicitly parent evidence, not newly executed.
+- **Limits:** no main merge, review bypass, paid call or production change;
+  public645+ stays held pending fresh exact644 hosted green.
+- **Status:** local review; strict authenticated writer contract1/0/0 and shared
+  coverage1/0/0 pass signed/erased without retries, same writer/version/export/
+  restore assertions. Reused existing646 allowlist entry after runner rejected
+  the first coverage invocation before execution. D009/diff pass. Runtime,
+  backend tests and unit source unchanged; retain parent proof, not rerun it.
+  Raw647 saved425d354 and proof remain separate. Fresh hosted result required.
+- **Evidence:** `docs/hosted-writer-focus-2026-10-25.md`; permanent archive
+  `/Users/halfmutantfilms/io.them-worktrees/_proof/T-1159-20261025.oBhRux/`.
+
+### T-1155 — Preserve coverage and scope every read to its document
+
+- **Owner:** codex (Jarvis). **Branch:** `codex/T-1155-original-644-coverage`.
+- **Base:** actionscdd463f5, now normally published to original643 after
+  exact64284659a6a hosted clearance. Fresh643 Quality still running.
+- **Scope:** no-ff preserve original644047672ac,880b619d7d,881b7a0ea5;
+  reuse a28c7e1/619f988/e5b7efa/0919fc8 and reconcile the existing connected
+  workflow4dc346a. Retain current Craft selector, auth/recovery and action owners.
+- **Binary success:** current authenticated project/exact-draft/request alone
+  may publish card/summary/speech/error; title-only has no read, same body and
+  supported line endings give the same analysis, HTTP auth/redirect policy is
+  canonical, real controls reach current read without modifying writer bytes.
+  Rule-based scores explicitly estimates, never professional-quality claims.
+- **Boundaries:** no second coverage/speech/HTTP/store framework, no paid model
+  call, no main merge/review bypass or original-head replacement. Preserve646/
+  774 refresh/quiet policy at their actual boundaries; completed-read freshness
+  must be assessed, not assumed solved by in-flight guards. Production held.
+- **Status:** local review. Original644/880/881 preserved with no-ff merges;
+  existing body/byte/accessibility fixes reused. Freshness-only5f71ec5 reused
+  without importing646/774 policy. Missing redirect dependency reused from
+  canonicalfc759311, retaining one origin validator. First compile0 executed;
+  corrected747/0/0. Actual UI2/1/0 exposed same-version polling surfacing a
+  recovery modal over active edits. Root fixc9949f2c keeps durable recovery,
+  relaunch and changed-version decisions; signed749/0/0, unchanged UI3/0/0,
+  Node20 backend2863/0/2, Mac/D009/offline mentor/diff pass. No paid calls.
+  Original644 stays047672ac/draft/base643 pending exact643 hosted clearance.
+- **Evidence:** `docs/original-644-coverage-2026-10-25.md` and completed proof
+  `/Users/halfmutantfilms/io.them-worktrees/_proof/T-1155-20261025.94VE7f/`.
+
 ### T-1153 — Preserve original Studio voice actions on the current Pages writer
 
 - **Owner:** codex (Jarvis). **Branch:** `codex/T-1153-original-643-actions`.
@@ -2344,6 +2397,37 @@ Historical additive Studio-action gate record follows; T-1153 owns current work.
   2/2 signed iPhone UI tests (typing and all inspector destinations), and
   backend 2,779 passed / 0 failed / 2 skipped. God-file gate passes against
   both #642 and #643; see docs/audits/studio-actions-gate-2026-09-30.md.
+
+Historical coverage-gate records follow; T-1155 owns current integration.
+### T-coverage-gate — Preserve coverage UI and speech without god-file growth
+- Owner: codex
+- Branch: codex/T-coverage-gate
+- Status: review
+- Pillar: living companion
+- Goal criteria: 3 (grounded coverage), 4 (working controls), 7 (provable stack).
+- Done when: #644's Craft bindings and coverage speech behavior are preserved,
+  its canonical-parent god-file gate passes, and focused/full signed iOS,
+  backend and narrow-iPhone destination proof pass.
+- Scope: additive extraction on the original #644 head, not a replacement;
+  #766 then #770 remain first to land. No paid model calls or review bypass.
+- Proof: 71/71 focused and 657/657 full signed iOS tests; 2/2 signed iPhone
+  UI tests; backend 2,787 passed / 0 failed / 2 skipped after bringing forward
+  Claude's canonical HTTP fixture for a reproduced fetch failure. Parent gate
+  passes. See docs/audits/coverage-gate-2026-09-30.md for initial failures/limits.
+
+### T-coverage-context — Bind coverage to the current writer and script
+- Owner: codex
+- Branch: codex/T-coverage-context
+- Status: review
+- Pillar: longitudinal learning
+- Goal criteria: 3 and 6.
+- Done when: account/project changes and superseded reads cannot publish,
+  speak or send another script's coverage; delayed/out-of-order tests prove it.
+- Preserve: #644 feature, #646 refresh policy and #774 quiet announcements.
+- Evidence: real view-model reproduction failed four assertions before guards;
+  final signed units 666/666, signed UI 2/2, backend 2,787 pass/0 fail/2 skip.
+  macOS scaffold build passes after an inherited Pages availability fix.
+  See docs/audits/coverage-context-2026-09-30.md for scope and remaining limits.
 
 | ID   | Title                                              | Owner  | Status            |
 |------|----------------------------------------------------|--------|-------------------|

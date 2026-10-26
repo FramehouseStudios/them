@@ -2,6 +2,87 @@
   "generatedBy": "backend/evals/generate_pagination_fixtures.mjs",
   "fixtures": [
     {
+      "id": "unicode_line_separator",
+      "linesPerPage": 54,
+      "draft": "Title: ORBIT Author: Zoë  INT. SHIP - NIGHT  MARA The light is still on. ",
+      "expected": {
+        "lineCount": 4,
+        "renderedLineCount": 4,
+        "pages": [
+          {
+            "page": 1,
+            "startLine": 4,
+            "endLine": 7,
+            "lineCount": 4,
+            "lines": [
+              "INT. SHIP - NIGHT",
+              "",
+              "MARA",
+              "The light is still on."
+            ],
+            "firstLine": "INT. SHIP - NIGHT",
+            "lastLine": "The light is still on.",
+            "moreCount": 0,
+            "contdCount": 0
+          }
+        ]
+      }
+    },
+    {
+      "id": "unicode_paragraph_separator",
+      "linesPerPage": 54,
+      "draft": "Title: ORBIT Author: Zoë  INT. SHIP - NIGHT  MARA The light is still on. ",
+      "expected": {
+        "lineCount": 4,
+        "renderedLineCount": 4,
+        "pages": [
+          {
+            "page": 1,
+            "startLine": 4,
+            "endLine": 7,
+            "lineCount": 4,
+            "lines": [
+              "INT. SHIP - NIGHT",
+              "",
+              "MARA",
+              "The light is still on."
+            ],
+            "firstLine": "INT. SHIP - NIGHT",
+            "lastLine": "The light is still on.",
+            "moreCount": 0,
+            "contdCount": 0
+          }
+        ]
+      }
+    },
+    {
+      "id": "unicode_next_line",
+      "linesPerPage": 54,
+      "draft": "Title: ORBITAuthor: ZoëINT. SHIP - NIGHTMARAThe light is still on.",
+      "expected": {
+        "lineCount": 4,
+        "renderedLineCount": 4,
+        "pages": [
+          {
+            "page": 1,
+            "startLine": 4,
+            "endLine": 7,
+            "lineCount": 4,
+            "lines": [
+              "INT. SHIP - NIGHT",
+              "",
+              "MARA",
+              "The light is still on."
+            ],
+            "firstLine": "INT. SHIP - NIGHT",
+            "lastLine": "The light is still on.",
+            "moreCount": 0,
+            "contdCount": 0
+          }
+        ]
+      }
+    },
+    {
       "id": "heading_then_oversized_action",
       "linesPerPage": 54,
       "draft": "Title: NIGHT SIGNAL\n\nINT. OBSERVATORY - NIGHT\n\nAction1.\nAction2.\nAction3.\nAction4.\nAction5.\nAction6.\nAction7.\nAction8.\nAction9.\nAction10.\nAction11.\nAction12.\nAction13.\nAction14.\nAction15.\nAction16.\nAction17.\nAction18.\nAction19.\nAction20.\nAction21.\nAction22.\nAction23.\nAction24.\nAction25.\nAction26.\nAction27.\nAction28.\nAction29.\nAction30.\nAction31.\nAction32.\nAction33.\nAction34.\nAction35.\nAction36.\nAction37.\nAction38.\nAction39.\nAction40.\nAction41.\nAction42.\nAction43.\nAction44.\nAction45.\nAction46.\nAction47.\nAction48.\nAction49.\nAction50.\nAction51.\nAction52.\nAction53.\nAction54.\nAction55.\nAction56.\nAction57.\nAction58.\nAction59.\nAction60.\nAction61.\nAction62.\nAction63.\nAction64.\nAction65.",
