@@ -185,30 +185,16 @@ struct ScreenplayDraftSaveIntentPolicy {
         let selectedProject = selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !selectedProject.isEmpty,
               selectedProject == committedWrite.normalizedProjectID,
-              normalizedDraft(draft) == normalizedDraft(committedWrite.committedDraft) else {
+              draft.utf8.elementsEqual(committedWrite.committedDraft.utf8) else {
             return .autosave
         }
         return .clementinePageWrite
-    }
-
-    private static func normalizedDraft(_ draft: String) -> String {
-        draft
-            .replacingOccurrences(of: "\r\n", with: "\n")
-            .replacingOccurrences(of: "\r", with: "\n")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
 
 struct ScreenplayDraftSaveCompletionPolicy {
     static func hasUnsavedChanges(currentDraft: String, savedDraft: String) -> Bool {
-        normalizedDraft(currentDraft) != normalizedDraft(savedDraft)
-    }
-
-    private static func normalizedDraft(_ draft: String) -> String {
-        draft
-            .replacingOccurrences(of: "\r\n", with: "\n")
-            .replacingOccurrences(of: "\r", with: "\n")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        !currentDraft.utf8.elementsEqual(savedDraft.utf8)
     }
 }
 
@@ -234,17 +220,10 @@ struct ScreenplayDraftSaveCoalescingPolicy {
         pendingNotes: String,
         pendingBaseVersionOverride: String?
     ) -> Bool {
-        normalizedDraft(activeDraft) == normalizedDraft(pendingDraft) &&
+        activeDraft.utf8.elementsEqual(pendingDraft.utf8) &&
             activeSource == pendingSource &&
             activeNotes == pendingNotes &&
             normalizedKey(activeBaseVersionOverride) == normalizedKey(pendingBaseVersionOverride)
-    }
-
-    private static func normalizedDraft(_ draft: String) -> String {
-        draft
-            .replacingOccurrences(of: "\r\n", with: "\n")
-            .replacingOccurrences(of: "\r", with: "\n")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private static func normalizedKey(_ value: String?) -> String {

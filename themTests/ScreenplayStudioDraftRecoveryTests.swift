@@ -226,6 +226,22 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
     }
 
     @MainActor
+    func testLoadingSnapshotKeepsOriginalWriterBytesAndDurableRecovery() {
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store)
+        model.autosaveEnabled = false
+        model.selectedProjectID = "project"
+        model.applyServerDraft("INT. ROOM - DAY\n\nA door opens.", versionId: "current")
+        let snapshot = "\r\nINT. CAFE - NIGHT\r\n\r\nA cafe\u{0301} waits.\r\n \t "
+        model.loadSnapshot(version(id: "historical", draft: snapshot))
+        XCTAssertEqual(Data(model.fountainDraft.utf8), Data(snapshot.utf8))
+        XCTAssertTrue(model.hasUnsavedDraftChanges)
+        let owner = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""
+        let persisted = store.payloads(ownerUserId: owner)["project"]?["draft"] as? String
+        XCTAssertEqual(persisted.map { Data($0.utf8) }, Data(snapshot.utf8))
+        XCTAssertEqual(model.latestVersionID, "current", "Restoring a snapshot remains an unsaved edit, not a server acknowledgement.")
+    }
+
+    @MainActor
     func testUnchangedRawServerDraftStaysCleanAndWhitespaceEditStaysDirty() async {
         let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store)
         model.autosaveEnabled = false
@@ -1185,7 +1201,7 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
             writeID: "page-write-1",
             projectID: "project-a",
             previousDraft: "FADE IN:",
-            committedDraft: draft.replacingOccurrences(of: "\r\n", with: "\n"),
+            committedDraft: draft,
             insertedText: "INT. FERRY - NIGHT\n\nMara turns back for both of them.",
             replacementApplied: false,
             replacedWriteID: nil,
@@ -1203,6 +1219,11 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
             ),
             .clementinePageWrite
         )
+        for changed in [draft + " ", draft.replacingOccurrences(of: "\r\n", with: "\n")] {
+            XCTAssertEqual(ScreenplayDraftSaveIntentPolicy.intent(
+                draft: changed, selectedProjectID: "project-a", isManualDraftEditing: false,
+                committedWrite: committedWrite), .autosave)
+        }
     }
 
     func testPageWriteSaveIntentRejectsManualStaleAndCrossProjectDrafts() {
@@ -1253,7 +1274,7 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
     func testDraftSaveCompletionKeepsNewerPageDirtyUntilItIsPersisted() {
         let savedDraft = "INT. FERRY - NIGHT\n\nMara turns back."
 
-        XCTAssertFalse(ScreenplayDraftSaveCompletionPolicy.hasUnsavedChanges(
+        XCTAssertTrue(ScreenplayDraftSaveCompletionPolicy.hasUnsavedChanges(
             currentDraft: "  \(savedDraft)\r\n",
             savedDraft: savedDraft
         ))
@@ -1282,7 +1303,7 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
             activeSource: "studio_clementine_page_write",
             activeNotes: "Saved from Clementine page write",
             activeBaseVersionOverride: nil,
-            pendingDraft: "  \(draft)\r\n",
+            pendingDraft: draft,
             pendingSource: "studio_clementine_page_write",
             pendingNotes: "Saved from Clementine page write",
             pendingBaseVersionOverride: ""
@@ -1307,6 +1328,19 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
             pendingNotes: "Approved pass",
             pendingBaseVersionOverride: "version-2"
         ))
+    }
+
+    func testRawSavePoliciesKeepByteDistinctPendingDraftsDirty() {
+        let saved = "\r\nINT. CAFE - NIGHT\r\n\r\nA cafe\u{0301} waits.\r\n \t "
+        XCTAssertFalse(ScreenplayDraftSaveCompletionPolicy.hasUnsavedChanges(currentDraft: saved, savedDraft: saved))
+        for pending in [saved + " ", saved.replacingOccurrences(of: "\r\n", with: "\n"),
+                        saved.precomposedStringWithCanonicalMapping] {
+            XCTAssertFalse(pending.utf8.elementsEqual(saved.utf8))
+            XCTAssertTrue(ScreenplayDraftSaveCompletionPolicy.hasUnsavedChanges(currentDraft: pending, savedDraft: saved))
+            XCTAssertFalse(ScreenplayDraftSaveCoalescingPolicy.shouldCoalesce(
+                activeDraft: saved, activeSource: "studio_autosave", activeNotes: "", activeBaseVersionOverride: "v1",
+                pendingDraft: pending, pendingSource: "studio_autosave", pendingNotes: "", pendingBaseVersionOverride: "v1"))
+        }
     }
 
     func testCommittedDraftAdoptionAcceptsExpectedPredecessorAndAlreadyAppliedDraft() {

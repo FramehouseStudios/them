@@ -44,6 +44,53 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
         XCTAssertEqual(stored.map(\.id), ["save-once"])
     }
 
+    func testQueuePreservesByteDistinctDraftsAcrossRestartAndAcknowledgement() async throws {
+        let raw = "\r\nINT. CAFE - NIGHT\r\n\r\nA cafe\u{0301} waits.\r\n \t "
+        let drafts = [raw, raw + " ", raw.replacingOccurrences(of: "\r\n", with: "\n"),
+                      raw.precomposedStringWithCanonicalMapping]
+        let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        try await store.enqueue(makeEntry(id: "raw-0", draft: raw))
+        try await store.markInflight(id: "raw-0")
+        for index in 1..<drafts.count {
+            try await store.enqueue(makeEntry(id: "raw-\(index)", draft: drafts[index],
+                                              createdAt: TimeInterval(100 + index)))
+        }
+        let relaunched = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let restored = try await relaunched.entriesForTesting()
+        XCTAssertEqual(restored.count, drafts.count, "Normalized equality must not discard later writer bytes.")
+        XCTAssertEqual(restored.map { Data($0.draft.utf8) }, drafts.map { Data($0.utf8) })
+        for index in drafts.indices {
+            let next = try await relaunched.beginNext(projectId: "project-1", ownerUserId: "user-1", force: true)
+            XCTAssertEqual(next?.id, "raw-\(index)")
+            XCTAssertEqual(next?.baseVersionId, index == 0 ? "server-v1" : "ack-\(index - 1)")
+            XCTAssertEqual(next.map { Data($0.draft.utf8) }, Data(drafts[index].utf8))
+            guard let next else { return }
+            try await relaunched.markSucceeded(id: next.id, serverVersionId: "ack-\(index)")
+        }
+        let remaining = try await relaunched.entriesForTesting()
+        XCTAssertTrue(remaining.isEmpty)
+    }
+
+    func testQueueRejectsSameIdentifierWithDifferentRawBytes() async throws {
+        let raw = "\r\nINT. CAFE - NIGHT\r\n\r\nA cafe\u{0301} waits.\r\n \t "
+        let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        try await store.enqueue(makeEntry(id: "raw-once", draft: raw))
+        for changed in [raw + " ", raw.replacingOccurrences(of: "\r\n", with: "\n"),
+                        raw.precomposedStringWithCanonicalMapping] {
+            do {
+                try await store.enqueue(makeEntry(id: "raw-once", draft: changed))
+                XCTFail("A request ID cannot acknowledge different draft bytes.")
+            } catch BackendMemoryAPIError.server(let status, let message) {
+                XCTAssertEqual(status, 409)
+                XCTAssertEqual(message, "screenplay_save_id_reused")
+            }
+        }
+        try await store.enqueue(makeEntry(id: "same-bytes-other-id", draft: raw))
+        let retained = try await store.entriesForTesting()
+        XCTAssertEqual(retained.count, 1, "An exactly identical queued draft still coalesces.")
+        XCTAssertEqual(retained.first.map { Data($0.draft.utf8) }, Data(raw.utf8))
+    }
+
     func testSnapshotCountsOnlyTheCurrentAccount() async throws {
         let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
         try await store.enqueue(makeEntry(id: "my-save"))

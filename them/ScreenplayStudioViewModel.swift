@@ -4224,8 +4224,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
     }
 
     func loadSnapshot(_ version: BackendScreenplayVersion) {
-        let snapshotDraft = (version.draft ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !snapshotDraft.isEmpty else {
+        let snapshotDraft = version.draft ?? ""
+        guard !snapshotDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             errorText = "Snapshot draft is empty."
             return
         }
