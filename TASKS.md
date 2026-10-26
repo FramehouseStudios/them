@@ -18,8 +18,14 @@
   13 newly protected routes cover changed account/same-user new login, late
   responses, header/admission races and valid rotation. Full signed units,
   unchanged authenticated recovery/writer workflows, Mac/D009/diff pass.
-- **Status:** in-progress. Signed current red0/2/0,6 assertions, retained695ae22.
-  Full proof pending. No paid provider call or production/main change.
+- **Status:** in-progress. Signed ownership red0/2/0,6 assertions,695ae22;
+  canonical15-route fix f5c5660, signed full810/0/0, real recovery3/0/0.
+  Raw-audio Home->Studio journey exposed first-project failure0/1/0:1064chars
+  on page but unbound/Create project to save. Reuse canonical7b6b298 full-commit/
+  settled-editor publication guard, preserving exact bytes/login/one-project.
+  Tool-approval workspace credit warning interrupted archive; current read-only
+  approval recheck succeeded. Final voice/held-create/native/Mac proof pending.
+  No paid provider call or production/main change.
 - **Limits:** not all derived/queued/batch/notification ownership, atomic first
   creation, real Postgres/collaborator authorization or physical phone proof.
 

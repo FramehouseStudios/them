@@ -1373,11 +1373,8 @@ struct RootExperienceView: View {
                 .onReceive(NotificationCenter.default.publisher(for: .themToggleStudioRequested)) { _ in
                     handleWorkspaceNavigationCommand(.toggleStudio)
                 }
-                .onChange(of: screenplayDraftBridge.lastCommittedWrite?.id) { _, _ in
-                    if let write = screenplayDraftBridge.lastCommittedWrite {
-                        autoCreateStudioProjectIfNeeded(draft: write.committedDraft, pack: screenplayDraftBridge.latestPack, phase: screenplayDraftBridge.latestPhase, existingProjectID: screenplayDraftBridge.preferredProjectID)
-                    }
-                }
+                .onChange(of: screenplayDraftBridge.lastCommittedWrite) { _, _ in promoteRestoredLiveDraftToStudioProjectIfNeeded(requireCommittedWrite: true) }
+                .onReceive(screenplayDraftBridge.$draftText.dropFirst()) { _ in DispatchQueue.main.async { promoteRestoredLiveDraftToStudioProjectIfNeeded(requireCommittedWrite: true) } }
                 .onChange(of: isStudioSurfaceActive) { _, newValue in
                     DispatchQueue.main.async {
                         handleStudioSurfaceActiveChange(newValue)
@@ -5892,11 +5889,12 @@ Write this approved story direction directly into screenplay pages now. Maintain
     }
 
     @MainActor
-    private func promoteRestoredLiveDraftToStudioProjectIfNeeded() {
-        guard screenplayDraftBridge.streamingProgress == 0 else { return }
+    private func promoteRestoredLiveDraftToStudioProjectIfNeeded(requireCommittedWrite: Bool = false) {
         let cleanProjectID = screenplayDraftBridge.preferredProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
         let fallbackProjectID = liveScreenplayProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
         let projectID = cleanProjectID.isEmpty ? fallbackProjectID : cleanProjectID
+        guard !requireCommittedWrite || (projectID.isEmpty && ScreenplayRestoredLiveDraftProjectPromotionPolicy.committedDraftIsReady(write: screenplayDraftBridge.lastCommittedWrite, draft: screenplayDraftBridge.draftText, auth: .current())) else { return }
+        guard requireCommittedWrite || screenplayDraftBridge.streamingProgress == 0 else { return }
         let cleanPack = screenplayDraftBridge.latestPack.trimmingCharacters(in: .whitespacesAndNewlines)
         let cleanPhase = screenplayDraftBridge.latestPhase.trimmingCharacters(in: .whitespacesAndNewlines)
 

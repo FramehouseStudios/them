@@ -468,11 +468,16 @@ final class V1SmokeUITests: XCTestCase {
             return !stringValue(value["selected_project_id"]).isEmpty
         }
         guard selected else {
-            XCTFail("First project missing: " + String(describing: snapshot.filter { ["autosave_status_text", "error_text", "draft_character_count"].contains($0.key) }))
+            XCTFail("First project missing: " + String(describing: snapshot.filter { ["autosave_status_text", "error_text", "draft_character_count"].contains($0.key) }) + "; " + app.staticTexts["studio.promotion.state"].label)
             return
         }
         let projectID = try XCTUnwrap(snapshot["selected_project_id"] as? String)
         _ = try await waitForWriterLoopSavedVersion(projectID: projectID, draft: draft, fixture: fixture, app: app, timeout: 30)
+        let listed = try await requestJSON(baseURL: baseURL, path: "/screenplay/projects", method: "GET", headers: fixture.authorizedHeaders, body: nil)
+        try assertHTTP(listed, context: "Home voice promoted projects")
+        let projects = listed.payload["screenplay_projects"] as? [[String: Any]] ?? []
+        XCTAssertEqual(projects.count, 1, "Commit and binding publications must not create duplicate projects.")
+        XCTAssertEqual(stringValue(projects.first?["id"]), projectID)
         app.terminate()
         environment.removeValue(forKey: "THEM_UITEST_HOME_VOICE_PROMPT")
         environment.removeValue(forKey: "THEM_UITEST_HOME_VOICE_RAW_AUDIO")
