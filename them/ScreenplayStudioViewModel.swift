@@ -5850,8 +5850,17 @@ final class ScreenplayStudioViewModel: ObservableObject {
         Task { await saveCurrentDraft(source: source) }
     }
 
-    private func handleDraftDebouncedChange(_ draft: String) async {
-        guard !isHydratingDraft else { return }
+    func handleDraftDebouncedChange(_ draft: String) async {
+        let projectID = selectedProjectID
+        let authContext = currentStudioAuthContext()
+        func isCurrentDraft() -> Bool {
+            !Task.isCancelled && !isHydratingDraft && selectedProjectID == projectID
+                && authContextIsCurrent(authContext) && fountainDraft.utf8.elementsEqual(draft.utf8)
+        }
+        // Reuse 636ddfc4: a queued callback may start after newer edits,
+        // and network waits permit project/session changes. Never let an old
+        // snapshot retire or persist the current writer's page.
+        guard isCurrentDraft() else { return }
         let normalized = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         let hasCoveragePresentation = coverageSimulationReport != nil ||
             !coverageSimulationErrorText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -5874,7 +5883,9 @@ final class ScreenplayStudioViewModel: ObservableObject {
         }
 
         await recomputePagination(for: draft, source: "Draft")
+        guard isCurrentDraft() else { return }
         await recomputeRevision(for: draft, source: "Draft")
+        guard isCurrentDraft() else { return }
         Task { await self.refreshFormatLint(source: "Draft") }
         Task { await self.refreshCoverageIfNeeded() }
 
