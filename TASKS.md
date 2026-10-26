@@ -17,10 +17,15 @@
   acknowledged, token refresh/retries remain idempotent, stale confirmation or
   delivery rejected. Final signed units, authenticated recovery UI, voice save,
   Mac/D009/diff. No paid calls or human-data deletion.
-- **Status:** in-progress. Actual signed red0/7/0,18 assertions at7f0dc45.
-  Canonical fixes applied; final proof pending. Reuse2369367 native picker
-  helper only, not later product/export ancestry; new recovery UI requires a
-  dedicated authenticated local backend and strict runner requires1 pass.
+- **Status:** local review at95399ff. Actual signed red0/7/0,18 assertions at
+  7f0dc45; final full850/0/0, authenticated recovery3/0/0, account-scoped
+  native Files recovery/export/delete1/0/0, raw-audio one-project/save/restore
+  1/0/0, Mac/D009/diff pass. No paid calls. Reuse2369367 native picker helper
+  only; new strict dedicated recovery runner requires1 actual pass. Manually
+  observed exported JSON outside THEM; exact bytes and retained foreign/legacy
+  bodies independently checked. Not screenplay export or phone proof.
+- **Evidence:** `docs/owned-talk-recovery-2026-10-26.md`; permanent
+  T-1166-20261026.WjxRTs. Original647/main remain unchanged.
 - **Limits:** not full app-wide isolation, live phone/provider or atomic
   first creation; multi-file enqueue/orphan reconciliation remainsT1112.
 
