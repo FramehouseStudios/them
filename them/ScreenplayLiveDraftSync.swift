@@ -394,6 +394,7 @@ nonisolated enum LiveDraftSyncPolicy {
         isRunningTests: Bool
     ) -> Bool {
         if isRunningTests { return false }
+        if arguments.contains("--ui-screenplay-save-network-fault") { return false }
         let optIn = (environment[automationOptInEnvironmentKey] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         if optIn == "1" || optIn.lowercased() == "true" { return true }
         if IOThemRuntime.isStudioAutomationArguments(arguments) || IOThemRuntime.isStudioEvalArguments(arguments) {

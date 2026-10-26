@@ -4199,9 +4199,17 @@ final class ScreenplayStudioViewModel: ObservableObject {
         }
     }
 
-    func runQueuedSaveNetworkFaultUITest(marker: String, offlineBaseURL: String) async {
+    @discardableResult
+    func runQueuedSaveNetworkFaultUITest(marker: String) async -> Bool {
         let cleanMarker = marker.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !cleanMarker.isEmpty, selectedProject != nil else { return }
+        guard !cleanMarker.isEmpty else { return false }
+        for _ in 0..<40 where selectedProject?.id != selectedProjectID || loadedDraftProjectID != selectedProjectID
+            || isLoading || isDraftSaveInFlight || isSaving {
+            guard !Task.isCancelled else { return false }
+            try? await Task.sleep(for: .milliseconds(250))
+        }
+        guard !Task.isCancelled, !selectedProjectID.isEmpty, selectedProject?.id == selectedProjectID,
+              loadedDraftProjectID == selectedProjectID, !isLoading, !isDraftSaveInFlight, !isSaving else { return false }
         autosaveEnabled = false
         if !fountainDraft.contains(cleanMarker) {
             let separator = fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -4210,9 +4218,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
             fountainDraft += separator + cleanMarker
             noteManualDraftEdit()
         }
-        UserDefaults.standard.set(offlineBaseURL, forKey: "backend_base_url")
-        UserDefaults.standard.synchronize()
         await manualSaveDraft()
+        return true
     }
     #endif
 
@@ -6197,6 +6204,12 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 )
                 return false
             }
+#if DEBUG
+            if IOThemRuntime.isRunningUITests,
+               ProcessInfo.processInfo.arguments.contains("--ui-screenplay-save-network-fault") {
+                throw URLError(.notConnectedToInternet)
+            }
+#endif
             switch try await emptyBaseDraftSavePreflight(for: request) {
             case .notRequired, .versionlessProject:
                 break

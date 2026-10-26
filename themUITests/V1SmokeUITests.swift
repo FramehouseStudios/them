@@ -2207,7 +2207,8 @@ final class V1SmokeUITests: XCTestCase {
     @MainActor
     func test_screenplay_save_outbox_survives_relaunch_and_reconnects_once() async throws {
         let configuredPort = Int(
-            ProcessInfo.processInfo.environment["THEM_UITEST_SCREENPLAY_SAVE_BACKEND_PORT"] ?? ""
+            ProcessInfo.processInfo.environment["THEM_UITEST_SCREENPLAY_SAVE_BACKEND_PORT"]
+                ?? ProcessInfo.processInfo.environment["THEM_UITEST_WRITER_LOOP_BACKEND_PORT"] ?? ""
         ) ?? 31337
         let baseURL = try XCTUnwrap(URL(string: "http://127.0.0.1:\(configuredPort)"))
         guard await backendRestoreContractIsAvailable(baseURL: baseURL) else {
@@ -2215,7 +2216,7 @@ final class V1SmokeUITests: XCTestCase {
         }
 
         let fixture = try await seedBackendRestoreContractFixture(baseURL: baseURL)
-        let marker = "SAVE-OUTBOX-\(UUID().uuidString.uppercased())"
+        let marker = "SAVE-OUTBOX-\(UUID().uuidString.uppercased()) cafe\u{0301}"
         var app = launchApp(
             openStudio: true,
             screenplaySaveNetworkFaultMarker: marker,
@@ -2241,6 +2242,8 @@ final class V1SmokeUITests: XCTestCase {
             },
             "Offline screenplay save was not durably queued before termination. Snapshot: \(queuedSnapshot)"
         )
+        let queuedDraft = accessibleDraftText(in: app)
+        XCTAssertTrue(queuedDraft.contains(marker))
         app.terminate()
 
         app = launchApp(
@@ -2266,6 +2269,8 @@ final class V1SmokeUITests: XCTestCase {
             },
             "Queued screenplay save did not reconnect automatically after relaunch. Snapshot: \(recoveredSnapshot)"
         )
+        XCTAssertEqual(Data(accessibleDraftText(in: app).utf8), Data(queuedDraft.utf8),
+                       "The on-page restored draft must retain all queued bytes, not just the marker.")
 
         let projectResponse = try await requestJSON(
             baseURL: baseURL,
@@ -2295,6 +2300,7 @@ final class V1SmokeUITests: XCTestCase {
             "The recovered local save must create exactly one server version: \(versions)"
         )
         let recoveredVersion = try XCTUnwrap(recoveredVersions.first)
+        XCTAssertEqual(Data(((recoveredVersion["draft"] as? String) ?? "").utf8), Data(queuedDraft.utf8))
         let recoveredVersionID = try firstNonEmptyString(
             recoveredVersion["id"],
             recoveredVersion["version_id"],
@@ -3434,8 +3440,6 @@ final class V1SmokeUITests: XCTestCase {
                 "--ui-screenplay-save-network-fault",
                 "--ui-screenplay-save-network-fault-marker",
                 screenplaySaveNetworkFaultMarker,
-                "--ui-screenplay-save-network-fault-url",
-                "http://127.0.0.1:3999",
             ])
         }
         if screenplaySaveExpireAuthOnce {

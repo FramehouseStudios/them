@@ -17,6 +17,7 @@ const allowedTests = [
   'themUITests/V1SmokeUITests/test_integrated_iphone_writer_loop_creates_saves_exports_and_restores',
   'themUITests/V1SmokeUITests/test_coverage_read_labels_earlier_snapshot_and_refreshes_current_draft',
   'themUITests/V1SmokeUITests/test_restored_unbound_draft_keeps_title_and_exact_bytes_after_promotion_and_relaunch',
+  'themUITests/V1SmokeUITests/test_screenplay_save_outbox_survives_relaunch_and_reconnects_once',
   'themUITests/V1SmokeUITests/test_studio_refused_write_preserves_saved_page_despite_page_selection',
   'themUITests/V1SmokeUITests/test_pages_navigator_controls_jump_and_preserve_source',
   'themUITests/V1SmokeUITests/test_coverage_read_labels_earlier_snapshot_and_refreshes_current_draft',
