@@ -40,24 +40,27 @@ test('[talk-turn-owner] authenticated metadata cannot follow a prior owner clien
     assert.equal(owner.status, 200);
     assert.equal(owner.json.turn_id, turnID);
     assert.ok(a.userID);
-    assert.equal(owner.json.user_id, a.userID, 'Turn metadata must carry the canonical auth ID, not repeatedly prefixed ownership keys.');
     assert.ok(owner.json.reply);
     const other = await read({ ...b.auth, 'X-Client-Token': b.clientToken });
-    assert.equal(other.status, 403);
     const priorToken = await read({ ...b.auth, 'X-Client-Token': a.clientToken });
+    const claimedOwner = await read({ ...b.auth, 'X-Client-Token': a.clientToken, 'X-User-Id': String(owner.json.user_id) });
+    const signedOut = await read({ 'X-User-Id': String(owner.json.user_id), 'X-Client-Token': a.clientToken });
+    const sameOwnerWithoutClientToken = await read(a.auth);
+    // Collect every actual handler result before asserting: a normalization
+    // failure must not hide whether another account can read the response.
+    console.log(JSON.stringify({ fixture: 'real local auth/talk/metadata HTTP; providers intercepted',
+      owner: owner.status, other: other.status, priorToken: priorToken.status,
+      claimedOwner: claimedOwner.status, signedOut: signedOut.status, ownerWithoutClientToken: sameOwnerWithoutClientToken.status,
+      canonicalOwner: owner.json.user_id === a.userID }));
+    assert.equal(owner.json.user_id, a.userID, 'Turn metadata must carry the canonical auth ID, not repeatedly prefixed ownership keys.');
+    assert.equal(other.status, 403);
     assert.equal(priorToken.status, 403, 'A different authenticated writer followed the previous writer client token into their reply.');
     assert.equal(priorToken.json.error, 'forbidden');
     assert.equal(priorToken.json.reply, undefined);
-    const claimedOwner = await read({ ...b.auth, 'X-Client-Token': a.clientToken, 'X-User-Id': String(owner.json.user_id) });
     assert.equal(claimedOwner.status, 403, 'A caller-supplied owner header overrode authenticated identity.');
     assert.equal(claimedOwner.json.error, 'forbidden');
-    const signedOut = await read({ 'X-User-Id': String(owner.json.user_id), 'X-Client-Token': a.clientToken });
     assert.equal(signedOut.status, 401, 'An unsigned caller read owned turn metadata with a stale token/header.');
     assert.equal(signedOut.json.stage, 'auth_user');
-    const sameOwnerWithoutClientToken = await read(a.auth);
     assert.equal(sameOwnerWithoutClientToken.status, 200);
-    console.log(JSON.stringify({ fixture: 'real local auth/talk/metadata HTTP; providers intercepted',
-      owner: owner.status, other: other.status, priorToken: priorToken.status,
-      claimedOwner: claimedOwner.status, signedOut: signedOut.status, ownerWithoutClientToken: sameOwnerWithoutClientToken.status }));
   } finally { await server.stop(); }
 });
