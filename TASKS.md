@@ -24,7 +24,15 @@
   replacement, force/squash/bypass/deploy; retain current recovery/auth/observer.
   Later T1105 delayed-creation/account/document authority remains required;
   happy promotion is not crash-atomic creation or stale-response proof.
-- **Status:** in-progress; prior T1103/T1104 repair evidence read before reuse.
+- **Status:** local review at cf93164. Original647 preserved; canonical naming
+  and raw HTTP retention reused. Real HTTP red0/2/0 then2/0/0. Native UI first
+  lost5 trailing bytes, then restored exact bytes but produced2 versions;
+  hydrate raw and consistently fingerprint raw saved/current drafts fixed both.
+  Unchanged promotion/relaunch UI1/0/0 (provider0/0/0), final signed771/0/0,
+  Node20 full2869/0/2 after canonical memory fixture correction, Mac/D009/diff.
+  Hosted64442d6f746 failed at editor keyboard focus; public645+ remains held.
+- **Evidence:** `docs/original-647-raw-retention-2026-10-25.md`; permanent archive
+  `/Users/halfmutantfilms/io.them-worktrees/_proof/T-1158-20261025.Dx6cbK/`.
 
 ### T-1157 — Preserve bounded, quiet coverage refresh as pages land
 
