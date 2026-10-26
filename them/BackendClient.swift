@@ -2281,63 +2281,6 @@ nonisolated enum BackendUserFacingErrorMapper {
     }
 }
 
-nonisolated enum BackendAPIResponseValidator {
-    static func hasMatchingOrigin(requestURL: URL?, responseURL: URL?) -> Bool {
-        guard let requestURL,
-              let responseURL,
-              let requestScheme = requestURL.scheme?.lowercased(),
-              let responseScheme = responseURL.scheme?.lowercased(),
-              let requestHost = requestURL.host?.lowercased(),
-              let responseHost = responseURL.host?.lowercased() else {
-            return false
-        }
-        return requestScheme == responseScheme
-            && requestHost == responseHost
-            && effectivePort(for: requestURL) == effectivePort(for: responseURL)
-    }
-
-    static func isJSONResponse(_ response: HTTPURLResponse, data: Data) -> Bool {
-        let mimeType = (response.mimeType ?? "").lowercased()
-        if mimeType == "application/json" || mimeType.hasSuffix("+json") {
-            return true
-        }
-        return (try? JSONSerialization.jsonObject(with: data)) != nil
-    }
-
-    static func isHealthyResponse(
-        requestURL: URL?,
-        response: HTTPURLResponse,
-        data: Data
-    ) -> Bool {
-        guard hasMatchingOrigin(requestURL: requestURL, responseURL: response.url) else {
-            return false
-        }
-        guard response.statusCode == 304 || (200...299).contains(response.statusCode) else {
-            return false
-        }
-        if response.statusCode == 304 {
-            return true
-        }
-        if let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-           object["ok"] as? Bool == true {
-            return true
-        }
-        let text = String(data: data, encoding: .utf8)?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-        return text == "ok"
-    }
-
-    private static func effectivePort(for url: URL) -> Int? {
-        if let port = url.port { return port }
-        switch url.scheme?.lowercased() {
-        case "http": return 80
-        case "https": return 443
-        default: return nil
-        }
-    }
-}
-
 final class BackendClient {
     private static let craftSchemaVersion = 1
     private static let sharedBackendBaseURLDefaultsKeyStatic = "backend_base_url"
@@ -2659,7 +2602,7 @@ final class BackendClient {
         }
         attachAuthorizationHeader(to: &request)
 
-        let (data, response) = try await urlSession.data(for: request)
+        let (data, response) = try await urlSession.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
         guard let http = response as? HTTPURLResponse else {
             throw BackendError.http(-1, "Invalid block-signal response.")
         }
@@ -2702,7 +2645,7 @@ final class BackendClient {
         }
         attachAuthorizationHeader(to: &request)
 
-        let (data, response) = try await urlSession.data(for: request)
+        let (data, response) = try await urlSession.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
         guard let http = response as? HTTPURLResponse else {
             throw BackendError.http(-1, "Invalid block-signal history response.")
         }
@@ -2764,7 +2707,7 @@ final class BackendClient {
         }
         attachAuthorizationHeader(to: &request)
 
-        let (data, response) = try await urlSession.data(for: request)
+        let (data, response) = try await urlSession.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
         guard let http = response as? HTTPURLResponse else {
             throw BackendError.http(-1, "Invalid character-traits response.")
         }
@@ -2806,7 +2749,7 @@ final class BackendClient {
         }
         attachAuthorizationHeader(to: &request)
 
-        let (data, response) = try await urlSession.data(for: request)
+        let (data, response) = try await urlSession.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
         guard let http = response as? HTTPURLResponse else {
             throw BackendError.http(-1, "Invalid character-archetypes response.")
         }
@@ -2928,7 +2871,7 @@ final class BackendClient {
             attachAuthorizationHeader(to: &request)
             request.httpBody = bodyData
 
-            let (data, response) = try await urlSession.data(for: request)
+            let (data, response) = try await urlSession.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
             guard let http = response as? HTTPURLResponse else {
                 throw BackendError.http(-1, "Invalid screenplay prompt response.")
             }
@@ -3207,7 +3150,7 @@ final class BackendClient {
         attachAuthorizationHeader(to: &request)
         request.httpBody = try JSONSerialization.data(withJSONObject: body, options: [])
 
-        let (data, response) = try await urlSession.data(for: request)
+        let (data, response) = try await urlSession.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
         guard let http = response as? HTTPURLResponse else {
             throw BackendError.stage("page_cancel", "Invalid page-cancel response.")
         }
@@ -3340,7 +3283,7 @@ final class BackendClient {
         body.appendString("--\(boundary)--\r\n")
         request.httpBody = body
 
-        let (data, response) = try await urlSession.data(for: request)
+        let (data, response) = try await urlSession.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
         guard let http = response as? HTTPURLResponse else {
             throw BackendError.http(-1, "Invalid speculative prepare response.")
         }
@@ -3457,7 +3400,7 @@ final class BackendClient {
             options: []
         )
 
-        let (data, response) = try await urlSession.data(for: request)
+        let (data, response) = try await urlSession.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
         guard let http = response as? HTTPURLResponse else {
             throw BackendError.http(-1, "Invalid realtime grounding response.")
         }
@@ -3548,7 +3491,7 @@ final class BackendClient {
         )
         request.httpBody = try JSONSerialization.data(withJSONObject: body, options: [])
 
-        let (data, response) = try await urlSession.data(for: request)
+        let (data, response) = try await urlSession.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
         guard let http = response as? HTTPURLResponse else {
             throw BackendError.http(-1, "Invalid realtime session response.")
         }
@@ -3696,7 +3639,7 @@ final class BackendClient {
             attachAuthorizationHeader(to: &request)
             request.httpBody = requestBody
 
-            let (data, response) = try await urlSession.data(for: request)
+            let (data, response) = try await urlSession.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
             guard let http = response as? HTTPURLResponse else {
                 throw BackendError.http(-1, "Invalid Studio render response.")
             }
@@ -3836,7 +3779,7 @@ final class BackendClient {
             attachAuthorizationHeader(to: &request)
             request.httpBody = requestBody
 
-            let (bytes, response) = try await urlSession.bytes(for: request)
+            let (bytes, response) = try await urlSession.bytes(for: request, delegate: BackendHTTPRedirectGuard.shared)
             guard let http = response as? HTTPURLResponse else {
                 throw BackendError.http(-1, "Invalid Studio render stream response.")
             }
@@ -4187,7 +4130,7 @@ final class BackendClient {
         ]
         request.httpBody = try JSONSerialization.data(withJSONObject: body, options: [])
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await URLSession.shared.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
         guard let http = response as? HTTPURLResponse else {
             throw BackendError.http(-1, "Invalid visual context response.")
         }
@@ -5406,7 +5349,7 @@ final class BackendClient {
         while true {
             let result: (Data, URLResponse)
             do {
-                result = try await urlSession.data(for: request)
+                result = try await urlSession.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
             } catch {
                 guard shouldRetryTalk(for: error), attempt + 1 < maxTurnMetaAttempts else {
                     throw error
@@ -5611,7 +5554,7 @@ final class BackendClient {
         request.httpBody = Data("{}".utf8)
 
         print("POST /session -> url=\(request.url?.absoluteString ?? "-") has_app_token=\(appToken != nil)")
-        let (data, response) = try await urlSession.data(for: request)
+        let (data, response) = try await urlSession.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
         let http = response as? HTTPURLResponse
         let status = http?.statusCode ?? -1
         let requestID = http?.value(forHTTPHeaderField: "X-Request-Id") ?? "-"
@@ -5760,7 +5703,7 @@ final class BackendClient {
         )
         request.httpBody = bodyData
 
-        let (data, response) = try await urlSession.data(for: request)
+        let (data, response) = try await urlSession.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
         guard let http = response as? HTTPURLResponse else {
             throw BackendError.http(-1, "Invalid craft response.")
         }
@@ -5932,7 +5875,7 @@ final class BackendClient {
                         onChunk: onChunk
                     )
                 } else {
-                    result = try await URLSession.shared.data(for: request)
+                    result = try await URLSession.shared.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
                 }
                 if let http = result.1 as? HTTPURLResponse,
                    BackendProviderFailurePolicy.shouldRetryHTTP(
@@ -5989,6 +5932,17 @@ final class BackendClient {
 
         func attach(_ continuation: CheckedContinuation<(Data, URLResponse), Error>) {
             self.continuation = continuation
+        }
+
+        func urlSession(
+            _ session: URLSession,
+            task: URLSessionTask,
+            willPerformHTTPRedirection response: HTTPURLResponse,
+            newRequest request: URLRequest,
+            completionHandler: @escaping @Sendable (URLRequest?) -> Void
+        ) {
+            BackendHTTPRedirectGuard.shared.urlSession(session, task: task,
+                willPerformHTTPRedirection: response, newRequest: request, completionHandler: completionHandler)
         }
 
         func urlSession(
@@ -6081,7 +6035,7 @@ final class BackendClient {
         onResponse: ((HTTPURLResponse) -> Void)? = nil,
         onChunk: ((Data, HTTPURLResponse) -> Void)? = nil
     ) async throws -> (Data, URLResponse) {
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await URLSession.shared.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
         if let http = response as? HTTPURLResponse {
             onResponse?(http)
             if !data.isEmpty {
@@ -6096,7 +6050,7 @@ final class BackendClient {
         onResponse: ((HTTPURLResponse) -> Void)? = nil,
         onChunk: ((Data, HTTPURLResponse) -> Void)? = nil
     ) async throws -> (Data, URLResponse) {
-        let (bytes, response) = try await URLSession.shared.bytes(for: request)
+        let (bytes, response) = try await URLSession.shared.bytes(for: request, delegate: BackendHTTPRedirectGuard.shared)
         if let http = response as? HTTPURLResponse {
             onResponse?(http)
         }
@@ -6241,7 +6195,7 @@ final class BackendClient {
             request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
             request.setValue("no-cache", forHTTPHeaderField: "Pragma")
 
-            let (data, response) = try await urlSession.data(for: request)
+            let (data, response) = try await urlSession.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
             guard let http = response as? HTTPURLResponse else { return false }
             return BackendAPIResponseValidator.isHealthyResponse(
                 requestURL: healthURL,
@@ -6315,7 +6269,7 @@ final class BackendClient {
             options: []
         )
 
-        let (data, response) = try await urlSession.data(for: request)
+        let (data, response) = try await urlSession.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
         guard let http = response as? HTTPURLResponse else {
             throw BackendError.stage("iap_credit", "Invalid IAP credit response.")
         }
