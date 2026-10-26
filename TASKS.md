@@ -16,8 +16,15 @@
 - **Binary success:** current interrupted first-save workflow red then green;
   exact text/IDs/versions survive relaunch and named creation. Signed units,
   authenticated recovery/voice, Node20, Mac/D009/diff. No paid provider calls.
-- **Status:** in-progress. Current native reproduction pending; interrupted
-  talk enqueue/reconciliationc1e9255 remains a separate required next boundary.
+- **Status:** local review ata846dc3. Actual signed UI red0/1/0 atd50344b:
+  empty project/zero first versions while receipt held. Same workflow now1/0/0;
+  signed units859/0/0, named creation1/0/0, blank writer1/0/0, raw voice1/0/0,
+  authenticated recovery3/0/0; Node20 full2882/0/2, Mac/D009/diff pass.
+  Initial IDs/bytes/newer edits survive relaunch; no duplicate project. No paid
+  calls, physical-phone or external screenplay opening claim.
+- **Evidence:** `docs/first-project-client-recovery-2026-10-26.md`; permanent
+  T-1168-20261026.Zq2ObA. Original647/main remain held. Interrupted talk
+  enqueue/reconciliationc1e9255 is the separate required next boundary.
 
 ### T-1167 — Commit the first project and draft together
 
