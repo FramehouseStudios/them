@@ -5135,6 +5135,11 @@ private var projectsSidebarContent: some View {
             onImport: {
                 importDraftDocument()
             },
+            onPrepareExport: {
+                #if os(iOS)
+                endCompactScreenplayEditing()
+                #endif
+            },
             exportProjectID: vm.selectedProjectID,
             onExport: { format, coordinator in
                 Task { await exportCurrentDraft(format: format, coordinator: coordinator) }

@@ -664,7 +664,8 @@ final class V1SmokeUITests: XCTestCase {
         let markdown = app.buttons["studio.export.md"]
         XCTAssertTrue(markdown.waitForExistence(timeout: 5))
         guard dismissKeyboardTypingTutorialIfPresent(in: app) else { return }
-        XCTAssertTrue(revealInStudioDrawer(markdown, drawer: drawer, scrollingUp: false, maxSwipes: 8))
+        XCTAssertTrue(waitForDisappearance(of: app.keyboards.firstMatch, timeout: 5), "Export choices must end editor focus without a test keyboard-dismiss action")
+        XCTAssertTrue(revealInStudioDrawer(markdown, drawer: drawer, scrollingUp: true, maxSwipes: 8))
         markdown.tap()
         guard waitForNativeFilesExporter(in: app, presented: true, timeout: 10) else {
             XCTFail("The real export did not open Files.\n\(app.debugDescription)"); return
@@ -676,7 +677,7 @@ final class V1SmokeUITests: XCTestCase {
         XCTAssertFalse(staticText(containing: "Saved Native-export-proof.md", in: app).exists)
         XCTAssertTrue(revealInStudioDrawer(menu, drawer: drawer, scrollingUp: false, maxSwipes: 8))
         menu.tap()
-        XCTAssertTrue(revealInStudioDrawer(markdown, drawer: drawer, scrollingUp: false, maxSwipes: 8))
+        XCTAssertTrue(revealInStudioDrawer(markdown, drawer: drawer, scrollingUp: true, maxSwipes: 8))
         markdown.tap()
         guard waitForNativeFilesExporter(in: app, presented: true, timeout: 10) else {
             XCTFail("Retry did not open Files.\n\(app.debugDescription)"); return
@@ -1308,6 +1309,7 @@ final class V1SmokeUITests: XCTestCase {
         exportMenu.tap()
         let markdownExport = app.buttons["studio.export.md"]
         XCTAssertTrue(markdownExport.waitForExistence(timeout: writerLoopWait(5)), "Export Copy did not offer Markdown.")
+        XCTAssertTrue(revealInStudioDrawer(markdownExport, drawer: rightDrawer, scrollingUp: true, maxSwipes: 8))
         markdownExport.tap()
         guard waitForNativeFilesExporter(in: app, presented: true, timeout: writerLoopWait(10)) else {
             XCTFail("Real export did not present the native Files picker.\n\(app.debugDescription)")
@@ -1327,6 +1329,7 @@ final class V1SmokeUITests: XCTestCase {
         XCTAssertTrue(revealInStudioDrawer(exportMenu, drawer: rightDrawer, scrollingUp: false, maxSwipes: 8))
         exportMenu.tap()
         XCTAssertTrue(markdownExport.waitForExistence(timeout: writerLoopWait(5)))
+        XCTAssertTrue(revealInStudioDrawer(markdownExport, drawer: rightDrawer, scrollingUp: true, maxSwipes: 8))
         markdownExport.tap()
         guard waitForNativeFilesExporter(in: app, presented: true, timeout: writerLoopWait(10)) else {
             XCTFail("The second export did not present the native Files picker.\n\(app.debugDescription)")

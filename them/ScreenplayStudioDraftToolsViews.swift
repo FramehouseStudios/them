@@ -164,6 +164,7 @@ struct ScreenplayStudioDraftIntegrityActions {
 struct ScreenplayStudioDraftToolsActions {
     let onSaveNow: () -> Void
     let onImport: () -> Void
+    let onPrepareExport: () -> Void
     let exportProjectID: String
     let onExport: (String, ScreenplayStudioExportCoordinator) -> Void
     let onRefreshExportFormats: () -> Void
@@ -545,6 +546,7 @@ private struct ScreenplayStudioDraftDocumentControls: View {
 #if os(iOS)
         VStack(alignment: .leading, spacing: 8) {
             Button {
+                if !isExportExpanded { actions.onPrepareExport() }
                 isExportExpanded.toggle()
             } label: {
                 HStack(spacing: 8) {
