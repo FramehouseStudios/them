@@ -15,6 +15,7 @@ if (!/^platform=iOS Simulator,id=[A-F0-9-]+$/.test(destination)) {
   throw new Error('An explicit task-owned IOS_SIMULATOR_DESTINATION is required');
 }
 const allowedTests = [
+  'themUITests/V1SmokeUITests/test_screenplay_export_returns_a_file',
   'themUITests/V1SmokeUITests/test_confirmed_home_voice_turn_opens_studio_writes_and_restores',
   'themUITests/V1SmokeUITests/test_home_raw_audio_uses_current_server_transcript_writes_and_restores',
   'themUITests/V1SmokeUITests/test_home_raw_audio_studio_stop_ends_capture_and_cancels_page',
@@ -32,7 +33,7 @@ const allowedTests = [
   'themUITests/V1SmokeUITests/test_received_talk_reply_is_reviewed_and_exported_without_resend_after_relaunch',
   'themUITests/V1SmokeUITests/test_queued_talk_reply_plays_appends_saves_and_restores_once',
 ];
-const tests = process.env.ONLY_TESTING ? [process.env.ONLY_TESTING] : allowedTests.slice(0, 2);
+const tests = process.env.ONLY_TESTING ? [process.env.ONLY_TESTING] : allowedTests.slice(1, 3);
 if (tests.some(test => !allowedTests.includes(test))) throw new Error('Unsupported Home voice proof test');
 if (process.env.THEM_HOME_VOICE_LONG_AUDIO === '1' && (tests.length !== 1 || !tests[0].includes('home_raw_audio'))) throw new Error('Long audio regression requires the raw-audio case alone');
 // Reuse the measured audio asset so Stop interrupts an active turn, rather

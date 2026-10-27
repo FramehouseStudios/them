@@ -632,25 +632,63 @@ final class V1SmokeUITests: XCTestCase {
         )
     }
 
-    func test_screenplay_export_returns_a_file() {
-        let app = launchApp(openStudio: true, openExportTools: true, structuralSeed: true)
-        XCTAssertTrue(waitForDraft(in: app, containing: "INT. DINER - NIGHT", timeout: 10))
-
-        let exportMenu = app.buttons["studio.export.menu"]
-        if !exportMenu.waitForExistence(timeout: 4) {
-            app.swipeUp()
+    @MainActor
+    func test_screenplay_export_returns_a_file() async throws {
+#if os(iOS)
+        guard let port = Int(ProcessInfo.processInfo.environment["THEM_UITEST_WRITER_LOOP_BACKEND_PORT"] ?? ""),
+              let baseURL = URL(string: "http://127.0.0.1:\(port)") else {
+            throw XCTSkip("A dedicated authenticated backend is required; no fake export.")
         }
-        XCTAssertTrue(exportMenu.waitForExistence(timeout: 6))
-        exportMenu.tap()
-
-        let markdownItem = app.buttons["studio.export.md"]
-        if markdownItem.waitForExistence(timeout: 3) {
-            markdownItem.tap()
-        } else {
-            app.buttons.matching(NSPredicate(format: "label CONTAINS[c] %@", "Markdown")).firstMatch.tap()
+        let fixture = try await createWriterLoopAuthenticationFixture(baseURL: baseURL)
+        let projectID = "export-ui-\(UUID().uuidString.lowercased())"
+        let title = "Native export proof"
+        let draft = "INT. OBSERVATORY - NIGHT\n\nÉlodie holds the key & map. 👩🏽‍🚀\n\nJOHN\nKeep my last line.\n"
+        let created = try await requestJSON(baseURL: baseURL, path: "/screenplay/projects", method: "POST",
+            headers: fixture.authorizedHeaders, body: ["project_id": projectID, "title": title, "activate": true])
+        try assertHTTP(created, context: "Export project")
+        let saved = try await requestJSON(baseURL: baseURL, path: "/screenplay/projects/\(projectID)/version", method: "POST",
+            headers: fixture.authorizedHeaders, body: ["draft": draft, "phase": "scene_draft", "base_version_id": ""])
+        try assertHTTP(saved, context: "Export saved version")
+        let versionID = try firstNonEmptyString(saved.payload["version_id"], saved.payload["server_version_id"], message: "Export needs a saved version")
+        let app = launchApp(openStudio: true, openExportTools: true, restoreProjectID: projectID,
+            restoreVersionID: versionID, restoreLoadToken: Int(Date().timeIntervalSince1970),
+            launchEnvironment: fixture.appLaunchEnvironment)
+        defer { app.terminate() }
+        XCTAssertTrue(waitForDraft(in: app, containing: "Keep my last line.", timeout: 20))
+        let before = accessibleDraftText(in: app)
+        let menu = app.buttons["studio.export.menu"]
+        let drawer = element(identifier: "studio.sidebar.right.drawer", in: app)
+        XCTAssertTrue(revealInStudioDrawer(menu, drawer: drawer, scrollingUp: false, maxSwipes: 8))
+        menu.tap()
+        let markdown = app.buttons["studio.export.md"]
+        XCTAssertTrue(markdown.waitForExistence(timeout: 5))
+        markdown.tap()
+        XCTAssertTrue(waitForNativeFilesExporter(in: app, presented: true, timeout: 10), app.debugDescription)
+        XCTAssertTrue(dismissNativeFilesExporter(in: app), app.debugDescription)
+        XCTAssertEqual(Data(accessibleDraftText(in: app).utf8), Data(before.utf8))
+        XCTAssertFalse(staticText(containing: "Saved Native-export-proof.md", in: app).exists)
+        menu.tap()
+        markdown.tap()
+        XCTAssertTrue(waitForNativeFilesExporter(in: app, presented: true, timeout: 10), app.debugDescription)
+        var save = app.buttons["Save"]
+        if !waitForHittability(of: save, timeout: 2) {
+            let local = element(identifier: "DOC.sidebar.item.On My iPhone", in: app)
+            XCTAssertTrue(waitForHittability(of: local, timeout: 5), app.debugDescription)
+            local.tap()
+            save = app.buttons["Save"]
         }
-
-        XCTAssertTrue(staticText(containing: "Saved", in: app).waitForExistence(timeout: 6))
+        XCTAssertTrue(waitForHittability(of: save, timeout: 5), app.debugDescription)
+        save.tap()
+        XCTAssertTrue(waitForNativeFilesExporter(in: app, presented: false, timeout: 8))
+        XCTAssertTrue(staticText(containing: "Saved Native-export-proof.md", in: app).waitForExistence(timeout: 8), app.debugDescription)
+        XCTAssertEqual(Data(accessibleDraftText(in: app).utf8), Data(before.utf8))
+        let savedImage = XCTAttachment(screenshot: app.screenshot())
+        savedImage.name = "Native screenplay Files save acknowledged"
+        savedImage.lifetime = .keepAlways
+        add(savedImage)
+#else
+        throw XCTSkip("Native iPhone export workflow")
+#endif
     }
 
     @MainActor
@@ -1260,9 +1298,51 @@ final class V1SmokeUITests: XCTestCase {
         let markdownExport = app.buttons["studio.export.md"]
         XCTAssertTrue(markdownExport.waitForExistence(timeout: writerLoopWait(5)), "Export Copy did not offer Markdown.")
         markdownExport.tap()
+        guard waitForNativeFilesExporter(in: app, presented: true, timeout: writerLoopWait(10)) else {
+            XCTFail("Real export did not present the native Files picker.\n\(app.debugDescription)")
+            return
+        }
+        let firstPicker = XCTAttachment(screenshot: app.screenshot())
+        firstPicker.name = "writer-loop-files-before-cancel.png"
+        firstPicker.lifetime = .keepAlways
+        add(firstPicker)
+
+        guard dismissNativeFilesExporter(in: app) else {
+            XCTFail("Cancel did not dismiss the native Files picker.\n\(app.debugDescription)")
+            return
+        }
+        XCTAssertTrue(waitForExactWriterLoopDraft(marker, in: app, timeout: writerLoopWait(5)))
+
+        XCTAssertTrue(revealInStudioDrawer(exportMenu, drawer: rightDrawer, scrollingUp: false, maxSwipes: 8))
+        exportMenu.tap()
+        XCTAssertTrue(markdownExport.waitForExistence(timeout: writerLoopWait(5)))
+        markdownExport.tap()
+        guard waitForNativeFilesExporter(in: app, presented: true, timeout: writerLoopWait(10)) else {
+            XCTFail("The second export did not present the native Files picker.\n\(app.debugDescription)")
+            return
+        }
+        let saveExport = element(identifier: "Save", in: app)
+        if !waitForHittability(of: saveExport, timeout: writerLoopWait(2)) {
+            let onMyIPhone = element(identifier: "DOC.sidebar.item.On My iPhone", in: app)
+            XCTAssertTrue(
+                waitForHittability(of: onMyIPhone, timeout: writerLoopWait(5)),
+                "Files exposed neither Save nor the On My iPhone destination.\n\(app.debugDescription)"
+            )
+            onMyIPhone.tap()
+        }
         XCTAssertTrue(
-            staticText(containing: expectedMarkdownFilename, in: app).waitForExistence(timeout: writerLoopWait(10)),
-            "Markdown export did not report its .md artifact."
+            waitForHittability(of: saveExport, timeout: writerLoopWait(10)),
+            "The second export did not offer native Save.\n\(app.debugDescription)"
+        )
+        let savePicker = XCTAttachment(screenshot: app.screenshot())
+        savePicker.name = "writer-loop-files-before-save.png"
+        savePicker.lifetime = .keepAlways
+        add(savePicker)
+        saveExport.tap()
+        XCTAssertTrue(
+            staticText(containing: "Saved " + expectedMarkdownFilename, in: app)
+                .waitForExistence(timeout: writerLoopWait(10)),
+            "Markdown export did not confirm the native Files save.\n\(app.debugDescription)"
         )
         app.terminate()
 

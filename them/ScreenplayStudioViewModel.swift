@@ -5466,6 +5466,19 @@ final class ScreenplayStudioViewModel: ObservableObject {
         max(1, estimatedFeaturePageCount)
     }
 
+    func makeStudioExportContextGuard() -> () -> Bool {
+        let projectID = selectedProjectID
+        let context = currentStudioAuthContext()
+        let documentID = ScreenplayLiveDraftBridge.shared.draftOrigin.documentID
+        let backendURL = BackendAuthClient.resolvedBackendBaseURL()
+        return { [weak self] in
+            guard let self else { return false }
+            return self.selectedProjectID == projectID && self.authContextIsCurrent(context)
+                && ScreenplayLiveDraftBridge.shared.draftOrigin.documentID == documentID
+                && OfflineTalkRecoveryScope.sameBackend(backendURL, BackendAuthClient.resolvedBackendBaseURL())
+        }
+    }
+
     func exportArtifact(format: String) async throws -> BackendScreenplayExportArtifact {
         guard let project = selectedProject else {
             throw BackendMemoryAPIError.server(status: 400, message: "Select a project first.")

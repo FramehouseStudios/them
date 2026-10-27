@@ -1,6 +1,8 @@
 import XCTest
+import UniformTypeIdentifiers
 @testable import them
 
+@MainActor
 final class ScreenplayStudioExportSupportTests: XCTestCase {
     func testPreferredExportDirectoryPrefersNavigatorURL() throws {
         let navigator = URL(fileURLWithPath: "/tmp/studio-nav", isDirectory: true)
@@ -45,27 +47,420 @@ final class ScreenplayStudioExportSupportTests: XCTestCase {
         XCTAssertEqual(payload.clipboardText, "INT. ROOM - DAY\n\nHello.")
     }
 
-#if DEBUG && !os(macOS)
-    func testUITestFDXArtifactUsesFirstSceneHeading() throws {
-        let artifact = try ScreenplayStudioExportSupport.makeUITestArtifact(
-            draft: "INT. KITCHEN - NIGHT\n\nMaya waits.",
-            title: "Kitchen Scene!",
-            format: "fdx"
-        )
-        XCTAssertEqual(artifact.format, "fdx")
-        XCTAssertEqual(artifact.filename, "Kitchen-Scene.fdx")
-        let xml = try XCTUnwrap(String(data: artifact.data, encoding: .utf8))
-        XCTAssertTrue(xml.contains("INT. KITCHEN - NIGHT"))
+    func testGoogleDocsHandoffCopiesExactDraftBeforeOpening() {
+        let recorder = ExportRecorder()
+        let draft = "  INT. CAFÉ — NIGHT\n\nÉlodie waits.  \n"
+        var dependencies = exportDependencies(recorder)
+        dependencies.draft = draft
+        dependencies.copyToClipboard = { copiedDraft in
+            recorder.events.append("copy")
+            recorder.copiedDrafts.append(copiedDraft)
+            return true
+        }
+        dependencies.openURL = { url, completion in
+            recorder.events.append("open")
+            recorder.openedURLs.append(url)
+            completion(true)
+        }
+
+        ScreenplayStudioExportSupport.openInGoogleDocs(deps: dependencies)
+
+        XCTAssertEqual(recorder.events, ["copy", "open"])
+        XCTAssertEqual(recorder.copiedDrafts, [draft])
+        XCTAssertEqual(recorder.openedURLs.map(\.absoluteString), ["https://docs.new"])
+        XCTAssertEqual(recorder.errors.last, "")
+        XCTAssertEqual(recorder.info.last, "Draft copied to clipboard. Paste it into the new Google Doc.")
     }
 
-    func testUITestArtifactRejectsEmptyDraft() {
-        XCTAssertThrowsError(
-            try ScreenplayStudioExportSupport.makeUITestArtifact(
-                draft: " ",
-                title: "Empty",
-                format: "md"
+    func testGoogleDocsHandoffDoesNotOpenWhenClipboardCopyFails() {
+        let recorder = ExportRecorder()
+        var dependencies = exportDependencies(recorder)
+        dependencies.copyToClipboard = { _ in false }
+        dependencies.openURL = { url, completion in
+            recorder.openedURLs.append(url)
+            completion(true)
+        }
+
+        ScreenplayStudioExportSupport.openInGoogleDocs(deps: dependencies)
+
+        XCTAssertTrue(recorder.openedURLs.isEmpty)
+        XCTAssertEqual(recorder.errors.last, "Could not copy the draft. Google Docs was not opened.")
+    }
+
+    func testGoogleDocsHandoffReportsOpenFailureWithoutClaimingDataLoss() {
+        let recorder = ExportRecorder()
+        var dependencies = exportDependencies(recorder)
+        dependencies.copyToClipboard = { copiedDraft in
+            recorder.copiedDrafts.append(copiedDraft)
+            return true
+        }
+        dependencies.openURL = { url, completion in
+            recorder.openedURLs.append(url)
+            completion(false)
+        }
+
+        ScreenplayStudioExportSupport.openInGoogleDocs(deps: dependencies)
+
+        XCTAssertEqual(recorder.copiedDrafts, [dependencies.draft])
+        XCTAssertEqual(recorder.openedURLs.map(\.absoluteString), ["https://docs.new"])
+        XCTAssertEqual(recorder.info.last, "Draft copied to clipboard. Paste it into Google Docs when you open it.")
+        XCTAssertEqual(recorder.errors.last, "Could not open Google Docs. Your draft is still on the clipboard.")
+    }
+
+    func testExportDocumentPreservesBytesFilenameAndDeclaredContentType() {
+        let fixtures = [
+            BackendScreenplayExportArtifact(
+                format: "md",
+                filename: "complete-scene.md",
+                contentType: "text/markdown; charset=utf-8",
+                data: Data("# Scene\n\nÉLODIE 👩🏽‍🚀\n".utf8)
+            ),
+            BackendScreenplayExportArtifact(
+                format: "pdf",
+                filename: "complete-scene.pdf",
+                contentType: "application/pdf",
+                data: Data([0, 255, 10, 13, 128])
+            ),
+            BackendScreenplayExportArtifact(
+                format: "fdx",
+                filename: "complete-scene.fdx",
+                contentType: "application/xml",
+                data: Data("<FinalDraft/>".utf8)
+            ),
+            BackendScreenplayExportArtifact(
+                format: "fountain",
+                filename: "complete-scene.fountain",
+                contentType: "text/plain",
+                data: Data("INT. ROOM - DAY\n".utf8)
+            ),
+        ]
+
+        for fixture in fixtures {
+            let document = ScreenplayStudioExportDocument(artifact: fixture)
+            XCTAssertEqual(document.makeFileWrapper().regularFileContents, fixture.data)
+            XCTAssertEqual(document.filename, fixture.filename)
+            XCTAssertTrue(
+                ScreenplayStudioExportDocument.writableContentTypes.contains(document.contentType),
+                "The Files exporter must declare \(document.contentType.identifier) writable."
             )
+        }
+    }
+
+    func testExportDocumentStripsPathsWithoutChangingBytes() {
+        let bytes = Data("INT. ROOM - DAY\n".utf8)
+        let fixture = BackendScreenplayExportArtifact(
+            format: "md",
+            filename: "../../private\\scene\n.md",
+            contentType: "text/markdown",
+            data: bytes
         )
+        let document = ScreenplayStudioExportDocument(artifact: fixture)
+        XCTAssertEqual(document.filename, "scene.md")
+        XCTAssertEqual(document.makeFileWrapper().regularFileContents, bytes)
+    }
+
+#if !os(macOS)
+    func testFailedBackendExportKeepsDraftAndAllowsRetryWithoutClaimingSave() async {
+        let recorder = ExportRecorder()
+        let coordinator = ScreenplayStudioExportCoordinator()
+        var dependencies = exportDependencies(recorder)
+        let original = dependencies.draft
+        dependencies.exportFromBackend = { _ in
+            throw BackendMemoryAPIError.server(status: 503, message: "Export temporarily unavailable")
+        }
+        await coordinator.export(format: "md", deps: dependencies)
+        XCTAssertNil(coordinator.requestID)
+        XCTAssertNil(coordinator.document)
+        XCTAssertFalse(coordinator.isPresented)
+        XCTAssertEqual(dependencies.draft, original)
+        XCTAssertFalse(recorder.info.contains { $0.hasPrefix("Saved ") || $0.hasPrefix("Choose where") })
+        XCTAssertTrue(recorder.errors.contains { !$0.isEmpty })
+        await coordinator.export(format: "md", deps: exportDependencies(recorder))
+        XCTAssertTrue(coordinator.isPresented)
+        coordinator.cancel(requestID: coordinator.requestID)
+    }
+
+    func testLeavingStudioDuringPreparationCannotPresentLateArtifact() async {
+        let recorder = ExportRecorder()
+        let coordinator = ScreenplayStudioExportCoordinator()
+        var dependencies = exportDependencies(recorder)
+        let artifact = exportArtifact
+        dependencies.exportFromBackend = { _ in
+            coordinator.studioDidDisappear()
+            await Task.yield()
+            return artifact
+        }
+        await coordinator.export(format: "md", deps: dependencies)
+        XCTAssertNil(coordinator.requestID)
+        XCTAssertNil(coordinator.document)
+        XCTAssertFalse(coordinator.isPresented)
+        XCTAssertFalse(recorder.info.contains { $0.hasPrefix("Saved ") || $0.hasPrefix("Choose where") })
+    }
+
+    func testNativeExportIgnoresCompletionAfterNewAuthenticationIntentForSameProject() async throws {
+        let model = ScreenplayStudioViewModel()
+        model.autosaveEnabled = false
+        model.selectedProjectID = "export-project"
+        let recorder = ExportRecorder()
+        var dependencies = exportDependencies(recorder)
+        dependencies.isCurrentContext = model.makeStudioExportContextGuard()
+        let coordinator = ScreenplayStudioExportCoordinator()
+        await coordinator.export(format: "md", deps: dependencies)
+        let oldID = try XCTUnwrap(coordinator.requestID)
+        XCTAssertTrue(coordinator.isPresented)
+        XCTAssertTrue(dependencies.isCurrentContext())
+
+        // The same project/owner may remain selected during a new sign-in.
+        // Exercise the real canonical generation, not a mock "isCurrent" flag.
+        _ = BackendAuthClient.reserveAuthSessionIntent()
+        XCTAssertEqual(model.selectedProjectID, "export-project")
+        XCTAssertFalse(dependencies.isCurrentContext())
+        coordinator.invalidateIfContextChanged()
+        coordinator.complete(.success(URL(fileURLWithPath: "/stale/complete-scene.md")), requestID: oldID)
+
+        XCTAssertNil(coordinator.requestID)
+        XCTAssertNil(coordinator.document)
+        XCTAssertFalse(coordinator.isPresented)
+        XCTAssertFalse(recorder.info.contains { $0.hasPrefix("Saved ") })
+    }
+
+    func testNativeExportDropsPreparedArtifactAfterAuthenticationIntentChanges() async {
+        let model = ScreenplayStudioViewModel()
+        model.autosaveEnabled = false
+        model.selectedProjectID = "export-project"
+        let recorder = ExportRecorder()
+        var dependencies = exportDependencies(recorder)
+        dependencies.isCurrentContext = model.makeStudioExportContextGuard()
+        let artifact = exportArtifact
+        dependencies.exportFromBackend = { _ in
+            _ = BackendAuthClient.reserveAuthSessionIntent()
+            await Task.yield()
+            return artifact
+        }
+        let coordinator = ScreenplayStudioExportCoordinator()
+        await coordinator.export(format: "md", deps: dependencies)
+
+        XCTAssertNil(coordinator.requestID)
+        XCTAssertNil(coordinator.document)
+        XCTAssertFalse(coordinator.isPresented)
+        XCTAssertFalse(recorder.info.contains { $0.hasPrefix("Saved ") || $0.hasPrefix("Choose where") })
+    }
+
+    func testNativeExportDropsPreparedArtifactAfterProjectChanges() async {
+        let model = ScreenplayStudioViewModel()
+        model.autosaveEnabled = false
+        model.selectedProjectID = "export-project"
+        let recorder = ExportRecorder()
+        var dependencies = exportDependencies(recorder)
+        dependencies.isCurrentContext = model.makeStudioExportContextGuard()
+        let artifact = exportArtifact
+        dependencies.exportFromBackend = { _ in
+            model.selectedProjectID = "another-project"
+            await Task.yield()
+            return artifact
+        }
+        let coordinator = ScreenplayStudioExportCoordinator()
+        await coordinator.export(format: "md", deps: dependencies)
+
+        XCTAssertNil(coordinator.requestID)
+        XCTAssertNil(coordinator.document)
+        XCTAssertFalse(coordinator.isPresented)
+        XCTAssertFalse(recorder.info.contains { $0.hasPrefix("Saved ") || $0.hasPrefix("Choose where") })
+    }
+
+    func testIPhoneExportPresentsExactBackendArtifactBeforeClaimingSave() async throws {
+        let recorder = ExportRecorder()
+        let coordinator = ScreenplayStudioExportCoordinator()
+
+        await coordinator.export(format: "md", deps: exportDependencies(recorder))
+
+        XCTAssertEqual(recorder.requestedFormats, ["md"])
+        XCTAssertTrue(coordinator.isPresented)
+        XCTAssertEqual(try XCTUnwrap(coordinator.document).makeFileWrapper().regularFileContents, exportArtifact.data)
+        XCTAssertEqual(recorder.info.last, "Choose where to save complete-scene.md.")
+        XCTAssertFalse(recorder.info.contains { $0.hasPrefix("Saved ") })
+    }
+
+    func testIPhoneExportCancellationReleasesCoordinatorForRetry() async {
+        let recorder = ExportRecorder()
+        let coordinator = ScreenplayStudioExportCoordinator()
+
+        await coordinator.export(format: "md", deps: exportDependencies(recorder))
+        coordinator.cancel(requestID: coordinator.requestID)
+        await coordinator.export(format: "fdx", deps: exportDependencies(recorder))
+
+        XCTAssertEqual(recorder.requestedFormats, ["md", "fdx"])
+        XCTAssertTrue(coordinator.isPresented)
+        XCTAssertFalse(recorder.info.contains { $0.hasPrefix("Saved ") })
+    }
+
+    func testIPhoneExportIgnoresStalePickerCompletion() async throws {
+        let recorder = ExportRecorder()
+        let coordinator = ScreenplayStudioExportCoordinator()
+        await coordinator.export(format: "md", deps: exportDependencies(recorder))
+        let firstID = try XCTUnwrap(coordinator.requestID)
+        coordinator.cancel(requestID: firstID)
+        await coordinator.export(format: "md", deps: exportDependencies(recorder))
+        let secondID = try XCTUnwrap(coordinator.requestID)
+
+        coordinator.complete(.success(URL(fileURLWithPath: "/old/old.md")), requestID: firstID)
+
+        XCTAssertEqual(coordinator.requestID, secondID)
+        XCTAssertTrue(coordinator.isPresented)
+        XCTAssertFalse(recorder.info.contains { $0.hasPrefix("Saved ") })
+    }
+
+    func testDismissedNativePickerAllowsExplicitRetryWithoutCancellationCallback() async throws {
+        let recorder = ExportRecorder()
+        let coordinator = ScreenplayStudioExportCoordinator()
+        await coordinator.export(format: "md", deps: exportDependencies(recorder))
+        let firstID = try XCTUnwrap(coordinator.requestID)
+        let firstBinding = coordinator.presentationBinding(for: firstID)
+
+        // The native picker has left the screen but has not called either
+        // outcome callback. Dismissal alone still must not claim Save/Cancel.
+        firstBinding.wrappedValue = false
+        XCTAssertEqual(coordinator.requestID, firstID)
+        XCTAssertFalse(recorder.info.contains { $0.hasPrefix("Saved ") || $0 == "Export cancelled." })
+
+        await coordinator.export(format: "fdx", deps: exportDependencies(recorder))
+        let secondID = try XCTUnwrap(coordinator.requestID)
+        XCTAssertNotEqual(firstID, secondID, "A dismissed presentation must not lock out the writer's explicit retry.")
+        XCTAssertEqual(recorder.requestedFormats, ["md", "fdx"])
+        XCTAssertTrue(coordinator.isPresented)
+        XCTAssertEqual(coordinator.document?.data, exportArtifact.data)
+        XCTAssertFalse(recorder.errors.contains { !$0.isEmpty })
+
+        let infoBeforeLateCallbacks = recorder.info
+        firstBinding.wrappedValue = true
+        coordinator.cancel(requestID: firstID)
+        coordinator.complete(.success(URL(fileURLWithPath: "/stale/first.md")), requestID: firstID)
+        XCTAssertEqual(coordinator.requestID, secondID)
+        XCTAssertTrue(coordinator.isPresented)
+        XCTAssertEqual(recorder.info, infoBeforeLateCallbacks)
+        XCTAssertFalse(recorder.info.contains { $0.hasPrefix("Saved ") })
+
+        coordinator.presentationBinding(for: secondID).wrappedValue = false
+        coordinator.complete(.success(URL(fileURLWithPath: "/Files/retry.fdx")), requestID: secondID)
+        XCTAssertNil(coordinator.requestID)
+        XCTAssertEqual(recorder.info.last, "Saved retry.fdx to Files.")
+    }
+
+    func testExplicitRetryDoesNotReplaceStillPresentedNativePicker() async throws {
+        let recorder = ExportRecorder()
+        let coordinator = ScreenplayStudioExportCoordinator()
+        await coordinator.export(format: "md", deps: exportDependencies(recorder))
+        let firstID = try XCTUnwrap(coordinator.requestID)
+
+        await coordinator.export(format: "fdx", deps: exportDependencies(recorder))
+
+        XCTAssertEqual(coordinator.requestID, firstID)
+        XCTAssertTrue(coordinator.isPresented)
+        XCTAssertEqual(recorder.requestedFormats, ["md"])
+        XCTAssertEqual(recorder.errors.last, "Finish or cancel the current export before starting another.")
+        XCTAssertFalse(recorder.info.contains { $0.hasPrefix("Saved ") })
+        coordinator.cancel(requestID: firstID)
+    }
+
+    func testExplicitRetryDoesNotReplaceStillPreparingExport() async throws {
+        let recorder = ExportRecorder()
+        let coordinator = ScreenplayStudioExportCoordinator()
+        let artifact = exportArtifact
+        var dependencies = exportDependencies(recorder)
+        dependencies.exportFromBackend = { format in
+            recorder.requestedFormats.append(format)
+            let preparingID = try XCTUnwrap(coordinator.requestID)
+            XCTAssertNil(coordinator.document)
+            XCTAssertFalse(coordinator.isPresented)
+
+            await coordinator.export(format: "fdx", deps: self.exportDependencies(recorder))
+
+            XCTAssertEqual(coordinator.requestID, preparingID)
+            XCTAssertEqual(recorder.requestedFormats, ["md"])
+            return artifact
+        }
+        await coordinator.export(format: "md", deps: dependencies)
+
+        XCTAssertTrue(coordinator.isPresented)
+        XCTAssertEqual(coordinator.document?.data, artifact.data)
+        XCTAssertEqual(recorder.requestedFormats, ["md"])
+        XCTAssertTrue(recorder.errors.contains("Finish or cancel the current export before starting another."))
+        XCTAssertFalse(recorder.info.contains { $0.hasPrefix("Saved ") })
+        coordinator.cancel(requestID: coordinator.requestID)
+    }
+
+    func testNativePickerBindingAndCancellationRemainScopedToTheirPresentation() async throws {
+        let recorder = ExportRecorder()
+        let coordinator = ScreenplayStudioExportCoordinator()
+        await coordinator.export(format: "md", deps: exportDependencies(recorder))
+        let firstID = try XCTUnwrap(coordinator.requestID)
+        let firstBinding = coordinator.presentationBinding(for: firstID)
+        XCTAssertTrue(firstBinding.wrappedValue)
+        // Files lowers its presentation binding before delivering cancellation.
+        firstBinding.wrappedValue = false
+        XCTAssertEqual(coordinator.requestID, firstID, "Dismissal alone cannot decide Save versus Cancel.")
+        coordinator.cancel(requestID: firstID)
+        XCTAssertNil(coordinator.requestID)
+
+        await coordinator.export(format: "fdx", deps: exportDependencies(recorder))
+        let secondID = try XCTUnwrap(coordinator.requestID)
+        let secondBinding = coordinator.presentationBinding(for: secondID)
+        XCTAssertNotEqual(firstID, secondID)
+        XCTAssertFalse(firstBinding.wrappedValue)
+        firstBinding.wrappedValue = false
+        firstBinding.wrappedValue = true
+        coordinator.cancel(requestID: firstID)
+        coordinator.complete(.success(URL(fileURLWithPath: "/stale/stale.md")), requestID: firstID)
+        XCTAssertTrue(secondBinding.wrappedValue, "An old picker must not close a newer export.")
+        XCTAssertEqual(coordinator.requestID, secondID)
+        XCTAssertEqual(recorder.requestedFormats, ["md", "fdx"])
+        XCTAssertFalse(recorder.info.contains { $0.hasPrefix("Saved ") })
+
+        secondBinding.wrappedValue = false
+        coordinator.complete(.success(URL(fileURLWithPath: "/Files/complete-scene.fdx")), requestID: secondID)
+        XCTAssertNil(coordinator.requestID)
+        XCTAssertFalse(secondBinding.wrappedValue)
+        XCTAssertEqual(recorder.info.last, "Saved complete-scene.fdx to Files.")
     }
 #endif
+
+    private var exportArtifact: BackendScreenplayExportArtifact {
+        BackendScreenplayExportArtifact(
+            format: "md",
+            filename: "complete-scene.md",
+            contentType: "text/markdown; charset=utf-8",
+            data: Data("# Complete Scene\n\nINT. ROOM — DAY\n\nLAST LINE\n".utf8)
+        )
+    }
+
+    private final class ExportRecorder {
+        var info: [String] = []
+        var errors: [String] = []
+        var requestedFormats: [String] = []
+        var events: [String] = []
+        var copiedDrafts: [String] = []
+        var openedURLs: [URL] = []
+        var isCurrent = true
+    }
+
+    private func exportDependencies(_ recorder: ExportRecorder) -> ScreenplayStudioExportSupport.Dependencies {
+        let artifact = exportArtifact
+        return ScreenplayStudioExportSupport.Dependencies(
+            draft: "INT. ROOM — DAY\n\nLAST LINE\n",
+            projectTitle: "Complete Scene",
+            navigatorCurrentURL: nil,
+            isRunningUITests: true,
+            refreshFormatLint: { _ in },
+            exportFromBackend: { format in
+                recorder.requestedFormats.append(format)
+                return artifact
+            },
+            setInfo: { recorder.info.append($0) },
+            setError: { recorder.errors.append($0) },
+            noteSavedDirectory: { _ in },
+            isCurrentContext: { recorder.isCurrent },
+            copyToClipboard: { _ in true },
+            openURL: { _, completion in completion(true) }
+        )
+    }
 }

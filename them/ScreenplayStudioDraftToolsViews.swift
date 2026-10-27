@@ -164,7 +164,8 @@ struct ScreenplayStudioDraftIntegrityActions {
 struct ScreenplayStudioDraftToolsActions {
     let onSaveNow: () -> Void
     let onImport: () -> Void
-    let onExport: (String) -> Void
+    let exportProjectID: String
+    let onExport: (String, ScreenplayStudioExportCoordinator) -> Void
     let onRefreshExportFormats: () -> Void
     let onOpenGoogleDocs: () -> Void
     let onRefreshFormatLint: () -> Void
@@ -398,8 +399,12 @@ struct ScreenplayStudioDraftToolsCard: View {
 
 private struct ScreenplayStudioDraftDocumentControls: View {
     @Binding var autosaveEnabled: Bool
+    @StateObject private var exportCoordinator = ScreenplayStudioExportCoordinator()
     let presentation: ScreenplayStudioDraftDocumentPresentation
     let actions: ScreenplayStudioDraftToolsActions
+#if os(iOS)
+    @State private var isExportExpanded = false
+#endif
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -494,6 +499,10 @@ private struct ScreenplayStudioDraftDocumentControls: View {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .stroke(Color.herShellStroke.opacity(0.24), lineWidth: 1)
         )
+        .modifier(ScreenplayStudioExportPresentation(coordinator: exportCoordinator))
+        .onChange(of: actions.exportProjectID) { _, _ in
+            exportCoordinator.invalidateIfContextChanged()
+        }
     }
 
     private var documentActions: some View {
@@ -533,10 +542,63 @@ private struct ScreenplayStudioDraftDocumentControls: View {
     }
 
     private var exportMenu: some View {
+#if os(iOS)
+        VStack(alignment: .leading, spacing: 8) {
+            Button {
+                isExportExpanded.toggle()
+            } label: {
+                HStack(spacing: 8) {
+                    Label("Export Copy", systemImage: "square.and.arrow.up")
+                    Spacer(minLength: 8)
+                    Image(systemName: isExportExpanded ? "chevron.up" : "chevron.down")
+                }
+                .font(IOThemTypography.UI.calloutStrong)
+                .frame(maxWidth: .infinity, minHeight: 32)
+                .contentShape(Rectangle())
+            }
+            .accessibilityIdentifier("studio.export.menu")
+            .accessibilityValue(isExportExpanded ? "Expanded" : "Collapsed")
+            .accessibilityHint("Shows or hides screenplay export formats in this document")
+
+            if isExportExpanded {
+                ForEach(presentation.exportItems) { item in
+                    Button {
+                        isExportExpanded = false
+                        actions.onExport(item.format, exportCoordinator)
+                    } label: {
+                        Text(item.title)
+                            .font(IOThemTypography.UI.calloutStrong)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                            .contentShape(Rectangle())
+                    }
+                    .accessibilityIdentifier("studio.export.\(item.format.lowercased())")
+                    .disabled(!item.isEnabled)
+                }
+                Divider()
+                Button {
+                    isExportExpanded = false
+                    actions.onRefreshExportFormats()
+                } label: {
+                    Text("Refresh Export Formats")
+                        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                }
+                Button {
+                    isExportExpanded = false
+                    actions.onOpenGoogleDocs()
+                } label: {
+                    Text("Open in Google Docs")
+                        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                }
+            }
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.regular)
+#else
         Menu {
             ForEach(presentation.exportItems) { item in
                 Button(item.title) {
-                    actions.onExport(item.format)
+                    actions.onExport(item.format, exportCoordinator)
                 }
                 .accessibilityIdentifier("studio.export.\(item.format.lowercased())")
                 .disabled(!item.isEnabled)
@@ -553,6 +615,7 @@ private struct ScreenplayStudioDraftDocumentControls: View {
         .controlSize(.regular)
         .accessibilityIdentifier("studio.export.menu")
         .accessibilityHint("Shows the available screenplay export formats")
+#endif
     }
 }
 

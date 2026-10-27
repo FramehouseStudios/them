@@ -5,6 +5,20 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1176 — Hand real screenplay exports to iPhone Files
+
+- **Owner:** Codex (Jarvis). **Branch:** `codex/T-1176-native-screenplay-export`.
+- **Base:** saved 4e45371; original PR heads/main/production held.
+- **Scope:** reuse preserved native Files exporter and request-bound callbacks;
+  remove the DEBUG fake artifact path. Preserve backend authorization, format
+  availability, existing aesthetic and document/account lifetime boundaries.
+- **Binary success:** actual authenticated backend artifact reaches native Files;
+  cancellation/retry and stale callbacks are safe; saved file opens outside THEM
+  with verified bytes. Signed units/UI, macOS build, D009/diff as appropriate.
+  No paid calls, new dependency, PDF enablement or production change.
+- **Status:** in-progress. Current iPhone code writes only private temporary
+  storage and UI tests bypass the backend; neither proves a usable export.
+
 ### T-1175 — Durably settle accepted Page responses and replay prepared work
 
 - **Owner:** Codex (Jarvis). **Branch:** `codex/T-1175-durable-page-settlement`.

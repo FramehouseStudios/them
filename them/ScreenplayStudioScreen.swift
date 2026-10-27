@@ -5135,8 +5135,9 @@ private var projectsSidebarContent: some View {
             onImport: {
                 importDraftDocument()
             },
-            onExport: { format in
-                Task { await exportCurrentDraft(format: format) }
+            exportProjectID: vm.selectedProjectID,
+            onExport: { format, coordinator in
+                Task { await exportCurrentDraft(format: format, coordinator: coordinator) }
             },
             onRefreshExportFormats: {
                 Task { await vm.refreshScreenplayExportFormats() }
@@ -17224,34 +17225,23 @@ Look at the city.
             projectTitle: vm.selectedProject?.title,
             navigatorCurrentURL: navigatorCurrentURL,
             isRunningUITests: IOThemRuntime.isRunningUITests,
-            refreshFormatLint: { source in
-                await vm.refreshFormatLint(source: source)
-            },
-            exportFromBackend: { format in
-                try await vm.exportArtifact(format: format)
-            },
-            setInfo: { message in
-                vm.infoText = message
-            },
-            setError: { message in
-                vm.errorText = message
-            },
-            noteSavedDirectory: { directoryURL in
-                navigatorCurrentURL = directoryURL
+            refreshFormatLint: { await vm.refreshFormatLint(source: $0) },
+            exportFromBackend: { try await vm.exportArtifact(format: $0) },
+            setInfo: { vm.infoText = $0 },
+            setError: { vm.errorText = $0 },
+            noteSavedDirectory: {
+                navigatorCurrentURL = $0
                 refreshNavigatorEntries()
             },
-            openURL: { url in
-                openURL(url)
-            }
+            isCurrentContext: vm.makeStudioExportContextGuard(),
+            copyToClipboard: ScreenplayStudioExportSupport.copyDraftToClipboard,
+            openURL: { openURL($0, completion: $1) }
         )
     }
 
     @MainActor
-    private func exportCurrentDraft(format: String) async {
-        await ScreenplayStudioExportSupport.exportCurrentDraft(
-            format: format,
-            deps: studioExportDependencies()
-        )
+    private func exportCurrentDraft(format: String, coordinator: ScreenplayStudioExportCoordinator) async {
+        await coordinator.export(format: format, deps: studioExportDependencies())
     }
 
     @MainActor
