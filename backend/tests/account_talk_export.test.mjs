@@ -28,3 +28,16 @@ test('existing non-talk export domains keep their contract', () => {
   const row = {draft: 'Keep my words', revision: 1};
   assert.equal(accountExportPersistenceValue('screenplay', row), row);
 });
+
+test('accepted metadata snapshot exports writer text without nested session authority', () => {
+  const row = { userId: 'writer', status: 'prepared', headers: { authorization: 'private' },
+    turnMetadata: { userId: 'writer', turnId: 'turn-1', sessionId: 'private-session',
+      futureCredential: 'private', screenplayOutput: { text: 'Keep my complete scene' } } };
+  const result = accountExportPersistenceValue('talk_idempotency', row);
+  assert.equal(result.turnMetadata.screenplayOutput.text, 'Keep my complete scene');
+  assert.equal(result.turnMetadata.sessionId, undefined);
+  assert.equal(result.turnMetadata.futureCredential, undefined);
+  assert.equal(result.headers, undefined);
+  assert.ok(!JSON.stringify(result).includes('private'));
+  assert.equal(accountExportPersistenceValue('talk_idempotency', { ...row, userId: 'other' }).turnMetadata, undefined);
+});

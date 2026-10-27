@@ -1157,6 +1157,34 @@ test("prepared settlement failure is replayed only after durable reconciliation"
   assert.equal((await sb.getIdempotency(first.talkIdempotency.cacheKey)).status, "completed");
 });
 
+for (const status of ['prepared', 'completed']) {
+  test(`${status} replay metadata write failure cannot settle, publish audio or regenerate`, async () => {
+    resetState();
+    const sb = stubScaleBackplane(), key = `user:writer|metadata-${status}`;
+    const accepted = { key: `metadata-${status}`, userId: 'writer', status, createdAt: Date.now(),
+      expiresAt: 0, body: Buffer.from('accepted audio'), headers: { 'x-turn-id': 'turn-7' },
+      turnMetadata: { turnId: 'turn-7' }, settlement: { ownerId: 'writer' } };
+    await sb.setIdempotency(key, accepted);
+    let settles = 0, generations = 0;
+    const guard = createTalkIdempotencyGuard({
+      isSpeculativePrepareRequest: () => false, talkIdempotencyEnabled: true,
+      normalizeIdempotencyKey: v => String(v || '').trim(), resolveTalkSessionKey: () => 'rotated-session',
+      scaleBackplane: sb, recordTalkMetric: () => {}, talkIdempotencyTtlMs: 60_000,
+      talkIdempotencyMaxEntries: 256, logger: { log() {}, warn() {} },
+      restoreTurnMetadata: async () => { throw new Error('metadata storage unavailable'); },
+      reconcilePreparedIdempotency: async () => { settles++; },
+    });
+    const req = stubRequest({ headers: { 'Idempotency-Key': `metadata-${status}` }, authUser: { id: 'writer' } });
+    const res = stubResponse();
+    await guard(req, res, () => { generations++; });
+    assert.equal(res._recorded.statusCode, 503);
+    assert.equal(res._recorded.body.stage, 'idempotency');
+    assert.equal(res._recorded.headers['cache-control'], 'no-store');
+    assert.equal(settles, 0); assert.equal(generations, 0);
+    assert.deepEqual(await sb.getIdempotency(key), accepted);
+  });
+}
+
 test("prepared reconciliation failure is retryable and never regenerates", async () => {
   resetState();
   const sb = stubScaleBackplane();

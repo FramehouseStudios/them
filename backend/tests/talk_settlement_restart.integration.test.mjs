@@ -70,6 +70,8 @@ for (const { boundary, expireMetadata } of ['prepared', 'debited', 'completed'].
       const expectedTurn = stored.headers['x-turn-id'];
       assert.ok(expectedBytes.length && expectedTurn);
       assert.equal((await wallet.getBalance(owner)).pageMilliturns, boundary === 'prepared' ? 100_000 : 99_800);
+      const acceptedRows = await persistence.list({ domain: 'talk_turns' });
+      assert.equal(acceptedRows.length, 1);
 
       if (expireMetadata) {
         const rows = await persistence.list({ domain: 'talk_turns' });
@@ -101,7 +103,22 @@ for (const { boundary, expireMetadata } of ['prepared', 'debited', 'completed'].
       assert.equal(balance.json.pageTurnsLeft, 99.8);
       const meta = await apiRequest(server, `/talk/turn/${expectedTurn}`, { headers: auth });
       assert.equal(meta.status, 200, 'Replayed billed audio must retain its full screenplay after public metadata expiry');
+      assert.deepEqual(meta.json.screenplay_output, acceptedRows[0].value.screenplayOutput);
       assert.match(meta.json.screenplay_output.text, /HOME VOICE HANDOFF/);
+      if (expireMetadata) {
+        const other = await apiRequest(server, '/auth/signup', { method: 'POST', json: {
+          email: `metadata-other-${randomUUID()}@example.test`, password: 'Synthetic-other-aA1!',
+        } });
+        assert.equal(other.status, 201);
+        const denied = await apiRequest(server, `/talk/turn/${expectedTurn}`,
+          { headers: { Authorization: `Bearer ${other.json.access_token || other.json.token}` } });
+        assert.equal(denied.status, 403);
+        assert.equal(denied.json.screenplay_output, undefined);
+        const exported = await apiRequest(server, '/account/export', { headers: auth });
+        assert.equal(exported.status, 200);
+        assert.ok(exported.json.domains.talk_idempotency.some(row => row.value.turnMetadata?.screenplayOutput?.text === meta.json.screenplay_output.text));
+        assert.ok(!JSON.stringify(exported.json.domains.talk_idempotency).includes(headers['X-Client-Token']));
+      }
       const receipts = await persistence.list({ domain: 'wallet_talk_settlements' });
       assert.equal(receipts.length, 1);
       assert.equal(receipts[0].value.status, 'completed');

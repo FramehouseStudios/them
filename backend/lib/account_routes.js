@@ -37,7 +37,12 @@ function accountExportPersistenceValue(domain, value) {
       'knowledgeCitations', 'knowledgeQueryRaw', 'knowledgeQueryRewrite', 'knowledgeContradictionRisk',
       'requestId', 'createdAt', 'updatedAt', 'expiresAt']
     : ['key', 'userId', 'status', 'statusCode', 'body', 'createdAt', 'completedAt', 'expiresAt'];
-  return Object.fromEntries(keys.filter(key => Object.hasOwn(source, key)).map(key => [key, source[key]]));
+  const exported = Object.fromEntries(keys.filter(key => Object.hasOwn(source, key)).map(key => [key, source[key]]));
+  if (domain === 'talk_idempotency' && source.turnMetadata && typeof source.turnMetadata === 'object'
+    && source.turnMetadata.userId === source.userId) {
+    exported.turnMetadata = accountExportPersistenceValue('talk_turns', source.turnMetadata);
+  }
+  return exported;
 }
 
 function mountAccountRoutes(app, deps) {

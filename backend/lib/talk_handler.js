@@ -3090,7 +3090,7 @@ function createTalkHandler(deps) {
         })
         : null;
       if (committedTurnId) {
-        await storeTalkTurnMeta({
+        req.talkTurnMetadata = await storeTalkTurnMeta({
           turnId: committedTurnId,
           sessionId: committedSessionId,
           userId: trustedUserId,
@@ -5096,7 +5096,7 @@ ${directorOutputRule}
       : null;
     setTalkInlineJSONHeader(res, "x-dialogue-timeline", talkDialogueTimeline, 12000);
     if (committedTurnId) {
-        await storeTalkTurnMeta({
+        req.talkTurnMetadata = await storeTalkTurnMeta({
           turnId: committedTurnId,
           sessionId: committedSessionId,
           userId: trustedUserId,

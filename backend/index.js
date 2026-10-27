@@ -5539,7 +5539,7 @@ async function storeTalkTurnMeta({
 } = {}) {
   const normalizedTurnId = String(turnId || "").trim();
   if (!normalizedTurnId) return;
-  await talkTurnStore.put({
+  return talkTurnStore.put({
     turnId: normalizedTurnId,
     sessionId: String(sessionId || "").trim(),
     userId: String(userId || "").trim(),
@@ -32784,6 +32784,11 @@ mountAccountRoutes(app, {
 
 // Canonical guards own talk state; wallet assignment/hydration precedes mounts.
 let clementineWalletStore = null;
+const resolveTalkTurnOwnerScope = req => ({
+  userId: String(req?.authUser?.id || req?.userId || req?.user?.id || "").trim(),
+  sessionId: normalizeClientToken(req?.get?.("X-Client-Token")) || `ip:${normalizeClientIp(clientIp(req))}`,
+});
+const restoreTalkTurnMetadata = (req, record) => talkTurnStore.restoreForReplay(record, resolveTalkTurnOwnerScope(req));
 const talkRateLimitGuard = createTalkRateLimitGuard({
   clientIp,
   talkRateLimitWindowMs: TALK_RATE_LIMIT_WINDOW_MS,
@@ -32799,6 +32804,7 @@ const talkIdempotencyGuard = createTalkIdempotencyGuard({
   talkIdempotencyTtlMs: TALK_IDEMPOTENCY_TTL_MS,
   talkIdempotencyMaxEntries: TALK_IDEMPOTENCY_MAX_ENTRIES,
   reconcilePreparedIdempotency: (_req, settlement) => clementineWalletStore.reconcileDurableSettlement(settlement),
+  restoreTurnMetadata: restoreTalkTurnMetadata,
 });
 const talkSessionSerialGuard = createTalkSessionSerialGuard({
   isSpeculativePrepareRequest,
@@ -32817,17 +32823,14 @@ const talkConcurrencyGuard = createTalkConcurrencyGuard({
   recordTalkMetric,
 });
 const talkIdempotencyHelpers = createTalkIdempotencyHelpers({
-  scaleBackplane,
-  talkIdempotencyEnabled: TALK_IDEMPOTENCY_ENABLED,
+  scaleBackplane, talkIdempotencyEnabled: TALK_IDEMPOTENCY_ENABLED,
   talkIdempotencyTtlMs: TALK_IDEMPOTENCY_TTL_MS,
   talkIdempotencyMaxEntries: TALK_IDEMPOTENCY_MAX_ENTRIES,
+  restoreTurnMetadata: restoreTalkTurnMetadata,
 });
-const commitTalkIdempotencySuccess = (req, opts) =>
-  talkIdempotencyHelpers.commitSuccess(req, opts);
-const clearTalkIdempotencyPending = (req, opts) =>
-  talkIdempotencyHelpers.clearPending(req, opts);
-const captureTalkResponseHeaders = (res) =>
-  talkIdempotencyHelpers.captureResponseHeaders(res);
+const commitTalkIdempotencySuccess = (req, opts) => talkIdempotencyHelpers.commitSuccess(req, opts);
+const clearTalkIdempotencyPending = (req, opts) => talkIdempotencyHelpers.clearPending(req, opts);
+const captureTalkResponseHeaders = (res) => talkIdempotencyHelpers.captureResponseHeaders(res);
 
 const handleTalkRequest = createTalkHandler({
   logger: console,
@@ -33152,10 +33155,7 @@ mountTalkPipelineRoutes(app, {
   talkUpload,
   handleTalkRequest,
   normalizeTalkTurnId: (value) => String(value || "").trim(),
-  getTalkTurnMeta: (turnId, req) => readTalkTurnMeta(turnId, Date.now(), {
-    userId: String(req?.authUser?.id || req?.userId || "").trim(),
-    sessionId: normalizeClientToken(req?.get?.("X-Client-Token")) || `ip:${normalizeClientIp(clientIp(req))}`,
-  }),
+  getTalkTurnMeta: (turnId, req) => readTalkTurnMeta(turnId, Date.now(), resolveTalkTurnOwnerScope(req)),
   canReadTalkTurnMeta,
   pageReservationStore: clementinePageReservationStore,
   walletStore: clementineWalletStore,

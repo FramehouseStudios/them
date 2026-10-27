@@ -5,6 +5,7 @@
 // persistence-before-publication, restart hydration, and bounded cache state.
 
 import { createHash } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 const TALK_TURNS_DOMAIN = "talk_turns";
 
 function ownerScope(entry = {}) {
@@ -62,6 +63,11 @@ function createTalkTurnStore({
     return cloneJson(visible);
   }
 
+  function acceptedContent(entry) {
+    const { updatedAt: _updatedAt, expiresAt: _expiresAt, ...content } = entry;
+    return content;
+  }
+
   async function prune(at = now()) {
     const rows = [...cache.entries()];
     for (const [key, entry] of rows) {
@@ -80,6 +86,45 @@ function createTalkTurnStore({
   }
 
   return {
+    async restoreForReplay(record, scope) {
+      const snapshot = normalizedStoredEntry(record?.turnMetadata);
+      if (!snapshot) throw new Error("accepted turn metadata is missing");
+      if (snapshot.turnId !== String(record.headers?.["x-turn-id"] || "").trim()
+        || ownerScope(snapshot) !== ownerScope(scope)
+        || (record.userId && snapshot.userId !== record.userId)) {
+        throw new Error("accepted turn metadata identity mismatch");
+      }
+      const key = turnStorageKey(snapshot.turnId, snapshot);
+      const previous = await persistence.get({ domain: TALK_TURNS_DOMAIN, key });
+      const current = normalizedStoredEntry(previous);
+      if (current && !isDeepStrictEqual(acceptedContent(current), acceptedContent(snapshot))) {
+        throw new Error("accepted turn metadata conflicts with another publication");
+      }
+      if (current && !isExpired(current)) {
+        cache.set(key, current);
+        return visibleEntry(current);
+      }
+      if (typeof persistence.compareAndSwap !== "function") {
+        throw new Error("accepted turn metadata restoration requires atomic persistence");
+      }
+      const at = now();
+      const restored = { ...snapshot, updatedAt: at, expiresAt: at + retentionMs };
+      const changed = await persistence.compareAndSwap({ domain: TALK_TURNS_DOMAIN, key,
+        expectedValue: previous, value: restored });
+      if (!changed) {
+        const winner = normalizedStoredEntry(await persistence.get({ domain: TALK_TURNS_DOMAIN, key }));
+        if (!winner || isExpired(winner)
+          || !isDeepStrictEqual(acceptedContent(winner), acceptedContent(snapshot))) {
+          throw new Error("accepted turn metadata changed during restoration");
+        }
+        cache.set(key, winner);
+        return visibleEntry(winner);
+      }
+      cache.set(key, restored);
+      await prune(at);
+      return visibleEntry(restored);
+    },
+
     async hydrate() {
       cache.clear();
       const rows = await persistence.list({
