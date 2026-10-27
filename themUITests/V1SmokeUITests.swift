@@ -420,6 +420,14 @@ final class V1SmokeUITests: XCTestCase {
     @MainActor
     private func assertHomeVoiceHandoff(rawAudio: Bool, stopAfterFirstChunk: Bool = false) async throws {
 #if os(iOS)
+        // Fresh simulators can show this setup banner during the timed Stop tap.
+        // Dismiss only the observed OS notice; do not wait out the active write.
+        addUIInterruptionMonitor(withDescription: "Dismiss Apple Intelligence setup banner") { interruption in
+            guard interruption.identifier == "NotificationShortLookView",
+                  interruption.label.contains("Ready for Apple Intelligence") else { return false }
+            interruption.swipeUp()
+            return true
+        }
         let rawPort = ProcessInfo.processInfo.environment["THEM_UITEST_WRITER_LOOP_BACKEND_PORT"] ?? ""
         guard let port = Int(rawPort), (1...65_535).contains(port) else {
             throw XCTSkip("A task-owned writer-loop backend is required; a skipped fixture is not proof")

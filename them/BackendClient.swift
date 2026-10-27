@@ -4777,6 +4777,7 @@ final class BackendClient {
                 }
             )
         } catch {
+            try BackendTalkStreamingTransport.checkCancellation(error)
             let nsError = error as NSError
             onDebugEvent?(
                 BackendTalkDebugEvent(
@@ -4794,6 +4795,7 @@ final class BackendClient {
             }
             throw error
         }
+        try BackendTalkStreamingTransport.checkCancellation()
         let http = response as? HTTPURLResponse
         let statusCode = http?.statusCode ?? -1
         let contentType = http?.value(forHTTPHeaderField: "Content-Type") ?? "-"
@@ -5971,6 +5973,7 @@ final class BackendClient {
     ) async throws -> (Data, URLResponse) {
         var attempt = 0
         while true {
+            try BackendTalkStreamingTransport.checkCancellation()
             do {
                 let result: (Data, URLResponse)
                 if onResponse != nil || onChunk != nil {
@@ -5982,6 +5985,7 @@ final class BackendClient {
                 } else {
                     result = try await URLSession.shared.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
                 }
+                try BackendTalkStreamingTransport.checkCancellation()
                 if let http = result.1 as? HTTPURLResponse,
                    BackendProviderFailurePolicy.shouldRetryHTTP(
                        statusCode: http.statusCode,
@@ -5997,6 +6001,7 @@ final class BackendClient {
                 }
                 return result
             } catch {
+                try BackendTalkStreamingTransport.checkCancellation(error)
                 if (onResponse != nil || onChunk != nil),
                    shouldFallbackToPlainTalkTransport(for: error) {
                     print("POST /talk -> streaming transport fell back to shared data: \(error.localizedDescription)")
@@ -6018,73 +6023,6 @@ final class BackendClient {
         }
     }
 
-    private final class TalkStreamingDelegate: NSObject, URLSessionDataDelegate {
-        private let onResponse: ((HTTPURLResponse) -> Void)?
-        private let onChunk: ((Data, HTTPURLResponse) -> Void)?
-        private var continuation: CheckedContinuation<(Data, URLResponse), Error>?
-        private var response: URLResponse?
-        private var accumulatedData = Data()
-        private var finished = false
-
-        init(
-            onResponse: ((HTTPURLResponse) -> Void)?,
-            onChunk: ((Data, HTTPURLResponse) -> Void)?,
-            streamChunkFlushBytes: Int
-        ) {
-            self.onResponse = onResponse
-            self.onChunk = onChunk
-        }
-
-        func attach(_ continuation: CheckedContinuation<(Data, URLResponse), Error>) {
-            self.continuation = continuation
-        }
-
-        func urlSession(
-            _ session: URLSession,
-            task: URLSessionTask,
-            willPerformHTTPRedirection response: HTTPURLResponse,
-            newRequest request: URLRequest,
-            completionHandler: @escaping @Sendable (URLRequest?) -> Void
-        ) {
-            BackendHTTPRedirectGuard.shared.urlSession(session, task: task,
-                willPerformHTTPRedirection: response, newRequest: request, completionHandler: completionHandler)
-        }
-
-        func urlSession(
-            _ session: URLSession,
-            dataTask: URLSessionDataTask,
-            didReceive response: URLResponse,
-            completionHandler: @escaping (URLSession.ResponseDisposition) -> Void
-        ) {
-            self.response = response
-            if let http = response as? HTTPURLResponse {
-                onResponse?(http)
-            }
-            completionHandler(.allow)
-        }
-
-        func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
-            accumulatedData.append(data)
-            guard let http = response as? HTTPURLResponse else { return }
-            onChunk?(data, http)
-        }
-
-        func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
-            guard !finished else { return }
-            finished = true
-            defer { continuation = nil }
-            if let error {
-                continuation?.resume(throwing: error)
-                return
-            }
-            guard let response else {
-                continuation?.resume(throwing: BackendError.http(-1, "Missing talk response."))
-                return
-            }
-            continuation?.resume(returning: (accumulatedData, response))
-        }
-    }
-
     private func dataForTalkRequestStreaming(
         _ request: URLRequest,
         onResponse: ((HTTPURLResponse) -> Void)? = nil,
@@ -6097,6 +6035,7 @@ final class BackendClient {
                 onChunk: onChunk
             )
         } catch {
+            try BackendTalkStreamingTransport.checkCancellation(error)
             let nsError = error as NSError
             if nsError.domain == NSPOSIXErrorDomain && nsError.code == 1 {
                 print("POST /talk -> delegate streaming transport fell back to shared async bytes: \(error.localizedDescription)")
@@ -6115,24 +6054,14 @@ final class BackendClient {
         onResponse: ((HTTPURLResponse) -> Void)? = nil,
         onChunk: ((Data, HTTPURLResponse) -> Void)? = nil
     ) async throws -> (Data, URLResponse) {
-        let delegate = TalkStreamingDelegate(
-            onResponse: onResponse,
-            onChunk: onChunk,
-            streamChunkFlushBytes: streamChunkFlushBytes
-        )
         let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = urlSession.configuration.protocolClasses
         configuration.waitsForConnectivity = false
         configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
         configuration.timeoutIntervalForRequest = requestTimeout
         configuration.timeoutIntervalForResource = requestTimeout
-        let session = URLSession(configuration: configuration, delegate: delegate, delegateQueue: nil)
-        defer {
-            session.finishTasksAndInvalidate()
-        }
-        return try await withCheckedThrowingContinuation { continuation in
-            delegate.attach(continuation)
-            session.dataTask(with: request).resume()
-        }
+        return try await BackendTalkStreamingTransport.data(for: request, configuration: configuration,
+            onResponse: onResponse, onChunk: onChunk)
     }
 
     private func dataForTalkRequestViaSharedData(
@@ -6141,12 +6070,15 @@ final class BackendClient {
         onChunk: ((Data, HTTPURLResponse) -> Void)? = nil
     ) async throws -> (Data, URLResponse) {
         let (data, response) = try await URLSession.shared.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
+        try BackendTalkStreamingTransport.checkCancellation()
         if let http = response as? HTTPURLResponse {
             onResponse?(http)
+            try BackendTalkStreamingTransport.checkCancellation()
             if !data.isEmpty {
                 onChunk?(data, http)
             }
         }
+        try BackendTalkStreamingTransport.checkCancellation()
         return (data, response)
     }
 
@@ -6156,9 +6088,11 @@ final class BackendClient {
         onChunk: ((Data, HTTPURLResponse) -> Void)? = nil
     ) async throws -> (Data, URLResponse) {
         let (bytes, response) = try await URLSession.shared.bytes(for: request, delegate: BackendHTTPRedirectGuard.shared)
+        try BackendTalkStreamingTransport.checkCancellation()
         if let http = response as? HTTPURLResponse {
             onResponse?(http)
         }
+        try BackendTalkStreamingTransport.checkCancellation()
         guard let http = response as? HTTPURLResponse else {
             let data = try await collectAsyncBytes(bytes)
             return (data, response)
@@ -6167,9 +6101,11 @@ final class BackendClient {
         let chunkSize = max(512, min(1_024, streamChunkFlushBytes))
         var accumulated = Data()
         for try await chunk in bytes.allChunks(ofSize: chunkSize) {
+            try BackendTalkStreamingTransport.checkCancellation()
             accumulated.append(chunk)
             onChunk?(chunk, http)
         }
+        try BackendTalkStreamingTransport.checkCancellation()
         return (accumulated, response)
     }
 

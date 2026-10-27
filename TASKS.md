@@ -5,6 +5,32 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1179 — Connect Stop to a waiting live audio transport
+
+- **Owner:** Codex (Jarvis); Zora read-only cancellation-boundary audit.
+  **Branch:** `codex/T-1179-early-talk-cancel`. **Base:** published d5a155e.
+- **Scope:** canonical BackendClient delegate streaming seam, focused native
+  transport regressions and the observed Stop-test OS setup interruption.
+  Preserve genuine offline recovery and accepted
+  response custody; no blanket server abort on network loss, paid calls,
+  production changes, shared simulator use or original/main advance.
+- **Binary success:** cancel before response headers cancels the actual network
+  task and completes once as cancellation, without fallback/retry/offline
+  enqueue; normal chunks/completion and genuine failures keep their behavior.
+  Characterize the existing seam before its minimal race-safe correction.
+- **Reserved:** Jarvis owns BackendClient, its extracted transport if needed,
+  native tests, TASKS and report; Zora does not edit or use native resources.
+- **Status:** review. Red1/3/0 included two cancellation defects and one incorrect
+  chunk-count assertion; focused7/0/0, full signed units909/0/0, Mac build exit0.
+  Initial StopUI0/1/0 missed the active-write window behind the OS setup banner;
+  targeted interruption handling preserves all assertions. Final Stop1/0/0
+  includes authenticated HTTP200/cancelledtrue/dropped1/byReservationtrue;
+  normal raw Home/full-page/save/exact-relaunch1/0/0. D009/diff pass.
+- **Evidence:** `docs/early-talk-cancellation-2026-10-27.md`. No paid calls;
+  backend unchanged (T1178 full2996/0/5 inherited). Original/main/production
+  held. Next fix queued UI consumer delivery after Stop; pre-header server ASR
+  cancellation and physical-phone journey remain unproven.
+
 ### T-1178 — Restore trusted ownership for wallet and Page cancellation
 
 - **Owner:** Codex (Jarvis). **Branch:** `codex/T-1178-wallet-page-owner`.

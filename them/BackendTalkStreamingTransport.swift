@@ -1,0 +1,134 @@
+import Foundation
+
+/// The existing live /talk streaming transport, isolated from request/auth/recovery policy.
+nonisolated enum BackendTalkStreamingTransport {
+    /// Stop is not an offline failure and must never enter retry or recovery policy.
+    static func checkCancellation(_ error: Error? = nil) throws {
+        if Task.isCancelled || error is CancellationError || (error as? URLError)?.code == .cancelled {
+            throw CancellationError()
+        }
+    }
+
+    static func data(
+        for request: URLRequest,
+        configuration: URLSessionConfiguration,
+        onResponse: ((HTTPURLResponse) -> Void)? = nil,
+        onChunk: ((Data, HTTPURLResponse) -> Void)? = nil
+    ) async throws -> (Data, URLResponse) {
+        try checkCancellation()
+        let delegate = TalkStreamingDelegate(onResponse: onResponse, onChunk: onChunk)
+        let session = URLSession(configuration: configuration, delegate: delegate, delegateQueue: nil)
+        let task = session.dataTask(with: request)
+        defer { session.finishTasksAndInvalidate() }
+        let result = try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                delegate.attach(continuation)
+                task.resume()
+            }
+        } onCancel: {
+            delegate.cancel()
+            task.cancel()
+        }
+        try checkCancellation()
+        return result
+    }
+
+    private final class TalkStreamingDelegate: NSObject, URLSessionDataDelegate, @unchecked Sendable {
+        // Recursive because a consumer can cancel its task from a stream callback.
+        // The lock also prevents a new callback from starting after cancellation wins.
+        private let lock = NSRecursiveLock()
+        private let onResponse: ((HTTPURLResponse) -> Void)?
+        private let onChunk: ((Data, HTTPURLResponse) -> Void)?
+        private var continuation: CheckedContinuation<(Data, URLResponse), Error>?
+        private var terminalResult: Result<(Data, URLResponse), Error>?
+        private var response: URLResponse?
+        private var accumulatedData = Data()
+
+        init(
+            onResponse: ((HTTPURLResponse) -> Void)?,
+            onChunk: ((Data, HTTPURLResponse) -> Void)?
+        ) {
+            self.onResponse = onResponse
+            self.onChunk = onChunk
+        }
+
+        func attach(_ continuation: CheckedContinuation<(Data, URLResponse), Error>) {
+            lock.lock()
+            let result = terminalResult
+            if result == nil { self.continuation = continuation }
+            lock.unlock()
+            // Cancellation can complete before the continuation is attached.
+            if let result { continuation.resume(with: result) }
+        }
+
+        func cancel() { finish(.failure(CancellationError())) }
+
+        private func finish(_ result: Result<(Data, URLResponse), Error>) {
+            lock.lock()
+            guard terminalResult == nil else { lock.unlock(); return }
+            terminalResult = result
+            let waiting = continuation
+            continuation = nil
+            lock.unlock()
+            waiting?.resume(with: result)
+        }
+
+        func urlSession(
+            _ session: URLSession,
+            task: URLSessionTask,
+            willPerformHTTPRedirection response: HTTPURLResponse,
+            newRequest request: URLRequest,
+            completionHandler: @escaping @Sendable (URLRequest?) -> Void
+        ) {
+            lock.lock()
+            let cancelled = terminalResult != nil
+            lock.unlock()
+            guard !cancelled else { completionHandler(nil); return }
+            BackendHTTPRedirectGuard.shared.urlSession(session, task: task,
+                willPerformHTTPRedirection: response, newRequest: request, completionHandler: completionHandler)
+        }
+
+        func urlSession(
+            _ session: URLSession,
+            dataTask: URLSessionDataTask,
+            didReceive response: URLResponse,
+            completionHandler: @escaping (URLSession.ResponseDisposition) -> Void
+        ) {
+            lock.lock()
+            guard terminalResult == nil else { lock.unlock(); completionHandler(.cancel); return }
+            self.response = response
+            if let http = response as? HTTPURLResponse {
+                onResponse?(http)
+            }
+            let disposition: URLSession.ResponseDisposition = terminalResult == nil ? .allow : .cancel
+            lock.unlock()
+            completionHandler(disposition)
+        }
+
+        func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+            lock.lock()
+            defer { lock.unlock() }
+            guard terminalResult == nil else { return }
+            accumulatedData.append(data)
+            guard let http = response as? HTTPURLResponse else { return }
+            onChunk?(data, http)
+        }
+
+        func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+            lock.lock()
+            let response = self.response
+            let data = accumulatedData
+            lock.unlock()
+            if let error {
+                finish(.failure((error as? URLError)?.code == .cancelled ? CancellationError() : error))
+                return
+            }
+            guard let response else {
+                finish(.failure(BackendError.http(-1, "Missing talk response.")))
+                return
+            }
+            finish(.success((data, response)))
+        }
+    }
+}
+
