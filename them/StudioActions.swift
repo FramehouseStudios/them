@@ -200,6 +200,18 @@ extension Notification.Name {
 enum StudioActionDispatcher {
     static let userInfoKey = "action"
 
+    /// Deliver on the UI actor; callers supply their existing logical-turn lease.
+    @discardableResult
+    static func enqueueTalkDelivery(
+        isCurrent: @escaping @MainActor () -> Bool,
+        _ deliver: @escaping @MainActor () -> Void
+    ) -> Task<Void, Never> {
+        Task { @MainActor in
+            guard !Task.isCancelled, isCurrent() else { return }
+            deliver()
+        }
+    }
+
     /// One logical turn owns one document snapshot and dispatch lease, even if
     /// transport fails after headers and the caller retries the request.
     static func handlingRequest<Result>(

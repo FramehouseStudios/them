@@ -5985,6 +5985,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
     @MainActor
     private func stopCurrentInteraction() {
         conversationLoopEnabled = false
+        activeTurnBasedLatencyTurnID = ""
         pendingGoodbyeStopAfterPlayback = false
         inFlightTalkTask?.cancel()
         inFlightTalkTask = nil
@@ -6140,7 +6141,6 @@ Write this approved story direction directly into screenplay pages now. Maintain
     ) async {
         // Phase 1 latency pass: start playback on the first streamed segment as soon
         // as it is ready. We stop recording before playback begins to avoid bleed.
-        let allowEarlyStreamPlayback = true
         let startedOnHome = !isStudioSurfaceActive
         var didStartEarlyStudioDraftStream = false
         var didStartEarlyStreamPlayback = false
@@ -6473,6 +6473,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
         }
 
         func finishPlaybackAndResumeMic() {
+            guard activeTurnBasedLatencyTurnID == clientLatencyTurnID else { return }
             syncedPlaybackClock.completeCurrentSegment()
             if didStartSyncedVoiceInsert {
                 screenplayDraftBridge.completeActiveSyncedVoiceInsertIfNeeded()
@@ -6483,9 +6484,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 )
             }
             voice.markAssistantPlaybackEnded()
-            if activeTurnBasedLatencyTurnID == clientLatencyTurnID {
-                activeTurnBasedLatencyTurnID = ""
-            }
+            activeTurnBasedLatencyTurnID = ""
 #if DEBUG || os(macOS)
             if let debugVoiceTurnToken {
                 appendStudioDebugVoiceDraftBreadcrumb(
@@ -6511,6 +6510,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
         }
 
         func playStreamRemainderOrFinish() {
+            guard activeTurnBasedLatencyTurnID == clientLatencyTurnID else { return }
             syncedPlaybackClock.completeCurrentSegment()
             guard let remainderURL = pendingStreamRemainderURL else {
                 guard didReceiveTalkResponse else {
@@ -6980,9 +6980,10 @@ Write this approved story direction directly into screenplay pages now. Maintain
             let onBackendTalkDebugEvent: ((BackendTalkDebugEvent) -> Void)? = nil
 #endif
             let idempotencyKey = "them-\(fingerprint)-\(Int(now.timeIntervalSince1970 * 1000))"
+            let isCurrentTalkTurn = { isTurnSubmitting && lastSubmittedFingerprint == fingerprint && lastSubmittedAt == now }
             ConfirmedStudioTurnPreparation.configureSyncedInsertion(enabled: shouldUseSyncedStudioVoiceInsert, requestID: idempotencyKey, bridge: screenplayDraftBridge)
-            let requestTalk: () async throws -> BackendTalkResult = StudioActionDispatcher.handlingRequest(bridge: screenplayDraftBridge, studioOpen: { isStudioSurfaceActive }, openStudio: { openStudio() }, isCurrent: { isTurnSubmitting && lastSubmittedFingerprint == fingerprint && lastSubmittedAt == now }, onResponse: { metadata in
-                Task { @MainActor in
+            let requestTalk: () async throws -> BackendTalkResult = StudioActionDispatcher.handlingRequest(bridge: screenplayDraftBridge, studioOpen: { isStudioSurfaceActive }, openStudio: { openStudio() }, isCurrent: isCurrentTalkTurn, onResponse: { metadata in
+                StudioActionDispatcher.enqueueTalkDelivery(isCurrent: isCurrentTalkTurn) {
                     if preparedPrompt.useScreenplayMode {
                         screenplayDraftBridge.updateScreenplayQualityStatus(
                             quality: metadata.screenplayQuality,
@@ -7113,8 +7114,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
                     screenplayGenerationTranscriptOverride: talkScreenplayGenerationTranscript,
                     onResponseMetadataReady: onResponseMetadataReady,
                     onFirstAudioSegmentReady: { firstSegmentURL in
-                        Task { @MainActor in
-                            guard allowEarlyStreamPlayback else { return }
+                        StudioActionDispatcher.enqueueTalkDelivery(isCurrent: isCurrentTalkTurn) {
                             guard !didStartEarlyStreamPlayback else { return }
                             didStartEarlyStreamPlayback = true
                             HerLog.ui.info("stream first segment ready -> start playback early")
@@ -7179,7 +7179,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
                         }
                     },
                     onTextReady: { rawReply in
-                        Task { @MainActor in
+                        StudioActionDispatcher.enqueueTalkDelivery(isCurrent: isCurrentTalkTurn) {
                             if !rawReply.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                                 clientLatency.recordFirstText(turnID: clientLatencyTurnID)
                             }

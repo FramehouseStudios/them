@@ -5,6 +5,31 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1180 — Fence queued Talk delivery after Stop or turn replacement
+
+- **Owner:** Codex (Jarvis); Zora bounded read-only review.
+  **Branch:** `codex/T-1180-stale-talk-delivery`. **Base:** published e7c3901.
+- **Scope:** existing StudioActionDispatcher and Root metadata/audio/text
+  callback execution and existing playback ownership on Stop, with native
+  deferred-delivery regressions. Keep the
+  existing turn identity and response-forwarding/accepted-custody contracts;
+  no new framework, product state, paid calls, production or original/main move.
+- **Binary success:** callbacks queued before Stop or a replacement turn do
+  not publish previews, metadata or audio afterward; current-turn delivery
+  remains intact. Cancelled delivery tasks do not execute. Reuse
+  the existing turn predicate at actual main-actor execution, not enqueue time.
+- **Reserved:** Jarvis owns all edits and native resources; Zora read-only.
+- **Status:** review. Native red1/3/0 reproduced deferred Stop/new-turn/cancelled
+  task delivery. Final signed units913/0/0; authenticated Stop1/0/0, actual
+  reservation cancelled/dropped1; raw Home/full-page/save/exact-relaunch1/0/0.
+  Normal persisted playback completed/statusok after request delivery. Mac
+  build exit0, D009 all five files0 growth, diff pass. No paid calls.
+- **Evidence:** `docs/stale-talk-delivery-2026-10-27.md`. Backend unchanged,
+  full2996/0/5 inherited from T1178. All proof jobs terminal, dependency link
+  removed. Next audit account/project/final-result ownership and old-request
+  cleanup; persisted Stop DEBUG trace still says running and needs explicit
+  cancellation finalization. Original/main/production held; phone unproven.
+
 ### T-1179 — Connect Stop to a waiting live audio transport
 
 - **Owner:** Codex (Jarvis); Zora read-only cancellation-boundary audit.
