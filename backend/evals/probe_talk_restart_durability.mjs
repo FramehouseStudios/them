@@ -152,12 +152,14 @@ try {
   })).json;
 
   const beforeBalance = await balance();
+  assert.equal(beforeBalance.pageTurnsLeft, 100);
   const gracefulKey = `t1118-graceful-${randomUUID()}`;
   const accepted = await talk(server, ownerHeaders, projectId, gracefulKey);
   assert.equal(accepted.status, 200);
   assert.equal(accepted.authoritative, "1");
   assert.ok(accepted.turnId);
   const acceptedBalance = await balance();
+  assert.equal(acceptedBalance.pageTurnsLeft, 99.8, 'Success must include its durable actual-usage debit');
   const initialCalls = providerCounts(server);
   const preRestartOwner = await apiRequest(server, `/talk/turn/${accepted.turnId}`, { headers: ownerHeaders });
   const preRestartOther = await apiRequest(server, `/talk/turn/${accepted.turnId}`, { headers: otherHeaders });
@@ -218,6 +220,7 @@ try {
   const forcedReplay = await talk(server, ownerHeaders, projectId, forcedKey);
   const forcedReplayCalls = providerCounts(server);
   const balanceAfterForcedReplay = await balance();
+  assert.equal(balanceAfterForcedReplay.pageTurnsLeft, 99.6, 'Two accepted requests debit once each despite immediate SIGKILL');
   assert.ok(Buffer.from(String(forcedRead.json.screenplay_output?.text || '')).equals(Buffer.from(scene)), 'Forced termination lost full page text.');
   assert.ok(forcedReplay.headerBytes <= 8192);
   observations.transport = {acceptedHeaderBytes: accepted.headerBytes, gracefulReplayHeaderBytes: gracefulReplay.headerBytes,
@@ -229,9 +232,19 @@ try {
     sameBody: forcedReplay.body.equals(acceptedBeforeKill.body),
     providerCalls: forcedReplayCalls,
   };
-  observations.billing = {initialDebitObserved: observations.beforeRestart.balanceChanged,
-    forcedRestartBalance: balanceAfterForcedReplay.pageTurnsLeft,
-    proof: 'Response replay only; funded durable debit/settlement requires its own boundary.'};
+  const receiptsPersistence = createPersistence({ databaseUrl, jsonRoot: path.join(dataDir, 'persistence') });
+  const receipts = databaseUrl ? createPostgresWalletPersistence({ client: receiptsPersistence })
+    : createAdapterWalletPersistence({ persistence: receiptsPersistence });
+  try {
+    for (const key of [gracefulKey, forcedKey]) {
+      const receipt = await receipts.getTalkSettlement(`user:${owner.userId}|${key}`);
+      assert.equal(receipt?.ownerId, owner.userId);
+      assert.equal(receipt?.settledMilliturns, 200);
+    }
+  } finally { await receiptsPersistence.close(); }
+  observations.billing = { initialDebitObserved: observations.beforeRestart.balanceChanged,
+    forcedRestartBalance: balanceAfterForcedReplay.pageTurnsLeft, durableReceipts: 2,
+    proof: 'Two accepted requests, one durable debit each; graceful and immediate-SIGKILL replays make zero provider calls.' };
 
   console.log(JSON.stringify(observations));
   assert.deepEqual(observations.gracefulRestart, {
