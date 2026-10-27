@@ -50,6 +50,7 @@ const backendOptions = { unsetEnv: ['DATABASE_URL', 'REDIS_URL'], env: {
   TALK_TEST_DEBUG_OFFLINE_ENABLED: '0', TALK_STREAM_AUDIO_ENABLED: '0',
   KNOWLEDGE_RAG_EMBEDDINGS_ENABLED: '0', THEM_HOME_VOICE_PROVIDER_FIXTURE: '1',
   THEM_HOME_VOICE_FUNDED_WRITER: '1',
+  THEM_PAGE_CANCEL_PROOF: needsInterruptibleAudio ? '1' : '0',
   THEM_HOME_VOICE_LONG_AUDIO: process.env.THEM_HOME_VOICE_LONG_AUDIO === '1' || needsInterruptibleAudio ? '1' : '0',
   THEM_PAGE_NAVIGATOR_PROOF: tests.some(test => test.includes('test_pages_navigator_controls')) ? '1' : '0',
   NODE_OPTIONS: `--import=${fixtureURL.href}`,
@@ -103,6 +104,11 @@ try {
   if (tests.some(test => test.includes('home_raw_audio')) && counts.stt < 1) throw new Error('Raw audio test never reached mocked server ASR');
   if (tests.some(test => test.includes('home_')) && counts.chat < 1) throw new Error('Home test never reached mocked generation');
   if (tests.some(test => test.includes('studio_refused_write')) && counts.chat < 1) throw new Error('Refusal test never reached mocked generation');
+  if (needsInterruptibleAudio) {
+    const statuses = [...server.stdout.join('').matchAll(/\[proof-provider\] page_cancel_status=(\d+)/g)].map(match => Number(match[1]));
+    console.log(JSON.stringify({pageCancelHTTPStatuses: statuses}));
+    if (!statuses.includes(200)) throw new Error('Studio Stop never completed an authenticated server Page cancellation');
+  }
 } finally {
   await promotionProxy?.stop();
   await server.stop();

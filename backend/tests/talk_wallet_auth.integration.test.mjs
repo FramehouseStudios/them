@@ -63,16 +63,25 @@ for (const requireAuth of ["1", "0"]) {
         assert.equal("companionTurnsLeft" in response.json, false);
       };
       const spoof = { "x-user-id": users[0].id, "x-session-id": users[0].id };
+      const cancel = token => apiRequest(server, "/talk/page-cancel", { method: "POST",
+        headers: { ...spoof, ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        json: { reservation_id: "unknown-reservation", user_id: users[0].id } });
+      assertDenied(await cancel(null));
+      assertDenied(await cancel("invalid-fixture-token"), "invalid_user_token");
+      assert.equal((await cancel(users[0].token)).status, 404, "A valid user reaches the owned-reservation lookup");
       assertDenied(await read(null, { owner_id: users[0].id }, spoof));
       assertDenied(await read("invalid-fixture-token", { user_id: users[0].id }, spoof), "invalid_user_token");
       const logout = await apiRequest(server, "/auth/logout", { method: "POST", json: {},
         headers: { Authorization: `Bearer ${users[1].token}` } });
       assert.equal(logout.status, 200);
       assertDenied(await read(users[1].token, { owner_id: users[0].id }, spoof), "revoked_user_token");
+      assertDenied(await cancel(users[1].token), "revoked_user_token");
       await server.stop();
       server = await startBackend(options);
       assertBalance(await read(users[0].token), 7, 19);
       assertDenied(await read(users[1].token, { owner_id: users[0].id }, spoof), "revoked_user_token");
+      assertDenied(await cancel(users[1].token), "revoked_user_token");
+      assert.equal((await cancel(users[0].token)).status, 404);
     } finally {
       await server.stop();
     }

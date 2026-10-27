@@ -8,6 +8,7 @@
 // funds; talk_handler passes the signal into chat.
 
 import express from "express";
+import { requireMemoryUserId as requireTrustedUserId } from "./memory_route_auth.js";
 import {
   createPageLaneTalkAdapter,
 } from "./clementine/page_lane_adapter.js";
@@ -32,9 +33,9 @@ function pickString(...candidates) {
 
 /**
  * Mount POST /talk/page-cancel.
- * Body: { session_id?, reservation_id?, user_id?, reason? }
- * - reservation_id → cancel(id)
- * - else session_id → cancelByOwner({ sessionId, userId })
+ * Body: { session_id?, reservation_id?, reason? }; owner is verified identity.
+ * - reservation_id → ownership check, then cancel(id)
+ * - else session_id → cancelByOwner({ sessionId, authenticated userId })
  */
 function mountPageCancelRoute(app, { pageReservationStore } = {}) {
   if (!app || typeof app.post !== "function") {
@@ -49,6 +50,8 @@ function mountPageCancelRoute(app, { pageReservationStore } = {}) {
     express.json({ limit: PAGE_CANCEL_BODY_LIMIT }),
     (req, res) => {
       res.setHeader("Cache-Control", "no-store");
+      const userId = requireTrustedUserId(req, res, { stage: "talk_page_cancel" });
+      if (!userId) return;
       const body = req.body && typeof req.body === "object" ? req.body : {};
       const reservationId = pickString(
         body.reservation_id,
@@ -61,23 +64,18 @@ function mountPageCancelRoute(app, { pageReservationStore } = {}) {
         req.get?.("x-session-id"),
         req.headers?.["x-session-id"]
       );
-      const userId = pickString(
-        body.user_id,
-        body.userId,
-        req?.authUser?.id,
-        req?.user?.id
-      );
       const reason = pickString(body.reason, body.cancel_reason, body.cancelReason) || "barge_in";
 
       if (reservationId) {
-        const result = pageReservationStore.cancel(reservationId, { reason });
-        if (!result) {
+        const reservation = pageReservationStore.get(reservationId);
+        if (!reservation || reservation.userId !== userId) {
           return res.status(404).json({
             ok: false,
             error: "reservation_not_found",
             reservation_id: reservationId,
           });
         }
+        const result = pageReservationStore.cancel(reservationId, { reason });
         return res.status(200).json({
           ok: true,
           cancelled: result.cancelled === true,
@@ -114,8 +112,8 @@ function mountPageCancelRoute(app, { pageReservationStore } = {}) {
 
 /**
  * Mount POST /talk/wallet — read-only calm balance (no TPM fields).
- * Body/query: { owner_id? } else auth user / session fallback.
- * Same light auth posture as page-cancel (caller may wrap middleware).
+ * Ownership comes exclusively from verified middleware identity. Legacy
+ * body identifiers are ignored, never used as an authorization boundary.
  */
 function mountTalkWalletRoute(app, { walletStore } = {}) {
   if (!app || typeof app.post !== "function") {
@@ -130,23 +128,8 @@ function mountTalkWalletRoute(app, { walletStore } = {}) {
     express.json({ limit: PAGE_CANCEL_BODY_LIMIT }),
     (req, res) => {
       res.setHeader("Cache-Control", "no-store");
-      const body = req.body && typeof req.body === "object" ? req.body : {};
-      const ownerId = pickString(
-        body.owner_id,
-        body.ownerId,
-        body.user_id,
-        body.userId,
-        req?.authUser?.id,
-        req?.user?.id,
-        req.get?.("x-session-id"),
-        req.headers?.["x-session-id"]
-      );
-      if (!ownerId) {
-        return res.status(400).json({
-          ok: false,
-          error: "owner_id_required",
-        });
-      }
+      const ownerId = requireTrustedUserId(req, res, { stage: "talk_wallet" });
+      if (!ownerId) return;
       const balance = walletStore.getBalance(ownerId);
       // Explicit allow-list — never leak TPM / token-rate internals.
       return res.status(200).json({

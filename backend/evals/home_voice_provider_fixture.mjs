@@ -6,6 +6,15 @@ if (process.env.NODE_ENV !== 'test' || process.env.HOST !== '127.0.0.1' || proce
   throw new Error('Home voice provider fixture is restricted to an explicit loopback test process');
 }
 const fetchReal = globalThis.fetch;
+if (process.env.THEM_PAGE_CANCEL_PROOF === '1') {
+  const { app } = await import('../app.js');
+  app.use((req, res, next) => {
+    if (req.method === 'POST' && req.path === '/talk/page-cancel') {
+      res.once('finish', () => process.stdout.write(`[proof-provider] page_cancel_status=${res.statusCode}\n`));
+    }
+    next();
+  });
+}
 const ttsAudio = process.env.THEM_HOME_VOICE_LONG_AUDIO === '1'
   ? fs.readFileSync(new URL('../response.mp3', import.meta.url))
   : silentAudio;
