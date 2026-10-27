@@ -16,7 +16,22 @@
   including revoked tokens/restart; Page routes preserve other writers' holds
   and still abort/refund owned work once. Focused/full Node20, signed own-Page
   cancellation UI and D009/diff; no paid calls or production changes.
-- **Status:** in-progress; preserved tests being re-proven against current code.
+- **Status:** review at runtime770978c. Preserved ownership red1/5/0, final
+  focused42/0/0; full Node20 2996/0/5 (four PG requirements and one gated
+  live case skipped). Raw Home story requests now create post-ASR metadata,
+  fund their canonical Page budget and expose the owned cancellation handle.
+  Confirmed Home writes use existing synced insertion; Stop retains its native
+  rollback and project loading no longer destroys the editor/baseline.
+- **Proof:** final signed units902/0/0, unchanged Stop1/0/0 with actual
+  authenticated HTTP200/cancelledtrue/dropped1/byReservationtrue; ordinary raw
+  Home complete-page/one-project/save/exact-relaunch1/0/0. Mac scaffold build
+  exit0, D009/diff pass (Root-2/bridge-4/other monitored files0). No paid calls.
+- **Evidence:** `docs/wallet-page-home-stop-2026-10-27.md`; permanent
+  `_proof/T-1178-20261027.ziitf9xp`, 17462 files/zero hash mismatches.
+  All proof jobs terminal; dependency link removed. Scoped backup publication
+  only; original647/main/production remain held. Next audit pre-header
+  cancellation and accepted-delivery expiry, then original-stack exact-head
+  integration through required genuine reviews. Physical-phone journey unproven.
 
 ### T-1177 — Keep accepted screenplay metadata with durable reply recovery
 
