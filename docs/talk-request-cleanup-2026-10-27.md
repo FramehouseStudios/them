@@ -109,3 +109,15 @@ All proof jobs are terminal; task-created dependency link removed. GitHub
 review read still shows only a DISMISSED review on #964 and none on #638.
 The human chose to review later; no approval was requested or submitted by an
 agent. READY FOR CONTINUE; full product goal remains active and incomplete.
+
+## Preserved runtime receipt
+
+Runtime commit: `0ce5a30f494c3ff11d0b28d8c163a38dd27ff5fa`.
+Permanent local proof:
+`/Users/halfmutantfilms/io.them-worktrees/_proof/T-1181-20261027.djihoy6m`.
+**4,386 hashed files / zero mismatches** cover four native result bundles,
+logs and five source files. `SHA256SUMS` SHA-256:
+`d2c5557cf380f3abf280bbc697ad5d803f50f162ed559dfade126919436ba9b1`.
+Final documentation/publication receipt supplements this fixed runtime proof.
+Normal backup target is `codex/T-1181-owning-talk-cleanup`; original PR checks
+and integrated main are not established by that publication.

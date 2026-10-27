@@ -22,6 +22,8 @@
   Mac build exit0, D009 Root-1/others0 and diff pass. No paid calls.
 - **Evidence:** `docs/talk-request-cleanup-2026-10-27.md`. All proof jobs terminal,
   task dependency link removed. Backend unchanged/full2996/0/5 inherited.
+  Runtime0ce5a30; permanent `_proof/T-1181-20261027.djihoy6m`,
+  4386 hashed files/zero mismatches.
   This prerequisite does not fix account/project publication, typed ownership,
   stale catch/result mutations or accepted-response custody. Never drop paid work.
 - **Next contract:** existing outbox needs parked, owner-bound live admission,
