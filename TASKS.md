@@ -18,9 +18,15 @@
   refund, raw authoritative ASR reaches Page without a second transcription.
   Full backend, funded signed normal/queued writing, D009/diff; no fake grants
   in shipping code. Durable settlement/retry remains the next distinct boundary.
-- **Status:** in-progress. Current restart fixtureinitialDebitObserved=false.
-  Inspect and preserve all prerequisite commits before applying budget changes;
-  prove current failures first. No original head/main change.
+- **Status:** local review, runtime7377082. Original cap red0/3/4; first
+  focus91/0/0/full2945/0/2. Adversarial caller-intent bypass red0/1/7 then
+  canonical target repair. Final Node20 full2948/0/2; signed funded raw1/0/0
+  and queued playback/page/one-save/relaunch1/0/0. D009/diff pass. Native
+  units886/Mac inherited from unchanged T1174 app source. No paid calls.
+- **Evidence:** `docs/server-page-budget-2026-10-26.md`; permanent
+  `_proof/T-1173-20261026.AhoeZZ`. Preserving merge b873807 retains T1174.
+  Durable prepared-response/settlement reconciliation is next; no original
+  head/main/production change or crash-safe billing claim.
 
 ### T-1174 — Review Hermes and preserve overlapping live edits
 
@@ -39,7 +45,8 @@
   Static review only for Hermes; no execution of its app, installer, MCP,
   cloud hosts or paid providers. No new physical-phone/process-kill claim.
 - **Evidence:** `docs/hermes-reuse-review-2026-10-26.md`; permanent
-  `_proof/T-1174-20261026.uVJkwS`. T1173 remains a37ef3b, unfinished.
+  `_proof/T-1174-20261026.uVJkwS`. T1173's a37ef3b red was preserved;
+  merge b873807 carries this verified repair into resumed budget work.
 
 ### T-1172 — Keep accepted turn results and replay across backend restart
 
