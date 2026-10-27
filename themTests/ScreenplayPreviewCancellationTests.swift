@@ -96,7 +96,10 @@ final class ScreenplayPreviewCancellationTests: XCTestCase {
                     anchorLine: nil, anchorEndLine: nil, insertMode: nil)
                 let timeline = ScreenplayDialogueTimelineRevision(turnId: "cancel-proof", revisionId: "r1",
                     audioAssetId: "fixture", durationMs: 60_000, documentRevisionId: "",
-                    insertionAnchor: anchor, segments: [])
+                    insertionAnchor: anchor, segments: [ScreenplayDialogueSegment(id: "segment", lineId: "line",
+                        kind: .action, text: page, startMs: 30_000, endMs: 60_000, pageAnchor: anchor,
+                        revealUnits: [ScreenplayRevealUnit(id: "unit", text: page, startMs: 30_000, endMs: 60_000,
+                            utf16Start: 0, utf16End: (page as NSString).length)])])
                 XCTAssertNotNil(bridge.streamInsertSynced(page, audioDuration: 60, timeline: timeline,
                     requestID: "cancel-proof", timingSource: "fixture",
                     playbackTimeProvider: { 0 }, playbackObservationProvider: { nil }))
@@ -106,12 +109,18 @@ final class ScreenplayPreviewCancellationTests: XCTestCase {
                 var model = baseline
                 let editor = UITextView()
                 editor.text = model
-                let coordinator = makeCoordinator(text: Binding(get: { model }, set: { model = $0 }))
+                let coordinator = makeCoordinator(text: Binding(get: { model }, set: { model = $0 }),
+                    insertionRequest: Binding(get: { bridge.pendingInsertion }, set: { bridge.pendingInsertion = $0 }))
                 coordinator.textView = editor
                 coordinator.primeParagraphElements(for: model, attributedText: editor.attributedText)
+                coordinator.beginRepresentableUpdate()
                 coordinator.applyInsertion(prepare)
+                coordinator.endRepresentableUpdate()
+                await waitUntil { model.contains("false stars") }
+                XCTAssertTrue(model.contains("false stars"), "Prepared native text was never published")
                 XCTAssertTrue((editor.text ?? "").contains("false stars"))
 #endif
+                XCTAssertEqual(bridge.syncedVoiceTurnState.phase, .syncedInsertion)
                 bridge.cancelStream(reason: reason)
                 let cancel = try XCTUnwrap(bridge.pendingInsertion)
                 XCTAssertEqual(cancel.mode, .voiceRevealCancel)
@@ -119,7 +128,10 @@ final class ScreenplayPreviewCancellationTests: XCTestCase {
                 bridge.cancelStreamingVoiceTurnPreview()
                 XCTAssertEqual(bridge.pendingInsertion?.id, cancel.id, "Cleanup replaced the native voice rollback")
 #if os(iOS)
+                coordinator.beginRepresentableUpdate()
                 coordinator.applyInsertion(cancel)
+                coordinator.endRepresentableUpdate()
+                await waitUntil { model == baseline }
                 XCTAssertEqual(editor.text, baseline)
                 XCTAssertEqual(model, baseline)
 #endif
@@ -164,11 +176,11 @@ final class ScreenplayPreviewCancellationTests: XCTestCase {
     }
 
 #if os(iOS)
-    private func makeCoordinator(text: Binding<String>) -> IOSCursorInsertTextEditor.Coordinator {
+    private func makeCoordinator(text: Binding<String>, insertionRequest: Binding<ScreenplayInsertionRequest?> = .constant(nil)) -> IOSCursorInsertTextEditor.Coordinator {
         IOSCursorInsertTextEditor(
             text: text,
             activeScreenplayElement: .constant(.action),
-            insertionRequest: .constant(nil), lineJumpRequest: .constant(nil),
+            insertionRequest: insertionRequest, lineJumpRequest: .constant(nil),
             lineHighlightRequest: .constant(nil), anchoredTextRectRequest: .constant(nil),
             anchoredTextRectSnapshot: .constant(nil), editorFocusRequest: .constant(nil),
             editorActionRequest: .constant(nil), editorSelection: .constant(nil),

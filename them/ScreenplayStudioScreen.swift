@@ -2831,13 +2831,13 @@ private var directionOneTalkButton: some View {
 private var directionOneScriptEditor: some View {
     GeometryReader { proxy in
         ScrollView(.vertical, showsIndicators: false) {
-            VStack(spacing: 0) {
+            ZStack(alignment: .top) {
+                directionOnePageEditor(proxy.size)
+                    .disabled(vm.isLoading)
                 if vm.isLoading {
                     ProgressView("Loading screenplay projects…")
                         .controlSize(.large)
-                        .frame(width: proxy.size.width, height: max(proxy.size.height * 0.6, 360))
-                } else {
-                    directionOnePageEditor(proxy.size)
+                        .padding(.top, 20)
                 }
             }
             .frame(maxWidth: .infinity)

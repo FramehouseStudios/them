@@ -11348,7 +11348,7 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
             case .voiceRevealFinalize:
                 finalizeVoiceReveal(request)
             case .voiceRevealCancel:
-                cancelVoiceReveal()
+                clearVoiceRevealPresentation(in: textView, preserveCurrentText: false)
                 lastAppliedInsertionID = request.id
                 DispatchQueue.main.async {
                     if self.parent.insertionRequest?.id == request.id {
@@ -12420,10 +12420,6 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
                     self.parent.insertionRequest = nil
                 }
             }
-        }
-
-        private func cancelVoiceReveal() {
-            clearVoiceRevealPresentation(in: textView, preserveCurrentText: false)
         }
 
         private func resetVoiceRevealState() {
