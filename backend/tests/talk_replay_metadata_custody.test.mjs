@@ -88,3 +88,15 @@ test('a conflicting publication between read and restore wins without being clob
   await assert.rejects(store.restoreForReplay(f.record, f.scope), /changed during restoration/);
   assert.equal((await f.makeStore().read('turn-7', f.scope)).screenplayOutput.text, competitor.screenplayOutput.text);
 });
+
+test('an old worker cannot prune metadata freshly restored by another worker', async t => {
+  const f = fixture(t), oldWorker = f.makeStore();
+  await oldWorker.put(f.metadata);
+  f.expire();
+  await f.makeStore().restoreForReplay(f.record, f.scope);
+  await oldWorker.put({ ...f.metadata, turnId: 'turn-8', requestId: 'another-turn',
+    createdAt: 160_001, updatedAt: 160_001 });
+  const actual = await f.makeStore().read('turn-7', f.scope);
+  assert.ok(actual, 'Stale expiration cleanup deleted another worker’s fresh accepted metadata');
+  assert.equal(actual.screenplayOutput.text, f.metadata.screenplayOutput.text);
+});
