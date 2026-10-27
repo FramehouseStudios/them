@@ -8,8 +8,10 @@ import { startBackend, apiRequest } from './helpers/backend_test_server.mjs';
 import { createJsonPersistence } from '../lib/persistence_json.js';
 import { createAdapterWalletPersistence } from '../lib/clementine/wallet_persistence.js';
 
-for (const boundary of ['prepared', 'debited', 'completed']) {
-  test(`actual authenticated Page retry settles once after SIGKILL at ${boundary}`, { timeout: 90_000 }, async () => {
+for (const { boundary, expireMetadata } of ['prepared', 'debited', 'completed'].flatMap(boundary => [
+  { boundary, expireMetadata: false }, { boundary, expireMetadata: true },
+])) {
+  test(`actual authenticated Page retry settles once after SIGKILL at ${boundary}${expireMetadata ? ' with expired metadata' : ''}`, { timeout: 90_000 }, async () => {
     const options = { unsetEnv: ['DATABASE_URL', 'REDIS_URL'], env: {
       APP_TOKEN: 'settlement-loopback-test', REQUIRE_USER_AUTH: '1',
       CLEMENTINE_PROVIDER: 'openai', CLEMENTINE_MUSE_ENABLED: '0', MUSE_ENABLED: '0', LLM_PROVIDER: 'openai',
@@ -69,7 +71,21 @@ for (const boundary of ['prepared', 'debited', 'completed']) {
       assert.ok(expectedBytes.length && expectedTurn);
       assert.equal((await wallet.getBalance(owner)).pageMilliturns, boundary === 'prepared' ? 100_000 : 99_800);
 
+      if (expireMetadata) {
+        const rows = await persistence.list({ domain: 'talk_turns' });
+        assert.equal(rows.length, 1);
+        // Only this isolated fixture's public metadata is aged. Replay and
+        // settlement evidence remain untouched; restart must run the real
+        // expiration/pruning code, not a stubbed HTTP response or sleep.
+        for (const row of rows) await persistence.put({ domain: 'talk_turns', key: row.key,
+          value: { ...row.value, expiresAt: 1 } });
+      }
+
       server = await startBackend({ ...options, dataDir });
+      if (expireMetadata) {
+        const expired = await apiRequest(server, `/talk/turn/${expectedTurn}`, { headers: auth });
+        assert.equal(expired.status, 404, 'Fixture must actually expire public metadata before replay');
+      }
       const freshSession = await apiRequest(server, '/session', { method: 'POST', headers: auth, json: {} });
       assert.equal(freshSession.status, 201);
       headers['X-Client-Token'] = freshSession.json.client_token;
@@ -81,11 +97,11 @@ for (const boundary of ['prepared', 'debited', 'completed']) {
         assert.equal(replay.headers.get('x-turn-id'), expectedTurn);
         assert.deepEqual(Buffer.from(await replay.arrayBuffer()), expectedBytes);
       }
-      const meta = await apiRequest(server, `/talk/turn/${expectedTurn}`, { headers: auth });
-      assert.equal(meta.status, 200);
-      assert.match(meta.json.screenplay_output.text, /HOME VOICE HANDOFF/);
       const balance = await apiRequest(server, '/talk/wallet', { method: 'POST', headers: auth, json: {} });
       assert.equal(balance.json.pageTurnsLeft, 99.8);
+      const meta = await apiRequest(server, `/talk/turn/${expectedTurn}`, { headers: auth });
+      assert.equal(meta.status, 200, 'Replayed billed audio must retain its full screenplay after public metadata expiry');
+      assert.match(meta.json.screenplay_output.text, /HOME VOICE HANDOFF/);
       const receipts = await persistence.list({ domain: 'wallet_talk_settlements' });
       assert.equal(receipts.length, 1);
       assert.equal(receipts[0].value.status, 'completed');

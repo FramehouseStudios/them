@@ -5,6 +5,20 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1177 — Keep accepted screenplay metadata with durable reply recovery
+
+- **Owner:** Codex (Jarvis). **Branch:** `codex/T-1177-replay-metadata-custody`.
+- **Base:** saved 182fd3b; original PR heads/main/production held.
+- **Scope:** reproduce metadata expiry while prepared/billed response recovery
+  remains available; preserve the exact accepted screenplay through the existing
+  turn store and durable response owner, without another store/provider call.
+- **Binary success:** authenticated late retry after controlled metadata expiry
+  and restart restores the same full page/audio and one debit; wrong owners,
+  write failure and conflicting turn identities cannot publish incorrect text.
+  Relevant full backend, essential signed writer UI, D009/diff; no paid calls.
+- **Status:** in-progress. Prepared billed replies have no expiry until recovery,
+  but their separate public metadata currently expires after 30 minutes.
+
 ### T-1176 — Hand real screenplay exports to iPhone Files
 
 - **Owner:** Codex (Jarvis). **Branch:** `codex/T-1176-native-screenplay-export`.
