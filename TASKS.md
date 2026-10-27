@@ -22,6 +22,25 @@
   Inspect and preserve all prerequisite commits before applying budget changes;
   prove current failures first. No original head/main change.
 
+### T-1174 — Review Hermes and preserve overlapping live edits
+
+- **Owner:** Codex (Jarvis). **Branch:** `codex/T-1174-hermes-recovery-review`.
+- **Base:** saved higher647 c128ec2. T1173 budget red remains on its original
+  branch a37ef3b; no original PR/main/production changes.
+- **Scope:** evaluate pinned Hermes bea7d24 for useful reliability patterns;
+  reuse THEM's preserved e31f351 overlap repair and canonical recovery store.
+  Do not import a desktop agent runtime, assets, providers or dependencies.
+- **Binary success:** reproduce lost local overlap, then retain exact local
+  words before applying remote text; recover through a newly opened store,
+  keep non-overlapping merges and no-base duplicate protection intact.
+- **Status:** local review. Signed red0/1/0; final signed units886/0/0 on
+  erased owned simulator; macOS scaffold build and D009/diff pass. Runtime
+  554fe98 reuses preserved e31f351; exact-byte store-reopen/Restore covered.
+  Static review only for Hermes; no execution of its app, installer, MCP,
+  cloud hosts or paid providers. No new physical-phone/process-kill claim.
+- **Evidence:** `docs/hermes-reuse-review-2026-10-26.md`; permanent
+  `_proof/T-1174-20261026.uVJkwS`. T1173 remains a37ef3b, unfinished.
+
 ### T-1172 — Keep accepted turn results and replay across backend restart
 
 - **Owner:** codex (Jarvis). **Branch:** `codex/T-1172-durable-talk-replay`.
