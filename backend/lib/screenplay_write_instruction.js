@@ -7,6 +7,7 @@ const PREFIX = "(?:(?:hey|okay|ok)[, ]+)?(?:clementine[, ]+)?(?:(?:please|just|n
 const REFUSAL = new RegExp(`^${PREFIX}(?:(?:i|we)\\s+)?(?:don'?t(?:\\s+want(?:\\s+you)?(?:\\s+to)?)?|do not(?:\\s+want(?:\\s+you)?(?:\\s+to)?)?|never|stop|avoid|no need to|let'?s not)\\s+(?:(?:please|just|a|any)\\s+)*(?:${ACTIONS})\\b`, "i");
 const AFFIRMATIVE = new RegExp(`^${PREFIX}(?:(?:can|could|would|will) you (?:please )?|(?:i|we)(?: would|'d)? (?:want|need|like)(?: you)? to |let'?s |help me )?(?:${ACTIONS}|next page|next scene|more pages|give me (?:the |a |another |next )?(?:scene|page|script|screenplay))\\b`, "i");
 const CONCEPTUAL = /^(?:write|draft|generate|compose)\s+(?:(?:a|an|the|my|this)\s+)?(?:outline|synopsis|premise|logline|notes|feedback)\b/i;
+const STORY_WRITE = new RegExp(`^${PREFIX}(?:(?:can|could|would|will) you (?:please )?|(?:i|we)(?: would|'d)? (?:want|need|like)(?: you)? to |let'?s |help me )?(?:write(?: down)?|draft|compose)\\s+(?:(?:me|us)\\s+)?(?:(?:a|an|the|my|this)\\s+)?(?:(?:short|new)\\s+)?story\\b`, 'i');
 
 function maskQuotedScreenplayText(text, replacement = "\uE000quoted\uE001") {
   return String(text ?? "").replace(QUOTED_TEXT, replacement);
@@ -41,4 +42,14 @@ function currentScreenplayInstruction(input = {}) {
   return "";
 }
 
-export { analyzeScreenplayWriteInstruction, currentScreenplayInstruction, maskQuotedScreenplayText };
+// Home has no project/Page hint yet. An explicit request to put a story on the
+// page still needs the same funded, cancellable Page owner as a scene request.
+// Questions, conceptual notes and quoted screenplay dialogue are not consent.
+function requestsStoryPages(text = '') {
+  const instruction = analyzeScreenplayWriteInstruction(text);
+  if (instruction.refusesPageWrite) return false;
+  return STORY_WRITE.test(maskQuotedScreenplayText(instruction.routingText)
+    .replace(/\u2019/g, "'").trim());
+}
+
+export { analyzeScreenplayWriteInstruction, currentScreenplayInstruction, maskQuotedScreenplayText, requestsStoryPages };

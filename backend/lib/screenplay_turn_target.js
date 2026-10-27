@@ -1,5 +1,5 @@
 import { inferScreenplayTask } from "./prompt_assembly.js";
-import { analyzeScreenplayWriteInstruction, currentScreenplayInstruction } from "./screenplay_write_instruction.js";
+import { analyzeScreenplayWriteInstruction, currentScreenplayInstruction, requestsStoryPages } from "./screenplay_write_instruction.js";
 import { isShortFilmBetaEnabled } from "./clementine/short_film_beta.js";
 import { parseShortFilmIntent } from "./clementine/short_film_intent.js";
 
@@ -223,6 +223,7 @@ function inferScreenplayTargetFromRequest(input = {}) {
   const instruction = analyzeScreenplayWriteInstruction(currentScreenplayInstruction(input));
   if (instruction.refusesPageWrite) return "";
   const text = instruction.hadRefusal ? instruction.routingText : textFromRequest(input);
+  if (requestsStoryPages(currentScreenplayInstruction(input))) return "page";
   if (!text) {
     return positiveIntegerOrZero(
       input.screenplayTargetPages ??

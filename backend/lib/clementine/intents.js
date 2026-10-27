@@ -9,7 +9,7 @@
 import { parseShortFilmIntent } from "./short_film_intent.js";
 import { isShortFilmBetaEnabled } from "./short_film_beta.js";
 import { asksForDialogueNotes, isScreenplayRevisionRequest } from "../dialogue_notes.js";
-import { analyzeScreenplayWriteInstruction } from "../screenplay_write_instruction.js";
+import { analyzeScreenplayWriteInstruction, requestsStoryPages } from "../screenplay_write_instruction.js";
 
 const INTENT = Object.freeze({
   GREETING: "greeting",
@@ -78,7 +78,8 @@ function classifyIntent(utterance, hints = {}) {
     && asksForDialogueNotes(utterance)) return INTENT.STORY_HELP;
 
   // Page lane cues (sacred — must win over casual talk)
-  if (/\b(write|draft|type|insert|propose)\b.*\b(scene|beat|page|action|dialogue|line)\b/.test(text)
+  if (requestsStoryPages(utterance)
+    || /\b(write|draft|type|insert|propose)\b.*\b(scene|beat|page|action|dialogue|line)\b/.test(text)
     || /\b(page|scene|beat)\b.*\b(edit|change|fix|rewrite)\b/.test(text)
     || /\b(format (this|as)|screenplay|slugline|int\.|ext\.)\b/.test(text)
     || hints?.pageMode === true) {

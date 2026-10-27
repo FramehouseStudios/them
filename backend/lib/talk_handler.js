@@ -1813,7 +1813,7 @@ function createTalkHandler(deps) {
       req.body?.screenplay_generation_transcript ?? req.body?.screenplayGenerationTranscript,
       8_000
     );
-    const studioMeta = sanitizeStudioTurnMetadata(req.body || null);
+    let studioMeta = sanitizeStudioTurnMetadata(req.body || null);
     let isScreenplayPageWriteTurn =
       String(studioMeta?.screenplayTarget || "").trim().toLowerCase() === "page";
     const talkTestDebugOfflineScreenplayMode = TALK_TEST_DEBUG_OFFLINE_ENABLED &&
@@ -2043,6 +2043,8 @@ function createTalkHandler(deps) {
         activeSession.memory = await persistTalkMemory(previousMemory, Date.now());
       }
     }
+    // Home may have no Studio metadata until ASR identifies the first page ask.
+    studioMeta ??= sanitizeStudioTurnMetadata({ ...req.body, client_transcript: transcript });
     isScreenplayPageWriteTurn = await reconcileScreenplayTranscript(req, res, studioMeta, transcript);
     if (res.writableEnded || res.destroyed) return;
     const forcedErrorStageRaw = TALK_TEST_DEBUG_FAILURE_ENABLED

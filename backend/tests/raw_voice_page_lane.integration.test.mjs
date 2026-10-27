@@ -57,7 +57,12 @@ test('raw microphone Page requests classify the actual ASR words before generati
     form.set('tail_silence_ms', '900');
     form.set('file', new Blob([fs.readFileSync(new URL('../test.wav', import.meta.url))], { type: 'audio/wav' }), 'microphone.wav');
     // Deliberately no client/debug/generation transcript: only server ASR knows the words.
-    for (const { cap, intent } of [{}, { cap: '0' }, { cap: '1' }, { cap: '1', intent: 'advise' }]) {
+    for (const { cap, intent, home } of [{}, { cap: '0' }, { cap: '1' }, { cap: '1', intent: 'advise' }, { cap: '1', intent: 'advise', home: true }]) {
+      if (home) {
+        form.delete('screenplay_target');
+        form.delete('screenplay_project_id');
+        form.delete('screenplay_prompt_source');
+      }
       if (cap === undefined) form.delete('max_output_tokens');
       else form.set('max_output_tokens', cap);
       if (intent) form.set('clementine_intent', intent);
@@ -68,7 +73,7 @@ test('raw microphone Page requests classify the actual ASR words before generati
       assert.notEqual(denied.headers.get('x-screenplay-authoritative'), '1');
     }
     const deniedLog = server.stdout.join('');
-    assert.equal(deniedLog.split('[proof-provider] mocked_stt').length - 1, 4);
+    assert.equal(deniedLog.split('[proof-provider] mocked_stt').length - 1, 5);
     assert.equal(deniedLog.includes('[proof-provider] mocked_chat'), false, 'no paid chat before real budget is held');
     assert.equal(deniedLog.includes('[proof-provider] mocked_tts'), false, 'wallet denial is not a misleading recovered voice reply');
     const balance = await apiRequest(server, '/talk/wallet', { method: 'POST', headers, json: {} });
@@ -83,6 +88,9 @@ test('raw microphone Page requests classify the actual ASR words before generati
     const fundedSession = await apiRequest(server, '/session', { method: 'POST', headers: auth, json: {} });
     assert.equal(fundedSession.status, 201);
     headers['X-Client-Token'] = fundedSession.json.client_token;
+    form.set('screenplay_target', 'page');
+    form.set('screenplay_project_id', projectId);
+    form.set('screenplay_prompt_source', 'voice');
     form.set('max_output_tokens', '1'); // tiny client hint must not truncate or under-reserve the real Page.
     const response = await sendAudio(server, headers, form);
     assert.equal(response.status, 200);
@@ -107,13 +115,16 @@ test('raw microphone Page requests classify the actual ASR words before generati
     form.delete('clementine_intent');
     const home = await sendAudio(server, { ...headers, 'X-Idempotency-Key': 'home-cancel-proof' }, form);
     assert.equal(home.status, 200);
-    assert.equal(home.headers.get('x-screenplay-target'), 'page');
+    assert.equal(home.headers.get('x-screenplay-target'), 'page', JSON.stringify({
+      contentType: home.headers.get('content-type'), turnStatus: home.headers.get('x-turn-status'),
+      stt: server.stdout.join('').split('[proof-provider] mocked_stt').length - 1,
+    }));
     assert.ok(home.headers.get('x-clementine-page-reservation'), 'Home writing must expose its Page cancellation handle');
     const cancelled = await apiRequest(server, '/talk/page-cancel', { method: 'POST', headers, json: {
       reservation_id: home.headers.get('x-clementine-page-reservation'), reason: 'cancel',
     } });
     assert.equal(cancelled.status, 200);
     assert.equal(cancelled.json.cancelled, true);
-    console.log(JSON.stringify({ fixture: 'authenticated raw HTTP; deterministic providers, no paid calls', underfunded: [402, 402, 402, 402], callerIntentCannotDowngradePage: true, deniedChatAndTts: 0, target: 'page', authoritative: true, fundedAsrCalls: 1, settledPageTurns: 0.2 }));
+    console.log(JSON.stringify({ fixture: 'authenticated raw HTTP; deterministic providers, no paid calls', underfunded: [402, 402, 402, 402, 402], callerIntentCannotDowngradePage: true, deniedChatAndTts: 0, target: 'page', authoritative: true, fundedAsrCalls: 2, settledPageTurnsPerReply: 0.2, homeCancelStatus: cancelled.status }));
   } finally { await server.stop(); }
 });
