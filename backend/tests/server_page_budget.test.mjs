@@ -2,9 +2,11 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { EventEmitter } from 'node:events';
 import { createWalletStore } from '../lib/clementine/wallet.js';
+import { createMemoryWalletPersistence } from '../lib/clementine/wallet_persistence.js';
 import { createPageReservationStore } from '../lib/clementine/page_cancel.js';
 import { createPageLaneTalkAdapter } from '../lib/clementine/page_lane_adapter.js';
 import { runTalkGenerate } from '../lib/talk_generate.js';
+import { createTalkIdempotencyHelpers } from '../lib/talk_state.js';
 import { multipassWalletReserveTokenMultiplier } from '../lib/clementine/page_multipass.js';
 
 function response() {
@@ -63,6 +65,84 @@ test('wallet budget top-ups are atomic, monotonic, cancellation-safe and cannot 
   wallet.release(hold.reservationId);
   assert.equal(wallet.getBalance('writer').pageTurnsLeft, 4);
   assert.throws(() => wallet.ensureReservationBudget(hold.reservationId, 400), error => error.code === 'wallet_reservation_unavailable');
+});
+
+test('Page adapter exposes durable settlement before finish and finish cannot double debit', async () => {
+  const persistence = createMemoryWalletPersistence();
+  await persistence.putBalance({ ownerId: 'durable-writer', companionMilliturns: 0,
+    pageMilliturns: 10_000, grantedCompanionMilliturns: 0, grantedPageMilliturns: 10_000 });
+  const wallet = createWalletStore({ persistence });
+  await wallet.hydrate();
+  const pages = createPageReservationStore({ walletStore: wallet });
+  const req = { authUser: { id: 'durable-writer' }, body: {
+    client_transcript: 'Write the opening scene.', screenplay_target: 'page',
+  } };
+  const res = response();
+  await createPageLaneTalkAdapter({ pageReservationStore: pages, walletStore: wallet, logger: null,
+    handleTalkRequest: async () => {
+      req.clementine.prepareGenerationBudget(1_000);
+      req.clementine.commitWallet(80);
+      const settlement = req.clementine.buildWalletSettlement('durable-page-key');
+      assert.equal(settlement.settledMilliturns, 200);
+      await req.clementine.settleWalletDurably(settlement);
+      assert.equal((await persistence.getBalance('durable-writer')).pageMilliturns, 9_800);
+      res.emit('finish');
+      res.emit('close');
+    },
+  })(req, res);
+  assert.equal((await persistence.getBalance('durable-writer')).pageMilliturns, 9_800);
+  assert.equal(wallet.getBalance('durable-writer').pageTurnsLeft, 9.8);
+  assert.equal((await persistence.getTalkSettlement('durable-page-key')).settledMilliturns, 200);
+});
+
+test('close during prepared write cannot publish completion for a released hold', async () => {
+  const persistence = createMemoryWalletPersistence();
+  await persistence.putBalance({ ownerId: 'race-writer', companionMilliturns: 0,
+    pageMilliturns: 10_000, grantedCompanionMilliturns: 0, grantedPageMilliturns: 10_000 });
+  const wallet = createWalletStore({ persistence });
+  await wallet.hydrate();
+  const pages = createPageReservationStore({ walletStore: wallet });
+  const records = new Map();
+  let preparedStarted;
+  let releasePrepared;
+  const preparedStartedPromise = new Promise(resolve => { preparedStarted = resolve; });
+  const preparedGate = new Promise(resolve => { releasePrepared = resolve; });
+  const scaleBackplane = {
+    async getIdempotency(key) { return records.get(key) || null; },
+    async setIdempotency(key, value) { records.set(key, value); },
+    async deleteIdempotency(key) { records.delete(key); },
+    async compareAndSetIdempotency(key, _expected, value) {
+      records.set(key, value);
+      if (value.status === 'prepared') {
+        preparedStarted();
+        await preparedGate;
+      }
+    },
+  };
+  const helpers = createTalkIdempotencyHelpers({ scaleBackplane,
+    talkIdempotencyEnabled: true, talkIdempotencyTtlMs: 60_000,
+    talkIdempotencyMaxEntries: 16 });
+  const cacheKey = 'user:race-writer|close-race';
+  records.set(cacheKey, { status: 'pending', createdAt: Date.now(), expiresAt: Date.now() + 60_000 });
+  const req = { authUser: { id: 'race-writer' },
+    talkIdempotency: { cacheKey, key: 'close-race', sessionKey: 'race-session' },
+    body: { client_transcript: 'Write the opening scene.', screenplay_target: 'page' } };
+  const res = response();
+  await createPageLaneTalkAdapter({ pageReservationStore: pages, walletStore: wallet, logger: null,
+    handleTalkRequest: async () => {
+      req.clementine.prepareGenerationBudget(1_000);
+      req.clementine.commitWallet(80);
+      const committing = helpers.commitSuccess(req, { body: Buffer.from('accepted bytes') });
+      await preparedStartedPromise;
+      res.emit('close');
+      releasePrepared();
+      await assert.rejects(committing, error => error?.code === 'wallet_reservation_released');
+    },
+  })(req, res);
+  assert.equal(records.get(cacheKey)?.status, 'prepared');
+  assert.equal((await persistence.getBalance('race-writer')).pageMilliturns, 10_000);
+  assert.equal(await persistence.getTalkSettlement(cacheKey), null);
+  assert.equal(wallet.getBalance('race-writer').pageTurnsLeft, 10);
 });
 
 test('reservation infrastructure failure cannot fall through into model generation', async () => {

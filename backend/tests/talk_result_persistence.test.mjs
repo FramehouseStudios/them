@@ -175,6 +175,96 @@ test("existing pending record can complete at capacity and retain exact replay b
   await restarted.close();
 });
 
+test("same-key pending admission is atomic across backplane instances", async () => {
+  const { root, persistence } = fixture();
+  const first = await createScaleBackplane({
+    persistence,
+    outboxFilePath: path.join(root, "outbox-a.json"),
+    logger: { log() {} },
+  });
+  const second = await createScaleBackplane({
+    persistence,
+    outboxFilePath: path.join(root, "outbox-b.json"),
+    logger: { log() {} },
+  });
+  await Promise.all([first.init(), second.init()]);
+  const key = "user:writer-a|one-admission";
+  const record = { status: "pending", createdAt: Date.now(), expiresAt: Date.now() + 60_000 };
+  const results = await Promise.allSettled([
+    first.setIdempotency(key, record, 60_000, 10),
+    second.setIdempotency(key, record, 60_000, 10),
+  ]);
+  assert.equal(results.filter((result) => result.status === "fulfilled").length, 1);
+  assert.equal(results.filter((result) => result.status === "rejected" &&
+    result.reason?.code === "TALK_IDEMPOTENCY_CONFLICT").length, 1);
+  assert.equal((await first.getIdempotency(key))?.status, "pending");
+  await Promise.all([first.close(), second.close()]);
+});
+
+test("prepared transitions use CAS and unresolved billed bytes do not expire", async () => {
+  const { root, persistence } = fixture();
+  const key = "user:writer-a|prepared-cas";
+  const backplane = await createScaleBackplane({
+    persistence,
+    outboxFilePath: path.join(root, "outbox.json"),
+    logger: { log() {} },
+  });
+  await backplane.init();
+  const pending = { status: "pending", createdAt: 1, expiresAt: Date.now() + 60_000 };
+  await backplane.setIdempotency(key, pending, 60_000, 10);
+  const prepared = {
+    ...pending,
+    status: "prepared",
+    body: Buffer.from("exact unresolved bytes"),
+    settlement: { settlementKey: key, ownerId: "writer-a", lane: "page",
+      settledMilliturns: 200, actualOutputTokens: 80 },
+    preparedAt: Date.now(),
+    expiresAt: 0,
+  };
+  await backplane.compareAndSetIdempotency(key, pending, prepared, 60_000);
+  assert.deepEqual((await backplane.getIdempotency(key))?.body, prepared.body);
+  await backplane.close();
+
+  const restarted = await createScaleBackplane({
+    persistence: createJsonPersistence({ jsonRoot: path.join(root, "persistence") }),
+    outboxFilePath: path.join(root, "outbox-restarted.json"),
+    logger: { log() {} },
+  });
+  await restarted.init();
+  const recovered = await restarted.getIdempotency(key);
+  assert.equal(recovered?.status, "prepared");
+  assert.equal(recovered?.expiresAt, 0);
+  assert.deepEqual(recovered?.body, prepared.body);
+  await restarted.close();
+});
+
+test("a stale worker cannot overwrite a newly admitted generation", async () => {
+  const { root, persistence } = fixture();
+  const key = "user:writer-a|stale-worker";
+  const backplane = await createScaleBackplane({
+    persistence,
+    outboxFilePath: path.join(root, "outbox.json"),
+    logger: { log() {} },
+  });
+  await backplane.init();
+  const stale = { status: "pending", createdAt: 1, expiresAt: Date.now() + 60_000 };
+  await backplane.setIdempotency(key, stale, 60_000, 10);
+  await backplane.deleteIdempotency(key);
+  const current = { status: "pending", createdAt: 2, expiresAt: Date.now() + 60_000 };
+  await backplane.setIdempotency(key, current, 60_000, 10);
+  await assert.rejects(
+    backplane.compareAndSetIdempotency(key, stale, {
+      ...stale,
+      status: "prepared",
+      body: Buffer.from("stale result"),
+      expiresAt: 0,
+    }, 60_000),
+    (error) => error?.code === "TALK_IDEMPOTENCY_CONFLICT"
+  );
+  assert.deepEqual(await backplane.getIdempotency(key), current);
+  await backplane.close();
+});
+
 test("turn metadata hydrates after restart and is not published before persistence", async () => {
   const { root, persistence } = fixture();
   const store = createTalkTurnStore({ persistence, ttlMs: 60_000, maxEntries: 4 });

@@ -348,19 +348,26 @@ function createPageLaneTalkAdapter({
     // Generation only proposes usage. Settle after the handler's quality and
     // response stages; an HTTP 200 recovery reply is still a failed write.
     let pendingOutputTokens = null;
-    let walletSettled = false;
+    let walletDisposition = "pending";
     const settleWallet = (delivered) => {
-      if (walletSettled || !walletReservation?.reservationId || !walletStore) return;
-      walletSettled = true;
+      if (walletDisposition !== "pending" || !walletReservation?.reservationId || !walletStore) return;
       const turnStatus = String(res.getHeader?.('x-turn-status') || '');
       const failed = !delivered || res.statusCode >= 400 ||
         turnStatus.startsWith('error') || turnStatus === 'asked_repeat' ||
         turnStatus === 'continue_listening';
       if (failed || pendingOutputTokens === null) {
         walletStore.release(walletReservation.reservationId);
+        walletDisposition = "released";
       } else {
-        walletStore.commit(walletReservation.reservationId, pendingOutputTokens);
+        const result = walletStore.commit(walletReservation.reservationId, pendingOutputTokens);
+        walletDisposition = result?.ok ? "committed" : "released";
       }
+    };
+    const isWalletChargeEligible = () => {
+      const turnStatus = String(res.getHeader?.('x-turn-status') || '');
+      return res.statusCode < 400 && !turnStatus.startsWith('error') &&
+        turnStatus !== 'asked_repeat' && turnStatus !== 'continue_listening' &&
+        pendingOutputTokens !== null;
     };
     if (walletReservation?.reservationId && walletStore) {
       res.once('finish', () => settleWallet(true));
@@ -406,6 +413,42 @@ function createPageLaneTalkAdapter({
         walletReservation?.reservationId && walletStore
           ? (actualOutputTokens) => {
               pendingOutputTokens = Math.max(0, Number(actualOutputTokens) || 0);
+            }
+          : null,
+      buildWalletSettlement:
+        walletReservation?.reservationId && walletStore?.buildSettlement
+          ? (settlementKey) => walletDisposition === "pending" && isWalletChargeEligible()
+              ? walletStore.buildSettlement(
+                  walletReservation.reservationId,
+                  pendingOutputTokens,
+                  settlementKey
+                )
+              : null
+          : null,
+      settleWalletDurably:
+        walletReservation?.reservationId && walletStore?.commitDurably
+          ? async (settlement) => {
+              if (walletDisposition === "committed") {
+                return { ok: true, code: "already_committed" };
+              }
+              if (walletDisposition === "released") {
+                const error = new Error("wallet reservation was released before durable settlement");
+                error.code = "wallet_reservation_released";
+                throw error;
+              }
+              const result = await walletStore.commitDurably(
+                walletReservation.reservationId,
+                settlement?.actualOutputTokens,
+                settlement?.settlementKey
+              );
+              if (!result?.ok) {
+                const error = new Error("durable wallet settlement was not committed");
+                error.code = result?.code || "wallet_settlement_failed";
+                throw error;
+              }
+              walletDisposition = "committed";
+              req.clementine.walletReservation = result.reservation || req.clementine.walletReservation;
+              return result;
             }
           : null,
       abortSignal: reservation?.id

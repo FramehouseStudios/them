@@ -13,6 +13,14 @@ class TalkIdempotencyCapacityError extends Error {
   }
 }
 
+class TalkIdempotencyConflictError extends Error {
+  constructor() {
+    super("talk idempotency key is already admitted");
+    this.name = "TalkIdempotencyConflictError";
+    this.code = "TALK_IDEMPOTENCY_CONFLICT";
+  }
+}
+
 function nowMs() {
   return Date.now();
 }
@@ -52,6 +60,7 @@ function encodeIdempotencyRecord(value) {
 
 function decodeIdempotencyRecord(value) {
   if (!value || typeof value !== "object") return null;
+  if (!Object.prototype.hasOwnProperty.call(value, "body")) return { ...value };
   const encoded = value.body;
   let body = Buffer.alloc(0);
   if (Buffer.isBuffer(encoded)) {
@@ -595,6 +604,7 @@ export async function createScaleBackplane({
     const key = safeString(cacheKey, 320);
     if (!key) return;
     const encoded = encodeIdempotencyRecord(value);
+    const isPendingAdmission = String(encoded?.status || "") === "pending";
     if (persistence && typeof persistence.put === "function") {
       if (typeof persistence.list !== "function" || typeof persistence.delete !== "function") {
         const err = new Error("durable idempotency admission requires persistence list/delete methods");
@@ -622,10 +632,17 @@ export async function createScaleBackplane({
           if (!updatesExisting && liveCount >= capacity) {
             throw new TalkIdempotencyCapacityError(capacity);
           }
-          // This lock closes same-process list/put races. The generic adapter
-          // cannot make admission atomic across multiple backend processes;
-          // clustered Postgres needs a transactional/advisory-lock extension.
-          await persistence.put({ domain: TALK_IDEMPOTENCY_DOMAIN, key, value: encoded });
+          if (isPendingAdmission && typeof persistence.compareAndSwap === "function") {
+            const admitted = await persistence.compareAndSwap({
+              domain: TALK_IDEMPOTENCY_DOMAIN,
+              key,
+              expectedValue: null,
+              value: encoded,
+            });
+            if (!admitted) throw new TalkIdempotencyConflictError();
+          } else {
+            await persistence.put({ domain: TALK_IDEMPOTENCY_DOMAIN, key, value: encoded });
+          }
         } catch (err) {
           logger?.log?.(`[scale_backplane] idempotency_persistence_set_error key=${key} err=${String(err?.message || err)}`);
           throw err;
@@ -636,7 +653,46 @@ export async function createScaleBackplane({
       try {
         const redisKey = `them:talk:idemp:${key}`;
         const payload = JSON.stringify(encoded);
-        await state.redis.set(redisKey, payload, { PX: Math.max(1_000, Number(ttlMs || 300_000)) });
+        const options = { PX: Math.max(1_000, Number(ttlMs || 300_000)) };
+        if (isPendingAdmission && !persistence) options.NX = true;
+        const result = await state.redis.set(redisKey, payload, options);
+        if (options.NX && result !== "OK") throw new TalkIdempotencyConflictError();
+      } catch (err) {
+        if (err?.code === "TALK_IDEMPOTENCY_CONFLICT") throw err;
+        logger?.log?.(`[scale_backplane] idempotency_set_error key=${key} err=${String(err?.message || err)}`);
+      }
+    }
+  }
+
+  async function compareAndSetIdempotency(
+    cacheKey,
+    expectedValue,
+    value,
+    ttlMs = 300_000
+  ) {
+    const key = safeString(cacheKey, 320);
+    if (!key) throw new TalkIdempotencyConflictError();
+    const expected = encodeIdempotencyRecord(expectedValue);
+    const encoded = encodeIdempotencyRecord(value);
+    if (persistence && typeof persistence.compareAndSwap === "function") {
+      const changed = await persistence.compareAndSwap({
+        domain: TALK_IDEMPOTENCY_DOMAIN,
+        key,
+        expectedValue: expected,
+        value: encoded,
+      });
+      if (!changed) throw new TalkIdempotencyConflictError();
+    } else {
+      await setIdempotency(key, value, ttlMs);
+      return;
+    }
+    if (state.redisEnabled && state.redis) {
+      try {
+        await state.redis.set(
+          `them:talk:idemp:${key}`,
+          JSON.stringify(encoded),
+          { PX: Math.max(1_000, Number(ttlMs || 300_000)) }
+        );
       } catch (err) {
         logger?.log?.(`[scale_backplane] idempotency_set_error key=${key} err=${String(err?.message || err)}`);
       }
@@ -691,6 +747,7 @@ export async function createScaleBackplane({
     claimDueOutbox,
     getIdempotency,
     setIdempotency,
+    compareAndSetIdempotency,
     deleteIdempotency,
     emitTalkCommit,
     acquireSessionLock,
@@ -708,6 +765,7 @@ export async function createScaleBackplane({
 export {
   TALK_IDEMPOTENCY_DOMAIN,
   TalkIdempotencyCapacityError,
+  TalkIdempotencyConflictError,
   encodeIdempotencyRecord,
   decodeIdempotencyRecord,
 };

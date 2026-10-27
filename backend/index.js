@@ -32782,9 +32782,8 @@ mountAccountRoutes(app, {
   auditLog: accountAuditLog,
 });
 
-// Phase 7a: guards are built from backend/lib/talk_state.js factories
-// using live config + helpers. State (rate buckets, idempotency cache,
-// session locks, in-flight counter) lives inside the lib's module scope.
+// Canonical guards own talk state; wallet assignment/hydration precedes mounts.
+let clementineWalletStore = null;
 const talkRateLimitGuard = createTalkRateLimitGuard({
   clientIp,
   talkRateLimitWindowMs: TALK_RATE_LIMIT_WINDOW_MS,
@@ -32799,6 +32798,7 @@ const talkIdempotencyGuard = createTalkIdempotencyGuard({
   recordTalkMetric,
   talkIdempotencyTtlMs: TALK_IDEMPOTENCY_TTL_MS,
   talkIdempotencyMaxEntries: TALK_IDEMPOTENCY_MAX_ENTRIES,
+  reconcilePreparedIdempotency: (_req, settlement) => clementineWalletStore.reconcileDurableSettlement(settlement),
 });
 const talkSessionSerialGuard = createTalkSessionSerialGuard({
   isSpeculativePrepareRequest,
@@ -33127,7 +33127,7 @@ const clementineWalletPersistence =
   sharedPersistence.kind === "postgres"
     ? createPostgresWalletPersistence({ client: sharedPersistence })
     : createAdapterWalletPersistence({ persistence: sharedPersistence });
-const clementineWalletStore = createWalletStore({
+clementineWalletStore = createWalletStore({
   persistence: clementineWalletPersistence,
 });
 try {
