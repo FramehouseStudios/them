@@ -1037,6 +1037,27 @@ test("commitSuccess does not publish a completed local result before durable sto
   );
 });
 
+test("a late recovery completion cannot replace already accepted reply bytes", async () => {
+  resetState();
+  const sb = stubScaleBackplane();
+  const helpers = createTalkIdempotencyHelpers({ scaleBackplane: sb,
+    talkIdempotencyEnabled: true, talkIdempotencyTtlMs: 60_000, talkIdempotencyMaxEntries: 256 });
+  const guard = createTalkIdempotencyGuard({
+    isSpeculativePrepareRequest: () => false, talkIdempotencyEnabled: true,
+    normalizeIdempotencyKey: value => String(value || '').trim(),
+    resolveTalkSessionKey: () => 'late-recovery', scaleBackplane: sb,
+    recordTalkMetric: () => {}, talkIdempotencyTtlMs: 60_000,
+    talkIdempotencyMaxEntries: 256, logger: { log() {} },
+  });
+  const req = stubRequest({ headers: { 'Idempotency-Key': 'late-recovery' } });
+  await guard(req, stubResponse(), () => {});
+  await helpers.commitSuccess(req, { body: Buffer.from('the exact accepted scene') });
+  const accepted = await sb.getIdempotency(req.talkIdempotency.cacheKey);
+  await assert.rejects(helpers.commitSuccess(req, { body: Buffer.from('a later generic recovery reply') }),
+    error => error?.code === 'TALK_IDEMPOTENCY_RESPONSE_COMPLETED');
+  assert.deepEqual(await sb.getIdempotency(req.talkIdempotency.cacheKey), accepted);
+});
+
 test("commitSuccess durably prepares exact bytes before settlement and completion", async () => {
   resetState();
   const sb = stubScaleBackplane();
