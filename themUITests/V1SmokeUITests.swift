@@ -655,6 +655,7 @@ final class V1SmokeUITests: XCTestCase {
             launchEnvironment: fixture.appLaunchEnvironment)
         defer { app.terminate() }
         XCTAssertTrue(waitForDraft(in: app, containing: "Keep my last line.", timeout: 20))
+        guard dismissKeyboardTypingTutorialIfPresent(in: app) else { return }
         let before = accessibleDraftText(in: app)
         let menu = app.buttons["studio.export.menu"]
         let drawer = element(identifier: "studio.sidebar.right.drawer", in: app)
@@ -662,14 +663,24 @@ final class V1SmokeUITests: XCTestCase {
         menu.tap()
         let markdown = app.buttons["studio.export.md"]
         XCTAssertTrue(markdown.waitForExistence(timeout: 5))
+        guard dismissKeyboardTypingTutorialIfPresent(in: app) else { return }
+        XCTAssertTrue(revealInStudioDrawer(markdown, drawer: drawer, scrollingUp: false, maxSwipes: 8))
         markdown.tap()
-        XCTAssertTrue(waitForNativeFilesExporter(in: app, presented: true, timeout: 10), app.debugDescription)
-        XCTAssertTrue(dismissNativeFilesExporter(in: app), app.debugDescription)
+        guard waitForNativeFilesExporter(in: app, presented: true, timeout: 10) else {
+            XCTFail("The real export did not open Files.\n\(app.debugDescription)"); return
+        }
+        guard dismissNativeFilesExporter(in: app) else {
+            XCTFail("The native Files picker did not cancel.\n\(app.debugDescription)"); return
+        }
         XCTAssertEqual(Data(accessibleDraftText(in: app).utf8), Data(before.utf8))
         XCTAssertFalse(staticText(containing: "Saved Native-export-proof.md", in: app).exists)
+        XCTAssertTrue(revealInStudioDrawer(menu, drawer: drawer, scrollingUp: false, maxSwipes: 8))
         menu.tap()
+        XCTAssertTrue(revealInStudioDrawer(markdown, drawer: drawer, scrollingUp: false, maxSwipes: 8))
         markdown.tap()
-        XCTAssertTrue(waitForNativeFilesExporter(in: app, presented: true, timeout: 10), app.debugDescription)
+        guard waitForNativeFilesExporter(in: app, presented: true, timeout: 10) else {
+            XCTFail("Retry did not open Files.\n\(app.debugDescription)"); return
+        }
         var save = app.buttons["Save"]
         if !waitForHittability(of: save, timeout: 2) {
             let local = element(identifier: "DOC.sidebar.item.On My iPhone", in: app)
