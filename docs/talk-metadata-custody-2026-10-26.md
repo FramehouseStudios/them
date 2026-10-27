@@ -9,8 +9,8 @@ returned the same audio and one settled charge, but `/talk/turn/:id` returned
 ordinary restart controls passed. Expiration was induced on only the isolated
 fixture's persisted public metadata; this was not a 30-minute wall-clock run.
 
-**VERIFIED:** new accepted replies retain their sanitized metadata in the same
-durable response envelope. Before settlement/replay succeeds, the existing turn
+**VERIFIED:** newly admitted idempotent replies retain their available sanitized
+turn metadata in the same durable response envelope. Before settlement/replay succeeds, the existing turn
 store restores that exact accepted content if it has expired or been evicted.
 This is delivery custody inside the existing envelope, not another store or
 generation. Public metadata still has bounded retention. Legacy replies without
@@ -99,6 +99,8 @@ borrowed dependency link removed. No active proof process remains.
   existing completed-response TTL is five minutes by default; recovery after
   that envelope also expires is not established. Audit that separately before
   claiming indefinite or fully acknowledged delivery custody.
+- Requests without an idempotency key retain their legacy bounded metadata
+  behavior; this does not create durable response replay for unkeyed requests.
 - Existing public metadata sanitization/length limits remain; this pass does not
   prove arbitrarily long single-batch output or remove the 32k text ceiling.
 - JSON persistence remains single-process. Real SQL conditional operations were
