@@ -13,6 +13,7 @@
 import { classifyIntent, INTENT } from "./intents.js";
 import { laneForIntent, LANE } from "./lanes.js";
 import { currentScreenplayInstruction } from "../screenplay_write_instruction.js";
+import { createTalkFailureError, buildTalkFailureDiagnostics, buildTalkFailureBody } from "../talk_failure_diagnostics.js";
 import {
   peekKnownFacts,
   peekVoiceSpecHints,
@@ -165,6 +166,7 @@ function beginPageWork(store, {
   userId = "",
   meta = null,
   walletStore = null,
+  deferWalletBudget = false,
 } = {}) {
   if (!store || typeof store.reserve !== "function") {
     throw new Error("beginPageWork requires a page reservation store");
@@ -185,7 +187,7 @@ function beginPageWork(store, {
   const multipassOn = isPageMultipassEnabled();
   // Wallet honesty: draft+revise are both metered when multipass is on —
   // reserve 2× max_output_tokens headroom (plan/critique remain unmetered).
-  const maxOutputTokens = Math.max(
+  const maxOutputTokens = deferWalletBudget ? 0 : Math.max(
     0,
     Math.round(Number(hints.maxOutputTokens || 0) || 0)
   ) * (multipassOn ? multipassWalletReserveTokenMultiplier() : 1);
@@ -242,7 +244,7 @@ function createPageLaneTalkAdapter({
     throw new Error("createPageLaneTalkAdapter requires pageReservationStore");
   }
 
-  return async function handleTalkWithPageLane(req, res) {
+  async function handleClassifiedTalk(req, res, runHandler) {
     const utterance = peekUtterance(req);
     const hints = peekPageHints(req);
     const sessionId = resolveSessionId(req);
@@ -299,7 +301,7 @@ function createPageLaneTalkAdapter({
       } catch (_e) {
         /* headers may already be sent */
       }
-      return handleTalkRequest(req, res);
+      return runHandler(req, res);
     }
 
     let lane;
@@ -313,6 +315,7 @@ function createPageLaneTalkAdapter({
         userId,
         meta: { source: "talk_edge" },
         walletStore,
+        deferWalletBudget: true,
       });
       lane = started.lane;
       reservation = started.reservation;
@@ -333,9 +336,32 @@ function createPageLaneTalkAdapter({
       logger?.warn?.(
         `[clementine/page] reserve skipped: ${err?.message || err}`
       );
-      lane = resolveTalkLane(utterance, hints);
+      const diagnostic = buildTalkFailureDiagnostics(err, { providerStage: "chat", status: 503,
+        errorClass: "page_reservation_unavailable" });
+      return res.status(503).json(buildTalkFailureBody(diagnostic));
     }
 
+    // Generation only proposes usage. Settle after the handler's quality and
+    // response stages; an HTTP 200 recovery reply is still a failed write.
+    let pendingOutputTokens = null;
+    let walletSettled = false;
+    const settleWallet = (delivered) => {
+      if (walletSettled || !walletReservation?.reservationId || !walletStore) return;
+      walletSettled = true;
+      const turnStatus = String(res.getHeader?.('x-turn-status') || '');
+      const failed = !delivered || res.statusCode >= 400 ||
+        turnStatus.startsWith('error') || turnStatus === 'asked_repeat' ||
+        turnStatus === 'continue_listening';
+      if (failed || pendingOutputTokens === null) {
+        walletStore.release(walletReservation.reservationId);
+      } else {
+        walletStore.commit(walletReservation.reservationId, pendingOutputTokens);
+      }
+    };
+    if (walletReservation?.reservationId && walletStore) {
+      res.once('finish', () => settleWallet(true));
+      res.once('close', () => settleWallet(false));
+    }
     const pageMultipass = isPageMultipassEnabled();
     req.clementine = {
       intent: lane.intent,
@@ -343,14 +369,26 @@ function createPageLaneTalkAdapter({
       effort: lane.effort,
       walletMeter: lane.walletMeter,
       pageMultipass,
+      prepareGenerationBudget: walletStore ? (maxTokens, { requestId = "", passes = 1 } = {}) => {
+        try {
+          const gate = pageReservationStore.proceed(reservation?.id);
+          if (!gate.ok) throw new Error("Page reservation is not active");
+          if (!Number.isSafeInteger(passes) || passes <= 0) throw new Error("Invalid metered pass count");
+          const budget = Math.ceil(Number(maxTokens)) * passes;
+          const held = walletStore.ensureReservationBudget(walletReservation?.reservationId, budget);
+          req.clementine.walletReservation = held;
+          return held;
+        } catch (error) {
+          throw createTalkFailureError({ requestId, providerStage: "chat",
+            status: error?.code === "wallet_empty" ? 402 : 503,
+            errorClass: error?.code === "wallet_empty" ? "wallet_empty" : "page_reservation_unavailable" });
+        }
+      } : null,
       refusePageWrite: () => {
         // Cancel through the existing owner so linked wallet/cancel observers
         // see the revocation. A conversation must not inherit its aborted signal.
         if (reservation?.id) pageReservationStore.cancel(reservation.id, { reason: "writer_refused" });
-        // cancel releases a linked hold when the store has wallet DI. The
-        // adapter also supports an independently supplied wallet; release is
-        // idempotent, so both configurations use the same canonical owner.
-        if (walletReservation?.reservationId) walletStore?.release?.(walletReservation.reservationId);
+        settleWallet(false);
         markTalkAsDiscussion(req, res);
       },
       reservationId: reservation?.id || null,
@@ -358,15 +396,13 @@ function createPageLaneTalkAdapter({
       walletReservationId: walletReservation?.reservationId || null,
       walletReservation,
       /**
-       * STUB — call after successful Muse generation with actual output tokens:
-       *   req.clementine.commitWallet?.(actualOutputTokens)
-       * No clear success hook in this adapter without rewriting talk_handler;
-       * wire commit in talk_handler (or muse_client completion) when usage lands.
+       * Record generation usage; the response lifecycle settles the reservation.
        */
       commitWallet:
         walletReservation?.reservationId && walletStore
-          ? (actualOutputTokens) =>
-              walletStore.commit(walletReservation.reservationId, actualOutputTokens)
+          ? (actualOutputTokens) => {
+              pendingOutputTokens = Math.max(0, Number(actualOutputTokens) || 0);
+            }
           : null,
       abortSignal: reservation?.id
         ? pageReservationStore.getAbortSignal(reservation.id)
@@ -389,7 +425,32 @@ function createPageLaneTalkAdapter({
       }
     }
 
-    return handleTalkRequest(req, res);
+    try {
+      return await runHandler(req, res);
+    } catch (error) {
+      settleWallet(false);
+      throw error;
+    }
+  }
+
+  return async function handleTalkWithPageLane(req, res) {
+    if (expectsAudioTalkResponse(req) && !peekUtterance(req)) {
+      // An untranscribed recording is not silence. Prepare its real lane once
+      // ASR finishes, before generation; never run the speech pipeline twice.
+      let classification;
+      req.clementine = {
+        resolveTranscript(transcript) {
+          if (res.destroyed || res.writableEnded) return;
+          if (!classification) {
+            req.body = { ...req.body, client_transcript: transcript };
+            classification = handleClassifiedTalk(req, res, async () => {});
+          }
+          return classification;
+        },
+      };
+      return handleTalkRequest(req, res);
+    }
+    return handleClassifiedTalk(req, res, handleTalkRequest);
   };
 }
 

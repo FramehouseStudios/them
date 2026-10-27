@@ -1,7 +1,10 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, unlinkSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { startBackend } from '../tests/helpers/backend_test_server.mjs';
+import { startBackend, apiRequest } from '../tests/helpers/backend_test_server.mjs';
+import { createJsonPersistence } from '../lib/persistence_json.js';
+import { createAdapterWalletPersistence } from '../lib/clementine/wallet_persistence.js';
+import path from 'node:path';
 import { startPromotionDelayProxy } from './promotion_delay_proxy.mjs';
 
 // Deterministic transport/insertion/save proof, never microphone or model proof.
@@ -39,18 +42,38 @@ const bundle = process.env.THEM_HOME_VOICE_RESULT_BUNDLE || `/tmp/them-home-voic
 if (existsSync(bundle)) throw new Error('Refusing to overwrite an existing result bundle');
 const config = `/tmp/them-home-voice-${process.pid}.xcconfig`;
 const fixtureURL = new URL('./home_voice_provider_fixture.mjs', import.meta.url);
-const server = await startBackend({ unsetEnv: ['DATABASE_URL', 'REDIS_URL'], env: {
+const backendOptions = { unsetEnv: ['DATABASE_URL', 'REDIS_URL'], env: {
   APP_TOKEN: 'them-dev', REQUIRE_USER_AUTH: '1', CLEMENTINE_PROVIDER: 'openai',
   CLEMENTINE_MUSE_ENABLED: '0', TALK_TEST_DEBUG_TRANSCRIPT_ENABLED: '0',
   MUSE_ENABLED: '0', LLM_PROVIDER: 'openai',
   TALK_TEST_DEBUG_OFFLINE_ENABLED: '0', TALK_STREAM_AUDIO_ENABLED: '0',
   KNOWLEDGE_RAG_EMBEDDINGS_ENABLED: '0', THEM_HOME_VOICE_PROVIDER_FIXTURE: '1',
+  THEM_HOME_VOICE_FUNDED_WRITER: '1',
   THEM_HOME_VOICE_LONG_AUDIO: process.env.THEM_HOME_VOICE_LONG_AUDIO === '1' || needsInterruptibleAudio ? '1' : '0',
   THEM_PAGE_NAVIGATOR_PROOF: tests.some(test => test.includes('test_pages_navigator_controls')) ? '1' : '0',
   NODE_OPTIONS: `--import=${fixtureURL.href}`,
-} });
+} };
+let server = await startBackend(backendOptions);
 let promotionProxy;
 try {
+  // Provision synthetic funds through canonical persistence, never a shipping
+  // wallet bypass. This is not evidence of an App Store purchase.
+  const port = server.port;
+  const signup = await apiRequest(server, '/auth/signup', { method: 'POST', json: {
+    email: `studio-funded-${port}@example.test`, password: `Local-funded-${port}-aA1!`,
+    display_name: 'Funded local writer fixture',
+  } });
+  if (signup.status !== 201) throw new Error('Funded writer fixture signup failed');
+  const ownerId = signup.json.user?.user_id || signup.json.user?.id;
+  if (!ownerId) throw new Error('Funded writer fixture has no canonical owner');
+  const dataDir = server.dataDir;
+  await server.stop();
+  const persistence = createJsonPersistence({ jsonRoot: path.join(dataDir, 'persistence') });
+  await createAdapterWalletPersistence({ persistence }).putBalance({
+    ownerId, pageMilliturns: 100000, companionMilliturns: 0,
+    grantedPageMilliturns: 100000, grantedCompanionMilliturns: 0,
+  });
+  server = await startBackend({ ...backendOptions, dataDir, port });
   if (tests.some(test => test.includes('test_delayed_project_creation') || test.includes('test_initial_project_relaunch'))) promotionProxy = await startPromotionDelayProxy(server.baseUrl);
   writeFileSync(config, `THEM_UITEST_WRITER_LOOP_BACKEND_PORT = ${promotionProxy?.port || server.port}\n`, {mode: 0o600});
   const child = spawn('bash', ['scripts/run_v1_ui_smoke.sh', '-quiet', '-resultBundlePath', bundle, ...tests.slice(1).map(test => '-only-testing:' + test)], {
