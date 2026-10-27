@@ -6139,6 +6139,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
         clientTranscriptOverride: String? = nil,
         debugVoiceTurnToken: Int? = nil
     ) async {
+        guard !Task.isCancelled else { return }
         // Phase 1 latency pass: start playback on the first streamed segment as soon
         // as it is ready. We stop recording before playback begins to avoid bleed.
         let startedOnHome = !isStudioSurfaceActive
@@ -6543,21 +6544,20 @@ Write this approved story direction directly into screenplay pages now. Maintain
             }
         }
 
+        let now = Date()
+        let fingerprint = utteranceFingerprint(wavData + Data(cleanClientTranscriptOverride.utf8))
+        let ownsTalkRequest = { lastSubmittedFingerprint == fingerprint && lastSubmittedAt == now }
+        var didClaimRequest = false
         defer {
             debugSyncedInsertCancelTask?.cancel()
-            screenplayDraftBridge.onSyncedInsertLifecycleEvent = nil
-            inFlightTalkTask = nil
-            isTurnSubmitting = false
+            StudioActionDispatcher.finishTalkRequest(isCurrent: { !didClaimRequest || ownsTalkRequest() }) {
+                screenplayDraftBridge.onSyncedInsertLifecycleEvent = nil
+                inFlightTalkTask = nil
+                isTurnSubmitting = false
+            }
         }
 
         isTurnSubmitting = true
-        let now = Date()
-        var fingerprintInput = Data()
-        fingerprintInput.append(wavData)
-        if !cleanClientTranscriptOverride.isEmpty {
-            fingerprintInput.append(Data(cleanClientTranscriptOverride.utf8))
-        }
-        let fingerprint = utteranceFingerprint(fingerprintInput)
         if fingerprint == lastSubmittedFingerprint, now.timeIntervalSince(lastSubmittedAt) < 8 {
             HerLog.talk.info("duplicate utterance suppressed fingerprint=\(fingerprint, privacy: .public)")
             isThinking = false
@@ -6569,8 +6569,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
             return
         }
 
-        lastSubmittedFingerprint = fingerprint
-        lastSubmittedAt = now
+        (lastSubmittedFingerprint, lastSubmittedAt, didClaimRequest) = (fingerprint, now, true)
 
         let wavURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("them_utterance_\(UUID().uuidString).wav")
@@ -6980,7 +6979,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
             let onBackendTalkDebugEvent: ((BackendTalkDebugEvent) -> Void)? = nil
 #endif
             let idempotencyKey = "them-\(fingerprint)-\(Int(now.timeIntervalSince1970 * 1000))"
-            let isCurrentTalkTurn = { isTurnSubmitting && lastSubmittedFingerprint == fingerprint && lastSubmittedAt == now }
+            let isCurrentTalkTurn = { isTurnSubmitting && ownsTalkRequest() }
             ConfirmedStudioTurnPreparation.configureSyncedInsertion(enabled: shouldUseSyncedStudioVoiceInsert, requestID: idempotencyKey, bridge: screenplayDraftBridge)
             let requestTalk: () async throws -> BackendTalkResult = StudioActionDispatcher.handlingRequest(bridge: screenplayDraftBridge, studioOpen: { isStudioSurfaceActive }, openStudio: { openStudio() }, isCurrent: isCurrentTalkTurn, onResponse: { metadata in
                 StudioActionDispatcher.enqueueTalkDelivery(isCurrent: isCurrentTalkTurn) {

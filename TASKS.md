@@ -5,6 +5,30 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1181 — Keep old request cleanup from clearing a replacement turn
+
+- **Owner:** Codex (Jarvis); Zora read-only ownership/custody audit.
+  **Branch:** `codex/T-1181-owning-talk-cleanup`. **Base:** published1fbdd433.
+- **Scope:** shared Root request-finalization ownership through the existing
+  StudioActionDispatcher. Preserve unconditional local-resource cleanup and
+  duplicate-turn behavior. No new product state/framework, paid calls,
+  production changes, original PR advance or main merge.
+- **Binary success:** releasing an old suspended/cancelled voice operation cannot
+  clear a newer voice task/submitting flag/lifecycle callback; the current owner and
+  duplicate-before-admission paths still clean up. Root must not grow.
+- **Status:** review. Native red2/2/0 reproduced shared-state loss on suspended
+  and cancelled old completion. Final signed units917/0/0, Stop1/0/0 with actual
+  authenticated cancellation/dropped1, raw Home/full-page/save/relaunch1/0/0,
+  Mac build exit0, D009 Root-1/others0 and diff pass. No paid calls.
+- **Evidence:** `docs/talk-request-cleanup-2026-10-27.md`. All proof jobs terminal,
+  task dependency link removed. Backend unchanged/full2996/0/5 inherited.
+  This prerequisite does not fix account/project publication, typed ownership,
+  stale catch/result mutations or accepted-response custody. Never drop paid work.
+- **Next contract:** existing outbox needs parked, owner-bound live admission,
+  atomic received-response storage before publication checks, original-owner
+  metadata recovery and genuine delivery settlement. Those paths are not fixed
+  by cleanup ownership and remain part of the full active product goal.
+
 ### T-1180 — Fence queued Talk delivery after Stop or turn replacement
 
 - **Owner:** Codex (Jarvis); Zora bounded read-only review.

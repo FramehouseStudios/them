@@ -200,6 +200,12 @@ extension Notification.Name {
 enum StudioActionDispatcher {
     static let userInfoKey = "action"
 
+    /// Local resources are released by the caller regardless of shared ownership.
+    static func finishTalkRequest(isCurrent: () -> Bool, cleanup: () -> Void) {
+        guard isCurrent() else { return }
+        cleanup()
+    }
+
     /// Deliver on the UI actor; callers supply their existing logical-turn lease.
     @discardableResult
     static func enqueueTalkDelivery(
