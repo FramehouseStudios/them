@@ -4,6 +4,16 @@ import { INTENT, classifyIntent } from "../lib/clementine/intents.js";
 import { LANE, EFFORT, laneForIntent } from "../lib/clementine/lanes.js";
 import { resolveTalkLane } from "../lib/clementine/page_lane_adapter.js";
 
+test('[intents] explicit story writing uses Page without a client hint', () => {
+  for (const text of [
+    'Write a story about two astronauts who discover their ship is a film set.',
+    'Clementine, please write down the story about two astronauts.',
+    'Could you draft a short story about a lost astronaut?',
+  ]) assert.equal(classifyIntent(text), INTENT.PAGE_EDIT, text);
+  assert.notEqual(classifyIntent('How do I write a story about two astronauts?'), INTENT.PAGE_EDIT);
+  assert.notEqual(classifyIntent('Do not write a story. Just talk about the idea.'), INTENT.PAGE_EDIT);
+});
+
 test("[intents] story help is a mentor intent, not comfort", () => {
   for (const text of [
     "I'm stuck on the second act.",

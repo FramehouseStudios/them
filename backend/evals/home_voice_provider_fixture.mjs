@@ -9,6 +9,9 @@ const fetchReal = globalThis.fetch;
 if (process.env.THEM_PAGE_CANCEL_PROOF === '1') {
   const { app } = await import('../app.js');
   app.use((req, res, next) => {
+    if (req.method === 'POST' && req.path === '/talk') {
+      res.once('finish', () => process.stdout.write(`[proof-provider] page_cancel_talk_response=${JSON.stringify({status:res.statusCode, hasReservation:Boolean(res.getHeader('x-clementine-page-reservation')), lane:res.getHeader('x-clementine-lane') || ''})}\n`));
+    }
     if (req.method === 'POST' && req.path === '/talk/page-cancel') {
       res.once('finish', () => process.stdout.write(`[proof-provider] page_cancel_status=${res.statusCode}\n`));
     }

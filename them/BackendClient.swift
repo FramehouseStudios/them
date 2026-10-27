@@ -4692,7 +4692,13 @@ final class BackendClient {
                 let screenplayTrace = self.parseScreenplayTrace(from: http)
                 let creativeMemoryTrace = self.parseCreativeMemoryTrace(from: http)
                 let clem = self.parseClementineHeaders(from: http)
-                self.observeLivePageReservation(from: http)
+                if let pageReservationHeader = self.parseOptionalHeaderString(
+                    http,
+                    field: "x-clementine-page-reservation"
+                )?.trimmingCharacters(in: .whitespacesAndNewlines),
+                   !pageReservationHeader.isEmpty {
+                    self.onPageReservationObserved?(pageReservationHeader)
+                }
                 let responseMetadata = BackendTalkResponseMetadata(
                     audioDurationMs: {
                         let headerDuration = self.parseHeaderInt(
@@ -4991,17 +4997,9 @@ final class BackendClient {
             throw BackendError.http(statusCode, raw)
         }
 
-        let result = try await decodeTalkSuccess(data: data, http: http, contentType: contentType,
+        return try await decodeTalkSuccess(data: data, http: http, contentType: contentType,
             baseURL: baseURL, userID: userID, clientToken: clientToken, emittedFirstSegment: emittedFirstSegment,
             retryAudioValidationIfAllowed: retryAudioValidationIfAllowed)
-        observeLivePageReservation(from: http)
-        return result
-    }
-
-    private func observeLivePageReservation(from response: HTTPURLResponse?) {
-        guard let reservation = parseOptionalHeaderString(response, field: "x-clementine-page-reservation")?
-            .trimmingCharacters(in: .whitespacesAndNewlines), !reservation.isEmpty else { return }
-        onPageReservationObserved?(reservation)
     }
 
     func captureReceivedTurnMetadata(

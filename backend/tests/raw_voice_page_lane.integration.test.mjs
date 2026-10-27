@@ -99,6 +99,21 @@ test('raw microphone Page requests classify the actual ASR words before generati
     assert.equal(metadata.status, 200);
     assert.match(JSON.stringify(metadata.json), /HOME VOICE HANDOFF/);
     assert.equal(server.stdout.join('').split('[proof-provider] mocked_stt').length - 1, 1);
+    // Home starts without a selected project or Page hint. ASR still owns the
+    // writing decision and must publish the same authenticated cancel handle.
+    form.delete('screenplay_project_id');
+    form.delete('screenplay_target');
+    form.delete('screenplay_prompt_source');
+    form.delete('clementine_intent');
+    const home = await sendAudio(server, { ...headers, 'X-Idempotency-Key': 'home-cancel-proof' }, form);
+    assert.equal(home.status, 200);
+    assert.equal(home.headers.get('x-screenplay-target'), 'page');
+    assert.ok(home.headers.get('x-clementine-page-reservation'), 'Home writing must expose its Page cancellation handle');
+    const cancelled = await apiRequest(server, '/talk/page-cancel', { method: 'POST', headers, json: {
+      reservation_id: home.headers.get('x-clementine-page-reservation'), reason: 'cancel',
+    } });
+    assert.equal(cancelled.status, 200);
+    assert.equal(cancelled.json.cancelled, true);
     console.log(JSON.stringify({ fixture: 'authenticated raw HTTP; deterministic providers, no paid calls', underfunded: [402, 402, 402, 402], callerIntentCannotDowngradePage: true, deniedChatAndTts: 0, target: 'page', authoritative: true, fundedAsrCalls: 1, settledPageTurns: 0.2 }));
   } finally { await server.stop(); }
 });

@@ -107,6 +107,7 @@ try {
   if (needsInterruptibleAudio) {
     const statuses = [...server.stdout.join('').matchAll(/\[proof-provider\] page_cancel_status=(\d+)/g)].map(match => Number(match[1]));
     console.log(JSON.stringify({pageCancelHTTPStatuses: statuses}));
+    console.log(server.stdout.join('').split('\n').filter(line => line.startsWith('[proof-provider] page_cancel_talk_response=')).join('\n'));
     if (!statuses.includes(200)) throw new Error('Studio Stop never completed an authenticated server Page cancellation');
   }
 } finally {
