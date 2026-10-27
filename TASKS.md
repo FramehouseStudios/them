@@ -5,6 +5,19 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1178 — Restore trusted ownership for wallet and Page cancellation
+
+- **Owner:** Codex (Jarvis). **Branch:** `codex/T-1178-wallet-page-owner`.
+- **Base:** saved 3536be7; original PR heads/main/production held.
+- **Scope:** re-prove and reuse preserved 6f360de/f5e3e84 through the canonical
+  trusted-user resolver; caller IDs cannot disclose another balance, cancel
+  another Page or claim an unowned reservation. No wallet pricing changes.
+- **Binary success:** actual JWT wallet checks pass in both global auth modes,
+  including revoked tokens/restart; Page routes preserve other writers' holds
+  and still abort/refund owned work once. Focused/full Node20, signed own-Page
+  cancellation UI and D009/diff; no paid calls or production changes.
+- **Status:** in-progress; preserved tests being re-proven against current code.
+
 ### T-1177 — Keep accepted screenplay metadata with durable reply recovery
 
 - **Owner:** Codex (Jarvis). **Branch:** `codex/T-1177-replay-metadata-custody`.
