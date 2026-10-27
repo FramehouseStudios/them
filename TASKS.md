@@ -16,8 +16,17 @@
   prepared reply retries preserve exact response and settle one durable debit,
   including local restart/failure and guarded PostgreSQL concurrency. Full
   backend, essential signed writer workflows and D009/diff on updated head.
-- **Status:** in-progress. Accepted HTTP lifecycle is still process-local;
-  reused source must pass current-tree proof before any original advance.
+- **Status:** local review at runtime909ec60. Original wallet red0/2/0;
+  focused134/0/0. Late-recovery overwrite red0/1/41 then focused42/0/0.
+  Final Node20 full2971/0/4; actual authenticated JSON SIGKILL boundaries3/0/0;
+  actual PG concurrency/rollback/admission2/0/0 and final authenticated PG
+  restart probe pass (exact reply, zero new providers, two durable debits).
+  Signed final raw1/0/0 and queued1/0/0; D009/diff pass. Native units886/Mac
+  inherited unchanged. No paid calls or original/main/production advance.
+- **Evidence:** `docs/durable-page-settlement-2026-10-26.md`; permanent
+  `_proof/T-1175-20261026.v9EiKu`. Owned PG fixture stopped, dependency link
+  removed. Next audit bounded public-metadata custody and connect real native
+  screenplay export; physical-phone/integrated-main journey remains unproven.
 
 ### T-1173 — Fund actual server Page budgets across typed and voice turns
 
