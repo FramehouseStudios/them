@@ -36,8 +36,9 @@ function createTalkTurnStore({
   if (!persistence || typeof persistence.get !== "function" || typeof persistence.put !== "function") {
     throw new Error("createTalkTurnStore requires persistence get/put methods");
   }
-  if (typeof persistence.list !== "function" || typeof persistence.delete !== "function") {
-    throw new Error("createTalkTurnStore requires persistence list/delete methods");
+  if (typeof persistence.list !== "function" || typeof persistence.delete !== "function"
+    || typeof persistence.compareAndDelete !== "function") {
+    throw new Error("createTalkTurnStore requires persistence list/delete/compareAndDelete methods");
   }
   const retentionMs = Math.max(60_000, positiveInt(ttlMs, 30 * 60 * 1000));
   const capacity = positiveInt(maxEntries, 4_000);
@@ -73,15 +74,15 @@ function createTalkTurnStore({
     for (const [key, entry] of rows) {
       if (!isExpired(entry, at)) continue;
       cache.delete(key);
-      await persistence.delete({ domain: TALK_TURNS_DOMAIN, key });
+      await persistence.compareAndDelete({ domain: TALK_TURNS_DOMAIN, key, expectedValue: entry });
     }
     if (cache.size <= capacity) return;
     const ordered = [...cache.entries()].sort(
       (a, b) => Number(b[1].updatedAt || 0) - Number(a[1].updatedAt || 0)
     );
-    for (const [key] of ordered.slice(capacity)) {
+    for (const [key, entry] of ordered.slice(capacity)) {
       cache.delete(key);
-      await persistence.delete({ domain: TALK_TURNS_DOMAIN, key });
+      await persistence.compareAndDelete({ domain: TALK_TURNS_DOMAIN, key, expectedValue: entry });
     }
   }
 

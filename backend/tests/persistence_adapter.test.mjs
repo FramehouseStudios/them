@@ -71,6 +71,14 @@ function createPgMock() {
         row.updated_at = new Date();
         return { rows: [{ key: params[0] }], rowCount: 1 };
       }
+      // Conditional retention cleanup
+      m = trimmed.match(/^DELETE FROM (\w+) WHERE key = \$1 AND value = \$2::jsonb RETURNING key$/i);
+      if (m) {
+        const tbl = ensure(m[1]), row = tbl.get(params[0]);
+        if (!row || JSON.stringify(row.value) !== JSON.stringify(JSON.parse(params[1]))) return { rows: [], rowCount: 0 };
+        tbl.delete(params[0]);
+        return { rows: [{ key: params[0] }], rowCount: 1 };
+      }
       // DELETE one
       m = trimmed.match(/^DELETE FROM (\w+) WHERE key = \$1$/i);
       if (m) {
@@ -263,6 +271,21 @@ for (const impl of makeImplementations()) {
     } finally {
       await p.close();
     }
+  });
+
+  test(`[${impl.name}] conditional cleanup cannot delete a newer publication`, async () => {
+    const p = impl.create();
+    try {
+      const expired = { revision: 1, text: 'Original accepted scene' };
+      const restored = { revision: 2, text: 'Recovered accepted scene' };
+      await p.put({ domain: 'talk_turns', key: 'retention', value: expired });
+      await p.put({ domain: 'talk_turns', key: 'retention', value: restored });
+      assert.equal(await p.compareAndDelete({ domain: 'talk_turns', key: 'retention', expectedValue: expired }), false);
+      assert.deepEqual(await p.get({ domain: 'talk_turns', key: 'retention' }), restored);
+      assert.equal(await p.compareAndDelete({ domain: 'talk_turns', key: 'retention', expectedValue: restored }), true);
+      assert.equal(await p.get({ domain: 'talk_turns', key: 'retention' }), null);
+      assert.equal(await p.compareAndDelete({ domain: 'talk_turns', key: 'retention', expectedValue: restored }), false);
+    } finally { await p.close(); }
   });
 
   test(`[${impl.name}] delete removes a key; subsequent get returns null`, async () => {

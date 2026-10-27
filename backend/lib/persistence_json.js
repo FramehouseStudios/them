@@ -129,6 +129,18 @@ function createJsonPersistence({ jsonRoot } = {}) {
       });
     },
 
+    async compareAndDelete({ domain, key, expectedValue }) {
+      assertDomain(domain); assertKey(key); assertValue(expectedValue);
+      return withDomainLock(domain, async () => {
+        const all = readDomainFile(root, domain);
+        if (!Object.prototype.hasOwnProperty.call(all, key)
+          || JSON.stringify(all[key]) !== JSON.stringify(expectedValue)) return false;
+        delete all[key];
+        writeDomainFile(root, domain, all);
+        return true;
+      });
+    },
+
     async delete({ domain, key }) {
       assertDomain(domain);
       assertKey(key);

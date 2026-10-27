@@ -158,6 +158,16 @@ function createPostgresPersistence({
       return Number(r?.rowCount || r?.rows?.length || 0) === 1;
     },
 
+    async compareAndDelete({ domain, key, expectedValue }) {
+      assertDomain(domain); assertKey(key); assertValue(expectedValue);
+      const c = await client();
+      const result = await c.query(
+        `DELETE FROM ${tableName(domain)} WHERE key = $1 AND value = $2::jsonb RETURNING key`,
+        [key, JSON.stringify(expectedValue)],
+      );
+      return Number(result?.rowCount || result?.rows?.length || 0) === 1;
+    },
+
     async delete({ domain, key }) {
       assertDomain(domain);
       assertKey(key);
