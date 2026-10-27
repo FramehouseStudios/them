@@ -106,3 +106,24 @@ for (const clientBudget of [undefined, 0, 1]) {
     assert.equal(wallet.getBalance('writer').pageTurnsLeft, 0.1, 'failed preparation must not consume a hold');
   });
 }
+
+test('a caller intent hint cannot downgrade a writing request out of its funded Page lane', async () => {
+  const wallet = createWalletStore({ initialBalances: { writer: { page: 0.1 } } });
+  const pages = createPageReservationStore({ walletStore: wallet });
+  const req = { authUser: { id: 'writer' }, body: {
+    client_transcript: 'Write the opening scene.', screenplay_target: 'page', clementine_intent: 'advise',
+  } };
+  let providerCalls = 0;
+  const wrapped = createPageLaneTalkAdapter({ pageReservationStore: pages, walletStore: wallet, logger: null,
+    handleTalkRequest: async () => runTalkGenerate({ req, rid: 'forced-intent-budget', chatMaxTokens: 900,
+      chatModelPlan: { model: 'fixture' }, logger: null,
+      chatSupplier: { chat: async () => { providerCalls++; return {
+        response: { ok: true, status: 200 }, rawText: JSON.stringify({ choices: [{ message: { content: 'INT. LAB - NIGHT\n\nA light fails.' } }] }),
+        usage: { outputTokens: 800 },
+      }; } },
+    }),
+  });
+  await assert.rejects(() => wrapped(req, response()), error => error.status === 402 && error.errorClass === 'wallet_empty');
+  assert.equal(providerCalls, 0);
+  assert.equal(wallet.getBalance('writer').pageTurnsLeft, 0.1);
+});
