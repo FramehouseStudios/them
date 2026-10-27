@@ -16,8 +16,17 @@
   cancellation/retry and stale callbacks are safe; saved file opens outside THEM
   with verified bytes. Signed units/UI, macOS build, D009/diff as appropriate.
   No paid calls, new dependency, PDF enablement or production change.
-- **Status:** in-progress. Current iPhone code writes only private temporary
-  storage and UI tests bypass the backend; neither proves a usable export.
+- **Status:** local review, runtime67e40e2. Removed private-temp success and
+  DEBUG fake artifact path; preserved native Files callbacks and context guards.
+  UI reds0/1/0 exposed the OS tutorial and retained editor keyboard; canonical
+  end-editing fix final native export1/0/0. Files Quick Look outside THEM observed
+  complete 103-byte Markdown, exact canonical backend projection/hash. Final
+  signed units901/0/0; integrated writer/native export/relaunch1/0/0; Mac build,
+  D009/diff pass. No paid calls. Backend2971/0/4 inherited unchanged from T1175.
+- **Evidence:** `docs/native-screenplay-export-2026-10-26.md`; permanent
+  `_proof/T-1176-20261026.56jq34kq`, 6326 files/zero hash mismatches. Borrowed
+  dependency link removed; original/main/production held. Next audit public
+  turn-metadata expiry vs durable billed/prepared replay before original647.
 
 ### T-1175 — Durably settle accepted Page responses and replay prepared work
 
