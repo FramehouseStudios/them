@@ -16,8 +16,17 @@
   and restart restores the same full page/audio and one debit; wrong owners,
   write failure and conflicting turn identities cannot publish incorrect text.
   Relevant full backend, essential signed writer UI, D009/diff; no paid calls.
-- **Status:** in-progress. Prepared billed replies have no expiry until recovery,
-  but their separate public metadata currently expires after 30 minutes.
+- **Status:** local review at runtimea4868d4. Expiry red3/3/0 reproduced billed
+  replay with missing page; stale cleanup red7/1/0 reproduced fresh-page deletion.
+  Accepted snapshots now restore before settlement/replay; canonical atomic
+  cleanup rejects stale deletion. Focus102/0/0, crash/restart6/0/0, full pinned
+  Node20 2987/0/5, real PostgreSQL1/0/0, signed queued1/0/0/raw1/0/0; D009/diff
+  pass. App bytes unchanged; T1176 units901/Mac inherited. No paid calls.
+- **Evidence:** `docs/talk-metadata-custody-2026-10-26.md`; permanent
+  `_proof/T-1177-20261026.0fu6adxt`, 1286 files/zero hash mismatches. All proof
+  jobs terminal, PG stopped, dependency link removed. Original/main/production
+  held. Next audit recovery beyond completed-response expiry and wallet/Page
+  cancellation ownership before advancing original647; real phone unproven.
 
 ### T-1176 — Hand real screenplay exports to iPhone Files
 
