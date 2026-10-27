@@ -28,7 +28,9 @@
   normal raw Home/full-page/save/exact-relaunch1/0/0. D009/diff pass.
 - **Evidence:** `docs/early-talk-cancellation-2026-10-27.md`. No paid calls;
   backend unchanged (T1178 full2996/0/5 inherited). Original/main/production
-  held. Next fix queued UI consumer delivery after Stop; pre-header server ASR
+  held. Runtime71c72f5; permanent `_proof/T-1179-20261027.aduxe7d0`,
+  5689 hashed files/zero mismatches. All proof jobs terminal, dependency link
+  removed. Next fix queued UI consumer delivery after Stop; pre-header server ASR
   cancellation and physical-phone journey remain unproven.
 
 ### T-1178 — Restore trusted ownership for wallet and Page cancellation

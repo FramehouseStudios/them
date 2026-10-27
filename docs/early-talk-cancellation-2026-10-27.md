@@ -48,7 +48,7 @@ authentication bypass, real provider, or test-only production branch.
 
 All native runs use signing ON and erase only task-owned simulator
 `91693AF0-AE2C-4FAD-9F4C-EC4C92AA382A`, iPhone 17 Pro / iOS 26.2 (23C54).
-Artifacts: `/private/tmp/them-1179-proof/` pending permanent preservation.
+Artifacts: `/private/tmp/them-1179-proof/`; permanent verified copy below.
 
 - Initial characterization: **1 pass / 3 failures / 0 skips**, four cases.
   Two failures demonstrate product cancellation defects. The third was a test
@@ -147,6 +147,26 @@ themTests/BackendTalkStreamingTransportTests.swift
 themUITests/V1SmokeUITests.swift
 ```
 
-READY FOR CONTINUE. All native proof processes are terminal; preserve their
-artifacts and remove only the task-created borrowed dependency link before
-committing. Publication details belong in the final receipt after verification.
+## Preserved proof receipt
+
+Runtime commit: `71c72f5e8831439a8976c63fa5684920625e2825`.
+All native proof processes are terminal, and the task-created borrowed
+dependency symlink was removed. Worktree was clean at that runtime commit.
+
+Permanent local proof:
+`/Users/halfmutantfilms/io.them-worktrees/_proof/T-1179-20261027.aduxe7d0`.
+The preserved runtime source, logs, six xcresult bundles and exported failure
+evidence contain **5,689 hashed files / zero hash mismatches**.
+`SHA256SUMS` SHA-256:
+`94afb6fcfe7e202bfc5cb705b291c1eecc123c8ffa65810090d662c253bf3f1d`.
+Publication documentation/receipt is supplementary and does not change that
+fixed runtime proof manifest.
+
+Remote read at 21:31Z still shows main
+`78b8c94f43b4a11f18c2e61df556b9cd7370e735` and original #647
+`848e59d040dc935d082beaeb7dc21c51faee4222`. Normal publication may update
+only the scoped backup `codex/T-1179-early-talk-cancel`; it cannot establish
+hosted proof on the untouched original PR or integrated main.
+
+READY FOR CONTINUE. Next: queued UI consumer delivery after Stop. No paid
+provider calls or complete-product claim.
