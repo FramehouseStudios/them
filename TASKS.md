@@ -5,6 +5,20 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1175 — Durably settle accepted Page responses and replay prepared work
+
+- **Owner:** Codex (Jarvis). **Branch:** `codex/T-1175-durable-page-settlement`.
+- **Base:** saved b31c7da; original647/main/production held.
+- **Scope:** integrate preserved T1122 through canonical wallet, backplane and
+  talk idempotency owners; wire prepared-response reconciliation at startup.
+  No second wallet/store, no paid calls or production database operations.
+- **Binary success:** swallowed-write and mutable-snapshot reds reproduced;
+  prepared reply retries preserve exact response and settle one durable debit,
+  including local restart/failure and guarded PostgreSQL concurrency. Full
+  backend, essential signed writer workflows and D009/diff on updated head.
+- **Status:** in-progress. Accepted HTTP lifecycle is still process-local;
+  reused source must pass current-tree proof before any original advance.
+
 ### T-1173 — Fund actual server Page budgets across typed and voice turns
 
 - **Owner:** codex (Jarvis). **Branch:** `codex/T-1173-server-page-budget`.
