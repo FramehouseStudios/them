@@ -195,6 +195,7 @@ private final class FakeLiveDraftEditor: LiveDraftEditorBinding {
     var appliedRemoteTexts: [String] = []
     var appliedSourceDevices: [String] = []
     var preservedLocalDrafts: [(draft: String, projectID: String)] = []
+    var recoveryEvents: [String] = []
     var adoptedVersions: [(versionID: String, checksum: String)] = []
     var revealedLines: [Int] = []
 
@@ -211,6 +212,7 @@ private final class FakeLiveDraftEditor: LiveDraftEditorBinding {
 
     func applyRemoteLiveDraft(_ text: String, projectID: String, sourceDeviceID: String) -> Bool {
         guard projectID == self.projectID else { return false }
+        recoveryEvents.append("apply")
         appliedRemoteTexts.append(text)
         appliedSourceDevices.append(sourceDeviceID)
         self.text = text
@@ -222,6 +224,7 @@ private final class FakeLiveDraftEditor: LiveDraftEditorBinding {
     }
 
     func preserveLocalDraftForLiveSyncRecovery(_ text: String, projectID: String) {
+        recoveryEvents.append("preserve")
         preservedLocalDrafts.append((text, projectID))
     }
 
@@ -485,7 +488,54 @@ final class ScreenplayLiveDraftSyncServiceTests: XCTestCase {
         XCTAssertEqual(editor.preservedLocalDrafts.first?.draft, local)
         XCTAssertEqual(editor.preservedLocalDrafts.first?.projectID, "proj-1")
         XCTAssertEqual(editor.appliedRemoteTexts.last, remote)
+        XCTAssertEqual(editor.recoveryEvents.suffix(2), ["preserve", "apply"],
+                       "Recovery must be recorded before replacing the page.")
         XCTAssertTrue(transport.postedOps.isEmpty, "The losing local overlap must not overwrite the channel.")
+    }
+
+    func testOverlappingRemoteOpKeepsExactLocalWordsAcrossRecoveryStoreReopen() async throws {
+        let suite = "live-overlap-recovery-\(UUID().uuidString)"
+        let key = "live-overlap"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let projectID = "overlap-\(UUID().uuidString)"
+        let base = "INT. ROOM - DAY\n\nMara waits."
+        let local = "INT. ROOM - DAY\n\nMara runs.  \n\n🎬 Don't erase this.\n"
+        let remote = "INT. ROOM - DAY\n\nMara hides."
+        let store = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: key)
+        let editor = ScreenplayStudioViewModel(localDraftRecoveryStore: store)
+        editor.selectedProjectID = projectID
+        editor.applyServerDraft(base, versionId: "v-base")
+        let transport = FakeLiveDraftTransport()
+        let service = makeService(transport: transport)
+        service.attach(to: editor)
+        defer { service.detach() }
+        await waitUntil { !transport.openedStreams.isEmpty }
+        transport.emit("hello", #"{"seq":0,"checksum":"\#(LiveDraftText.checksum(base))","seeded":false}"#)
+        await waitUntil { service.status.isLive }
+
+        editor.fountainDraft = local
+        let op = try XCTUnwrap(LiveDraftText.diff(from: base, to: remote))
+        transport.emit("op", #"{"seq":1,"device_id":"other-phone","op":{"start":\#(op.start),"delete_count":\#(op.deleteCount),"insert":"\#(op.insert)"},"checksum":"\#(LiveDraftText.checksum(remote))"}"#)
+        await waitUntil { editor.fountainDraft == remote }
+        XCTAssertEqual(editor.fountainDraft, remote)
+        XCTAssertTrue(try XCTUnwrap(editor.recoveryCandidate).draft.utf8.elementsEqual(local.utf8))
+        XCTAssertEqual(editor.recoveryCandidate?.baseVersionId, "v-base")
+        XCTAssertTrue(transport.postedOps.isEmpty)
+        service.detach()
+
+        // Use a new defaults/store/model instance, then exercise the same
+        // Restore action the writer has. This is stored-state proof, not a
+        // separate process-kill or two-physical-device claim.
+        let reopenedDefaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        let reopenedStore = ScreenplayLocalDraftRecoveryStore(defaults: reopenedDefaults, key: key)
+        let reopened = ScreenplayStudioViewModel(localDraftRecoveryStore: reopenedStore)
+        reopened.selectedProjectID = projectID
+        reopened.applyServerDraft(remote, versionId: "v-remote")
+        XCTAssertTrue(try XCTUnwrap(reopened.recoveryCandidate).draft.utf8.elementsEqual(local.utf8))
+        reopened.restoreDraftFromRecovery()
+        XCTAssertTrue(reopened.fountainDraft.utf8.elementsEqual(local.utf8))
+        XCTAssertTrue(reopened.hasUnsavedDraftChanges)
     }
 
     func testFreshChannelPushesNonEmptyLocalDraft() async {

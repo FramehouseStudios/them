@@ -2043,7 +2043,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
     }
 
     /// Preserve a dirty local draft independently before live sync replaces
-    /// it with a remote snapshot that has no shared rebase base.
+    /// it with a remote snapshot that has no shared base or cannot merge.
     func preserveLocalDraftForLiveSyncRecovery(_ text: String, projectID: String) {
         guard ScreenplayProjectScopedState.matches(projectID, selectedProjectId: selectedProjectID) else {
             return
