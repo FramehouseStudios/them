@@ -13,7 +13,16 @@ if (process.env.THEM_PAGE_CANCEL_PROOF === '1') {
       res.once('finish', () => process.stdout.write(`[proof-provider] page_cancel_talk_response=${JSON.stringify({status:res.statusCode, hasReservation:Boolean(res.getHeader('x-clementine-page-reservation')), lane:res.getHeader('x-clementine-lane') || ''})}\n`));
     }
     if (req.method === 'POST' && req.path === '/talk/page-cancel') {
+      const json = res.json;
+      let facts = { cancelled: false, dropped: 0, byReservation: false };
+      res.json = function(body) {
+        facts = { cancelled: body?.cancelled === true,
+          dropped: Array.isArray(body?.dropped) ? body.dropped.length : 0,
+          byReservation: Boolean(req.body?.reservation_id) };
+        return json.call(this, body);
+      };
       res.once('finish', () => process.stdout.write(`[proof-provider] page_cancel_status=${res.statusCode}\n`));
+      res.once('finish', () => process.stdout.write(`[proof-provider] page_cancel_result=${JSON.stringify({ status:res.statusCode, ...facts })}\n`));
     }
     next();
   });

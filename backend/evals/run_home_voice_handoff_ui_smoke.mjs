@@ -100,6 +100,15 @@ try {
   if (tests.some(test => test.includes('test_pages_navigator_controls'))) console.log(JSON.stringify({paginationResponses}));
   const reasons = server.stdout.join('').split('\n').filter(line => /screenplay_page_quality_exhausted reason=|studio_render(?:_stream)? quality_rejected reason=/.test(line));
   console.log(reasons.join('\n'));
+  if (needsInterruptibleAudio) {
+    const facts = server.stdout.join('').split('\n').filter(line => /^\[proof-provider\] page_cancel_(?:talk_response|result)=/.test(line));
+    console.log(facts.join('\n'));
+    const results = facts.filter(line => line.startsWith('[proof-provider] page_cancel_result='))
+      .map(line => JSON.parse(line.slice(line.indexOf('=') + 1)));
+    if (!results.some(result => result.status === 200 && result.cancelled && result.dropped === 1 && result.byReservation)) {
+      throw new Error('Studio Stop never cancelled its actual authenticated Page reservation');
+    }
+  }
   if (status !== 0 || summary.passedTests !== tests.length || summary.failedTests !== 0 || summary.skippedTests !== 0) throw new Error('UI proof failed');
   if (tests.some(test => test.includes('home_raw_audio')) && counts.stt < 1) throw new Error('Raw audio test never reached mocked server ASR');
   if (tests.some(test => test.includes('home_')) && counts.chat < 1) throw new Error('Home test never reached mocked generation');

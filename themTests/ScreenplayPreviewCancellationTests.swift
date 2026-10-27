@@ -88,6 +88,45 @@ final class ScreenplayPreviewCancellationTests: XCTestCase {
         }
     }
 
+    func testSyncedStopAndRepeatedCleanupRestoreTheNativeBaseline() async throws {
+        for reason in [ScreenplaySyncedInsertInterruptionReason.cancel, .bargeIn] {
+            try await withBridge { bridge in
+                let anchor = ScreenplayPageAnchor(projectId: "", sceneId: "", beatId: nil,
+                    scriptNodeId: "", pageIndex: nil, rangeStart: 0, rangeEnd: 0,
+                    anchorLine: nil, anchorEndLine: nil, insertMode: nil)
+                let timeline = ScreenplayDialogueTimelineRevision(turnId: "cancel-proof", revisionId: "r1",
+                    audioAssetId: "fixture", durationMs: 60_000, documentRevisionId: "",
+                    insertionAnchor: anchor, segments: [])
+                XCTAssertNotNil(bridge.streamInsertSynced(page, audioDuration: 60, timeline: timeline,
+                    requestID: "cancel-proof", timingSource: "fixture",
+                    playbackTimeProvider: { 0 }, playbackObservationProvider: { nil }))
+                let prepare = try XCTUnwrap(bridge.pendingInsertion)
+                XCTAssertEqual(prepare.mode, .voiceRevealPrepare)
+#if os(iOS)
+                var model = baseline
+                let editor = UITextView()
+                editor.text = model
+                let coordinator = makeCoordinator(text: Binding(get: { model }, set: { model = $0 }))
+                coordinator.textView = editor
+                coordinator.primeParagraphElements(for: model, attributedText: editor.attributedText)
+                coordinator.applyInsertion(prepare)
+                XCTAssertTrue((editor.text ?? "").contains("false stars"))
+#endif
+                bridge.cancelStream(reason: reason)
+                let cancel = try XCTUnwrap(bridge.pendingInsertion)
+                XCTAssertEqual(cancel.mode, .voiceRevealCancel)
+                bridge.cancelStream(reason: reason)
+                bridge.cancelStreamingVoiceTurnPreview()
+                XCTAssertEqual(bridge.pendingInsertion?.id, cancel.id, "Cleanup replaced the native voice rollback")
+#if os(iOS)
+                coordinator.applyInsertion(cancel)
+                XCTAssertEqual(editor.text, baseline)
+                XCTAssertEqual(model, baseline)
+#endif
+            }
+        }
+    }
+
     private func waitUntil(_ predicate: () -> Bool) async {
         let deadline = Date().addingTimeInterval(3)
         while !predicate(), Date() < deadline {

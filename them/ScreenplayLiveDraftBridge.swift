@@ -5373,7 +5373,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             reason: reason
         )
         streamingProgress = 0
-        if rollbackDraft, wasStreaming || cancelledSynced {
+        if rollbackDraft, wasStreaming || cancelledSynced, pendingInsertion?.mode != .voiceRevealCancel {
             pendingInsertion = ScreenplayInsertionRequest(text: "", mode: .streamInsertCancel)
         } else if !rollbackDraft, hadQueuedSyncedInsert {
             pendingInsertion = nil
