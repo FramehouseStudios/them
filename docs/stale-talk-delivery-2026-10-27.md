@@ -126,3 +126,26 @@ Preserve a normal scoped backup only after the final evidence is read.
 
 READY FOR CONTINUE. All proof jobs are terminal and the task-created dependency
 link is removed. Full product goal remains active and incomplete.
+
+## Preserved runtime proof
+
+Runtime commit: `b986b53bf9c740dc3307b06c937c223ece4e8dca`.
+Permanent local copy:
+`/Users/halfmutantfilms/io.them-worktrees/_proof/T-1180-20261027.nwkl1p9i`.
+**4,368 hashed files / zero mismatches** include the four native result
+bundles, logs, selected synthetic playback observations and five source files.
+`SHA256SUMS` SHA-256:
+`7bb711dea1cbb0750f3154d91ba01ac141bed4f840ad56bcb92b0f87ed8d3f36`.
+Final documentation/publication receipt is supplementary to this fixed runtime
+manifest. Publish only `codex/T-1180-stale-talk-delivery` normally; untouched
+original PR checks and integrated main are not proven by this backup.
+
+Zora's next-owner source audit identifies the existing auth-context policy
+(user plus login-intent generation, including anonymous contexts) and origin
+document ID/initial-project receipt as reusable seams. Empty unbound documents
+currently lose their origin ID when empty persistence clears it; project ID
+equality alone cannot fence two different empty documents. The next fix must
+retain accepted replies under their initiating owner/document while preventing
+stale publication; merely dropping them or queueing regeneration is incomplete.
+Those races have not been reproduced in this task. Start with a suspended
+response / project switch and an old-completion / replacement-turn control.

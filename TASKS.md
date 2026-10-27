@@ -26,8 +26,9 @@
   build exit0, D009 all five files0 growth, diff pass. No paid calls.
 - **Evidence:** `docs/stale-talk-delivery-2026-10-27.md`. Backend unchanged,
   full2996/0/5 inherited from T1178. All proof jobs terminal, dependency link
-  removed. Next audit account/project/final-result ownership and old-request
-  cleanup; persisted Stop DEBUG trace still says running and needs explicit
+  removed. Runtimeb986b53; permanent `_proof/T-1180-20261027.nwkl1p9i`,
+  4368 hashed files/zero mismatches. Next audit account/project/final-result
+  ownership and old-request cleanup; persisted Stop DEBUG trace still says running and needs explicit
   cancellation finalization. Original/main/production held; phone unproven.
 
 ### T-1179 — Connect Stop to a waiting live audio transport
