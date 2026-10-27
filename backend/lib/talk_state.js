@@ -635,6 +635,14 @@ export function createTalkIdempotencyHelpers({
       if (!ctx?.cacheKey) return settlePageWithoutReplay(req);
       const existing = talkIdempotencyCache.get(ctx.cacheKey) || await scaleBackplane.getIdempotency(ctx.cacheKey);
       if (!existing) return;
+      if (String(existing.status || "") === "completed") {
+        // A send failure or late recovery callback cannot replace accepted
+        // bytes after the durable receipt and response already committed.
+        const error = new Error("talk response was already completed");
+        error.code = "TALK_IDEMPOTENCY_RESPONSE_COMPLETED";
+        error.retryable = true;
+        throw error;
+      }
       if (String(existing.status || "") === "prepared") {
         if (existing.settlement && typeof req?.clementine?.settleWalletDurably === "function") {
           await req.clementine.settleWalletDurably(existing.settlement);
