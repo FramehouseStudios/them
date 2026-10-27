@@ -123,7 +123,14 @@ function resolveUserId(req) {
  * Classify + map lane at the talk edge. Pure; no store side effects.
  */
 function resolveTalkLane(utterance, hints = {}) {
-  const intent = classifyIntent(utterance, hints);
+  let intent = classifyIntent(utterance, hints);
+  if (hints.intent && laneForIntent(intent).lane !== LANE.PAGE) {
+    // A caller's conversational hint is not authority to make page writing
+    // free. Current words/Page controls still own the funded writing lane;
+    // the classifier's refusal policy continues to outrank stale Page hints.
+    const requested = classifyIntent(utterance, { ...hints, intent: "" });
+    if (laneForIntent(requested).lane === LANE.PAGE) intent = requested;
+  }
   const laneInfo = laneForIntent(intent, {
     multiBeat: hints.multiBeat === true,
   });
@@ -149,15 +156,10 @@ function markTalkAsDiscussion(req, res) {
  * If lane is Page, create a reservation. Returns { lane, reservation|null }.
  * Does not throw on missing session — uses resolveSessionId fallback.
  *
- * When walletStore is provided, reserves Page-lane turns from max_output_tokens
- * first (hard stop wallet_empty). Links walletReservationId onto the page
- * reservation so cancel → wallet.release.
- *
- * Commit stub: after successful Muse generation, callers should
- *   walletStore.commit(walletReservationId, actualOutputTokens)
- * Prefer doing that in talk_handler (or a thin post-success hook) once
- * usage is known — this adapter has no response-success seam without
- * rewriting handleTalkRequest. See docs/product/clementine-wallet.md.
+ * The HTTP adapter defers the initial wallet budget until the server generation
+ * cap is known. Direct callers retain explicit budget reservation. Link the
+ * same wallet hold to Page cancellation; record usage during generation and
+ * settle only the successful response lifecycle. Durable settlement is separate.
  */
 function beginPageWork(store, {
   utterance = "",
@@ -185,8 +187,7 @@ function beginPageWork(store, {
   let walletReservation = null;
   const ownerId = String(userId || "").trim() || String(sessionId || "").trim() || "anonymous";
   const multipassOn = isPageMultipassEnabled();
-  // Wallet honesty: draft+revise are both metered when multipass is on —
-  // reserve 2× max_output_tokens headroom (plan/critique remain unmetered).
+  // Meter draft+revise, plus the optional repair pass. Plan/critique are unmetered.
   const maxOutputTokens = deferWalletBudget ? 0 : Math.max(
     0,
     Math.round(Number(hints.maxOutputTokens || 0) || 0)
