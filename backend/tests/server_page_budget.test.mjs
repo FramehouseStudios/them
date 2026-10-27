@@ -107,11 +107,13 @@ for (const clientBudget of [undefined, 0, 1]) {
   });
 }
 
-test('a caller intent hint cannot downgrade a writing request out of its funded Page lane', async () => {
+for (const explicitTarget of [true, false]) {
+test(`a caller intent hint cannot downgrade a writing request (explicit target: ${explicitTarget})`, async () => {
   const wallet = createWalletStore({ initialBalances: { writer: { page: 0.1 } } });
   const pages = createPageReservationStore({ walletStore: wallet });
   const req = { authUser: { id: 'writer' }, body: {
-    client_transcript: 'Write the opening scene.', screenplay_target: 'page', clementine_intent: 'advise',
+    client_transcript: 'Write the opening scene.', clementine_intent: 'advise',
+    ...(explicitTarget ? { screenplay_target: 'page' } : {}),
   } };
   let providerCalls = 0;
   const wrapped = createPageLaneTalkAdapter({ pageReservationStore: pages, walletStore: wallet, logger: null,
@@ -126,4 +128,23 @@ test('a caller intent hint cannot downgrade a writing request out of its funded 
   await assert.rejects(() => wrapped(req, response()), error => error.status === 402 && error.errorClass === 'wallet_empty');
   assert.equal(providerCalls, 0);
   assert.equal(wallet.getBalance('writer').pageTurnsLeft, 0.1);
+});
+}
+
+test('an explicit discussion target retains its conversational hint and creates no Page hold', async () => {
+  const wallet = createWalletStore({ initialBalances: { writer: { page: 1 } } });
+  const pages = createPageReservationStore({ walletStore: wallet });
+  const req = { authUser: { id: 'writer' }, body: {
+    client_transcript: 'How do I write a scene?', screenplay_target: 'voice_pin', clementine_intent: 'advise',
+  } };
+  const res = response();
+  await createPageLaneTalkAdapter({ pageReservationStore: pages, walletStore: wallet, logger: null,
+    handleTalkRequest: async () => {
+      assert.equal(req.clementine.lane, 'Companion');
+      assert.equal(req.clementine.reservationId, null);
+      assert.equal(pages.size(), 0);
+      res.emit('finish');
+    },
+  })(req, res);
+  assert.equal(wallet.getBalance('writer').pageTurnsLeft, 1);
 });

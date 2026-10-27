@@ -13,6 +13,7 @@
 import { classifyIntent, INTENT } from "./intents.js";
 import { laneForIntent, LANE } from "./lanes.js";
 import { currentScreenplayInstruction } from "../screenplay_write_instruction.js";
+import { resolveScreenplayTargetFromRequest } from "../screenplay_turn_target.js";
 import { createTalkFailureError, buildTalkFailureDiagnostics, buildTalkFailureBody } from "../talk_failure_diagnostics.js";
 import {
   peekKnownFacts,
@@ -65,6 +66,7 @@ function peekPageHints(req) {
   const forcedIntent = pickString(body.clementine_intent, body.clementineIntent, body.intent);
   const pageMode =
     target === "page" ||
+    (!target && resolveScreenplayTargetFromRequest(body) === "page") ||
     body.page_mode === true ||
     body.pageMode === true ||
     String(body.page_mode || body.pageMode || "").toLowerCase() === "true";
@@ -124,7 +126,8 @@ function resolveUserId(req) {
  */
 function resolveTalkLane(utterance, hints = {}) {
   let intent = classifyIntent(utterance, hints);
-  if (hints.intent && laneForIntent(intent).lane !== LANE.PAGE) {
+  if (hints.intent && (hints.pageMode === true || hints.continuePage === true)
+    && laneForIntent(intent).lane !== LANE.PAGE) {
     // A caller's conversational hint is not authority to make page writing
     // free. Current words/Page controls still own the funded writing lane;
     // the classifier's refusal policy continues to outrank stale Page hints.
