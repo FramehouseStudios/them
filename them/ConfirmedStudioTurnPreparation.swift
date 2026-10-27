@@ -4,6 +4,15 @@ import Foundation
 /// The opener retains the existing authentication policy; preparation observes
 /// the actual surface afterward, never an optimistic request to open it.
 enum ConfirmedStudioTurnPreparation {
+    @MainActor
+    static func configureSyncedInsertion(enabled: Bool, requestID: String, bridge: ScreenplayLiveDraftBridge) {
+        if enabled {
+            bridge.prepareSyncedVoiceTurn(requestID: requestID, renderContract: .pageWritePreview)
+        } else {
+            bridge.resetSyncedVoiceTurnTracking()
+        }
+    }
+
     static func currentTranscript(clientOverride: String?, serverTranscript: String? = nil) -> String {
         let server = (serverTranscript ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         return server.isEmpty

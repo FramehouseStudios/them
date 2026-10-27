@@ -1,18 +1,22 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import fs from 'node:fs';
+import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { startBackend, apiRequest } from './helpers/backend_test_server.mjs';
+import { createJsonPersistence } from '../lib/persistence_json.js';
+import { createAdapterWalletPersistence } from '../lib/clementine/wallet_persistence.js';
 
 test('[talk-turn-owner] authenticated metadata cannot follow a prior owner client token', { timeout: 60_000 }, async () => {
   const appToken = 'them-owner-boundary-proof'; // deliberately NOT the local them-dev bypass
-  const server = await startBackend({ unsetEnv: ['DATABASE_URL', 'REDIS_URL'], env: {
+  const options = { unsetEnv: ['DATABASE_URL', 'REDIS_URL'], env: {
     APP_TOKEN: appToken, REQUIRE_USER_AUTH: '1', CLEMENTINE_PROVIDER: 'openai',
     CLEMENTINE_MUSE_ENABLED: '0', MUSE_ENABLED: '0', LLM_PROVIDER: 'openai',
     TALK_TEST_DEBUG_TRANSCRIPT_ENABLED: '0', TALK_TEST_DEBUG_OFFLINE_ENABLED: '0', TALK_STREAM_AUDIO_ENABLED: '0',
     KNOWLEDGE_RAG_EMBEDDINGS_ENABLED: '0', THEM_HOME_VOICE_PROVIDER_FIXTURE: '1',
     NODE_OPTIONS: `--import=${new URL('../evals/home_voice_provider_fixture.mjs', import.meta.url).href}`,
-  } });
+  } };
+  let server = await startBackend(options);
   try {
     async function writer() {
       const signup = await apiRequest(server, '/auth/signup', { method: 'POST', json: {
@@ -20,12 +24,22 @@ test('[talk-turn-owner] authenticated metadata cannot follow a prior owner clien
       } });
       assert.equal(signup.status, 201);
       const auth = { Authorization: `Bearer ${signup.json.access_token || signup.json.token}` };
-      const session = await apiRequest(server, '/session', { method: 'POST', headers: auth, json: {} });
-      assert.equal(session.status, 201);
-      return { auth, clientToken: session.json.client_token,
+      return { auth,
         userID: signup.json.user?.id || signup.json.user?.user_id || signup.json.user?.userId };
     }
     const a = await writer(), b = await writer();
+    const dataDir = server.dataDir;
+    await server.stop();
+    await createAdapterWalletPersistence({ persistence: createJsonPersistence({ jsonRoot: path.join(dataDir, 'persistence') }) }).putBalance({
+      ownerId: a.userID, pageMilliturns: 100000, companionMilliturns: 0,
+      grantedPageMilliturns: 100000, grantedCompanionMilliturns: 0,
+    });
+    server = await startBackend({ ...options, dataDir });
+    for (const actor of [a, b]) {
+      const session = await apiRequest(server, '/session', { method: 'POST', headers: actor.auth, json: {} });
+      assert.equal(session.status, 201);
+      actor.clientToken = session.json.client_token;
+    }
     const form = new FormData();
     form.append('speech_ms', '3000'); form.append('tail_silence_ms', '900');
     form.append('file', new Blob([fs.readFileSync(new URL('../response.mp3', import.meta.url))], { type: 'audio/mpeg' }), 'fixture.mp3');
@@ -33,6 +47,7 @@ test('[talk-turn-owner] authenticated metadata cannot follow a prior owner clien
       headers: { ...a.auth, 'X-APP-TOKEN': appToken, 'X-Client-Token': a.clientToken, 'X-Idempotency-Key': randomUUID() }, body: form });
     await talk.arrayBuffer();
     assert.equal(talk.status, 200);
+    assert.equal(talk.headers.get('x-clementine-lane'), 'Page');
     const turnID = talk.headers.get('x-turn-id');
     assert.ok(turnID);
     const read = headers => apiRequest(server, `/talk/turn/${encodeURIComponent(turnID)}`, { headers: { 'X-APP-TOKEN': appToken, ...headers } });

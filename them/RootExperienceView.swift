@@ -6626,7 +6626,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
         _ = await applyConversationalStudioCorrectionIfNeeded(
             preparedPrompt.directorText
         )
-        let shouldUseSyncedStudioVoiceInsert =
+        var shouldUseSyncedStudioVoiceInsert =
             preparedPrompt.useScreenplayMode &&
             preparedPrompt.shouldWriteToPage &&
             screenplayDraftBridge.autoInsertEnabled
@@ -6980,14 +6980,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
             let onBackendTalkDebugEvent: ((BackendTalkDebugEvent) -> Void)? = nil
 #endif
             let idempotencyKey = "them-\(fingerprint)-\(Int(now.timeIntervalSince1970 * 1000))"
-            if shouldUseSyncedStudioVoiceInsert {
-                screenplayDraftBridge.prepareSyncedVoiceTurn(
-                    requestID: idempotencyKey,
-                    renderContract: .pageWritePreview
-                )
-            } else {
-                screenplayDraftBridge.resetSyncedVoiceTurnTracking()
-            }
+            ConfirmedStudioTurnPreparation.configureSyncedInsertion(enabled: shouldUseSyncedStudioVoiceInsert, requestID: idempotencyKey, bridge: screenplayDraftBridge)
             let requestTalk: () async throws -> BackendTalkResult = StudioActionDispatcher.handlingRequest(bridge: screenplayDraftBridge, studioOpen: { isStudioSurfaceActive }, openStudio: { openStudio() }, isCurrent: { isTurnSubmitting && lastSubmittedFingerprint == fingerprint && lastSubmittedAt == now }, onResponse: { metadata in
                 Task { @MainActor in
                     if preparedPrompt.useScreenplayMode {
@@ -7255,6 +7248,11 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 ConfirmedStudioTurnPreparation.currentTranscript(clientOverride: clientTranscriptOverride, serverTranscript: result.transcript),
                 allowOpeningStudio: startedOnHome && cleanClientTranscriptOverride.isEmpty
             )
+            if !shouldUseSyncedStudioVoiceInsert, confirmedPrompt.useScreenplayMode,
+               confirmedPrompt.shouldWriteToPage, screenplayDraftBridge.autoInsertEnabled {
+                shouldUseSyncedStudioVoiceInsert = true
+                ConfirmedStudioTurnPreparation.configureSyncedInsertion(enabled: true, requestID: idempotencyKey, bridge: screenplayDraftBridge)
+            }
             if !(result.reply ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 clientLatency.recordFirstText(turnID: clientLatencyTurnID)
             }
@@ -7458,7 +7456,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
                     restoreRealtimeStudioDraftPreview()
                 }
             }
-            if insertedScreenplayText == nil, !preparedPrompt.shouldWriteToPage,
+            if insertedScreenplayText == nil, !shouldUseSyncedStudioVoiceInsert, !preparedPrompt.shouldWriteToPage,
                confirmedPrompt.shouldWriteToPage, screenplayDraftBridge.autoInsertEnabled {
                 let previousWriteID = screenplayDraftBridge.lastCommittedWrite?.id
                 _ = await renderRealtimeStudioDraftIfNeeded(userMessage: confirmedPrompt.directorText, fallbackAssistantMessage: result.reply ?? "")
