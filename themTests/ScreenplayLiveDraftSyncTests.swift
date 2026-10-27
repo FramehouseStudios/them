@@ -461,6 +461,33 @@ final class ScreenplayLiveDraftSyncServiceTests: XCTestCase {
         service.detach()
     }
 
+    func testOverlappingRemoteOpPreservesLocalDraftBeforeChannelWins() async {
+        let transport = FakeLiveDraftTransport()
+        let base = "INT. ROOM - DAY\n\nMara waits."
+        let local = "INT. ROOM - DAY\n\nMara runs."
+        let remote = "INT. ROOM - DAY\n\nMara hides."
+        let editor = FakeLiveDraftEditor(projectID: "proj-1", text: base)
+        let service = makeService(transport: transport)
+        service.attach(to: editor)
+        defer { service.detach() }
+        await waitUntil { !transport.openedStreams.isEmpty }
+        transport.emit("hello", #"{"seq":0,"checksum":"\#(LiveDraftText.checksum(base))","seeded":false}"#)
+        await waitUntil { service.status.isLive }
+
+        // Both devices replace the same words. Keep the local copy before
+        // applying the channel; never republish it as an automatic overwrite.
+        editor.text = local
+        let remoteOp = LiveDraftText.diff(from: base, to: remote)!
+        transport.emit("op", #"{"seq":1,"device_id":"ios-phone","op":{"start":\#(remoteOp.start),"delete_count":\#(remoteOp.deleteCount),"insert":"\#(remoteOp.insert)"},"checksum":"\#(LiveDraftText.checksum(remote))"}"#)
+        await waitUntil { editor.text == remote }
+
+        XCTAssertEqual(editor.preservedLocalDrafts.count, 1)
+        XCTAssertEqual(editor.preservedLocalDrafts.first?.draft, local)
+        XCTAssertEqual(editor.preservedLocalDrafts.first?.projectID, "proj-1")
+        XCTAssertEqual(editor.appliedRemoteTexts.last, remote)
+        XCTAssertTrue(transport.postedOps.isEmpty, "The losing local overlap must not overwrite the channel.")
+    }
+
     func testFreshChannelPushesNonEmptyLocalDraft() async {
         let transport = FakeLiveDraftTransport()
         let editor = FakeLiveDraftEditor(projectID: "proj-1", text: "local unsaved work")

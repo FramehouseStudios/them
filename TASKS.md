@@ -5,6 +5,20 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1174 — Review Hermes and preserve overlapping live edits
+
+- **Owner:** Codex (Jarvis). **Branch:** `codex/T-1174-hermes-recovery-review`.
+- **Base:** saved higher647 c128ec2. T1173 budget red remains on its original
+  branch a37ef3b; no original PR/main/production changes.
+- **Scope:** evaluate pinned Hermes bea7d24 for useful reliability patterns;
+  reuse THEM's preserved e31f351 overlap repair and canonical recovery store.
+  Do not import a desktop agent runtime, assets, providers or dependencies.
+- **Binary success:** reproduce lost local overlap, then retain exact local
+  words before applying remote text; recover through a newly opened store,
+  keep non-overlapping merges and no-base duplicate protection intact.
+- **Status:** in-progress. Static review only for Hermes; no execution of its
+  app, installer, MCP, cloud hosts or paid providers.
+
 ### T-1172 — Keep accepted turn results and replay across backend restart
 
 - **Owner:** codex (Jarvis). **Branch:** `codex/T-1172-durable-talk-replay`.
