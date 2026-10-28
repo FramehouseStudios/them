@@ -2345,7 +2345,8 @@ final class V1SmokeUITests: XCTestCase {
             return try firstNonEmptyString(response.payload["version_id"], message: "Initial version missing")
         }
         let versionA = try await seed(projectA, "Owner A \(suffix.prefix(8))", beforeA)
-        if switchProject { _ = try await seed(projectB, titleB, beforeB) }
+        var versionB = versionA
+        if switchProject { versionB = try await seed(projectB, titleB, beforeB) }
         var app = launchApp(openStudio: true, restoreProjectID: projectA, restoreVersionID: versionA,
             restoreLoadToken: Int(Date().timeIntervalSince1970), submitTransportMode: "live-backend", launchEnvironment: fixture.appLaunchEnvironment)
         defer { app.terminate() }
@@ -2397,11 +2398,10 @@ final class V1SmokeUITests: XCTestCase {
         }, "A published stale history into B")
         let releasedB = try await requestJSON(baseURL: base, path: "/__them-proof/render/release", method: "POST", headers: [:], body: ["id": heldB])
         try assertHTTP(releasedB, context: "Release current B render")
-        let editor = textInput("studio.draft.editor", in: app)
-        let delivered = XCTNSPredicateExpectation(predicate: NSPredicate { object, _ in
-            ((object as? XCUIElement)?.value as? String)?.contains("HOME VOICE HANDOFF") == true
-        }, object: editor)
-        await fulfillment(of: [delivered], timeout: 25)
+        // Native text can contain a provisional preview before the canonical
+        // draft commits. Verify that committed surface, never preview success.
+        XCTAssertTrue(waitForDraftOccurrences(in: app,
+            expected: ["HOME VOICE HANDOFF": 1, switchProject ? "Original B keeps" : "Original A keeps": 1], timeout: 25))
         let idle = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == %@", "Send"), object: send)
         await fulfillment(of: [idle], timeout: 15)
         let finalDraft = accessibleDraftText(in: app)
@@ -2411,6 +2411,9 @@ final class V1SmokeUITests: XCTestCase {
         _ = try await waitForWriterLoopSavedVersion(projectID: projectB, draft: finalDraft, fixture: fixture, app: app, timeout: 20)
         let savedB = try await writerLoopProject(id: projectB, fixture: fixture)
         XCTAssertEqual((savedB["versions"] as? [[String: Any]])?.count, 2, "Only B may add one saved version")
+        XCTAssertNotEqual(stringValue(savedB["active_version_id"]), versionB, "The initial baseline cannot stand in for a new save")
+        let activeB = (savedB["versions"] as? [[String: Any]])?.first { stringValue($0["id"]) == stringValue(savedB["active_version_id"]) }
+        XCTAssertEqual(Data((activeB?["draft"] as? String ?? "").utf8), Data(finalDraft.utf8), "The active saved version must contain the committed page")
         if switchProject {
             let savedA = try await writerLoopProject(id: projectA, fixture: fixture)
             let versions = savedA["versions"] as? [[String: Any]] ?? []

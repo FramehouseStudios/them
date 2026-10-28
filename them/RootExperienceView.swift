@@ -9955,7 +9955,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
         var notes: [String] = []
         let opening = snapshot.openingLine.trimmingCharacters(in: .whitespacesAndNewlines)
         if !opening.isEmpty {
-            notes.append("Session reopen continuity: \(opening)")
+            notes.append("Earlier session context, not a new page assignment: \(opening)")
         }
         let title = snapshot.projectTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         let projectId = snapshot.projectId.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -9971,7 +9971,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
             .filter { !$0.isEmpty }
             .joined(separator: " / ")
         if !actTarget.isEmpty {
-            notes.append("Restored act-aware target: \(actTarget).")
+            notes.append("Remembered act position: \(actTarget).")
         }
         let restoredFirstMove = [
             snapshot.nextScenePlan,
@@ -9982,7 +9982,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .first { !$0.isEmpty } ?? ""
         if !restoredFirstMove.isEmpty {
-            notes.append("First restored-response target: if the user asks to continue or speaks hands-free, start from this page move before inventing a new lane: \(restoredFirstMove)")
+            notes.append("Prior session suggestion, not an accepted next-page assignment: \(restoredFirstMove)")
         }
         for causalFact in snapshot.acceptedCausalFacts.filter(\.isMeaningful).prefix(2) {
             let kind = causalFact.kind.replacingOccurrences(of: "_", with: " ")
@@ -10003,21 +10003,21 @@ Write this approved story direction directly into screenplay pages now. Maintain
         }
         let featureObligation = snapshot.featureObligation.trimmingCharacters(in: .whitespacesAndNewlines)
         if !featureObligation.isEmpty {
-            notes.append("Restored structural obligation: \(featureObligation)")
+            notes.append("Earlier structural guidance: \(featureObligation)")
         }
         let actPressure = snapshot.actPressureState.trimmingCharacters(in: .whitespacesAndNewlines)
         if !actPressure.isEmpty {
-            notes.append("Restored act pressure: \(actPressure)")
+            notes.append("Earlier act-pressure interpretation: \(actPressure)")
         }
         let characterArc = snapshot.characterArcState.trimmingCharacters(in: .whitespacesAndNewlines)
         if !characterArc.isEmpty {
-            notes.append("Restored character arc pressure: \(characterArc)")
+            notes.append("Earlier character-arc interpretation: \(characterArc)")
         }
         if !snapshot.nextThreeTurns.isEmpty {
-            notes.append("Restored next turns: \(snapshot.nextThreeTurns.prefix(3).joined(separator: " -> "))")
+            notes.append("Previously suggested turns, not new assignments: \(snapshot.nextThreeTurns.prefix(3).joined(separator: " -> "))")
         }
         if !snapshot.actThreePayoffPath.isEmpty {
-            notes.append("Restored Act III payoff path: \(snapshot.actThreePayoffPath.prefix(3).joined(separator: " -> "))")
+            notes.append("Previously suggested Act III payoff path: \(snapshot.actThreePayoffPath.prefix(3).joined(separator: " -> "))")
         }
         if !snapshot.unresolvedStoryThreads.isEmpty {
             notes.append("Restored unresolved story threads: \(snapshot.unresolvedStoryThreads.prefix(3).joined(separator: "; "))")
@@ -10323,15 +10323,13 @@ Write this approved story direction directly into screenplay pages now. Maintain
             limit: 6
         )
 
-        if let sessionContinuitySnapshot, sessionContinuitySnapshot.isMeaningful {
+        if let sessionContinuitySnapshot, sessionContinuitySnapshot.isMeaningful,
+           ScreenplayProjectScopedState.matches(sessionContinuitySnapshot.projectId,
+               selectedProjectId: screenplayDraftBridge.committedWriteProjectIDSnapshot()) {
             let sessionNotes = sessionContinuityPromptNotes(from: sessionContinuitySnapshot)
             continuityNotes = mergedContextList(sessionNotes, continuityNotes, limit: 8)
             if promptAct.isEmpty { promptAct = sessionContinuitySnapshot.act }
-            if promptSceneObjective.isEmpty { promptSceneObjective = sessionContinuitySnapshot.sceneObjective }
             if promptSceneSummary.isEmpty { promptSceneSummary = sessionContinuitySnapshot.sceneSummary }
-            if promptFeatureSequence.isEmpty { promptFeatureSequence = sessionContinuitySnapshot.featureSequence }
-            if promptFeatureObligation.isEmpty { promptFeatureObligation = sessionContinuitySnapshot.featureObligation }
-            if promptCurrentBeat.isEmpty { promptCurrentBeat = sessionContinuitySnapshot.currentBeat }
             if promptLogline.isEmpty { promptLogline = sessionContinuitySnapshot.logline }
             if promptThemeArgument.isEmpty { promptThemeArgument = sessionContinuitySnapshot.themeArgument }
             if promptCentralQuestion.isEmpty { promptCentralQuestion = sessionContinuitySnapshot.centralQuestion }
@@ -10340,53 +10338,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
             if promptAntagonisticForce.isEmpty { promptAntagonisticForce = sessionContinuitySnapshot.antagonisticForce }
             if promptEndingImage.isEmpty { promptEndingImage = sessionContinuitySnapshot.endingImage }
             if promptSceneSummary.isEmpty { promptSceneSummary = sessionContinuitySnapshot.lastSceneOutcome }
-            if promptActPressureState.isEmpty { promptActPressureState = sessionContinuitySnapshot.actPressureState }
-            if promptCharacterArcState.isEmpty { promptCharacterArcState = sessionContinuitySnapshot.characterArcState }
             if promptLastSceneOutcome.isEmpty { promptLastSceneOutcome = sessionContinuitySnapshot.lastSceneOutcome }
-            if promptNextScenePlan.isEmpty { promptNextScenePlan = sessionContinuitySnapshot.nextScenePlan }
-            if promptNextSceneMoves.isEmpty {
-                promptNextSceneMoves = mergedContextList(
-                    sessionContinuitySnapshot.nextSceneMoves,
-                    sessionContinuitySnapshot.nextThreeTurns,
-                    limit: 5
-                )
-            } else {
-                promptNextSceneMoves = mergedContextList(
-                    promptNextSceneMoves,
-                    sessionContinuitySnapshot.nextSceneMoves + sessionContinuitySnapshot.nextThreeTurns,
-                    limit: 5
-                )
-            }
-            promptNextThreeTurns = mergedContextList(
-                sessionContinuitySnapshot.nextThreeTurns,
-                promptNextThreeTurns,
-                limit: 3
-            )
-            promptActThreePayoffPath = mergedContextList(
-                sessionContinuitySnapshot.actThreePayoffPath,
-                promptActThreePayoffPath,
-                limit: 5
-            )
-            promptUnresolvedSetups = mergedContextList(
-                sessionContinuitySnapshot.unresolvedSetups,
-                promptUnresolvedSetups,
-                limit: 8
-            )
-            promptUnresolvedStoryThreads = mergedContextList(
-                sessionContinuitySnapshot.unresolvedStoryThreads,
-                promptUnresolvedStoryThreads,
-                limit: 8
-            )
-            promptCharacterArcTurns = mergedContextList(
-                sessionContinuitySnapshot.characterArcTurns,
-                promptCharacterArcTurns,
-                limit: 6
-            )
-            promptImageMotifs = mergedContextList(
-                sessionContinuitySnapshot.imageMotifs,
-                promptImageMotifs,
-                limit: 6
-            )
             if promptEmotionalContinuity.isEmpty {
                 promptEmotionalContinuity = [
                     sessionContinuitySnapshot.emotionalContinuity,
