@@ -2398,12 +2398,20 @@ final class V1SmokeUITests: XCTestCase {
         }, "A published stale history into B")
         let releasedB = try await requestJSON(baseURL: base, path: "/__them-proof/render/release", method: "POST", headers: [:], body: ["id": heldB])
         try assertHTTP(releasedB, context: "Release current B render")
-        // Native text can contain a provisional preview before the canonical
-        // draft commits. Verify that committed surface, never preview success.
-        XCTAssertTrue(waitForDraftOccurrences(in: app,
-            expected: ["HOME VOICE HANDOFF": 1, switchProject ? "Original B keeps" : "Original A keeps": 1], timeout: 25))
         let idle = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == %@", "Send"), object: send)
         await fulfillment(of: [idle], timeout: 15)
+        // Native preview and submission completion are separate from the
+        // committed model. Yield while observing that model after completion.
+        let committed = element(identifier: "studio.draft.snapshot", in: app)
+        let originalMarker = switchProject ? "Original B keeps" : "Original A keeps"
+        let delivered = XCTNSPredicateExpectation(predicate: NSPredicate { object, _ in
+            guard let snapshot = object as? XCUIElement, snapshot.exists else { return false }
+            let value = snapshot.value as? String ?? ""
+            let text = value.isEmpty ? snapshot.label : value
+            return text.components(separatedBy: "HOME VOICE HANDOFF").count - 1 == 1
+                && text.components(separatedBy: originalMarker).count - 1 == 1
+        }, object: committed)
+        await fulfillment(of: [delivered], timeout: 25)
         let finalDraft = accessibleDraftText(in: app)
         XCTAssertEqual(finalDraft.components(separatedBy: "HOME VOICE HANDOFF").count - 1, 1)
         XCTAssertEqual(finalDraft.components(separatedBy: switchProject ? "Original B keeps" : "Original A keeps").count - 1, 1)
