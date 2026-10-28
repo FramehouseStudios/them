@@ -5,6 +5,25 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1183 — Keep draft-save completion with its original project
+
+- **Owner:** Codex (Zora), bounded implementation delegated by Jarvis.
+  **Branch:** `codex/T-1183-save-completion-owner`.
+  **Base:** `18d27c37142daf1ef95e4616257e722b1e8fd547`.
+- **Scope:** canonical VM version-save acknowledgement, UI completion lease,
+  pending-save coalescing and deterministic held URLSession regression cases.
+  Existing T1122 save code was inspected; it still uses Bool completion/global
+  latestVersionID and does not supply this repair. No live-reply settlement wiring.
+- **Binary:** releasing A success/conflict/failure after selection B cannot
+  change B's selected project, exact text, base or recovery. A acknowledges its
+  own queue; pending A uses A's acknowledged base; pending B retains B's base.
+- **Status:** local implementation for integration review. Native tests UNRUN
+  by assignment; Jarvis owns all Xcode/simulator resources. Static checks and
+  exact scope are recorded in `docs/save-completion-owner-2026-10-27.md`.
+- **Next:** Jarvis integrates the scoped commit into T1182 and runs the six
+  held-response cases plus the appropriate signed checkpoint. Main, original
+  PR heads, production, credentials and provider calls remain untouched.
+
 ### T-1182 — Keep accepted live replies with their initiating writer
 
 - **Owner:** Codex (Jarvis); Zora bounded review and isolated T1183 implementation.
