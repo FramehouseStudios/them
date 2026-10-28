@@ -242,9 +242,10 @@ actor ScreenplayDraftSaveOutbox {
               force || entry.nextAttemptAt <= nowSeconds else {
             return nil
         }
+        let previous = entries
         entries[index].status = .inflight
         entries[index].updatedAt = nowSeconds
-        try persist()
+        do { try persist() } catch { entries = previous; throw error }
         publishSnapshot()
         return entries[index]
     }

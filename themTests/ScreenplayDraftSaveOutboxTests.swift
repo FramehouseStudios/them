@@ -156,6 +156,26 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
         XCTAssertEqual(restored.rebased(on: "later").outboxEntry.createdAt, 123)
     }
 
+    func testFailedQueueClaimKeepsTheSavePendingInMemoryAndOnDisk() async throws {
+        let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let entry = makeEntry(id: "claim-persist-failure")
+        try await store.enqueue(entry)
+        let backup = storageDirectory.appendingPathExtension("saved")
+        defer { try? FileManager.default.removeItem(at: backup) }
+        try FileManager.default.moveItem(at: storageDirectory, to: backup)
+        XCTAssertTrue(FileManager.default.createFile(atPath: storageDirectory.path, contents: Data()))
+        do {
+            _ = try await store.beginNext(projectId: entry.projectId, ownerUserId: entry.ownerUserId, force: true)
+            XCTFail("Claim should fail when the queue directory cannot be written")
+        } catch { }
+        let inMemory = try await store.entriesForTesting()
+        XCTAssertEqual(inMemory.first?.status, .pending)
+        let restarted = ScreenplayDraftSaveOutbox(storageDirectory: backup)
+        let onDisk = try await restarted.entriesForTesting()
+        XCTAssertEqual(onDisk.first?.status, .pending)
+        XCTAssertEqual(onDisk.first?.id, entry.id)
+    }
+
     func testQueueDeduplicatesSameSaveIdentifier() async throws {
         let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
         let entry = makeEntry(id: "save-once")

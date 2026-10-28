@@ -560,3 +560,12 @@ compile attempt failed due to a duplicate argument; it executed no tests and
 was corrected before the passing run. This timestamp is **not** an authority
 generation or permission to discard any rows: the exact Load Server fence,
 rollback compatibility and UI integration remain outstanding.
+
+## Queue-claim persistence rollback
+
+`beginNext` formerly changed the in-memory row to inflight before writing the
+manifest, and retained that change if persistence failed. It now restores the
+previous actor state on write failure. A signed regression makes the actual
+queue directory unwritable after enqueue and verifies the in-memory row and
+the prior disk copy both remain pending. This does not resolve Load Server
+authority or prove the full app. Results: /private/tmp/them-save-claim-rollback-summary.json.
