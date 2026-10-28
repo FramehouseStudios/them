@@ -34,6 +34,8 @@ const allowedTests = [
   'themUITests/V1SmokeUITests/test_queued_talk_reply_plays_appends_saves_and_restores_once',
   'themUITests/V1SmokeUITests/test_live_talk_replacement_recovers_saves_and_restores_once',
   'themUITests/V1SmokeUITests/test_render_response_is_reviewed_without_audio_or_page_mutation_after_relaunch',
+  'themUITests/V1SmokeUITests/test_studio_delayed_render_project_switch_preserves_newer_submission',
+  'themUITests/V1SmokeUITests/test_studio_delayed_render_stop_preserves_resubmission',
 ];
 const tests = process.argv.length > 2 ? process.argv.slice(2)
   : process.env.ONLY_TESTING ? [process.env.ONLY_TESTING] : allowedTests.slice(1, 3);
@@ -79,7 +81,10 @@ try {
     grantedPageMilliturns: 100000, grantedCompanionMilliturns: 0,
   });
   server = await startBackend({ ...backendOptions, dataDir, port });
-  if (tests.some(test => test.includes('test_delayed_project_creation') || test.includes('test_initial_project_relaunch'))) promotionProxy = await startPromotionDelayProxy(server.baseUrl);
+  const holdsCreations = tests.some(test => test.includes('test_delayed_project_creation') || test.includes('test_initial_project_relaunch'));
+  const holdsRenders = tests.some(test => test.includes('test_studio_delayed_render_'));
+  if (holdsCreations || holdsRenders) promotionProxy = await startPromotionDelayProxy(server.baseUrl,
+    { holdCreations: holdsCreations, holdStudioRenders: holdsRenders });
   writeFileSync(config, `THEM_UITEST_WRITER_LOOP_BACKEND_PORT = ${promotionProxy?.port || server.port}\n`, {mode: 0o600});
   const child = spawn('bash', ['scripts/run_v1_ui_smoke.sh', '-quiet', '-resultBundlePath', bundle, ...tests.slice(1).map(test => '-only-testing:' + test)], {
     cwd: root, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env,
@@ -115,6 +120,7 @@ try {
   if (status !== 0 || summary.passedTests !== tests.length || summary.failedTests !== 0 || summary.skippedTests !== 0) throw new Error('UI proof failed');
   if (tests.some(test => test.includes('home_raw_audio')) && counts.stt < 1) throw new Error('Raw audio test never reached mocked server ASR');
   if (tests.some(test => test.includes('home_')) && counts.chat < 1) throw new Error('Home test never reached mocked generation');
+  if (tests.some(test => test.includes('test_studio_delayed_render_')) && counts.chat < 2) throw new Error('Delayed render proof never reached two canonical generations');
   if (tests.some(test => test.includes('test_render_response_is_reviewed')) && counts.chat < 1) throw new Error('Render recovery never reached canonical generation');
   if (tests.some(test => test.includes('studio_refused_write')) && counts.chat < 1) throw new Error('Refusal test never reached mocked generation');
   if (needsInterruptibleAudio) {
