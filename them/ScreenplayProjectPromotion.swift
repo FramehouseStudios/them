@@ -10,11 +10,55 @@ struct ScreenplayLiveDraftOriginSnapshot: Codable, Equatable, Hashable {
         self.updatedAt = updatedAt
         self.projectID = projectID.trimmingCharacters(in: .whitespacesAndNewlines)
         self.versionID = versionID.trimmingCharacters(in: .whitespacesAndNewlines)
-        self.documentID = documentID
+        let normalizedDocumentID = documentID?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.documentID = normalizedDocumentID?.isEmpty == false ? normalizedDocumentID : nil
     }
 
     var isEmpty: Bool { projectID.isEmpty && versionID.isEmpty }
     static let empty = Self(updatedAt: .distantPast, projectID: "", versionID: "")
+}
+
+/// Editing text (including deleting every character) continues a document.
+/// Only accepted project hydration, an explicit clear, or a verified initial
+/// project receipt can establish a different document origin.
+enum ScreenplayLiveDraftOriginEvent { case edit, acceptedLoad, newDocument }
+
+enum ScreenplayLiveDraftOriginPolicy {
+    static func next(from previous: ScreenplayLiveDraftOriginSnapshot,
+                     event: ScreenplayLiveDraftOriginEvent, projectID: String, versionID: String,
+                     promotedDocumentID: String? = nil) -> ScreenplayLiveDraftOriginSnapshot {
+        let project = projectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let version = versionID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let promoted = previous.documentID != nil && previous.documentID == promotedDocumentID
+        let hasOrigin = previous.documentID != nil || !previous.isEmpty
+        let continuing = event == .edit && hasOrigin && !promoted
+        let originProject = continuing ? previous.projectID : project
+        let originVersion = continuing && previous.projectID != project ? previous.versionID : version
+        let sameDocument = event != .newDocument && (previous.projectID == originProject || promoted)
+        return .init(projectID: originProject, versionID: originVersion,
+            documentID: sameDocument ? (previous.documentID ?? UUID().uuidString.lowercased()) : UUID().uuidString.lowercased())
+    }
+
+    static func restored(encoded: String?, draft: String, projectID: String, versionID: String,
+                         fallbackProjectID: String, fallbackVersionID: String) -> ScreenplayLiveDraftOriginSnapshot {
+        if let data = encoded?.data(using: .utf8) {
+            let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
+            if let origin = try? decoder.decode(ScreenplayLiveDraftOriginSnapshot.self, from: data),
+               !origin.isEmpty || origin.documentID != nil { return origin }
+        }
+        guard ScreenplayLiveDraftTextPersistencePolicy.draftForStorage(draft) != nil else { return .empty }
+        let project = ScreenplayLivePreferredContextPersistencePolicy.valueForStorage(projectID)
+            ?? ScreenplayLivePreferredContextPersistencePolicy.valueForStorage(fallbackProjectID) ?? ""
+        let version = ScreenplayLivePreferredContextPersistencePolicy.valueForStorage(versionID)
+            ?? ScreenplayLivePreferredContextPersistencePolicy.valueForStorage(fallbackVersionID) ?? ""
+        let origin = ScreenplayLiveDraftOriginSnapshot(projectID: project, versionID: version)
+        return origin.isEmpty ? .empty : origin
+    }
+
+    static func encoded(_ origin: ScreenplayLiveDraftOriginSnapshot) -> String? {
+        let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601
+        return (try? encoder.encode(origin)).flatMap { String(data: $0, encoding: .utf8) }
+    }
 }
 
 /// Eligibility for the existing restored/committed-page promotion capability.

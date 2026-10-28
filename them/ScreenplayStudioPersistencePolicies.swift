@@ -223,6 +223,13 @@ struct ScreenplayDraftSaveIntentPolicy {
     }
 }
 
+/// Swift String equality treats different Unicode encodings as equal. Draft
+/// observers must follow exact writer bytes, without normalizing or hashing.
+nonisolated struct ScreenplayDraftTextObservation: Equatable, Sendable {
+    let text: String
+    static func == (lhs: Self, rhs: Self) -> Bool { lhs.text.utf8.elementsEqual(rhs.text.utf8) }
+}
+
 struct ScreenplayDraftSaveCompletionPolicy {
     static func hasUnsavedChanges(currentDraft: String, savedDraft: String) -> Bool {
         !currentDraft.utf8.elementsEqual(savedDraft.utf8)

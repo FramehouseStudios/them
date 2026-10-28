@@ -787,10 +787,9 @@ Replace is best when this file should become the script you edit. Append is safe
 
     private var studioStateBoundView: some View {
         studioInspectorWorkspaceBoundView
-            .onChange(of: vm.fountainDraft) { _, newValue in
-                if liveDraftBridge.draftText != newValue {
-                    liveDraftBridge.draftText = newValue
-                }
+            .onChange(of: ScreenplayDraftTextObservation(text: vm.fountainDraft)) { _, observed in
+                let newValue = observed.text
+                guard vm.mirrorDraftIntoLiveBridgeIfOwned(newValue) else { return }
                 if let committed = liveDraftBridge.lastCommittedWrite,
                    newValue != committed.committedDraft {
                     dismissLastCommittedWriteActions()
@@ -1147,9 +1146,9 @@ Replace is best when this file should become the script you edit. Append is safe
                     }
                 }
             }
-            .onChange(of: liveDraftBridge.draftText) { _, newValue in
+            .onChange(of: ScreenplayDraftTextObservation(text: liveDraftBridge.draftText)) { _, newValue in
                 vm.replaceDraftFromVoiceBridgeIfNeeded(
-                    newValue,
+                    newValue.text,
                     draftOriginProjectID: liveDraftBridge.draftOriginProjectIDSnapshot()
                 )
             }

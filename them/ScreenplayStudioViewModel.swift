@@ -1755,7 +1755,9 @@ final class ScreenplayStudioViewModel: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in self?.invalidateCoverageIfContextChanged() }
         draftDebounceCancellable = $fountainDraft
+            .map(ScreenplayDraftTextObservation.init)
             .removeDuplicates()
+            .map(\.text)
             .debounce(for: .milliseconds(900), scheduler: RunLoop.main)
             .sink { [weak self] draft in
                 guard let self else { return }
@@ -1898,17 +1900,22 @@ final class ScreenplayStudioViewModel: ObservableObject {
     private func restorePendingDraftSaveBeforeProjectHydration() async -> Bool {
         let projectID = selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
         let context = currentStudioAuthContext()
+        let documentID = ScreenplayLiveDraftBridge.shared.draftOrigin.documentID
         guard !projectID.isEmpty else { return true }
         let pendingEntry: ScreenplayDraftSaveOutboxEntry?
         do {
             pendingEntry = try await draftSaveOutbox.pendingEntry(projectId: projectID, ownerUserId: context.userID)
         } catch {
-            guard authContextIsCurrent(context), selectedProjectID == projectID else { return false }
+            guard authContextIsCurrent(context), selectedProjectID == projectID,
+                  ScreenplayLiveDraftBridge.shared.draftOrigin.documentID == documentID,
+                  ScreenplayLiveDraftSyncService.shared.ownsEditor(self) else { return false }
             autosaveStatusText = ScreenplayDraftSaveRecoveryPresentationPolicy.unreadableQueueStatus
             errorText = ScreenplayDraftSaveRecoveryPresentationPolicy.unreadableQueueError
             return false
         }
-        guard authContextIsCurrent(context), selectedProjectID == projectID else { return false }
+        guard authContextIsCurrent(context), selectedProjectID == projectID,
+              ScreenplayLiveDraftBridge.shared.draftOrigin.documentID == documentID,
+              ScreenplayLiveDraftSyncService.shared.ownsEditor(self) else { return false }
         if errorText == ScreenplayDraftSaveRecoveryPresentationPolicy.unreadableQueueError { errorText = "" }
         guard let entry = pendingEntry,
               ScreenplayQueuedDraftHydrationPolicy.shouldRestoreBeforeServerHydration(
@@ -1921,6 +1928,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         isHydratingDraft = false
         loadedDraftProjectID = projectID
         if !entry.baseVersionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { latestVersionID = entry.baseVersionId }
+        adoptLoadedDraftIntoBridge(owner: context)
         isManualDraftEditing = true
         lastManualDraftEditAt = Date()
         hasUnsavedDraftChanges = true
@@ -5566,6 +5574,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
     ) async {
         let authContext = currentStudioAuthContext()
         let id = selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let documentID = ScreenplayLiveDraftBridge.shared.draftOrigin.documentID
         clearTransientProjectStateForSelectionChange(to: id)
         guard !id.isEmpty else {
             selectedProject = nil
@@ -5614,6 +5623,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 )
             }
             guard authContextIsCurrent(authContext),
+                  ScreenplayLiveDraftSyncService.shared.ownsEditor(self),
+                  ScreenplayLiveDraftBridge.shared.draftOrigin.documentID == documentID,
                   selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines) == id else {
                 return
             }
@@ -5636,6 +5647,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 clientTokenOverride: refreshedOwnerHeaders.clientTokenOverride
             )
             guard authContextIsCurrent(authContext),
+                  ScreenplayLiveDraftSyncService.shared.ownsEditor(self),
+                  ScreenplayLiveDraftBridge.shared.draftOrigin.documentID == documentID,
                   selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines) == id else {
                 return
             }
@@ -5678,6 +5691,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
             await resumeQueuedOutlineMutationsIfNeeded()
         } catch {
             guard authContextIsCurrent(authContext),
+                  ScreenplayLiveDraftSyncService.shared.ownsEditor(self),
+                  ScreenplayLiveDraftBridge.shared.draftOrigin.documentID == documentID,
                   selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines) == id else {
                 return
             }
@@ -5983,6 +5998,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         latestVersionID = versionId.trimmingCharacters(in: .whitespacesAndNewlines)
         isHydratingDraft = false
         loadedDraftProjectID = normalizedProjectID
+        adoptLoadedDraftIntoBridge(owner: currentStudioAuthContext())
         isManualDraftEditing = false
         stopFollowingRemoteLiveDraft()
         lastManualDraftEditAt = .distantPast
@@ -6895,7 +6911,24 @@ final class ScreenplayStudioViewModel: ObservableObject {
         }
     }
 
+    private func adoptLoadedDraftIntoBridge(owner: ScreenplayStudioAuthContext) {
+        guard ScreenplayLiveDraftSyncService.shared.ownsEditor(self),
+              loadedDraftProjectID == selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines) else { return }
+        ScreenplayLiveDraftBridge.shared.adoptLoadedProjectDraft(fountainDraft, projectID: loadedDraftProjectID,
+            versionID: latestVersionID, owner: owner)
+    }
+
+    @discardableResult
+    func mirrorDraftIntoLiveBridgeIfOwned(_ observed: String) -> Bool {
+        guard ScreenplayLiveDraftSyncService.shared.ownsEditor(self),
+              observed.utf8.elementsEqual(fountainDraft.utf8) else { return false }
+        let bridge = ScreenplayLiveDraftBridge.shared
+        if !bridge.draftText.utf8.elementsEqual(observed.utf8) { bridge.draftText = observed }
+        return true
+    }
+
     private func syncLiveDraftBridgeProjectContext(clearWhenEmpty: Bool = false) {
+        guard ScreenplayLiveDraftSyncService.shared.ownsEditor(self) else { return }
         let bridge = ScreenplayLiveDraftBridge.shared
         let projectID = selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             ? (selectedProject?.id ?? "").trimmingCharacters(in: .whitespacesAndNewlines)

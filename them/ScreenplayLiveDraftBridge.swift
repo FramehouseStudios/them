@@ -2867,12 +2867,14 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         didSet {
             guard preferredProjectID != oldValue else { return }
             persistPreferredProjectContext()
+            if draftText.isEmpty { persistDraftOriginForCurrentContext(event: .acceptedLoad, projectID: preferredProjectID, versionID: preferredVersionID) }
         }
     }
     @Published var preferredVersionID: String = "" {
         didSet {
             guard preferredVersionID != oldValue else { return }
             persistPreferredProjectContext()
+            persistDraftOriginForCurrentContext()
         }
     }
     @Published var debugProjectLoadToken: Int = 0
@@ -3192,6 +3194,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             self.characterVoiceMemories = voiceMemorySnapshot.memories
         }
         persistPreferredProjectContext()
+        persistDraftOriginForCurrentContext()
         persistActiveElementDebugMirror()
         persistStudioRoutingDebugMirror()
         persistProjectBindingDebugMirror()
@@ -3267,26 +3270,10 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         fallbackProjectID: String,
         fallbackVersionID: String
     ) -> ScreenplayLiveDraftOriginSnapshot {
-        guard ScreenplayLiveDraftTextPersistencePolicy.draftForStorage(restoredDraftText) != nil else {
-            return .empty
-        }
-        if let stored = UserDefaults.standard.string(forKey: ownerScopedKey(draftOriginStorageKey, ownerUserID: ownerUserID)),
-           let data = stored.data(using: .utf8) {
-            let decoder = JSONDecoder()
-            decoder.dateDecodingStrategy = .iso8601
-            if let snapshot = try? decoder.decode(ScreenplayLiveDraftOriginSnapshot.self, from: data),
-               (!snapshot.isEmpty || snapshot.documentID != nil) {
-                return snapshot
-            }
-        }
-        let projectID = ScreenplayLivePreferredContextPersistencePolicy.valueForStorage(restoredProjectID)
-            ?? ScreenplayLivePreferredContextPersistencePolicy.valueForStorage(fallbackProjectID)
-            ?? ""
-        let versionID = ScreenplayLivePreferredContextPersistencePolicy.valueForStorage(restoredVersionID)
-            ?? ScreenplayLivePreferredContextPersistencePolicy.valueForStorage(fallbackVersionID)
-            ?? ""
-        let snapshot = ScreenplayLiveDraftOriginSnapshot(projectID: projectID, versionID: versionID)
-        return snapshot.isEmpty ? .empty : snapshot
+        ScreenplayLiveDraftOriginPolicy.restored(
+            encoded: UserDefaults.standard.string(forKey: ownerScopedKey(draftOriginStorageKey, ownerUserID: ownerUserID)),
+            draft: restoredDraftText, projectID: restoredProjectID, versionID: restoredVersionID,
+            fallbackProjectID: fallbackProjectID, fallbackVersionID: fallbackVersionID)
     }
 
     private static func restoreConversationTurns(forKey key: String, ownerUserID: String) -> [ScreenplayConversationTurn] {
@@ -3376,13 +3363,11 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         if let draft = ScreenplayLiveDraftTextPersistencePolicy.draftForStorage(text) {
             UserDefaults.standard.set(draft, forKey: ownerScopedKey(Self.draftTextStorageKey))
             if preferredProjectID.isEmpty { ScreenplayLiveDraftFileStore.persist(draft, ownerUserID: storageOwnerUserID) }
-            persistDraftOriginForCurrentContext()
         } else {
             UserDefaults.standard.removeObject(forKey: ownerScopedKey(Self.draftTextStorageKey))
             ScreenplayLiveDraftFileStore.remove(ownerUserID: storageOwnerUserID)
-            draftOrigin = .empty
-            UserDefaults.standard.removeObject(forKey: ownerScopedKey(Self.draftOriginStorageKey))
         }
+        persistDraftOriginForCurrentContext()
     }
 
     func initialProjectDocumentID(owner: BackendAuthRequestIdentity) throws -> String {
@@ -3403,25 +3388,28 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         UserDefaults.standard.synchronize()
     }
 
-    private func persistDraftOriginForCurrentContext() {
+    private func persistDraftOriginForCurrentContext(event: ScreenplayLiveDraftOriginEvent = .edit,
+        projectID explicitProjectID: String? = nil, versionID explicitVersionID: String? = nil) {
         guard !isReconcilingAccountStorage else { return }
-        let projectID = committedWriteProjectIDSnapshot()
-        let sameDocument = draftOrigin.projectID == projectID || (initialProjectReceipt?.project.id == projectID
-            && initialProjectReceipt?.entry.initialization?.documentID == draftOrigin.documentID)
-        let snapshot = ScreenplayLiveDraftOriginSnapshot(
-            projectID: projectID,
-            versionID: committedWriteVersionIDSnapshot(), documentID: sameDocument ? (draftOrigin.documentID ?? UUID().uuidString.lowercased()) : UUID().uuidString.lowercased()
-        )
+        let projectID = explicitProjectID ?? committedWriteProjectIDSnapshot()
+        let promotedDocument = initialProjectReceipt?.project.id == projectID ? initialProjectReceipt?.entry.initialization?.documentID : nil
+        let snapshot = ScreenplayLiveDraftOriginPolicy.next(from: draftOrigin, event: event,
+            projectID: projectID, versionID: explicitVersionID ?? committedWriteVersionIDSnapshot(), promotedDocumentID: promotedDocument)
         draftOrigin = snapshot
-        guard !snapshot.isEmpty || snapshot.documentID != nil else {
-            UserDefaults.standard.removeObject(forKey: ownerScopedKey(Self.draftOriginStorageKey))
-            return
-        }
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        guard let data = try? encoder.encode(snapshot),
-              let encoded = String(data: data, encoding: .utf8) else { return }
+        guard let encoded = ScreenplayLiveDraftOriginPolicy.encoded(snapshot) else { return }
         UserDefaults.standard.set(encoded, forKey: ownerScopedKey(Self.draftOriginStorageKey))
+    }
+
+    @discardableResult
+    func adoptLoadedProjectDraft(_ draft: String, projectID: String, versionID: String,
+                                 owner: ScreenplayStudioAuthContext) -> Bool {
+        guard !isReconcilingAccountStorage, storageOwnerUserID == owner.userID,
+              ScreenplayStudioAuthContextPolicy.matches(expected: owner, current: .current()) else { return false }
+        preferredProjectID = projectID
+        preferredVersionID = versionID
+        draftText = draft
+        persistDraftOriginForCurrentContext(event: .acceptedLoad, projectID: projectID, versionID: versionID)
+        return true
     }
 
     private func persistPreferredProjectContext() {
@@ -6367,6 +6355,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         initialProjectReceipt = nil
         cancelStream()
         draftText = ""
+        persistDraftOriginForCurrentContext(event: .newDocument, projectID: preferredProjectID, versionID: preferredVersionID)
         isStreamingDraftPreviewActive = false
         streamingPreviewText = ""
         streamingPreviewBaseDraft = ""
@@ -6595,6 +6584,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         projectBindingContext = nil
         isReconcilingAccountStorage = false
 
+        persistDraftOriginForCurrentContext()
         reconcileCharacterVoiceMemoryAccount()
         reconcileFeatureWorkflowContextWithActiveProject()
         refreshIntelligenceReport()

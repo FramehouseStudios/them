@@ -545,7 +545,9 @@ final class ScreenplayLiveDraftSyncService: ObservableObject {
     // MARK: Lifecycle
 
     func attach(to editor: any LiveDraftEditorBinding) {
-        guard isEnabled else { return }
+        // Editor ownership also governs shared draft hydration when network
+        // following is disabled. Tracking it must not start a stream or publish.
+        guard isEnabled else { self.editor = editor; return }
         detach()
         self.editor = editor
         editor.liveDraftProjectIDPublisher
@@ -566,6 +568,8 @@ final class ScreenplayLiveDraftSyncService: ObservableObject {
             .store(in: &cancellables)
         projectDidChange(editor.liveDraftProjectID)
     }
+
+    func ownsEditor(_ editor: any LiveDraftEditorBinding) -> Bool { self.editor === editor }
 
     func detach() {
         cancellables.removeAll()
