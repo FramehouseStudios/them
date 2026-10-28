@@ -2446,11 +2446,11 @@ final class V1SmokeUITests: XCTestCase {
         app.terminate()
         app = launchApp(openStudio: true, submitTransportMode: "live-backend", resetState: false, launchEnvironment: fixture.appLaunchEnvironment)
         let restoredEditor = textInput("studio.draft.editor", in: app)
-        let restored = XCTNSPredicateExpectation(predicate: NSPredicate { object, _ in
+        let restoredDraftExpectation = XCTNSPredicateExpectation(predicate: NSPredicate { object, _ in
             guard let editor = object as? XCUIElement, editor.exists else { return false }
             return Data((editor.value as? String ?? "").utf8) == Data(finalDraft.utf8)
         }, object: restoredEditor)
-        await fulfillment(of: [restored], timeout: 20)
+        await fulfillment(of: [restoredDraftExpectation], timeout: 20)
         XCTAssertEqual(Data((restoredEditor.value as? String ?? "").utf8), Data(finalDraft.utf8))
         try await waitForStudioHeldRenderCount(1, in: app, openReply: true)
         let stats = try await requestJSON(baseURL: base, path: "/__them-proof/render", method: "GET", headers: [:], body: nil)
