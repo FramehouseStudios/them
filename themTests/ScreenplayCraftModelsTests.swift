@@ -757,58 +757,14 @@ final class ScreenplayCraftModelsTests: XCTestCase {
         XCTAssertEqual(cards.last?.summary, "Known character; voice inventory is still learning.")
     }
 
-    func testCharacterTraitsRefreshPolicyFallsBackWhenScopedLibraryIsEmpty() throws {
-        let response = BackendCharacterTraitsResponse(
-            schemaVersion: 1,
-            userId: "usr_test",
-            characters: [],
-            error: nil
-        )
-
-        XCTAssertTrue(
-            ScreenplayCharacterTraitsRefreshPolicy.shouldFallbackToUserLibrary(
-                response: response,
-                projectID: "cross-platform-learning",
-                projectTitle: ""
-            )
-        )
-        XCTAssertFalse(
-            ScreenplayCharacterTraitsRefreshPolicy.shouldFallbackToUserLibrary(
-                response: response,
-                projectID: "",
-                projectTitle: ""
-            )
-        )
-    }
-
-    func testCharacterTraitsRefreshPolicyKeepsScopedMatchAndErrorsAuthoritative() throws {
-        let scopedMatch = BackendCharacterTraitsResponse(
-            schemaVersion: 1,
-            userId: "usr_test",
-            characters: [BackendCharacterTraitRecord(name: "MARA", traits: nil)],
-            error: nil
-        )
-        let serverError = BackendCharacterTraitsResponse(
-            schemaVersion: 1,
-            userId: "usr_test",
-            characters: [],
-            error: "character_traits_failed"
-        )
-
-        XCTAssertFalse(
-            ScreenplayCharacterTraitsRefreshPolicy.shouldFallbackToUserLibrary(
-                response: scopedMatch,
-                projectID: "cross-platform-learning",
-                projectTitle: "Cross-Platform Learning"
-            )
-        )
-        XCTAssertFalse(
-            ScreenplayCharacterTraitsRefreshPolicy.shouldFallbackToUserLibrary(
-                response: serverError,
-                projectID: "cross-platform-learning",
-                projectTitle: "Cross-Platform Learning"
-            )
-        )
+    func testCharacterTraitsRequestsUseProjectIdentityOrExplicitUnscopedLibraryDisplay() {
+        XCTAssertEqual(ScreenplayCharacterTraitsRefreshPolicy.projectIDForRequest(" project-a "), "project-a")
+        XCTAssertNil(ScreenplayCharacterTraitsRefreshPolicy.projectIDForRequest(""))
+        XCTAssertNil(ScreenplayCharacterTraitsRefreshPolicy.projectIDForRequest("  "))
+        XCTAssertNil(ScreenplayCharacterTraitsRefreshPolicy.projectIDForRequest(nil))
+        // Empty responses do not change this identity decision or authorize a
+        // second unscoped fetch. The VM issues only the selected request.
+        XCTAssertEqual(ScreenplayCharacterTraitsRefreshPolicy.projectIDForRequest("project-a"), "project-a")
     }
 
     @MainActor

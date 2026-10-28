@@ -1446,6 +1446,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
     private struct CharacterTraitsRefreshResult {
         let traits: BackendCharacterTraitsResponse
         let archetypes: BackendCharacterArchetypesResponse?
+        let scope: ScreenplayCharacterVoiceMemoryRequestScope
     }
 
     private struct CanonicalOutlineCollections {
@@ -1530,6 +1531,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
     @Published var characterTraitsInfoText: String = ""
     private var characterTraitsRefreshTask: Task<CharacterTraitsRefreshResult, Error>?
     private var characterTraitsRefreshID: UUID?
+    private var characterTraitsRefreshScope: ScreenplayCharacterVoiceMemoryRequestScope?
     @Published var craftTwists: ScreenplayCraftTwistSuggestResponse?
     @Published var isCraftTwistLoading: Bool = false
     @Published var craftTwistErrorText: String = ""
@@ -5164,74 +5166,59 @@ final class ScreenplayStudioViewModel: ObservableObject {
         source: String = "io.them",
         allowDuringTests: Bool = false
     ) async {
-        guard !IOThemRuntime.isRunningTests || allowDuringTests else {
-            return
-        }
-
+        guard !IOThemRuntime.isRunningTests || allowDuringTests else { return }
+        let bridge = ScreenplayLiveDraftBridge.shared
+        let projectID = ScreenplayCharacterTraitsRefreshPolicy.projectIDForRequest(bridge.committedWriteProjectIDSnapshot()) ?? ""
+        let scope = ScreenplayCharacterVoiceMemoryRequestScope(owner: currentStudioAuthContext(), projectID: projectID,
+            backendURL: BackendAuthClient.resolvedBackendBaseURL())
+        let isCurrent = { scope.matches(owner: self.currentStudioAuthContext(), projectID: bridge.committedWriteProjectIDSnapshot(),
+            backendURL: BackendAuthClient.resolvedBackendBaseURL()) }
         let refreshTask: Task<CharacterTraitsRefreshResult, Error>
         let refreshID: UUID
-        if let activeTask = characterTraitsRefreshTask,
-           let activeID = characterTraitsRefreshID {
-            refreshTask = activeTask
-            refreshID = activeID
+        if let activeTask = characterTraitsRefreshTask, let activeID = characterTraitsRefreshID,
+           characterTraitsRefreshScope == scope {
+            refreshTask = activeTask; refreshID = activeID
         } else {
-            let bridge = ScreenplayLiveDraftBridge.shared
-            let projectID = bridge.preferredProjectID
-            let projectTitle = bridge.projectBinding.projectTitle
+            characterTraitsRefreshTask?.cancel()
             refreshID = UUID()
             refreshTask = Task<CharacterTraitsRefreshResult, Error> {
-                var response = try await StudioCraftResilience.run(source: source) {
-                    try await self.craftClient.fetchMemoryCharacterTraits(
-                        projectID: projectID,
-                        projectTitle: projectTitle
-                    )
+                let response = try await StudioCraftResilience.run(source: source) {
+                    guard isCurrent() else { throw CancellationError() }
+                    return try await self.craftClient.fetchMemoryCharacterTraits(
+                        projectID: projectID.isEmpty ? nil : projectID,
+                        expectedScope: scope)
                 }
-                if ScreenplayCharacterTraitsRefreshPolicy.shouldFallbackToUserLibrary(
-                    response: response,
-                    projectID: projectID,
-                    projectTitle: projectTitle
-                ) {
-                    response = try await StudioCraftResilience.run(source: source) {
-                        try await self.craftClient.fetchMemoryCharacterTraits()
-                    }
-                }
+                guard isCurrent() else { throw CancellationError() }
                 let archetypes = try? await StudioCraftResilience.run(source: source, operation: {
-                    try await self.craftClient.fetchMemoryCharacterArchetypes()
+                    guard isCurrent() else { throw CancellationError() }
+                    return try await self.craftClient.fetchMemoryCharacterArchetypes()
                 })
-                return CharacterTraitsRefreshResult(
-                    traits: response,
-                    archetypes: archetypes
-                )
+                guard isCurrent() else { throw CancellationError() }
+                return CharacterTraitsRefreshResult(traits: response, archetypes: archetypes, scope: scope)
             }
             characterTraitsRefreshTask = refreshTask
             characterTraitsRefreshID = refreshID
+            characterTraitsRefreshScope = scope
             isCharacterTraitsLoading = true
         }
-
         defer {
             if characterTraitsRefreshID == refreshID {
-                characterTraitsRefreshTask = nil
-                characterTraitsRefreshID = nil
+                characterTraitsRefreshTask = nil; characterTraitsRefreshID = nil; characterTraitsRefreshScope = nil
                 isCharacterTraitsLoading = false
             }
         }
         do {
             let result = try await refreshTask.value
+            guard isCurrent(), characterTraitsRefreshID == refreshID else { return }
             characterTraits = result.traits
-            ScreenplayLiveDraftBridge.shared.updateCharacterVoiceMemories(from: result.traits)
+            bridge.updateCharacterVoiceMemories(from: result.traits, requestScope: result.scope.permitsPage ? result.scope : nil)
             characterArchetypes = result.archetypes
             characterTraitsErrorText = ""
             characterTraitsInfoText = source
         } catch {
-            characterTraitsErrorText = StudioCraftResilience.presentedError(
-                error,
-                source: source,
-                subject: "character memory"
-            )
-            characterTraitsInfoText = StudioCraftResilience.backgroundStatus(
-                subject: "character memory",
-                hasExistingContent: characterTraits != nil
-            )
+            guard isCurrent(), characterTraitsRefreshID == refreshID, !(error is CancellationError) else { return }
+            characterTraitsErrorText = StudioCraftResilience.presentedError(error, source: source, subject: "character memory")
+            characterTraitsInfoText = StudioCraftResilience.backgroundStatus(subject: "character memory", hasExistingContent: characterTraits != nil)
         }
     }
 
