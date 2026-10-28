@@ -1468,6 +1468,81 @@ final class BackendClientCraftAPITests: XCTestCase {
         XCTAssertEqual(bodyTwist["id"] as? String, "stc-midpoint-1")
     }
 
+    func testScopedCharacterTraitsUseCapturedOwnerAndProjectIDWithoutTitleAliases() async throws {
+        let state = CharacterVoiceIdentityState(), recorder = CraftRequestRecorder()
+        let scope = ScreenplayCharacterVoiceMemoryRequestScope(owner: state.identity().ownerContext, projectID: "project-a", backendURL: URL(string: "https://craft.test")!)
+        let client = makeClient(recorder: recorder, identityProvider: { _ in state.identity() }) { request in
+            XCTAssertEqual(request.url?.query, "projectId=project-a")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "X-User-Id"), "voice-owner")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer fixture-access")
+            return .json(#"{"schemaVersion":1,"userId":"voice-owner","characters":[]}"#)
+        }
+        let response = try await client.fetchMemoryCharacterTraits(projectID: "project-a", projectTitle: "Old B title", expectedScope: scope)
+        XCTAssertTrue(response.characters.isEmpty, "A scoped empty result remains authoritative")
+        XCTAssertEqual(recorder.methodsAndPaths, ["GET /memory/character-traits"])
+    }
+
+    func testScopedCharacterTraitsKeepOnlyEchoedOriginalProjectRecords() async throws {
+        let state = CharacterVoiceIdentityState()
+        let scope = ScreenplayCharacterVoiceMemoryRequestScope(owner: state.identity().ownerContext, projectID: "project-a", backendURL: URL(string: "https://craft.test")!)
+        let client = makeClient(recorder: CraftRequestRecorder(), identityProvider: { _ in state.identity() }) { _ in
+            .json(#"{"schemaVersion":1,"userId":"voice-owner","characters":[{"name":"MARA","projectId":"project-b"},{"name":"MARA"},{"name":"MARA","projectId":"project-a"}]}"#)
+        }
+        let response = try await client.fetchMemoryCharacterTraits(projectID: "project-a", expectedScope: scope)
+        XCTAssertEqual(response.characters.count, 1)
+        XCTAssertEqual(response.characters.first?.projectId, "project-a")
+    }
+
+    func testCharacterTraitsRejectWrongScopeBeforeSendingAndStaleOwnerAfterResponse() async throws {
+        let state = CharacterVoiceIdentityState(), recorder = CraftRequestRecorder(), base = URL(string: "https://craft.test")!
+        let scope = ScreenplayCharacterVoiceMemoryRequestScope(owner: state.identity().ownerContext, projectID: "project-a", backendURL: base)
+        let client = makeClient(recorder: recorder, identityProvider: { _ in state.identity() }) { _ in
+            state.switchOwner()
+            return .json(#"{"schemaVersion":1,"userId":"voice-owner","characters":[]}"#)
+        }
+        for wrong in [ScreenplayCharacterVoiceMemoryRequestScope(owner: scope.owner, projectID: "project-b", backendURL: base),
+                      ScreenplayCharacterVoiceMemoryRequestScope(owner: scope.owner, projectID: "project-a", backendURL: URL(string: "https://other.test")!)] {
+            do { _ = try await client.fetchMemoryCharacterTraits(projectID: "project-a", expectedScope: wrong); XCTFail("Foreign scope was sent") }
+            catch { XCTAssertTrue(error is CancellationError) }
+        }
+        XCTAssertTrue(recorder.methodsAndPaths.isEmpty)
+        do { _ = try await client.fetchMemoryCharacterTraits(projectID: "project-a", expectedScope: scope); XCTFail("Stale owner response was published") }
+        catch BackendMemoryAPIError.server(let status, let message) { XCTAssertEqual(status, 409); XCTAssertEqual(message, "auth_request_superseded") }
+        XCTAssertEqual(recorder.methodsAndPaths.count, 1)
+    }
+
+    func testCharacterTraitsForeignResponseUserProducesSafeOwnershipError() async throws {
+        let state = CharacterVoiceIdentityState()
+        let scope = ScreenplayCharacterVoiceMemoryRequestScope(owner: state.identity().ownerContext, projectID: "project-a", backendURL: URL(string: "https://craft.test")!)
+        let client = makeClient(recorder: CraftRequestRecorder(), identityProvider: { _ in state.identity() }) { _ in
+            .json(#"{"schemaVersion":1,"userId":"foreign-user","characters":[{"name":"B-private-character"}]}"#)
+        }
+        do { _ = try await client.fetchMemoryCharacterTraits(projectID: "project-a", expectedScope: scope); XCTFail("Foreign response was published") }
+        catch BackendMemoryAPIError.server(let status, let message) {
+            XCTAssertEqual(status, 409); XCTAssertEqual(message, "auth_request_superseded")
+            XCTAssertFalse(message.contains("B-private-character"))
+        }
+    }
+
+    func testCharacterTraitsRejectForeignHTTPOriginAndKeepExplicitLibraryDisplayUnscoped() async throws {
+        let state = CharacterVoiceIdentityState(), base = URL(string: "https://craft.test")!
+        let scope = ScreenplayCharacterVoiceMemoryRequestScope(owner: state.identity().ownerContext, projectID: "", backendURL: base)
+        let client = makeClient(recorder: CraftRequestRecorder(), identityProvider: { _ in state.identity() }) { request in
+            XCTAssertNil(request.url?.query)
+            return .init(status: 200, body: Data(#"{"schemaVersion":1,"userId":"voice-owner","characters":[]}"#.utf8),
+                contentType: "application/json", responseURL: URL(string: "https://other.test/memory/character-traits"))
+        }
+        do { _ = try await client.fetchMemoryCharacterTraits(expectedScope: scope); XCTFail("Foreign HTTP origin was accepted") }
+        catch BackendError.http(let status, _) { XCTAssertEqual(status, -1) }
+        let library = makeClient(recorder: CraftRequestRecorder(), identityProvider: { _ in state.identity() }) { request in
+            XCTAssertNil(request.url?.query)
+            return .json(#"{"schemaVersion":1,"userId":"voice-owner","characters":[{"name":"LIBRARY CHARACTER"}]}"#)
+        }
+        XCTAssertFalse(scope.permitsPage)
+        let response = try await library.fetchMemoryCharacterTraits(expectedScope: scope)
+        XCTAssertEqual(response.characters.first?.name, "LIBRARY CHARACTER")
+    }
+
     func testCharacterTraitsEndpointBuildsExpectedRequest() async throws {
         let recorder = CraftRequestRecorder()
         let client = makeClient(recorder: recorder) { request in
@@ -1886,6 +1961,7 @@ final class BackendClientCraftAPITests: XCTestCase {
 
     private func makeClient(
         recorder: CraftRequestRecorder,
+        identityProvider: (@Sendable (Bool) -> BackendAuthRequestIdentity)? = nil,
         handler: @escaping (URLRequest) throws -> CraftHTTPStub
     ) -> BackendClient {
         URLProtocol.registerClass(CraftURLProtocolStub.self)
@@ -1898,10 +1974,11 @@ final class BackendClientCraftAPITests: XCTestCase {
         let session = URLSession(configuration: configuration)
         let baseURL = URL(string: "https://craft.test")!
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("CraftRenderCustody-\(UUID())")
-        addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
+        addTeardownBlock { if FileManager.default.fileExists(atPath: directory.path) { try? FileManager.default.removeItem(at: directory) } }
         let box = OfflineTalkOutbox(storageDirectory: directory, backendURLProvider: { baseURL })
         return BackendClient(baseURL: baseURL, fallbackURL: baseURL, urlSession: session,
-            persistBackendBaseURL: false, attachUserIDHeader: false, talkOutbox: box)
+            persistBackendBaseURL: false, attachUserIDHeader: false, talkOutbox: box,
+            talkIdentityProvider: identityProvider ?? { BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: $0) })
     }
 
     private static let frameworkJSON = #"""
@@ -2006,6 +2083,7 @@ private struct CraftHTTPStub {
     let status: Int
     let body: Data
     let contentType: String
+    var responseURL: URL? = nil
 
     static func json(_ raw: String, status: Int = 200) -> CraftHTTPStub {
         CraftHTTPStub(status: status, body: Data(raw.utf8), contentType: "application/json")
@@ -2035,7 +2113,7 @@ private final class CraftURLProtocolStub: URLProtocol {
         do {
             let stub = try handler(request)
             let response = HTTPURLResponse(
-                url: request.url!,
+                url: stub.responseURL ?? request.url!,
                 statusCode: stub.status,
                 httpVersion: "HTTP/1.1",
                 headerFields: ["Content-Type": stub.contentType]
@@ -2056,6 +2134,17 @@ private struct RecordedCraftRequest {
     let path: String
     let headers: [String: String]
     let bodyObject: [String: Any]?
+}
+
+private nonisolated final class CharacterVoiceIdentityState: @unchecked Sendable {
+    private let lock = NSLock()
+    private var changed = false
+    func identity() -> BackendAuthRequestIdentity {
+        lock.lock(); defer { lock.unlock() }
+        return .init(sessionEpoch: changed ? 2 : 1, userID: changed ? "other-owner" : "voice-owner", clientToken: "fixture-client",
+            accessToken: "fixture-access", sessionIntentGeneration: changed ? 2 : 1)
+    }
+    func switchOwner() { lock.lock(); changed = true; lock.unlock() }
 }
 
 private final class CraftRequestRecorder {

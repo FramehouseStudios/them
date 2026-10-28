@@ -1529,17 +1529,6 @@ struct ScreenplayStudioAppliedMemoryPersistencePolicy {
     }
 }
 
-struct ScreenplayCharacterVoiceMemoryCacheSnapshot: Codable, Equatable {
-    let userID: String
-    let memories: [BackendScreenplayCharacterVoiceMemory]
-    let updatedAt: Date
-
-    var isMeaningful: Bool {
-        !userID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-        memories.contains(where: \.isMeaningful)
-    }
-}
-
 struct ScreenplayStudioUserPrompt: Identifiable, Equatable {
     enum Source: String, Codable, Equatable {
         case typed
@@ -2778,6 +2767,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
     @Published var featureSpine: ScreenplayFeatureSpine = .empty
     @Published private(set) var characterVoiceMemories: [BackendScreenplayCharacterVoiceMemory] = []
     private var characterVoiceMemoryUserID: String = ""
+    private var characterVoiceMemoryRequestScope: ScreenplayCharacterVoiceMemoryRequestScope?
     @Published var latestStudioRouteTarget: ScreenplayStudioUserPrompt.Target = .voicePin {
         didSet {
             persistStudioRoutingDebugMirror()
@@ -3092,6 +3082,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         self.latestAppliedMemory = Self.restoreLatestAppliedMemory(ownerUserID: storageOwnerUserID)
         if let voiceMemorySnapshot = Self.restoreCharacterVoiceMemorySnapshot() {
             self.characterVoiceMemoryUserID = voiceMemorySnapshot.userID
+            self.characterVoiceMemoryRequestScope = voiceMemorySnapshot.scope
             self.characterVoiceMemories = voiceMemorySnapshot.memories
         }
         persistPreferredProjectContext()
@@ -3242,7 +3233,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         guard !currentUserID.isEmpty, currentUserID == characterVoiceMemoryUserID else { return }
         if let payload = ScreenplayCharacterVoiceMemoryPersistencePolicy.payloadForStorage(
             userID: currentUserID,
-            memories: characterVoiceMemories
+            memories: characterVoiceMemories, scope: characterVoiceMemoryRequestScope
         ) {
             UserDefaults.standard.set(payload, forKey: Self.characterVoiceMemoriesStorageKey)
         } else {
@@ -6431,7 +6422,8 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
 
     func updateCharacterVoiceMemories(
         from response: BackendCharacterTraitsResponse,
-        authenticatedUserID: String? = nil
+        authenticatedUserID: String? = nil,
+        requestScope: ScreenplayCharacterVoiceMemoryRequestScope? = nil
     ) {
         let currentUserID = (authenticatedUserID ?? Self.currentAuthenticatedUserID())
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -6440,15 +6432,21 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         let resolvedUserID = responseUserID.isEmpty ? currentUserID : responseUserID
         guard !resolvedUserID.isEmpty,
               currentUserID.isEmpty || resolvedUserID == currentUserID else { return }
+        if let requestScope {
+            let owner = ScreenplayStudioAuthContext(userID: currentUserID, sessionIntentGeneration: BackendAuthClient.currentAuthSessionIntentGeneration())
+            guard requestScope.permitsPage, (response.error ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  requestScope.matches(owner: owner, projectID: committedWriteProjectIDSnapshot(), backendURL: BackendAuthClient.resolvedBackendBaseURL()) else { return }
+        }
 
         var seen = Set<String>()
         var memories: [BackendScreenplayCharacterVoiceMemory] = []
-        for record in response.characters {
+        let records = requestScope.map { ScreenplayCharacterVoiceMemoryPersistencePolicy.projectRecords(response.characters, scope: $0) } ?? response.characters
+        for record in records {
             let character = record.name.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !character.isEmpty,
                   let traits = record.traits,
                   traits.voiceFingerprint.isMeaningful else { continue }
-            let key = Self.normalizedVoiceCharacterKey(character)
+            let key = ScreenplayCharacterVoiceMemoryPersistencePolicy.normalizedCharacterKey(character)
             guard !key.isEmpty, seen.insert(key).inserted else { continue }
             memories.append(
                 BackendScreenplayCharacterVoiceMemory(
@@ -6459,6 +6457,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             if memories.count >= 24 { break }
         }
         characterVoiceMemoryUserID = resolvedUserID
+        characterVoiceMemoryRequestScope = requestScope
         characterVoiceMemories = memories
         persistCharacterVoiceMemories()
     }
@@ -6534,15 +6533,18 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             currentUserID: currentUserID
         ) {
             characterVoiceMemoryUserID = snapshot.userID
+            characterVoiceMemoryRequestScope = snapshot.scope
             characterVoiceMemories = snapshot.memories
         } else {
             characterVoiceMemoryUserID = currentUserID
+            characterVoiceMemoryRequestScope = nil
             characterVoiceMemories = []
         }
     }
 
     func clearCharacterVoiceMemoryCache() {
         characterVoiceMemoryUserID = ""
+        characterVoiceMemoryRequestScope = nil
         characterVoiceMemories = []
         UserDefaults.standard.removeObject(forKey: Self.characterVoiceMemoriesStorageKey)
     }
@@ -6553,12 +6555,12 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
     ) {
         let currentUserID = (authenticatedUserID ?? Self.currentAuthenticatedUserID())
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        let targetKey = Self.normalizedVoiceCharacterKey(characterName)
+        let targetKey = ScreenplayCharacterVoiceMemoryPersistencePolicy.normalizedCharacterKey(characterName)
         guard !currentUserID.isEmpty,
               currentUserID == characterVoiceMemoryUserID,
               !targetKey.isEmpty else { return }
         let remaining = characterVoiceMemories.filter {
-            Self.normalizedVoiceCharacterKey($0.character) != targetKey
+            ScreenplayCharacterVoiceMemoryPersistencePolicy.normalizedCharacterKey($0.character) != targetKey
         }
         guard remaining.count != characterVoiceMemories.count else { return }
         characterVoiceMemories = remaining
@@ -6570,41 +6572,11 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         limit: Int = 8,
         authenticatedUserID: String? = nil
     ) -> [BackendScreenplayCharacterVoiceMemory] {
-        let currentUserID = (authenticatedUserID ?? Self.currentAuthenticatedUserID())
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !currentUserID.isEmpty, currentUserID == characterVoiceMemoryUserID else { return [] }
-        let safeLimit = max(1, min(8, limit))
-        let memories = characterVoiceMemories.filter(\.isMeaningful)
-        guard !memories.isEmpty else { return [] }
-
-        var memoriesByCharacter: [String: BackendScreenplayCharacterVoiceMemory] = [:]
-        for memory in memories {
-            let key = Self.normalizedVoiceCharacterKey(memory.character)
-            if !key.isEmpty, memoriesByCharacter[key] == nil {
-                memoriesByCharacter[key] = memory
-            }
-        }
-
-        var selected: [BackendScreenplayCharacterVoiceMemory] = []
-        var selectedKeys = Set<String>()
-        for characterName in characterNames {
-            let key = Self.normalizedVoiceCharacterKey(characterName)
-            guard !key.isEmpty,
-                  selectedKeys.insert(key).inserted,
-                  let memory = memoriesByCharacter[key] else { continue }
-            selected.append(memory)
-            if selected.count >= safeLimit { return selected }
-        }
-        if !selected.isEmpty { return selected }
-        return characterNames.isEmpty ? Array(memories.prefix(safeLimit)) : []
-    }
-
-    private static func normalizedVoiceCharacterKey(_ value: String) -> String {
-        value
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .replacingOccurrences(of: #"\s*\([^)]*\)\s*$"#, with: "", options: .regularExpression)
-            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
-            .lowercased()
+        let userID = (authenticatedUserID ?? Self.currentAuthenticatedUserID()).trimmingCharacters(in: .whitespacesAndNewlines)
+        let owner = ScreenplayStudioAuthContext(userID: userID, sessionIntentGeneration: BackendAuthClient.currentAuthSessionIntentGeneration())
+        guard userID == characterVoiceMemoryUserID else { return [] }
+        return ScreenplayCharacterVoiceMemoryPersistencePolicy.pageMemories(characterVoiceMemories, scope: characterVoiceMemoryRequestScope,
+            owner: owner, projectID: committedWriteProjectIDSnapshot(), backendURL: BackendAuthClient.resolvedBackendBaseURL(), matching: characterNames, limit: limit)
     }
 
     func recordStudioUserPrompt(
