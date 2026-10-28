@@ -95,3 +95,21 @@ The existing Keep Mine relaunch UI expects the parked count to reach zero;
 with broad removal fixed, the selected parked row needs its own exact,
 confirmed-acknowledgement retirement before this can work safely. Do not
 restore the previous broad deletion to satisfy that test.
+
+## Keep Mine failure and acknowledgement safeguard
+
+The conflict decision now stays visible if a Keep Mine request cannot start,
+is still in flight, fails or queues for later. A live conflict-resolution
+response must provide exact request/owner/project/document/backend/version and
+writer-byte confirmation before its save row can be marked successful; a bare
+version ID is insufficient. Explicit conflict resolution is not automatically
+satisfied by the weaker empty-base same-text readback. The DEBUG UI fixture
+still simulates its own successful path; it is not evidence of a live save.
+
+Signed ScreenplayStudioDraftRecoveryTests with the in-progress copy UI also
+present: 78 passed, 0 failed, 0 skipped; regression verifies that an
+unavailable project leaves the conflict and exact page intact. Result:
+/private/tmp/them-t1204-confirm-choice-20261028.xcresult. The exact-ack
+negative path has not yet received handler-level fault injection. The old
+parked conflict is deliberately not retired by this change; durable
+supersession, atomic retirement, relaunch and real UI proof remain required.

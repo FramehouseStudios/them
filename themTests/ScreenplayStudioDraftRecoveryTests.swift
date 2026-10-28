@@ -368,6 +368,25 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
     }
 
     @MainActor
+    func testKeepMineWithoutWritableProjectPreservesConflictAndWords() async {
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store)
+        model.autosaveEnabled = false
+        model.selectedProjectID = "unavailable-project"
+        let writer = "Writer's exact words.  \r\n"
+        model.fountainDraft = writer
+        model.hasUnsavedDraftChanges = true
+        let conflict = ScreenplayStudioViewModel.SaveConflictState(projectId: "unavailable-project",
+            baseVersionId: "old", serverVersionId: "new", serverDraft: "Server words",
+            serverDraftExcerpt: "Server words", serverUpdatedAt: 0)
+        model.conflictState = conflict
+        await model.keepLocalDraftAfterConflict()
+        XCTAssertEqual(model.conflictState, conflict)
+        XCTAssertEqual(Data(model.fountainDraft.utf8), Data(writer.utf8))
+        XCTAssertTrue(model.hasUnsavedDraftChanges)
+        XCTAssertFalse(model.errorText.isEmpty)
+    }
+
+    @MainActor
     func testSameVersionPollKeepsActiveEditsWithoutRecoveryModalAndRetainsRelaunchRecovery() {
         let projectID = "active-poll-\(UUID().uuidString)"
         let owner = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""

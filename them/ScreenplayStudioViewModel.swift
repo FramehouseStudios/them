@@ -4520,7 +4520,12 @@ final class ScreenplayStudioViewModel: ObservableObject {
             conflictState = nil
             return
         }
-        conflictState = nil
+        // Keep the writer's decision visible until an actual save confirms it.
+        // Failure or offline queueing must not silently dismiss the conflict.
+        guard !isDraftSaveInFlight, !isSaving else {
+            errorText = "A save is still in progress. Your local words are kept."
+            return
+        }
         errorText = ""
         await saveCurrentDraft(
             source: "studio_conflict_resolve",
@@ -6535,6 +6540,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         if IOThemRuntime.isRunningUITests,
            request.source == "studio_conflict_resolve",
            ProcessInfo.processInfo.arguments.contains("--ui-conflict-save-success") {
+            conflictState = nil
             latestVersionID = "ui-local-version"
             lastSavedDraftFingerprint = fingerprint(for: request.draft)
             lastRevisionBaseDraft = request.draft
@@ -6614,7 +6620,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
                     throw BackendMemoryAPIError.invalidResponse
                 }
                 let serverDraft = serverVersion.draft ?? ""
-                if serverDraft.utf8.elementsEqual(request.draft.utf8) {
+                if request.source != "studio_conflict_resolve" && serverDraft.utf8.elementsEqual(request.draft.utf8) {
                     let confirmed = ScreenplayConfirmedDraftSave.readback(entry: request.outboxEntry,
                         version: serverVersion, projectID: request.projectId, responseURL: responseURL,
                         owner: request.authContext, currentOwner: currentStudioAuthContext())
@@ -6783,6 +6789,11 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 version: result.payload.version, versionID: result.payload.versionId,
                 projectID: result.payload.projectId, responseURL: result.responseURL,
                 owner: request.authContext, currentOwner: currentStudioAuthContext())
+            // A version ID alone is not proof that this conflict choice saved
+            // the requested bytes under the correct writer and document.
+            if request.source == "studio_conflict_resolve", confirmed == nil {
+                throw BackendMemoryAPIError.server(status: 409, message: "The saved draft could not be confirmed. Your local words are kept.")
+            }
             if let confirmed { _ = try await liveReplyOutbox.recordConfirmedPageSave(confirmed) }
             try await draftSaveOutbox.markSucceeded(id: request.id, serverVersionId: nextVersionId)
             guard ownsCompletion() else {
