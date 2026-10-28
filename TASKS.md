@@ -7,7 +7,7 @@
 
 ### T-1182 — Keep accepted live replies with their initiating writer
 
-- **Owner:** Codex (Jarvis); Zora bounded read-only review when needed.
+- **Owner:** Codex (Jarvis); Zora bounded review and isolated T1183 implementation.
   **Branch:** `codex/T-1182-live-reply-custody`. **Base:** published48311abe.
 - **Outcome:** exact accepted response custody in the existing outbox before
   live owner/publication rejection; one initiating account/origin/document/turn
@@ -32,7 +32,7 @@
   real debounce persistence for composition-only Unicode edits. Interim942
   and raw writer UI1/0/0 precede final byte/error guards; final exact-tree raw
   writer UI VERIFIED1/0/0, Mac scaffold build exit0, D009/diff pass.
-  No paid calls or client/Root receipt wiring yet.
+  No paid calls. These full-checkpoint counts precede the continuation below.
   Empty edits retain origin; accepted equal-byte/unbound hydration adopts
   explicit provenance; old attached editors cannot mirror over the new one.
   Success/failure continuations share the document/editor lease; both native
@@ -43,6 +43,30 @@
   capture, owner-bound delivery and genuine settlement are connected.
   Permanent proof `_proof/T-1182-20261027.s0vot0ef`:9654 hashed files/zero
   mismatches. All native jobs terminal; temporary dependency link removed.
+- **Current continuation:** working-tree client integration captures the owner
+  before waits, admits one immutable multipart request, retains HTTP200 before
+  cancellation/decode, repairs metadata under its original bearer and returns
+  the current receipt. Accepted decoder failures cannot trigger generation.
+  Explicit rejection/cancellation retires only unaccepted admissions; accepted
+  write failures remain held even when cancellation races. Actual-client
+  synthetic HTTP regressions VERIFIED40/0/0, then v4/local-decoder integration
+  VERIFIED46/0/0. Root voice publication now retains its document/backend lease;
+  metadata/result context reaches native standard/reveal-prepare insertion and
+  immediate fallback. Native mutation waits for the existing outbox's exact
+  intention, rechecks ownership after disk completion and refuses changed text.
+  Initial new native check49/9/0 exposed six missing fixture-auth cases, two
+  generated isolated-deinit crashes and a post-restart host error; corrected
+  authenticated fixture/stateless nonisolated teardown VERIFIED58/0/0. D009
+  passes versus T1181 parent: Root14930 unchanged, bridge12784→12781.
+  No unchanged broad reruns. Typed/render routing, recovery finish modes and
+  normal receipt settlement remain pending; this is not ready for deployment.
+- **Next insertion contract:** preserve real-time reveal through explicit v4
+  live mutation intent in the existing admitted blob before native prepare,
+  including exact before/range/insertion/after/document. Bind it atomically to
+  completed response and enriched metadata receipts. Keep old append recovery
+  strict; never auto-resend a ready live intent or treat it as a completed reply.
+  Normal receipt settlement waits for actual playback or exact saved-version
+  evidence, including unbound initial-project promotion. Root gains no @State.
 
 ### T-1181 — Keep old request cleanup from clearing a replacement turn
 
