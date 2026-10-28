@@ -2433,7 +2433,7 @@ final class V1SmokeUITests: XCTestCase {
         // T1199: this fixture contains two conversational blocks. Measure the
         // real narrow page banner, then invoke its actual Review callback.
         if switchProject {
-            let banner = element(identifier: "studio.page.integrity.banner", in: app)
+            let banner = app.otherElements["studio.page.integrity.banner"]
             XCTAssertTrue(banner.waitForExistence(timeout: 5))
             XCTAssertLessThan(banner.frame.height, 250, "The warning must leave the screenplay visible")
             let actionIDs = ["review", "move-all", "move", "remove"]

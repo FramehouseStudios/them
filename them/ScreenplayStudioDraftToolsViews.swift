@@ -710,6 +710,7 @@ struct ScreenplayStudioDraftIntegrityWarningSection: View {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .stroke(Color.orange.opacity(0.16), lineWidth: 1)
         )
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("studio.draft.integrity.list")
     }
 
@@ -813,6 +814,7 @@ struct ScreenplayStudioPageIntegrityBanner: View {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .stroke(Color.orange.opacity(0.16), lineWidth: 1)
         )
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("studio.page.integrity.banner")
     }
 
