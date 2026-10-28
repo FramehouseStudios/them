@@ -112,8 +112,9 @@ callback audit; it does not acknowledge canonical live receipts.
 
 ## GitHub and next implementation target
 
-Original helper commit `5457b7e12420232bd7196c2d949ef527a74c655e` is being
-integrated with a preserving merge into `codex/T-1182-live-reply-custody`.
+Original helper commit `5457b7e12420232bd7196c2d949ef527a74c655e` is preserved
+as a parent of merge `65f56b466196526a806083c8d6315ff7988a3965` on
+`codex/T-1182-live-reply-custody`.
 No squash, original PR replacement, force push, main merge or deployment.
 Fresh GitHub inspection still shows main `78b8c94f` and original #964 open at
 `5faa43d6` with its only review dismissed. The human chose review later.
@@ -124,6 +125,19 @@ with the original turn/document/auth/backend. Binary success: release A after
 selecting B or Stop; B's exact text/status/submission stay unchanged, A remains
 recoverable after relaunch and no second generation starts. Preserve normal
 typed preview, commit, save and restore. Notes receipt settlement is separate.
+
+## Permanent proof and publication checkpoint
+
+Runtime: `65f56b466196526a806083c8d6315ff7988a3965`.
+Parents: published `f588fb8` and original helper `5457b7e`.
+Archive: `/Users/halfmutantfilms/io.them-worktrees/_proof/T-1182-settlement-20261027-rfo70mxj`.
+Verified **12817 artifact files / zero hash mismatches**, and all **25 scoped
+source files** match the committed runtime bytes. Manifest SHA256:
+`618b2e63f5cb42c095a4bd535d74268b2d6a8f4971445e40d11043384d7eeaf6`.
+All owned native jobs terminated; failed and intermediate artifacts remain
+preserved. The final-source snapshot identifies the definitive unit/build inputs.
+Only a normal fast-forward publication of the existing backup branch is intended;
+the following documentation commit records the proof without changing runtime.
 
 ## Exact changed files
 

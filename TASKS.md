@@ -18,8 +18,8 @@
   exact server evidence reaches the canonical outbox before queue removal.
 - **Status:** combined source verified by Jarvis, including the actor consumer.
   Signed full native checkpoint1022/0/0 includes the sixteen save-evidence cases.
-  Original helper5457b7e is preserved in the pending no-ff integration merge;
-  final frozen-source gate/publication are recorded in the T1182 report.
+  Original helper5457b7e is preserved as a parent of no-ff merge65f56b4;
+  final frozen-source1022/0/0 and publication are recorded in the T1182 report.
 - **Handoff:** `docs/save-evidence-provenance-2026-10-27.md`.
   Integration: `docs/live-reply-settlement-2026-10-27.md`.
   No main/original PR-head change, provider call or deployment.
@@ -133,6 +133,12 @@
   **Still in-progress:** typed Studio render/SSE accepted-output custody and
   original request/document ownership; separate Notes rewrite lease/receipt and
   recovery-preview player follow-ups. Real-phone/shipping proof remains open.
+- **Saved runtime:** preserving merge65f56b4 includes original helper5457b7e.
+  Final signed1022/0/0, Mac build, four local workflow cases, D009/syntax/diff
+  verified. Permanent `_proof/T-1182-settlement-20261027-rfo70mxj`:12817 hashed
+  files/zero mismatches,25 committed source matches. Manifest SHA256
+  `618b2e63f5cb42c095a4bd535d74268b2d6a8f4971445e40d11043384d7eeaf6`.
+  Normal backup-branch publication only; no original PR/main/deployment change.
 
 ### T-1181 — Keep old request cleanup from clearing a replacement turn
 
