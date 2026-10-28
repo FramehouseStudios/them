@@ -26,7 +26,7 @@ extension BackendMemoryAPI {
         initialDraft: ScreenplayDraftSaveOutboxEntry? = nil,
         initiatingIdentity owner: BackendAuthRequestIdentity = BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: true)
     ) async throws -> BackendReadResult<BackendScreenplayProjectMutationResponse> {
-        let identity = try await screenplayRequestIdentity(owner)
+        let identity = try await screenplayRequestIdentity(owner, expectedBackendURL: initialDraft?.initialization?.backendURL, originErrorMessage: "auth_request_superseded")
         var request = try makeWriteRequest(path: initialDraft == nil ? "/screenplay/projects" : "/screenplay/projects/initialize", identity: identity)
         var payload: [String: Any] = [
             "title": title,
