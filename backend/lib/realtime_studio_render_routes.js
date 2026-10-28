@@ -282,14 +282,17 @@ function projectStudioPageMemory(creativeMemory = null, body = {}) {
   };
   for (const [field, maxItems] of [
     ["currentBeat", 1], ["nextScenePlan", 1], ["nextSceneMoves", 5],
-    ["nextThreeTurns", 3], ["beatSequence", 8],
+    ["nextThreeTurns", 3], ["beatSequence", 8], ["sceneObjective", 1],
+    ["featureObligation", 1], ["actPressureState", 1], ["characterArcState", 1],
   ]) retainAsHistory(projectCopy, "project", field, maxItems);
-  for (const field of ["currentBeat", "nextScenePlan", "causalHandoff"]) {
+  for (const field of ["currentBeat", "nextScenePlan", "causalHandoff", "characterArcState"]) {
     retainAsHistory(stateCopy, "acceptedState", field);
   }
   // Current writer assignments outrank even a previously confirmed choice.
   const requestContext = studioScreenplayFeatureContext(body);
   const hasCurrentAssignment = [
+    requestContext.sceneObjective, requestContext.featureObligation,
+    requestContext.actPressureState, requestContext.characterArcState,
     requestContext.currentBeat, requestContext.nextScenePlan, requestContext.nextSceneMoves,
     requestContext.nextThreeTurns, requestContext.beatSequence,
     requestContext.nextSceneExecutionBrief?.assignment,
@@ -297,7 +300,7 @@ function projectStudioPageMemory(creativeMemory = null, body = {}) {
   // The canonical provenance reader distinguishes an actual answered question
   // from a scalar that a later automatic continuity update merely populated.
   for (const field of hasCurrentAssignment ? [] : buildProjectFieldProvenance(project)) {
-    if (!projectCopy || !["nextScenePlan", "nextSceneMoves"].includes(field.field)) continue;
+    if (!projectCopy || !["sceneObjective", "nextScenePlan", "nextSceneMoves"].includes(field.field)) continue;
     if (field.source !== "screenplay_learning_confirmation" || !field.questionId ||
         field.value !== field.learnedValue) continue;
     projectCopy[field.field] = field.field === "nextSceneMoves" ? [field.value] : field.value;

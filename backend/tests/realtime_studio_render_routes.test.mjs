@@ -337,6 +337,10 @@ function legacyPageMemory(projectId = "project-a") {
     projectContinuity: {
       projectId, projectTitle: "The Archive", act: "Act I",
       sceneSummary: "Mara and Eli are in the archive.",
+      sceneObjective: "Mara must get the evidence locker open.",
+      featureObligation: "The protagonist's old tactics should stop working.",
+      actPressureState: "Current sequence obligation: The protagonist's old tactics should stop working.",
+      characterArcState: `Mara is under pressure from: ${LEGACY_OBSERVED_BEAT}`,
       currentBeat: LEGACY_OBSERVED_BEAT,
       nextScenePlan: LEGACY_INFERRED_PLAN,
       nextSceneMoves: [LEGACY_INFERRED_PLAN],
@@ -348,6 +352,7 @@ function legacyPageMemory(projectId = "project-a") {
       currentState: {
         act: "Act I", currentBeat: LEGACY_OBSERVED_BEAT,
         nextScenePlan: LEGACY_INFERRED_PLAN, causalHandoff: LEGACY_OBSERVED_BEAT,
+        characterArcState: `Mara is under pressure from: ${LEGACY_OBSERVED_BEAT}`,
       },
     },
     characters: [{
@@ -397,6 +402,11 @@ for (const stream of [false, true]) {
       assert.ok(prompt.includes(`acceptedState.causalHandoff: ${JSON.stringify(LEGACY_OBSERVED_BEAT)}`));
       assert.ok(prompt.includes(`project.nextScenePlan: ${JSON.stringify(LEGACY_INFERRED_PLAN)}`));
       assert.match(prompt, /Mara is Eli's older sister/);
+      assert.ok(prompt.includes(`project.characterArcState: ${JSON.stringify(memory.projectContinuity.characterArcState)}`));
+      assert.ok(prompt.includes(`project.actPressureState: ${JSON.stringify(memory.projectContinuity.actPressureState)}`));
+      assert.ok(prompt.includes(`project.sceneObjective: ${JSON.stringify(memory.projectContinuity.sceneObjective)}`));
+      assert.doesNotMatch(prompt, /scene_objective: Mara must get the evidence locker open/);
+      assert.doesNotMatch(prompt, /(?:character_arc_state|arc_pressure|changed_behavior_due|scene_objective|feature_obligation|act_pressure):[^\n]*(?:tangerine|old tactics|under pressure from)/);
       assert.doesNotMatch(prompt, /(?:current_beat_to_spend|next_scene_plan_to_render|scene_assignment|next_three_turns_to_protect):[^\n]*(?:tangerine|Nebula)/);
       assert.doesNotMatch(prompt, /(?:current_beat|next_scene_plan|next_three_turns|beat_sequence):[^\n]*(?:tangerine|Nebula)/);
       assert.deepEqual(memory, before, "request projection must not mutate the durable memory record");
@@ -452,6 +462,53 @@ test("[studio-render] sync: a confirmed writer answer remains a next-page constr
     assert.equal(result.body.screenplay_quality.reason, "missing_act_one_commitment");
     assert.equal(calls.length, 2);
     assert.match(calls[0].systemPrompt, /next_scene_plan(?:_to_render)?: Nebula pilgrims/);
+  });
+});
+
+test("[studio-render] sync: explicit current character pressure still rejects an unrelated page", async () => {
+  const calls = [];
+  const deps = defaultDeps({
+    resolveUserId: () => "user-page-current-arc",
+    creativeMemoryStore: { getCreativeMemoryForPrompt: async () => legacyPageMemory() },
+    renderStudioRealtimeText: async (options) => { calls.push(options); return VALID_SCREENPLAY_REPLY; },
+  });
+  await withTestServer(deps, async (baseURL) => {
+    const result = await postJson(baseURL, "/realtime/studio_render", {
+      transcript: "Write the next page with this character turn.", screenplay_target: "page",
+      screenplay_project_id: "project-a", screenplay_act: "Act I",
+      screenplay_scene_objective: "Mara must get the evidence locker open.",
+      screenplay_character_arc_state: LEGACY_INFERRED_PLAN,
+    });
+    assert.equal(result.status, 502);
+    assert.equal(result.body.screenplay_quality.reason, "missing_character_arc_pressure");
+    assert.equal(result.body.screenplay_quality.repair_outcome, "rejected");
+    assert.equal(calls.length, 2);
+    assert.match(calls[0].systemPrompt, /(?:character_arc_state|changed_behavior_due): Nebula pilgrims/);
+  });
+});
+
+test("[studio-render] sync: confirmed scene-objective provenance still constrains the page", async () => {
+  const memory = legacyPageMemory();
+  memory.projectContinuity.sceneObjective = LEGACY_INFERRED_PLAN;
+  memory.projectContinuity.learnedFields = [{
+    field: "sceneObjective", value: LEGACY_INFERRED_PLAN,
+    questionId: "question-scene-objective", question: "What must this scene accomplish?",
+  }];
+  const calls = [];
+  const deps = defaultDeps({
+    resolveUserId: () => "user-page-confirmed-objective",
+    creativeMemoryStore: { getCreativeMemoryForPrompt: async () => memory },
+    renderStudioRealtimeText: async (options) => { calls.push(options); return VALID_SCREENPLAY_REPLY; },
+  });
+  await withTestServer(deps, async (baseURL) => {
+    const result = await postJson(baseURL, "/realtime/studio_render", {
+      transcript: "Write the next page.", screenplay_target: "page",
+      screenplay_project_id: "project-a", screenplay_act: "Act I",
+    });
+    assert.equal(result.status, 502);
+    assert.equal(result.body.screenplay_quality.reason, "missing_act_one_commitment");
+    assert.equal(calls.length, 2);
+    assert.match(calls[0].systemPrompt, /scene_objective: Nebula pilgrims/);
   });
 });
 
@@ -561,7 +618,7 @@ for (const wrongSource of ["projectContinuity", "featureStoryGraph"]) {
   });
 }
 
-test("[studio-render] sync: account story graph becomes a first-pass page execution brief", async () => {
+test("[studio-render] sync: accepted story graph grounds the writer's explicit first-pass page brief", async () => {
   const calls = [];
   const graphPage = [
     "INT. FERRY TERMINAL - NIGHT",
@@ -625,6 +682,7 @@ test("[studio-render] sync: account story graph becomes a first-pass page execut
       screenplay_project_id: "split-ferries",
       screenplay_anchor_scene_label: "INT. FERRY TERMINAL - NIGHT",
       screenplay_next_scene_plan: "June takes the cracked ferry token through the service tunnel.",
+      screenplay_character_arc_state: "Mara treats dependence as danger and trust as surrendering control.",
       screenplay_next_scene_execution_brief: {
         assignment: "June takes the cracked ferry token through the service tunnel.",
       },
