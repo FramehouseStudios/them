@@ -41,6 +41,7 @@
 // app/client must send bearer auth plus the active client token.
 
 import express from "express";
+import { buildProjectFieldProvenance } from "./creative_memory_store.js";
 import {
   buildModelPrompt,
   FEATURE_MAP_BLOCK_OPEN,
@@ -251,6 +252,70 @@ function prioritizeStudioRenderCreativeMemory(creativeMemory = null, query = "")
   };
 }
 
+// Project/graph snapshots also contain observed prose and inferred runway. Only
+// confirmed writer choices may be promoted from that history into a Page mission.
+// This is a read projection: durable memory and companion-only momentum are unchanged.
+function projectStudioPageMemory(creativeMemory = null, body = {}) {
+  if (!creativeMemory || typeof creativeMemory !== "object") {
+    return { memory: null, historicalContext: "" };
+  }
+  const requestedProjectId = readStudioRenderProjectId(body);
+  const project = creativeMemory.projectContinuity;
+  const graph = creativeMemory.featureStoryGraph;
+  const identities = [project, graph].map((value) => cleanStudioRenderMemoryText(
+    value?.projectId ?? value?.project_id, 96
+  )).filter(Boolean);
+  if (requestedProjectId && identities.some((id) => id !== requestedProjectId)) {
+    return { memory: null, historicalContext: "" };
+  }
+  const history = [];
+  const projectCopy = project && typeof project === "object" ? { ...project } : null;
+  const stateCopy = graph?.currentState && typeof graph.currentState === "object"
+    ? { ...graph.currentState } : null;
+  const retainAsHistory = (record, source, field, maxItems = 1, maxChars = 240) => {
+    if (!record) return;
+    const values = Array.isArray(record[field])
+      ? cleanStudioRenderMemoryList(record[field], maxItems, maxChars)
+      : [cleanStudioRenderMemoryText(record[field], maxChars)].filter(Boolean);
+    for (const value of values) history.push(`${source}.${field}: ${JSON.stringify(value)}`);
+    delete record[field];
+  };
+  for (const [field, maxItems] of [
+    ["currentBeat", 1], ["nextScenePlan", 1], ["nextSceneMoves", 5],
+    ["nextThreeTurns", 3], ["beatSequence", 8],
+  ]) retainAsHistory(projectCopy, "project", field, maxItems);
+  for (const field of ["currentBeat", "nextScenePlan", "causalHandoff"]) {
+    retainAsHistory(stateCopy, "acceptedState", field);
+  }
+  // Current writer assignments outrank even a previously confirmed choice.
+  const requestContext = studioScreenplayFeatureContext(body);
+  const hasCurrentAssignment = [
+    requestContext.currentBeat, requestContext.nextScenePlan, requestContext.nextSceneMoves,
+    requestContext.nextThreeTurns, requestContext.beatSequence,
+    requestContext.nextSceneExecutionBrief?.assignment,
+  ].some((value) => flattenStudioRenderMemoryValue(value).length > 0);
+  // The canonical provenance reader distinguishes an actual answered question
+  // from a scalar that a later automatic continuity update merely populated.
+  for (const field of hasCurrentAssignment ? [] : buildProjectFieldProvenance(project)) {
+    if (!projectCopy || !["nextScenePlan", "nextSceneMoves"].includes(field.field)) continue;
+    if (field.source !== "screenplay_learning_confirmation" || !field.questionId ||
+        field.value !== field.learnedValue) continue;
+    projectCopy[field.field] = field.field === "nextSceneMoves" ? [field.value] : field.value;
+  }
+  return {
+    memory: {
+      ...creativeMemory,
+      ...(projectCopy ? { projectContinuity: projectCopy } : {}),
+      ...(stateCopy ? { featureStoryGraph: { ...graph, currentState: stateCopy } } : {}),
+    },
+    historicalContext: history.length ? [
+      "Historical page continuity — observations and prior suggestions, not a next-page assignment.",
+      "Keep these as background; do not replay them or prescribe their suggested events unless the writer's current request or a confirmed writer choice asks for them.",
+      ...history,
+    ].join("\n") : "",
+  };
+}
+
 function buildStudioRenderMemoryAppliedMeta(creativeMemory = null, query = "") {
   const characters = Array.isArray(creativeMemory?.characters)
     ? creativeMemory.characters
@@ -356,9 +421,13 @@ async function buildStudioRenderPromptMemoryContext({
     }
   }
 
-  const promptMemory = creativeMemory
-    ? prioritizeStudioRenderCreativeMemory(creativeMemory, query)
+  const pageProjection = shouldApplyScreenplayContract
+    ? projectStudioPageMemory(creativeMemory, body)
+    : { memory: creativeMemory, historicalContext: "" };
+  const promptMemory = pageProjection.memory
+    ? prioritizeStudioRenderCreativeMemory(pageProjection.memory, query)
     : null;
+  const promptWithHistory = [systemPrompt, pageProjection.historicalContext].filter(Boolean).join("\n\n");
   const sessionContext = hasFeatureMapBlock
     ? null
     : studioScreenplayFeatureContext(studioMomentumMeta({
@@ -374,7 +443,7 @@ async function buildStudioRenderPromptMemoryContext({
     : [];
   if (!memoryForPrompt && !sessionContext && !screenplayTask) {
     return {
-      systemPrompt,
+      systemPrompt: promptWithHistory,
       memoryApplied: null,
       acceptedCausalFacts,
       creativeMemory: promptMemory,
@@ -384,7 +453,7 @@ async function buildStudioRenderPromptMemoryContext({
   try {
     return {
       systemPrompt: buildModelPrompt({
-        persona: systemPrompt,
+        persona: promptWithHistory,
         creativeMemory: memoryForPrompt,
         sessionContext,
         screenplayTask,
@@ -396,7 +465,7 @@ async function buildStudioRenderPromptMemoryContext({
     };
   } catch (_error) {
     return {
-      systemPrompt,
+      systemPrompt: promptWithHistory,
       memoryApplied: null,
       acceptedCausalFacts,
       creativeMemory: promptMemory,

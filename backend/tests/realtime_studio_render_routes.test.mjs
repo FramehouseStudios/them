@@ -329,6 +329,238 @@ test("[studio-render] sync: account correction repairs Scene Doctor retirement v
   });
 });
 
+const LEGACY_OBSERVED_BEAT = "The custodian polishes a ceremonial tangerine in the porcelain conservatory.";
+const LEGACY_INFERRED_PLAN = "Nebula pilgrims unbolt hexagonal scaffolding above the porcelain conservatory.";
+
+function legacyPageMemory(projectId = "project-a") {
+  return {
+    projectContinuity: {
+      projectId, projectTitle: "The Archive", act: "Act I",
+      sceneSummary: "Mara and Eli are in the archive.",
+      currentBeat: LEGACY_OBSERVED_BEAT,
+      nextScenePlan: LEGACY_INFERRED_PLAN,
+      nextSceneMoves: [LEGACY_INFERRED_PLAN],
+      nextThreeTurns: [LEGACY_INFERRED_PLAN],
+      beatSequence: [LEGACY_OBSERVED_BEAT],
+    },
+    featureStoryGraph: {
+      projectId,
+      currentState: {
+        act: "Act I", currentBeat: LEGACY_OBSERVED_BEAT,
+        nextScenePlan: LEGACY_INFERRED_PLAN, causalHandoff: LEGACY_OBSERVED_BEAT,
+      },
+    },
+    characters: [{
+      name: "Mara", bible: { canon: ["Mara is Eli's older sister."] },
+    }],
+  };
+}
+
+for (const stream of [false, true]) {
+  test(`[studio-render] ${stream ? "stream" : "sync"}: observed project runway is history, not a Page assignment`, async () => {
+    const memory = legacyPageMemory();
+    const before = structuredClone(memory);
+    const calls = [];
+    const deps = defaultDeps({
+      resolveUserId: () => "user-page-history",
+      creativeMemoryStore: { getCreativeMemoryForPrompt: async () => memory },
+      renderStudioRealtimeText: async (options) => {
+        calls.push(options); return VALID_SCREENPLAY_REPLY;
+      },
+      streamStudioRealtimeText: async (options) => {
+        calls.push(options);
+        await options.onDelta(VALID_SCREENPLAY_REPLY, VALID_SCREENPLAY_REPLY);
+        return VALID_SCREENPLAY_REPLY;
+      },
+    });
+    await withTestServer(deps, async (baseURL) => {
+      const body = {
+        transcript: "Write the next page in the archive.", screenplay_target: "page",
+        screenplay_project_id: "project-a", screenplay_act: "Act I",
+      };
+      if (stream) {
+        const result = await postSse(baseURL, "/realtime/studio_render_stream", body);
+        assert.match(result.text, /event: done\b/);
+        assert.doesNotMatch(result.text, /event: error\b/);
+        const done = result.text.split("\n\n").find(event => event.startsWith("event: done\n"));
+        assert.equal(JSON.parse(done.split("data: ")[1]).reply, VALID_SCREENPLAY_REPLY);
+      } else {
+        const result = await postJson(baseURL, "/realtime/studio_render", body);
+        assert.equal(result.status, 200, JSON.stringify(result.body));
+        assert.equal(result.body.reply, VALID_SCREENPLAY_REPLY);
+        assert.equal(result.body.screenplay_quality.ok, true);
+      }
+      assert.equal(calls.length, 1, "observed history must not trigger an unnecessary repair");
+      const prompt = calls[0].systemPrompt;
+      assert.match(prompt, /Historical page continuity.*not a next-page assignment/);
+      assert.ok(prompt.includes(`project.currentBeat: ${JSON.stringify(LEGACY_OBSERVED_BEAT)}`));
+      assert.ok(prompt.includes(`acceptedState.causalHandoff: ${JSON.stringify(LEGACY_OBSERVED_BEAT)}`));
+      assert.ok(prompt.includes(`project.nextScenePlan: ${JSON.stringify(LEGACY_INFERRED_PLAN)}`));
+      assert.match(prompt, /Mara is Eli's older sister/);
+      assert.doesNotMatch(prompt, /(?:current_beat_to_spend|next_scene_plan_to_render|scene_assignment|next_three_turns_to_protect):[^\n]*(?:tangerine|Nebula)/);
+      assert.doesNotMatch(prompt, /(?:current_beat|next_scene_plan|next_three_turns|beat_sequence):[^\n]*(?:tangerine|Nebula)/);
+      assert.deepEqual(memory, before, "request projection must not mutate the durable memory record");
+    });
+  });
+}
+
+test("[studio-render] sync: explicit next-page assignment still rejects an unrelated page", async () => {
+  const calls = [];
+  const deps = defaultDeps({
+    resolveUserId: () => "user-page-plan",
+    creativeMemoryStore: { getCreativeMemoryForPrompt: async () => legacyPageMemory() },
+    renderStudioRealtimeText: async (options) => { calls.push(options); return VALID_SCREENPLAY_REPLY; },
+  });
+  await withTestServer(deps, async (baseURL) => {
+    const result = await postJson(baseURL, "/realtime/studio_render", {
+      transcript: "Write the planned next page.", screenplay_target: "page",
+      screenplay_project_id: "project-a", screenplay_act: "Act I",
+      screenplay_current_beat: LEGACY_INFERRED_PLAN,
+      screenplay_next_scene_plan: LEGACY_INFERRED_PLAN,
+      screenplay_next_three_turns: [LEGACY_INFERRED_PLAN],
+      screenplay_beat_sequence: [LEGACY_INFERRED_PLAN],
+    });
+    assert.equal(result.status, 502);
+    assert.equal(result.body.stage, "studio_render_quality");
+    assert.equal(result.body.screenplay_quality.reason, "missing_act_one_commitment");
+    assert.equal(result.body.screenplay_quality.repair_outcome, "rejected");
+    assert.equal(result.body.reply, undefined);
+    assert.equal(calls.length, 2, "one initial call and one bounded repair");
+    assert.match(calls[0].systemPrompt, /current_beat(?:_to_spend)?: Nebula pilgrims/);
+    assert.match(calls[0].systemPrompt, /next_scene_plan(?:_to_render)?: Nebula pilgrims/);
+  });
+});
+
+test("[studio-render] sync: a confirmed writer answer remains a next-page constraint", async () => {
+  const memory = legacyPageMemory();
+  memory.projectContinuity.learnedFields = [{
+    field: "nextScenePlan", value: LEGACY_INFERRED_PLAN,
+    questionId: "question-next-choice", question: "What should happen next?",
+  }];
+  const calls = [];
+  const deps = defaultDeps({
+    resolveUserId: () => "user-page-confirmation",
+    creativeMemoryStore: { getCreativeMemoryForPrompt: async () => memory },
+    renderStudioRealtimeText: async (options) => { calls.push(options); return VALID_SCREENPLAY_REPLY; },
+  });
+  await withTestServer(deps, async (baseURL) => {
+    const result = await postJson(baseURL, "/realtime/studio_render", {
+      transcript: "Write the next page.", screenplay_target: "page",
+      screenplay_project_id: "project-a", screenplay_act: "Act I",
+    });
+    assert.equal(result.status, 502);
+    assert.equal(result.body.screenplay_quality.reason, "missing_act_one_commitment");
+    assert.equal(calls.length, 2);
+    assert.match(calls[0].systemPrompt, /next_scene_plan(?:_to_render)?: Nebula pilgrims/);
+  });
+});
+
+test("[studio-render] sync: current writer assignment outranks an earlier confirmed next choice", async () => {
+  const memory = legacyPageMemory();
+  memory.projectContinuity.learnedFields = [{
+    field: "nextScenePlan", value: LEGACY_INFERRED_PLAN,
+    questionId: "question-prior-choice", question: "What should happen next?",
+  }];
+  const calls = [];
+  const deps = defaultDeps({
+    resolveUserId: () => "user-page-new-choice",
+    creativeMemoryStore: { getCreativeMemoryForPrompt: async () => memory },
+    renderStudioRealtimeText: async (options) => { calls.push(options); return VALID_SCREENPLAY_REPLY; },
+  });
+  await withTestServer(deps, async (baseURL) => {
+    const result = await postJson(baseURL, "/realtime/studio_render", {
+      transcript: "Write this new next page instead.", screenplay_target: "page",
+      screenplay_project_id: "project-a", screenplay_act: "Act I",
+      screenplay_next_scene_plan: "Mara drives a brass key into the evidence locker.",
+    });
+    assert.equal(result.status, 200, JSON.stringify(result.body));
+    assert.equal(result.body.reply, VALID_SCREENPLAY_REPLY);
+    assert.equal(calls.length, 1);
+    assert.match(calls[0].systemPrompt, /next_scene_plan(?:_to_render)?: Mara drives a brass key/);
+    assert.doesNotMatch(calls[0].systemPrompt, /scene_assignment: Nebula pilgrims/);
+  });
+});
+
+test("[studio-render] sync: later inferred runway cannot borrow an earlier answer's authority", async () => {
+  const memory = legacyPageMemory();
+  memory.projectContinuity.learnedFields = [{
+    field: "nextScenePlan", value: "Mara chooses to reveal the file to Eli.",
+    questionId: "question-earlier-choice", question: "What should happen next?",
+  }];
+  const calls = [];
+  const deps = defaultDeps({
+    resolveUserId: () => "user-page-stale-learning",
+    creativeMemoryStore: { getCreativeMemoryForPrompt: async () => memory },
+    renderStudioRealtimeText: async (options) => { calls.push(options); return VALID_SCREENPLAY_REPLY; },
+  });
+  await withTestServer(deps, async (baseURL) => {
+    const result = await postJson(baseURL, "/realtime/studio_render", {
+      transcript: "Write the next page.", screenplay_target: "page",
+      screenplay_project_id: "project-a", screenplay_act: "Act I",
+    });
+    assert.equal(result.status, 200, JSON.stringify(result.body));
+    assert.equal(calls.length, 1);
+    assert.doesNotMatch(calls[0].systemPrompt, /next_scene_plan(?:_to_render)?: Nebula pilgrims/);
+  });
+});
+
+test("[studio-render] stream: observed runway projection preserves accepted fact contradiction checks", async () => {
+  const memory = legacyPageMemory();
+  memory.acceptedCausalFacts = [{
+    kind: "revelation", fact: "MARA: I forged the affidavit.",
+    sourceSceneHeading: "INT. COURTHOUSE - DAY", sourceAct: "Act II",
+  }];
+  const contradictory = VALID_SCREENPLAY_REPLY.replace(
+    "You said the file was gone.", "I had no idea you forged the affidavit."
+  );
+  let streamCalls = 0;
+  const repairCalls = [];
+  const deps = defaultDeps({
+    resolveUserId: () => "user-page-canon",
+    creativeMemoryStore: { getCreativeMemoryForPrompt: async () => memory },
+    streamStudioRealtimeText: async ({ onDelta }) => {
+      streamCalls += 1; await onDelta(contradictory, contradictory); return contradictory;
+    },
+    renderStudioRealtimeText: async (options) => { repairCalls.push(options); return contradictory; },
+  });
+  await withTestServer(deps, async (baseURL) => {
+    const result = await postSse(baseURL, "/realtime/studio_render_stream", {
+      transcript: "Continue from the accepted archive reveal.", screenplay_target: "page",
+      screenplay_project_id: "project-a", screenplay_act: "Act I",
+    });
+    assert.match(result.text, /event: error\b/);
+    assert.doesNotMatch(result.text, /event: done\b/);
+    assert.match(result.text, /"reason":"accepted_canon_contradiction"/);
+    assert.equal(streamCalls, 1);
+    assert.equal(repairCalls.length, 1);
+    assert.match(repairCalls[0].transcript, /BINDING_CAUSAL_FACT \[revelation\]: MARA: I forged the affidavit/);
+  });
+});
+
+for (const wrongSource of ["projectContinuity", "featureStoryGraph"]) {
+  test(`[studio-render] sync: ${wrongSource} from another project is excluded from Page context`, async () => {
+    const memory = legacyPageMemory();
+    memory[wrongSource].projectId = "project-b";
+    const calls = [];
+    const deps = defaultDeps({
+      resolveUserId: () => "user-page-owner",
+      creativeMemoryStore: { getCreativeMemoryForPrompt: async () => memory },
+      renderStudioRealtimeText: async (options) => { calls.push(options); return VALID_SCREENPLAY_REPLY; },
+    });
+    await withTestServer(deps, async (baseURL) => {
+      const result = await postJson(baseURL, "/realtime/studio_render", {
+        transcript: "Write the next page.", screenplay_target: "page",
+        screenplay_project_id: "project-a", screenplay_act: "Act I",
+      });
+      assert.equal(result.status, 200, JSON.stringify(result.body));
+      assert.equal(result.body.reply, VALID_SCREENPLAY_REPLY);
+      assert.equal(result.body.memory_applied, undefined);
+      assert.equal(calls.length, 1);
+      assert.doesNotMatch(calls[0].systemPrompt, /tangerine|Nebula|older sister|project-b/);
+    });
+  });
+}
+
 test("[studio-render] sync: account story graph becomes a first-pass page execution brief", async () => {
   const calls = [];
   const graphPage = [
@@ -392,6 +624,10 @@ test("[studio-render] sync: account story graph becomes a first-pass page execut
       screenplay_requested_pages: 1,
       screenplay_project_id: "split-ferries",
       screenplay_anchor_scene_label: "INT. FERRY TERMINAL - NIGHT",
+      screenplay_next_scene_plan: "June takes the cracked ferry token through the service tunnel.",
+      screenplay_next_scene_execution_brief: {
+        assignment: "June takes the cracked ferry token through the service tunnel.",
+      },
     });
 
     assert.equal(r.status, 200, JSON.stringify(r.body));
