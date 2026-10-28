@@ -549,3 +549,14 @@ late-admission fence and a reviewed rollback-compatible storage strategy.
 Preserve the candidate and original #962 history for comparison. Retest
 relaunch, newer pending edits, legacy data, persistence failure and actual
 Load Server UI after the canonical VM integration exists.
+
+## Stable save-request creation metadata
+
+DraftSaveRequest now captures createdAt once, retains it when rebased, and
+restores it from its durable outbox entry. Materializing an entry later no
+longer silently moves the request's creation time. A focused signed outbox
+regression covers repeated materialization, rebase and restoration. The first
+compile attempt failed due to a duplicate argument; it executed no tests and
+was corrected before the passing run. This timestamp is **not** an authority
+generation or permission to discard any rows: the exact Load Server fence,
+rollback compatibility and UI integration remain outstanding.

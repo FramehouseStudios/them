@@ -141,6 +141,21 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
         XCTAssertEqual(restored.first?.lastError, "Interrupted while saving.")
     }
 
+    @MainActor
+    func testRequestCreationTimeSurvivesMaterializationRebaseAndRelaunch() {
+        let context = ScreenplayStudioAuthContext(userID: "writer", sessionIntentGeneration: 1)
+        let request = ScreenplayStudioViewModel.DraftSaveRequest(id: "request", createdAt: 123,
+            projectId: "project", ownerUserId: "writer", draft: "Writer words", title: "Title",
+            phase: "scene_draft", source: "studio_manual", notes: "", studioWriteAnchors: [],
+            screenplayBindings: [], baseVersionId: "base", authContext: context)
+        XCTAssertEqual(request.outboxEntry.createdAt, 123)
+        XCTAssertEqual(request.outboxEntry.createdAt, 123)
+        XCTAssertEqual(request.rebased(on: "new-base").outboxEntry.createdAt, 123)
+        let restored = ScreenplayStudioViewModel.DraftSaveRequest(entry: request.outboxEntry, authContext: context)
+        XCTAssertEqual(restored.outboxEntry.createdAt, 123)
+        XCTAssertEqual(restored.rebased(on: "later").outboxEntry.createdAt, 123)
+    }
+
     func testQueueDeduplicatesSameSaveIdentifier() async throws {
         let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
         let entry = makeEntry(id: "save-once")

@@ -1328,8 +1328,9 @@ extension View {
 
 @MainActor
 final class ScreenplayStudioViewModel: ObservableObject {
-    private struct DraftSaveRequest {
+    struct DraftSaveRequest {
         let id: String
+        let createdAt: TimeInterval
         let projectId: String
         let ownerUserId: String
         let draft: String
@@ -1345,6 +1346,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
 
         init(
             id: String,
+            createdAt: TimeInterval = Date().timeIntervalSince1970,
             projectId: String,
             ownerUserId: String,
             draft: String,
@@ -1359,6 +1361,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
             deliveryOrigin: ScreenplayDraftSaveOrigin? = nil
         ) {
             self.id = id
+            self.createdAt = createdAt
             self.projectId = projectId
             self.ownerUserId = ownerUserId
             self.draft = draft
@@ -1375,6 +1378,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
 
         init(entry: ScreenplayDraftSaveOutboxEntry, authContext: ScreenplayStudioAuthContext) {
             id = entry.id
+            createdAt = entry.createdAt
             projectId = entry.projectId
             ownerUserId = entry.ownerUserId
             draft = entry.draft
@@ -1403,7 +1407,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 studioWriteAnchors: studioWriteAnchors,
                 screenplayBindings: screenplayBindings,
                 baseVersionId: baseVersionId,
-                createdAt: now,
+                createdAt: createdAt,
                 updatedAt: now,
                 status: .pending,
                 retries: 0,
@@ -1416,6 +1420,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         func rebased(on serverVersionId: String) -> DraftSaveRequest {
             DraftSaveRequest(
                 id: id,
+                createdAt: createdAt,
                 projectId: projectId,
                 ownerUserId: ownerUserId,
                 draft: draft,
