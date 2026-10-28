@@ -60,6 +60,60 @@ final class BackendTalkStreamingTransportTests: XCTestCase {
         XCTAssertEqual(state.chunkBytes, data, "Chunk coalescing must preserve the exact streamed bytes")
     }
 
+    func testCompletedResponseFinishesCustodyBeforeCancelledConsumerReturns() async {
+        HeldTalkProtocol.state = HeldTalkState(mode: .succeed)
+        let entered = expectation(description: "Complete response entered custody")
+        let returned = XCTestExpectation(description: "Consumer returned")
+        let gate = AcceptedTalkResponseGate()
+        let operation = Task { () -> Error? in
+            defer { returned.fulfill() }
+            do {
+                _ = try await BackendTalkStreamingTransport.data(for: request(), configuration: configuration(),
+                    retainAcceptedResponse: { data, http in
+                        XCTAssertEqual(data, Data("exact audio bytes".utf8))
+                        XCTAssertEqual(http.statusCode, 200)
+                        entered.fulfill()
+                        await gate.hold()
+                    })
+                return nil
+            } catch { return error }
+        }
+        await fulfillment(of: [entered], timeout: 2)
+        operation.cancel()
+        let waiting = await XCTWaiter.fulfillment(of: [returned], timeout: 0.05)
+        XCTAssertEqual(waiting, .timedOut, "Cancellation bypassed custody of a completed response")
+        await gate.release()
+        let result = await operation.value
+        XCTAssertTrue(result is CancellationError, "Custody must not restore cancelled UI delivery")
+        let calls = await gate.calls
+        XCTAssertEqual(calls, 1)
+    }
+
+    func testCompletedResponseCustodyFailureIsNotATransientTransportError() async {
+        HeldTalkProtocol.state = HeldTalkState(mode: .succeed)
+        do {
+            _ = try await BackendTalkStreamingTransport.data(for: request(), configuration: configuration(),
+                retainAcceptedResponse: { _, _ in throw URLError(.cannotWriteToFile) })
+            XCTFail("An unretained accepted response must not report success")
+        } catch {
+            XCTAssertTrue(error is BackendTalkCustodyError)
+            XCTAssertEqual(((error as? BackendTalkCustodyError)?.underlyingError as? URLError)?.code, .cannotWriteToFile)
+        }
+        XCTAssertEqual(HeldTalkProtocol.state?.counts.starts, 1)
+    }
+
+    func testIncompleteResponseNeverReportsAcceptedCustody() async {
+        HeldTalkProtocol.state = HeldTalkState(mode: .fail)
+        let gate = AcceptedTalkResponseGate()
+        do {
+            _ = try await BackendTalkStreamingTransport.data(for: request(), configuration: configuration(),
+                retainAcceptedResponse: { _, _ in await gate.record() })
+            XCTFail("Offline response unexpectedly succeeded")
+        } catch { XCTAssertEqual((error as? URLError)?.code, .notConnectedToInternet) }
+        let calls = await gate.calls
+        XCTAssertEqual(calls, 0)
+    }
+
     func testCancelFromResponseCallbackSuppressesLaterChunksAndResult() async {
         let state = HeldTalkState(mode: .succeed)
         HeldTalkProtocol.state = state
@@ -147,6 +201,23 @@ final class BackendTalkStreamingTransportTests: XCTestCase {
     }
 }
 
+private actor AcceptedTalkResponseGate {
+    private var continuation: CheckedContinuation<Void, Never>?
+    private var released = false
+    private(set) var calls = 0
+    func record() { calls += 1 }
+    func hold() async {
+        calls += 1
+        if released { return }
+        await withCheckedContinuation { continuation = $0 }
+    }
+    func release() {
+        released = true
+        continuation?.resume()
+        continuation = nil
+    }
+}
+
 private nonisolated final class HeldTalkState: @unchecked Sendable {
     enum Mode { case hold, succeed, fail, cancel }
     let mode: Mode
@@ -165,7 +236,13 @@ private nonisolated final class HeldTalkState: @unchecked Sendable {
         lock.lock(); active = value; starts += 1; lock.unlock()
         started?.fulfill()
     }
-    func stop() { lock.lock(); active = nil; lock.unlock(); stopped?.fulfill() }
+    func stop(_ value: HeldTalkProtocol) {
+        lock.lock()
+        guard active === value else { lock.unlock(); return }
+        active = nil
+        lock.unlock()
+        stopped?.fulfill()
+    }
     func recordCallback() { lock.lock(); callbacks += 1; lock.unlock() }
     func recordChunk(_ data: Data) { lock.lock(); callbacks += 1; chunks.append(data); lock.unlock() }
     var chunkBytes: Data { lock.lock(); defer { lock.unlock() }; return chunks }
@@ -180,6 +257,7 @@ private nonisolated final class HeldTalkState: @unchecked Sendable {
 
 private nonisolated final class HeldTalkProtocol: URLProtocol {
     nonisolated(unsafe) static var state: HeldTalkState?
+    private var startedState: HeldTalkState?
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
@@ -192,6 +270,7 @@ private nonisolated final class HeldTalkProtocol: URLProtocol {
             client?.urlProtocolDidFinishLoading(self)
             return
         }
+        startedState = state
         state.begin(self)
         switch state.mode {
         case .hold: break
@@ -205,5 +284,5 @@ private nonisolated final class HeldTalkProtocol: URLProtocol {
             client?.urlProtocolDidFinishLoading(self)
         }
     }
-    override func stopLoading() { Self.state?.stop() }
+    override func stopLoading() { startedState?.stop(self) }
 }
