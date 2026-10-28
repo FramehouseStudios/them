@@ -108,6 +108,48 @@ final class ScreenplaySaveCompletionOwnershipTests: XCTestCase {
         XCTAssertTrue(rows.isEmpty)
     }
 
+    func testManualSaveBehindBackgroundDrainIsDispatchedExactlyOnce() async throws {
+        try await assertPendingSaveFollowsBackgroundDrain(switchProject: false)
+    }
+
+    func testProjectBSaveBehindADrainKeepsItsCapturedBase() async throws {
+        try await assertPendingSaveFollowsBackgroundDrain(switchProject: true)
+    }
+
+    private func assertPendingSaveFollowsBackgroundDrain(switchProject: Bool) async throws {
+        let fixture = try SaveCompletionFixture()
+        defer { fixture.close() }
+        fixture.select("a", draft: fixture.a, base: "a-base")
+        let earlier = ScreenplayDraftSaveOutboxEntry(id: UUID().uuidString, projectId: "a", ownerUserId: fixture.owner,
+            draft: fixture.a, title: "A", phase: "draft", notes: "", source: "studio_manual",
+            studioWriteAnchors: [], screenplayBindings: [], baseVersionId: "a-base", createdAt: 1, updatedAt: 1,
+            status: .pending, retries: 0, nextAttemptAt: 0, lastError: "")
+        try await fixture.queue.enqueue(earlier)
+        let drain = Task { await fixture.model.resumeQueuedDraftSavesIfNeeded(force: true) }
+        defer { drain.cancel() }
+        try await fixture.waitForFirstSave()
+        let pending = switchProject ? fixture.b : fixture.a + "\r\nNewest cafe\u{0301} remains exact. \t "
+        if switchProject { fixture.select("b", draft: pending, base: "b-base", dirty: true) }
+        else {
+            fixture.model.fountainDraft = pending
+            fixture.model.noteManualDraftEdit()
+            _ = fixture.model.mirrorDraftIntoLiveBridgeIfOwned(pending)
+        }
+        await fixture.model.manualSaveDraft()
+        XCTAssertEqual(fixture.peer.writes.count, 1, "The background save must still own its HTTP flight")
+        fixture.peer.releaseFirst(.success)
+        await drain.value
+        let writes = fixture.peer.writes
+        XCTAssertEqual(writes.count, 2, "A manual save handed to background draining must not disappear in the pending slot")
+        XCTAssertEqual(writes.map(\.project), ["a", switchProject ? "b" : "a"])
+        XCTAssertEqual(writes.last?.base, switchProject ? "b-base" : "a-ack-1")
+        XCTAssertEqual(writes.last.map { Data($0.draft.utf8) }, Data(pending.utf8))
+        XCTAssertEqual(Data(fixture.model.fountainDraft.utf8), Data(pending.utf8))
+        XCTAssertFalse(fixture.model.hasUnsavedDraftChanges)
+        let rows = try await fixture.queue.entriesForTesting()
+        XCTAssertTrue(rows.isEmpty)
+    }
+
     private func assertRejectedAStaysScoped(_ outcome: SaveCompletionPeer.Outcome,
                                            expectedStatus: ScreenplayDraftSaveOutboxStatus) async throws {
         let fixture = try SaveCompletionFixture()
