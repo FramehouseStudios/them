@@ -2386,8 +2386,7 @@ final class V1SmokeUITests: XCTestCase {
         // Receipt publication proves the app consumed A, rather than merely
         // asserting immediately after the proxy wrote bytes to its socket.
         try await waitForStudioHeldRenderCount(1, in: app)
-        if !field.exists { app.buttons["studio.commandbar.toggle"].tap() }
-        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        try revealStudioOwnerPromptComposer(in: app)
         XCTAssertEqual(Data(accessibleDraftText(in: app).utf8), Data(beforeB.utf8))
         XCTAssertEqual(Data((field.value as? String ?? "").utf8), Data(unsent.utf8))
         let send = app.buttons["studio.prompt.send"]
@@ -4994,6 +4993,34 @@ final class V1SmokeUITests: XCTestCase {
 #endif
     }
 
+    // The owner cases begin on a focused screenplay page and return from
+    // the Draft recovery tab. Navigate the real inspector before searching
+    // its composer; whole-app swipes cannot reveal a closed drawer.
+    private func revealStudioOwnerPromptComposer(in app: XCUIApplication) throws {
+        revealStudioPartnerContent(identifier: "studio.commandbar.toggle", in: app)
+        let drawer = element(identifier: "studio.sidebar.right.drawer", in: app)
+        guard drawer.waitForExistence(timeout: 5) else {
+            throw NSError(domain: "themUITests.renderOwner", code: 2,
+                userInfo: [NSLocalizedDescriptionKey: "The THEM inspector did not open"])
+        }
+        let field = element(identifier: "studio.prompt.field", in: app)
+        if !field.exists {
+            let toggle = app.buttons["studio.commandbar.toggle"]
+            guard revealInStudioDrawer(toggle, drawer: drawer, scrollingUp: false, maxSwipes: 4)
+                || revealInStudioDrawer(toggle, drawer: drawer, scrollingUp: true, maxSwipes: 4) else {
+                throw NSError(domain: "themUITests.renderOwner", code: 2,
+                    userInfo: [NSLocalizedDescriptionKey: "The THEM inspector did not expose its composer toggle"])
+            }
+            toggle.tap()
+        }
+        guard field.waitForExistence(timeout: 5),
+              revealInStudioDrawer(field, drawer: drawer, scrollingUp: false, maxSwipes: 4)
+                || revealInStudioDrawer(field, drawer: drawer, scrollingUp: true, maxSwipes: 4) else {
+            throw NSError(domain: "themUITests.renderOwner", code: 2,
+                userInfo: [NSLocalizedDescriptionKey: "The open THEM composer did not expose its prompt field"])
+        }
+    }
+
     private func submitStudioWriterBlockPrompt(
         _ prompt: String,
         in app: XCUIApplication,
@@ -5029,7 +5056,9 @@ final class V1SmokeUITests: XCTestCase {
             )
         }
         let field = element(identifier: "studio.prompt.field", in: app)
-        if !field.exists {
+        if pageRouting {
+            try revealStudioOwnerPromptComposer(in: app)
+        } else if !field.exists {
             let commandBarToggle = app.buttons["studio.commandbar.toggle"]
             let rightDrawer = element(identifier: "studio.sidebar.right.drawer", in: app)
             let interactionSurface = rightDrawer.exists ? rightDrawer : app
@@ -5044,7 +5073,7 @@ final class V1SmokeUITests: XCTestCase {
 #endif
             }
         }
-        if !field.isHittable {
+        if !pageRouting && !field.isHittable {
             let rightToggle = app.buttons["studio.sidebar.right.toggle"]
             if rightToggle.waitForExistence(timeout: 3),
                rightToggle.isHittable,
@@ -5059,7 +5088,10 @@ final class V1SmokeUITests: XCTestCase {
         )
         if pageRouting {
             let page = element(identifier: "studio.prompt.routing.page", in: app)
-            XCTAssertTrue(waitForHittability(of: page, timeout: 5))
+            guard waitForHittability(of: page, timeout: 5) else {
+                throw NSError(domain: "themUITests.renderOwner", code: 2,
+                    userInfo: [NSLocalizedDescriptionKey: "The open composer did not expose its Page destination"])
+            }
             if !page.isSelected { page.tap() }
         }
 #if os(macOS)
