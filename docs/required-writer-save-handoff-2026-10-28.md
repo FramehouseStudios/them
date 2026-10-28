@@ -486,3 +486,28 @@ The archive contains the prior failures, runner initialization interruption,
 final focused/unit/UI summaries, macOS build log and frozen source identities.
 It is private local evidence, not staged or uploaded. Original temporary proof
 was preserved; nothing was deleted or overwritten.
+
+## Load Server investigation — next implementation boundary
+
+VERIFIED by source review at 12e5a25: `applyServerVersionFromConflict` trusts
+the cached conflict draft, clears the local recovery and conflict presentation,
+and does not retire parked outbox rows. Its empty-draft fallback starts an
+asynchronous load but still reports success immediately. `pendingEntry` excludes
+parked rows, so the parked conflict choice cannot currently be reconstructed
+from that lookup after relaunch. These are code findings, not a new live repro.
+
+Zora independently reviewed the preserved original #962. Its current-head
+fetch and edit-during-fetch guard are useful, but its project/owner-wide
+cleanup and in-memory authority fence are insufficient for the current exact
+document/backend boundary and relaunch. Do not port broad `removeAll` or use
+`markSucceeded` for a writer's Load Server choice.
+
+Next: capture immutable owner/project/backend/document and conflict authority;
+fetch and validate the current head; recheck the exact page and identity after
+the wait; durably retire only the selected pre-choice parked conflicts and
+fence late pre-choice responses; then apply the server draft and clear the UI.
+Keep nil-origin legacy rows conservative and preserve new post-choice edits.
+A failed durable write must leave the page, recovery and conflict choice intact.
+Test both choices through relaunch, delayed responses, scope changes, stale
+heads and persist failure. The exact durable authority representation and
+implementation have not yet been selected or validated.
