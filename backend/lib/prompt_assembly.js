@@ -21,7 +21,7 @@ import { enforceCraftContextPrecedence } from "./craft_prompts.js";
 
 import { buildTraitsBlockForPrompt } from "./trait_library.js";
 import { asksForDialogueNotes, isScreenplayRevisionRequest, DIALOGUE_NOTES_CONTRACT } from "./dialogue_notes.js";
-import { analyzeScreenplayWriteInstruction } from "./screenplay_write_instruction.js";
+import { analyzeScreenplayWriteInstruction, requestsStoryPages } from "./screenplay_write_instruction.js";
 import { buildAcceptedTwistsBlockForPrompt } from "./accepted_twist_log.js";
 import {
   FEATURE_MAP_BLOCK_OPEN,
@@ -496,9 +496,14 @@ function inferScreenplayTask(userInput = "") {
     intent: "story_discussion", label: "Story Discussion",
     output: "The writer refused page changes. Answer their current question in spoken prose; do not write, continue, replace or revise screenplay text. Discuss the story without changing the draft.",
   };
-  const text = trimToString(instruction.routingText);
+  const text = trimToString(instruction.routingText).replace(/^Intent:[^\n]+\n\s*Writer request:\s*/i, "");
   const lower = text.toLowerCase();
   if (!lower) return null;
+  // Classify the requested artifact, not incidental dialogue/voice words in
+  // the story. Conceptual artifacts remain planning rather than page writes.
+  const storyRequestTail = lower.split(/\bstory\b/, 2)[1] || "";
+  const storyWriteLike = requestsStoryPages(text)
+    && !/^\s+(?:outline|beat sheet|synopsis|premise|logline|notes|feedback|treatment)\b/.test(storyRequestTail);
   const featureMetadata = inferFeatureRequestMetadata(lower);
   const sceneDoctorLike = hasAny(lower, [
     /\b(scene doctor|doctor this|doctor the scene|coverage|feedback|notes|diagnose|what'?s wrong|what'?s not working|fix this scene|why isn'?t this working)\b/,
@@ -585,7 +590,7 @@ function inferScreenplayTask(userInput = "") {
     intent = "continue_script";
     label = "Continue Script";
     output = "Continue from the current draft in screenplay/Fountain style, matching tone, character voice, pacing, subtext, and emotional continuity. Treat the supplied draft as active continuity and do not restart the scene unless the user asks.";
-  } else if (hasAny(lower, [/\b(write|draft|generate|compose)\b.*\b(scene|sequence|beat|pages?|dialogue|monologue)\b/, /\b(scene|sequence|beat)\b.*\b(write|draft|generate|compose)\b/])) {
+  } else if (storyWriteLike || hasAny(lower, [/\b(write|draft|generate|compose)\b.*\b(scene|sequence|beat|pages?|dialogue|monologue)\b/, /\b(scene|sequence|beat)\b.*\b(write|draft|generate|compose)\b/])) {
     intent = "write_scene";
     label = "Write Scene";
     output = "Write usable screenplay pages in clean Fountain style with scene headings, action, character cues, dialogue, and restrained parentheticals.";
