@@ -77,3 +77,21 @@ that UI is not part of this commit and has not received interaction, visual,
 or auth-change proof. Parked rows now remain until an explicit, verified
 resolution exists, so users may still see a save needing attention. Full
 conflict recovery and Load Server are not finished.
+
+## In-progress parked-copy access
+
+Uncommitted UI work adds a project-scoped list of parked conflict copies. It
+only exposes copies whose owner, backend and document match the current editor;
+a Copy text action re-reads the exact durable row and rechecks context before
+using the local clipboard. It does not remove or replace the stored copy.
+Unknown-origin rows stay unexposed rather than being attached to the wrong
+document. This is an interim copy-out path, not full recovery or resolution.
+Signed outbox suite compiled with this work: 41 passed, 0 failed, 0 skipped,
+/private/tmp/them-t1204-copy-guard-20261028.xcresult. The suite does not
+exercise the copy action, auth-change race or rendered UI; those remain
+unverified, so the UI changes are deliberately uncommitted and unpublished.
+
+The existing Keep Mine relaunch UI expects the parked count to reach zero;
+with broad removal fixed, the selected parked row needs its own exact,
+confirmed-acknowledgement retirement before this can work safely. Do not
+restore the previous broad deletion to satisfy that test.
