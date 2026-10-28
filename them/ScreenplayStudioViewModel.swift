@@ -4501,21 +4501,10 @@ final class ScreenplayStudioViewModel: ObservableObject {
             conflictState = nil
             return
         }
-        // Until a fresh server head has been verified, an absent snapshot is
-        // not permission to discard the writer's recovery or clear the choice.
-        guard !conflict.serverDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            errorText = "The server draft could not be confirmed. Your local words are kept."
-            return
-        }
-        applyServerDraft(
-            conflict.serverDraft,
-            versionId: conflict.serverVersionId,
-            allowOverwriteDirtyLocalDraft: true
-        )
-        clearLocalDraftRecovery(projectId: conflict.projectId)
-        conflictState = nil
-        errorText = ""
-        infoText = "Loaded latest server draft."
+        // A cached conflict snapshot cannot prove the current server head or
+        // retire the exact queued requests that could restore the local draft.
+        // Preserve the page and recovery until both operations are atomic.
+        errorText = "Loading the server draft is temporarily unavailable. Your local words are kept."
     }
 
     func keepLocalDraftAfterConflict() async {

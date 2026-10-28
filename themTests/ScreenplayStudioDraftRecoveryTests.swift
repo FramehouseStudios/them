@@ -334,7 +334,7 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
     }
 
     @MainActor
-    func testLoadServerWithoutConfirmedDraftKeepsWriterWordsAndRecovery() {
+    func testLoadServerWithoutVerifiedHeadKeepsWriterWordsAndRecovery() {
         let projectID = "unavailable-server-\(UUID().uuidString)"
         let owner = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""
         let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store)
@@ -354,6 +354,17 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         XCTAssertEqual((store.payloads(ownerUserId: owner)[projectID]?["draft"] as? String).map { Data($0.utf8) }, Data(writer.utf8))
         XCTAssertFalse(model.errorText.isEmpty)
         XCTAssertNotEqual(model.infoText, "Loaded latest server draft.")
+
+        // A nonempty cached snapshot may also be stale, and queued conflict
+        // requests have not yet been retired. It must not replace the page.
+        model.conflictState = .init(projectId: projectID, baseVersionId: "base", serverVersionId: "new",
+            serverDraft: "A stale server snapshot", serverDraftExcerpt: "A stale server snapshot", serverUpdatedAt: 1)
+        model.applyServerVersionFromConflict()
+        XCTAssertEqual(Data(model.fountainDraft.utf8), Data(writer.utf8))
+        XCTAssertNotNil(model.conflictState)
+        XCTAssertTrue(model.hasUnsavedDraftChanges)
+        XCTAssertEqual((store.payloads(ownerUserId: owner)[projectID]?["draft"] as? String).map { Data($0.utf8) }, Data(writer.utf8))
+        XCTAssertFalse(model.errorText.isEmpty)
     }
 
     @MainActor

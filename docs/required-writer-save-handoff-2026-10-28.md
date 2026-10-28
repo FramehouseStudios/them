@@ -569,3 +569,29 @@ previous actor state on write failure. A signed regression makes the actual
 queue directory unwritable after enqueue and verifies the in-memory row and
 the prior disk copy both remain pending. This does not resolve Load Server
 authority or prove the full app. Results: /private/tmp/them-save-claim-rollback-summary.json.
+
+## Cached Load Server snapshot safeguard
+
+A nonempty cached conflict snapshot does not establish the current server
+head, and applying it previously cleared local recovery without retiring the
+parked conflict requests. Until fresh-head validation and exact request
+retirement are connected, Load Server reports that it is temporarily
+unavailable and preserves the local page, recovery copy and conflict choice.
+This is an interim safety hold, not a completed Load Server implementation.
+On an erased task-owned simulator, signed ScreenplayStudioDraftRecoveryTests
+passed 76/76, zero failures and zero skips; the focused regression checks
+both empty and nonempty unverified snapshots. D009 and git diff --check passed.
+Result bundle: /private/tmp/them-conflict-guard-20261028.xcresult.
+
+## Revised T-1203 candidate review
+
+Zora's candidate 2e2a39d5 is local and not integrated. Review found its
+sentinel retirement markers retain full screenplay content outside the real
+owner scope, and legacy parked conflicts without request authority cannot be
+resolved. The existing account-deletion flow also does not purge the draft
+outbox; the candidate must not compound that retention issue. Zora is
+revising the candidate to retain only a deterministic digest, handle exact
+durably parked legacy rows, and support scoped marker cleanup. Account
+ deletion, already-in-flight server writes, fresh-head races, rollback and
+actual conflict/relaunch UI behavior remain separate integration concerns.
+No native proof is claimed for the candidate.
