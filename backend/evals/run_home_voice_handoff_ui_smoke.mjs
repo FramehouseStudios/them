@@ -45,6 +45,12 @@ if (process.env.THEM_HOME_VOICE_LONG_AUDIO === '1' && (tests.length !== 1 || !te
 // than racing the short silence fixture; production timing is unchanged.
 const needsInterruptibleAudio = tests.some(test => test.endsWith('/test_home_raw_audio_studio_stop_ends_capture_and_cancels_page'));
 if (needsInterruptibleAudio && tests.length !== 1) throw new Error('Stop cancellation proof requires an isolated interruptible-audio run; normal writing must use its normal audio fixture');
+// These workflows intentionally start from an empty account. This runner's
+// funded identity is shared within a batch, so earlier voice/recovery cases
+// would seed a real saved page that new-project creation correctly preserves.
+const needsEmptyAccount = tests.some(test => test.endsWith('/test_integrated_iphone_writer_loop_creates_saves_exports_and_restores')
+  || test.endsWith('/test_coverage_read_labels_earlier_snapshot_and_refreshes_current_draft'));
+if (needsEmptyAccount && tests.length !== 1) throw new Error('Empty-account writer proof requires its own isolated backend run; do not share a funded account with another workflow');
 const bundle = process.env.THEM_HOME_VOICE_RESULT_BUNDLE || `/tmp/them-home-voice-${process.pid}.xcresult`;
 if (existsSync(bundle)) throw new Error('Refusing to overwrite an existing result bundle');
 const config = `/tmp/them-home-voice-${process.pid}.xcconfig`;
