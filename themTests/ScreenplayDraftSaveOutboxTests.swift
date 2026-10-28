@@ -307,7 +307,8 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
         let selection = try await store.captureLoadServerSelection(
             projectId: selected.projectId,
             ownerUserId: selected.ownerUserId,
-            deliveryOrigin: origin
+            deliveryOrigin: origin,
+            explicitRequests: [selected]
         )
         let resolution = try await store.resolveLoadServerSelection(selection)
 
@@ -319,6 +320,43 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
         XCTAssertEqual(remaining.first(where: { $0.id == unrelatedInflight.id })?.status, .inflight)
         let markers = try await store.retirementMarkersForTesting()
         XCTAssertEqual(markers.map(\.id), [selected.id])
+    }
+
+    func testLoadServerDoesNotInferConsentForAnotherParkedDraftInTheSameDocument() async throws {
+        let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let origin = ScreenplayDraftSaveOrigin(
+            documentID: "shared-document",
+            backendURL: URL(string: "https://save.test")!
+        )
+        let lineage = UUID()
+        let selected = makeEntry(id: "discard-this", draft: "Writer explicitly discarded these words",
+            createdAt: 100, origin: origin, authority: .init(id: lineage, generation: 1))
+        let preserved = makeEntry(id: "preserve-this", draft: "Different writer words must remain",
+            createdAt: 101, origin: origin, authority: .init(id: lineage, generation: 2))
+        try await store.enqueue(selected)
+        try await store.enqueue(preserved)
+        _ = try await store.retainConflict(projectId: selected.projectId,
+            ownerUserId: selected.ownerUserId, deliveryOrigin: origin)
+
+        let parkedBeforeChoice = try await store.entriesForTesting()
+        XCTAssertEqual(Set(parkedBeforeChoice.map(\.id)), Set([selected.id, preserved.id]))
+        XCTAssertTrue(parkedBeforeChoice.allSatisfy { $0.status == .parked })
+        let selection = try await store.captureLoadServerSelection(projectId: selected.projectId,
+            ownerUserId: selected.ownerUserId, deliveryOrigin: origin, explicitRequests: [selected])
+        let resolution = try await store.resolveLoadServerSelection(selection)
+
+        XCTAssertEqual(resolution.retiredRequestIDs, [selected.id])
+        let afterChoice = try await store.entriesForTesting()
+        XCTAssertEqual(afterChoice.map(\.id), [preserved.id])
+        XCTAssertEqual(afterChoice.first?.status, .parked)
+        XCTAssertEqual(afterChoice.first.map { Data($0.draft.utf8) }, Data(preserved.draft.utf8))
+
+        try await store.markRetryable(id: preserved.id, error: "Writer chose Keep Mine")
+        guard case .deliver(let deliverable)? = try await store.beginDeliveryUnlessRetiredByLoadServer(preserved) else {
+            return XCTFail("The unselected parked draft was fenced by another request's Load Server choice")
+        }
+        XCTAssertEqual(deliverable.id, preserved.id)
+        XCTAssertEqual(Data(deliverable.draft.utf8), Data(preserved.draft.utf8))
     }
 
     func testRetiredRequestUsesStableIdentityNotCreatedAtAndSurvivesRelaunch() async throws {
@@ -394,7 +432,7 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
         try await store.enqueue(request)
         _ = try await store.retainConflict(request)
         let selection = try await store.captureLoadServerSelection(projectId: request.projectId,
-            ownerUserId: request.ownerUserId, deliveryOrigin: origin)
+            ownerUserId: request.ownerUserId, deliveryOrigin: origin, explicitRequests: [request])
         let manifestURL = storageDirectory.appendingPathComponent("queue.json")
         let before = try Data(contentsOf: manifestURL)
         try Data().write(to: failMarker)
@@ -629,7 +667,7 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
             ownerUserId: legacy.ownerUserId, deliveryOrigin: origin)
 
         let selection = try await store.captureLoadServerSelection(projectId: legacy.projectId,
-            ownerUserId: legacy.ownerUserId, deliveryOrigin: origin)
+            ownerUserId: legacy.ownerUserId, deliveryOrigin: origin, explicitRequests: [legacy])
         _ = try await store.resolveLoadServerSelection(selection)
         let legacyEntries = try await store.entriesForTesting()
         let legacyMarkers = try await store.retirementMarkersForTesting()

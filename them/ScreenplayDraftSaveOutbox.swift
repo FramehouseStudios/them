@@ -443,27 +443,21 @@ actor ScreenplayDraftSaveOutbox {
         return entries.first { $0.id == request.id }
     }
 
-    /// Captures exact parked conflict rows plus explicit in-memory requests
-    /// supplied by the VM. No pending/inflight row is inferred from timestamp,
-    /// generation range or broad owner/project/document scope.
+    /// Captures only exact immutable requests explicitly supplied by the VM.
+    /// Parked status and owner/project/document scope are not writer authority
+    /// to discard any other row. Legacy rows without a delivery origin remain
+    /// unresolvable here and must stay durable for conservative VM recovery.
     func captureLoadServerSelection(
         projectId: String,
         ownerUserId: String,
         deliveryOrigin: ScreenplayDraftSaveOrigin,
-        explicitRequests: [ScreenplayDraftSaveOutboxEntry] = []
+        explicitRequests: [ScreenplayDraftSaveOutboxEntry]
     ) throws -> ScreenplayDraftLoadServerSelection {
         try loadIfNeeded()
         let project = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
         let owner = ownerUserId.trimmingCharacters(in: .whitespacesAndNewlines)
         try validateScope(projectId: project, ownerUserId: owner, deliveryOrigin: deliveryOrigin)
         var selected: [String: ScreenplayDraftSaveOutboxEntry] = [:]
-        for entry in entries where exactScope(entry, projectId: project, ownerUserId: owner,
-                                               deliveryOrigin: deliveryOrigin) &&
-            entry.initialization == nil && entry.status == .parked &&
-            entry.lastError == Self.conflictReason {
-            try validateRetirableRequest(entry)
-            selected[entry.id] = entry
-        }
         for request in explicitRequests {
             try validateRetirableRequest(request)
             guard exactScope(request, projectId: project, ownerUserId: owner,
@@ -476,6 +470,11 @@ actor ScreenplayDraftSaveOutbox {
                     throw BackendMemoryAPIError.invalidResponse
                 }
                 selected[request.id] = current
+            } else if let marker = retirementMarkers.first(where: { $0.id == request.id }) {
+                guard retirementMarker(marker, matches: request) else {
+                    throw BackendMemoryAPIError.server(status: 409, message: "screenplay_save_id_reused")
+                }
+                selected[request.id] = request
             } else if let existing = selected[request.id] {
                 guard sameImmutableRequest(existing, request) else {
                     throw BackendMemoryAPIError.server(status: 409, message: "screenplay_save_id_reused")
