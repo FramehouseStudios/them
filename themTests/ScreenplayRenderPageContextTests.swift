@@ -71,12 +71,15 @@ final class ScreenplayRenderPageContextTests: XCTestCase {
             bridge.pendingInsertion = pending
             bridge.latestVoiceTurn = voice; bridge.latestPack = pack; bridge.latestPhase = phase
             bridge.latestUserTranscript = transcript; bridge.autoInsertStatusText = status
-            try? FileManager.default.removeItem(at: directory)
+            if FileManager.default.fileExists(atPath: directory.path) { try? FileManager.default.removeItem(at: directory) }
         }
-        bridge.adoptLoadedProjectDraft("INT. ROOM - NIGHT\nWriter words.", projectID: "render-context-\(UUID())", versionID: "v1", owner: .current())
+        XCTAssertTrue(bridge.adoptLoadedProjectDraft("INT. ROOM - NIGHT\nWriter words.", projectID: "render-context-\(UUID())", versionID: "v1", owner: .current()))
         let document = try XCTUnwrap(bridge.captureLiveTalkDocument())
-        let identity = BackendAuthRequestIdentity(sessionEpoch: 1, userID: document.owner.userID, clientToken: "fixture-client",
-            accessToken: "fixture-access", sessionIntentGeneration: document.owner.sessionIntentGeneration)
+        // The signed-out test host can own an empty-user document lease. Its
+        // injected custody queue still needs a valid fixture request owner;
+        // do not mutate global auth merely to exercise bridge publication.
+        let identity = BackendAuthRequestIdentity(sessionEpoch: 1, userID: "render-page-fixture", clientToken: "fixture-client",
+            accessToken: "fixture-access", sessionIntentGeneration: 1)
         let backend = BackendAuthClient.resolvedBackendBaseURL()
         let outbox = OfflineTalkOutbox(storageDirectory: directory, requestIdentityProvider: { _ in identity }, backendURLProvider: { backend })
         var request = URLRequest(url: backend.appendingPathComponent(StudioRenderEndpoint.oneShotPath)); request.httpMethod = "POST"
@@ -84,7 +87,9 @@ final class ScreenplayRenderPageContextTests: XCTestCase {
         request.setValue("Bearer \(identity.accessToken)", forHTTPHeaderField: "Authorization")
         request.setValue(UUID().uuidString, forHTTPHeaderField: "X-Idempotency-Key"); request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         let body = try JSONSerialization.data(withJSONObject: ["transcript":"Write", "screenplay_target":"page", "screenplay_project_id":document.projectID])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: directory.path), "Admission must create its own fresh storage")
         let admission = try await outbox.admitLiveStudioRender(request: request, body: body, owner: identity, backendURL: backend)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: directory.appendingPathComponent("blobs").path))
         try operation(bridge, .init(request: .init(admission: admission, owner: document.owner, backendURL: backend), document: document))
     }
 }

@@ -9590,26 +9590,21 @@ struct MacCursorInsertTextEditor: NSViewRepresentable {
 
             let current = textView.string
             guard let replacementRange = streamingPreviewRange else { return }
-            let committedText = screenplayEditorPreparedInsertionCoreText(
-                trimmed,
-                existing: streamingPreviewBaseText.isEmpty ? current : streamingPreviewBaseText,
-                insertionRange: streamingPreviewOriginalSelection,
-                replacementTarget: streamingPreviewReplacementTarget
-            )
-            guard !committedText.isEmpty else {
-                cancelStreamingPreview()
+            guard let mutation = ScreenplayStreamingCommitMutation(before: streamingPreviewBaseText, current: current,
+                selection: streamingPreviewOriginalSelection, previewRange: replacementRange, text: trimmed,
+                prefix: streamingPreviewPrefix, suffix: streamingPreviewSuffix, replacementTarget: streamingPreviewReplacementTarget) else {
+                ScreenplayLiveDraftBridge.shared.autoInsertStatusText = "The page changed during the preview. Your words are kept; review the reply before applying it."
                 return
             }
-            let previewText = streamingPreviewPrefix + committedText + streamingPreviewSuffix
-            let mutable = NSMutableString(string: current)
-            mutable.replaceCharacters(in: replacementRange, with: previewText)
-            let nextText = String(mutable)
-            let nextRange = NSRange(location: replacementRange.location, length: (previewText as NSString).length)
-            let caretLocation = min(nextRange.location + nextRange.length, (nextText as NSString).length)
-            let highlightRange = NSRange(
-                location: replacementRange.location + (streamingPreviewPrefix as NSString).length,
-                length: (committedText as NSString).length
-            )
+            if livePageMutationGate.shouldDefer(request.livePageContext, before: mutation.before, range: mutation.range,
+                insertion: mutation.insertion, after: mutation.after, isCurrent: { [weak self] in
+                    guard let self, self.parent.insertionRequest?.id == request.id, let context = request.livePageContext else { return false }
+                    return context.permitsDelivery(in: ScreenplayLiveDraftBridge.shared)
+                }, resume: { [weak self] in self?.applyStreamingCommit(request) }, onFailure: {
+                    ScreenplayLiveDraftBridge.shared.autoInsertStatusText = "The reply is kept, but its original page change could not be stored. Review recovery before applying it."
+                }) { return }
+            let committedText = mutation.core, nextText = mutation.after
+            let highlightRange = mutation.highlightRange, caretLocation = mutation.caretLocation
             let committedLines = committedLineRange(for: highlightRange, in: nextText)
 
             isApplyingProgrammaticChange = true
@@ -9626,7 +9621,7 @@ struct MacCursorInsertTextEditor: NSViewRepresentable {
             )
             parent.lastCommittedWrite = ScreenplayLiveDraftBridge.shared.makeCommittedWrite(
                 id: request.id,
-                previousDraft: streamingPreviewBaseText.isEmpty ? current : streamingPreviewBaseText,
+                previousDraft: mutation.before,
                 committedDraft: nextText,
                 insertedText: committedText,
                 replacementApplied: replacementTarget != nil,
@@ -11932,26 +11927,21 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
 
             let current = textView.text ?? ""
             guard let replacementRange = streamingPreviewRange else { return }
-            let committedText = screenplayEditorPreparedInsertionCoreText(
-                trimmed,
-                existing: streamingPreviewBaseText.isEmpty ? current : streamingPreviewBaseText,
-                insertionRange: streamingPreviewOriginalSelection,
-                replacementTarget: streamingPreviewReplacementTarget
-            )
-            guard !committedText.isEmpty else {
-                cancelStreamingPreview()
+            guard let mutation = ScreenplayStreamingCommitMutation(before: streamingPreviewBaseText, current: current,
+                selection: streamingPreviewOriginalSelection, previewRange: replacementRange, text: trimmed,
+                prefix: streamingPreviewPrefix, suffix: streamingPreviewSuffix, replacementTarget: streamingPreviewReplacementTarget) else {
+                ScreenplayLiveDraftBridge.shared.autoInsertStatusText = "The page changed during the preview. Your words are kept; review the reply before applying it."
                 return
             }
-            let previewText = streamingPreviewPrefix + committedText + streamingPreviewSuffix
-            let mutable = NSMutableString(string: current)
-            mutable.replaceCharacters(in: replacementRange, with: previewText)
-            let nextText = String(mutable)
-            let nextRange = NSRange(location: replacementRange.location, length: (previewText as NSString).length)
-            let caretLocation = min(nextRange.location + nextRange.length, (nextText as NSString).length)
-            let highlightRange = NSRange(
-                location: replacementRange.location + (streamingPreviewPrefix as NSString).length,
-                length: (committedText as NSString).length
-            )
+            if livePageMutationGate.shouldDefer(request.livePageContext, before: mutation.before, range: mutation.range,
+                insertion: mutation.insertion, after: mutation.after, isCurrent: { [weak self] in
+                    guard let self, self.parent.insertionRequest?.id == request.id, let context = request.livePageContext else { return false }
+                    return context.permitsDelivery(in: ScreenplayLiveDraftBridge.shared)
+                }, resume: { [weak self] in self?.applyStreamingCommit(request) }, onFailure: {
+                    ScreenplayLiveDraftBridge.shared.autoInsertStatusText = "The reply is kept, but its original page change could not be stored. Review recovery before applying it."
+                }) { return }
+            let committedText = mutation.core, nextText = mutation.after
+            let highlightRange = mutation.highlightRange, caretLocation = mutation.caretLocation
             let committedLines = committedLineRange(for: highlightRange, in: nextText)
 
             isApplyingProgrammaticChange = true
@@ -11968,7 +11958,7 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
             )
             let committedWrite = ScreenplayLiveDraftBridge.shared.makeCommittedWrite(
                 id: request.id,
-                previousDraft: streamingPreviewBaseText.isEmpty ? current : streamingPreviewBaseText,
+                previousDraft: mutation.before,
                 committedDraft: nextText,
                 insertedText: committedText,
                 replacementApplied: replacementTarget != nil,

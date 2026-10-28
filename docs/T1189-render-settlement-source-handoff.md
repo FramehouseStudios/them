@@ -30,3 +30,15 @@ Jarvis must forward `result.delivery.request` in the original verified document 
 ## Next action
 
 Preserve this local commit when integrating into the parent tree. Connect the Root lease/context seam, compile, run the focused Swift fixtures and required integrated checkpoints, and fix the first actual failure. Keep this helper frozen after handoff.
+
+## Follow-up from the first combined native run
+
+Parent artifact `/private/tmp/them-1187-publication-proof/publication-boundaries.log` recorded 96 tests with seven failures: six helper-related assertions/exceptions and one parent-owned API fixture failure. No green native result is claimed.
+
+- Restored frame separators when retaining `AsyncBytes.lines` SSE output: empty lines can be omitted, and concatenating adjacent `event:` frames made the stored reply unreadable to the strict recovery decoder. The custody owner now reconstructs framing without changing JSON data. Added a deterministic framing regression; the existing real client regression remains intact.
+- The render-ready reconciliation branch now projects `hasLivePageIntent` from its v4 body record, preserving early-save eligibility before the completed reply exists. Existing early-save assertions are unchanged.
+- Bridge fixtures now use an explicitly valid injected request owner rather than the signed-out host document's potentially empty user ID. The original cleanup attempted removal of a never-created directory after admission failed; cleanup now checks existence, preserving the real failure if another boundary fails. No pre-created storage directory masks admission: fresh-directory creation remains the production outbox's responsibility. This fixture repair needs parent rerun confirmation.
+- Read-only integration review found both active native `.streamCommit` paths bypassed the durable mutation gate when a preview range existed. Shared `ScreenplayStreamingCommitMutation` now computes the original before/selection/insertion/after, rejects edits outside the provisional range, and feeds the existing gate before either native committed mutation. The original empty document is also preserved for Undo. Added actual iOS coordinator durability/project-switch regressions and shared calculation tests.
+- Current Bridge count: 12,762, below the exact initial base's 12,774 and prior helper commit's 12,772. Static diff and canonical god-file gates pass; follow-up native execution remains UNRUN in this lane.
+
+Parent-owned review finding: Root's eight-second text-only `lastCommittedWrite` shortcut must not bypass a distinct context-bearing admission. Require original request identity or restrict the shortcut to nil-context legacy writes.

@@ -4067,7 +4067,7 @@ final class BackendClient {
             }
 
             for try await rawLine in bytes.lines {
-                retainedFrames.append(Data((rawLine + "\n").utf8))
+                BackendStudioRenderCustody.appendStreamLine(rawLine, to: &retainedFrames)
                 guard retainedFrames.count <= OfflineTalkStoredResponse.maxBodyBytes else {
                     throw BackendTalkCustodyError(underlyingError: BackendMemoryAPIError.invalidResponse)
                 }

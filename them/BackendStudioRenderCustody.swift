@@ -39,6 +39,15 @@ nonisolated struct BackendStudioRenderCustody: Sendable {
     let admission: OfflineTalkLiveAdmission
     let outbox: OfflineTalkOutbox
 
+    /// AsyncBytes.lines may omit empty lines. The server emits an event field
+    /// at each frame boundary; restore that delimiter without changing data.
+    static func appendStreamLine(_ line: String, to frames: inout Data) {
+        if line.hasPrefix("event:"), !frames.isEmpty, !frames.suffix(2).elementsEqual(Data("\n\n".utf8)) {
+            frames.append(10)
+        }
+        frames.append(Data((line + "\n").utf8))
+    }
+
     func delivery(owner: BackendAuthRequestIdentity, backendURL: URL) async throws -> BackendStudioRenderDeliveryReceipt {
         try await outbox.studioRenderDelivery(admission, owner: owner, backendURL: backendURL)
     }
