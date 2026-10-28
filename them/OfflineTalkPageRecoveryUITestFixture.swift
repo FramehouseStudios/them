@@ -61,7 +61,7 @@ enum OfflineTalkPageRecoveryUITestFixture {
                 let admission = try await box.admitLiveTalk(request: request, body: body, owner: owner, backendURL: url)
                 // Actual loopback HTTP creates the retained response. Only
                 // provider calls are intercepted by the external UI runner.
-                let (data, response) = try await URLSession.shared.data(for: request)
+                let (data, response) = try await URLSession.shared.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
                 guard let http = response as? HTTPURLResponse, let responseURL = http.url else {
                     throw BackendMemoryAPIError.invalidResponse
                 }
