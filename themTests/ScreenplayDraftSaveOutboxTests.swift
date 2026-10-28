@@ -168,6 +168,29 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
         XCTAssertEqual(restored.first?.lastError, "Interrupted while saving.")
     }
 
+    func testPreLineageManifestDecodesSavesAndRelaunchesWithEmptyLineage() async throws {
+        let legacyEntry = makeEntry(id: "pre-lineage")
+        let priorShape = try JSONDecoder().decode(PriorDraftSaveOutboxEntry.self,
+            from: JSONEncoder().encode(legacyEntry))
+        let legacyData = try JSONEncoder().encode([priorShape])
+        let legacyObject = try XCTUnwrap(JSONSerialization.jsonObject(with: legacyData) as? [[String: Any]])
+        XCTAssertNil(legacyObject.first?["supersededConflictRequests"])
+        try FileManager.default.createDirectory(at: storageDirectory, withIntermediateDirectories: true)
+        try legacyData.write(to: storageDirectory.appendingPathComponent("queue.json"), options: .atomic)
+
+        let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let restoredLegacy = try await store.entriesForTesting()
+        XCTAssertEqual(restoredLegacy.map(\.id), [legacyEntry.id])
+        XCTAssertEqual(restoredLegacy.first?.supersededConflictRequests, [])
+
+        let newEntry = makeEntry(id: "post-lineage", draft: "Later draft", createdAt: 101)
+        try await store.enqueue(newEntry)
+        let relaunched = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let saved = try await relaunched.entriesForTesting()
+        XCTAssertEqual(saved.map(\.id), [legacyEntry.id, newEntry.id])
+        XCTAssertTrue(saved.allSatisfy { $0.supersededConflictRequests.isEmpty })
+    }
+
     @MainActor
     func testRequestCreationTimeSurvivesMaterializationRebaseAndRelaunch() {
         let context = ScreenplayStudioAuthContext(userID: "writer", sessionIntentGeneration: 1)

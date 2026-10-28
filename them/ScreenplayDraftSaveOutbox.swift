@@ -102,6 +102,94 @@ nonisolated struct ScreenplayDraftSaveOutboxEntry: Identifiable, Codable, Equata
     }
 }
 
+nonisolated extension ScreenplayDraftSaveOutboxEntry {
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case projectId
+        case ownerUserId
+        case draft
+        case title
+        case phase
+        case notes
+        case source
+        case studioWriteAnchors
+        case screenplayBindings
+        case baseVersionId
+        case createdAt
+        case updatedAt
+        case status
+        case retries
+        case nextAttemptAt
+        case lastError
+        case initialization
+        case deliveryOrigin
+        case requestAuthority
+        case loadServerRetirement
+        case supersededConflictRequests
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        projectId = try container.decode(String.self, forKey: .projectId)
+        ownerUserId = try container.decode(String.self, forKey: .ownerUserId)
+        draft = try container.decode(String.self, forKey: .draft)
+        title = try container.decode(String.self, forKey: .title)
+        phase = try container.decode(String.self, forKey: .phase)
+        notes = try container.decode(String.self, forKey: .notes)
+        source = try container.decode(String.self, forKey: .source)
+        studioWriteAnchors = try container.decode([BackendScreenplayWriteAnchor].self,
+            forKey: .studioWriteAnchors)
+        screenplayBindings = try container.decode([BackendScreenplayBindingRecord].self,
+            forKey: .screenplayBindings)
+        baseVersionId = try container.decode(String.self, forKey: .baseVersionId)
+        createdAt = try container.decode(TimeInterval.self, forKey: .createdAt)
+        updatedAt = try container.decode(TimeInterval.self, forKey: .updatedAt)
+        status = try container.decode(ScreenplayDraftSaveOutboxStatus.self, forKey: .status)
+        retries = try container.decode(Int.self, forKey: .retries)
+        nextAttemptAt = try container.decode(TimeInterval.self, forKey: .nextAttemptAt)
+        lastError = try container.decode(String.self, forKey: .lastError)
+        initialization = try container.decodeIfPresent(ScreenplayInitialProjectMetadata.self,
+            forKey: .initialization)
+        deliveryOrigin = try container.decodeIfPresent(ScreenplayDraftSaveOrigin.self,
+            forKey: .deliveryOrigin)
+        requestAuthority = try container.decodeIfPresent(ScreenplayDraftSaveRequestAuthority.self,
+            forKey: .requestAuthority)
+        loadServerRetirement = try container.decodeIfPresent(ScreenplayDraftLoadServerRetirement.self,
+            forKey: .loadServerRetirement)
+        supersededConflictRequests = try container.decodeIfPresent(
+            [ScreenplayDraftConflictRequestReference].self,
+            forKey: .supersededConflictRequests
+        ) ?? []
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(projectId, forKey: .projectId)
+        try container.encode(ownerUserId, forKey: .ownerUserId)
+        try container.encode(draft, forKey: .draft)
+        try container.encode(title, forKey: .title)
+        try container.encode(phase, forKey: .phase)
+        try container.encode(notes, forKey: .notes)
+        try container.encode(source, forKey: .source)
+        try container.encode(studioWriteAnchors, forKey: .studioWriteAnchors)
+        try container.encode(screenplayBindings, forKey: .screenplayBindings)
+        try container.encode(baseVersionId, forKey: .baseVersionId)
+        try container.encode(createdAt, forKey: .createdAt)
+        try container.encode(updatedAt, forKey: .updatedAt)
+        try container.encode(status, forKey: .status)
+        try container.encode(retries, forKey: .retries)
+        try container.encode(nextAttemptAt, forKey: .nextAttemptAt)
+        try container.encode(lastError, forKey: .lastError)
+        try container.encodeIfPresent(initialization, forKey: .initialization)
+        try container.encodeIfPresent(deliveryOrigin, forKey: .deliveryOrigin)
+        try container.encodeIfPresent(requestAuthority, forKey: .requestAuthority)
+        try container.encodeIfPresent(loadServerRetirement, forKey: .loadServerRetirement)
+        try container.encode(supersededConflictRequests, forKey: .supersededConflictRequests)
+    }
+}
+
 nonisolated struct ScreenplayDraftSaveOutboxSnapshot: Equatable {
     let pendingCount: Int
     let inflightCount: Int
