@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 import Network
 
 nonisolated extension Notification.Name {
@@ -14,6 +15,29 @@ nonisolated enum ScreenplayDraftSaveOutboxStatus: String, Codable, Equatable {
     case pending
     case inflight
     case parked
+}
+
+/// Created once with DraftSaveRequest and copied unchanged into every later
+/// materialization of that request. Wall-clock time is not request authority.
+nonisolated struct ScreenplayDraftSaveRequestAuthority: Codable, Equatable, Sendable {
+    let id: UUID
+    let generation: UInt64
+}
+
+/// Stored inside a parked compatibility marker. Previous array-only builds
+/// ignore this new field, but still see the same request ID as parked and
+/// therefore cannot deliver that retired request after an app downgrade.
+nonisolated struct ScreenplayDraftLoadServerRetirement: Codable, Equatable, Sendable {
+    let requestID: String
+    let projectId: String
+    let ownerUserId: String
+    let deliveryOrigin: ScreenplayDraftSaveOrigin
+    let requestAuthority: ScreenplayDraftSaveRequestAuthority?
+    let requestDigest: String?
+    // Decode-only compatibility for the unreleased v1 marker. New markers
+    // leave these nil so the fence never retains writer notes or source text.
+    let source: String?
+    let notes: String?
 }
 
 nonisolated struct ScreenplayDraftSaveOutboxEntry: Identifiable, Codable, Equatable {
@@ -36,6 +60,8 @@ nonisolated struct ScreenplayDraftSaveOutboxEntry: Identifiable, Codable, Equata
     var lastError: String
     var initialization: ScreenplayInitialProjectMetadata? = nil
     var deliveryOrigin: ScreenplayDraftSaveOrigin? = nil
+    var requestAuthority: ScreenplayDraftSaveRequestAuthority? = nil
+    var loadServerRetirement: ScreenplayDraftLoadServerRetirement? = nil
 
     var isPassiveAutosave: Bool { source == "studio_autosave" && notes.isEmpty }
 
@@ -91,24 +117,55 @@ nonisolated enum ScreenplayDraftSaveDelivery {
     case parked(ScreenplayDraftSaveOutboxEntry)
 }
 
+/// In-memory proof of the exact conflict requests selected by Load Server.
+/// Resolution never infers deletion authority from age or broad scope.
+nonisolated struct ScreenplayDraftLoadServerSelection: Equatable {
+    let id: UUID
+    let projectId: String
+    let ownerUserId: String
+    let deliveryOrigin: ScreenplayDraftSaveOrigin
+    let requests: [ScreenplayDraftSaveOutboxEntry]
+}
+
+nonisolated struct ScreenplayDraftLoadServerResolution: Equatable {
+    let selectionID: UUID
+    let retiredRequestIDs: [String]
+}
+
 actor ScreenplayDraftSaveOutbox {
     static let shared = ScreenplayDraftSaveOutbox(storageDirectory: defaultStorageDirectory())
 
     private static let maxDraftBytes = 2 * 1024 * 1024
     private static let backoffSeconds: [TimeInterval] = [2, 5, 15, 60, 300]
+    private static let conflictReason = "Server draft changed. Choose Keep Mine or Load Server."
+    private static let retirementReason = "Load Server retired this exact local request. Update io.them before retrying it."
+    private static let retirementProjectID = "load-server-retirement"
+    private static let retirementOwnerID = "load-server-retirement"
+    private static let retirementSource = "studio_load_server_retirement"
+    private static let retirementNotesPrefix = "load-server-retirement-v2:"
+    private static let legacyRetirementNotesPrefix = "load-server-retirement-v1:"
 
     private let storageDirectory: URL
     private let manifestURL: URL
     private let fileManager: FileManager
+    private let manifestWriter: @Sendable (Data, URL) throws -> Void
     private var didLoad = false
     private var entries: [ScreenplayDraftSaveOutboxEntry] = []
+    private var retirementMarkers: [ScreenplayDraftSaveOutboxEntry] = []
     private var networkMonitor: NWPathMonitor?
     private let networkMonitorQueue = DispatchQueue(label: "io.them.screenplay-save-outbox.network")
 
-    init(storageDirectory: URL, fileManager: FileManager = .default) {
+    init(
+        storageDirectory: URL,
+        fileManager: FileManager = .default,
+        manifestWriter: @escaping @Sendable (Data, URL) throws -> Void = { data, url in
+            try data.write(to: url, options: .atomic)
+        }
+    ) {
         self.storageDirectory = storageDirectory
         self.manifestURL = storageDirectory.appendingPathComponent("queue.json")
         self.fileManager = fileManager
+        self.manifestWriter = manifestWriter
     }
 
     func startNetworkMonitoring() {
@@ -167,10 +224,18 @@ actor ScreenplayDraftSaveOutbox {
         guard entry.draft.utf8.count <= Self.maxDraftBytes else {
             throw BackendMemoryAPIError.server(status: 413, message: "screenplay_draft_too_large")
         }
+        if let marker = retirementMarkers.first(where: { $0.id == entry.id }) {
+            guard retirementMarker(marker, matches: entry) else {
+                throw BackendMemoryAPIError.server(status: 409, message: "screenplay_save_id_reused")
+            }
+            return marker
+        }
         if let index = entries.firstIndex(where: { $0.id == entry.id }) {
             guard entries[index].projectId == entry.projectId,
                   entries[index].ownerUserId == entry.ownerUserId,
                   entries[index].deliveryOrigin == entry.deliveryOrigin,
+                  entries[index].requestAuthority == entry.requestAuthority,
+                  entries[index].loadServerRetirement == entry.loadServerRetirement,
                   entries[index].draft.utf8.elementsEqual(entry.draft.utf8) else {
                 throw BackendMemoryAPIError.server(status: 409, message: "screenplay_save_id_reused")
             }
@@ -325,22 +390,201 @@ actor ScreenplayDraftSaveOutbox {
             entries[index].status = .parked
             entries[index].updatedAt = now.timeIntervalSince1970
             entries[index].nextAttemptAt = 0
-            entries[index].lastError = "Server draft changed. Choose Keep Mine or Load Server."
+            entries[index].lastError = Self.conflictReason
         }
         do { try persist() } catch { entries = previous; throw error }
         publishSnapshot()
         return entries.last { $0.projectId == project && $0.ownerUserId == owner && $0.deliveryOrigin == deliveryOrigin }
     }
 
+    /// Exact-request replacement for broad conflict retention. This method may
+    /// park only the immutable request supplied by the caller; it cannot park a
+    /// newer or unrelated edit merely because it shares a document scope.
+    func retainConflict(
+        _ request: ScreenplayDraftSaveOutboxEntry,
+        now: Date = Date()
+    ) throws -> ScreenplayDraftSaveOutboxEntry? {
+        try loadIfNeeded()
+        try validateRetirableRequest(request)
+        if let marker = retirementMarkers.first(where: { $0.id == request.id }) {
+            guard retirementMarker(marker, matches: request) else {
+                throw BackendMemoryAPIError.server(status: 409, message: "screenplay_save_id_reused")
+            }
+            return nil
+        }
+        let previous = entries
+        if let index = entries.firstIndex(where: { $0.id == request.id }) {
+            guard sameImmutableRequest(entries[index], request) else {
+                throw BackendMemoryAPIError.server(status: 409, message: "screenplay_save_id_reused")
+            }
+            entries[index].status = .parked
+            entries[index].updatedAt = now.timeIntervalSince1970
+            entries[index].nextAttemptAt = 0
+            entries[index].lastError = Self.conflictReason
+        } else {
+            // Older rows have no minted request authority. Their stable ID is
+            // usable only when the exact row is already durable; an in-memory
+            // value alone cannot authorize destructive retirement.
+            guard request.requestAuthority != nil else {
+                throw BackendMemoryAPIError.invalidResponse
+            }
+            var parked = request
+            parked.status = .parked
+            parked.updatedAt = now.timeIntervalSince1970
+            parked.nextAttemptAt = 0
+            parked.lastError = Self.conflictReason
+            entries.append(parked)
+            entries.sort { lhs, rhs in
+                if lhs.createdAt == rhs.createdAt { return lhs.id < rhs.id }
+                return lhs.createdAt < rhs.createdAt
+            }
+        }
+        do { try persist() } catch { entries = previous; throw error }
+        publishSnapshot()
+        return entries.first { $0.id == request.id }
+    }
+
+    /// Captures only exact immutable requests explicitly supplied by the VM.
+    /// Parked status and owner/project/document scope are not writer authority
+    /// to discard any other row. Legacy rows without a delivery origin remain
+    /// unresolvable here and must stay durable for conservative VM recovery.
+    func captureLoadServerSelection(
+        projectId: String,
+        ownerUserId: String,
+        deliveryOrigin: ScreenplayDraftSaveOrigin,
+        explicitRequests: [ScreenplayDraftSaveOutboxEntry]
+    ) throws -> ScreenplayDraftLoadServerSelection {
+        try loadIfNeeded()
+        let project = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
+        let owner = ownerUserId.trimmingCharacters(in: .whitespacesAndNewlines)
+        try validateScope(projectId: project, ownerUserId: owner, deliveryOrigin: deliveryOrigin)
+        var selected: [String: ScreenplayDraftSaveOutboxEntry] = [:]
+        for request in explicitRequests {
+            try validateRetirableRequest(request)
+            guard exactScope(request, projectId: project, ownerUserId: owner,
+                             deliveryOrigin: deliveryOrigin) else {
+                throw BackendMemoryAPIError.invalidResponse
+            }
+            if let current = entries.first(where: { $0.id == request.id }) {
+                guard sameImmutableRequest(current, request), current.status == .parked,
+                      current.lastError == Self.conflictReason else {
+                    throw BackendMemoryAPIError.invalidResponse
+                }
+                selected[request.id] = current
+            } else if let marker = retirementMarkers.first(where: { $0.id == request.id }) {
+                guard retirementMarker(marker, matches: request) else {
+                    throw BackendMemoryAPIError.server(status: 409, message: "screenplay_save_id_reused")
+                }
+                selected[request.id] = request
+            } else if let existing = selected[request.id] {
+                guard sameImmutableRequest(existing, request) else {
+                    throw BackendMemoryAPIError.server(status: 409, message: "screenplay_save_id_reused")
+                }
+            } else {
+                // Only current-authority requests may be fenced before their
+                // row materializes. Legacy nil-authority requests need an
+                // exact durable parked row selected above.
+                guard request.requestAuthority != nil else {
+                    throw BackendMemoryAPIError.invalidResponse
+                }
+                selected[request.id] = request
+            }
+        }
+        guard !selected.isEmpty else { throw BackendMemoryAPIError.invalidResponse }
+        return ScreenplayDraftLoadServerSelection(
+            id: UUID(),
+            projectId: project,
+            ownerUserId: owner,
+            deliveryOrigin: deliveryOrigin,
+            requests: selected.values.sorted { $0.id < $1.id }
+        )
+    }
+
+    /// Retire only the exact immutable requests captured by the selection. Each
+    /// retirement becomes a parked array-compatible marker with the same ID,
+    /// so a previous build fails closed rather than delivering it after rollback.
+    func resolveLoadServerSelection(
+        _ selection: ScreenplayDraftLoadServerSelection
+    ) throws -> ScreenplayDraftLoadServerResolution {
+        try loadIfNeeded()
+        try validate(selection)
+        let previousEntries = entries
+        let previousMarkers = retirementMarkers
+        var retiredIDs: [String] = []
+        do {
+            for request in selection.requests {
+                if let existingMarker = retirementMarkers.first(where: { $0.id == request.id }) {
+                    guard retirementMarker(existingMarker, matches: request) else {
+                        throw BackendMemoryAPIError.server(status: 409, message: "screenplay_save_id_reused")
+                    }
+                    retiredIDs.append(request.id)
+                    continue
+                }
+                if let index = entries.firstIndex(where: { $0.id == request.id }) {
+                    let current = entries[index]
+                    guard sameImmutableRequest(current, request), current.status == .parked,
+                          current.lastError == Self.conflictReason else {
+                        throw BackendMemoryAPIError.invalidResponse
+                    }
+                    entries.remove(at: index)
+                } else if request.requestAuthority == nil {
+                    // Re-check legacy durability at commit time. Another actor
+                    // turn may have removed the selected row after capture.
+                    throw BackendMemoryAPIError.invalidResponse
+                }
+                retirementMarkers.append(try makeRetirementMarker(for: request))
+                retiredIDs.append(request.id)
+            }
+            try persist()
+        } catch {
+            entries = previousEntries
+            retirementMarkers = previousMarkers
+            throw error
+        }
+        publishSnapshot()
+        return ScreenplayDraftLoadServerResolution(
+            selectionID: selection.id,
+            retiredRequestIDs: retiredIDs.sorted()
+        )
+    }
+
+    /// Nil is the intentional result for one exact retired request. A request
+    /// with a different ID or authority remains independently deliverable.
+    func beginDeliveryUnlessRetiredByLoadServer(
+        _ entry: ScreenplayDraftSaveOutboxEntry,
+        continuingInflightID: String? = nil
+    ) throws -> ScreenplayDraftSaveDelivery? {
+        try loadIfNeeded()
+        if let marker = retirementMarkers.first(where: { $0.id == entry.id }) {
+            guard retirementMarker(marker, matches: entry) else {
+                throw BackendMemoryAPIError.server(status: 409, message: "screenplay_save_id_reused")
+            }
+            return nil
+        }
+        return try beginDelivery(entry, continuingInflightID: continuingInflightID)
+    }
+
     func removeAll(projectId: String, ownerUserId: String) throws {
         try loadIfNeeded()
         let cleanProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
         let cleanOwnerUserId = ownerUserId.trimmingCharacters(in: .whitespacesAndNewlines)
+        let previousEntries = entries
+        let previousMarkers = retirementMarkers
         entries.removeAll { entry in
             entry.projectId == cleanProjectId &&
                 entry.ownerUserId == cleanOwnerUserId
         }
-        try persist()
+        retirementMarkers.removeAll { marker in
+            marker.loadServerRetirement?.projectId == cleanProjectId &&
+                marker.loadServerRetirement?.ownerUserId == cleanOwnerUserId
+        }
+        do {
+            try persist()
+        } catch {
+            entries = previousEntries
+            retirementMarkers = previousMarkers
+            throw error
+        }
         publishSnapshot()
     }
 
@@ -376,6 +620,11 @@ actor ScreenplayDraftSaveOutbox {
     func entriesForTesting() throws -> [ScreenplayDraftSaveOutboxEntry] {
         try loadIfNeeded()
         return entries
+    }
+
+    func retirementMarkersForTesting() throws -> [ScreenplayDraftSaveOutboxEntry] {
+        try loadIfNeeded()
+        return retirementMarkers
     }
 
     func prepareInitialProject(ownerUserID: String, backendURL: URL, documentID: String,
@@ -516,11 +765,28 @@ actor ScreenplayDraftSaveOutbox {
         guard !didLoad else { return }
         guard fileManager.fileExists(atPath: manifestURL.path) else {
             entries = []
+            retirementMarkers = []
             didLoad = true
             return
         }
         let data = try Data(contentsOf: manifestURL)
-        var restoredEntries = try JSONDecoder().decode([ScreenplayDraftSaveOutboxEntry].self, from: data)
+        let decodedEntries = try JSONDecoder().decode([ScreenplayDraftSaveOutboxEntry].self, from: data)
+        var restoredEntries: [ScreenplayDraftSaveOutboxEntry] = []
+        var restoredMarkers: [ScreenplayDraftSaveOutboxEntry] = []
+        for entry in decodedEntries {
+            if isRetirementMarkerCandidate(entry) {
+                var marker = try hydratedRetirementMarker(entry)
+                marker.status = .parked
+                marker.nextAttemptAt = 0
+                marker.lastError = Self.retirementReason
+                restoredMarkers.append(marker)
+            } else {
+                guard entry.loadServerRetirement == nil else {
+                    throw BackendMemoryAPIError.invalidResponse
+                }
+                restoredEntries.append(entry)
+            }
+        }
         let now = Date().timeIntervalSince1970
         for index in restoredEntries.indices where restoredEntries[index].status == .inflight {
             restoredEntries[index].status = .pending
@@ -528,6 +794,7 @@ actor ScreenplayDraftSaveOutbox {
             restoredEntries[index].lastError = "Interrupted while saving."
         }
         entries = restoredEntries
+        retirementMarkers = restoredMarkers
         try persist()
         didLoad = true
     }
@@ -536,8 +803,12 @@ actor ScreenplayDraftSaveOutbox {
         try fileManager.createDirectory(at: storageDirectory, withIntermediateDirectories: true)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
-        let data = try encoder.encode(entries)
-        try data.write(to: manifestURL, options: .atomic)
+        let stored = (entries + retirementMarkers).sorted { lhs, rhs in
+            if lhs.createdAt == rhs.createdAt { return lhs.id < rhs.id }
+            return lhs.createdAt < rhs.createdAt
+        }
+        let data = try encoder.encode(stored)
+        try manifestWriter(data, manifestURL)
         #if os(iOS)
         try? fileManager.setAttributes(
             [.protectionKey: FileProtectionType.complete],
@@ -548,6 +819,291 @@ actor ScreenplayDraftSaveOutbox {
             ofItemAtPath: manifestURL.path
         )
         #endif
+    }
+
+    private func validateScope(
+        projectId: String,
+        ownerUserId: String,
+        deliveryOrigin: ScreenplayDraftSaveOrigin
+    ) throws {
+        guard validIdentifier(projectId), validIdentifier(ownerUserId),
+              validIdentifier(deliveryOrigin.documentID),
+              let origin = try? ScreenplayInitialProjectMetadata.origin(deliveryOrigin.backendURL),
+              origin == deliveryOrigin.backendURL else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+    }
+
+    private func validateRetirableRequest(_ entry: ScreenplayDraftSaveOutboxEntry) throws {
+        guard entry.initialization == nil, entry.loadServerRetirement == nil,
+              validIdentifier(entry.id, limit: 96), let origin = entry.deliveryOrigin else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        try validateScope(projectId: entry.projectId, ownerUserId: entry.ownerUserId,
+                          deliveryOrigin: origin)
+    }
+
+    private func validate(_ selection: ScreenplayDraftLoadServerSelection) throws {
+        try validateScope(projectId: selection.projectId, ownerUserId: selection.ownerUserId,
+                          deliveryOrigin: selection.deliveryOrigin)
+        guard !selection.requests.isEmpty,
+              Set(selection.requests.map(\.id)).count == selection.requests.count else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        for request in selection.requests {
+            try validateRetirableRequest(request)
+            guard exactScope(request, projectId: selection.projectId,
+                             ownerUserId: selection.ownerUserId,
+                             deliveryOrigin: selection.deliveryOrigin) else {
+                throw BackendMemoryAPIError.invalidResponse
+            }
+        }
+    }
+
+    private func validateRetirementMarker(_ marker: ScreenplayDraftSaveOutboxEntry) throws {
+        guard let retirement = marker.loadServerRetirement,
+              let requestDigest = retirement.requestDigest,
+              validRequestDigest(requestDigest),
+              marker.id == retirement.requestID,
+              marker.projectId == Self.retirementProjectID,
+              marker.ownerUserId == Self.retirementOwnerID,
+              marker.source == Self.retirementSource,
+              try decodedRetirementNotes(marker.notes) == retirement,
+              marker.initialization == nil,
+              marker.requestAuthority == retirement.requestAuthority,
+              retirement.source == nil,
+              retirement.notes == nil,
+              marker.draft.isEmpty,
+              marker.title.isEmpty,
+              marker.phase.isEmpty,
+              marker.studioWriteAnchors.isEmpty,
+              marker.screenplayBindings.isEmpty,
+              marker.baseVersionId.isEmpty,
+              let sentinel = marker.deliveryOrigin,
+              sentinel.backendURL == retirement.deliveryOrigin.backendURL,
+              sentinel.documentID == retirementDocumentID(requestDigest) else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        try validateScope(projectId: retirement.projectId, ownerUserId: retirement.ownerUserId,
+                          deliveryOrigin: retirement.deliveryOrigin)
+    }
+
+    private func isRetirementMarkerCandidate(_ entry: ScreenplayDraftSaveOutboxEntry) -> Bool {
+        entry.projectId == Self.retirementProjectID &&
+            entry.ownerUserId == Self.retirementOwnerID &&
+            entry.source == Self.retirementSource &&
+            (entry.notes.hasPrefix(Self.retirementNotesPrefix) ||
+                entry.notes.hasPrefix(Self.legacyRetirementNotesPrefix))
+    }
+
+    private func hydratedRetirementMarker(
+        _ stored: ScreenplayDraftSaveOutboxEntry
+    ) throws -> ScreenplayDraftSaveOutboxEntry {
+        let decoded = try decodedRetirementNotes(stored.notes)
+        if let embedded = stored.loadServerRetirement, embedded != decoded {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        if decoded.requestDigest == nil {
+            guard stored.notes.hasPrefix(Self.legacyRetirementNotesPrefix),
+                  let source = decoded.source,
+                  let notes = decoded.notes else {
+                throw BackendMemoryAPIError.invalidResponse
+            }
+            var request = ScreenplayDraftSaveOutboxEntry(
+                id: decoded.requestID,
+                projectId: decoded.projectId,
+                ownerUserId: decoded.ownerUserId,
+                draft: stored.draft,
+                title: stored.title,
+                phase: stored.phase,
+                notes: notes,
+                source: source,
+                studioWriteAnchors: stored.studioWriteAnchors,
+                screenplayBindings: stored.screenplayBindings,
+                baseVersionId: stored.baseVersionId,
+                createdAt: stored.createdAt,
+                updatedAt: stored.updatedAt,
+                status: .parked,
+                retries: stored.retries,
+                nextAttemptAt: 0,
+                lastError: Self.conflictReason
+            )
+            request.deliveryOrigin = decoded.deliveryOrigin
+            request.requestAuthority = decoded.requestAuthority
+            return try makeRetirementMarker(for: request)
+        }
+        var marker = stored
+        marker.requestAuthority = decoded.requestAuthority
+        marker.loadServerRetirement = decoded
+        try validateRetirementMarker(marker)
+        return marker
+    }
+
+    private func encodedRetirementNotes(
+        _ retirement: ScreenplayDraftLoadServerRetirement
+    ) throws -> String {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        return Self.retirementNotesPrefix + (try encoder.encode(retirement)).base64EncodedString()
+    }
+
+    private func decodedRetirementNotes(_ notes: String) throws -> ScreenplayDraftLoadServerRetirement {
+        let encoded: Substring
+        if notes.hasPrefix(Self.retirementNotesPrefix) {
+            encoded = notes.dropFirst(Self.retirementNotesPrefix.count)
+        } else if notes.hasPrefix(Self.legacyRetirementNotesPrefix) {
+            encoded = notes.dropFirst(Self.legacyRetirementNotesPrefix.count)
+        } else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        guard let data = Data(base64Encoded: String(encoded)) else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        return try JSONDecoder().decode(ScreenplayDraftLoadServerRetirement.self, from: data)
+    }
+
+    private func makeRetirementMarker(
+        for request: ScreenplayDraftSaveOutboxEntry
+    ) throws -> ScreenplayDraftSaveOutboxEntry {
+        try validateRetirableRequest(request)
+        guard let origin = request.deliveryOrigin else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        let digest = try requestDigest(request)
+        let retirement = ScreenplayDraftLoadServerRetirement(
+            requestID: request.id,
+            projectId: request.projectId,
+            ownerUserId: request.ownerUserId,
+            deliveryOrigin: origin,
+            requestAuthority: request.requestAuthority,
+            requestDigest: digest,
+            source: nil,
+            notes: nil
+        )
+        var marker = ScreenplayDraftSaveOutboxEntry(
+            id: request.id,
+            projectId: Self.retirementProjectID,
+            ownerUserId: Self.retirementOwnerID,
+            draft: "",
+            title: "",
+            phase: "",
+            notes: try encodedRetirementNotes(retirement),
+            source: Self.retirementSource,
+            studioWriteAnchors: [],
+            screenplayBindings: [],
+            baseVersionId: "",
+            createdAt: 0,
+            updatedAt: 0,
+            status: .parked,
+            retries: 0,
+            nextAttemptAt: 0,
+            lastError: Self.retirementReason
+        )
+        marker.deliveryOrigin = ScreenplayDraftSaveOrigin(
+            documentID: retirementDocumentID(digest),
+            backendURL: origin.backendURL
+        )
+        marker.requestAuthority = request.requestAuthority
+        marker.loadServerRetirement = retirement
+        try validateRetirementMarker(marker)
+        return marker
+    }
+
+    private func retirementMarker(
+        _ marker: ScreenplayDraftSaveOutboxEntry,
+        matches request: ScreenplayDraftSaveOutboxEntry
+    ) -> Bool {
+        guard let retirement = marker.loadServerRetirement,
+              retirement.requestID == request.id,
+              retirement.projectId == request.projectId,
+              retirement.ownerUserId == request.ownerUserId,
+              retirement.deliveryOrigin == request.deliveryOrigin,
+              retirement.requestAuthority == request.requestAuthority,
+              let digest = retirement.requestDigest else {
+            return false
+        }
+        return (try? requestDigest(request)) == digest
+    }
+
+    private func sameImmutableRequest(
+        _ lhs: ScreenplayDraftSaveOutboxEntry,
+        _ rhs: ScreenplayDraftSaveOutboxEntry
+    ) -> Bool {
+        lhs.id == rhs.id && lhs.projectId == rhs.projectId &&
+            lhs.ownerUserId == rhs.ownerUserId &&
+            lhs.deliveryOrigin == rhs.deliveryOrigin &&
+            lhs.requestAuthority == rhs.requestAuthority &&
+            lhs.initialization == rhs.initialization &&
+            lhs.loadServerRetirement == nil && rhs.loadServerRetirement == nil &&
+            lhs.draft.utf8.elementsEqual(rhs.draft.utf8) &&
+            lhs.title == rhs.title && lhs.phase == rhs.phase &&
+            lhs.notes == rhs.notes && lhs.source == rhs.source &&
+            lhs.studioWriteAnchors == rhs.studioWriteAnchors &&
+            lhs.screenplayBindings == rhs.screenplayBindings &&
+            lhs.baseVersionId == rhs.baseVersionId
+    }
+
+    private func exactScope(
+        _ entry: ScreenplayDraftSaveOutboxEntry,
+        projectId: String,
+        ownerUserId: String,
+        deliveryOrigin: ScreenplayDraftSaveOrigin
+    ) -> Bool {
+        entry.projectId == projectId && entry.ownerUserId == ownerUserId &&
+            entry.deliveryOrigin == deliveryOrigin
+    }
+
+    private func requestDigest(_ request: ScreenplayDraftSaveOutboxEntry) throws -> String {
+        var projection = Data()
+        appendCanonical(Data("io.them.screenplay-draft-save-retirement-v2".utf8), to: &projection)
+        for value in [request.id, request.projectId, request.ownerUserId] {
+            appendCanonical(Data(value.utf8), to: &projection)
+        }
+        guard let origin = request.deliveryOrigin else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        appendCanonical(Data(origin.documentID.utf8), to: &projection)
+        appendCanonical(Data(origin.backendURL.absoluteString.utf8), to: &projection)
+        if let authority = request.requestAuthority {
+            projection.append(1)
+            appendCanonical(Data(authority.id.uuidString.lowercased().utf8), to: &projection)
+            appendCanonicalInteger(authority.generation, to: &projection)
+        } else {
+            projection.append(0)
+        }
+        for value in [request.draft, request.title, request.phase, request.notes,
+                      request.source, request.baseVersionId] {
+            appendCanonical(Data(value.utf8), to: &projection)
+        }
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        appendCanonical(try encoder.encode(request.studioWriteAnchors), to: &projection)
+        appendCanonical(try encoder.encode(request.screenplayBindings), to: &projection)
+        return SHA256.hash(data: projection).map { String(format: "%02x", $0) }.joined()
+    }
+
+    private func appendCanonical(_ bytes: Data, to projection: inout Data) {
+        appendCanonicalInteger(UInt64(bytes.count), to: &projection)
+        projection.append(bytes)
+    }
+
+    private func appendCanonicalInteger(_ value: UInt64, to projection: inout Data) {
+        var bigEndian = value.bigEndian
+        Swift.withUnsafeBytes(of: &bigEndian) { projection.append(contentsOf: $0) }
+    }
+
+    private func validRequestDigest(_ digest: String) -> Bool {
+        digest.utf8.count == 64 && digest.allSatisfy { $0.isHexDigit && !$0.isUppercase }
+    }
+
+    private func retirementDocumentID(_ digest: String) -> String {
+        "retired-\(digest)"
+    }
+
+    private func validIdentifier(_ value: String, limit: Int = 128) -> Bool {
+        !value.isEmpty && value.utf8.count <= limit &&
+            value == value.trimmingCharacters(in: .whitespacesAndNewlines) &&
+            value.rangeOfCharacter(from: .controlCharacters) == nil
     }
 
     private func snapshotFor(
