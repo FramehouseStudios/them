@@ -116,6 +116,27 @@ final class ScreenplayLivePageMutationGateTests: XCTestCase {
         XCTAssertFalse(bound.permits(owner: auth, projectID: "b", documentID: "d", promotedFromDocument: "d"))
     }
 
+    func testOwnerMismatchCannotStartANilContextLegacyPlaybackPlan() async throws {
+        let bridge = ScreenplayLiveDraftBridge.shared
+        bridge.reconcileAccountStorage()
+        let saved = (bridge.draftText, bridge.preferredProjectID, bridge.preferredVersionID, bridge.pendingInsertion)
+        defer {
+            bridge.resetSyncedVoiceTurnTracking(); bridge.pendingInsertion = saved.3
+            _ = bridge.adoptLoadedProjectDraft(saved.0, projectID: saved.1, versionID: saved.2, owner: .current())
+        }
+        _ = bridge.adoptLoadedProjectDraft(before, projectID: "owned-a", versionID: "v1", owner: .current())
+        let document = try XCTUnwrap(bridge.captureLiveTalkDocument()), context = try await context(queue())
+        ConfirmedStudioTurnPreparation.configureSyncedInsertion(enabled: true, requestID: context.request.requestID, bridge: bridge)
+        bridge.pendingInsertion = nil
+        let different = ScreenplayStudioAuthContext(userID: document.owner.userID + "-another",
+            sessionIntentGeneration: document.owner.sessionIntentGeneration)
+        bridge.stageLiveTalkPageContext(.init(admission: context.request.admission, owner: different, backendURL: backend), document: document)
+        bridge.stageSyncedVoiceTurnAuthoritativeContent(text: insertion, timingSource: "fixture", audioDuration: 1)
+        XCTAssertNil(bridge.startStagedSyncedVoiceInsert(audioDuration: 1, playbackTimeProvider: { 0 }, playbackObservationProvider: { nil }))
+        XCTAssertNil(bridge.pendingInsertion)
+        XCTAssertFalse(bridge.syncedVoiceTurnState.failureReason?.isEmpty ?? true)
+    }
+
 #if os(iOS)
     func testActualNativeStandardInsertionWaitsForDurableIntent() async throws {
         try await proveNativeInsertion(mode: .insert)
@@ -129,11 +150,21 @@ final class ScreenplayLivePageMutationGateTests: XCTestCase {
         try await proveNativeInsertion(mode: .voiceRevealPrepare, switchProject: true)
     }
 
-    private func proveNativeInsertion(mode: ScreenplayInsertionRequest.Mode, switchProject: Bool = false) async throws {
+    func testStopRevokesActualFallbackWhileItsIntentWriteIsHeld() async throws {
+        try await proveNativeInsertion(mode: .insert, stopBeforePersistFinishes: true)
+    }
+
+    func testLiveNativeRequestCannotSilentlyFallBackWhenContextIsMissing() async throws {
+        try await proveNativeInsertion(mode: .voiceRevealPrepare, missingContext: true)
+    }
+
+    private func proveNativeInsertion(mode: ScreenplayInsertionRequest.Mode, switchProject: Bool = false,
+        stopBeforePersistFinishes: Bool = false, missingContext: Bool = false) async throws {
         let bridge = ScreenplayLiveDraftBridge.shared
         bridge.reconcileAccountStorage()
         let saved = (bridge.draftText, bridge.preferredProjectID, bridge.preferredVersionID, bridge.pendingInsertion)
         defer {
+            bridge.resetSyncedVoiceTurnTracking()
             bridge.pendingInsertion = saved.3
             _ = bridge.adoptLoadedProjectDraft(saved.0, projectID: saved.1, versionID: saved.2, owner: .current())
         }
@@ -147,13 +178,20 @@ final class ScreenplayLivePageMutationGateTests: XCTestCase {
             durationMs: 1_000, documentRevisionId: "", insertionAnchor: anchor, segments: [])
         let reveal = ScreenplayVoiceRevealPresentationState(sessionID: context.request.requestID, timeline: timeline,
             visibleUTF16Length: 0, activeSegmentID: nil, phase: .prepared)
-        var request: ScreenplayInsertionRequest? = .init(text: insertion, mode: mode, livePageContext: context,
+        bridge.pendingInsertion = .init(text: insertion, mode: mode, requiresLivePageContext: true,
+            livePageContext: missingContext ? nil : context,
             voiceRevealState: mode == .insert ? nil : reveal)
+        if stopBeforePersistFinishes {
+            bridge.prepareSyncedVoiceTurn(requestID: context.request.requestID, requiresLivePageContext: true)
+            bridge.stageLiveTalkPageContext(context.request, document: document)
+            XCTAssertNotNil(bridge.queueStagedLiveTalkPageFallback(insertion))
+            XCTAssertEqual(bridge.pendingInsertion?.mode, .insert)
+        }
         var model = before
         let editor = UITextView(); editor.text = before
         editor.selectedRange = range
         let coordinator = IOSCursorInsertTextEditor(text: Binding(get: { model }, set: { model = $0 }),
-            activeScreenplayElement: .constant(.action), insertionRequest: Binding(get: { request }, set: { request = $0 }),
+            activeScreenplayElement: .constant(.action), insertionRequest: Binding(get: { bridge.pendingInsertion }, set: { bridge.pendingInsertion = $0 }),
             lineJumpRequest: .constant(nil), lineHighlightRequest: .constant(nil), anchoredTextRectRequest: .constant(nil),
             anchoredTextRectSnapshot: .constant(nil), editorFocusRequest: .constant(nil), editorActionRequest: .constant(nil),
             editorSelection: .constant(nil), currentCursorLine: .constant(1), lastCommittedWrite: .constant(nil),
@@ -161,6 +199,8 @@ final class ScreenplayLivePageMutationGateTests: XCTestCase {
         coordinator.textView = editor
         coordinator.primeParagraphElements(for: before, attributedText: editor.attributedText)
         let entered = expectation(description: "native held"), savedIntent = expectation(description: "native stored")
+        entered.isInverted = missingContext
+        savedIntent.isInverted = missingContext
         var release: CheckedContinuation<Void, Never>?
         coordinator.livePageMutationGate = .init { [self] mutation in
             await withCheckedContinuation { release = $0; entered.fulfill() }
@@ -170,23 +210,34 @@ final class ScreenplayLivePageMutationGateTests: XCTestCase {
             savedIntent.fulfill()
         }
         coordinator.beginRepresentableUpdate()
-        coordinator.applyInsertion(try XCTUnwrap(request))
+        coordinator.applyInsertion(try XCTUnwrap(bridge.pendingInsertion))
         coordinator.endRepresentableUpdate()
-        await fulfillment(of: [entered], timeout: 3)
+        await fulfillment(of: missingContext ? [entered, savedIntent] : [entered], timeout: missingContext ? 0.1 : 3)
         XCTAssertTrue((editor.text ?? "").utf8.elementsEqual(before.utf8))
         XCTAssertTrue(model.utf8.elementsEqual(before.utf8))
+        if missingContext {
+            let kept = await queue(backendURL: nativeBackend).allEntries()
+            XCTAssertNotEqual(kept.first?.hasLivePageIntent, true)
+            return
+        }
+        if stopBeforePersistFinishes {
+            bridge.cancelStream(reason: .cancel)
+            XCTAssertNil(bridge.pendingInsertion, "Stop left a queued live fallback authorized")
+        }
         if switchProject {
             _ = bridge.adoptLoadedProjectDraft("B's exact words.  ", projectID: "native-b", versionID: "b1", owner: .current())
         }
         release?.resume()
         await fulfillment(of: [savedIntent], timeout: 3)
         let deadline = Date().addingTimeInterval(3)
-        if switchProject {
+        if switchProject || stopBeforePersistFinishes {
             await Task.yield()
             XCTAssertTrue(model.utf8.elementsEqual(before.utf8))
             XCTAssertTrue((editor.text ?? "").utf8.elementsEqual(before.utf8))
-            XCTAssertEqual(bridge.preferredProjectID, "native-b")
-            XCTAssertTrue(bridge.draftText.utf8.elementsEqual("B's exact words.  ".utf8))
+            if switchProject {
+                XCTAssertEqual(bridge.preferredProjectID, "native-b")
+                XCTAssertTrue(bridge.draftText.utf8.elementsEqual("B's exact words.  ".utf8))
+            }
         } else {
             while model.utf8.elementsEqual(before.utf8), Date() < deadline { await Task.yield() }
             XCTAssertTrue(model.contains(insertion))

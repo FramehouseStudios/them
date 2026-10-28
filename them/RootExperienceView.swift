@@ -4972,7 +4972,7 @@ You're okay. Let's slow it down for one beat and get our footing back. Pick the 
         turnKeyNamespace: String = "voice"
     ) -> PreparedTurnPrompt {
         let store = HerEvolutionStore.shared
-        let directorText = richerTurnText(
+        let directorText = ConfirmedStudioTurnPreparation.richerTurnText(
             confirmedTranscript: confirmedTranscript,
             partialHint: partialHint
         )
@@ -6139,7 +6139,14 @@ Write this approved story direction directly into screenplay pages now. Maintain
         clientTranscriptOverride: String? = nil,
         debugVoiceTurnToken: Int? = nil
     ) async {
-        guard !Task.isCancelled, let liveDocument = screenplayDraftBridge.captureLiveTalkDocument() else { return }
+        guard !Task.isCancelled else { return }
+        guard let liveDocument = screenplayDraftBridge.captureLiveTalkDocument() else {
+            lastIssueSummary = "The writing account or page is still changing. Reopen Studio, then speak again."
+            isThinking = false
+            voice.markRequestFailed()
+            voice.resumeRecordingIfNeeded()
+            return
+        }
         let liveBackendURL = BackendAuthClient.resolvedBackendBaseURL()
         let ownsLiveDocument = { screenplayDraftBridge.permitsLiveTalkDocument(liveDocument) && OfflineTalkRecoveryScope.sameBackend(liveBackendURL, BackendAuthClient.resolvedBackendBaseURL()) }
         // Phase 1 latency pass: start playback on the first streamed segment as soon
@@ -11238,24 +11245,6 @@ Write this approved story direction directly into screenplay pages now. Maintain
     private func utteranceFingerprint(_ data: Data) -> String {
         let digest = SHA256.hash(data: data)
         return digest.prefix(12).map { String(format: "%02x", $0) }.joined()
-    }
-
-    private func richerTurnText(confirmedTranscript: String, partialHint: String) -> String {
-        let transcript = confirmedTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
-        let partial = partialHint.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        if transcript.isEmpty { return partial }
-        if partial.isEmpty { return transcript }
-
-        let transcriptWords = transcript.split(whereSeparator: \.isWhitespace).count
-        let partialWords = partial.split(whereSeparator: \.isWhitespace).count
-
-        // Prefer the partial hint when it clearly carries richer current-turn detail.
-        if partialWords >= transcriptWords + 2 { return partial }
-        if partial.count >= transcript.count + 18 { return partial }
-        if transcriptWords <= 1 && partialWords >= 2 { return partial }
-
-        return transcript
     }
 
     private func currentRealtimePendingUserMessage() -> String {

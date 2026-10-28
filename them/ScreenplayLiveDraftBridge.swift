@@ -472,48 +472,11 @@ struct ScreenplayDialogueTimelineRevision: Codable, Equatable {
     }
 }
 
-struct ScreenplayVoiceRevealPresentationState: Equatable {
-    enum Phase: String, Equatable {
-        case prepared
-        case playing
-        case completed
-    }
-
-    let sessionID: String
-    let timeline: ScreenplayDialogueTimelineRevision
-    let visibleUTF16Length: Int
-    let activeSegmentID: String?
-    let phase: Phase
-}
-
 enum ScreenplaySyncedInsertInterruptionReason: String, Codable, Equatable {
     case manualTyping = "manual_typing"
     case bargeIn = "barge_in"
     case cancel = "cancel"
     case other = "other"
-}
-
-enum ScreenplaySyncedVoiceReplyRole: String, Codable, Equatable {
-    case preview
-    case final
-}
-
-struct ScreenplaySyncedVoiceRenderContract: Equatable {
-    let replyRole: ScreenplaySyncedVoiceReplyRole
-    let authoritativePageTextAvailable: Bool
-    let syncReady: Bool
-
-    nonisolated static let `default` = ScreenplaySyncedVoiceRenderContract(
-        replyRole: .final,
-        authoritativePageTextAvailable: false,
-        syncReady: false
-    )
-
-    nonisolated static let pageWritePreview = ScreenplaySyncedVoiceRenderContract(
-        replyRole: .preview,
-        authoritativePageTextAvailable: false,
-        syncReady: false
-    )
 }
 
 enum ScreenplaySyncedVoiceTurnPhase: String, Codable, Equatable {
@@ -3047,6 +3010,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
     private var stagedSyncedVoiceTurnAudioDurationMs: Int?
     private var stagedSyncedVoiceTurnRequestID: String = ""
     private var stagedSyncedVoiceTurnLivePageContext: ScreenplayLiveTalkPageContext?
+    private var stagedSyncedVoiceTurnRequiresLivePageContext = false
     private var stagedSyncedVoiceTurnPlaybackStarted: Bool = false
     private var stagedSyncedVoiceTurnRenderContract: ScreenplaySyncedVoiceRenderContract = .default
     private var stagedSyncedVoiceTurnFailureReason: String?
@@ -4798,12 +4762,14 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
 
     func prepareSyncedVoiceTurn(
         requestID: String,
-        renderContract: ScreenplaySyncedVoiceRenderContract = .default
+        renderContract: ScreenplaySyncedVoiceRenderContract = .default,
+        requiresLivePageContext: Bool = false
     ) {
         _ = cancelActiveSyncedVoiceInsert(notifyCancellation: false, reason: .other)
         let cleanRequestID = requestID.trimmingCharacters(in: .whitespacesAndNewlines)
         resetSyncedVoiceTurnTracking()
         stagedSyncedVoiceTurnRequestID = cleanRequestID
+        stagedSyncedVoiceTurnRequiresLivePageContext = requiresLivePageContext
         stagedSyncedVoiceTurnRenderContract = renderContract
         syncedVoiceTurnState = ScreenplaySyncedVoiceTurnState(
             requestID: cleanRequestID,
@@ -4837,6 +4803,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         stagedSyncedVoiceTurnAudioDurationMs = nil
         stagedSyncedVoiceTurnRequestID = ""
         stagedSyncedVoiceTurnLivePageContext = nil
+        stagedSyncedVoiceTurnRequiresLivePageContext = false
         stagedSyncedVoiceTurnPlaybackStarted = false
         stagedSyncedVoiceTurnRenderContract = .default
         stagedSyncedVoiceTurnFailureReason = nil
@@ -4860,7 +4827,13 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
 
     func stageLiveTalkPageContext(_ request: BackendTalkLiveRequestContext?, document: ScreenplayLiveTalkDocument) {
         guard let request, request.requestID == stagedSyncedVoiceTurnRequestID,
-              request.owner == document.owner, permitsLiveTalkDocument(document) else { return }
+              request.owner == document.owner, permitsLiveTalkDocument(document) else {
+            if stagedSyncedVoiceTurnRequiresLivePageContext {
+                stagedSyncedVoiceTurnLivePageContext = nil
+                failSyncedVoiceTurn(reason: "The reply is kept, but its writing account and document could not be matched. Sign in and review the kept reply before changing this page.")
+            }
+            return
+        }
         stagedSyncedVoiceTurnLivePageContext = .init(request: request, document: document)
     }
 
@@ -4871,7 +4844,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         guard !clean.isEmpty else { return nil }
         latestVoiceTurn = clean
         lastUpdatedAt = Date()
-        pendingInsertion = .init(text: clean, replacementTarget: currentInsertionReplacementTarget(), livePageContext: context)
+        pendingInsertion = .init(text: clean, replacementTarget: currentInsertionReplacementTarget(), requiresLivePageContext: true, livePageContext: context)
         return clean
     }
 
@@ -4968,6 +4941,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         playbackTimeProvider: @escaping @MainActor @Sendable () -> TimeInterval?,
         playbackObservationProvider: @escaping @MainActor @Sendable () -> SegmentedPlaybackObservation?
     ) -> ScreenplayVoiceInsertPlan? {
+        guard !stagedSyncedVoiceTurnRequiresLivePageContext || stagedSyncedVoiceTurnLivePageContext?.permitsDelivery(in: self) == true else { return nil }
         guard !isSyncedVoiceInsertSuppressedAfterManualInterruption() else { return nil }
         let cleanText = stagedSyncedVoiceTurnAuthoritativeText
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -5124,7 +5098,8 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             requestID: resolvedRequestID,
             timingSource: resolvedTimingSource,
             replacementTarget: currentInsertionReplacementTarget(),
-            livePageContext: stagedSyncedVoiceTurnLivePageContext
+            livePageContext: stagedSyncedVoiceTurnLivePageContext,
+            requiresLivePageContext: stagedSyncedVoiceTurnRequiresLivePageContext
         )
         activeSyncedVoiceInsertPlan = plan
         activeSyncedVoiceAppliedCueCount = 0
@@ -5154,6 +5129,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             text: plan.fullText,
             mode: .voiceRevealPrepare,
             replacementTarget: plan.replacementTarget,
+            requiresLivePageContext: plan.requiresLivePageContext,
             livePageContext: plan.livePageContext,
             voiceRevealState: voiceRevealState(
                 for: plan,
@@ -5237,6 +5213,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             text: plan.fullText,
             mode: .voiceRevealFinalize,
             replacementTarget: plan.replacementTarget,
+            requiresLivePageContext: plan.requiresLivePageContext,
             livePageContext: plan.livePageContext,
             voiceRevealState: voiceRevealState(
                 for: plan,
@@ -5303,6 +5280,9 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         rollbackDraft: Bool,
         reason: ScreenplaySyncedInsertInterruptionReason
     ) -> Bool {
+        if pendingInsertion?.mode == .insert, pendingInsertion?.livePageContext != nil || pendingInsertion?.requiresLivePageContext == true {
+            pendingInsertion = nil // Revoke a delayed live fallback; its durable intention stays kept.
+        }
         let queuedInsertMode = pendingInsertion?.mode
         let hadQueuedSyncedInsert = queuedInsertMode == .streamInsertProgress
             || queuedInsertMode == .streamInsertFinalize
@@ -5449,6 +5429,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             text: plan.fullText,
             mode: shouldFinalize ? .voiceRevealFinalize : .voiceRevealUpdate,
             replacementTarget: plan.replacementTarget,
+            requiresLivePageContext: plan.requiresLivePageContext,
             livePageContext: plan.livePageContext,
             voiceRevealState: voiceRevealState(
                 for: plan,
@@ -5506,6 +5487,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             text: plan.fullText,
             mode: .voiceRevealCancel,
             replacementTarget: plan.replacementTarget,
+            requiresLivePageContext: plan.requiresLivePageContext,
             livePageContext: plan.livePageContext,
             voiceRevealState: nil
         )
@@ -5569,6 +5551,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             text: plan.fullText,
             mode: .voiceRevealFinalize,
             replacementTarget: plan.replacementTarget,
+            requiresLivePageContext: plan.requiresLivePageContext,
             livePageContext: plan.livePageContext,
             voiceRevealState: voiceRevealState(
                 for: plan,
@@ -8959,6 +8942,7 @@ struct MacCursorInsertTextEditor: NSViewRepresentable {
         }
 
         func applyInsertion(_ request: ScreenplayInsertionRequest) {
+            guard !request.requiresLivePageContext || request.livePageContext != nil else { return }
             if let context = request.livePageContext,
                !context.permitsDelivery(in: ScreenplayLiveDraftBridge.shared) { return }
             switch request.mode {
@@ -9598,6 +9582,7 @@ struct MacCursorInsertTextEditor: NSViewRepresentable {
                         text: request.text,
                         mode: .insert,
                         replacementTarget: request.replacementTarget,
+                        requiresLivePageContext: request.requiresLivePageContext,
                         livePageContext: request.livePageContext
                     )
                 )
@@ -9767,6 +9752,7 @@ struct MacCursorInsertTextEditor: NSViewRepresentable {
                         text: request.text,
                         mode: .insert,
                         replacementTarget: request.replacementTarget,
+                        requiresLivePageContext: request.requiresLivePageContext,
                         livePageContext: request.livePageContext
                     )
                 )
@@ -9938,6 +9924,7 @@ struct MacCursorInsertTextEditor: NSViewRepresentable {
                         text: request.text,
                         mode: .insert,
                         replacementTarget: request.replacementTarget,
+                        requiresLivePageContext: request.requiresLivePageContext,
                         livePageContext: request.livePageContext
                     )
                 )
@@ -10032,6 +10019,7 @@ struct MacCursorInsertTextEditor: NSViewRepresentable {
                         text: request.text,
                         mode: .insert,
                         replacementTarget: request.replacementTarget,
+                        requiresLivePageContext: request.requiresLivePageContext,
                         livePageContext: request.livePageContext
                     )
                 )
@@ -11289,6 +11277,7 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
         }
 
         func applyInsertion(_ request: ScreenplayInsertionRequest) {
+            guard !request.requiresLivePageContext || request.livePageContext != nil else { return }
             if let context = request.livePageContext,
                !context.permitsDelivery(in: ScreenplayLiveDraftBridge.shared) { return }
             switch request.mode {
@@ -11935,6 +11924,7 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
                         text: request.text,
                         mode: .insert,
                         replacementTarget: request.replacementTarget,
+                        requiresLivePageContext: request.requiresLivePageContext,
                         livePageContext: request.livePageContext
                     )
                 )
@@ -12105,6 +12095,7 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
                         text: request.text,
                         mode: .insert,
                         replacementTarget: request.replacementTarget,
+                        requiresLivePageContext: request.requiresLivePageContext,
                         livePageContext: request.livePageContext
                     )
                 )
@@ -12277,6 +12268,7 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
                         text: request.text,
                         mode: .insert,
                         replacementTarget: request.replacementTarget,
+                        requiresLivePageContext: request.requiresLivePageContext,
                         livePageContext: request.livePageContext
                     )
                 )
@@ -12371,6 +12363,7 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
                         text: request.text,
                         mode: .insert,
                         replacementTarget: request.replacementTarget,
+                        requiresLivePageContext: request.requiresLivePageContext,
                         livePageContext: request.livePageContext
                     )
                 )

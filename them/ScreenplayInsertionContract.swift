@@ -21,12 +21,14 @@ struct ScreenplayInsertionRequest: Identifiable, Equatable {
     let replacementTarget: ScreenplayPendingReplacementTarget?
     let voiceRevealState: ScreenplayVoiceRevealPresentationState?
     let livePageContext: ScreenplayLiveTalkPageContext?
+    let requiresLivePageContext: Bool
 
     init(
         id: UUID = UUID(),
         text: String,
         mode: Mode = .insert,
         replacementTarget: ScreenplayPendingReplacementTarget? = nil,
+        requiresLivePageContext: Bool = false,
         livePageContext: ScreenplayLiveTalkPageContext? = nil,
         voiceRevealState: ScreenplayVoiceRevealPresentationState? = nil
     ) {
@@ -36,6 +38,7 @@ struct ScreenplayInsertionRequest: Identifiable, Equatable {
         self.replacementTarget = replacementTarget
         self.voiceRevealState = voiceRevealState
         self.livePageContext = livePageContext
+        self.requiresLivePageContext = requiresLivePageContext
     }
 }
 
@@ -48,6 +51,7 @@ struct ScreenplayTurnPlaybackSession: Equatable {
     let replacementTarget: ScreenplayPendingReplacementTarget?
 
     var livePageContext: ScreenplayLiveTalkPageContext? = nil
+    var requiresLivePageContext: Bool = false
 
     var cues: [ScreenplayVoiceCue] {
         timeline.compatibilityCues
@@ -88,5 +92,44 @@ struct ScreenplayAnchoredTextRectSnapshot: Equatable {
 
 struct ScreenplayEditorFocusRequest: Identifiable, Equatable {
     let id: UUID
+}
+
+
+struct ScreenplayVoiceRevealPresentationState: Equatable {
+    enum Phase: String, Equatable {
+        case prepared
+        case playing
+        case completed
+    }
+
+    let sessionID: String
+    let timeline: ScreenplayDialogueTimelineRevision
+    let visibleUTF16Length: Int
+    let activeSegmentID: String?
+    let phase: Phase
+}
+
+
+enum ScreenplaySyncedVoiceReplyRole: String, Codable, Equatable {
+    case preview
+    case final
+}
+
+struct ScreenplaySyncedVoiceRenderContract: Equatable {
+    let replyRole: ScreenplaySyncedVoiceReplyRole
+    let authoritativePageTextAvailable: Bool
+    let syncReady: Bool
+
+    nonisolated static let `default` = ScreenplaySyncedVoiceRenderContract(
+        replyRole: .final,
+        authoritativePageTextAvailable: false,
+        syncReady: false
+    )
+
+    nonisolated static let pageWritePreview = ScreenplaySyncedVoiceRenderContract(
+        replyRole: .preview,
+        authoritativePageTextAvailable: false,
+        syncReady: false
+    )
 }
 

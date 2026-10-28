@@ -69,6 +69,7 @@ final class ScreenplayLiveDraftOriginTests: XCTestCase {
             bridge.preferredProjectID = "pending-b"
             bridge.preferredVersionID = "b1"
             XCTAssertEqual(bridge.draftOrigin.projectID, "origin-a")
+            XCTAssertNil(bridge.captureLiveTalkDocument(), "A pending B selection cannot capture A as B's voice target")
             bridge.draftText = ""
             XCTAssertEqual(bridge.draftOrigin.projectID, "origin-a")
             XCTAssertEqual(bridge.draftOrigin.versionID, "a1")
