@@ -171,10 +171,15 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
     @MainActor
     func testRequestCreationTimeSurvivesMaterializationRebaseAndRelaunch() {
         let context = ScreenplayStudioAuthContext(userID: "writer", sessionIntentGeneration: 1)
+        let authority = ScreenplayDraftSaveRequestAuthority(id: UUID(), generation: 0)
         let request = ScreenplayStudioViewModel.DraftSaveRequest(id: "request", createdAt: 123,
             projectId: "project", ownerUserId: "writer", draft: "Writer words", title: "Title",
             phase: "scene_draft", source: "studio_manual", notes: "", studioWriteAnchors: [],
-            screenplayBindings: [], baseVersionId: "base", authContext: context)
+            screenplayBindings: [], baseVersionId: "base", authContext: context, requestAuthority: authority)
+        XCTAssertEqual(request.outboxEntry.requestAuthority, authority)
+        XCTAssertEqual(request.rebased(on: "new-base").outboxEntry.requestAuthority, authority)
+        XCTAssertEqual(ScreenplayStudioViewModel.DraftSaveRequest(entry: request.outboxEntry,
+            authContext: context).requestAuthority, authority)
         XCTAssertEqual(request.outboxEntry.createdAt, 123)
         XCTAssertEqual(request.outboxEntry.createdAt, 123)
         XCTAssertEqual(request.rebased(on: "new-base").outboxEntry.createdAt, 123)

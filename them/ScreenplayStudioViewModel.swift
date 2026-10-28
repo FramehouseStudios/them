@@ -1343,6 +1343,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         let baseVersionId: String
         let authContext: ScreenplayStudioAuthContext
         let deliveryOrigin: ScreenplayDraftSaveOrigin?
+        let requestAuthority: ScreenplayDraftSaveRequestAuthority?
 
         init(
             id: String,
@@ -1358,7 +1359,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
             screenplayBindings: [BackendScreenplayBindingRecord],
             baseVersionId: String,
             authContext: ScreenplayStudioAuthContext,
-            deliveryOrigin: ScreenplayDraftSaveOrigin? = nil
+            deliveryOrigin: ScreenplayDraftSaveOrigin? = nil,
+            requestAuthority: ScreenplayDraftSaveRequestAuthority? = nil
         ) {
             self.id = id
             self.createdAt = createdAt
@@ -1374,6 +1376,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
             self.baseVersionId = baseVersionId
             self.authContext = authContext
             self.deliveryOrigin = deliveryOrigin
+            self.requestAuthority = requestAuthority
         }
 
         init(entry: ScreenplayDraftSaveOutboxEntry, authContext: ScreenplayStudioAuthContext) {
@@ -1391,6 +1394,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
             baseVersionId = entry.baseVersionId
             self.authContext = authContext
             deliveryOrigin = entry.deliveryOrigin
+            requestAuthority = entry.requestAuthority
         }
 
         var outboxEntry: ScreenplayDraftSaveOutboxEntry {
@@ -1413,7 +1417,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 retries: 0,
                 nextAttemptAt: now,
                 lastError: "",
-                deliveryOrigin: deliveryOrigin
+                deliveryOrigin: deliveryOrigin,
+                requestAuthority: requestAuthority
             )
         }
 
@@ -1432,7 +1437,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 screenplayBindings: screenplayBindings,
                 baseVersionId: serverVersionId.trimmingCharacters(in: .whitespacesAndNewlines),
                 authContext: authContext,
-                deliveryOrigin: deliveryOrigin
+                deliveryOrigin: deliveryOrigin,
+                requestAuthority: requestAuthority
             )
         }
     }
@@ -6186,7 +6192,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
             baseVersionId: (baseVersionOverride ?? latestVersionID)
                 .trimmingCharacters(in: .whitespacesAndNewlines),
             authContext: authContext,
-            deliveryOrigin: origin
+            deliveryOrigin: origin,
+            requestAuthority: ScreenplayDraftSaveRequestAuthority(id: UUID(), generation: 0)
         )
     }
 
