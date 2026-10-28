@@ -323,71 +323,6 @@ private func writeMirroredScreenplayDebugPreferenceString(_ value: String, forKe
 }
 #endif
 
-struct ScreenplayInsertionRequest: Identifiable, Equatable {
-    enum Mode: String, Equatable {
-        case insert
-        case streamPreview
-        case streamCommit
-        case streamCancel
-        case streamInsertProgress
-        case streamInsertFinalize
-        case streamInsertCancel
-        case voiceRevealPrepare
-        case voiceRevealUpdate
-        case voiceRevealFinalize
-        case voiceRevealCancel
-    }
-
-    let id: UUID
-    let text: String
-    let mode: Mode
-    let replacementTarget: ScreenplayPendingReplacementTarget?
-    let voiceRevealState: ScreenplayVoiceRevealPresentationState?
-
-    init(
-        id: UUID = UUID(),
-        text: String,
-        mode: Mode = .insert,
-        replacementTarget: ScreenplayPendingReplacementTarget? = nil,
-        voiceRevealState: ScreenplayVoiceRevealPresentationState? = nil
-    ) {
-        self.id = id
-        self.text = text
-        self.mode = mode
-        self.replacementTarget = replacementTarget
-        self.voiceRevealState = voiceRevealState
-    }
-}
-
-struct ScreenplayLineJumpRequest: Identifiable, Equatable {
-    let id: UUID
-    let line: Int
-}
-
-struct ScreenplayLineHighlightRequest: Identifiable, Equatable {
-    let id: UUID
-    let startLine: Int
-    let endLine: Int
-}
-
-struct ScreenplayAnchoredTextRectRequest: Identifiable, Equatable {
-    let id: UUID
-    let startLine: Int
-    let endLine: Int
-}
-
-struct ScreenplayAnchoredTextRectSnapshot: Equatable {
-    let requestID: UUID
-    let startLine: Int
-    let endLine: Int
-    let rect: CGRect
-    let visibleRect: CGRect
-}
-
-struct ScreenplayEditorFocusRequest: Identifiable, Equatable {
-    let id: UUID
-}
-
 struct ScreenplayVoiceCue: Codable, Equatable {
     let index: Int
     let text: String
@@ -550,25 +485,6 @@ struct ScreenplayVoiceRevealPresentationState: Equatable {
     let activeSegmentID: String?
     let phase: Phase
 }
-
-struct ScreenplayTurnPlaybackSession: Equatable {
-    let fullText: String
-    let timeline: ScreenplayDialogueTimelineRevision
-    let audioDurationMs: Int
-    let requestID: String
-    let timingSource: String
-    let replacementTarget: ScreenplayPendingReplacementTarget?
-
-    var cues: [ScreenplayVoiceCue] {
-        timeline.compatibilityCues
-    }
-
-    var cueCount: Int {
-        timeline.totalRevealUnitCount
-    }
-}
-
-typealias ScreenplayVoiceInsertPlan = ScreenplayTurnPlaybackSession
 
 enum ScreenplaySyncedInsertInterruptionReason: String, Codable, Equatable {
     case manualTyping = "manual_typing"
@@ -3041,6 +2957,26 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         draftOrigin.versionID.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    func captureLiveTalkDocument() -> ScreenplayLiveTalkDocument? {
+        let owner = ScreenplayStudioAuthContext.current()
+        guard !isReconcilingAccountStorage, storageOwnerUserID == owner.userID,
+              draftOrigin.projectID == committedWriteProjectIDSnapshot() else { return nil }
+        persistDraftOriginForCurrentContext()
+        guard let documentID = draftOrigin.documentID else { return nil }
+        return .init(owner: owner, projectID: draftOrigin.projectID, documentID: documentID)
+    }
+
+    func permitsLiveTalkDocument(_ document: ScreenplayLiveTalkDocument) -> Bool {
+        guard !isReconcilingAccountStorage, storageOwnerUserID == document.owner.userID,
+              draftOrigin.projectID == committedWriteProjectIDSnapshot() else { return false }
+        let initial = initialProjectReceipt
+        let promoted = initial?.project.id == draftOrigin.projectID && initial?.entry.initialization?.sourceProjectID == ""
+            && initial?.versionID.isEmpty == false && initial?.owner.ownerContext == document.owner
+            ? initial?.entry.initialization?.documentID : nil
+        return document.permits(owner: .current(), projectID: draftOrigin.projectID,
+            documentID: draftOrigin.documentID, promotedFromDocument: promoted)
+    }
+
     func makeCommittedWrite(
         id: UUID,
         writeID: String? = nil,
@@ -3110,6 +3046,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
     private var stagedSyncedVoiceTurnTimingSource: String = ""
     private var stagedSyncedVoiceTurnAudioDurationMs: Int?
     private var stagedSyncedVoiceTurnRequestID: String = ""
+    private var stagedSyncedVoiceTurnLivePageContext: ScreenplayLiveTalkPageContext?
     private var stagedSyncedVoiceTurnPlaybackStarted: Bool = false
     private var stagedSyncedVoiceTurnRenderContract: ScreenplaySyncedVoiceRenderContract = .default
     private var stagedSyncedVoiceTurnFailureReason: String?
@@ -4899,6 +4836,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         stagedSyncedVoiceTurnTimingSource = ""
         stagedSyncedVoiceTurnAudioDurationMs = nil
         stagedSyncedVoiceTurnRequestID = ""
+        stagedSyncedVoiceTurnLivePageContext = nil
         stagedSyncedVoiceTurnPlaybackStarted = false
         stagedSyncedVoiceTurnRenderContract = .default
         stagedSyncedVoiceTurnFailureReason = nil
@@ -4918,6 +4856,23 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         guard !stagedSyncedVoiceTurnRequestID.isEmpty || syncedVoiceTurnState.phase != .idle else { return }
         stagedSyncedVoiceTurnRenderContract = renderContract
         refreshSyncedVoiceTurnState()
+    }
+
+    func stageLiveTalkPageContext(_ request: BackendTalkLiveRequestContext?, document: ScreenplayLiveTalkDocument) {
+        guard let request, request.requestID == stagedSyncedVoiceTurnRequestID,
+              request.owner == document.owner, permitsLiveTalkDocument(document) else { return }
+        stagedSyncedVoiceTurnLivePageContext = .init(request: request, document: document)
+    }
+
+    func queueStagedLiveTalkPageFallback(_ text: String) -> String? {
+        guard let context = stagedSyncedVoiceTurnLivePageContext, permitsLiveTalkDocument(context.document),
+              context.request.requestID == stagedSyncedVoiceTurnRequestID else { return nil }
+        let clean = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !clean.isEmpty else { return nil }
+        latestVoiceTurn = clean
+        lastUpdatedAt = Date()
+        pendingInsertion = .init(text: clean, replacementTarget: currentInsertionReplacementTarget(), livePageContext: context)
+        return clean
     }
 
     func stageSyncedVoiceTurnPreviewText(_ text: String?) {
@@ -5168,7 +5123,8 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             audioDurationMs: durationMs,
             requestID: resolvedRequestID,
             timingSource: resolvedTimingSource,
-            replacementTarget: currentInsertionReplacementTarget()
+            replacementTarget: currentInsertionReplacementTarget(),
+            livePageContext: stagedSyncedVoiceTurnLivePageContext
         )
         activeSyncedVoiceInsertPlan = plan
         activeSyncedVoiceAppliedCueCount = 0
@@ -5198,6 +5154,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             text: plan.fullText,
             mode: .voiceRevealPrepare,
             replacementTarget: plan.replacementTarget,
+            livePageContext: plan.livePageContext,
             voiceRevealState: voiceRevealState(
                 for: plan,
                 visibleUTF16Length: 0,
@@ -5280,6 +5237,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             text: plan.fullText,
             mode: .voiceRevealFinalize,
             replacementTarget: plan.replacementTarget,
+            livePageContext: plan.livePageContext,
             voiceRevealState: voiceRevealState(
                 for: plan,
                 visibleUTF16Length: (plan.fullText as NSString).length,
@@ -5491,6 +5449,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             text: plan.fullText,
             mode: shouldFinalize ? .voiceRevealFinalize : .voiceRevealUpdate,
             replacementTarget: plan.replacementTarget,
+            livePageContext: plan.livePageContext,
             voiceRevealState: voiceRevealState(
                 for: plan,
                 visibleUTF16Length: nextVisibleUTF16Length,
@@ -5547,6 +5506,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             text: plan.fullText,
             mode: .voiceRevealCancel,
             replacementTarget: plan.replacementTarget,
+            livePageContext: plan.livePageContext,
             voiceRevealState: nil
         )
         refreshSyncedVoiceTurnState(phaseOverride: .interrupted)
@@ -5609,6 +5569,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             text: plan.fullText,
             mode: .voiceRevealFinalize,
             replacementTarget: plan.replacementTarget,
+            livePageContext: plan.livePageContext,
             voiceRevealState: voiceRevealState(
                 for: plan,
                 visibleUTF16Length: (plan.fullText as NSString).length,
@@ -8819,6 +8780,7 @@ struct MacCursorInsertTextEditor: NSViewRepresentable {
         var lastKnownActiveElement: ScreenplayEditorElement
         var isApplyingProgrammaticChange = false
         var lastAppliedInsertionID: UUID?
+        var livePageMutationGate = ScreenplayLivePageMutationGate()
         var lastAppliedLineJumpID: UUID?
         var lastAppliedLineHighlightID: UUID?
         var lastAppliedEditorFocusID: UUID?
@@ -8997,6 +8959,8 @@ struct MacCursorInsertTextEditor: NSViewRepresentable {
         }
 
         func applyInsertion(_ request: ScreenplayInsertionRequest) {
+            if let context = request.livePageContext,
+               !context.permitsDelivery(in: ScreenplayLiveDraftBridge.shared) { return }
             switch request.mode {
             case .insert:
                 applyStandardInsertion(request)
@@ -9480,6 +9444,14 @@ struct MacCursorInsertTextEditor: NSViewRepresentable {
             let mutable = NSMutableString(string: current)
             mutable.replaceCharacters(in: selection, with: insertion)
             let nextText = String(mutable)
+            if livePageMutationGate.shouldDefer(request.livePageContext, before: current, range: selection,
+                insertion: insertion, after: nextText, isCurrent: { [weak self] in
+                    guard let self, self.parent.insertionRequest?.id == request.id,
+                          let context = request.livePageContext else { return false }
+                    return context.permitsDelivery(in: ScreenplayLiveDraftBridge.shared)
+                }, resume: { [weak self] in self?.applyStandardInsertion(request) }, onFailure: {
+                    ScreenplayLiveDraftBridge.shared.autoInsertStatusText = "The reply is kept, but the page could not be safely changed. Review recovery before trying again."
+                }) { return }
             let caretLocation = min(selection.location + (insertion as NSString).length, (nextText as NSString).length)
             let highlightRange = insertionContext.isReplacement
                 ? NSRange(location: selection.location, length: (committedText as NSString).length)
@@ -9625,7 +9597,8 @@ struct MacCursorInsertTextEditor: NSViewRepresentable {
                         id: request.id,
                         text: request.text,
                         mode: .insert,
-                        replacementTarget: request.replacementTarget
+                        replacementTarget: request.replacementTarget,
+                        livePageContext: request.livePageContext
                     )
                 )
                 resetStreamingPreviewState()
@@ -9793,7 +9766,8 @@ struct MacCursorInsertTextEditor: NSViewRepresentable {
                         id: request.id,
                         text: request.text,
                         mode: .insert,
-                        replacementTarget: request.replacementTarget
+                        replacementTarget: request.replacementTarget,
+                        livePageContext: request.livePageContext
                     )
                 )
                 resetStreamingInsertState()
@@ -9963,7 +9937,8 @@ struct MacCursorInsertTextEditor: NSViewRepresentable {
                         id: request.id,
                         text: request.text,
                         mode: .insert,
-                        replacementTarget: request.replacementTarget
+                        replacementTarget: request.replacementTarget,
+                        livePageContext: request.livePageContext
                     )
                 )
                 return
@@ -9992,6 +9967,14 @@ struct MacCursorInsertTextEditor: NSViewRepresentable {
             let mutable = NSMutableString(string: current)
             mutable.replaceCharacters(in: selection, with: insertion)
             let nextText = String(mutable)
+            if livePageMutationGate.shouldDefer(request.livePageContext, before: current, range: selection,
+                insertion: insertion, after: nextText, isCurrent: { [weak self] in
+                    guard let self, self.parent.insertionRequest?.id == request.id,
+                          let context = request.livePageContext else { return false }
+                    return context.permitsDelivery(in: ScreenplayLiveDraftBridge.shared)
+                }, resume: { [weak self] in self?.applyVoiceRevealPrepare(request) }, onFailure: {
+                    ScreenplayLiveDraftBridge.shared.autoInsertStatusText = "The reply is kept, but the page could not be safely changed. Review recovery before trying again."
+                }) { return }
             let insertedRange = NSRange(location: selection.location, length: (insertion as NSString).length)
             let coreText = committedText.isEmpty ? (trimmed.isEmpty ? request.text : trimmed) : committedText
             let coreRange = ((insertion as NSString).range(of: coreText))
@@ -10048,7 +10031,8 @@ struct MacCursorInsertTextEditor: NSViewRepresentable {
                         id: request.id,
                         text: request.text,
                         mode: .insert,
-                        replacementTarget: request.replacementTarget
+                        replacementTarget: request.replacementTarget,
+                        livePageContext: request.livePageContext
                     )
                 )
                 return
@@ -10799,6 +10783,7 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
         var lastKnownActiveElement: ScreenplayEditorElement
         var isApplyingProgrammaticChange = false
         var lastAppliedInsertionID: UUID?
+        var livePageMutationGate = ScreenplayLivePageMutationGate()
         var lastAppliedLineJumpID: UUID?
         var lastAppliedLineHighlightID: UUID?
         var lastAppliedEditorFocusID: UUID?
@@ -11304,6 +11289,8 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
         }
 
         func applyInsertion(_ request: ScreenplayInsertionRequest) {
+            if let context = request.livePageContext,
+               !context.permitsDelivery(in: ScreenplayLiveDraftBridge.shared) { return }
             switch request.mode {
             case .insert:
                 applyStandardInsertion(request)
@@ -11797,6 +11784,14 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
             let mutable = NSMutableString(string: current)
             mutable.replaceCharacters(in: selection, with: insertion)
             let nextText = String(mutable)
+            if livePageMutationGate.shouldDefer(request.livePageContext, before: current, range: selection,
+                insertion: insertion, after: nextText, isCurrent: { [weak self] in
+                    guard let self, self.parent.insertionRequest?.id == request.id,
+                          let context = request.livePageContext else { return false }
+                    return context.permitsDelivery(in: ScreenplayLiveDraftBridge.shared)
+                }, resume: { [weak self] in self?.applyStandardInsertion(request) }, onFailure: {
+                    ScreenplayLiveDraftBridge.shared.autoInsertStatusText = "The reply is kept, but the page could not be safely changed. Review recovery before trying again."
+                }) { return }
             let caretLocation = min(selection.location + (insertion as NSString).length, (nextText as NSString).length)
             let highlightRange = insertionContext.isReplacement
                 ? NSRange(location: selection.location, length: (committedText as NSString).length)
@@ -11939,7 +11934,8 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
                         id: request.id,
                         text: request.text,
                         mode: .insert,
-                        replacementTarget: request.replacementTarget
+                        replacementTarget: request.replacementTarget,
+                        livePageContext: request.livePageContext
                     )
                 )
                 resetStreamingPreviewState()
@@ -12108,7 +12104,8 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
                         id: request.id,
                         text: request.text,
                         mode: .insert,
-                        replacementTarget: request.replacementTarget
+                        replacementTarget: request.replacementTarget,
+                        livePageContext: request.livePageContext
                     )
                 )
                 resetStreamingInsertState()
@@ -12279,7 +12276,8 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
                         id: request.id,
                         text: request.text,
                         mode: .insert,
-                        replacementTarget: request.replacementTarget
+                        replacementTarget: request.replacementTarget,
+                        livePageContext: request.livePageContext
                     )
                 )
                 return
@@ -12308,6 +12306,14 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
             let mutable = NSMutableString(string: current)
             mutable.replaceCharacters(in: selection, with: insertion)
             let nextText = String(mutable)
+            if livePageMutationGate.shouldDefer(request.livePageContext, before: current, range: selection,
+                insertion: insertion, after: nextText, isCurrent: { [weak self] in
+                    guard let self, self.parent.insertionRequest?.id == request.id,
+                          let context = request.livePageContext else { return false }
+                    return context.permitsDelivery(in: ScreenplayLiveDraftBridge.shared)
+                }, resume: { [weak self] in self?.applyVoiceRevealPrepare(request) }, onFailure: {
+                    ScreenplayLiveDraftBridge.shared.autoInsertStatusText = "The reply is kept, but the page could not be safely changed. Review recovery before trying again."
+                }) { return }
             let insertedRange = NSRange(location: selection.location, length: (insertion as NSString).length)
             let coreText = committedText.isEmpty ? (trimmed.isEmpty ? request.text : trimmed) : committedText
             let coreRange = (insertion as NSString).range(of: coreText)
@@ -12364,7 +12370,8 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
                         id: request.id,
                         text: request.text,
                         mode: .insert,
-                        replacementTarget: request.replacementTarget
+                        replacementTarget: request.replacementTarget,
+                        livePageContext: request.livePageContext
                     )
                 )
                 return

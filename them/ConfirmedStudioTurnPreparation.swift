@@ -32,4 +32,18 @@ enum ConfirmedStudioTurnPreparation {
         }
         return build(clean, isStudioActive())
     }
+
+    static func authoritativePageWriteText(from screenplayOutput: BackendTalkScreenplayOutput?) -> String {
+        guard let screenplayOutput, screenplayOutput.writesToPage else { return "" }
+        return screenplayOutput.text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    static func resolvedPendingSyncedVoiceInsertTimingSource(
+        _ rawSource: String?,
+        cues: [ScreenplayVoiceCue]
+    ) -> String {
+        let cleanSource = (rawSource ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cues.isEmpty else { return "estimated" }
+        return cleanSource.isEmpty ? "backend_cues" : cleanSource
+    }
 }
