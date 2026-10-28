@@ -750,6 +750,45 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
         XCTAssertFalse(after.contains { $0.id == absent.id })
     }
 
+    func testAcknowledgedSaveDoesNotDeleteOrRebaseDistinctParkedDrafts() async throws {
+        let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let origin = ScreenplayDraftSaveOrigin(documentID: "same-document", backendURL: URL(string: "https://save.test")!)
+        let older = makeEntry(id: "parked-older", draft: "Older distinct draft", createdAt: 100, origin: origin)
+        let completed = makeEntry(id: "acknowledged", draft: "Saved draft", createdAt: 101, origin: origin)
+        let newer = makeEntry(id: "parked-newer", draft: "Newer distinct draft", createdAt: 102, origin: origin)
+        try await store.enqueue(older)
+        try await store.enqueue(completed)
+        try await store.enqueue(newer)
+        _ = try await store.retainConflict(older)
+        _ = try await store.retainConflict(newer)
+        try await store.markSucceeded(id: completed.id, serverVersionId: "new-server-head")
+        let relaunched = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let remaining = try await relaunched.parkedConflictEntries(projectId: older.projectId, ownerUserId: older.ownerUserId)
+        XCTAssertEqual(Set(remaining.map(\.id)), Set([older.id, newer.id]))
+        XCTAssertEqual(remaining.first(where: { $0.id == older.id })?.draft, older.draft)
+        XCTAssertEqual(remaining.first(where: { $0.id == newer.id })?.draft, newer.draft)
+        XCTAssertTrue(remaining.allSatisfy { $0.baseVersionId == "server-v1" })
+    }
+
+    func testParkedConflictCopiesRemainSeparateAndOwnerScopedAfterRelaunch() async throws {
+        let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let first = makeEntry(id: "copy-one", draft: "First writer's words")
+        let second = makeEntry(id: "copy-two", draft: "Different writer's words")
+        let otherOwner = replacingOwner(of: makeEntry(id: "other-owner", draft: "Private other owner"), with: "user-2")
+        try await store.enqueue(first)
+        try await store.enqueue(second)
+        try await store.enqueue(otherOwner)
+        _ = try await store.retainConflict(first)
+        _ = try await store.retainConflict(second)
+        _ = try await store.retainConflict(otherOwner)
+        let relaunched = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let copies = try await relaunched.parkedConflictEntries(projectId: first.projectId, ownerUserId: first.ownerUserId)
+        XCTAssertEqual(Set(copies.map(\.id)), Set([first.id, second.id]))
+        XCTAssertEqual(Set(copies.map(\.draft)), Set([first.draft, second.draft]))
+        let otherCopies = try await relaunched.parkedConflictEntries(projectId: first.projectId, ownerUserId: otherOwner.ownerUserId)
+        XCTAssertEqual(otherCopies.map(\.id), [otherOwner.id])
+    }
+
     func testLegacyDurableParkedConflictCanRetireWithoutManufacturedAuthority() async throws {
         let origin = ScreenplayDraftSaveOrigin(
             documentID: "document-a",

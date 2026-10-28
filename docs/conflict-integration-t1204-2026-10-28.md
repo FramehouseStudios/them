@@ -60,3 +60,20 @@ row remains byte-exact and pending after relaunch and an absent row is not
 created. Result: /private/tmp/them-t1204-exact-conflict-20261028.xcresult.
 God-file gate and git diff --check passed. The full relaunch presentation,
 Load Server action, in-flight writes and real phone journey remain unproven.
+
+## Preserve parked conflicts after an unrelated acknowledgement
+
+A successful save previously deleted older parked rows in the same owner,
+project and origin and rebased newer parked rows, even when they contained
+distinct writer words. Acknowledgement now removes only its own request and
+never rebases parked rows; pending causal saves retain their existing rebase
+behavior. A scoped listing returns separate parked conflict copies without
+implying authority to mutate them. The signed outbox suite on the erased
+simulator passed 41/41, 0 failed, 0 skipped; it includes older and newer
+parked drafts surviving acknowledgement and relaunch with their bases intact.
+Result: /private/tmp/them-t1204-parked-preserve-20261028.xcresult.
+The test build also contained an uncommitted, preliminary copy-sharing UI;
+that UI is not part of this commit and has not received interaction, visual,
+or auth-change proof. Parked rows now remain until an explicit, verified
+resolution exists, so users may still see a save needing attention. Full
+conflict recovery and Load Server are not finished.

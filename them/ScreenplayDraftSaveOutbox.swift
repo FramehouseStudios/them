@@ -360,19 +360,13 @@ actor ScreenplayDraftSaveOutbox {
         guard let index = entries.firstIndex(where: { $0.id == id }) else { return }
         let previous = entries
         let completed = entries.remove(at: index)
-        entries.removeAll { entry in
-            entry.projectId == completed.projectId &&
-                entry.ownerUserId == completed.ownerUserId &&
-                entry.deliveryOrigin == completed.deliveryOrigin &&
-                entry.status == .parked &&
-                entry.createdAt <= completed.createdAt
-        }
         let nextBase = serverVersionId.trimmingCharacters(in: .whitespacesAndNewlines)
         if !nextBase.isEmpty {
             for queuedIndex in entries.indices where
                 entries[queuedIndex].projectId == completed.projectId &&
                 entries[queuedIndex].ownerUserId == completed.ownerUserId &&
                 entries[queuedIndex].deliveryOrigin == completed.deliveryOrigin &&
+                entries[queuedIndex].status != .parked &&
                 entries[queuedIndex].createdAt >= completed.createdAt &&
                 entries[queuedIndex].baseVersionId == completed.baseVersionId {
                 entries[queuedIndex].baseVersionId = nextBase
@@ -733,6 +727,16 @@ actor ScreenplayDraftSaveOutbox {
         entries[index].lastError = normalizedError(error)
         do { try persist() } catch { entries = previous; throw error }
         publishSnapshot()
+    }
+
+    /// Listing grants no authority to remove or deliver a conflict copy.
+    func parkedConflictEntries(projectId: String, ownerUserId: String) throws -> [ScreenplayDraftSaveOutboxEntry] {
+        try loadIfNeeded()
+        let project = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
+        let owner = ownerUserId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !project.isEmpty, !owner.isEmpty else { return [] }
+        return entries.filter { $0.projectId == project && $0.ownerUserId == owner &&
+            $0.initialization == nil && $0.status == .parked && $0.lastError == Self.conflictReason }
     }
 
     func pendingEntry(projectId: String, ownerUserId: String) throws -> ScreenplayDraftSaveOutboxEntry? {
