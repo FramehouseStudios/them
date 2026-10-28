@@ -8254,16 +8254,7 @@ Current draft version:
         }
     }
 
-    private var studioPromptPlaceholder: String {
-        switch studioPromptIntent {
-        case .advice:
-            return "Ask for guidance or the next move"
-        case .rewrite:
-            return "Describe the rewrite you want on the page"
-        case .voicePin:
-            return "Pin a note for io.them to hold"
-        }
-    }
+    private var studioPromptPlaceholder: String { studioPromptIntent.placeholder }
 
     private var promptRoutingControl: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -8310,16 +8301,7 @@ Current draft version:
 
     private func selectStudioPromptRoutingMode(_ mode: PromptRoutingMode) {
         studioPromptRoutingMode = mode
-        switch mode {
-        case .automatic:
-            studioPromptIntent = .advice
-        case .page:
-            studioPromptIntent = .rewrite
-        case .voicePin:
-            if studioPromptIntent == .rewrite {
-                studioPromptIntent = .voicePin
-            }
-        }
+        studioPromptIntent = studioPromptIntent.selectingDestination(mode)
     }
 
     private func selectStudioPromptIntent(_ intent: StudioPromptIntent) {
@@ -8329,7 +8311,7 @@ Current draft version:
             if studioPromptRoutingMode == .page {
                 studioPromptRoutingMode = .voicePin
             }
-        case .rewrite:
+        case .write, .rewrite:
             studioPromptRoutingMode = .page
         case .voicePin:
             studioPromptRoutingMode = .voicePin
@@ -10182,7 +10164,7 @@ Return revised screenplay lines only.
     private func restoredStudioPromptIntent(
         for exchange: StudioAskNoteExchange
     ) -> StudioPromptIntent {
-        guard exchange.target == .voicePin else { return .rewrite }
+        guard exchange.target == .voicePin else { return .write }
         return resolvedMemoryDomain(for: exchange) == .companion ? .voicePin : .advice
     }
 
