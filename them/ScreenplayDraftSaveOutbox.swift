@@ -24,6 +24,18 @@ nonisolated struct ScreenplayDraftSaveRequestAuthority: Codable, Equatable, Send
     let generation: UInt64
 }
 
+/// Content-free authority to retire one exact parked conflict only after a
+/// replacement save receives a matching server acknowledgement. The digest
+/// includes explicit nil-origin presence and the referenced row's lineage.
+nonisolated struct ScreenplayDraftConflictRequestReference: Codable, Equatable, Sendable {
+    let requestID: String
+    let projectId: String
+    let ownerUserId: String
+    let deliveryOrigin: ScreenplayDraftSaveOrigin?
+    let requestAuthority: ScreenplayDraftSaveRequestAuthority?
+    let requestDigest: String
+}
+
 /// Stored inside a parked compatibility marker. Previous array-only builds
 /// ignore this new field, but still see the same request ID as parked and
 /// therefore cannot deliver that retired request after an app downgrade.
@@ -62,6 +74,9 @@ nonisolated struct ScreenplayDraftSaveOutboxEntry: Identifiable, Codable, Equata
     var deliveryOrigin: ScreenplayDraftSaveOrigin? = nil
     var requestAuthority: ScreenplayDraftSaveRequestAuthority? = nil
     var loadServerRetirement: ScreenplayDraftLoadServerRetirement? = nil
+    /// Additive metadata only. Older clients drop this field when rewriting the
+    /// manifest, so release rollback remains unsafe until they are fenced out.
+    var supersededConflictRequests: [ScreenplayDraftConflictRequestReference] = []
 
     var isPassiveAutosave: Bool { source == "studio_autosave" && notes.isEmpty }
 
@@ -82,6 +97,7 @@ nonisolated struct ScreenplayDraftSaveOutboxEntry: Identifiable, Codable, Equata
         projectId == other.projectId && ownerUserId == other.ownerUserId &&
             deliveryOrigin == other.deliveryOrigin && baseVersionId == other.baseVersionId &&
             title == other.title && phase == other.phase && initialization == other.initialization &&
+            supersededConflictRequests == other.supersededConflictRequests &&
             draft.utf8.elementsEqual(other.draft.utf8)
     }
 }
@@ -251,6 +267,7 @@ actor ScreenplayDraftSaveOutbox {
                   entries[index].deliveryOrigin == entry.deliveryOrigin,
                   entries[index].requestAuthority == entry.requestAuthority,
                   entries[index].loadServerRetirement == entry.loadServerRetirement,
+                  entries[index].supersededConflictRequests == entry.supersededConflictRequests,
                   entries[index].draft.utf8.elementsEqual(entry.draft.utf8) else {
                 throw BackendMemoryAPIError.server(status: 409, message: "screenplay_save_id_reused")
             }
@@ -312,14 +329,32 @@ actor ScreenplayDraftSaveOutbox {
         let cleanProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
         let cleanOwnerUserId = ownerUserId.trimmingCharacters(in: .whitespacesAndNewlines)
         let nowSeconds = now.timeIntervalSince1970
-        guard let index = entries.firstIndex(where: {
-            $0.projectId == cleanProjectId && $0.ownerUserId == cleanOwnerUserId && $0.initialization == nil
-        }) else {
-            return nil
+        var nextIndex: Int?
+        var blockingConflicts: [ScreenplayDraftSaveOutboxEntry] = []
+        for index in entries.indices {
+            let candidate = entries[index]
+            guard candidate.projectId == cleanProjectId,
+                  candidate.ownerUserId == cleanOwnerUserId,
+                  candidate.initialization == nil else { continue }
+            if candidate.status == .parked && candidate.lastError == Self.conflictReason {
+                blockingConflicts.append(candidate)
+                continue
+            }
+            guard candidate.status == .pending,
+                  force || candidate.nextAttemptAt <= nowSeconds else {
+                return nil
+            }
+            guard blockingConflicts.allSatisfy({ conflict in
+                candidate.supersededConflictRequests.contains { reference in
+                    conflictReference(reference, matches: conflict)
+                }
+            }) else {
+                return nil
+            }
+            nextIndex = index
+            break
         }
-        let entry = entries[index]
-        guard entry.status == .pending,
-              force || entry.nextAttemptAt <= nowSeconds else {
+        guard let index = nextIndex else {
             return nil
         }
         let previous = entries
@@ -372,6 +407,65 @@ actor ScreenplayDraftSaveOutbox {
                 entries[queuedIndex].baseVersionId = nextBase
                 entries[queuedIndex].updatedAt = now.timeIntervalSince1970
             }
+        }
+        do { try persist() } catch { entries = previous; throw error }
+        publishSnapshot()
+    }
+
+    /// Commits one Keep Mine acknowledgement and its exact conflict lineage in
+    /// one manifest write. A normal POST echo is required; the current readback
+    /// evidence does not prove all immutable metadata and must not call this.
+    func completeConfirmedConflictResolution(
+        _ resolution: ScreenplayDraftSaveOutboxEntry,
+        evidence: ScreenplayConfirmedDraftSave,
+        echoedRequestID: String,
+        now: Date = Date()
+    ) throws {
+        try loadIfNeeded()
+        guard !resolution.supersededConflictRequests.isEmpty,
+              Set(resolution.supersededConflictRequests.map(\.requestID)).count ==
+                resolution.supersededConflictRequests.count,
+              let resolutionIndex = entries.firstIndex(where: { $0.id == resolution.id }),
+              sameImmutableRequest(entries[resolutionIndex], resolution),
+              entries[resolutionIndex].status == .inflight,
+              echoedRequestID == resolution.id,
+              evidence.requestID == resolution.id,
+              evidence.owner.userID == resolution.ownerUserId,
+              evidence.projectID == resolution.projectId,
+              evidence.draft.utf8.elementsEqual(resolution.draft.utf8),
+              validIdentifier(evidence.versionID),
+              let origin = resolution.deliveryOrigin,
+              evidence.documentID == origin.documentID,
+              origin.permitsBackend(evidence.backendURL) else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+
+        var referencedIDs = Set<String>()
+        for reference in resolution.supersededConflictRequests {
+            guard reference.projectId == resolution.projectId,
+                  reference.ownerUserId == resolution.ownerUserId,
+                  reference.requestID != resolution.id,
+                  referencedIDs.insert(reference.requestID).inserted,
+                  let conflict = entries.first(where: { $0.id == reference.requestID }),
+                  conflict.status == .parked,
+                  conflict.lastError == Self.conflictReason,
+                  conflictReference(reference, matches: conflict) else {
+                throw BackendMemoryAPIError.invalidResponse
+            }
+        }
+
+        let previous = entries
+        let completed = entries[resolutionIndex]
+        entries.removeAll { $0.id == completed.id || referencedIDs.contains($0.id) }
+        for queuedIndex in entries.indices where
+            entries[queuedIndex].projectId == completed.projectId &&
+            entries[queuedIndex].ownerUserId == completed.ownerUserId &&
+            entries[queuedIndex].deliveryOrigin == completed.deliveryOrigin &&
+            entries[queuedIndex].status != .parked &&
+            entries[queuedIndex].createdAt >= completed.createdAt &&
+            entries[queuedIndex].baseVersionId == completed.baseVersionId {
+            entries[queuedIndex].baseVersionId = evidence.versionID
+            entries[queuedIndex].updatedAt = now.timeIntervalSince1970
         }
         do { try persist() } catch { entries = previous; throw error }
         publishSnapshot()
@@ -451,6 +545,42 @@ actor ScreenplayDraftSaveOutbox {
         do { try persist() } catch { entries = previous; throw error }
         publishSnapshot()
         return entries.first { $0.id == request.id }
+    }
+
+    /// Returns the transitive, sorted metadata-only lineage for a replacement
+    /// request. Every inherited reference and the current conflict must still
+    /// identify an exact durable parked row at capture time.
+    func conflictResolutionReferences(
+        for request: ScreenplayDraftSaveOutboxEntry
+    ) throws -> [ScreenplayDraftConflictRequestReference] {
+        try loadIfNeeded()
+        try validateConflictRequest(request)
+        guard let current = entries.first(where: { $0.id == request.id }),
+              sameImmutableRequest(current, request),
+              current.status == .parked,
+              current.lastError == Self.conflictReason else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        var referencesByID: [String: ScreenplayDraftConflictRequestReference] = [:]
+        for reference in current.supersededConflictRequests {
+            guard reference.projectId == current.projectId,
+                  reference.ownerUserId == current.ownerUserId,
+                  reference.requestID != current.id,
+                  let conflict = entries.first(where: { $0.id == reference.requestID }),
+                  conflict.status == .parked,
+                  conflict.lastError == Self.conflictReason,
+                  conflictReference(reference, matches: conflict),
+                  referencesByID[reference.requestID] == nil else {
+                throw BackendMemoryAPIError.invalidResponse
+            }
+            referencesByID[reference.requestID] = reference
+        }
+        let currentReference = try makeConflictReference(current)
+        guard referencesByID[currentReference.requestID] == nil else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        referencesByID[currentReference.requestID] = currentReference
+        return referencesByID.values.sorted { $0.requestID < $1.requestID }
     }
 
     /// Captures only exact immutable requests explicitly supplied by the VM.
@@ -1071,7 +1201,8 @@ actor ScreenplayDraftSaveOutbox {
             lhs.notes == rhs.notes && lhs.source == rhs.source &&
             lhs.studioWriteAnchors == rhs.studioWriteAnchors &&
             lhs.screenplayBindings == rhs.screenplayBindings &&
-            lhs.baseVersionId == rhs.baseVersionId
+            lhs.baseVersionId == rhs.baseVersionId &&
+            lhs.supersededConflictRequests == rhs.supersededConflictRequests
     }
 
     private func exactScope(
@@ -1110,6 +1241,75 @@ actor ScreenplayDraftSaveOutbox {
         encoder.outputFormatting = [.sortedKeys]
         appendCanonical(try encoder.encode(request.studioWriteAnchors), to: &projection)
         appendCanonical(try encoder.encode(request.screenplayBindings), to: &projection)
+        // Preserve every previously issued v2 digest when lineage is empty.
+        // Only lineage-bearing requests receive the additive digest suffix.
+        if !request.supersededConflictRequests.isEmpty {
+            appendCanonical(Data("conflict-lineage-v1".utf8), to: &projection)
+            appendCanonical(try encoder.encode(request.supersededConflictRequests), to: &projection)
+        }
+        return SHA256.hash(data: projection).map { String(format: "%02x", $0) }.joined()
+    }
+
+    private func makeConflictReference(
+        _ request: ScreenplayDraftSaveOutboxEntry
+    ) throws -> ScreenplayDraftConflictRequestReference {
+        ScreenplayDraftConflictRequestReference(
+            requestID: request.id,
+            projectId: request.projectId,
+            ownerUserId: request.ownerUserId,
+            deliveryOrigin: request.deliveryOrigin,
+            requestAuthority: request.requestAuthority,
+            requestDigest: try conflictRequestDigest(request)
+        )
+    }
+
+    private func conflictReference(
+        _ reference: ScreenplayDraftConflictRequestReference,
+        matches request: ScreenplayDraftSaveOutboxEntry
+    ) -> Bool {
+        reference.requestID == request.id &&
+            reference.projectId == request.projectId &&
+            reference.ownerUserId == request.ownerUserId &&
+            reference.deliveryOrigin == request.deliveryOrigin &&
+            reference.requestAuthority == request.requestAuthority &&
+            validRequestDigest(reference.requestDigest) &&
+            (try? conflictRequestDigest(request)) == reference.requestDigest
+    }
+
+    /// This projection deliberately records origin presence before origin data,
+    /// so a legacy nil-origin row remains exactly referencable without inventing
+    /// a document identity.
+    private func conflictRequestDigest(
+        _ request: ScreenplayDraftSaveOutboxEntry
+    ) throws -> String {
+        var projection = Data()
+        appendCanonical(Data("io.them.screenplay-draft-conflict-reference-v1".utf8), to: &projection)
+        for value in [request.id, request.projectId, request.ownerUserId] {
+            appendCanonical(Data(value.utf8), to: &projection)
+        }
+        if let origin = request.deliveryOrigin {
+            projection.append(1)
+            appendCanonical(Data(origin.documentID.utf8), to: &projection)
+            appendCanonical(Data(origin.backendURL.absoluteString.utf8), to: &projection)
+        } else {
+            projection.append(0)
+        }
+        if let authority = request.requestAuthority {
+            projection.append(1)
+            appendCanonical(Data(authority.id.uuidString.lowercased().utf8), to: &projection)
+            appendCanonicalInteger(authority.generation, to: &projection)
+        } else {
+            projection.append(0)
+        }
+        for value in [request.draft, request.title, request.phase, request.notes,
+                      request.source, request.baseVersionId] {
+            appendCanonical(Data(value.utf8), to: &projection)
+        }
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        appendCanonical(try encoder.encode(request.studioWriteAnchors), to: &projection)
+        appendCanonical(try encoder.encode(request.screenplayBindings), to: &projection)
+        appendCanonical(try encoder.encode(request.supersededConflictRequests), to: &projection)
         return SHA256.hash(data: projection).map { String(format: "%02x", $0) }.joined()
     }
 
