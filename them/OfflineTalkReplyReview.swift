@@ -33,7 +33,7 @@ struct OfflineTalkReplyReviewView: View {
                     if let studioRender {
                         Text(studioRender.isComplete
                             ? (studioRender.qualityConfirmed ? "Complete Studio response kept for review." : "Complete response; page quality is unconfirmed.")
-                            : "Partial or interrupted response; page quality is unconfirmed.")
+                            : "Incomplete or unconfirmed response; page quality is unconfirmed.")
                             .font(.subheadline).accessibilityIdentifier("talk.recovery.render.status")
                         Text("Select text to copy it, or export the original recovery record from Data Controls. Reviewing it does not write to the page.")
                             .font(.caption).foregroundStyle(.secondary)
