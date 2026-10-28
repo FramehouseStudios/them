@@ -1,4 +1,5 @@
 import Foundation
+import ScreenplayStudio
 
 /// Canonical formatting for an existing replacement range; no UI or request state.
 @MainActor
@@ -80,6 +81,4 @@ enum StudioReplacementText {
             .joined(separator: "\n")
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
-
 }
-

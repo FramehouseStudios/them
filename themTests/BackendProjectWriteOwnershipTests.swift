@@ -146,7 +146,7 @@ final class BackendProjectWriteOwnershipTests: XCTestCase {
             ProjectWriteOwnershipProtocol.handler = { request in
                 state.record(request)
                 if request.url?.path == "/session" { state.rotateToken(); return .json(#"{"error":"unavailable"}"#, status: 503) }
-                return .json(#"{"ok":true,"turn_id":"turn-a","state_version":"owned-state"}"#)
+                return .json(#"{"ok":true,"action":"saved","status":"saved","turn_id":"turn-a","state_version":"owned-state"}"#)
             }
             let api = makeAPI(state), owner = state.identity(), origin = URL(string: "https://project-write-ownership.test")!
             if annotation {

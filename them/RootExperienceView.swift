@@ -8851,6 +8851,52 @@ Write this approved story direction directly into screenplay pages now. Maintain
 
 
     @MainActor
+    private func applyLiveScreenplayPreviewFromRawReply(
+        _ rawReply: String,
+        userTranscript: String = "",
+        memoryDomainOverride: StudioMemoryDomain? = nil
+    ) -> String? {
+        guard isStudioSurfaceActive else { return nil }
+
+        let cleanPack = screenplayDraftBridge.latestPack.trimmingCharacters(in: .whitespacesAndNewlines)
+            .isEmpty ? liveScreenplayPack.trimmingCharacters(in: .whitespacesAndNewlines)
+            : screenplayDraftBridge.latestPack.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanPhase = screenplayDraftBridge.latestPhase.trimmingCharacters(in: .whitespacesAndNewlines)
+            .isEmpty ? liveScreenplayPhase.trimmingCharacters(in: .whitespacesAndNewlines)
+            : screenplayDraftBridge.latestPhase.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanProject = screenplayDraftBridge.preferredProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
+            .isEmpty ? liveScreenplayProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
+            : screenplayDraftBridge.preferredProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanVersion = screenplayDraftBridge.preferredVersionID.trimmingCharacters(in: .whitespacesAndNewlines)
+            .isEmpty ? liveScreenplayVersionID.trimmingCharacters(in: .whitespacesAndNewlines)
+            : screenplayDraftBridge.preferredVersionID.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard let textToInsert = resolvedStudioScreenplayInsertionText(
+            reply: rawReply,
+            userMessage: userTranscript,
+            existingDraft: screenplayDraftBridge.previewFormattingBaseDraft,
+            forceWriteToPage: true,
+            memoryDomainOverride: memoryDomainOverride,
+            preferredTargetOverride: .page
+        ) else {
+            return nil
+        }
+
+        liveScreenplayText = textToInsert
+        liveScreenplayUpdatedAt = Date()
+        screenplayDraftBridge.latestUserTranscript = userTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
+        screenplayDraftBridge.latestVoiceTurn = textToInsert
+        screenplayDraftBridge.latestPack = cleanPack
+        screenplayDraftBridge.latestPhase = cleanPhase
+        screenplayDraftBridge.preferredProjectID = cleanProject
+        screenplayDraftBridge.preferredVersionID = cleanVersion
+        screenplayDraftBridge.lastUpdatedAt = Date()
+        screenplayDraftBridge.cancelStreamingVoiceTurnPreview()
+        screenplayDraftBridge.autoInsertStatusText = "io.them is preparing the page..."
+        return textToInsert
+    }
+
+    @MainActor
     private func applyLiveScreenplayPreview(
         from result: BackendTalkResult,
         promptSource: ScreenplayStudioUserPrompt.Source = .voice,
