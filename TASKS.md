@@ -5,6 +5,28 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1199 — Keep integrity actions readable on the narrow page
+
+- **Owner:** Codex (Jarvis), bounded Codex source handoff preserved.
+- **Status:** review on `codex/T-1199-integrity-banner-integration`,
+  base published36f07be (#976); original helper12014d0 preserved byfe1f68f.
+- **Root:** banner summary and four text actions shared one forced horizontal
+  row; labels compressed to vertical columns and pushed the page away.
+- **Fix:** existing ViewThatFits pattern, summary above actions, one/two rows
+  then column; same callbacks, colors and inspector IDs,44pt minimum targets.
+- **Binary:** actual narrow screenshot is readable, all four actions hittable,
+  nonoverlapping and contained; Review opens Draft inspector; underlying saved
+  bytes, relaunch and stale-reply custody still pass the existing A/B workflow.
+- **Proof:** signed narrow UI1/0/0 at3c82b91, including four reachable
+  contained/nonoverlapping44pt actions, real Review, exact save/relaunch and
+  stale-response recovery. Initial0/1/0 exposed parent identifier propagation;
+  existing accessibility containment pattern fixed it without weakening checks.
+  Screenshot inspected: readable two-row actions. Mac scaffold build passed; no
+  paid calls, main/original-head mutation or production change. No unchanged
+  full-unit/backend rerun for this view fix.
+- **Evidence:** `docs/integrity-banner-narrow-proof-2026-10-28.md` and original
+  `docs/T1199-integrity-banner-layout-handoff.md`.
+
 ### T-1187 — Fence Studio publication and settle the original render
 
 - **Owner:** Codex (Jarvis). **Status:** review on

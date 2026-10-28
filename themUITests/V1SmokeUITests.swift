@@ -2430,11 +2430,34 @@ final class V1SmokeUITests: XCTestCase {
         if element(identifier: "studio.sidebar.right.drawer", in: app).exists {
             app.buttons["studio.sidebar.right.toggle"].tap()
         }
+        // T1199: this fixture contains two conversational blocks. Measure the
+        // real narrow page banner, then invoke its actual Review callback.
+        if switchProject {
+            let banner = app.otherElements["studio.page.integrity.banner"]
+            XCTAssertTrue(banner.waitForExistence(timeout: 5))
+            XCTAssertLessThan(banner.frame.height, 250, "The warning must leave the screenplay visible")
+            let actionIDs = ["review", "move-all", "move", "remove"]
+            var actionFrames: [CGRect] = []
+            for id in actionIDs {
+                let action = app.buttons["studio.page.integrity.\(id)"]
+                XCTAssertTrue(waitForHittability(of: action, timeout: 5), "Integrity action \(id) is unreachable")
+                let frame = action.frame
+                XCTAssertGreaterThanOrEqual(frame.width, 70, "Action labels must not collapse into vertical columns")
+                XCTAssertGreaterThanOrEqual(frame.height, 44, "Integrity actions need a full touch target")
+                XCTAssertTrue(banner.frame.insetBy(dx: -1, dy: -1).contains(frame), "Action escaped the banner")
+                XCTAssertFalse(actionFrames.contains { $0.intersects(frame) }, "Integrity actions overlap")
+                actionFrames.append(frame)
+            }
+        }
         let committedImage = XCTAttachment(screenshot: app.screenshot())
         committedImage.name = switchProject ? "Committed project B page" : "Committed Stop resubmission page"
         committedImage.lifetime = .keepAlways
         add(committedImage)
         if switchProject {
+            app.buttons["studio.page.integrity.review"].tap()
+            XCTAssertTrue(element(identifier: "studio.sidebar.right.drawer", in: app).waitForExistence(timeout: 5))
+            XCTAssertTrue(waitForSelection(of: app.buttons["studio.right-panel.draft"], timeout: 5),
+                "Review must open the real Draft inspector")
             let savedA = try await writerLoopProject(id: projectA, fixture: fixture)
             let versions = savedA["versions"] as? [[String: Any]] ?? []
             XCTAssertEqual(versions.count, 1); XCTAssertEqual(stringValue(savedA["active_version_id"]), versionA)
