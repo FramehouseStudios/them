@@ -225,12 +225,6 @@ nonisolated struct BackendTurnCommittedEvent {
     }
 }
 
-nonisolated struct BackendReadResult<Payload> {
-    let payload: Payload
-    let sync: BackendSyncState
-    let notModified: Bool
-}
-
 nonisolated struct BackendRememberedName: Decodable, Hashable {
     let name: String
     let relation: String
@@ -8077,6 +8071,7 @@ actor BackendMemoryAPI {
         baseVersionId: String = "",
         conflictStrategy: String = "reject_if_stale",
         clientRequestId: String = "",
+        expectedBackendURL: URL? = nil,
         includeUserIdentity: Bool = true,
         includeAuthToken: Bool = true,
         clientTokenOverride: String? = nil,
@@ -8141,6 +8136,9 @@ actor BackendMemoryAPI {
             let identity = requestIdentityProvider(false)
             try owner.requireCurrentOwner(identity)
             var request = try makeWriteRequest(path: "/screenplay/projects/\(normalizedProjectId)/version", identity: identity)
+            guard expectedBackendURL.map({ expected in request.url.map { OfflineTalkRecoveryScope.sameBackend(expected, $0) } ?? false }) ?? true else {
+                throw BackendMemoryAPIError.server(status: 409, message: "The queued draft belongs to another backend. Its original words are kept for recovery.")
+            }
             applyProjectOwnerHeaders(
                 to: &request,
                 includeUserIdentity: includeUserIdentity,
@@ -9455,7 +9453,7 @@ actor BackendMemoryAPI {
         )
         try owner.requireCurrentOwner(requestIdentityProvider(false))
         updateSyncState(mergeSyncStates(base: bodySync, incoming: headerSync), emitTurnEvent: true, initiatingIdentity: owner)
-        return BackendReadResult(payload: payload, sync: syncState, notModified: false)
+        return BackendReadResult(payload: payload, sync: syncState, notModified: false, responseURL: response.url)
     }
 
     private func makeRequest(

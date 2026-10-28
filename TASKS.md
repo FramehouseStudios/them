@@ -5,6 +5,24 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1184 — Bind live settlement to immutable save evidence
+
+- **Owner:** Codex (Zora), bounded implementation delegated by Jarvis.
+  **Branch:** `codex/T-1184-save-evidence`.
+  **Base:** `f588fb8df59f2b3fa74388b904635c498eab6ebc`.
+- **Scope:** existing save request/outbox provenance, validated ordinary/readback/
+  initial acknowledgement evidence, actual HTTP response origin and pre-dispatch
+  backend fencing. No new save store, live actor implementation or recovery UI.
+- **Binary:** old A saves retain A's original document/backend across retry and
+  coalescing; incomplete/wrong-origin/wrong-owner echo cannot settle live work;
+  exact server evidence reaches the canonical outbox before queue removal.
+- **Status:** local source for integration review. Sixteen new focused cases;
+  native/compile UNRUN by assignment. Jarvis owns native resources and the
+  concurrent `recordConfirmedPageSave` actor method this patch consumes.
+- **Handoff:** `docs/save-evidence-provenance-2026-10-27.md`.
+  Next: integrate both sides and run focused plus required signed checkpoints.
+  No push, main/original head changes, provider calls or deployment.
+
 ### T-1183 — Keep draft-save completion with its original project
 
 - **Owner:** Codex (Zora), bounded implementation delegated by Jarvis.

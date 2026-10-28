@@ -38,7 +38,8 @@ struct ScreenplayInitialProjectReceipt {
 enum ScreenplayInitialProjectCreation {
     static func save(_ entry: ScreenplayDraftSaveOutboxEntry, owner: BackendAuthRequestIdentity,
                      localDraft: String, outbox: ScreenplayDraftSaveOutbox = .shared,
-                     api: BackendMemoryAPI = .shared) async throws -> ScreenplayInitialProjectReceipt {
+                     api: BackendMemoryAPI = .shared,
+                     liveReplyOutbox: OfflineTalkOutbox = .shared) async throws -> ScreenplayInitialProjectReceipt {
         try owner.requireCurrentOwner(BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: false))
         guard let metadata = entry.initialization else { throw BackendMemoryAPIError.invalidResponse }
         try metadata.validate(owner: owner, entry: entry, requestURL: BackendAuthClient.resolvedBackendBaseURL())
@@ -55,6 +56,11 @@ enum ScreenplayInitialProjectCreation {
                 throw BackendMemoryAPIError.server(status: 503, message: "The first save was not acknowledged. Your original words are kept on this device.")
             }
             try await outbox.recordInitialProjectReceipt(id: entry.id, versionID: versionID)
+            if let evidence = ScreenplayConfirmedDraftSave.initial(entry: entry, version: version,
+                versionID: versionID, projectID: result.payload.projectId, responseURL: result.responseURL,
+                owner: owner.ownerContext, currentOwner: .current()) {
+                _ = try await liveReplyOutbox.recordConfirmedPageSave(evidence)
+            }
             return .init(entry: entry, project: project, versionID: versionID, owner: owner, localDraft: localDraft)
         } catch {
             try? await outbox.releaseInitialProject(id: entry.id, error: error.localizedDescription)
