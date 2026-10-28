@@ -10531,7 +10531,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
             actThreePayoffPath: promptActThreePayoffPath,
             actPressureState: promptActPressureState,
             characterArcState: promptCharacterArcState,
-            characterArcMemory: promptCharacterArcMemory.isMeaningful ? promptCharacterArcMemory : nil,
+            characterArcMemory: promptCharacterArcMemory.hasCharacterGrounding ? promptCharacterArcMemory : nil,
             characterVoiceMemories: promptCharacterVoiceMemories,
             lastSceneOutcome: promptLastSceneOutcome,
             beatSequence: promptBeatSequence,

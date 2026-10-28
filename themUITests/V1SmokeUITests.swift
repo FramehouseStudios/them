@@ -2347,7 +2347,7 @@ final class V1SmokeUITests: XCTestCase {
         let versionA = try await seed(projectA, "Owner A \(suffix.prefix(8))", beforeA)
         if switchProject { _ = try await seed(projectB, titleB, beforeB) }
         var app = launchApp(openStudio: true, restoreProjectID: projectA, restoreVersionID: versionA,
-            restoreLoadToken: Int(Date().timeIntervalSince1970), launchEnvironment: fixture.appLaunchEnvironment)
+            restoreLoadToken: Int(Date().timeIntervalSince1970), submitTransportMode: "live-backend", launchEnvironment: fixture.appLaunchEnvironment)
         defer { app.terminate() }
         XCTAssertTrue(waitForExactWriterLoopDraft(beforeA, in: app, timeout: 20))
         XCTAssertEqual(Data(accessibleDraftText(in: app).utf8), Data(beforeA.utf8))
@@ -2421,7 +2421,7 @@ final class V1SmokeUITests: XCTestCase {
         // survives launch without any new render/fallback/model request.
         try await waitForStudioHeldRenderCount(1, in: app)
         app.terminate()
-        app = launchApp(openStudio: true, resetState: false, launchEnvironment: fixture.appLaunchEnvironment)
+        app = launchApp(openStudio: true, submitTransportMode: "live-backend", resetState: false, launchEnvironment: fixture.appLaunchEnvironment)
         XCTAssertTrue(waitForExactWriterLoopDraft(finalDraft, in: app, timeout: 20))
         XCTAssertEqual(Data(accessibleDraftText(in: app).utf8), Data(finalDraft.utf8))
         try await waitForStudioHeldRenderCount(1, in: app, openReply: true)
@@ -2457,10 +2457,18 @@ final class V1SmokeUITests: XCTestCase {
     @MainActor
     private func waitForStudioHeldRenderCount(_ count: Int, in app: XCUIApplication, openReply: Bool = false) async throws {
         let drawer = element(identifier: "studio.sidebar.right.drawer", in: app)
+        if drawer.exists, app.keyboards.firstMatch.exists {
+            app.buttons["studio.sidebar.right.toggle"].tap()
+        }
         if !drawer.exists { app.buttons["studio.sidebar.right.toggle"].tap() }
-        XCTAssertTrue(drawer.waitForExistence(timeout: 8))
+        guard drawer.waitForExistence(timeout: 8) else { throw NSError(domain: "themUITests.renderOwner", code: 3,
+            userInfo: [NSLocalizedDescriptionKey: "The recovery inspector did not open"]) }
         let tab = app.buttons["studio.right-panel.draft"]
-        XCTAssertTrue(waitForHittability(of: tab, timeout: 5)); if !tab.isSelected { tab.tap() }
+        guard revealInStudioDrawer(tab, drawer: drawer, scrollingUp: false, maxSwipes: 6) else {
+            throw NSError(domain: "themUITests.renderOwner", code: 3,
+                userInfo: [NSLocalizedDescriptionKey: "The inspector did not reveal its Document tab"])
+        }
+        tab.tap()
         let receiptCount = app.staticTexts["studio.recovery.received-count"]
         XCTAssertTrue(revealInStudioDrawer(receiptCount, drawer: drawer, scrollingUp: true, maxSwipes: 10))
         let countMatches = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == %@", String(count)), object: receiptCount)

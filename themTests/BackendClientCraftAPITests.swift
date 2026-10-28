@@ -375,6 +375,29 @@ final class BackendClientCraftAPITests: XCTestCase {
         XCTAssertTrue(metadata.isMeaningful)
     }
 
+    func testDerivedPlanningHintsCannotBecomeAnEnforcedCharacterBible() {
+        let memory = BackendScreenplayCharacterArcMemory(act: "Act I",
+            currentTactic: "Force the protagonist into a choice that makes Act II unavoidable.",
+            nextEmotionalTurn: "Write the next scene: Continue the unfinished page with a concrete emotional turn.")
+        XCTAssertTrue(memory.isMeaningful, "Planning data still exists for its own prompt fields")
+        XCTAssertFalse(memory.hasCharacterGrounding, "A generic plan has neither a character nor authored arc facts")
+    }
+
+    func testDerivedCharacterMemoryKeepsArcFactsButNotNamedPlanningHints() {
+        for memory in [
+            BackendScreenplayCharacterArcMemory(want: "expose the forged testimony", need: "stop hiding behind observation"),
+            BackendScreenplayCharacterArcMemory(character: "Mara", wound: "abandoned by her partner"),
+            BackendScreenplayCharacterArcMemory(character: "Eli", falseBelief: "truth destroys families"),
+            BackendScreenplayCharacterArcMemory(relationshipPressure: "Eli will be blamed if she stays silent")
+        ] { XCTAssertTrue(memory.hasCharacterGrounding) }
+        for memory in [
+            BackendScreenplayCharacterArcMemory(character: "Mara", act: "Act I"),
+            BackendScreenplayCharacterArcMemory(character: "Mara", currentTactic: "force a choice", nextEmotionalTurn: "continue the page")
+        ] { XCTAssertFalse(memory.hasCharacterGrounding) }
+        XCTAssertTrue(BackendScreenplayCharacterArcMemory(character: "Mara", currentTactic: "collect evidence in silence").isMeaningful,
+            "Explicitly supplied character memory remains representable; only derived prompt synthesis is filtered")
+    }
+
     func testScreenplayCharacterVoiceMemoryPayloadUsesBackendContractKeys() throws {
         let voiceMemory = BackendScreenplayCharacterVoiceMemory(
             character: "Mara",

@@ -1166,6 +1166,13 @@ nonisolated struct BackendScreenplayCharacterArcMemory: Codable, Hashable {
             .contains { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     }
 
+    // Derived beat/scene plans are not character facts, even with a cue name.
+    // Explicit character memories still use isMeaningful; synthesized prompt
+    // memory needs arc facts before it can carry inferred tactical hints.
+    var hasCharacterGrounding: Bool {
+        [want, need, wound, falseBelief, relationshipPressure].contains { !$0.isEmpty }
+    }
+
     var payload: [String: String] {
         var out: [String: String] = [:]
         Self.append("character", character, to: &out)

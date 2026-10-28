@@ -44,6 +44,7 @@ if (process.env.THEM_HOME_VOICE_LONG_AUDIO === '1' && (tests.length !== 1 || !te
 // Reuse the measured audio asset so Stop interrupts an active turn, rather
 // than racing the short silence fixture; production timing is unchanged.
 const needsInterruptibleAudio = tests.some(test => test.endsWith('/test_home_raw_audio_studio_stop_ends_capture_and_cancels_page'));
+if (needsInterruptibleAudio && tests.length !== 1) throw new Error('Stop cancellation proof requires an isolated interruptible-audio run; normal writing must use its normal audio fixture');
 const bundle = process.env.THEM_HOME_VOICE_RESULT_BUNDLE || `/tmp/them-home-voice-${process.pid}.xcresult`;
 if (existsSync(bundle)) throw new Error('Refusing to overwrite an existing result bundle');
 const config = `/tmp/them-home-voice-${process.pid}.xcconfig`;
