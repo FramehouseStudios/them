@@ -2440,6 +2440,8 @@ final class V1SmokeUITests: XCTestCase {
             [projectA, projectB].contains(stringValue($0["project_id"]))
         }
         XCTAssertEqual(renders.count, 2, "A late completion or relaunch retried generation")
+        XCTAssertTrue(renders.allSatisfy { ($0["character_voice_memory_count"] as? Int) == 0 },
+            "New empty projects must not inherit another project's character voices from the user's cache")
         XCTAssertTrue(renders.allSatisfy { boolValue($0["delivered"]) && !boolValue($0["closed"]) && intValue($0["status"]) == 200 })
         let restored = try await writerLoopProject(id: projectB, fixture: fixture)
         XCTAssertEqual((restored["versions"] as? [[String: Any]])?.count, 2, "Review/relaunch resaved a held response")

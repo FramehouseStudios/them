@@ -54,13 +54,18 @@ export async function startPromotionDelayProxy(targetURL, { holdCreations = true
     const isRender = holdStudioRenders && req.method === 'POST'
       && ['/realtime/studio_render', '/realtime/studio_render_stream'].includes(pathname);
     const render = isRender ? { id: renders.length + 1, project_id: '', route: pathname,
-      status: null, held: false, delivered: false, closed: false } : null;
+      status: null, held: false, delivered: false, closed: false, character_voice_memory_count: null } : null;
     if (render) renders.push(render);
     req.on('data', chunk => requestChunks.push(chunk));
     req.on('end', () => {
       let payload;
       try { payload = JSON.parse(Buffer.concat(requestChunks).toString('utf8')); } catch { return; }
-      if (render) render.project_id = typeof payload.screenplay_project_id === 'string' ? payload.screenplay_project_id : '';
+      if (render) {
+        render.project_id = typeof payload.screenplay_project_id === 'string' ? payload.screenplay_project_id : '';
+        const voices = payload.screenplay_character_voice_memories ?? payload.screenplayCharacterVoiceMemories;
+        // Counts only: never expose character names, traits or request content.
+        render.character_voice_memory_count = voices == null ? 0 : Array.isArray(voices) ? voices.length : -1;
+      }
       if (req.method === 'POST' && pathname === `/screenplay/projects/${heldProjectID}/version`
           && payload.source === 'studio_first_turn_auto_create') staleRootVersionRequests += 1;
     });

@@ -75,11 +75,14 @@ test('render barriers are opt-in and the existing creation barrier remains the d
 
 test('independent completed A/B renders retain exact bytes and authenticated forwarding', async t => {
   const f = await fixture(t, { holdCreations: false, holdStudioRenders: true });
-  const a = f.send('project-a'), b = f.send('project-b', {}, '/realtime/studio_render');
+  const a = f.send('project-a', { screenplay_character_voice_memories: [{ character: 'PRIVATE NAME', voice: 'PRIVATE STYLE' }] });
+  const b = f.send('project-b', {}, '/realtime/studio_render');
   const state = await f.held(2);
   const heldA = state.renders.find(item => item.project_id === 'project-a');
   const heldB = state.renders.find(item => item.project_id === 'project-b');
   assert.equal(heldA.status, 200); assert.equal(heldB.status, 200);
+  assert.equal(heldA.character_voice_memory_count, 1);
+  assert.equal(heldB.character_voice_memory_count, 0);
   assert.equal((await f.release(heldA.id)).status, 200);
   assert.equal(await (await a).text(), 'data: {"reply":"café 🌙 project-a"}\n\ndata: {"done":true}\n\n  ');
   const afterA = await f.state();
@@ -94,7 +97,7 @@ test('independent completed A/B renders retain exact bytes and authenticated for
     assert.equal(request.headers['x-client-token'], 'fixture-session');
     assert.equal(JSON.parse(request.bytes).transcript, 'same fixture prompt');
   }
-  assert.doesNotMatch(JSON.stringify(await f.state()), /fixture-only|fixture-app|fixture-session|same fixture prompt|cafe/);
+  assert.doesNotMatch(JSON.stringify(await f.state()), /fixture-only|fixture-app|fixture-session|same fixture prompt|cafe|PRIVATE NAME|PRIVATE STYLE/);
 });
 
 test('same-document resubmissions have independent barriers; rejected output is never held', async t => {
