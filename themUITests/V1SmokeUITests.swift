@@ -2479,6 +2479,8 @@ final class V1SmokeUITests: XCTestCase {
             XCTAssertTrue(revealInStudioDrawer(review, drawer: drawer, scrollingUp: true, maxSwipes: 6)); review.tap()
             let text = app.staticTexts["talk.recovery.render.reply"]
             XCTAssertTrue(text.waitForExistence(timeout: 10)); XCTAssertTrue(text.label.contains("HOME VOICE HANDOFF"))
+            XCTAssertEqual(app.staticTexts["talk.recovery.render.status"].label, "Complete Studio response kept for review.",
+                "The stale response must be complete and quality-confirmed, not merely an HTTP 200 error frame")
             XCTAssertFalse(app.buttons["talk.recovery.reply.play"].exists)
             XCTAssertFalse(app.buttons["talk.recovery.reply.append"].exists)
             app.buttons["Close"].tap()
