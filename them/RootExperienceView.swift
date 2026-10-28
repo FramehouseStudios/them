@@ -10166,10 +10166,6 @@ Write this approved story direction directly into screenplay pages now. Maintain
         let activeDraftScene = activeBinding.flatMap { binding in
             structuredDraft.scenes.first(where: { $0.id == binding.draftSceneID })
         } ?? structuredDraft.activeScene(containingOrBefore: currentLine)
-        let draftBeatSequence = structuredDraft.recentActionBeatSequence(
-            endingAtLine: currentLine,
-            limit: 8
-        )
         let draftCurrentBeat = structuredDraft.currentActionBeat(endingAtLine: currentLine)
 
         var characterFocus: [String] = []
@@ -10212,8 +10208,10 @@ Write this approved story direction directly into screenplay pages now. Maintain
             )
         }
 
+        // Existing prose stays in the draft excerpt/scene summary. Only a
+        // planned outline beat may become a required future page assignment.
         let currentBeat = activeBinding?.outlineBeatLabels.first?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? draftCurrentBeat
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let sceneObjective = activeBinding?.outlineSceneObjective?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let sceneSummary = activeBinding?.outlineSceneSummary?
@@ -10272,9 +10270,6 @@ Write this approved story direction directly into screenplay pages now. Maintain
         var promptTargetPages = hasFeatureGuideContext ? ScreenplayFeatureProgressionGuide.defaultTargetPages : 0
         var promptBeatSequence: [String] = []
 
-        if promptCurrentBeat.isEmpty {
-            promptCurrentBeat = draftCurrentBeat
-        }
         if promptEmotionalContinuity.isEmpty {
             promptEmotionalContinuity = [promptCurrentBeat, promptSceneObjective, promptSceneSummary]
                 .first(where: { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) ?? ""
@@ -10298,7 +10293,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
 
         promptBeatSequence = mergedContextList(
             Array((activeBinding?.outlineBeatLabels ?? []).prefix(8)),
-            draftBeatSequence,
+            [],
             limit: 8
         )
         promptActThreePayoffPath = mergedContextList(
@@ -10459,9 +10454,6 @@ Write this approved story direction directly into screenplay pages now. Maintain
             if workflowContext.targetPages > 0 { promptTargetPages = workflowContext.targetPages }
         }
 
-        if promptBeatSequence.isEmpty {
-            promptBeatSequence = draftBeatSequence
-        }
         if promptNextThreeTurns.isEmpty {
             promptNextThreeTurns = Array(promptNextSceneMoves.prefix(3))
         }
