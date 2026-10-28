@@ -14,6 +14,41 @@ struct ScreenplayFeatureWorkflowMove: Identifiable, Equatable, Hashable {
     }
 }
 
+/// Concrete project records, separate from generated Compass suggestions.
+/// Only these facts may supply required scene/beat events to a prompt.
+struct ScreenplayFeatureWorkflowPlanFacts: Codable, Equatable, Hashable {
+    let sceneTitle: String
+    let sceneObjective: String
+    let sceneSummary: String
+    let beatLabel: String
+    let beatSummary: String
+    let actSummary: String
+
+    init(scene: BackendScreenplayScene?, beat: BackendScreenplayBeat?, act: BackendScreenplayAct?) {
+        func clean(_ value: String?) -> String { (value ?? "").trimmingCharacters(in: .whitespacesAndNewlines) }
+        let slugline = clean(scene?.slugline)
+        sceneTitle = slugline.isEmpty ? clean(scene?.title) : slugline
+        sceneObjective = clean(scene?.objective)
+        sceneSummary = clean(scene?.summary)
+        beatLabel = clean(beat?.label)
+        beatSummary = clean(beat?.summary)
+        actSummary = clean(act?.summary)
+    }
+
+    private func joined(_ values: [String]) -> String {
+        values.filter { !$0.isEmpty }.joined(separator: ": ")
+    }
+    var sceneEvent: String { joined([sceneTitle, sceneObjective.isEmpty ? sceneSummary : sceneObjective]) }
+    var sceneDescription: String { joined([sceneTitle, sceneSummary.isEmpty ? sceneObjective : sceneSummary]) }
+    var beatEvent: String { joined([beatLabel, beatSummary]) }
+    var nextScenePlan: String { sceneEvent.isEmpty ? "" : "Next scene: \(sceneEvent)" }
+    var nextTurns: [String] {
+        let events = [sceneEvent, beatEvent].filter { !$0.isEmpty }
+        return events.count == 2 && events[0] == events[1] ? [events[0]] : events
+    }
+    var obligation: String { beatEvent.isEmpty ? actSummary : beatEvent }
+}
+
 struct ScreenplayFeatureWorkflowSnapshot: Equatable, Hashable {
     let currentActTitle: String
     let currentActDetail: String
@@ -33,6 +68,7 @@ struct ScreenplayFeatureWorkflowSnapshot: Equatable, Hashable {
     let featureSequenceDetail: String
     let featureSequenceMoves: [String]
     let comingNextSequence: String
+    let planFacts: ScreenplayFeatureWorkflowPlanFacts?
 
     init(
         currentActTitle: String,
@@ -52,7 +88,8 @@ struct ScreenplayFeatureWorkflowSnapshot: Equatable, Hashable {
         featureSequenceTitle: String = "",
         featureSequenceDetail: String = "",
         featureSequenceMoves: [String] = [],
-        comingNextSequence: String = ""
+        comingNextSequence: String = "",
+        planFacts: ScreenplayFeatureWorkflowPlanFacts? = nil
     ) {
         self.currentActTitle = currentActTitle
         self.currentActDetail = currentActDetail
@@ -72,6 +109,7 @@ struct ScreenplayFeatureWorkflowSnapshot: Equatable, Hashable {
         self.featureSequenceDetail = featureSequenceDetail
         self.featureSequenceMoves = featureSequenceMoves
         self.comingNextSequence = comingNextSequence
+        self.planFacts = planFacts
     }
 
     var hasAcceptedBatch: Bool {
@@ -80,6 +118,7 @@ struct ScreenplayFeatureWorkflowSnapshot: Equatable, Hashable {
 }
 
 struct ScreenplayFeatureWorkflowSessionContext: Codable, Equatable {
+    let planFacts: ScreenplayFeatureWorkflowPlanFacts?
     let requestID: String
     let projectID: String
     let versionID: String
@@ -125,50 +164,41 @@ struct ScreenplayFeatureWorkflowSessionContext: Codable, Equatable {
         pageCount: Int = 0,
         targetPages: Int = 0
     ) {
+        let facts = snapshot.planFacts
+        self.planFacts = facts
         self.requestID = Self.clean(requestID, limit: 160)
         self.projectID = Self.clean(projectID, limit: 160)
         self.versionID = Self.clean(versionID, limit: 160)
         self.submittedPrompt = Self.clean(submittedPrompt, limit: 500)
         self.createdAt = createdAt
         self.act = Self.clean(snapshot.currentActTitle, limit: 120)
-        self.sceneObjective = Self.clean(snapshot.nextSceneDetail, limit: 280)
+        self.sceneObjective = Self.clean(facts?.sceneObjective ?? "", limit: 280)
         self.sceneSummary = Self.clean(
-            "\(snapshot.nextSceneTitle): \(snapshot.nextSceneDetail)",
+            facts?.sceneDescription ?? "",
             limit: 280
         )
-        self.currentBeat = Self.clean(snapshot.structuralObligation, limit: 220)
-        self.featureSequence = Self.clean(
-            snapshot.featureSequenceTitle.isEmpty
-                ? "\(snapshot.currentActTitle) - \(snapshot.actProgressLabel); \(snapshot.draftProgressLabel)"
-                : "\(snapshot.featureSequenceTitle); \(snapshot.draftProgressLabel)",
-            limit: 220
-        )
-        self.featureObligation = Self.clean(
-            snapshot.featureSequenceDetail.isEmpty
-                ? snapshot.structuralObligation
-                : "\(snapshot.structuralObligation) \(snapshot.featureSequenceDetail)",
-            limit: 280
-        )
-        self.actPressureState = Self.clean(snapshot.structuralObligation, limit: 280)
+        self.currentBeat = Self.clean(facts?.beatEvent ?? "", limit: 220)
+        self.featureSequence = ""
+        self.featureObligation = Self.clean(facts?.obligation ?? "", limit: 280)
+        self.actPressureState = Self.clean(facts?.actSummary ?? "", limit: 280)
         self.characterArcState = Self.clean(
             featureSpine.protagonistNeed.isEmpty
                 ? featureSpine.themeArgument
                 : "Need: \(featureSpine.protagonistNeed)",
             limit: 280
         )
-        self.lastSceneOutcome = Self.clean(snapshot.acceptedBatchDetail, limit: 240)
+        self.lastSceneOutcome = ""
         self.nextScenePlan = Self.clean(
-            "Next scene: \(snapshot.nextSceneTitle). \(snapshot.nextSceneDetail)",
+            facts?.nextScenePlan ?? "",
             limit: 340
         )
         self.nextSceneMoves = Self.cleanList(
-            snapshot.nextMoves.map { "\($0.title): \($0.detail)" } +
-                snapshot.featureSequenceMoves.map { "Sequence move: \($0)" },
+            facts?.nextTurns ?? [],
             limit: 5,
             itemLimit: 180
         )
         self.nextThreeTurns = Self.cleanList(
-            snapshot.nextMoves.map { "\($0.title): \($0.detail)" },
+            facts?.nextTurns ?? [],
             limit: 3,
             itemLimit: 180
         )
@@ -204,12 +234,12 @@ struct ScreenplayFeatureWorkflowSessionContext: Codable, Equatable {
         ], limit: 6, itemLimit: 140)
         self.continuityNotes = Self.cleanList([
             "Feature Compass accepted batch: \(snapshot.acceptedBatchDetail)",
-            "Feature Compass next scene: \(snapshot.nextSceneTitle)",
-            "Feature Compass structural obligation: \(snapshot.structuralObligation)",
-            snapshot.featureSequenceTitle.isEmpty ? "" : "Feature sequence: \(snapshot.featureSequenceTitle)",
-            snapshot.comingNextSequence.isEmpty ? "" : "Coming next sequence: \(snapshot.comingNextSequence)"
+            "Feature Compass suggested next scene: \(snapshot.nextSceneTitle)",
+            "Feature Compass craft guidance, not accepted events: \(snapshot.structuralObligation)",
+            snapshot.featureSequenceTitle.isEmpty ? "" : "Feature sequence guidance: \(snapshot.featureSequenceTitle)",
+            snapshot.comingNextSequence.isEmpty ? "" : "Coming next sequence guidance: \(snapshot.comingNextSequence)"
         ], limit: 5, itemLimit: 220)
-        self.emotionalContinuity = Self.clean(snapshot.nextSceneDetail, limit: 280)
+        self.emotionalContinuity = Self.clean(facts?.sceneObjective ?? "", limit: 280)
         self.pageCount = max(0, pageCount)
         self.targetPages = max(0, targetPages)
     }
@@ -247,6 +277,7 @@ struct ScreenplayFeatureWorkflowSessionContext: Codable, Equatable {
     }
 
     private enum CodingKeys: String, CodingKey {
+        case planFacts
         case requestID
         case projectID
         case versionID
@@ -284,28 +315,32 @@ struct ScreenplayFeatureWorkflowSessionContext: Codable, Equatable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        // Legacy auto-plan fields have no source provenance. Keep original
+        // feature facts and the operation, but rederive plans from the outline.
+        let facts = try container.decodeIfPresent(ScreenplayFeatureWorkflowPlanFacts.self, forKey: .planFacts)
+        self.planFacts = facts
         self.requestID = Self.clean(try container.decodeIfPresent(String.self, forKey: .requestID) ?? "", limit: 160)
         self.projectID = Self.clean(try container.decodeIfPresent(String.self, forKey: .projectID) ?? "", limit: 160)
         self.versionID = Self.clean(try container.decodeIfPresent(String.self, forKey: .versionID) ?? "", limit: 160)
         self.submittedPrompt = Self.clean(try container.decodeIfPresent(String.self, forKey: .submittedPrompt) ?? "", limit: 500)
         self.createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt) ?? .distantPast
         self.act = Self.clean(try container.decodeIfPresent(String.self, forKey: .act) ?? "", limit: 120)
-        self.sceneObjective = Self.clean(try container.decodeIfPresent(String.self, forKey: .sceneObjective) ?? "", limit: 280)
-        self.sceneSummary = Self.clean(try container.decodeIfPresent(String.self, forKey: .sceneSummary) ?? "", limit: 280)
-        self.currentBeat = Self.clean(try container.decodeIfPresent(String.self, forKey: .currentBeat) ?? "", limit: 220)
-        self.featureSequence = Self.clean(try container.decodeIfPresent(String.self, forKey: .featureSequence) ?? "", limit: 220)
-        self.featureObligation = Self.clean(try container.decodeIfPresent(String.self, forKey: .featureObligation) ?? "", limit: 280)
-        self.actPressureState = Self.clean(try container.decodeIfPresent(String.self, forKey: .actPressureState) ?? "", limit: 280)
+        self.sceneObjective = Self.clean(facts?.sceneObjective ?? "", limit: 280)
+        self.sceneSummary = Self.clean(facts?.sceneDescription ?? "", limit: 280)
+        self.currentBeat = Self.clean(facts?.beatEvent ?? "", limit: 220)
+        self.featureSequence = ""
+        self.featureObligation = Self.clean(facts?.obligation ?? "", limit: 280)
+        self.actPressureState = Self.clean(facts?.actSummary ?? "", limit: 280)
         self.characterArcState = Self.clean(try container.decodeIfPresent(String.self, forKey: .characterArcState) ?? "", limit: 280)
-        self.lastSceneOutcome = Self.clean(try container.decodeIfPresent(String.self, forKey: .lastSceneOutcome) ?? "", limit: 240)
-        self.nextScenePlan = Self.clean(try container.decodeIfPresent(String.self, forKey: .nextScenePlan) ?? "", limit: 340)
+        self.lastSceneOutcome = ""
+        self.nextScenePlan = Self.clean(facts?.nextScenePlan ?? "", limit: 340)
         self.nextSceneMoves = Self.cleanList(
-            try container.decodeIfPresent([String].self, forKey: .nextSceneMoves) ?? [],
+            facts?.nextTurns ?? [],
             limit: 5,
             itemLimit: 180
         )
         self.nextThreeTurns = Self.cleanList(
-            try container.decodeIfPresent([String].self, forKey: .nextThreeTurns) ?? [],
+            facts?.nextTurns ?? [],
             limit: 3,
             itemLimit: 180
         )
@@ -346,7 +381,7 @@ struct ScreenplayFeatureWorkflowSessionContext: Codable, Equatable {
             limit: 5,
             itemLimit: 220
         )
-        self.emotionalContinuity = Self.clean(try container.decodeIfPresent(String.self, forKey: .emotionalContinuity) ?? "", limit: 280)
+        self.emotionalContinuity = Self.clean(facts?.sceneObjective ?? "", limit: 280)
         self.pageCount = max(0, try container.decodeIfPresent(Int.self, forKey: .pageCount) ?? 0)
         self.targetPages = max(0, try container.decodeIfPresent(Int.self, forKey: .targetPages) ?? 0)
     }
@@ -501,7 +536,8 @@ enum ScreenplayFeatureWorkflowPlanner {
             featureSequenceTitle: featureSequenceTitle(sequenceGuide),
             featureSequenceDetail: featureSequenceDetail(sequenceGuide),
             featureSequenceMoves: sequenceGuide.nextMoves,
-            comingNextSequence: sequenceGuide.comingNext
+            comingNextSequence: sequenceGuide.comingNext,
+            planFacts: .init(scene: nextScene, beat: nextBeat, act: currentAct.act)
         )
     }
 
