@@ -43,3 +43,20 @@ Zora's nil-origin analysis: park only an exact already-durable row, never
 invent its document/backend identity; preserve distinct parked copies through
 relaunch and require a separately verified current origin before new delivery.
 The current VM has not yet implemented this recovery flow.
+
+## Exact conflict retention
+
+Both VM conflict response paths now retain only the exact conflicting request,
+not every row sharing its owner/project/origin, and carry the retained row in
+conflict state for later explicit resolution. If the exact request was already
+retired, the late conflict response does not recreate conflict UI. A nil-origin
+request may be parked only when the exact immutable row is already durable; a
+missing nil-origin row cannot be manufactured. This does not grant nil-origin
+rows authority to be deleted or rebound to the current document.
+
+Signed ScreenplayDraftSaveOutboxTests on the erased task-owned simulator:
+39 passed, 0 failed, 0 skipped. Regression checks that a second nil-origin
+row remains byte-exact and pending after relaunch and an absent row is not
+created. Result: /private/tmp/them-t1204-exact-conflict-20261028.xcresult.
+God-file gate and git diff --check passed. The full relaunch presentation,
+Load Server action, in-flight writes and real phone journey remain unproven.

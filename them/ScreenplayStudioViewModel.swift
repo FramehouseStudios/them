@@ -1488,6 +1488,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         let serverDraft: String
         let serverDraftExcerpt: String
         let serverUpdatedAt: TimeInterval
+        var retainedRequest: ScreenplayDraftSaveOutboxEntry? = nil
     }
 
     @Published var isLoading: Bool = false
@@ -6647,8 +6648,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
                     return completion(serverVersion.id, confirmed: confirmed)
                 }
 
-                _ = try await draftSaveOutbox.retainConflict(projectId: request.projectId,
-                    ownerUserId: request.ownerUserId, deliveryOrigin: request.deliveryOrigin)
+                guard let retained = try await draftSaveOutbox.retainConflict(request.outboxEntry) else { return nil }
                 guard ownsCompletion() else { return nil }
                 conflictState = SaveConflictState(
                     projectId: request.projectId,
@@ -6656,7 +6656,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
                     serverVersionId: serverVersion.id,
                     serverDraft: serverDraft,
                     serverDraftExcerpt: serverVersion.draftExcerpt ?? String(serverDraft.prefix(240)),
-                    serverUpdatedAt: serverVersion.updatedAt ?? serverVersion.createdAt ?? 0
+                    serverUpdatedAt: serverVersion.updatedAt ?? serverVersion.createdAt ?? 0,
+                    retainedRequest: retained
                 )
                 hasUnsavedDraftChanges = true
                 autosaveStatusText = "Conflict detected"
@@ -6746,8 +6747,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
                     .trimmingCharacters(in: .whitespacesAndNewlines)
                 let serverVersionId = (result.payload.serverVersionId ?? "")
                     .trimmingCharacters(in: .whitespacesAndNewlines)
-                _ = try await draftSaveOutbox.retainConflict(projectId: request.projectId,
-                    ownerUserId: request.ownerUserId, deliveryOrigin: request.deliveryOrigin)
+                guard let retained = try await draftSaveOutbox.retainConflict(request.outboxEntry) else { return nil }
                 guard ownsCompletion() else { return nil }
                 conflictState = SaveConflictState(
                     projectId: request.projectId,
@@ -6755,7 +6755,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
                     serverVersionId: serverVersionId,
                     serverDraft: result.payload.serverVersion?.draft ?? "",
                     serverDraftExcerpt: result.payload.serverVersion?.draftExcerpt ?? "",
-                    serverUpdatedAt: result.payload.serverVersion?.updatedAt ?? 0
+                    serverUpdatedAt: result.payload.serverVersion?.updatedAt ?? 0,
+                    retainedRequest: retained
                 )
                 hasUnsavedDraftChanges = true
                 autosaveStatusText = "Conflict detected"

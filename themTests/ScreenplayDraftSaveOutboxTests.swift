@@ -726,6 +726,30 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
         }
     }
 
+    func testExactConflictRetentionPreservesDistinctLegacyNilOriginDrafts() async throws {
+        let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let selected = makeEntry(id: "legacy-selected", draft: "First writer's words")
+        let other = makeEntry(id: "legacy-other", draft: "Different writer's words")
+        try await store.enqueue(selected)
+        try await store.enqueue(other)
+        let retained = try await store.retainConflict(selected)
+        XCTAssertEqual(retained?.id, selected.id)
+        let relaunched = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let rows = try await relaunched.entriesForTesting()
+        XCTAssertEqual(rows.first(where: { $0.id == selected.id })?.status, .parked)
+        XCTAssertEqual(rows.first(where: { $0.id == other.id })?.status, .pending)
+        XCTAssertEqual(rows.first(where: { $0.id == other.id })?.draft, other.draft)
+
+        let absent = makeEntry(id: "absent", draft: "Not on disk",
+            authority: .init(id: UUID(), generation: 0))
+        do {
+            _ = try await relaunched.retainConflict(absent)
+            XCTFail("A nil-origin request must not be manufactured as a conflict")
+        } catch BackendMemoryAPIError.invalidResponse {}
+        let after = try await relaunched.entriesForTesting()
+        XCTAssertFalse(after.contains { $0.id == absent.id })
+    }
+
     func testLegacyDurableParkedConflictCanRetireWithoutManufacturedAuthority() async throws {
         let origin = ScreenplayDraftSaveOrigin(
             documentID: "document-a",

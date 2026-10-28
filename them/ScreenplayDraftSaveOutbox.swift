@@ -420,7 +420,7 @@ actor ScreenplayDraftSaveOutbox {
         now: Date = Date()
     ) throws -> ScreenplayDraftSaveOutboxEntry? {
         try loadIfNeeded()
-        try validateRetirableRequest(request)
+        try validateConflictRequest(request)
         if let marker = retirementMarkers.first(where: { $0.id == request.id }) {
             guard retirementMarker(marker, matches: request) else {
                 throw BackendMemoryAPIError.server(status: 409, message: "screenplay_save_id_reused")
@@ -440,7 +440,7 @@ actor ScreenplayDraftSaveOutbox {
             // Older rows have no minted request authority. Their stable ID is
             // usable only when the exact row is already durable; an in-memory
             // value alone cannot authorize destructive retirement.
-            guard request.requestAuthority != nil else {
+            guard request.requestAuthority != nil, request.deliveryOrigin != nil else {
                 throw BackendMemoryAPIError.invalidResponse
             }
             var parked = request
@@ -846,6 +846,18 @@ actor ScreenplayDraftSaveOutbox {
               let origin = try? ScreenplayInitialProjectMetadata.origin(deliveryOrigin.backendURL),
               origin == deliveryOrigin.backendURL else {
             throw BackendMemoryAPIError.invalidResponse
+        }
+    }
+
+    // Parking retains words; it does not authorize later destructive retirement.
+    // A missing origin is accepted only for an exact row already on disk.
+    private func validateConflictRequest(_ entry: ScreenplayDraftSaveOutboxEntry) throws {
+        guard entry.initialization == nil, entry.loadServerRetirement == nil,
+              validIdentifier(entry.id, limit: 96), validIdentifier(entry.projectId),
+              validIdentifier(entry.ownerUserId) else { throw BackendMemoryAPIError.invalidResponse }
+        if let origin = entry.deliveryOrigin {
+            try validateScope(projectId: entry.projectId, ownerUserId: entry.ownerUserId,
+                              deliveryOrigin: origin)
         }
     }
 
