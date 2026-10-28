@@ -116,7 +116,46 @@ final class ScreenplaySaveCompletionOwnershipTests: XCTestCase {
         try await assertPendingSaveFollowsBackgroundDrain(switchProject: true)
     }
 
-    private func assertPendingSaveFollowsBackgroundDrain(switchProject: Bool) async throws {
+    func testPendingExplicitBaseBehindBackgroundDrainIsNotReplacedByItsAcknowledgement() async throws {
+        try await assertPendingSaveFollowsBackgroundDrain(switchProject: false, explicitBase: "writer-choice-base")
+    }
+
+    func testConflictDuringBackgroundDrainRetainsBothOriginalAndNewerWordsForReview() async throws {
+        try await assertFailedBackgroundDrainRetainsPending(.conflict, expectedStatus: .parked)
+    }
+
+    func testOfflineBackgroundDrainRetainsBothOriginalAndNewerWordsForRetry() async throws {
+        try await assertFailedBackgroundDrainRetainsPending(.offline, expectedStatus: .pending)
+    }
+
+    private func assertFailedBackgroundDrainRetainsPending(_ outcome: SaveCompletionPeer.Outcome,
+        expectedStatus: ScreenplayDraftSaveOutboxStatus) async throws {
+        let fixture = try SaveCompletionFixture()
+        defer { fixture.close() }
+        fixture.select("a", draft: fixture.a, base: "a-base")
+        try await fixture.queue.enqueue(.init(id: UUID().uuidString, projectId: "a", ownerUserId: fixture.owner,
+            draft: fixture.a, title: "A", phase: "draft", notes: "", source: "studio_manual",
+            studioWriteAnchors: [], screenplayBindings: [], baseVersionId: "a-base", createdAt: 1, updatedAt: 1,
+            status: .pending, retries: 0, nextAttemptAt: 0, lastError: ""))
+        let drain = Task { await fixture.model.resumeQueuedDraftSavesIfNeeded(force: true) }
+        defer { drain.cancel() }
+        try await fixture.waitForFirstSave()
+        let pending = fixture.a + "\r\nNewer cafe\u{0301} must not vanish. \t "
+        fixture.model.fountainDraft = pending
+        fixture.model.noteManualDraftEdit()
+        await fixture.model.manualSaveDraft()
+        fixture.peer.releaseFirst(outcome)
+        await drain.value
+        XCTAssertEqual(fixture.peer.writes.count, 1, "A failed earlier save cannot silently promote its pending successor")
+        let rows = try await fixture.queue.entriesForTesting()
+        XCTAssertEqual(rows.count, 2)
+        XCTAssertTrue(rows.allSatisfy { $0.status == expectedStatus })
+        XCTAssertEqual(Set(rows.map { Data($0.draft.utf8) }), Set([Data(fixture.a.utf8), Data(pending.utf8)]))
+        XCTAssertEqual(Data(fixture.model.fountainDraft.utf8), Data(pending.utf8))
+        XCTAssertTrue(fixture.model.hasUnsavedDraftChanges)
+    }
+
+    private func assertPendingSaveFollowsBackgroundDrain(switchProject: Bool, explicitBase: String? = nil) async throws {
         let fixture = try SaveCompletionFixture()
         defer { fixture.close() }
         fixture.select("a", draft: fixture.a, base: "a-base")
@@ -135,6 +174,7 @@ final class ScreenplaySaveCompletionOwnershipTests: XCTestCase {
             fixture.model.noteManualDraftEdit()
             _ = fixture.model.mirrorDraftIntoLiveBridgeIfOwned(pending)
         }
+        if let explicitBase { fixture.model.latestVersionID = explicitBase }
         await fixture.model.manualSaveDraft()
         XCTAssertEqual(fixture.peer.writes.count, 1, "The background save must still own its HTTP flight")
         fixture.peer.releaseFirst(.success)
@@ -142,7 +182,7 @@ final class ScreenplaySaveCompletionOwnershipTests: XCTestCase {
         let writes = fixture.peer.writes
         XCTAssertEqual(writes.count, 2, "A manual save handed to background draining must not disappear in the pending slot")
         XCTAssertEqual(writes.map(\.project), ["a", switchProject ? "b" : "a"])
-        XCTAssertEqual(writes.last?.base, switchProject ? "b-base" : "a-ack-1")
+        XCTAssertEqual(writes.last?.base, explicitBase ?? (switchProject ? "b-base" : "a-ack-1"))
         XCTAssertEqual(writes.last.map { Data($0.draft.utf8) }, Data(pending.utf8))
         XCTAssertEqual(Data(fixture.model.fountainDraft.utf8), Data(pending.utf8))
         XCTAssertFalse(fixture.model.hasUnsavedDraftChanges)

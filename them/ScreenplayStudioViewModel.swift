@@ -6245,12 +6245,10 @@ final class ScreenplayStudioViewModel: ObservableObject {
         guard let pending else { return }
         // Restore the handoff from original50d04ae using the current immutable
         // owner/document completion contract, never another project's UI base.
-        let followsAcknowledgement = acknowledged.map { request, _ in
-            pending.source != "studio_conflict_resolve" && pending.projectId == request.projectId &&
-                pending.deliveryOrigin == request.deliveryOrigin && pending.baseVersionId == request.baseVersionId &&
-                ScreenplayStudioAuthContextPolicy.matches(expected: request.authContext, current: pending.authContext)
-        } ?? false
-        await dispatchDraftSaveRequest(followsAcknowledgement ? pending.rebased(on: acknowledged!.1.versionID) : pending)
+        let next = acknowledged.map { request, completion in
+            draftSaveFollowingAcknowledgement(pending, saved: request, versionID: completion.versionID)
+        } ?? pending
+        await dispatchDraftSaveRequest(next)
     }
 
     private func adoptQueuedDraftIntoUnchangedEditorIfNeeded(_ entry: ScreenplayDraftSaveOutboxEntry) {
@@ -6379,8 +6377,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 ) {
                     nextRequest = nil
                 } else {
-                    nextRequest = sameOwnerProject
-                        ? queuedRequest.rebased(on: completion.versionID) : queuedRequest
+                    nextRequest = draftSaveFollowingAcknowledgement(queuedRequest,
+                        saved: activeRequest, versionID: completion.versionID)
                 }
                 continue
             }
@@ -6405,6 +6403,14 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 baseVersionOverride: nil
             )
         }
+    }
+
+    private func draftSaveFollowingAcknowledgement(_ pending: DraftSaveRequest,
+        saved: DraftSaveRequest, versionID: String) -> DraftSaveRequest {
+        let follows = pending.source != "studio_conflict_resolve" && pending.projectId == saved.projectId &&
+            pending.deliveryOrigin == saved.deliveryOrigin && pending.baseVersionId == saved.baseVersionId &&
+            ScreenplayStudioAuthContextPolicy.matches(expected: saved.authContext, current: pending.authContext)
+        return follows ? pending.rebased(on: versionID) : pending
     }
 
     // The same failure retention rules govern manual and background flights.
