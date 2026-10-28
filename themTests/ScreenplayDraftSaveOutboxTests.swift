@@ -26,6 +26,36 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
     }
 
     @MainActor
+    func testQueuedOriginCannotRelabelNewerPersistedWordsWhenBootstrapFlagsAreClean() async throws {
+        let owner = ScreenplayStudioAuthContext.current()
+        let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        var entry = replacingOwner(of: makeEntry(id: "older-queued", draft: "Earlier queued writer words"), with: owner.userID)
+        entry.deliveryOrigin = .init(documentID: "earlier-document", backendURL: BackendAuthClient.resolvedBackendBaseURL())
+        try await queue.enqueue(entry)
+        let suite = "them.newer-origin.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore:
+            ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "newer-origin"), draftSaveOutbox: queue)
+        model.autosaveEnabled = false
+        model.selectedProjectID = entry.projectId
+        let newer = "Newer persisted cafe\u{0301} words. \r\n"
+        model.applyServerDraft(newer, versionId: "newer-local-base")
+        let bridge = ScreenplayLiveDraftBridge.shared
+        let origin = bridge.draftOrigin.documentID
+        let project = try JSONDecoder().decode(BackendScreenplayProjectSummary.self,
+            from: JSONSerialization.data(withJSONObject: ["id": entry.projectId, "title": entry.title,
+                "versions": [["id": entry.baseVersionId, "draft": "Earlier server baseline"]]]))
+        let applied = await model.hydrateDraftRestoringQueuedSaves(from: project)
+        XCTAssertFalse(applied)
+        XCTAssertEqual(Data(model.fountainDraft.utf8), Data(newer.utf8))
+        XCTAssertEqual(Data(bridge.draftText.utf8), Data(newer.utf8))
+        XCTAssertEqual(bridge.draftOrigin.documentID, origin)
+        let kept = try await queue.entriesForTesting()
+        XCTAssertEqual(kept.map(\.id), [entry.id])
+    }
+
+    @MainActor
     func testUnreadableQueueCannotReplaceCurrentPageDuringHydration() async throws {
         try FileManager.default.createDirectory(at: storageDirectory, withIntermediateDirectories: true)
         let file = storageDirectory.appendingPathComponent("queue.json")

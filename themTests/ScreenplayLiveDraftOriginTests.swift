@@ -19,6 +19,30 @@ final class ScreenplayLiveDraftOriginTests: XCTestCase {
         }
     }
 
+    func testQueuedHydrationPublishesWordsWithTheirOriginalDocumentIdentity() {
+        withBridge { bridge in
+            let owner = ScreenplayStudioAuthContext.current()
+            bridge.adoptLoadedProjectDraft("Temporary launch context", projectID: "temporary", versionID: "temp", owner: owner)
+            let raw = "INT. CAFE - NIGHT\r\nCafe\u{0301} stays. \t "
+            let entry = ScreenplayDraftSaveOutboxEntry(id: "queued-origin", projectId: "restored-project",
+                ownerUserId: owner.userID, draft: raw, title: "Restored", phase: "scene_draft", notes: "",
+                source: "studio_manual", studioWriteAnchors: [], screenplayBindings: [], baseVersionId: "saved-base",
+                createdAt: 1, updatedAt: 1, status: .pending, retries: 0, nextAttemptAt: 0, lastError: "",
+                deliveryOrigin: .init(documentID: "original-queued-document", backendURL: BackendAuthClient.resolvedBackendBaseURL()))
+            var publishedOrigins: [String?] = []
+            let observation = bridge.$draftText.dropFirst().sink { text in
+                if text.utf8.elementsEqual(raw.utf8) { publishedOrigins.append(bridge.draftOrigin.documentID) }
+            }
+            XCTAssertTrue(bridge.adoptLoadedProjectDraft(raw, projectID: entry.projectId,
+                versionID: entry.baseVersionId, owner: owner, queuedEntry: entry))
+            XCTAssertEqual(bridge.draftOrigin.documentID, "original-queued-document")
+            XCTAssertEqual(bridge.captureLiveTalkDocument()?.documentID, "original-queued-document")
+            XCTAssertEqual(publishedOrigins, ["original-queued-document"], "Text observers saw a replacement UUID")
+            XCTAssertEqual(Data(bridge.draftText.utf8), Data(raw.utf8))
+            withExtendedLifetime(observation) {}
+        }
+    }
+
     func testUnicodeEquivalentStringsRemainDifferentDraftObservations() {
         let decomposed = "Cafe\u{0301}.  \r\n"
         let composed = decomposed.precomposedStringWithCanonicalMapping

@@ -10,6 +10,18 @@ nonisolated struct ScreenplayDraftSaveOrigin: Codable, Equatable, Sendable {
         OfflineTalkRecoveryScope.sameBackend(backendURL, url)
     }
 
+    static func restoredSnapshot(entry: ScreenplayDraftSaveOutboxEntry, draft: String,
+        owner: ScreenplayStudioAuthContext, currentOwner: ScreenplayStudioAuthContext,
+        backendURL: URL) -> ScreenplayLiveDraftOriginSnapshot? {
+        guard entry.initialization == nil, entry.status == .pending || entry.status == .inflight,
+              entry.ownerUserId == owner.userID,
+              ScreenplayStudioAuthContextPolicy.matches(expected: owner, current: currentOwner),
+              entry.draft.utf8.elementsEqual(draft.utf8), let origin = entry.deliveryOrigin,
+              ScreenplayConfirmedDraftSave.validID(entry.projectId),
+              ScreenplayConfirmedDraftSave.validID(origin.documentID), origin.permitsBackend(backendURL) else { return nil }
+        return .init(projectID: entry.projectId, versionID: entry.baseVersionId, documentID: origin.documentID)
+    }
+
     static func capture(document: ScreenplayLiveTalkDocument?, projectID: String,
                         owner: ScreenplayStudioAuthContext, isActiveEditor: Bool,
                         backendURL: URL) -> Self? {

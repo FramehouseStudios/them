@@ -7,6 +7,25 @@ final class ScreenplayDraftSaveEvidenceTests: XCTestCase {
     private let backend = URL(string: "https://save-evidence.test")!
     private let raw = "INT. CAFE - NIGHT\r\n\r\nA cafe\u{0301} stays open. \t \r\n"
 
+    func testQueuedOriginRestorationRejectsMismatchedOwnerBackendBytesAndParkedCopy() {
+        let queued = entry()
+        func restored(_ candidate: ScreenplayDraftSaveOutboxEntry, draft: String? = nil,
+            current: ScreenplayStudioAuthContext? = nil, url: URL? = nil) -> ScreenplayLiveDraftOriginSnapshot? {
+            ScreenplayDraftSaveOrigin.restoredSnapshot(entry: candidate, draft: draft ?? candidate.draft,
+                owner: owner, currentOwner: current ?? owner, backendURL: url ?? backend)
+        }
+        XCTAssertEqual(restored(queued)?.documentID, queued.deliveryOrigin?.documentID)
+        XCTAssertNil(restored(queued, draft: raw + " "))
+        XCTAssertNil(restored(queued, current: .init(userID: "other-owner", sessionIntentGeneration: 7)))
+        XCTAssertNil(restored(queued, url: URL(string: "https://other-backend.test")!))
+        var changed = queued; changed.status = .parked
+        XCTAssertNil(restored(changed))
+        changed = queued; changed.deliveryOrigin = nil
+        XCTAssertNil(restored(changed), "Legacy entries cannot invent exact provenance")
+        changed = queued; changed.deliveryOrigin = .init(documentID: " ", backendURL: backend)
+        XCTAssertNil(restored(changed))
+    }
+
     func testPostEvidenceUsesImmutableRequestAndExactEcho() throws {
         let entry = entry()
         let evidence = try XCTUnwrap(ordinary(entry, version: version(entry)))

@@ -210,3 +210,45 @@ Exact additional files in this checkpoint:
 D009 passes against current local origin/main; all five gate files are unchanged
 by T1202. `git diff --check` passes. Mac scaffold and strict recovery completion
 remain pending; no GitHub advancement or main change has occurred.
+
+## Root cause confirmed by identity transitions
+
+The metadata-only trace supersedes the earlier remaining-row-only hypothesis.
+It captured the original queued manual row with document65cab9e0, followed on
+relaunch by a passive row with documenta65fd748 for the same project/base before
+the original acknowledgement. The true-conflict fixture likewise changed
+documents63e2ed2c -> eb40ce72. Comparing only the final row to final Bridge
+identity had hidden that transition; it did not disprove a restoration defect.
+Strict passive readback alone also failed **0/3/0** and is retained separately.
+
+The root patch restores the validated queue entry's exact document/base before
+Bridge publishes its words. Owner/session, ordinary pending/inflight status,
+raw bytes, project and backend must match. VM restoration accepts the queue
+only when persisted words match it or a fetched saved base; differing newer
+words remain untouched. The initial no-baseline pass defers to the project
+read. Existing legacy nil-origin behavior is unchanged and has no new exact
+provenance guarantee; it remains a separate compatibility boundary.
+
+The redundant Bridge restore wrapper was removed in favor of its existing
+canonical origin policy. Bridge shrinks5 lines; no god file grows. Zora's final
+read-only review found no critical flaw and checked the preferred-context
+didSet hooks and outer load guards. She requested retaining publication-order
+and newer-word negative regressions; both are included.
+
+First root checkpoint failed to compile because a new test omitted the
+required local recovery-store dependency. It executed no tests; this is not a
+product test failure or a passing result. Corrected fixture uses an isolated
+UserDefaults suite. Fresh signed unit/recovery proof is still pending.
+
+### Exact origin restoration results
+
+Corrected signed full units: **1118/0/0**. Actual recovery improved to
+**1 passed /2 failed /0 skipped**. Reconnect passed. Real-auth refresh now
+reached saved/empty-queue state but exposed two server versions for the same
+exact draft, so the exact-once assertion correctly failed. True conflict
+retained a manual row plus identical passive autosave under the **same**
+original document ID; the exact-one pre-choice assertion correctly failed.
+This confirms the identity root fix while exposing a separate missing #962
+passive-housekeeping capability. No count assertion was weakened and no
+recovery-ready claim is made. Next: prevent passive work from duplicating
+explicit saves and writing while a conflict choice is unresolved.

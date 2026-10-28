@@ -1916,7 +1916,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         await load()
     }
 
-    private func restorePendingDraftSaveBeforeProjectHydration() async -> Bool {
+    private func restorePendingDraftSaveBeforeProjectHydration(serverProject: BackendScreenplayProjectSummary? = nil) async -> Bool {
         let projectID = selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
         let context = currentStudioAuthContext()
         let documentID = ScreenplayLiveDraftBridge.shared.draftOrigin.documentID
@@ -1942,12 +1942,30 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 selectedProjectID: selectedProjectID, queuedProjectID: entry.projectId, queuedDraft: entry.draft,
                 hasUnsavedChanges: hasUnsavedDraftChanges, isManualEditing: isManualDraftEditing
               ) else { return true }
+        let bridge = ScreenplayLiveDraftBridge.shared
+        if entry.deliveryOrigin != nil {
+            let baseline = serverProject?.versions?.first { $0.id == entry.baseVersionId }?.draft
+            let sameWords = bridge.draftText.utf8.elementsEqual(entry.draft.utf8)
+            let cleanBaseline = baseline.map { bridge.draftText.utf8.elementsEqual($0.utf8) } ?? false
+            guard sameWords || cleanBaseline else {
+                // The first load has no server baseline yet. Defer to the
+                // project read; never relabel newer persisted writer words.
+                if serverProject == nil { return true }
+                errorText = "Your newer local page and queued save are both kept. Resolve them before loading the server draft."
+                return false
+            }
+            guard bridge.adoptLoadedProjectDraft(entry.draft, projectID: entry.projectId,
+                versionID: entry.baseVersionId, owner: context, queuedEntry: entry) else {
+                errorText = "The queued save belongs to a different document or backend. Its words are kept for recovery."
+                return false
+            }
+        }
         isHydratingDraft = true
         fountainDraft = entry.draft
         isHydratingDraft = false
         loadedDraftProjectID = projectID
         if !entry.baseVersionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { latestVersionID = entry.baseVersionId }
-        adoptLoadedDraftIntoBridge(owner: context)
+        if entry.deliveryOrigin == nil { adoptLoadedDraftIntoBridge(owner: context) }
         isManualDraftEditing = true
         lastManualDraftEditAt = Date()
         hasUnsavedDraftChanges = true
@@ -5908,7 +5926,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
     func hydrateDraftRestoringQueuedSaves(from project: BackendScreenplayProjectSummary) async -> Bool {
         let context = currentStudioAuthContext()
         guard project.id == selectedProjectID else { return false }
-        guard await restorePendingDraftSaveBeforeProjectHydration() else { return false }
+        guard await restorePendingDraftSaveBeforeProjectHydration(serverProject: project) else { return false }
         guard authContextIsCurrent(context), project.id == selectedProjectID else { return false }
         hydrateDraft(from: project)
         return true

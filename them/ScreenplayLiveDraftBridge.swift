@@ -3066,11 +3066,11 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             bindingVersionID: restoredProjectBinding.versionID
         )
         self.projectBinding = restoredProjectBinding
-        self.draftOrigin = Self.restoreLiveDraftOriginSnapshot(
-            ownerUserID: storageOwnerUserID,
-            restoredDraftText: restoredDraftText,
-            restoredProjectID: self.preferredProjectID,
-            restoredVersionID: self.preferredVersionID,
+        self.draftOrigin = ScreenplayLiveDraftOriginPolicy.restored(
+            encoded: UserDefaults.standard.string(forKey: Self.ownerScopedKey(Self.draftOriginStorageKey, ownerUserID: storageOwnerUserID)),
+            draft: restoredDraftText,
+            projectID: self.preferredProjectID,
+            versionID: self.preferredVersionID,
             fallbackProjectID: restoredProjectBinding.projectID,
             fallbackVersionID: restoredProjectBinding.versionID
         )
@@ -3152,20 +3152,6 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         return (try? decoder.decode(ScreenplayProjectBindingSnapshot.self, from: data)) ?? .empty
-    }
-
-    private static func restoreLiveDraftOriginSnapshot(
-        ownerUserID: String,
-        restoredDraftText: String,
-        restoredProjectID: String,
-        restoredVersionID: String,
-        fallbackProjectID: String,
-        fallbackVersionID: String
-    ) -> ScreenplayLiveDraftOriginSnapshot {
-        ScreenplayLiveDraftOriginPolicy.restored(
-            encoded: UserDefaults.standard.string(forKey: ownerScopedKey(draftOriginStorageKey, ownerUserID: ownerUserID)),
-            draft: restoredDraftText, projectID: restoredProjectID, versionID: restoredVersionID,
-            fallbackProjectID: fallbackProjectID, fallbackVersionID: fallbackVersionID)
     }
 
     private static func restoreConversationTurns(forKey key: String, ownerUserID: String) -> [ScreenplayConversationTurn] {
@@ -3294,13 +3280,22 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
 
     @discardableResult
     func adoptLoadedProjectDraft(_ draft: String, projectID: String, versionID: String,
-                                 owner: ScreenplayStudioAuthContext) -> Bool {
+                                 owner: ScreenplayStudioAuthContext, queuedEntry: ScreenplayDraftSaveOutboxEntry? = nil) -> Bool {
+        let restored = queuedEntry.flatMap { ScreenplayDraftSaveOrigin.restoredSnapshot(entry: $0, draft: draft,
+            owner: owner, currentOwner: .current(), backendURL: BackendAuthClient.resolvedBackendBaseURL()) }
         guard !isReconcilingAccountStorage, storageOwnerUserID == owner.userID,
-              ScreenplayStudioAuthContextPolicy.matches(expected: owner, current: .current()) else { return false }
+              ScreenplayStudioAuthContextPolicy.matches(expected: owner, current: .current()),
+              queuedEntry == nil || (restored?.projectID == projectID && restored?.versionID == versionID) else { return false }
+        if let restored {
+            draftOrigin = restored
+            if let encoded = ScreenplayLiveDraftOriginPolicy.encoded(restored) {
+                UserDefaults.standard.set(encoded, forKey: ownerScopedKey(Self.draftOriginStorageKey))
+            }
+        }
         preferredProjectID = projectID
         preferredVersionID = versionID
+        if restored == nil { persistDraftOriginForCurrentContext(event: .acceptedLoad, projectID: projectID, versionID: versionID) }
         draftText = draft
-        persistDraftOriginForCurrentContext(event: .acceptedLoad, projectID: projectID, versionID: versionID)
         return true
     }
 
@@ -6488,11 +6483,11 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         preferredProjectID = restoredProjectID
         preferredVersionID = restoredVersionID
         projectBinding = restoredBinding
-        draftOrigin = Self.restoreLiveDraftOriginSnapshot(
-            ownerUserID: nextOwnerUserID,
-            restoredDraftText: restoredDraft,
-            restoredProjectID: restoredProjectID,
-            restoredVersionID: restoredVersionID,
+        draftOrigin = ScreenplayLiveDraftOriginPolicy.restored(
+            encoded: UserDefaults.standard.string(forKey: Self.ownerScopedKey(Self.draftOriginStorageKey, ownerUserID: nextOwnerUserID)),
+            draft: restoredDraft,
+            projectID: restoredProjectID,
+            versionID: restoredVersionID,
             fallbackProjectID: restoredBinding.projectID,
             fallbackVersionID: restoredBinding.versionID
         )
