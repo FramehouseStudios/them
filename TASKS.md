@@ -5,6 +5,45 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1182 — Keep accepted live replies with their initiating writer
+
+- **Owner:** Codex (Jarvis); Zora bounded read-only review when needed.
+  **Branch:** `codex/T-1182-live-reply-custody`. **Base:** published48311abe.
+- **Outcome:** exact accepted response custody in the existing outbox before
+  live owner/publication rejection; one initiating account/origin/document/turn
+  owns delivery and finalization. No silent loss, wrong-page publication or
+  generation retry of an accepted result. Preserve normal writing and recovery.
+- **Implementation sequence:** parked live admission/received-blob receipt;
+  actual client capture before cancellation/decode/metadata lookup; Root owner
+  checks and genuine delivery settlement, then runtime failure/relaunch proof.
+  An unused storage API or blind drop guard does not finish this task.
+- **Constraints:** canonical stores/auth/metadata paths only, no new framework
+  or Root product state; original/main/production held, no paid calls. Body-write
+  failure and response-size limits must be reported honestly, not hidden by a
+  successful receipt. Admission failure prevents generation.
+- **Binary success:** held accepted200 A→B/project switch never publishes in B;
+  original A recovers exact response/available screenplay after relaunch with
+  zero new generation. Index failure recovers the accepted blob; duplicate/
+  conflicting completion cannot overwrite custody or page-delivery evidence.
+  Delivered normal replies settle only on real delivery/save evidence.
+- **Status:** in-progress. Storage boundary VERIFIED39/0/0; document-origin
+  and transport checkpoint VERIFIED114/0/0 after correcting three fixture
+  failures (initial109/3/0). Final signed units VERIFIED944/0/0, including
+  real debounce persistence for composition-only Unicode edits. Interim942
+  and raw writer UI1/0/0 precede final byte/error guards; final exact-tree raw
+  writer UI VERIFIED1/0/0, Mac scaffold build exit0, D009/diff pass.
+  No paid calls or client/Root receipt wiring yet.
+  Empty edits retain origin; accepted equal-byte/unbound hydration adopts
+  explicit provenance; old attached editors cannot mirror over the new one.
+  Success/failure continuations share the document/editor lease; both native
+  draft observers and debounce compare exact UTF8 rather than String equality.
+  Root/account/project delivery and physical phone remain unproven.
+- **Evidence:** `docs/live-talk-custody-2026-10-27.md`. Do not mark complete
+  or publish this as finished live recovery until actual accepted-response
+  capture, owner-bound delivery and genuine settlement are connected.
+  Permanent proof `_proof/T-1182-20261027.s0vot0ef`:9654 hashed files/zero
+  mismatches. All native jobs terminal; temporary dependency link removed.
+
 ### T-1181 — Keep old request cleanup from clearing a replacement turn
 
 - **Owner:** Codex (Jarvis); Zora read-only ownership/custody audit.
