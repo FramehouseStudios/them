@@ -334,6 +334,29 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
     }
 
     @MainActor
+    func testLoadServerWithoutConfirmedDraftKeepsWriterWordsAndRecovery() {
+        let projectID = "unavailable-server-\(UUID().uuidString)"
+        let owner = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store)
+        model.autosaveEnabled = false
+        model.selectedProjectID = projectID
+        model.applyServerDraft("Server baseline", versionId: "base")
+        let writer = "Writer cafe\u{0301} words.  \r\n"
+        model.fountainDraft = writer
+        model.hasUnsavedDraftChanges = true
+        store.save(ownerUserId: owner, projectId: projectID, draft: writer, baseVersionId: "base", dirty: true)
+        model.conflictState = .init(projectId: projectID, baseVersionId: "base", serverVersionId: "new",
+            serverDraft: "", serverDraftExcerpt: "", serverUpdatedAt: 0)
+        model.applyServerVersionFromConflict()
+        XCTAssertEqual(Data(model.fountainDraft.utf8), Data(writer.utf8))
+        XCTAssertNotNil(model.conflictState)
+        XCTAssertTrue(model.hasUnsavedDraftChanges)
+        XCTAssertEqual((store.payloads(ownerUserId: owner)[projectID]?["draft"] as? String).map { Data($0.utf8) }, Data(writer.utf8))
+        XCTAssertFalse(model.errorText.isEmpty)
+        XCTAssertNotEqual(model.infoText, "Loaded latest server draft.")
+    }
+
+    @MainActor
     func testSameVersionPollKeepsActiveEditsWithoutRecoveryModalAndRetainsRelaunchRecovery() {
         let projectID = "active-poll-\(UUID().uuidString)"
         let owner = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""

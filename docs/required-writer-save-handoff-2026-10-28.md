@@ -511,3 +511,15 @@ A failed durable write must leave the page, recovery and conflict choice intact.
 Test both choices through relaunch, delayed responses, scope changes, stale
 heads and persist failure. The exact durable authority representation and
 implementation have not yet been selected or validated.
+
+## Interim Load Server safeguard
+
+When the conflict contains no server draft, the action now keeps the current
+page, dirty flag, recovery copy and conflict choice, and reports that the
+server draft could not be confirmed. Previously it started an async load and
+immediately cleared recovery and claimed success. This is an interim safety
+guard: a genuinely empty server draft also cannot yet be selected. Fresh-head
+fetch, scoped durable retirement, relaunch and late-response fencing remain
+required before the full Load Server action is complete or published.
+The signed ScreenplayStudioDraftRecoveryTests result is recorded separately in
+`/private/tmp/them-load-server-empty-guard-summary.json`.

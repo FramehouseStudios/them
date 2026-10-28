@@ -4496,15 +4496,17 @@ final class ScreenplayStudioViewModel: ObservableObject {
             conflictState = nil
             return
         }
-        if !conflict.serverDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            applyServerDraft(
-                conflict.serverDraft,
-                versionId: conflict.serverVersionId,
-                allowOverwriteDirtyLocalDraft: true
-            )
-        } else {
-            Task { await loadSelectedProjectOutline() }
+        // Until a fresh server head has been verified, an absent snapshot is
+        // not permission to discard the writer's recovery or clear the choice.
+        guard !conflict.serverDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            errorText = "The server draft could not be confirmed. Your local words are kept."
+            return
         }
+        applyServerDraft(
+            conflict.serverDraft,
+            versionId: conflict.serverVersionId,
+            allowOverwriteDirtyLocalDraft: true
+        )
         clearLocalDraftRecovery(projectId: conflict.projectId)
         conflictState = nil
         errorText = ""
