@@ -75,6 +75,22 @@ Signed native proof uses erased owned simulator
 Artifacts: `/private/tmp/them-1185-render-proof`. Final archive/hash/publication
 details follow only after terminal native results and committed-source checks.
 
+## Committed proof checkpoint
+
+Runtime merge `7a48dd84616eab11abbff5ac85ea59e931ab0c1d` preserves original
+helper `5663be2c044c7f6d1cf9e0c0326a7a9575392137`. Identical-tree merge
+`aee29413235c3a310c790a8186eab2e460219b36` additionally preserves original
+follow-up `ff3eb5d08c945430217a017462ca65728130dfac`. No history rewrite.
+
+Permanent archive:
+`/Users/halfmutantfilms/io.them-worktrees/_proof/T-1185-render-20261027-ykdls6gm`.
+Verified **6084 artifact files / zero hash mismatches**, with all **16 scoped
+source files** matching committed runtime bytes. Manifest SHA256:
+`aeec7e6a138fe51732ee5fa80f16dcba73111c41cde0cac882f310c15824cab8`.
+All native jobs terminated. Only the owned temporary dependency symlink was
+removed; its target and unrelated work remain intact. A documentation-only
+follow-up records this proof before normal scoped branch publication.
+
 ## Explicit limits and next implementation target
 
 SSE framing is reconstructed with LF from `AsyncBytes.lines`; JSON string text
@@ -133,8 +149,9 @@ settlement remain separate. Physical phone/shipping backend proof remains open.
    regenerating; malformed done promotion; replay through a damaged index.
 4. **Verification:** signed1050/0/0, local HTTP/UI2/0/0, D009/syntax/diff pass.
    macOS build exit0. Intermediate failures are retained above.
-5. **GitHub:** preserving helper integration on T1185 only; final commit/archive/
-   normal branch publication follow. Main/original PR heads/production untouched.
+5. **GitHub:** preserving helper integration on T1185 only, runtimeaee2941 and
+   archive above. Normal scoped branch publication only; no main merge,
+   original PR-head change, deployment or protection/review bypass.
 6. **Next active task:** original request/document fencing through Root, Screen
    and deferred metadata, then normal render settlement. Do not drop kept output.
 7. **Continue status:** **READY FOR CONTINUE**; product goal remains incomplete.

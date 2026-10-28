@@ -5,6 +5,20 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1187 — Fence Studio publication and settle the original render
+
+- **Owner:** Codex (Jarvis). **Status:** ready, after published T1185 checkpoint.
+- **Scope:** original request/document/auth/backend guards through Root typed
+  callbacks/final/catch/defer, Screen seed/history cleanup and internal deferred
+  commit/annotation waits. Reuse fingerprint/date and perceived-speed leases;
+  dispatch-only cleanup must not strand busy state after a document switch.
+  Voice render callbacks/callers need their own existing operation lease too.
+- **Binary:** release held A after Stop, B selection or a same-text new request;
+  B remains exact, A's accepted result remains recoverable without generation.
+  Normal typed page/pin publication saves/restores and retires only its own
+  confirmed render, without fabricating audio delivery. No new Root @State/store.
+- **Hold:** main/original PRs/production/paid models remain unchanged.
+
 ### T-1185 — Keep accepted Studio render output before consumer fencing
 
 - **Owner:** Codex (Jarvis), Zora bounded review and T1186 source handoff.
@@ -16,7 +30,7 @@
   is kept before its callback; cancellation/read/decode/unconfirmed failures do
   not start another generation; malformed done cannot approve accumulated text;
   damaged pending index cannot replay render; review never mutates the page.
-- **Status:** in-progress. Signed full checkpoint VERIFIED1050/0/0. Initial
+- **Status:** review (transport/recovery phase only). Signed full checkpoint VERIFIED1050/0/0. Initial
   focus63/1/0 exposed nondeterministic fixture JSON key order (fixed by stable
   served bytes). Boundary focus77/2/0 exposed fixture assumptions about data
   delivered before failure/cancellation; causal observed-chunk tests now pin
@@ -30,13 +44,18 @@
   metadata leases and normal render settlement remain the next integration step.
   Current custody records stay available for review; no shipping-ready claim.
 - **Evidence:** `docs/render-response-custody-2026-10-27.md`.
+  Runtime7a48dd8 plus identical-tree preserving mergeaee2941 keeps original
+  helper5663be2/ff3eb5d. Permanent `_proof/T-1185-render-20261027-ykdls6gm`:
+  6084 hashed artifacts/zero mismatches,16 committed source matches. Manifest
+  `aeec7e6a138fe51732ee5fa80f16dcba73111c41cde0cac882f310c15824cab8`.
 
 ### T-1186 — Read retained Studio responses without manufacturing audio
 
 - **Owner:** Codex (Zora); isolated `codex/T-1186-render-review`, base91ed7eb.
 - **Files:** OfflineStudioRenderRecovery, parser tests, OfflineTalkReplyReview.
-- **Status:** local commits5663be2/ff3eb5d handed to Jarvis; native UNRUN by
-  helper assignment. Combined signed1050/0/0 includes fourteen parser cases.
+- **Status:** review. Original5663be2/ff3eb5d preserved in7a48dd8/aee2941;
+  native UNRUN by helper assignment, run by Jarvis on combined source.
+  Combined signed1050/0/0 includes fourteen parser cases; actual local UI2/0/0.
   Read/select/export only; partial/malformed/rejected output never claims page
   quality confirmation. Actual UI proof and preserving integration owned by Jarvis.
 
