@@ -2420,6 +2420,13 @@ final class V1SmokeUITests: XCTestCase {
         XCTAssertNotEqual(stringValue(savedB["active_version_id"]), versionB, "The initial baseline cannot stand in for a new save")
         let activeB = (savedB["versions"] as? [[String: Any]])?.first { stringValue($0["id"]) == stringValue(savedB["active_version_id"]) }
         XCTAssertEqual(Data((activeB?["draft"] as? String ?? "").utf8), Data(finalDraft.utf8), "The active saved version must contain the committed page")
+        if element(identifier: "studio.sidebar.right.drawer", in: app).exists {
+            app.buttons["studio.sidebar.right.toggle"].tap()
+        }
+        let committedImage = XCTAttachment(screenshot: app.screenshot())
+        committedImage.name = switchProject ? "Committed project B page" : "Committed Stop resubmission page"
+        committedImage.lifetime = .keepAlways
+        add(committedImage)
         if switchProject {
             let savedA = try await writerLoopProject(id: projectA, fixture: fixture)
             let versions = savedA["versions"] as? [[String: Any]] ?? []
