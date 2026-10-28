@@ -128,6 +128,15 @@ final class BackendStudioRenderCustodyTests: XCTestCase {
         XCTAssertEqual(delivery.request.admission.entryID, packet.entry.id)
     }
 
+    func testRetainedStreamReconstructsFrameBoundariesWhenAsyncLinesOmitBlanks() {
+        var frames = Data()
+        for line in ["event: delta", "data: {\"delta\":\"cafe\\u0301\"}", "event: done", "data: {\"reply\":\"cafe\\u0301\"}"] {
+            BackendStudioRenderCustody.appendStreamLine(line, to: &frames)
+        }
+        XCTAssertEqual(String(decoding: frames, as: UTF8.self),
+            "event: delta\ndata: {\"delta\":\"cafe\\u0301\"}\n\nevent: done\ndata: {\"reply\":\"cafe\\u0301\"}\n")
+    }
+
     func testCutSSEIsHeldWithoutQualityApprovalOrAutomaticReplay() async throws {
         fixture.mode = .cut
         do { _ = try await client().streamRealtimeStudioResult(transcript: "Write", systemPrompt: "Write.", screenplayTarget: "page"); XCTFail("Cut stream succeeded") }

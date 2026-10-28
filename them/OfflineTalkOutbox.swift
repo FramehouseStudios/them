@@ -1129,6 +1129,7 @@ actor OfflineTalkOutbox {
             } else if StudioRenderEndpoint.paths.contains(entry.endpoint) {
                 var recovered = row ?? entry
                 recovered.status = .parked; recovered.nextAttemptAt = 0; recovered.interruptedEnqueue = nil
+                recovered.hasLivePageIntent = record.pageDelivery?.liveMutation == nil ? nil : true
                 recovered.lastError = "Studio request held for review. It will not generate again automatically."
                 if let index = next.firstIndex(where: { $0.id == entry.id }) { next[index] = recovered }
                 else { next.append(recovered) }
