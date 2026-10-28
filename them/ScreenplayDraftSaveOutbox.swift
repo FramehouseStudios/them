@@ -217,6 +217,21 @@ actor ScreenplayDraftSaveOutbox {
         return snapshotFor(entries)
     }
 
+    /// An exact retired request is deliberately not queued. Check and enqueue
+    /// within the actor so a retirement cannot race a separate admission check.
+    @discardableResult
+    func enqueueUnlessRetiredByLoadServer(_ entry: ScreenplayDraftSaveOutboxEntry) throws -> Bool {
+        try loadIfNeeded()
+        if let marker = retirementMarkers.first(where: { $0.id == entry.id }) {
+            guard retirementMarker(marker, matches: entry) else {
+                throw BackendMemoryAPIError.server(status: 409, message: "screenplay_save_id_reused")
+            }
+            return false
+        }
+        _ = try enqueueForDelivery(entry)
+        return true
+    }
+
     /// Delivery must use the ID and base actually retained on disk, including
     /// when a second caller coalesces with an already queued identical save.
     func enqueueForDelivery(_ entry: ScreenplayDraftSaveOutboxEntry) throws -> ScreenplayDraftSaveOutboxEntry {

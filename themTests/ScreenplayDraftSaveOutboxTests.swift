@@ -448,6 +448,10 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
             origin: origin, authority: authority)
         let rejected = try await relaunched.beginDeliveryUnlessRetiredByLoadServer(rematerialized)
         XCTAssertNil(rejected, "A reconstructed wall clock must not revive an exact retired request")
+        let queued = try await relaunched.enqueueUnlessRetiredByLoadServer(rematerialized)
+        XCTAssertFalse(queued, "A retired request must not be reported as queued")
+        let afterRejection = try await relaunched.entriesForTesting()
+        XCTAssertTrue(afterRejection.isEmpty, "A retired request must not reappear as active work")
         let independent = makeEntry(id: "independent", draft: "Independent words", createdAt: 50,
             origin: origin, authority: authority)
         guard case .deliver(let admitted)? = try await relaunched.beginDeliveryUnlessRetiredByLoadServer(independent) else {

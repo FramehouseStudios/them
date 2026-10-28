@@ -6391,7 +6391,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
                ownerUserId: request.ownerUserId
            )) == true {
             do {
-                try await draftSaveOutbox.enqueue(request.outboxEntry)
+                guard try await draftSaveOutbox.enqueueUnlessRetiredByLoadServer(request.outboxEntry) else { return }
                 guard ownsQueuedPublication() else { return }
                 hasUnsavedDraftChanges = true
                 persistRecoveryForUnconfirmedSave(
@@ -6497,7 +6497,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
             return nil // Exact disk readback, not a failed request alone, owns these words.
         }
         do {
-            try await draftSaveOutbox.enqueue(pending.outboxEntry)
+            guard try await draftSaveOutbox.enqueueUnlessRetiredByLoadServer(pending.outboxEntry) else { return nil }
             if !shouldQueuePendingDraftSaveAfterFailure {
                 try await draftSaveOutbox.markParked(id: pending.id, error: "The earlier save needs review.")
             }
@@ -6551,7 +6551,9 @@ final class ScreenplayStudioViewModel: ObservableObject {
 
         shouldQueuePendingDraftSaveAfterFailure = false
         do {
-            switch try await draftSaveOutbox.beginDelivery(request.outboxEntry, continuingInflightID: continuingInflightID) {
+            guard let delivery = try await draftSaveOutbox.beginDeliveryUnlessRetiredByLoadServer(
+                request.outboxEntry, continuingInflightID: continuingInflightID) else { return nil }
+            switch delivery {
             case .deliver(let retained): request = DraftSaveRequest(entry: retained, authContext: request.authContext)
             case .alreadyInflight:
                 await refreshDraftSaveOutboxStatus()
