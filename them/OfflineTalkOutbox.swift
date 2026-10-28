@@ -5,7 +5,7 @@ nonisolated extension Notification.Name {
     static let themOfflineTalkOutboxUpdated = Notification.Name("io.them.them.offlineTalkOutboxUpdated")
 }
 
-nonisolated enum OfflineTalkOutboxStatus: String, Codable, Equatable {
+nonisolated enum OfflineTalkOutboxStatus: String, Codable, Equatable, Sendable {
     case pending
     case inflight
     case parked
@@ -87,7 +87,7 @@ nonisolated struct OfflineTalkOutboxSnapshot: Codable, Equatable {
     }
 }
 
-nonisolated struct OfflineTalkOutboxEntry: Identifiable, Codable, Equatable {
+nonisolated struct OfflineTalkOutboxEntry: Identifiable, Codable, Equatable, Sendable {
     var id: String
     var createdAt: TimeInterval
     var updatedAt: TimeInterval
@@ -123,6 +123,21 @@ nonisolated struct OfflineTalkOutboxSendResult {
 nonisolated struct OfflineTalkOutboxEnqueueResult {
     let entry: OfflineTalkOutboxEntry
     let snapshot: OfflineTalkOutboxSnapshot
+}
+
+/// A pre-send custody capability. Contains no credentials or response contents.
+nonisolated struct OfflineTalkLiveAdmission: Sendable {
+    var entryID: String { entry.id }
+    fileprivate let entry: OfflineTalkOutboxEntry
+    fileprivate let owner: ScreenplayStudioAuthContext
+    fileprivate let backendURL: URL
+    fileprivate let bodyDigest: Data
+}
+
+nonisolated struct OfflineTalkLiveReceipt: Sendable {
+    let entryID: String
+    let responseID: String
+    let bodyOmitted: Bool
 }
 
 nonisolated struct BackendTalkQueuedError: LocalizedError {
@@ -365,6 +380,97 @@ actor OfflineTalkOutbox {
         publish(nextSnapshot)
         if !belongs(entry, scope: currentScope()) { throw OfflineTalkPreviousOwnerError() }
         return OfflineTalkOutboxEnqueueResult(entry: entry, snapshot: nextSnapshot)
+    }
+
+    /// Admission is a parked custody record, never authorization for the drain
+    /// loop to generate a turn. Current identity is required only before send.
+    func admitLiveTalk(request: URLRequest, body: Data,
+        owner: BackendAuthRequestIdentity, backendURL: URL) throws -> OfflineTalkLiveAdmission {
+        try requireScope(owner, backendURL: backendURL)
+        guard let url = request.url, request.httpMethod == "POST", url.path == Self.talkEndpoint,
+              OfflineTalkRecoveryScope.sameBackend(url, backendURL),
+              normalizedHeader(request.value(forHTTPHeaderField: "X-User-Id")) == owner.userID,
+              request.value(forHTTPHeaderField: "Authorization") == (owner.accessToken.isEmpty ? nil : "Bearer \(owner.accessToken)"),
+              let key = normalizedHeader(request.value(forHTTPHeaderField: "X-Idempotency-Key")),
+              key == request.value(forHTTPHeaderField: "X-Idempotency-Key"), body.count <= Self.maxBodyBytes else {
+            throw BackendError.stage("offline_outbox", "Live request ownership or recovery size could not be verified. Nothing was sent.")
+        }
+        try loadIfNeeded()
+        try ensureStorageExists()
+        // No stored bearer, app, client, cookie or BYOK credential is needed to
+        // recover an accepted response. Reads use the current original owner.
+        var safe = URLRequest(url: url, cachePolicy: request.cachePolicy, timeoutInterval: request.timeoutInterval)
+        safe.httpMethod = request.httpMethod
+        for name in ["Content-Type", "X-User-Id", "X-Idempotency-Key", "X-Persona-Key", "X-Talk-Stream"] {
+            safe.setValue(request.value(forHTTPHeaderField: name), forHTTPHeaderField: name)
+        }
+        if let existing = entries.first(where: { $0.idempotencyKey == key && sameRequestScope($0, request: safe) }) {
+            if try storedBody(for: existing, allowReceived: true) != body {
+                if let kept = entries.first(where: { $0.status == .parked && $0.idempotencyKey == key
+                    && sameRequestScope($0, request: safe) && (try? storedBody(for: $0, allowReceived: true)) == body }) {
+                    throw OfflineTalkPayloadConflictError(entryID: kept.id)
+                }
+                let kept = try persistNewEntry(request: safe, body: body, idempotencyKey: key, status: .parked,
+                    reason: "Different payload reused a live request ID. This copy was kept and was not sent.")
+                publishSnapshot()
+                throw OfflineTalkPayloadConflictError(entryID: kept.id)
+            }
+            throw BackendTalkQueuedError(entryID: existing.id, snapshot: snapshotFor(entries),
+                reason: "This request is already kept. Review its recovery before sending again.")
+        }
+        let entry = try persistNewEntry(request: safe, body: body, idempotencyKey: key, status: .parked,
+            reason: "Live request admitted. If interrupted, review recovery before sending again.")
+        try requireScope(owner, backendURL: backendURL)
+        publishSnapshot()
+        return OfflineTalkLiveAdmission(entry: entry, owner: owner.ownerContext,
+            backendURL: backendURL, bodyDigest: OfflineTalkStoredBody(entry: entry, body: body).sha256)
+    }
+
+    /// Accept the already-admitted writer's response even after account change.
+    /// This is a write capability, not permission to read or publish in a new UI.
+    func completeLiveTalk(_ admission: OfflineTalkLiveAdmission,
+        response: OfflineTalkOutboxSendResult, responseURL: URL) throws -> OfflineTalkLiveReceipt {
+        guard response.statusCode == 200,
+              OfflineTalkRecoveryScope.sameBackend(responseURL, admission.backendURL),
+              responseURL.path == Self.talkEndpoint else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        let entry = admission.entry
+        guard entry.endpoint == Self.talkEndpoint, entry.status == .parked,
+              headerValue(named: "X-User-Id", in: entry.headers) == admission.owner.userID,
+              let requestURL = URL(string: entry.urlString),
+              OfflineTalkRecoveryScope.sameBackend(requestURL, admission.backendURL) else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        // The capability binds an existing blob. An unrelated damaged index
+        // must not prevent another already-accepted response from being kept.
+        // Missing/settled blobs are never recreated from an old capability.
+        var record = try readStoredRecord(blobURL(for: entry.bodyRef))
+        _ = try record.validatedBody(matching: entry)
+        guard record.sha256 == admission.bodyDigest, record.state != .settled else { throw BackendMemoryAPIError.invalidResponse }
+        let received = try OfflineTalkStoredResponse(response)
+        try received.validate()
+        if record.state == .received, let kept = record.response {
+            guard !kept.bodyOmitted, !received.bodyOmitted, kept.statusCode == received.statusCode,
+                  kept.headers == received.headers, kept.body == received.body else {
+                throw BackendError.stage("offline_outbox", "The accepted response differs or cannot be compared. Its original receipt was kept.")
+            }
+            // Do not replace an enriched response ID or an existing delivery plan.
+            return .init(entryID: entry.id, responseID: kept.id, bodyOmitted: kept.bodyOmitted)
+        }
+        guard record.state == .ready else { throw BackendMemoryAPIError.invalidResponse }
+        record.version = 2; record.state = .received; record.response = received
+        do { try writeProtectedData(record.encoded(), to: blobURL(for: entry.bodyRef)) }
+        catch {
+            didLoad = false
+            throw BackendError.stage("offline_outbox", "The accepted reply could not be kept on this device. Its request is held and will not be sent again automatically.")
+        }
+        didLoad = false
+        do {
+            try loadIfNeeded(preservingActiveDrain: true)
+            publishSnapshot()
+        } catch { didLoad = false } // Never overwrite an unreadable index from a stale cache.
+        return .init(entryID: entry.id, responseID: received.id, bodyOmitted: received.bodyOmitted)
     }
 
     private func persistNewEntry(request: URLRequest, body: Data, idempotencyKey: String,
@@ -655,7 +761,7 @@ actor OfflineTalkOutbox {
         )
     }
 
-    private func loadIfNeeded() throws {
+    private func loadIfNeeded(preservingActiveDrain: Bool = false) throws {
         guard !didLoad else { return }
         let data = fileManager.fileExists(atPath: manifestURL.path) ? try Data(contentsOf: manifestURL) : Data()
         guard let raw = String(data: data, encoding: .utf8) else {
@@ -674,7 +780,7 @@ actor OfflineTalkOutbox {
                       !entry.bodyRef.contains("/"), !entry.bodyRef.contains("\\"), !entry.bodyRef.contains("..") else {
                     throw BackendError.stage("offline_outbox", "Recovery files need repair. They were kept unchanged.")
                 }
-                if entry.status == .inflight {
+                if entry.status == .inflight && !(preservingActiveDrain && drainingScope != nil) {
                     entry.status = .pending
                     entry.nextAttemptAt = min(entry.nextAttemptAt, now)
                     entry.lastError = "Interrupted while sending."
