@@ -150,6 +150,8 @@ private final class SaveCompletionFixture {
     private let priorVersion: String
     private let priorBinding: ScreenplayProjectBindingSnapshot
 
+    nonisolated deinit {}
+
     init() throws {
         let bridge = ScreenplayLiveDraftBridge.shared
         bridge.reconcileAccountStorage()
