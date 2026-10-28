@@ -1914,6 +1914,7 @@ struct BackendRealtimeStudioRenderResult: Equatable, Sendable {
     let memoryApplied: BackendRealtimeStudioMemoryApplied?
     let screenplayQuality: BackendRealtimeStudioScreenplayQuality?
     let structuralQuality: BackendRealtimeStudioStructuralQuality?
+    var delivery: BackendStudioRenderDeliveryReceipt? = nil
 }
 
 private struct BackendRealtimeStudioRenderStreamEvent: Decodable {
@@ -3756,12 +3757,15 @@ final class BackendClient {
                     "Studio render response ended without screenplay quality confirmation."
                 )
             }
-            return BackendRealtimeStudioRenderResult(
+            var result = BackendRealtimeStudioRenderResult(
                 reply: reply,
                 memoryApplied: payload.memoryApplied?.hasSignal == true ? payload.memoryApplied : nil,
                 screenplayQuality: payload.screenplayQuality,
                 structuralQuality: payload.structuralQuality
             )
+            result.delivery = try await custody.delivery(owner: talkIdentityProvider(false), backendURL: resolvedBaseURL)
+            try owner.requireCurrentOwner(talkIdentityProvider(false))
+            return result
             } catch { throw BackendTalkAcceptedReplyError(entryID: custody.admission.entryID, underlyingError: error) }
         }
 
@@ -3911,7 +3915,7 @@ final class BackendClient {
             func validatedResult(
                 reply rawReply: String,
                 quality eventQuality: BackendRealtimeStudioScreenplayQuality?
-            ) throws -> BackendRealtimeStudioRenderResult {
+            ) async throws -> BackendRealtimeStudioRenderResult {
                 try owner.requireCurrentOwner(talkIdentityProvider(false))
                 let reply = rawReply.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !reply.isEmpty else {
@@ -3930,12 +3934,15 @@ final class BackendClient {
                         "Studio render stream ended without screenplay quality confirmation."
                     )
                 }
-                return BackendRealtimeStudioRenderResult(
+                var result = BackendRealtimeStudioRenderResult(
                     reply: reply,
                     memoryApplied: latestMemoryApplied,
                     screenplayQuality: quality,
                     structuralQuality: latestStructuralQuality
                 )
+                result.delivery = try await custody.delivery(owner: talkIdentityProvider(false), backendURL: resolvedBaseURL)
+                try owner.requireCurrentOwner(talkIdentityProvider(false))
+                return result
             }
 
             func trace(
@@ -4072,7 +4079,7 @@ final class BackendClient {
                         finishedRetention = true
                         try owner.requireCurrentOwner(talkIdentityProvider(false))
                         let resolvedReply = finalReply.isEmpty ? accumulated.trimmingCharacters(in: .whitespacesAndNewlines) : finalReply
-                        return try validatedResult(
+                        return try await validatedResult(
                             reply: resolvedReply,
                             quality: latestScreenplayQuality
                         )
@@ -4104,7 +4111,7 @@ final class BackendClient {
                             lastPartialCallbackCharacterCount = reply.count
                             await onPartial(reply)
                         }
-                        return try validatedResult(
+                        return try await validatedResult(
                             reply: reply,
                             quality: payload.screenplayQuality
                         )
@@ -4141,7 +4148,7 @@ final class BackendClient {
             }
 
             let resolvedReply = finalReply.isEmpty ? accumulated.trimmingCharacters(in: .whitespacesAndNewlines) : finalReply
-            return try validatedResult(
+            return try await validatedResult(
                 reply: resolvedReply,
                 quality: latestScreenplayQuality
             )

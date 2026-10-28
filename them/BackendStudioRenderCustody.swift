@@ -17,11 +17,31 @@ nonisolated struct BackendStudioRenderUnconfirmedError: LocalizedError {
     var errorDescription: String? { "Studio could not confirm this request's outcome. Its recovery request is held; review it before asking again. Generation was not repeated automatically." }
 }
 
+/// Complete, quality-validated render custody. This is text delivery evidence;
+/// it must never be converted into a successful audio playback marker.
+nonisolated struct BackendStudioRenderDeliveryReceipt: Equatable, Sendable {
+    let receipt: OfflineTalkLiveReceipt
+    let request: BackendTalkLiveRequestContext
+    let writesToPage: Bool
+
+    @MainActor func confirmPublishedPin(outbox: OfflineTalkOutbox = .shared) async {
+        guard !writesToPage else { return }
+        let owner = BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: false)
+        guard ScreenplayStudioAuthContextPolicy.matches(expected: request.owner, current: owner.ownerContext) else { return }
+        // A failed acknowledgement leaves the record available for review.
+        _ = try? await outbox.confirmPublishedStudioPin(self, owner: owner)
+    }
+}
+
 /// Extends the canonical outbox's admitted record, not a second render store.
 /// SSE framing is reconstructed with LF; JSON string contents remain intact.
 nonisolated struct BackendStudioRenderCustody: Sendable {
     let admission: OfflineTalkLiveAdmission
     let outbox: OfflineTalkOutbox
+
+    func delivery(owner: BackendAuthRequestIdentity, backendURL: URL) async throws -> BackendStudioRenderDeliveryReceipt {
+        try await outbox.studioRenderDelivery(admission, owner: owner, backendURL: backendURL)
+    }
 
     func retain(_ data: Data, response: HTTPURLResponse, complete: Bool) async throws {
         guard let url = response.url else { throw BackendMemoryAPIError.invalidResponse }
