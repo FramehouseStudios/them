@@ -6657,10 +6657,12 @@ actor BackendMemoryAPI {
     private var healthyBaseURL: URL?
     private var cachedSession: BackendSessionResponse?
     private var cachedSessionAt: Date?
+    private var cachedSessionBackendURL: URL?
     private var readCacheOwner: ScreenplayStudioAuthContext?
     private var sessionBootstrapTask: (
         id: Int,
         authSessionEpoch: Int,
+        backendURL: URL,
         task: Task<SessionBootstrapHTTPResult, Error>
     )?
     private var nextSessionBootstrapTaskID: Int = 0
@@ -6679,6 +6681,8 @@ actor BackendMemoryAPI {
     private let storedSessionRefreshSkew: TimeInterval = 30
 
     private struct SessionBootstrapHTTPResult: @unchecked Sendable {
+        let backendURL: URL
+        let responseURL: URL?
         let data: Data
         let statusCode: Int
         let responsePersonaKey: String
@@ -6770,6 +6774,9 @@ actor BackendMemoryAPI {
     }
 
     func bootstrapSession(force: Bool = false) async throws -> BackendSessionResponse {
+        let origin = baseURL()
+        if let previous = cachedSessionBackendURL ?? sessionBootstrapTask?.backendURL,
+           !OfflineTalkRecoveryScope.sameBackend(previous, origin) { invalidateReadCaches(clearSyncState: true) }
         let owner = requestIdentityProvider(true).ownerContext
         if let previous = readCacheOwner,
            !ScreenplayStudioAuthContextPolicy.matches(expected: previous, current: owner) {
@@ -6783,12 +6790,14 @@ actor BackendMemoryAPI {
         }
         if !force,
            let cachedSession,
-           let cachedSessionAt,
+           let cachedSessionAt, let cachedSessionBackendURL,
+           OfflineTalkRecoveryScope.sameBackend(cachedSessionBackendURL, origin),
            now.timeIntervalSince(cachedSessionAt) < sessionCacheTTL {
             return cachedSession
         }
-        if !force, let storedSession = storedSessionFromRecentSharedToken(now: now) {
+        if !force, let storedSession = storedSessionFromRecentSharedToken(now: now, backendURL: origin) {
             cachedSession = storedSession
+            cachedSessionBackendURL = origin
             cachedSessionAt = now
             return storedSession
         }
@@ -6796,11 +6805,11 @@ actor BackendMemoryAPI {
             return try await completeSessionBootstrap(
                 sessionBootstrapTask.task,
                 id: sessionBootstrapTask.id,
-                expectedAuthSessionEpoch: sessionBootstrapTask.authSessionEpoch
+                expectedAuthSessionEpoch: sessionBootstrapTask.authSessionEpoch, expectedBackendURL: origin
             )
         }
         let expectedAuthSessionEpoch = BackendAuthClient.currentAuthSessionEpoch()
-        var request = try makeRequest(path: "/session")
+        var request = try makeRequest(path: "/session", baseURL: origin)
         request.httpMethod = "POST"
         let urlSession = session
         let requestPath = request.url?.path ?? "/session"
@@ -6812,6 +6821,7 @@ actor BackendMemoryAPI {
                 throw BackendMemoryAPIError.invalidResponse
             }
             return SessionBootstrapHTTPResult(
+                backendURL: origin, responseURL: http.url,
                 data: data,
                 statusCode: http.statusCode,
                 responsePersonaKey: http.value(forHTTPHeaderField: "x-persona-key") ?? "",
@@ -6821,22 +6831,27 @@ actor BackendMemoryAPI {
         sessionBootstrapTask = (
             id: taskID,
             authSessionEpoch: expectedAuthSessionEpoch,
-            task: task
+            backendURL: origin, task: task
         )
         return try await completeSessionBootstrap(
             task,
             id: taskID,
-            expectedAuthSessionEpoch: expectedAuthSessionEpoch
+            expectedAuthSessionEpoch: expectedAuthSessionEpoch, expectedBackendURL: origin
         )
     }
 
     private func completeSessionBootstrap(
         _ task: Task<SessionBootstrapHTTPResult, Error>,
         id taskID: Int,
-        expectedAuthSessionEpoch: Int
+        expectedAuthSessionEpoch: Int, expectedBackendURL: URL
     ) async throws -> BackendSessionResponse {
         do {
             let result = try await task.value
+            guard OfflineTalkRecoveryScope.sameBackend(result.backendURL, expectedBackendURL),
+                  OfflineTalkRecoveryScope.sameBackend(result.backendURL, baseURL()),
+                  BackendAPIResponseValidator.hasMatchingOrigin(requestURL: result.backendURL, responseURL: result.responseURL) else {
+                throw BackendMemoryAPIError.server(status: 409, message: "session_bootstrap_superseded")
+            }
             let ownsCompletion = sessionBootstrapTask?.id == taskID
             if ownsCompletion {
                 sessionBootstrapTask = nil
@@ -6865,7 +6880,7 @@ actor BackendMemoryAPI {
                 expectedSessionEpoch: expectedAuthSessionEpoch,
                 clientToken: payload.clientToken,
                 expiryRaw: expiryRaw,
-                baseURLRaw: baseURL().absoluteString,
+                baseURLRaw: result.backendURL.absoluteString,
                 userID: payload.userId,
                 persistClientToken: !BackendAuthClient.isStudioDebugClientTokenOverrideActive()
             ) else {
@@ -6874,7 +6889,7 @@ actor BackendMemoryAPI {
                     message: "session_bootstrap_superseded"
                 )
             }
-            cacheSession(payload)
+            cacheSession(payload, backendURL: result.backendURL)
             guard BackendAuthClient.currentAuthSessionEpoch() == expectedAuthSessionEpoch else {
                 invalidateReadCaches(clearSyncState: true)
                 throw BackendMemoryAPIError.server(
@@ -6892,7 +6907,7 @@ actor BackendMemoryAPI {
         }
     }
 
-    private func storedSessionFromRecentSharedToken(now: Date) -> BackendSessionResponse? {
+    private func storedSessionFromRecentSharedToken(now: Date, backendURL: URL) -> BackendSessionResponse? {
         let identity = requestIdentityProvider(true)
         let token = identity.clientToken
         guard !token.isEmpty else { return nil }
@@ -6900,7 +6915,7 @@ actor BackendMemoryAPI {
               now.timeIntervalSince(cachedAt) < sessionCacheTTL else {
             return nil
         }
-        guard BackendAuthClient.sharedClientTokenBaseURL() == baseURL().absoluteString else {
+        guard BackendAuthClient.sharedClientTokenBaseURL() == backendURL.absoluteString else {
             return nil
         }
 
@@ -7456,7 +7471,7 @@ actor BackendMemoryAPI {
     }
 
     func exportAccountData(initiatingIdentity owner: BackendAuthRequestIdentity = BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: true), backendURL: URL? = nil) async throws -> BackendAccountExportArtifact {
-        let identity = try await screenplayRequestIdentity(owner)
+        let identity = try await screenplayRequestIdentity(owner, expectedBackendURL: backendURL, originErrorMessage: "auth_request_superseded")
         var request = try makeWriteRequest(path: "/account/export", identity: identity)
         request.httpMethod = "GET"
         request.setValue("application/json", forHTTPHeaderField: "Accept")
@@ -8932,7 +8947,7 @@ actor BackendMemoryAPI {
         expectedBackendURL: URL? = nil,
         initiatingIdentity owner: BackendAuthRequestIdentity = BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: true)
     ) async throws -> BackendReadResult<BackendRealtimeTurnCommitResponse> {
-        let identity = try await screenplayRequestIdentity(owner)
+        let identity = try await screenplayRequestIdentity(owner, expectedBackendURL: expectedBackendURL)
         var request = try makeWriteRequest(path: "/realtime/turn_commit", identity: identity)
         if let expectedBackendURL {
             guard let url = request.url, OfflineTalkRecoveryScope.sameBackend(url, expectedBackendURL) else { throw BackendMemoryAPIError.server(status: 409, message: "backend_request_superseded") }
@@ -9022,7 +9037,7 @@ actor BackendMemoryAPI {
         guard studioMetadata.isMeaningful else {
             throw BackendMemoryAPIError.server(status: 400, message: "studio_metadata_required")
         }
-        let identity = try await screenplayRequestIdentity(owner)
+        let identity = try await screenplayRequestIdentity(owner, expectedBackendURL: expectedBackendURL)
         var request = try makeWriteRequest(path: "/history/annotate_turn", identity: identity)
         if let expectedBackendURL {
             guard let url = request.url, OfflineTalkRecoveryScope.sameBackend(url, expectedBackendURL) else { throw BackendMemoryAPIError.server(status: 409, message: "backend_request_superseded") }
@@ -9152,7 +9167,7 @@ actor BackendMemoryAPI {
         guard let actual = request.url, OfflineTalkRecoveryScope.sameBackend(actual, expected) else { throw BackendMemoryAPIError.server(status: 409, message: "auth_request_superseded") }
     }
     private func runDataControl(path: String, owner: BackendAuthRequestIdentity, backendURL: URL?) async throws -> BackendReadResult<BackendDataControlResponse> {
-        let identity = try await screenplayRequestIdentity(owner)
+        let identity = try await screenplayRequestIdentity(owner, expectedBackendURL: backendURL, originErrorMessage: "auth_request_superseded")
         var request = try makeWriteRequest(path: path, identity: identity)
         request.httpBody = Data("{}".utf8)
         try validateDataControlOrigin(request, expected: backendURL)
@@ -9280,7 +9295,7 @@ actor BackendMemoryAPI {
                 ) else {
                     return
                 }
-                let identity = try await screenplayRequestIdentity(owner)
+                let identity = try await screenplayRequestIdentity(owner, expectedBackendURL: origin)
                 var request = try makeWriteRequest(path: "/session/evolution", identity: identity)
                 guard let url = request.url, OfflineTalkRecoveryScope.sameBackend(url, origin) else { return }
                 request.httpMethod = "PATCH"
@@ -9380,11 +9395,20 @@ actor BackendMemoryAPI {
 
     // Preserve caller ownership across bootstrap without introducing another
     // auth store or transport. Ordinary token refresh keeps the same login intent.
-    func screenplayRequestIdentity(_ owner: BackendAuthRequestIdentity) async throws -> BackendAuthRequestIdentity {
+    func screenplayRequestIdentity(_ owner: BackendAuthRequestIdentity,
+        expectedBackendURL: URL? = nil, originErrorMessage: String = "backend_request_superseded") async throws -> BackendAuthRequestIdentity {
         try owner.requireCurrentOwner(requestIdentityProvider(false))
+        // Bootstrap carries credentials too: reject a deferred foreign origin
+        // before it can reach /session, then recheck after the suspension.
+        guard expectedBackendURL.map({ OfflineTalkRecoveryScope.sameBackend(baseURL(), $0) }) ?? true else {
+            throw BackendMemoryAPIError.server(status: 409, message: originErrorMessage)
+        }
         _ = try? await bootstrapSession(force: false)
         let identity = requestIdentityProvider(false)
         try owner.requireCurrentOwner(identity)
+        guard expectedBackendURL.map({ OfflineTalkRecoveryScope.sameBackend(baseURL(), $0) }) ?? true else {
+            throw BackendMemoryAPIError.server(status: 409, message: originErrorMessage)
+        }
         return identity
     }
 
@@ -9989,6 +10013,7 @@ actor BackendMemoryAPI {
     }
 
     private func invalidateReadCaches(clearSyncState: Bool) {
+        cachedSessionBackendURL = nil
         cachedSession = nil
         cachedSessionAt = nil
         sessionBootstrapTask?.task.cancel()
@@ -10304,6 +10329,7 @@ actor BackendMemoryAPI {
 
     private func adoptHealthyBaseURL(_ url: URL) {
         let resolved = canonicalizeLoopbackURL(url)
+        if !OfflineTalkRecoveryScope.sameBackend(baseURL(), resolved) { invalidateReadCaches(clearSyncState: true) }
         healthyBaseURL = resolved
         BackendUserDefaultsStore.set(resolved.absoluteString, forKey: DefaultsKey.baseURL)
     }
@@ -10401,7 +10427,8 @@ actor BackendMemoryAPI {
         return value
     }
 
-    private func cacheSession(_ sessionPayload: BackendSessionResponse) {
+    private func cacheSession(_ sessionPayload: BackendSessionResponse, backendURL: URL) {
+        cachedSessionBackendURL = backendURL
         cachedSession = sessionPayload
         cachedSessionAt = Date()
         if let assistant = sessionPayload.assistantSelfName ?? sessionPayload.assistantName,
