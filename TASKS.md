@@ -7,7 +7,7 @@
 
 ### T-1187 — Fence Studio publication and settle the original render
 
-- **Owner:** Codex (Jarvis). **Status:** in-progress on
+- **Owner:** Codex (Jarvis). **Status:** review on
   `codex/T-1187-studio-publication-owner`, base published `abeed0d`.
 - **Scope:** original request/document/auth/backend guards through Root typed
   callbacks/final/catch/defer, Screen seed/history cleanup and internal deferred
@@ -19,15 +19,22 @@
   Normal typed page/pin publication saves/restores and retires only its own
   confirmed render, without fabricating audio delivery. No new Root @State/store.
 - **Hold:** main/original PRs/production/paid models remain unchanged.
-- **Current evidence:** combined signed focus compiled after two extraction
-  repairs, then executed90 pass/6 fail/0 skip (seven assertions/errors).
-  API positive fixture lacked required action/status and is corrected; render
-  SSE lookup, early-save and three Bridge fixture failures are being repaired.
-  Source review also found active native streaming commits bypassing v4
-  mutation/save evidence; both platform paths must be fixed before settlement
-  is called proven. Node20 proxy/runner contracts20/0/0. Actual delayed A/B UI
-  cases are integrated but UNRUN. No green full-checkpoint claim.
+- **Current evidence:** exact runtime32b5b967 signed units1107/0/0;
+  Node20 backend3011/0/5 on identical backend source (four unavailable Postgres
+  integrations and one explicit skip). Final09af155 delayed project-switch
+  and Stop/resubmit UI2/0/0 proves exact active saved versions, all original
+  bytes, full relaunch restore and retained read-only stale response, with
+  exactly two render requests per case and zero foreign character hints.
+  Providers intercepted; no live-model/microphone/phone claim. Final raw voice1/0/0 and isolated writer/save/export/restore1/0/0;
+  final macOS scaffold compile passed. Mixed normal batch1/1/0 exposed shared
+  funded-account contamination; runner now rejects that invalid combination. All14 original helper heads
+  preserved,42 code files match source. D009 passes against parent and main.
+  Visual screenshots expose a separate integrity-banner vertical-button layout
+  bug; next scoped fix, alongside duplicate keyboard Send. Full failed attempts
+  and corrected 1000-character test-snapshot assumption remain in the report.
 - **Evidence:** `docs/studio-publication-ownership-2026-10-27.md`.
+  Permanent `_proof/T-1187-publication-20261028-fdn4tsuo`:32626 hashed artifacts,
+  zero mismatches. Runtime checkpointcbe07fa; original source history preserved.
 
 ### T-1185 — Keep accepted Studio render output before consumer fencing
 
