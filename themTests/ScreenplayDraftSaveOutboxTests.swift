@@ -285,6 +285,219 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
         XCTAssertEqual(rows.map(\.draft), [entry.draft])
     }
 
+    func testLoadServerRetiresOnlyExactSelectedRequestsAndKeepsUnrelatedOlderRows() async throws {
+        let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let origin = ScreenplayDraftSaveOrigin(
+            documentID: "document-a",
+            backendURL: URL(string: "https://save.test")!
+        )
+        let lineage = UUID()
+        let selected = makeEntry(id: "selected", draft: "Selected words", createdAt: 100,
+            origin: origin, authority: .init(id: lineage, generation: 4))
+        let unrelatedPending = makeEntry(id: "unrelated-pending", draft: "Distinct pending words", createdAt: 90,
+            origin: origin, authority: .init(id: lineage, generation: 3))
+        let unrelatedInflight = makeEntry(id: "unrelated-inflight", draft: "Distinct inflight words", createdAt: 80,
+            origin: origin, authority: .init(id: lineage, generation: 2))
+        try await store.enqueue(selected)
+        try await store.enqueue(unrelatedPending)
+        try await store.enqueue(unrelatedInflight)
+        try await store.markInflight(id: unrelatedInflight.id)
+        _ = try await store.retainConflict(selected)
+
+        let selection = try await store.captureLoadServerSelection(
+            projectId: selected.projectId,
+            ownerUserId: selected.ownerUserId,
+            deliveryOrigin: origin
+        )
+        let resolution = try await store.resolveLoadServerSelection(selection)
+
+        XCTAssertEqual(selection.requests.map(\.id), [selected.id])
+        XCTAssertEqual(resolution.retiredRequestIDs, [selected.id])
+        let remaining = try await store.entriesForTesting()
+        XCTAssertEqual(Set(remaining.map(\.id)), Set([unrelatedPending.id, unrelatedInflight.id]))
+        XCTAssertEqual(remaining.first(where: { $0.id == unrelatedPending.id })?.status, .pending)
+        XCTAssertEqual(remaining.first(where: { $0.id == unrelatedInflight.id })?.status, .inflight)
+        let markers = try await store.retirementMarkersForTesting()
+        XCTAssertEqual(markers.map(\.id), [selected.id])
+    }
+
+    func testRetiredRequestUsesStableIdentityNotCreatedAtAndSurvivesRelaunch() async throws {
+        let origin = ScreenplayDraftSaveOrigin(
+            documentID: "document-a",
+            backendURL: URL(string: "https://save.test")!
+        )
+        let authority = ScreenplayDraftSaveRequestAuthority(id: UUID(), generation: 7)
+        let original = makeEntry(id: "late-request", draft: "Exact late words", createdAt: 100,
+            origin: origin, authority: authority)
+        let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let selection = try await store.captureLoadServerSelection(
+            projectId: original.projectId,
+            ownerUserId: original.ownerUserId,
+            deliveryOrigin: origin,
+            explicitRequests: [original]
+        )
+        _ = try await store.resolveLoadServerSelection(selection)
+
+        let relaunched = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let rematerialized = makeEntry(id: original.id, draft: original.draft, createdAt: 999,
+            origin: origin, authority: authority)
+        let rejected = try await relaunched.beginDeliveryUnlessRetiredByLoadServer(rematerialized)
+        XCTAssertNil(rejected, "A reconstructed wall clock must not revive an exact retired request")
+        let independent = makeEntry(id: "independent", draft: "Independent words", createdAt: 50,
+            origin: origin, authority: authority)
+        guard case .deliver(let admitted)? = try await relaunched.beginDeliveryUnlessRetiredByLoadServer(independent) else {
+            return XCTFail("A different request ID was swept by another request's authority")
+        }
+        XCTAssertEqual(admitted.id, independent.id)
+    }
+
+    func testSameRequestIDWithDifferentAuthorityIsRejectedNotSilentlyRetired() async throws {
+        let origin = ScreenplayDraftSaveOrigin(
+            documentID: "document-a",
+            backendURL: URL(string: "https://save.test")!
+        )
+        let original = makeEntry(id: "stable-id", origin: origin,
+            authority: .init(id: UUID(), generation: 1))
+        let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let selection = try await store.captureLoadServerSelection(projectId: original.projectId,
+            ownerUserId: original.ownerUserId, deliveryOrigin: origin, explicitRequests: [original])
+        _ = try await store.resolveLoadServerSelection(selection)
+        let reused = makeEntry(id: original.id, origin: origin,
+            authority: .init(id: UUID(), generation: 1))
+
+        do {
+            _ = try await store.beginDeliveryUnlessRetiredByLoadServer(reused)
+            XCTFail("A reused ID with different authority was silently treated as the retired request")
+        } catch BackendMemoryAPIError.server(let status, let message) {
+            XCTAssertEqual(status, 409)
+            XCTAssertEqual(message, "screenplay_save_id_reused")
+        }
+    }
+
+    func testLoadServerResolutionWriteFailureKeepsRowsAndDoesNotInstallFence() async throws {
+        let failMarker = storageDirectory.appendingPathComponent("fail-next-write")
+        let store = ScreenplayDraftSaveOutbox(
+            storageDirectory: storageDirectory,
+            manifestWriter: { data, url in
+                if FileManager.default.fileExists(atPath: failMarker.path) {
+                    throw NSError(domain: "ScreenplayDraftSaveOutboxTests", code: 1)
+                }
+                try data.write(to: url, options: .atomic)
+            }
+        )
+        let origin = ScreenplayDraftSaveOrigin(
+            documentID: "document-a",
+            backendURL: URL(string: "https://save.test")!
+        )
+        let request = makeEntry(id: "kept", origin: origin,
+            authority: .init(id: UUID(), generation: 1))
+        try await store.enqueue(request)
+        _ = try await store.retainConflict(request)
+        let selection = try await store.captureLoadServerSelection(projectId: request.projectId,
+            ownerUserId: request.ownerUserId, deliveryOrigin: origin)
+        let manifestURL = storageDirectory.appendingPathComponent("queue.json")
+        let before = try Data(contentsOf: manifestURL)
+        try Data().write(to: failMarker)
+
+        do {
+            _ = try await store.resolveLoadServerSelection(selection)
+            XCTFail("A failed atomic write reported a durable Load Server resolution")
+        } catch {
+            XCTAssertFalse(error.localizedDescription.isEmpty)
+        }
+        try FileManager.default.removeItem(at: failMarker)
+        XCTAssertEqual(try Data(contentsOf: manifestURL), before)
+        let retainedRows = try await store.entriesForTesting()
+        let retainedMarkers = try await store.retirementMarkersForTesting()
+        XCTAssertEqual(retainedRows.map(\.id), [request.id])
+        XCTAssertTrue(retainedMarkers.isEmpty)
+    }
+
+    func testArrayOnlyDowngradeMarkerFailsClosedAndSurvivesPriorNormalCleanup() async throws {
+        let origin = ScreenplayDraftSaveOrigin(
+            documentID: "document-a",
+            backendURL: URL(string: "https://save.test")!
+        )
+        let request = makeEntry(id: "retired-id", draft: "Retired words", origin: origin,
+            authority: .init(id: UUID(), generation: 12))
+        let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let selection = try await store.captureLoadServerSelection(projectId: request.projectId,
+            ownerUserId: request.ownerUserId, deliveryOrigin: origin, explicitRequests: [request])
+        _ = try await store.resolveLoadServerSelection(selection)
+        let data = try Data(contentsOf: storageDirectory.appendingPathComponent("queue.json"))
+        var priorRows = try JSONDecoder().decode([PriorDraftSaveOutboxEntry].self, from: data)
+        let marker = try XCTUnwrap(priorRows.first(where: { $0.id == request.id }))
+
+        XCTAssertEqual(marker.status, .parked)
+        XCTAssertNotEqual(marker.projectId, request.projectId)
+        XCTAssertNotEqual(marker.ownerUserId, request.ownerUserId)
+        XCTAssertNotEqual(marker.deliveryOrigin, request.deliveryOrigin)
+        XCTAssertEqual(priorRows.filter { $0.status == .parked }.count, 1,
+            "The prior global snapshot reports one conservative parked item after downgrade")
+        XCTAssertTrue(priorRows.filter { $0.ownerUserId == request.ownerUserId && $0.status == .parked }.isEmpty)
+
+        let ordinarySuccess = makeEntry(id: "ordinary-success", draft: "Other saved words", createdAt: 200,
+            origin: origin, authority: .init(id: UUID(), generation: 13))
+        let priorOrdinarySuccess = try JSONDecoder().decode(PriorDraftSaveOutboxEntry.self,
+            from: JSONEncoder().encode(ordinarySuccess))
+        priorRows.append(priorOrdinarySuccess)
+        let priorBeginNextHead = priorRows.first { row in
+            row.projectId == request.projectId && row.ownerUserId == request.ownerUserId &&
+                row.initialization == nil
+        }
+        XCTAssertEqual(priorBeginNextHead?.id, ordinarySuccess.id,
+            "The sentinel marker must not block the prior app's owner/project drain")
+        let completedIndex = try XCTUnwrap(priorRows.firstIndex(where: { $0.id == ordinarySuccess.id }))
+        let priorCompleted = priorRows.remove(at: completedIndex)
+        priorRows.removeAll { row in
+            row.projectId == priorCompleted.projectId &&
+                row.ownerUserId == priorCompleted.ownerUserId &&
+                row.deliveryOrigin == priorCompleted.deliveryOrigin && row.status == .parked &&
+                row.createdAt <= priorCompleted.createdAt
+        }
+        XCTAssertNotNil(priorRows.first(where: { $0.id == request.id }),
+            "The prior markSucceeded cleanup would remove the downgrade fence")
+        priorRows.removeAll { $0.projectId == request.projectId && $0.ownerUserId == request.ownerUserId }
+        XCTAssertNotNil(priorRows.first(where: { $0.id == request.id }),
+            "The prior project removeAll would remove the sentinel-scoped fence")
+        XCTAssertFalse(marker.projectId == request.projectId && marker.ownerUserId == request.ownerUserId &&
+            marker.deliveryOrigin == request.deliveryOrigin && marker.draft.utf8.elementsEqual(request.draft.utf8),
+            "The prior same-ID admission guard must fail closed on the sentinel marker")
+
+        var priorRetriedMarker = marker
+        priorRetriedMarker.status = .pending
+        priorRetriedMarker.lastError = "Interrupted while saving."
+        try JSONEncoder().encode([priorRetriedMarker]).write(
+            to: storageDirectory.appendingPathComponent("queue.json"), options: .atomic)
+        let upgradedAgain = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let stillRejected = try await upgradedAgain.beginDeliveryUnlessRetiredByLoadServer(request)
+        let normalizedMarkers = try await upgradedAgain.retirementMarkersForTesting()
+        XCTAssertNil(stillRejected)
+        XCTAssertEqual(normalizedMarkers.map(\.status), [.parked],
+            "A prior retry mutation must not erase the fence when the new app returns")
+    }
+
+    func testLegacyConflictWithoutRequestAuthorityIsPreserved() async throws {
+        let origin = ScreenplayDraftSaveOrigin(
+            documentID: "document-a",
+            backendURL: URL(string: "https://save.test")!
+        )
+        let legacy = makeEntry(id: "legacy", origin: origin)
+        let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        try await store.enqueue(legacy)
+        _ = try await store.retainConflict(projectId: legacy.projectId,
+            ownerUserId: legacy.ownerUserId, deliveryOrigin: origin)
+
+        do {
+            _ = try await store.captureLoadServerSelection(projectId: legacy.projectId,
+                ownerUserId: legacy.ownerUserId, deliveryOrigin: origin)
+            XCTFail("A legacy row without immutable request authority was selected for deletion")
+        } catch BackendMemoryAPIError.invalidResponse {
+            let retained = try await store.entriesForTesting()
+            XCTAssertEqual(retained.map(\.id), [legacy.id])
+        }
+    }
+
     func testPassiveAbsorptionRequiresTheFreshAcknowledgementsExactTargetAndBase() {
         var passive = makeEntry(id: "passive-after-ack")
         passive.deliveryOrigin = .init(documentID: "exact-document", backendURL: URL(string: "https://save.test")!)
@@ -477,9 +690,11 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
     private func makeEntry(
         id: String,
         draft: String = "Draft one",
-        createdAt: TimeInterval = 100
+        createdAt: TimeInterval = 100,
+        origin: ScreenplayDraftSaveOrigin? = nil,
+        authority: ScreenplayDraftSaveRequestAuthority? = nil
     ) -> ScreenplayDraftSaveOutboxEntry {
-        ScreenplayDraftSaveOutboxEntry(
+        var entry = ScreenplayDraftSaveOutboxEntry(
             id: id,
             projectId: "project-1",
             ownerUserId: "user-1",
@@ -498,13 +713,16 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
             nextAttemptAt: createdAt,
             lastError: ""
         )
+        entry.deliveryOrigin = origin
+        entry.requestAuthority = authority
+        return entry
     }
 
     private func replacingOwner(
         of entry: ScreenplayDraftSaveOutboxEntry,
         with ownerUserId: String
     ) -> ScreenplayDraftSaveOutboxEntry {
-        ScreenplayDraftSaveOutboxEntry(
+        var replaced = ScreenplayDraftSaveOutboxEntry(
             id: entry.id,
             projectId: entry.projectId,
             ownerUserId: ownerUserId,
@@ -523,5 +741,35 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
             nextAttemptAt: entry.nextAttemptAt,
             lastError: entry.lastError
         )
+        replaced.initialization = entry.initialization
+        replaced.deliveryOrigin = entry.deliveryOrigin
+        replaced.requestAuthority = entry.requestAuthority
+        replaced.loadServerRetirement = entry.loadServerRetirement
+        return replaced
     }
+}
+
+/// Exact array element shape from the 4a3525c prior app. Decoding and then
+/// encoding this type deliberately drops every new field, reproducing a real
+/// downgrade rewrite instead of letting the current decoder preserve metadata.
+private struct PriorDraftSaveOutboxEntry: Codable {
+    let id: String
+    let projectId: String
+    let ownerUserId: String
+    let draft: String
+    let title: String
+    let phase: String
+    let notes: String
+    let source: String
+    let studioWriteAnchors: [BackendScreenplayWriteAnchor]
+    let screenplayBindings: [BackendScreenplayBindingRecord]
+    var baseVersionId: String
+    let createdAt: TimeInterval
+    var updatedAt: TimeInterval
+    var status: ScreenplayDraftSaveOutboxStatus
+    var retries: Int
+    var nextAttemptAt: TimeInterval
+    var lastError: String
+    var initialization: ScreenplayInitialProjectMetadata? = nil
+    var deliveryOrigin: ScreenplayDraftSaveOrigin? = nil
 }
