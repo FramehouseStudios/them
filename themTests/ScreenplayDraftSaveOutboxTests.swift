@@ -87,6 +87,33 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
     }
 
     @MainActor
+    func testMissingDeclaredHeadCannotHydrateAnOlderVersionOverWriterPage() async throws {
+        let suite = "them.missing-head.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let recovery = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "recovery")
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: recovery,
+            draftSaveOutbox: ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory))
+        model.autosaveEnabled = false
+        model.selectedProjectID = "project-1"
+        let writer = "Writer cafe\u{0301} exact words.  \r\n"
+        model.applyServerDraft(writer, versionId: "local-base")
+        let owner = ScreenplayStudioAuthContext.current().userID
+        recovery.save(ownerUserId: owner, projectId: "project-1", draft: writer,
+            baseVersionId: "local-base", dirty: true)
+        let data = try JSONSerialization.data(withJSONObject: ["id": "project-1", "title": "Test",
+            "activeVersionId": "missing-current", "lastVersionId": "old", "versionCount": 2,
+            "versions": [["id": "old", "draft": "Older historical text"]]])
+        let applied = await model.hydrateDraftRestoringQueuedSaves(from:
+            try JSONDecoder().decode(BackendScreenplayProjectSummary.self, from: data))
+        XCTAssertFalse(applied)
+        XCTAssertEqual(Data(model.fountainDraft.utf8), Data(writer.utf8))
+        XCTAssertEqual((recovery.payloads(ownerUserId: owner)["project-1"]?["draft"] as? String)
+            .map { Data($0.utf8) }, Data(writer.utf8))
+        XCTAssertFalse(model.errorText.isEmpty)
+    }
+
+    @MainActor
     func testUnreadableQueueCannotReplaceCurrentPageDuringHydration() async throws {
         try FileManager.default.createDirectory(at: storageDirectory, withIntermediateDirectories: true)
         let file = storageDirectory.appendingPathComponent("queue.json")

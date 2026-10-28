@@ -613,3 +613,22 @@ missing draft, omitted list, undeclared historical head, versionless project
 and a real empty head. Result: /private/tmp/them-save-head-20261028.xcresult.
 God-file gate and git diff --check passed. Handler-level fault injection and
 full writer UI integration remain to be run before publication.
+
+## Project hydration with missing declared head
+
+A project read that declares an active/last version but omits that version or
+its draft no longer hydrates an older historical draft onto the page. The
+current local page and recovery copy remain intact and an error is displayed.
+This reuses the strict save-head policy while leaving legacy reads with no
+declared head unchanged. Signed ScreenplayDraftSaveOutboxTests on the erased
+task-owned simulator: 27 passed, 0 failed, 0 skipped; result bundle
+/private/tmp/them-missing-head-hydration-20261028.xcresult. God-file gate and
+git diff --check passed. Live conflict/relaunch and integrated UI remain open.
+
+## Exact conflict selection review
+
+Review of Zora's local a4dfc70 identified that its capture still inferred
+selection from every parked conflict in a document, which could retire other
+writer edits. Her successor e3c942a requires explicit request snapshots and
+keeps other parked rows. It has not been integrated or run natively; nil-origin
+legacy recovery, accepted in-flight writes and safe VM integration remain open.

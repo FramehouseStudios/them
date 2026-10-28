@@ -5927,6 +5927,14 @@ final class ScreenplayStudioViewModel: ObservableObject {
         guard project.id == selectedProjectID else { return false }
         guard await restorePendingDraftSaveBeforeProjectHydration(serverProject: project) else { return false }
         guard authContextIsCurrent(context), project.id == selectedProjectID else { return false }
+        let declaredHead = (project.activeVersionId ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let declaredLast = (project.lastVersionId ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if !declaredHead.isEmpty || !declaredLast.isEmpty {
+            guard case .current = ScreenplaySaveHeadPreflight.evaluate(project) else {
+                errorText = "The current server draft could not be confirmed. Your local words are kept."
+                return false
+            }
+        }
         hydrateDraft(from: project)
         return true
     }
