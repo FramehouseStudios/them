@@ -2261,6 +2261,58 @@ final class V1SmokeUITests: XCTestCase {
     }
 
     @MainActor
+    func test_render_response_is_reviewed_without_audio_or_page_mutation_after_relaunch() async throws {
+        guard let port = Int(ProcessInfo.processInfo.environment["THEM_UITEST_WRITER_LOOP_BACKEND_PORT"] ?? "") else {
+            throw XCTSkip("Task-owned authenticated backend required")
+        }
+        let base = try XCTUnwrap(URL(string: "http://127.0.0.1:\(port)"))
+        let fixture = try await createWriterLoopAuthenticationFixture(baseURL: base)
+        let projectID = "render-review-\(UUID().uuidString.lowercased())"
+        let created = try await requestJSON(baseURL: base, path: "/screenplay/projects", method: "POST",
+            headers: fixture.authorizedHeaders, body: ["project_id":projectID,"title":"Original page stays","activate":true])
+        try assertHTTP(created, context: "Render review project")
+        let before = "INT. ROOM - NIGHT\r\n\r\nKeep this cafe\u{0301}.  \r\n"
+        let saved = try await requestJSON(baseURL: base, path: "/screenplay/projects/\(projectID)/version", method: "POST",
+            headers: fixture.authorizedHeaders, body: ["draft":before,"phase":"scene_draft","base_version_id":""])
+        try assertHTTP(saved, context: "Render review original")
+        let version = try firstNonEmptyString(saved.payload["version_id"], saved.payload["server_version_id"], message: "Original version missing")
+        var app = launchApp(openStudio: true, receiveStudioRender: true, restoreProjectID: projectID,
+            restoreVersionID: version, restoreLoadToken: Int(Date().timeIntervalSince1970), launchEnvironment: fixture.appLaunchEnvironment)
+        defer { app.terminate() }
+        func openRetainedRender() {
+            let drawer = element(identifier: "studio.sidebar.right.drawer", in: app)
+            if !drawer.exists { app.buttons["studio.sidebar.right.toggle"].tap() }
+            XCTAssertTrue(drawer.waitForExistence(timeout: 8))
+            let tab = app.buttons["studio.right-panel.draft"]
+            XCTAssertTrue(waitForHittability(of: tab, timeout: 5)); tab.tap()
+            let review = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "studio.recovery.reply.")).firstMatch
+            XCTAssertTrue(review.waitForExistence(timeout: 45))
+            XCTAssertTrue(revealInStudioDrawer(review, drawer: drawer, scrollingUp: true, maxSwipes: 10))
+            review.tap()
+            let text = app.staticTexts["talk.recovery.render.reply"]
+            XCTAssertTrue(text.waitForExistence(timeout: 15))
+            XCTAssertTrue(text.label.contains("HOME VOICE HANDOFF"))
+            XCTAssertFalse(app.buttons["talk.recovery.reply.play"].exists)
+            XCTAssertFalse(app.buttons["talk.recovery.reply.append"].exists)
+            XCTAssertTrue(app.staticTexts["talk.recovery.render.status"].exists)
+            app.buttons["Close"].tap()
+            XCTAssertEqual(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "studio.recovery.reply.")).count, 1)
+            app.buttons["studio.sidebar.right.toggle"].tap()
+        }
+        XCTAssertTrue(waitForExactWriterLoopDraft(before, in: app, timeout: 25))
+        guard dismissKeyboardTypingTutorialIfPresent(in: app) else { return }
+        openRetainedRender()
+        XCTAssertEqual(Data(accessibleDraftText(in: app).utf8), Data(before.utf8))
+        app.terminate()
+        app = launchApp(openStudio: true, resetState: false, launchEnvironment: fixture.appLaunchEnvironment)
+        XCTAssertTrue(waitForExactWriterLoopDraft(before, in: app, timeout: 25))
+        openRetainedRender()
+        XCTAssertEqual(Data(accessibleDraftText(in: app).utf8), Data(before.utf8))
+        let project = try await writerLoopProject(id: projectID, fixture: fixture)
+        XCTAssertEqual((project["versions"] as? [[String:Any]])?.count, 1, "Review must never save or regenerate a page")
+    }
+
+    @MainActor
     private func assertKeptTalkPageRecovery(liveReplacement: Bool) async throws {
         guard let port = Int(ProcessInfo.processInfo.environment["THEM_UITEST_WRITER_LOOP_BACKEND_PORT"] ?? "") else {
             throw XCTSkip("Task-owned authenticated backend required; no injected success")
@@ -3903,6 +3955,7 @@ final class V1SmokeUITests: XCTestCase {
         receiveTalkReply: Bool = false,
         receiveTalkPage: Bool = false,
         receiveLiveTalkReplacement: Bool = false,
+        receiveStudioRender: Bool = false,
         conflictSaveSuccess: Bool = false,
         liveMemory: Bool = false,
         showPendingScreenplayQuestion: Bool = false,
@@ -3983,8 +4036,9 @@ final class V1SmokeUITests: XCTestCase {
         }
         if interruptTalkEnqueue { arguments.append("--ui-talk-interrupted-enqueue-fixture") }
         if receiveTalkReply { arguments.append("--ui-talk-received-reply-fixture") }
-        if receiveTalkPage || receiveLiveTalkReplacement { arguments.append("--ui-talk-page-recovery-fixture") }
+        if receiveTalkPage || receiveLiveTalkReplacement || receiveStudioRender { arguments.append("--ui-talk-page-recovery-fixture") }
         if receiveLiveTalkReplacement { arguments.append("--ui-talk-live-page-replacement-fixture") }
+        if receiveStudioRender { arguments.append("--ui-studio-render-recovery-fixture") }
         if conflictSaveSuccess {
             arguments.append("--ui-conflict-save-success")
         }

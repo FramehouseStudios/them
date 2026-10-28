@@ -791,7 +791,10 @@ final class BackendClientCraftAPITests: XCTestCase {
                 screenplayTarget: "page"
             )
             XCTFail("Expected provisional stream rejection")
-        } catch BackendError.studioRenderQuality(let quality, _) {
+        } catch let accepted as BackendTalkAcceptedReplyError {
+            guard case BackendError.studioRenderQuality(let quality, _) = accepted.underlyingError else {
+                return XCTFail("Expected retained quality rejection")
+            }
             XCTAssertEqual(quality.repairOutcome, "rejected")
             XCTAssertFalse(quality.permitsSingleFallbackRender)
         } catch {
@@ -824,7 +827,10 @@ final class BackendClientCraftAPITests: XCTestCase {
                 screenplayTarget: "page"
             )
             XCTFail("Expected authoritative completion error")
-        } catch BackendError.stage(let stage, let message) {
+        } catch let accepted as BackendTalkAcceptedReplyError {
+            guard case BackendError.stage(let stage, let message) = accepted.underlyingError else {
+                return XCTFail("Expected retained unconfirmed stream")
+            }
             XCTAssertEqual(stage, "studio_render")
             XCTAssertTrue(message.contains("authoritative quality confirmation"))
         } catch {
@@ -1868,7 +1874,11 @@ final class BackendClientCraftAPITests: XCTestCase {
         configuration.protocolClasses = [CraftURLProtocolStub.self]
         let session = URLSession(configuration: configuration)
         let baseURL = URL(string: "https://craft.test")!
-        return BackendClient(baseURL: baseURL, fallbackURL: baseURL, urlSession: session, persistBackendBaseURL: false, attachUserIDHeader: false)
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("CraftRenderCustody-\(UUID())")
+        addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
+        let box = OfflineTalkOutbox(storageDirectory: directory, backendURLProvider: { baseURL })
+        return BackendClient(baseURL: baseURL, fallbackURL: baseURL, urlSession: session,
+            persistBackendBaseURL: false, attachUserIDHeader: false, talkOutbox: box)
     }
 
     private static let frameworkJSON = #"""

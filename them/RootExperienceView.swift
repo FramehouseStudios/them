@@ -7241,7 +7241,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
             do {
                 result = try await requestTalk()
             } catch {
-                guard shouldRetryTalkOnce(for: error) else { throw error }
+                guard StudioRenderExecutionPolicy.shouldRetry(for: error) else { throw error }
                 HerLog.talk.info("transient TALK failure, retrying once")
                 try await Task.sleep(nanoseconds: 250_000_000)
                 guard ownsTalkRequest(), ownsLiveDocument(), !Task.isCancelled else { return }
@@ -7964,7 +7964,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 resetRealtimeStudioDraftPreviewThrottle()
                 let requestRender = {
                     do {
-                        return try await withStudioRenderTimeout(seconds: studioRenderTimeoutSeconds) {
+                        return try await StudioRenderExecutionPolicy.withTimeout(seconds: studioRenderTimeoutSeconds) {
                             let result = try await backend.streamRealtimeStudioResult(
                                 transcript: renderTranscript,
                                 systemPrompt: systemPrompt,
@@ -8011,7 +8011,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
                             return result.reply
                         }
                     } catch {
-                        guard shouldFallbackToNonStreamingStudioRender(for: error) else { throw error }
+                        guard StudioRenderExecutionPolicy.shouldFallback(for: error) else { throw error }
                         restoreRealtimeStudioDraftPreview()
                         if shouldSpeakTypedReply {
                             typedReplySpeaker.begin(
@@ -8019,7 +8019,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
                             )
                         }
                         HerLog.talk.info("STUDIO render stream unconfirmed -> fallback to one-shot render")
-                        return try await withStudioRenderTimeout(seconds: studioRenderTimeoutSeconds) {
+                        return try await StudioRenderExecutionPolicy.withTimeout(seconds: studioRenderTimeoutSeconds) {
                             let result = try await backend.renderRealtimeStudioResult(
                                 transcript: renderTranscript,
                                 systemPrompt: systemPrompt,
@@ -8041,7 +8041,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
                     renderedReply = try await requestRender()
                 } catch {
                     restoreRealtimeStudioDraftPreview()
-                    guard shouldRetryTalkOnce(for: error) else { throw error }
+                    guard StudioRenderExecutionPolicy.shouldRetry(for: error) else { throw error }
                     if shouldSpeakTypedReply {
                         typedReplySpeaker.begin(
                             turnID: clientLatencyTurnID
@@ -8053,7 +8053,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 }
             } else {
                 let requestRender = {
-                    try await withStudioRenderTimeout(seconds: studioRenderTimeoutSeconds) {
+                    try await StudioRenderExecutionPolicy.withTimeout(seconds: studioRenderTimeoutSeconds) {
                         let result = try await backend.renderRealtimeStudioResult(
                             transcript: renderTranscript,
                             systemPrompt: systemPrompt,
@@ -8074,7 +8074,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 do {
                     renderedReply = try await requestRender()
                 } catch {
-                    guard shouldRetryTalkOnce(for: error) else { throw error }
+                    guard StudioRenderExecutionPolicy.shouldRetry(for: error) else { throw error }
                     HerLog.talk.info("transient STUDIO render failure, retrying once")
                     try await Task.sleep(nanoseconds: 250_000_000)
                     renderedReply = try await requestRender()
@@ -8247,106 +8247,6 @@ Write this approved story direction directly into screenplay pages now. Maintain
         typedReplySpeaker.finish(finalText: cleanReply)
     }
 
-    private func shouldRetryTalkOnce(for error: Error) -> Bool {
-        if error is CancellationError { return false }
-        if error is BackendTalkQueuedError { return false }
-        if case BackendError.continueListening = error { return false }
-        if let urlError = error as? URLError {
-            switch urlError.code {
-            case .timedOut,
-                 .networkConnectionLost,
-                 .cannotConnectToHost,
-                 .cannotFindHost,
-                 .dnsLookupFailed,
-                 .notConnectedToInternet:
-                return true
-            default:
-                break
-            }
-        }
-        let nsError = error as NSError
-        if nsError.domain == NSURLErrorDomain {
-            return [
-                NSURLErrorTimedOut,
-                NSURLErrorNetworkConnectionLost,
-                NSURLErrorCannotConnectToHost,
-                NSURLErrorCannotFindHost,
-                NSURLErrorDNSLookupFailed,
-                NSURLErrorNotConnectedToInternet
-            ].contains(nsError.code)
-        }
-        guard let backendError = error as? BackendError else { return false }
-        if backendError.isProviderQuotaExhausted { return false }
-        switch backendError {
-        case let .http(status, _):
-            return status == -1 ||
-                status == 408 ||
-                status == 425 ||
-                status == 429 ||
-                (500...599).contains(status)
-        case let .stage(stage, message):
-            let s = stage.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            if s == "tts" || s == "chat" || s == "stt" {
-                return true
-            }
-            let m = message.lowercased()
-            return m.contains("timed out") ||
-                m.contains("timeout") ||
-                m.contains("temporar") ||
-                m.contains("upstream") ||
-                m.contains("network")
-        case .emptyAudio:
-            return true
-        case .invalidAudioType:
-            return true
-        case .realtimeUnavailable:
-            return true
-        case .studioRenderQuality:
-            return false
-        case .continueListening:
-            return false
-        }
-    }
-
-    private func withStudioRenderTimeout<T>(
-        seconds: Double = 30,
-        operation: @escaping @Sendable () async throws -> T
-    ) async throws -> T {
-        let timeoutNanoseconds = UInt64(max(1, seconds) * 1_000_000_000)
-        return try await withThrowingTaskGroup(of: T.self) { group in
-            group.addTask {
-                try await operation()
-            }
-            group.addTask {
-                try await Task.sleep(nanoseconds: timeoutNanoseconds)
-                throw BackendError.stage("studio_render", "Studio render timed out.")
-            }
-            guard let result = try await group.next() else {
-                throw BackendError.stage("studio_render", "Studio render timed out.")
-            }
-            group.cancelAll()
-            return result
-        }
-    }
-
-    private func shouldFallbackToNonStreamingStudioRender(for error: Error) -> Bool {
-        guard let backendError = error as? BackendError else { return false }
-        switch backendError {
-        case let .studioRenderQuality(quality, _):
-            return quality.permitsSingleFallbackRender
-        case let .stage(stage, message):
-            let normalizedStage = stage.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            let normalizedMessage = message.lowercased()
-            return normalizedStage == "studio_render" && (
-                normalizedMessage.contains("stream response was empty") ||
-                normalizedMessage.contains("quality confirmation")
-            )
-        case let .http(status, message):
-            return status == 502 && message.lowercased().contains("stream response was empty")
-        default:
-            return false
-        }
-    }
 
     @MainActor
     private func onTurnCommitted(
@@ -9373,7 +9273,8 @@ Write this approved story direction directly into screenplay pages now. Maintain
         _ error: Error,
         restorePreview: Bool = true
     ) -> String? {
-        guard let backendError = error as? BackendError,
+        let sourceError = (error as? BackendTalkAcceptedReplyError)?.underlyingError ?? error
+        guard let backendError = sourceError as? BackendError,
               case let .studioRenderQuality(quality, _) = backendError else { return nil }
         if restorePreview {
             restoreRealtimeStudioDraftPreview()
@@ -9737,7 +9638,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
                     restoreRealtimeStudioDraftPreview()
                     return nil
                 }
-                if shouldFallbackToNonStreamingStudioRender(for: error) {
+                if StudioRenderExecutionPolicy.shouldFallback(for: error) {
                     let fallbackResult: BackendRealtimeStudioRenderResult
                     do {
                         fallbackResult = try await backend.renderRealtimeStudioResult(

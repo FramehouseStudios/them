@@ -69,11 +69,12 @@ nonisolated enum BackendTalkStreamingTransport {
         configuration: URLSessionConfiguration,
         onResponse: ((HTTPURLResponse) -> Void)? = nil,
         onChunk: ((Data, HTTPURLResponse) -> Void)? = nil,
-        retainAcceptedResponse: (@Sendable (Data, HTTPURLResponse) async throws -> Void)? = nil
+        retainAcceptedResponse: (@Sendable (Data, HTTPURLResponse) async throws -> Void)? = nil,
+        retainInterruptedResponse: (@Sendable (Data, HTTPURLResponse) async throws -> Void)? = nil
     ) async throws -> (Data, URLResponse) {
         try checkCancellation()
         let delegate = TalkStreamingDelegate(onResponse: onResponse, onChunk: onChunk,
-            retainAcceptedResponse: retainAcceptedResponse)
+            retainAcceptedResponse: retainAcceptedResponse, retainInterruptedResponse: retainInterruptedResponse)
         let session = URLSession(configuration: configuration, delegate: delegate, delegateQueue: nil)
         let task = session.dataTask(with: request)
         defer { session.finishTasksAndInvalidate() }
@@ -97,6 +98,7 @@ nonisolated enum BackendTalkStreamingTransport {
         private let onResponse: ((HTTPURLResponse) -> Void)?
         private let onChunk: ((Data, HTTPURLResponse) -> Void)?
         private let retainAcceptedResponse: (@Sendable (Data, HTTPURLResponse) async throws -> Void)?
+        private let retainInterruptedResponse: (@Sendable (Data, HTTPURLResponse) async throws -> Void)?
         private var continuation: CheckedContinuation<(Data, URLResponse), Error>?
         private var terminalResult: Result<(Data, URLResponse), Error>?
         private var response: URLResponse?
@@ -106,11 +108,13 @@ nonisolated enum BackendTalkStreamingTransport {
         init(
             onResponse: ((HTTPURLResponse) -> Void)?,
             onChunk: ((Data, HTTPURLResponse) -> Void)?,
-            retainAcceptedResponse: (@Sendable (Data, HTTPURLResponse) async throws -> Void)?
+            retainAcceptedResponse: (@Sendable (Data, HTTPURLResponse) async throws -> Void)?,
+            retainInterruptedResponse: (@Sendable (Data, HTTPURLResponse) async throws -> Void)?
         ) {
             self.onResponse = onResponse
             self.onChunk = onChunk
             self.retainAcceptedResponse = retainAcceptedResponse
+            self.retainInterruptedResponse = retainInterruptedResponse
         }
 
         func attach(_ continuation: CheckedContinuation<(Data, URLResponse), Error>) {
@@ -124,11 +128,22 @@ nonisolated enum BackendTalkStreamingTransport {
 
         func cancel() {
             lock.lock()
-            defer { lock.unlock() }
             // Once complete bytes win, cancellation can suppress UI delivery,
             // but cannot cancel the already-paid response's durable handoff.
-            guard !isRetainingAcceptedResponse else { return }
+            guard !isRetainingAcceptedResponse else { lock.unlock(); return }
+            if terminalResult == nil, let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode),
+               let retainInterruptedResponse {
+                let data = accumulatedData
+                isRetainingAcceptedResponse = true
+                lock.unlock()
+                Task {
+                    do { try await retainInterruptedResponse(data, http); finish(.failure(CancellationError())) }
+                    catch { finish(.failure(BackendTalkCustodyError(underlyingError: error))) }
+                }
+                return
+            }
             finish(.failure(CancellationError()))
+            lock.unlock()
         }
 
         private func finish(_ result: Result<(Data, URLResponse), Error>) {
@@ -149,7 +164,7 @@ nonisolated enum BackendTalkStreamingTransport {
             completionHandler: @escaping @Sendable (URLRequest?) -> Void
         ) {
             lock.lock()
-            let cancelled = terminalResult != nil
+            let cancelled = terminalResult != nil || isRetainingAcceptedResponse
             lock.unlock()
             guard !cancelled else { completionHandler(nil); return }
             BackendHTTPRedirectGuard.shared.urlSession(session, task: task,
@@ -163,7 +178,7 @@ nonisolated enum BackendTalkStreamingTransport {
             completionHandler: @escaping (URLSession.ResponseDisposition) -> Void
         ) {
             lock.lock()
-            guard terminalResult == nil else { lock.unlock(); completionHandler(.cancel); return }
+            guard terminalResult == nil, !isRetainingAcceptedResponse else { lock.unlock(); completionHandler(.cancel); return }
             self.response = response
             if let http = response as? HTTPURLResponse {
                 onResponse?(http)
@@ -176,7 +191,7 @@ nonisolated enum BackendTalkStreamingTransport {
         func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
             lock.lock()
             defer { lock.unlock() }
-            guard terminalResult == nil else { return }
+            guard terminalResult == nil, !isRetainingAcceptedResponse else { return }
             accumulatedData.append(data)
             guard let http = response as? HTTPURLResponse else { return }
             onChunk?(data, http)
@@ -187,16 +202,18 @@ nonisolated enum BackendTalkStreamingTransport {
             guard terminalResult == nil, !isRetainingAcceptedResponse else { lock.unlock(); return }
             let response = self.response
             let data = accumulatedData
-            if error == nil, let http = response as? HTTPURLResponse, http.statusCode == 200,
-               let retainAcceptedResponse {
+            if let http = response as? HTTPURLResponse,
+               (http.statusCode == 200 || (retainInterruptedResponse != nil && (200...299).contains(http.statusCode))),
+               let retain = error == nil ? retainAcceptedResponse : retainInterruptedResponse {
                 isRetainingAcceptedResponse = true
                 lock.unlock()
                 // This task belongs to completed transport evidence, not the
                 // cancelled consumer. The await resumes only after custody.
                 Task {
                     do {
-                        try await retainAcceptedResponse(data, http)
-                        finish(.success((data, http)))
+                        try await retain(data, http)
+                        if let error { finish(.failure((error as? URLError)?.code == .cancelled ? CancellationError() : error)) }
+                        else { finish(.success((data, http))) }
                     } catch { finish(.failure(BackendTalkCustodyError(underlyingError: error))) }
                 }
                 return

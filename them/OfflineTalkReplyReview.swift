@@ -15,6 +15,7 @@ struct OfflineTalkReplyReviewView: View {
     var destinationTitle: String? = nil
     var onAppend: ((OfflineTalkReceivedReply, BackendTalkResult) async throws -> String)? = nil
     @State private var result: BackendTalkResult?
+    @State private var studioRender: OfflineStudioRenderRecovery?
     @State private var packet: OfflineTalkReceivedReply?
     @StateObject private var player = AudioPlayer()
     @State private var playing = false
@@ -29,7 +30,19 @@ struct OfflineTalkReplyReviewView: View {
                 VStack(alignment: .leading, spacing: 16) {
                     Text("This reply is kept on this device. Reviewing it does not add it to your screenplay or mark it delivered.")
                         .font(.subheadline).foregroundStyle(.secondary)
-                    if let result {
+                    if let studioRender {
+                        Text(studioRender.isComplete
+                            ? (studioRender.qualityConfirmed ? "Complete Studio response kept for review." : "Complete response; page quality is unconfirmed.")
+                            : "Incomplete or unconfirmed response; page quality is unconfirmed.")
+                            .font(.subheadline).accessibilityIdentifier("talk.recovery.render.status")
+                        Text("Select text to copy it, or export the original recovery record from Data Controls. Reviewing it does not write to the page.")
+                            .font(.caption).foregroundStyle(.secondary)
+                        Text("You asked").font(.headline)
+                        Text(studioRender.transcript).textSelection(.enabled)
+                        Text("Clementine’s retained text").font(.headline)
+                        Text(studioRender.reply).textSelection(.enabled)
+                            .accessibilityIdentifier("talk.recovery.render.reply")
+                    } else if let result {
                         if let transcript = result.transcript, !transcript.isEmpty {
                             Text("You said").font(.headline)
                             Text(transcript).textSelection(.enabled)
@@ -78,12 +91,22 @@ struct OfflineTalkReplyReviewView: View {
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Close", action: onDone) } }
         }
         .task(id: review.id) {
+            discardPreview()
+            error = ""
             markRecoveryTiming("opened")
             do {
                 guard review.scope.isCurrent else { throw OfflineTalkPreviousOwnerError() }
                 var received = try await OfflineTalkOutbox.shared.receivedReply(review.entryID,
                     initiatingIdentity: review.owner, backendURL: review.scope.backendURL)
                 markRecoveryTiming("received")
+                if OfflineStudioRenderRecovery.supports(endpoint: received.entry.endpoint) {
+                    let retained = try OfflineStudioRenderRecovery(packet: received)
+                    guard !Task.isCancelled, review.scope.isCurrent else { throw OfflineTalkPreviousOwnerError() }
+                    studioRender = retained
+                    packet = received
+                    markRecoveryTiming("ready")
+                    return
+                }
                 let api = BackendClient()
                 let decoded: BackendTalkResult
                 do {
@@ -118,6 +141,8 @@ struct OfflineTalkReplyReviewView: View {
         player.stop(); playing = false
         if let result { try? FileManager.default.removeItem(at: result.audioURL) }
         result = nil
+        studioRender = nil
+        packet = nil
     }
 
     private func markRecoveryTiming(_ stage: String) {

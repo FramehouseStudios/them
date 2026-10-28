@@ -16,6 +16,12 @@ enum OfflineTalkPageRecoveryUITestFixture {
         do {
             let api = BackendClient()
             try await api.prewarmTalkSession()
+            if args.contains("--ui-studio-render-recovery-fixture") {
+                _ = try await api.renderRealtimeStudioResult(
+                    transcript: "Write a story about two astronauts who discover the observatory sky is a painted set. Put HOME VOICE HANDOFF on the panel.",
+                    systemPrompt: "Return a correctly formatted screenplay scene.", screenplayTarget: "page")
+                return // Canonical HTTP + custody only; do not apply a page.
+            }
             let owner = BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: false)
             let boundary = "THEM-queued-page-proof"
             var body = Data()

@@ -5,6 +5,41 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1185 — Keep accepted Studio render output before consumer fencing
+
+- **Owner:** Codex (Jarvis), Zora bounded review and T1186 source handoff.
+  **Branch:** `codex/T-1185-render-custody`; **Base:** published91ed7eb.
+- **Scope:** canonical JSON/SSE render clients → existing outbox → scoped
+  received-text review/export. No parallel store, automatic render replay,
+  fake speech receipt, original PR change, main merge, deployment or paid call.
+- **Binary:** normal JSON/done output is kept before return; a rendered partial
+  is kept before its callback; cancellation/read/decode/unconfirmed failures do
+  not start another generation; malformed done cannot approve accumulated text;
+  damaged pending index cannot replay render; review never mutates the page.
+- **Status:** in-progress. Signed full checkpoint VERIFIED1050/0/0. Initial
+  focus63/1/0 exposed nondeterministic fixture JSON key order (fixed by stable
+  served bytes). Boundary focus77/2/0 exposed fixture assumptions about data
+  delivered before failure/cancellation; causal observed-chunk tests now pin
+  exact retention, and API tests honestly allow transport-unavailable bytes.
+  Local authenticated render review/relaunch + normal voice/page/save/restore
+  UI VERIFIED2/0/0. macOS scaffold build exit0; D009/diff/syntax pass.
+  Sixteen frozen source files identify the tested checkpoint; archive/publication
+  and the preserved helper parents are recorded in the report below.
+- **Preserve:** original T1186 commits5663be2/ff3eb5d, no squash/replacement.
+- **Not complete:** Root/Screen document+request fencing, internal deferred
+  metadata leases and normal render settlement remain the next integration step.
+  Current custody records stay available for review; no shipping-ready claim.
+- **Evidence:** `docs/render-response-custody-2026-10-27.md`.
+
+### T-1186 — Read retained Studio responses without manufacturing audio
+
+- **Owner:** Codex (Zora); isolated `codex/T-1186-render-review`, base91ed7eb.
+- **Files:** OfflineStudioRenderRecovery, parser tests, OfflineTalkReplyReview.
+- **Status:** local commits5663be2/ff3eb5d handed to Jarvis; native UNRUN by
+  helper assignment. Combined signed1050/0/0 includes fourteen parser cases.
+  Read/select/export only; partial/malformed/rejected output never claims page
+  quality confirmation. Actual UI proof and preserving integration owned by Jarvis.
+
 ### T-1184 — Bind live settlement to immutable save evidence
 
 - **Owner:** Codex (Zora), bounded implementation delegated by Jarvis.

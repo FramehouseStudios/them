@@ -3633,6 +3633,7 @@ final class BackendClient {
         screenplayTarget: String? = nil,
         studioMetadata: BackendStudioThreadCommitMetadata? = nil
     ) async throws -> BackendRealtimeStudioRenderResult {
+        let owner = talkIdentityProvider(true)
         let cleanTranscript = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanTranscript.isEmpty else {
             throw BackendError.stage("studio_render", "Studio render transcript was empty.")
@@ -3642,7 +3643,8 @@ final class BackendClient {
             .lowercased() == "page"
 
         let resolvedBaseURL = try await resolveBaseURL()
-        let userID = resolveStudioRenderUserID()
+        try owner.requireCurrentOwner(talkIdentityProvider(false))
+        let userID = owner.userID
         let requestBody = try realtimeStudioRequestBody(
             transcript: cleanTranscript,
             systemPrompt: systemPrompt,
@@ -3650,11 +3652,15 @@ final class BackendClient {
             studioMetadata: studioMetadata
         )
 
+        let requestKey = "studio-\(UUID().uuidString.lowercased())"
+        var admission: OfflineTalkLiveAdmission?
         func performRequest(
             clientToken: String,
             allowClientTokenRefresh: Bool
         ) async throws -> BackendRealtimeStudioRenderResult {
-            var request = URLRequest(url: resolvedBaseURL.appendingPathComponent("realtime/studio_render"))
+            try owner.requireCurrentOwner(talkIdentityProvider(false))
+            let attemptOwner = talkIdentityProvider(false)
+            var request = URLRequest(url: resolvedBaseURL.appendingPathComponent(StudioRenderEndpoint.oneShotPath))
             request.httpMethod = "POST"
             request.timeoutInterval = 20
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -3666,10 +3672,25 @@ final class BackendClient {
             if let token = appToken() {
                 request.setValue(token, forHTTPHeaderField: "X-APP-TOKEN")
             }
-            attachAuthorizationHeader(to: &request)
+            request.setValue(attemptOwner.accessToken.isEmpty ? nil : "Bearer \(attemptOwner.accessToken)", forHTTPHeaderField: "Authorization")
+            request.setValue(requestKey, forHTTPHeaderField: "X-Idempotency-Key")
             request.httpBody = requestBody
-
-            let (data, response) = try await urlSession.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
+            if admission == nil {
+                admission = try await talkOutbox.admitLiveStudioRender(request: request, body: requestBody, owner: attemptOwner, backendURL: resolvedBaseURL)
+            }
+            guard let admission else { throw BackendMemoryAPIError.invalidResponse }
+            let custody = BackendStudioRenderCustody(admission: admission, outbox: talkOutbox)
+            try owner.requireCurrentOwner(talkIdentityProvider(false))
+            let data: Data
+            let response: URLResponse
+            do {
+                (data, response) = try await BackendTalkStreamingTransport.data(for: request, configuration: urlSession.configuration,
+                    retainAcceptedResponse: { data, http in try await custody.retain(data, response: http, complete: true) },
+                    retainInterruptedResponse: { data, http in try await custody.retain(data, response: http, complete: false) })
+            } catch {
+                if error is BackendTalkCustodyError { throw error }
+                throw BackendStudioRenderUnconfirmedError(underlyingError: error)
+            }
             guard let http = response as? HTTPURLResponse else {
                 throw BackendError.http(-1, "Invalid Studio render response.")
             }
@@ -3709,6 +3730,8 @@ final class BackendClient {
                 throw BackendError.http(http.statusCode, raw)
             }
 
+            do {
+            try owner.requireCurrentOwner(talkIdentityProvider(false))
             let payload: BackendRealtimeStudioRenderPayload
             do {
                 payload = try JSONDecoder().decode(BackendRealtimeStudioRenderPayload.self, from: data)
@@ -3739,6 +3762,7 @@ final class BackendClient {
                 screenplayQuality: payload.screenplayQuality,
                 structuralQuality: payload.structuralQuality
             )
+            } catch { throw BackendTalkAcceptedReplyError(entryID: custody.admission.entryID, underlyingError: error) }
         }
 
         let clientToken = try await resolveStudioRenderClientToken(for: resolvedBaseURL, userID: userID)
@@ -3772,6 +3796,7 @@ final class BackendClient {
         onPartial: (@Sendable (String) async -> Void)? = nil,
         onTrace: (@Sendable (BackendRealtimeStudioRenderStreamTrace) async -> Void)? = nil
     ) async throws -> BackendRealtimeStudioRenderResult {
+        let owner = talkIdentityProvider(true)
         let cleanTranscript = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanTranscript.isEmpty else {
             throw BackendError.stage("studio_render", "Studio render transcript was empty.")
@@ -3781,7 +3806,8 @@ final class BackendClient {
             .lowercased() == "page"
 
         let resolvedBaseURL = try await resolveBaseURL()
-        let userID = resolveStudioRenderUserID()
+        try owner.requireCurrentOwner(talkIdentityProvider(false))
+        let userID = owner.userID
         let requestBody = try realtimeStudioRequestBody(
             transcript: cleanTranscript,
             systemPrompt: systemPrompt,
@@ -3789,11 +3815,15 @@ final class BackendClient {
             studioMetadata: studioMetadata
         )
 
+        let requestKey = "studio-stream-\(UUID().uuidString.lowercased())"
+        var admission: OfflineTalkLiveAdmission?
         func performRequest(
             clientToken: String,
             allowClientTokenRefresh: Bool
         ) async throws -> BackendRealtimeStudioRenderResult {
-            var request = URLRequest(url: resolvedBaseURL.appendingPathComponent("realtime/studio_render_stream"))
+            try owner.requireCurrentOwner(talkIdentityProvider(false))
+            let attemptOwner = talkIdentityProvider(false)
+            var request = URLRequest(url: resolvedBaseURL.appendingPathComponent(StudioRenderEndpoint.streamPath))
             request.httpMethod = "POST"
             request.timeoutInterval = 30
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -3806,10 +3836,19 @@ final class BackendClient {
             if let token = appToken() {
                 request.setValue(token, forHTTPHeaderField: "X-APP-TOKEN")
             }
-            attachAuthorizationHeader(to: &request)
+            request.setValue(attemptOwner.accessToken.isEmpty ? nil : "Bearer \(attemptOwner.accessToken)", forHTTPHeaderField: "Authorization")
+            request.setValue(requestKey, forHTTPHeaderField: "X-Idempotency-Key")
             request.httpBody = requestBody
-
-            let (bytes, response) = try await urlSession.bytes(for: request, delegate: BackendHTTPRedirectGuard.shared)
+            if admission == nil {
+                admission = try await talkOutbox.admitLiveStudioRender(request: request, body: requestBody, owner: attemptOwner, backendURL: resolvedBaseURL)
+            }
+            guard let admission else { throw BackendMemoryAPIError.invalidResponse }
+            let custody = BackendStudioRenderCustody(admission: admission, outbox: talkOutbox)
+            try owner.requireCurrentOwner(talkIdentityProvider(false))
+            let bytes: URLSession.AsyncBytes
+            let response: URLResponse
+            do { (bytes, response) = try await urlSession.bytes(for: request, delegate: BackendHTTPRedirectGuard.shared) }
+            catch { throw BackendStudioRenderUnconfirmedError(underlyingError: error) }
             guard let http = response as? HTTPURLResponse else {
                 throw BackendError.http(-1, "Invalid Studio render stream response.")
             }
@@ -3850,6 +3889,14 @@ final class BackendClient {
                 throw BackendError.http(http.statusCode, raw)
             }
 
+            var retainedFrames = Data()
+            var finishedRetention = false
+            do {
+            try await custody.retain(retainedFrames, response: http, complete: false)
+            func mayPublish() -> Bool {
+                !Task.isCancelled && ScreenplayStudioAuthContextPolicy.matches(expected: owner.ownerContext,
+                    current: talkIdentityProvider(false).ownerContext)
+            }
             var eventName = "message"
             var dataLines: [String] = []
             var accumulated = ""
@@ -3865,6 +3912,7 @@ final class BackendClient {
                 reply rawReply: String,
                 quality eventQuality: BackendRealtimeStudioScreenplayQuality?
             ) throws -> BackendRealtimeStudioRenderResult {
+                try owner.requireCurrentOwner(talkIdentityProvider(false))
                 let reply = rawReply.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !reply.isEmpty else {
                     throw BackendError.stage("studio_render", "Studio render stream response was empty.")
@@ -3941,6 +3989,7 @@ final class BackendClient {
 
             func dispatchEvent() async throws {
                 guard !dataLines.isEmpty else { return }
+                try await custody.retain(retainedFrames, response: http, complete: false)
                 let payloadText = dataLines.joined(separator: "\n")
                 defer {
                     dataLines.removeAll(keepingCapacity: true)
@@ -3953,12 +4002,12 @@ final class BackendClient {
                 switch eventName {
                 case "meta":
                     let eventTrace = trace(from: payload, fallbackKind: "meta")
-                    if let onTrace, let eventTrace {
+                    if mayPublish(), let onTrace, let eventTrace {
                         await onTrace(eventTrace)
                     }
                 case "trace":
                     let eventTrace = trace(from: payload, fallbackKind: "trace")
-                    if let onTrace, let eventTrace {
+                    if mayPublish(), let onTrace, let eventTrace {
                         await onTrace(eventTrace)
                     }
                 case "delta":
@@ -3968,7 +4017,7 @@ final class BackendClient {
                         delta: delta,
                         to: accumulated
                     )
-                    if let onPartial {
+                    if mayPublish(), let onPartial {
                         let now = Date()
                         let characterDelta = accumulated.count - lastPartialCallbackCharacterCount
                         if lastPartialCallbackCharacterCount == 0 ||
@@ -3980,14 +4029,15 @@ final class BackendClient {
                         }
                     }
                 case "done":
+                    guard payload != nil else { throw BackendMemoryAPIError.invalidResponse }
                     let eventTrace = trace(from: payload, fallbackKind: "done")
-                    if let onTrace, let eventTrace {
+                    if mayPublish(), let onTrace, let eventTrace {
                         await onTrace(eventTrace)
                     }
                     let reply = (payload?.reply ?? accumulated).trimmingCharacters(in: .whitespacesAndNewlines)
                     guard !reply.isEmpty else { return }
                     finalReply = reply
-                    if let onPartial, reply.count != lastPartialCallbackCharacterCount {
+                    if mayPublish(), let onPartial, reply.count != lastPartialCallbackCharacterCount {
                         lastPartialCallbackAt = Date()
                         lastPartialCallbackCharacterCount = reply.count
                         await onPartial(reply)
@@ -4010,10 +4060,17 @@ final class BackendClient {
             }
 
             for try await rawLine in bytes.lines {
+                retainedFrames.append(Data((rawLine + "\n").utf8))
+                guard retainedFrames.count <= OfflineTalkStoredResponse.maxBodyBytes else {
+                    throw BackendTalkCustodyError(underlyingError: BackendMemoryAPIError.invalidResponse)
+                }
                 let line = rawLine.replacingOccurrences(of: "\r", with: "")
                 if line.isEmpty {
                     try await dispatchEvent()
                     if didReceiveDone {
+                        try await custody.retain(retainedFrames, response: http, complete: true)
+                        finishedRetention = true
+                        try owner.requireCurrentOwner(talkIdentityProvider(false))
                         let resolvedReply = finalReply.isEmpty ? accumulated.trimmingCharacters(in: .whitespacesAndNewlines) : finalReply
                         return try validatedResult(
                             reply: resolvedReply,
@@ -4032,24 +4089,29 @@ final class BackendClient {
                 if line.hasPrefix("data:") {
                     let payloadText = line.dropFirst("data:".count).trimmingCharacters(in: .whitespacesAndNewlines)
                     if eventName == "done" {
+                        try await custody.retain(retainedFrames, response: http, complete: true)
+                        finishedRetention = true
+                        try owner.requireCurrentOwner(talkIdentityProvider(false))
                         let payloadData = Data(payloadText.utf8)
-                        let payload = try? JSONDecoder().decode(BackendRealtimeStudioRenderStreamEvent.self, from: payloadData)
+                        let payload = try JSONDecoder().decode(BackendRealtimeStudioRenderStreamEvent.self, from: payloadData)
                         let eventTrace = trace(from: payload, fallbackKind: "done")
-                        if let onTrace, let eventTrace {
+                        if mayPublish(), let onTrace, let eventTrace {
                             await onTrace(eventTrace)
                         }
-                        let reply = (payload?.reply ?? accumulated).trimmingCharacters(in: .whitespacesAndNewlines)
-                        if let onPartial, reply.count != lastPartialCallbackCharacterCount {
+                        let reply = (payload.reply ?? accumulated).trimmingCharacters(in: .whitespacesAndNewlines)
+                        if mayPublish(), let onPartial, reply.count != lastPartialCallbackCharacterCount {
                             lastPartialCallbackAt = Date()
                             lastPartialCallbackCharacterCount = reply.count
                             await onPartial(reply)
                         }
                         return try validatedResult(
                             reply: reply,
-                            quality: payload?.screenplayQuality
+                            quality: payload.screenplayQuality
                         )
                     }
                     if eventName == "error" {
+                        try await custody.retain(retainedFrames, response: http, complete: false)
+                        try owner.requireCurrentOwner(talkIdentityProvider(false))
                         let payloadData = Data(payloadText.utf8)
                         let payload = try? JSONDecoder().decode(BackendRealtimeStudioRenderStreamEvent.self, from: payloadData)
                         let stage = (payload?.stage ?? "studio_render").trimmingCharacters(in: .whitespacesAndNewlines)
@@ -4067,6 +4129,9 @@ final class BackendClient {
                 }
             }
             try await dispatchEvent()
+            try await custody.retain(retainedFrames, response: http, complete: didReceiveDone)
+            finishedRetention = didReceiveDone
+            try owner.requireCurrentOwner(talkIdentityProvider(false))
 
             if requiresAuthoritativeDone, !didReceiveDone {
                 throw BackendError.stage(
@@ -4080,6 +4145,11 @@ final class BackendClient {
                 reply: resolvedReply,
                 quality: latestScreenplayQuality
             )
+            } catch {
+                if error is BackendTalkCustodyError { throw error }
+                if !finishedRetention { try await custody.retain(retainedFrames, response: http, complete: false) }
+                throw BackendTalkAcceptedReplyError(entryID: custody.admission.entryID, underlyingError: error)
+            }
         }
 
         let clientToken = try await resolveStudioRenderClientToken(for: resolvedBaseURL, userID: userID)
@@ -5514,10 +5584,6 @@ final class BackendClient {
             userID: userID,
             expectedSessionEpoch: expectedSessionEpoch
         )
-    }
-
-    private func resolveStudioRenderUserID() -> String {
-        resolveAtomicRequestUserID()
     }
 
     private func refreshClientToken(

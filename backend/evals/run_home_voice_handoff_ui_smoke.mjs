@@ -33,6 +33,7 @@ const allowedTests = [
   'themUITests/V1SmokeUITests/test_received_talk_reply_is_reviewed_and_exported_without_resend_after_relaunch',
   'themUITests/V1SmokeUITests/test_queued_talk_reply_plays_appends_saves_and_restores_once',
   'themUITests/V1SmokeUITests/test_live_talk_replacement_recovers_saves_and_restores_once',
+  'themUITests/V1SmokeUITests/test_render_response_is_reviewed_without_audio_or_page_mutation_after_relaunch',
 ];
 const tests = process.argv.length > 2 ? process.argv.slice(2)
   : process.env.ONLY_TESTING ? [process.env.ONLY_TESTING] : allowedTests.slice(1, 3);
@@ -114,6 +115,7 @@ try {
   if (status !== 0 || summary.passedTests !== tests.length || summary.failedTests !== 0 || summary.skippedTests !== 0) throw new Error('UI proof failed');
   if (tests.some(test => test.includes('home_raw_audio')) && counts.stt < 1) throw new Error('Raw audio test never reached mocked server ASR');
   if (tests.some(test => test.includes('home_')) && counts.chat < 1) throw new Error('Home test never reached mocked generation');
+  if (tests.some(test => test.includes('test_render_response_is_reviewed')) && counts.chat < 1) throw new Error('Render recovery never reached canonical generation');
   if (tests.some(test => test.includes('studio_refused_write')) && counts.chat < 1) throw new Error('Refusal test never reached mocked generation');
   if (needsInterruptibleAudio) {
     const statuses = [...server.stdout.join('').matchAll(/\[proof-provider\] page_cancel_status=(\d+)/g)].map(match => Number(match[1]));

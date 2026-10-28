@@ -60,6 +60,44 @@ final class BackendTalkStreamingTransportTests: XCTestCase {
         XCTAssertEqual(state.chunkBytes, data, "Chunk coalescing must preserve the exact streamed bytes")
     }
 
+    func testCancellationAfterHeadersRetainsInterruptedPrefixBeforeConsumerReturns() async throws {
+        let state = HeldTalkState(mode: .partial)
+        HeldTalkProtocol.state = state
+        let capture = InterruptedTalkResponseCapture()
+        let operation = Task { () -> Error? in
+            do {
+                _ = try await BackendTalkStreamingTransport.data(for: request(), configuration: configuration(),
+                    onChunk: { _, _ in state.cancelOperation() },
+                    retainInterruptedResponse: { data, http in
+                        XCTAssertEqual(http.statusCode, 200)
+                        await capture.record(data)
+                    })
+                return nil
+            } catch { return error }
+        }
+        state.bind(operation)
+        let error = await operation.value
+        XCTAssertTrue(error is CancellationError)
+        let retained = await capture.data
+        XCTAssertEqual(retained, Data("exact audio ".utf8))
+        XCTAssertEqual(state.counts.starts, 1)
+    }
+
+    func testFailureAfterObservedChunkRetainsExactPrefixBeforeReturningError() async {
+        let state = HeldTalkState(mode: .partial)
+        HeldTalkProtocol.state = state
+        let capture = InterruptedTalkResponseCapture()
+        do {
+            _ = try await BackendTalkStreamingTransport.data(for: request(), configuration: configuration(),
+                onChunk: { _, _ in state.failActive() },
+                retainInterruptedResponse: { data, _ in await capture.record(data) })
+            XCTFail("Interrupted HTTP response succeeded")
+        } catch { XCTAssertEqual((error as? URLError)?.code, .networkConnectionLost) }
+        let retained = await capture.data
+        XCTAssertEqual(retained, Data("exact audio ".utf8))
+        XCTAssertEqual(state.counts.starts, 1)
+    }
+
     func testCompletedResponseFinishesCustodyBeforeCancelledConsumerReturns() async {
         HeldTalkProtocol.state = HeldTalkState(mode: .succeed)
         let entered = expectation(description: "Complete response entered custody")
@@ -201,6 +239,11 @@ final class BackendTalkStreamingTransportTests: XCTestCase {
     }
 }
 
+private actor InterruptedTalkResponseCapture {
+    private(set) var data: Data?
+    func record(_ data: Data) { self.data = data }
+}
+
 private actor AcceptedTalkResponseGate {
     private var continuation: CheckedContinuation<Void, Never>?
     private var released = false
@@ -219,7 +262,7 @@ private actor AcceptedTalkResponseGate {
 }
 
 private nonisolated final class HeldTalkState: @unchecked Sendable {
-    enum Mode { case hold, succeed, fail, cancel }
+    enum Mode { case hold, succeed, fail, cancel, partial }
     let mode: Mode
     private let lock = NSLock()
     private var active: HeldTalkProtocol?
@@ -248,6 +291,10 @@ private nonisolated final class HeldTalkState: @unchecked Sendable {
     var chunkBytes: Data { lock.lock(); defer { lock.unlock() }; return chunks }
     func bind(_ task: Task<Error?, Never>) { lock.lock(); operation = task; lock.unlock() }
     func cancelOperation() { lock.lock(); let task = operation; lock.unlock(); task?.cancel() }
+    func failActive() {
+        lock.lock(); let value = active; lock.unlock()
+        if let value { value.client?.urlProtocol(value, didFailWithError: URLError(.networkConnectionLost)) }
+    }
     var counts: (starts: Int, callbacks: Int) { lock.lock(); defer { lock.unlock() }; return (starts, callbacks) }
     func release() {
         lock.lock(); let held = active; active = nil; lock.unlock()
@@ -276,12 +323,14 @@ private nonisolated final class HeldTalkProtocol: URLProtocol {
         case .hold: break
         case .fail: client?.urlProtocol(self, didFailWithError: URLError(.notConnectedToInternet))
         case .cancel: client?.urlProtocol(self, didFailWithError: URLError(.cancelled))
-        case .succeed:
+        case .succeed, .partial:
             let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: ["Content-Type":"audio/mpeg"])!
             client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
             client?.urlProtocol(self, didLoad: Data("exact audio ".utf8))
-            client?.urlProtocol(self, didLoad: Data("bytes".utf8))
-            client?.urlProtocolDidFinishLoading(self)
+            if state.mode == .succeed {
+                client?.urlProtocol(self, didLoad: Data("bytes".utf8))
+                client?.urlProtocolDidFinishLoading(self)
+            }
         }
     }
     override func stopLoading() { startedState?.stop(self) }

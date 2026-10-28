@@ -79,7 +79,7 @@ nonisolated struct OfflineTalkStoredResponse: Codable {
     // Finite allowlist: a future credential header must never inherit permission
     // merely because its name starts with a product namespace.
     private static let allowedHeaders = Set([
-        "content-type", "x-transcript", "x-reply", "x-turn-id", "x-request-id", "x-state-version",
+        "content-type", "x-them-render-complete", "x-transcript", "x-reply", "x-turn-id", "x-request-id", "x-state-version",
         "x-last-updated-at", "x-history-updated-at", "x-memory-updated-at", "x-persona-key", "x-user-name",
         "x-assistant-self-name", "x-confidence-class", "x-audio-duration-ms", "x-turn-status",
         "x-continue-reason", "x-turn-error-stage", "x-turn-error-message", "x-tts-first-bytes",
@@ -173,6 +173,7 @@ nonisolated struct OfflineTalkReceivedReply {
     let response: OfflineTalkStoredResponse
     var pageDelivery: OfflineTalkPageDeliveryPlan? = nil
     var savedPage: OfflineTalkSavedPageEvidence? = nil
+    var requestBody: Data? = nil
 }
 
 nonisolated struct OfflineTalkRecoveryScope: Equatable, Sendable {

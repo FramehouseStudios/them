@@ -107,7 +107,7 @@ nonisolated struct OfflineTalkOutboxEntry: Identifiable, Codable, Equatable, Sen
     var interruptedEnqueue: Bool? = nil
     var receivedReply: Bool? = nil
     var hasLivePageIntent: Bool? = nil
-    var canResumeInterruptedEnqueue: Bool { interruptedEnqueue == true && status == .parked && receivedReply != true && hasLivePageIntent != true }
+    var canResumeInterruptedEnqueue: Bool { interruptedEnqueue == true && status == .parked && receivedReply != true && hasLivePageIntent != true && !StudioRenderEndpoint.paths.contains(endpoint) }
 }
 
 nonisolated struct OfflineTalkOutboxSendResult: Sendable {
@@ -170,10 +170,11 @@ actor OfflineTalkOutbox {
     private static let backoffSeconds: [TimeInterval] = [5, 15, 60, 300, 1_800]
     private static let talkEndpoint = "/talk"
     private static let screenplayQuestionResolutionEndpoint = "/memory/screenplay-question/resolve"
-    private static let supportedEndpoints: Set<String> = [
+    private static let queuedEndpoints: Set<String> = [
         talkEndpoint,
         screenplayQuestionResolutionEndpoint,
     ]
+    private static let supportedEndpoints = queuedEndpoints.union(StudioRenderEndpoint.paths)
 
     private let storageDirectory: URL
     private let manifestURL: URL
@@ -343,7 +344,7 @@ actor OfflineTalkOutbox {
 
         guard request.httpMethod?.uppercased() == "POST",
               let endpoint = request.url?.path,
-              Self.supportedEndpoints.contains(endpoint) else {
+              Self.queuedEndpoints.contains(endpoint) else {
             throw BackendError.stage("offline_outbox", "This action cannot be queued.")
         }
         guard body.count <= Self.maxBodyBytes else {
@@ -392,8 +393,18 @@ actor OfflineTalkOutbox {
     /// loop to generate a turn. Current identity is required only before send.
     func admitLiveTalk(request: URLRequest, body: Data,
         owner: BackendAuthRequestIdentity, backendURL: URL) throws -> OfflineTalkLiveAdmission {
+        try admitLiveRequest(request: request, body: body, owner: owner, backendURL: backendURL, endpoints: [Self.talkEndpoint])
+    }
+
+    func admitLiveStudioRender(request: URLRequest, body: Data,
+        owner: BackendAuthRequestIdentity, backendURL: URL) throws -> OfflineTalkLiveAdmission {
+        try admitLiveRequest(request: request, body: body, owner: owner, backendURL: backendURL, endpoints: StudioRenderEndpoint.paths)
+    }
+
+    private func admitLiveRequest(request: URLRequest, body: Data,
+        owner: BackendAuthRequestIdentity, backendURL: URL, endpoints: Set<String>) throws -> OfflineTalkLiveAdmission {
         try requireScope(owner, backendURL: backendURL)
-        guard let url = request.url, request.httpMethod == "POST", url.path == Self.talkEndpoint,
+        guard let url = request.url, request.httpMethod == "POST", endpoints.contains(url.path),
               OfflineTalkRecoveryScope.sameBackend(url, backendURL),
               normalizedHeader(request.value(forHTTPHeaderField: "X-User-Id")) == owner.userID,
               request.value(forHTTPHeaderField: "Authorization") == (owner.accessToken.isEmpty ? nil : "Bearer \(owner.accessToken)"),
@@ -436,13 +447,33 @@ actor OfflineTalkOutbox {
     /// This is a write capability, not permission to read or publish in a new UI.
     func completeLiveTalk(_ admission: OfflineTalkLiveAdmission,
         response: OfflineTalkOutboxSendResult, responseURL: URL) throws -> OfflineTalkLiveReceipt {
-        guard response.statusCode == 200,
+        guard admission.entry.endpoint == Self.talkEndpoint else { throw BackendMemoryAPIError.invalidResponse }
+        return try completeLiveResponse(admission, response: response, responseURL: responseURL)
+    }
+
+    /// Prefix updates are allowed only for the same still-incomplete SSE
+    /// response. A completed result is immutable, just like a voice receipt.
+    func checkpointStudioRender(_ admission: OfflineTalkLiveAdmission,
+        response: OfflineTalkOutboxSendResult, responseURL: URL, complete: Bool) throws -> OfflineTalkLiveReceipt {
+        guard StudioRenderEndpoint.paths.contains(admission.entry.endpoint) else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        var headers = response.headers.filter { $0.key.lowercased() != "x-them-render-complete" }
+        headers["x-them-render-complete"] = complete ? "1" : "0"
+        return try completeLiveResponse(admission, response: .init(statusCode: response.statusCode,
+            headers: headers, body: response.body), responseURL: responseURL, allowStreamProgress: true)
+    }
+
+    private func completeLiveResponse(_ admission: OfflineTalkLiveAdmission,
+        response: OfflineTalkOutboxSendResult, responseURL: URL,
+        allowStreamProgress: Bool = false) throws -> OfflineTalkLiveReceipt {
+        guard (response.statusCode == 200 || (StudioRenderEndpoint.paths.contains(admission.entry.endpoint) && (200...299).contains(response.statusCode))),
               OfflineTalkRecoveryScope.sameBackend(responseURL, admission.backendURL),
-              responseURL.path == Self.talkEndpoint else {
+              responseURL.path == admission.entry.endpoint else {
             throw BackendMemoryAPIError.invalidResponse
         }
         let entry = admission.entry
-        guard entry.endpoint == Self.talkEndpoint, entry.status == .parked,
+        guard Self.supportedEndpoints.contains(entry.endpoint), entry.status == .parked,
               headerValue(named: "X-User-Id", in: entry.headers) == admission.owner.userID,
               let requestURL = URL(string: entry.urlString),
               OfflineTalkRecoveryScope.sameBackend(requestURL, admission.backendURL) else {
@@ -457,14 +488,18 @@ actor OfflineTalkOutbox {
         let received = try OfflineTalkStoredResponse(response)
         try received.validate()
         if record.state == .received, let kept = record.response {
-            guard !kept.bodyOmitted, !received.bodyOmitted, kept.statusCode == received.statusCode,
-                  kept.headers == received.headers, kept.body == received.body else {
+            let identical = !kept.bodyOmitted && !received.bodyOmitted && kept.statusCode == received.statusCode
+                && kept.headers == received.headers && kept.body == received.body
+            if identical { return .init(entryID: entry.id, responseID: kept.id, bodyOmitted: kept.bodyOmitted) }
+            guard allowStreamProgress, StudioRenderEndpoint.paths.contains(entry.endpoint),
+                  kept.headers["x-them-render-complete"] == "0", !kept.bodyOmitted, !received.bodyOmitted,
+                  kept.statusCode == received.statusCode,
+                  kept.headers.filter({ $0.key != "x-them-render-complete" }) == received.headers.filter({ $0.key != "x-them-render-complete" }),
+                  received.body.starts(with: kept.body), record.pageDelivery == nil else {
                 throw BackendError.stage("offline_outbox", "The accepted response differs or cannot be compared. Its original receipt was kept.")
             }
-            // Do not replace an enriched response ID or an existing delivery plan.
-            return .init(entryID: entry.id, responseID: kept.id, bodyOmitted: kept.bodyOmitted)
         }
-        guard record.state == .ready else { throw BackendMemoryAPIError.invalidResponse }
+        guard record.state == .ready || (allowStreamProgress && record.state == .received) else { throw BackendMemoryAPIError.invalidResponse }
         record.version = record.pageDelivery?.liveMutation == nil ? 2 : 4
         record.state = .received; record.response = received
         if var plan = record.pageDelivery {
@@ -712,7 +747,8 @@ actor OfflineTalkOutbox {
         _ = try record.validatedBody(matching: entry)
         guard record.state == .received, let response = record.response else { throw BackendMemoryAPIError.invalidResponse }
         try requireScope(owner, backendURL: backendURL)
-        return .init(entry: entry, response: response, pageDelivery: record.pageDelivery, savedPage: record.savedPage)
+        return .init(entry: entry, response: response, pageDelivery: record.pageDelivery, savedPage: record.savedPage,
+            requestBody: StudioRenderEndpoint.paths.contains(entry.endpoint) ? record.body : nil)
     }
 
     func acknowledgeReceivedReply(_ id: String, receiptID: String, initiatingIdentity owner: BackendAuthRequestIdentity,
@@ -834,7 +870,7 @@ actor OfflineTalkOutbox {
               scope.matches(identity: requestIdentityProvider(false), backendURL: backendURLProvider()),
               !requestIdentityProvider(false).accessToken.isEmpty,
               let index = entries.firstIndex(where: { entry in
-                  entry.status == .pending && entry.nextAttemptAt <= nowSeconds && belongs(entry, scope: scope)
+                  Self.queuedEndpoints.contains(entry.endpoint) && entry.status == .pending && entry.nextAttemptAt <= nowSeconds && belongs(entry, scope: scope)
               }) {
             sentCount += 1
             entries[index].status = .inflight
@@ -1022,6 +1058,12 @@ actor OfflineTalkOutbox {
                 recovered.lastError = receivedReplyMessage(record.response)
                 if let index = next.firstIndex(where: { $0.id == entry.id }) { next[index] = recovered }
                 else { next.append(recovered) }
+            } else if StudioRenderEndpoint.paths.contains(entry.endpoint) {
+                var recovered = row ?? entry
+                recovered.status = .parked; recovered.nextAttemptAt = 0; recovered.interruptedEnqueue = nil
+                recovered.lastError = "Studio request held for review. It will not generate again automatically."
+                if let index = next.firstIndex(where: { $0.id == entry.id }) { next[index] = recovered }
+                else { next.append(recovered) }
             } else if record.pageDelivery?.liveMutation != nil {
                 var recovered = row ?? entry
                 recovered.status = .parked; recovered.nextAttemptAt = 0
@@ -1127,7 +1169,7 @@ actor OfflineTalkOutbox {
         try requireScope(owner, backendURL: backendURL)
         let identity = requestIdentityProvider(false)
         try owner.requireCurrentOwner(identity)
-        guard belongs(entry, scope: .init(identity: identity, backendURL: backendURL)), !identity.accessToken.isEmpty else {
+        guard Self.queuedEndpoints.contains(entry.endpoint), belongs(entry, scope: .init(identity: identity, backendURL: backendURL)), !identity.accessToken.isEmpty else {
             throw BackendError.stage("offline_outbox", "Sign in to the account and backend that owns this queued turn.")
         }
         guard let url = URL(string: entry.urlString) else {
