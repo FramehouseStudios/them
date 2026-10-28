@@ -129,6 +129,30 @@ struct ScreenplayProjectDraftRestorePolicy {
     }
 }
 
+/// An empty-base save may proceed only against a complete, authoritative
+/// project read. A historical fallback is useful for display but is not proof
+/// of the active head when a save could overwrite another device's work.
+enum ScreenplaySaveHeadPreflight {
+    case versionless
+    case current(BackendScreenplayVersion)
+    case unverified
+
+    static func evaluate(_ project: BackendScreenplayProjectSummary) -> Self {
+        let active = (project.activeVersionId ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let last = (project.lastVersionId ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let head = active.isEmpty ? last : active
+        guard let versions = project.versions else { return .unverified }
+        if !head.isEmpty {
+            guard let version = versions.first(where: { $0.id == head }), version.draft != nil else {
+                return .unverified
+            }
+            return .current(version)
+        }
+        guard versions.isEmpty, project.versionCount == 0 else { return .unverified }
+        return .versionless
+    }
+}
+
 struct ScreenplayUnconfirmedSaveRecoveryPolicy {
     static func shouldPersist(projectId: String, draft: String) -> Bool {
         !projectId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&

@@ -595,3 +595,21 @@ durably parked legacy rows, and support scoped marker cleanup. Account
  deletion, already-in-flight server writes, fresh-head races, rollback and
 actual conflict/relaunch UI behavior remain separate integration concerns.
 No native proof is claimed for the candidate.
+
+## Empty-base server-head preflight
+
+The save preflight formerly used the display-oriented preferred-version
+fallback: a missing declared active head could select a historical version,
+and an omitted list could appear versionless. It also treated an absent draft
+as an empty draft. The write path now requires the declared active (or, when
+no active ID exists, last) version with a present draft; otherwise it parks the
+save and retains local recovery. A project is considered versionless only if
+the response explicitly has an empty versions array and zero version count.
+A genuinely empty current draft is valid. This is a save preflight safeguard,
+not a change to display fallback and not proof of live backend behavior.
+Signed ScreenplayStudioDraftRecoveryTests on the erased task-owned simulator:
+77 passed, 0 failed, 0 skipped. Focused coverage verifies missing active head,
+missing draft, omitted list, undeclared historical head, versionless project
+and a real empty head. Result: /private/tmp/them-save-head-20261028.xcresult.
+God-file gate and git diff --check passed. Handler-level fault injection and
+full writer UI integration remain to be run before publication.

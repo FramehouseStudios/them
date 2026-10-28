@@ -6928,10 +6928,14 @@ final class ScreenplayStudioViewModel: ObservableObject {
         guard let project = detailResult.payload.project, project.id == request.projectId else {
             throw BackendMemoryAPIError.invalidResponse
         }
-        guard let version = ScreenplayProjectDraftRestorePolicy.preferredVersion(in: project) else {
+        switch ScreenplaySaveHeadPreflight.evaluate(project) {
+        case .versionless:
             return .versionlessProject
+        case .current(let version):
+            return .canonicalVersion(version, detailResult.responseURL)
+        case .unverified:
+            throw BackendMemoryAPIError.server(status: 409, message: "The current server draft could not be confirmed. Your local words are kept.")
         }
-        return .canonicalVersion(version, detailResult.responseURL)
     }
 
     private func recomputePagination(for draft: String, source: String) async {

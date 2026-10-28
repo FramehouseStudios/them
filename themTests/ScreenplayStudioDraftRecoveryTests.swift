@@ -1200,6 +1200,44 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         XCTAssertEqual(restored?.draft, "INT. LAST SAVED - NIGHT")
     }
 
+    func testEmptyBaseSaveRequiresConfirmedServerHeadOrExplicitEmptyProject() throws {
+        func project(_ fields: [String: Any]) throws -> BackendScreenplayProjectSummary {
+            var payload: [String: Any] = ["id": "project", "title": "Test"]
+            fields.forEach { payload[$0.key] = $0.value }
+            return try JSONDecoder().decode(BackendScreenplayProjectSummary.self,
+                from: JSONSerialization.data(withJSONObject: payload))
+        }
+        let missingHead = try project(["activeVersionId": "active", "lastVersionId": "old",
+            "versionCount": 2, "versions": [["id": "old", "draft": "Historical text"]]])
+        guard case .unverified = ScreenplaySaveHeadPreflight.evaluate(missingHead) else {
+            return XCTFail("Missing active head must not authorize a historical fallback")
+        }
+        let missingDraft = try project(["activeVersionId": "active", "versionCount": 1,
+            "versions": [["id": "active"]]])
+        guard case .unverified = ScreenplaySaveHeadPreflight.evaluate(missingDraft) else {
+            return XCTFail("Missing draft must not be treated as empty")
+        }
+        let omittedVersions = try project(["versionCount": 0])
+        guard case .unverified = ScreenplaySaveHeadPreflight.evaluate(omittedVersions) else {
+            return XCTFail("An omitted version list is not an empty list")
+        }
+        let noHead = try project(["versionCount": 1, "versions": [["id": "old", "draft": "Old"]]])
+        guard case .unverified = ScreenplaySaveHeadPreflight.evaluate(noHead) else {
+            return XCTFail("A historical version without a declared head is not authoritative")
+        }
+        let empty = try project(["versionCount": 0, "versions": []])
+        guard case .versionless = ScreenplaySaveHeadPreflight.evaluate(empty) else {
+            return XCTFail("Explicitly empty projects must remain writable")
+        }
+        let current = try project(["activeVersionId": "active", "versionCount": 1,
+            "versions": [["id": "active", "draft": ""]]])
+        guard case .current(let version) = ScreenplaySaveHeadPreflight.evaluate(current) else {
+            return XCTFail("An explicitly empty current draft is a valid head")
+        }
+        XCTAssertEqual(version.id, "active")
+        XCTAssertEqual(version.draft, "")
+    }
+
     func testUnconfirmedSaveRecoveryPolicyRequiresProjectAndDraft() {
         XCTAssertTrue(ScreenplayUnconfirmedSaveRecoveryPolicy.shouldPersist(
             projectId: " project-a ",
