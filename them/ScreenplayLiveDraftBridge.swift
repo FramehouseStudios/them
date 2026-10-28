@@ -4545,30 +4545,11 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         projectId: String,
         versionId: String,
         userTranscript: String = "",
-        forceInsert: Bool = false
+        forceInsert: Bool = false,
+        livePageContext: ScreenplayLiveTalkPageContext? = nil
     ) {
-        let text = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
-
-        let normalizedPack = pack.trimmingCharacters(in: .whitespacesAndNewlines)
-        let normalizedPhase = phase.trimmingCharacters(in: .whitespacesAndNewlines)
-        let normalizedProject = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
-        let normalizedVersion = versionId.trimmingCharacters(in: .whitespacesAndNewlines)
-        let key = [text, normalizedPack, normalizedPhase, normalizedProject, normalizedVersion].joined(separator: "|")
-
-        if key == lastIngestKey {
-            return
-        }
-
-        cancelStream()
-        lastIngestKey = key
-        latestVoiceTurn = text
-        latestPack = normalizedPack
-        latestPhase = normalizedPhase
-        latestUserTranscript = userTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
-        preferredProjectID = normalizedProject
-        preferredVersionID = normalizedVersion
-        lastUpdatedAt = Date()
+        let turn = ScreenplayIncomingVoiceTurn(rawText, pack: pack, phase: phase, projectID: projectId, versionID: versionId, transcript: userTranscript)
+        guard prepareIncomingVoiceTurn(turn, livePageContext: livePageContext, deduplicate: true) else { return }
 
         if autoInsertEnabled || forceInsert {
             // Typed Studio page writes should always land on the draft even when
@@ -4576,10 +4557,29 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             // Always insert at cursor — regardless of whether the draft is empty.
             // Previously this bailed under certain conditions, causing voice
             // turns after the first one to be dropped.
-            streamInsert(text)
+            streamInsert(turn.text, livePageContext: livePageContext)
         } else {
             autoInsertStatusText = ""
         }
+    }
+
+    private func prepareIncomingVoiceTurn(_ turn: ScreenplayIncomingVoiceTurn,
+        livePageContext: ScreenplayLiveTalkPageContext?, deduplicate: Bool) -> Bool {
+        let key = livePageContext.map { turn.key + "|" + $0.request.admission.entryID } ?? turn.key
+        guard !turn.text.isEmpty, !deduplicate || key != lastIngestKey else { return false }
+        if let livePageContext {
+            guard livePageContext.permitsDelivery(in: self), turn.projectID == preferredProjectID else { return false }
+        }
+        cancelStream()
+        lastIngestKey = key
+        latestVoiceTurn = turn.text
+        latestPack = turn.pack
+        latestPhase = turn.phase
+        latestUserTranscript = turn.transcript
+        preferredProjectID = turn.projectID
+        preferredVersionID = turn.versionID
+        lastUpdatedAt = Date()
+        return true
     }
 
     func insertLatestAtCursor() {
@@ -4643,43 +4643,27 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         projectId: String,
         versionId: String,
         userTranscript: String = "",
-        forceInsert: Bool = false
+        forceInsert: Bool = false,
+        livePageContext: ScreenplayLiveTalkPageContext? = nil
     ) {
-        let text = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else {
+        guard livePageContext?.permitsDelivery(in: self) != false else { return }
+        let turn = ScreenplayIncomingVoiceTurn(rawText, pack: pack, phase: phase, projectID: projectId, versionID: versionId, transcript: userTranscript)
+        guard !turn.text.isEmpty else {
             cancelStreamingVoiceTurnPreview()
             return
         }
-
-        let normalizedPack = pack.trimmingCharacters(in: .whitespacesAndNewlines)
-        let normalizedPhase = phase.trimmingCharacters(in: .whitespacesAndNewlines)
-        let normalizedProject = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
-        let normalizedVersion = versionId.trimmingCharacters(in: .whitespacesAndNewlines)
-        let key = [text, normalizedPack, normalizedPhase, normalizedProject, normalizedVersion].joined(separator: "|")
-
-        if key != lastIngestKey {
-            lastIngestKey = key
-        }
-        cancelStream()
-        latestVoiceTurn = text
-        latestPack = normalizedPack
-        latestPhase = normalizedPhase
-        latestUserTranscript = userTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
-        preferredProjectID = normalizedProject
-        preferredVersionID = normalizedVersion
-        lastUpdatedAt = Date()
-        streamingPreviewText = text
+        guard prepareIncomingVoiceTurn(turn, livePageContext: livePageContext, deduplicate: false) else { return }
+        streamingPreviewText = turn.text
 
         if autoInsertEnabled || forceInsert {
             pendingInsertion = ScreenplayInsertionRequest(
-                text: text,
+                text: turn.text,
                 mode: .streamCommit,
-                replacementTarget: currentInsertionReplacementTarget()
+                replacementTarget: currentInsertionReplacementTarget(),
+                requiresLivePageContext: livePageContext != nil, livePageContext: livePageContext
             )
-            autoInsertStatusText = ""
-        } else {
-            autoInsertStatusText = ""
         }
+        autoInsertStatusText = ""
 
         isStreamingDraftPreviewActive = false
         streamingPreviewBaseDraft = ""
@@ -4695,7 +4679,8 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         autoInsertStatusText = ""
     }
 
-    func streamInsert(_ text: String) {
+    func streamInsert(_ text: String, livePageContext: ScreenplayLiveTalkPageContext? = nil) {
+        guard livePageContext?.permitsDelivery(in: self) != false else { return }
         _ = cancelActiveSyncedVoiceInsert(notifyCancellation: false, reason: .other)
         streamTask?.cancel()
         streamTask = nil
@@ -4703,6 +4688,13 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
 
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
+            autoInsertStatusText = ""
+            return
+        }
+
+        if let livePageContext {
+            pendingInsertion = .init(text: trimmed, mode: .insert, replacementTarget: currentInsertionReplacementTarget(),
+                requiresLivePageContext: true, livePageContext: livePageContext)
             autoInsertStatusText = ""
             return
         }
@@ -8468,7 +8460,10 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
     }
 
     @discardableResult
-    func saveInlineAppliedMemoryCorrection(_ correction: String) async throws -> String {
+    func saveInlineAppliedMemoryCorrection(_ correction: String, isCurrent: @MainActor () -> Bool = { true }) async throws -> String {
+        guard isCurrent() else { throw CancellationError() }
+        let originalMemory = latestAppliedMemory, originalDocument = draftOrigin.documentID
+        let originalOwner = ScreenplayStudioAuthContext.current(), originalBackend = BackendAuthClient.resolvedBackendBaseURL()
         let cleanCorrection = correction
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
@@ -8504,6 +8499,9 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             key: "character:\(character)",
             characterBible: bible
         )
+        guard isCurrent(), latestAppliedMemory == originalMemory, draftOrigin.documentID == originalDocument,
+              ScreenplayStudioAuthContextPolicy.matches(expected: originalOwner, current: .current()),
+              OfflineTalkRecoveryScope.sameBackend(originalBackend, BackendAuthClient.resolvedBackendBaseURL()) else { throw CancellationError() }
         latestAppliedMemory = ScreenplayStudioAppliedMemoryState(
             id: UUID(),
             source: latestAppliedMemory.source,

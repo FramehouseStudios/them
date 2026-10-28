@@ -116,6 +116,62 @@ final class BackendProjectWriteOwnershipTests: XCTestCase {
         super.tearDown()
     }
 
+    func testStudioHistoryCannotSendOriginalTextToAnotherBackend() async {
+        for annotation in [false, true] {
+            let state = ProjectWriteOwnershipState()
+            ProjectWriteOwnershipProtocol.handler = { request in
+                state.record(request)
+                return .json(#"{"error":"unavailable"}"#, status: 503)
+            }
+            do {
+                let api = makeAPI(state), origin = URL(string: "https://original-studio.test")!
+                if annotation {
+                    _ = try await api.annotateTurnHistory(turnId: "turn-a", studioMetadata: Self.studioMetadata,
+                        expectedBackendURL: origin, initiatingIdentity: state.identity())
+                } else {
+                    _ = try await api.commitRealtimeTurn(userMessage: "Original story", assistantMessage: "Original scene",
+                        expectedBackendURL: origin, initiatingIdentity: state.identity())
+                }
+                XCTFail("An original Studio request followed another backend.")
+            } catch BackendMemoryAPIError.server(let status, let message) {
+                XCTAssertEqual(status, 409); XCTAssertEqual(message, "backend_request_superseded")
+            } catch { XCTFail("Unexpected error: \(error)") }
+            XCTAssertTrue(state.requests().allSatisfy { $0.url?.path == "/session" })
+        }
+    }
+
+    func testStudioHistoryAcceptsTheCapturedBackendAndRefreshedSameOwner() async throws {
+        for annotation in [false, true] {
+            let state = ProjectWriteOwnershipState()
+            ProjectWriteOwnershipProtocol.handler = { request in
+                state.record(request)
+                if request.url?.path == "/session" { state.rotateToken(); return .json(#"{"error":"unavailable"}"#, status: 503) }
+                return .json(#"{"ok":true,"turn_id":"turn-a","state_version":"owned-state"}"#)
+            }
+            let api = makeAPI(state), owner = state.identity(), origin = URL(string: "https://project-write-ownership.test")!
+            if annotation {
+                _ = try await api.annotateTurnHistory(turnId: "turn-a", studioMetadata: Self.studioMetadata,
+                    expectedBackendURL: origin, initiatingIdentity: owner)
+            } else {
+                _ = try await api.commitRealtimeTurn(userMessage: "Original story", assistantMessage: "Original scene",
+                    expectedBackendURL: origin, initiatingIdentity: owner)
+            }
+            let writes = state.requests().filter { $0.url?.path != "/session" }
+            XCTAssertEqual(writes.count, 1)
+            XCTAssertEqual(writes.first?.value(forHTTPHeaderField: "Authorization"), "Bearer fixture-rotated")
+            let sync = await api.currentSyncState()
+            XCTAssertEqual(sync.stateVersion, "owned-state")
+        }
+    }
+
+    private static let studioMetadata = BackendStudioThreadCommitMetadata(screenplayProjectId: "project-a",
+        screenplayDocumentRevisionId: "", screenplayTarget: "page", screenplayPromptSource: "typed",
+        screenplayWriteId: "", screenplayAnchorLine: nil, screenplayAnchorEndLine: nil, screenplayInsertionMode: "",
+        screenplayAnchorSceneLabel: "", screenplayAnchorDraftSceneId: "", screenplayAnchorOutlineSceneId: "",
+        screenplayAnchorOutlineBeatIds: [], screenplayAnchorScriptNodeId: "", screenplayNoteTitle: "", screenplayNoteBody: "",
+        screenplayInsertedText: "Exact scene", screenplayReplacementApplied: false, screenplayReplacedWriteId: "",
+        screenplayRevisedBlockText: "", screenplayResolvedAnchorExcerpt: "")
+
     func testMetadataWriteCannotAdoptAccountChangedDuringBootstrap() async throws {
         try await assertBootstrapSwitchIsRejected(version: false)
     }

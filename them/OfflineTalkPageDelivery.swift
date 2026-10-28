@@ -7,10 +7,18 @@ import CryptoKit
 nonisolated func offlineTalkRequestProjectID(body: Data, headers: [String: String]) throws -> String? {
     let contentType = headers.first { $0.key.caseInsensitiveCompare("Content-Type") == .orderedSame }?.value ?? ""
     let parameters = contentType.components(separatedBy: ";").map { $0.trimmingCharacters(in: .whitespaces) }
-    guard parameters.first?.lowercased() == "multipart/form-data" else { return nil }
     func invalid() -> BackendError {
         .stage("offline_outbox", "The original project could not be verified. The reply is kept for review and export.")
     }
+    if parameters.first?.lowercased() == "application/json" {
+        guard let request = try JSONSerialization.jsonObject(with: body) as? [String: Any],
+              request["screenplay_project_id"] == nil || request["screenplay_project_id"] is String else { throw invalid() }
+        guard let raw = request["screenplay_project_id"] as? String else { return nil }
+        let id = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard id.count <= 96, id.rangeOfCharacter(from: .controlCharacters) == nil else { throw invalid() }
+        return id.isEmpty ? nil : id
+    }
+    guard parameters.first?.lowercased() == "multipart/form-data" else { return nil }
     let boundaries = parameters.dropFirst().filter { $0.lowercased().hasPrefix("boundary=") }
     guard boundaries.count == 1 else { throw invalid() }
     var boundary = String(boundaries[0].dropFirst("boundary=".count))

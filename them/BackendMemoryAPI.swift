@@ -8922,10 +8922,14 @@ actor BackendMemoryAPI {
         assistantMessage: String,
         requestId: String? = nil,
         studioMetadata: BackendStudioThreadCommitMetadata? = nil,
+        expectedBackendURL: URL? = nil,
         initiatingIdentity owner: BackendAuthRequestIdentity = BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: true)
     ) async throws -> BackendReadResult<BackendRealtimeTurnCommitResponse> {
         let identity = try await screenplayRequestIdentity(owner)
         var request = try makeWriteRequest(path: "/realtime/turn_commit", identity: identity)
+        if let expectedBackendURL {
+            guard let url = request.url, OfflineTalkRecoveryScope.sameBackend(url, expectedBackendURL) else { throw BackendMemoryAPIError.server(status: 409, message: "backend_request_superseded") }
+        }
         let normalizedRequestId = requestId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if !normalizedRequestId.isEmpty {
             request.setValue(
@@ -8944,6 +8948,12 @@ actor BackendMemoryAPI {
         request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
 
         let (data, http) = try await screenplayHTTPResponse(for: request, owner: owner)
+        if let expectedBackendURL {
+            guard let url = http.url, OfflineTalkRecoveryScope.sameBackend(url, expectedBackendURL),
+                  OfflineTalkRecoveryScope.sameBackend(baseURL(), expectedBackendURL) else {
+                throw BackendMemoryAPIError.server(status: 409, message: "backend_request_superseded")
+            }
+        }
 
         try owner.requireCurrentOwner(requestIdentityProvider(false))
         guard (200...299).contains(http.statusCode) else {
@@ -8995,6 +9005,7 @@ actor BackendMemoryAPI {
     func annotateTurnHistory(
         turnId: String,
         studioMetadata: BackendStudioThreadCommitMetadata,
+        expectedBackendURL: URL? = nil,
         initiatingIdentity owner: BackendAuthRequestIdentity = BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: true)
     ) async throws -> BackendReadResult<BackendRealtimeTurnCommitResponse> {
         let normalizedTurnId = turnId.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -9006,6 +9017,9 @@ actor BackendMemoryAPI {
         }
         let identity = try await screenplayRequestIdentity(owner)
         var request = try makeWriteRequest(path: "/history/annotate_turn", identity: identity)
+        if let expectedBackendURL {
+            guard let url = request.url, OfflineTalkRecoveryScope.sameBackend(url, expectedBackendURL) else { throw BackendMemoryAPIError.server(status: 409, message: "backend_request_superseded") }
+        }
         let payload: [String: Any] = [
             "turn_id": normalizedTurnId,
             "studio": Self.studioTurnPayload(studioMetadata)
@@ -9013,6 +9027,12 @@ actor BackendMemoryAPI {
         request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
 
         let (data, http) = try await screenplayHTTPResponse(for: request, owner: owner)
+        if let expectedBackendURL {
+            guard let url = http.url, OfflineTalkRecoveryScope.sameBackend(url, expectedBackendURL),
+                  OfflineTalkRecoveryScope.sameBackend(baseURL(), expectedBackendURL) else {
+                throw BackendMemoryAPIError.server(status: 409, message: "backend_request_superseded")
+            }
+        }
 
         try owner.requireCurrentOwner(requestIdentityProvider(false))
         guard (200...299).contains(http.statusCode) else {
@@ -9240,8 +9260,11 @@ actor BackendMemoryAPI {
         lastThemeCue: String,
         preferredName: String,
         isScreenwriter: Bool,
-        latestUserMessage: String? = nil
+        latestUserMessage: String? = nil,
+        expectedBackendURL: URL? = nil,
+        initiatingIdentity owner: BackendAuthRequestIdentity = BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: false)
     ) {
+        let origin = expectedBackendURL ?? baseURL()
         Task {
             do {
                 guard BackendEvolutionSyncPolicy.shouldAutoSync(
@@ -9250,87 +9273,19 @@ actor BackendMemoryAPI {
                 ) else {
                     return
                 }
-                let url = baseURL().appendingPathComponent("session").appendingPathComponent("evolution")
-                var request = URLRequest(url: url)
+                let identity = try await screenplayRequestIdentity(owner)
+                var request = try makeWriteRequest(path: "/session/evolution", identity: identity)
+                guard let url = request.url, OfflineTalkRecoveryScope.sameBackend(url, origin) else { return }
                 request.httpMethod = "PATCH"
                 request.timeoutInterval = 8
-                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-                request.setValue("application/json", forHTTPHeaderField: "Accept")
-                if let token = appToken(), !token.isEmpty {
-                    request.setValue(token, forHTTPHeaderField: "X-APP-TOKEN")
-                }
-                if let userId = userID(), !userId.isEmpty {
-                    request.setValue(userId, forHTTPHeaderField: "X-User-Id")
-                }
-                if let ct = clientToken(), !ct.isEmpty {
-                    request.setValue(ct, forHTTPHeaderField: "X-Client-Token")
-                }
-                request.setValue(personaFlowKey, forHTTPHeaderField: "X-Persona-Key")
 
-                var payload: [String: Any] = [
-                    "stage": stage,
-                    "depth_score": round(depthScore * 100) / 100,
-                    "romance_tension": round(romanceTension * 100) / 100,
-                    "session_count": sessionCount,
-                    "reassurance_need": round(reassuranceNeed * 1000) / 1000,
-                    "boundary_need": round(boundaryNeed * 1000) / 1000,
-                    "playful_momentum": round(playfulMomentum * 1000) / 1000,
-                    "trust_signal": round(trustSignal * 1000) / 1000,
-                ]
-                let trimmedCue = lastThemeCue.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !trimmedCue.isEmpty { payload["last_theme_cue"] = trimmedCue }
-                let trimmedName = preferredName.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !trimmedName.isEmpty { payload["preferred_name"] = String(trimmedName.prefix(64)) }
-                payload["is_screenwriter"] = isScreenwriter
-                let latestMessage = (latestUserMessage ?? "")
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                if !latestMessage.isEmpty {
-                    payload["latest_user_message"] = String(latestMessage.prefix(220))
-                }
-
-                let loweredMessage = latestMessage.lowercased()
-                let loveTopicActive = loweredMessage.contains("love") ||
-                    loweredMessage.contains("relationship") ||
-                    loweredMessage.contains("romance") ||
-                    loweredMessage.contains("dating") ||
-                    loweredMessage.contains("miss you") ||
-                    loweredMessage.contains("heart")
-                if loveTopicActive {
-                    payload["love_topic_active"] = true
-                }
-                let reassuranceStyleHint: String = {
-                    if loweredMessage.contains("be direct") ||
-                        loweredMessage.contains("straight up") ||
-                        loweredMessage.contains("no sugarcoat") {
-                        return "direct"
-                    }
-                    if loweredMessage.contains("hype me") ||
-                        loweredMessage.contains("pep talk") {
-                        return "hype"
-                    }
-                    if loweredMessage.contains("gentle") ||
-                        loweredMessage.contains("comfort me") ||
-                        loweredMessage.contains("hold space") {
-                        return "motherly"
-                    }
-                    return reassuranceNeed > 0.62 ? "soft" : "direct"
-                }()
-                payload["reassurance_style_hint"] = reassuranceStyleHint
-
-                let affectionStyleHint: String = {
-                    if loveTopicActive {
-                        if playfulMomentum > 0.62 { return "playful" }
-                        if trustSignal > 0.68 && romanceTension > 2.2 { return "tender" }
-                        if romanceTension > 4.2 { return "intimate" }
-                    }
-                    return "casual"
-                }()
-                payload["affection_style_hint"] = affectionStyleHint
-                payload["romance_depth_hint"] = round(min(max(romanceTension / 10.0, 0), 1) * 1000) / 1000
-                payload["support_intent_hint"] = reassuranceNeed > 0.58 ? "comfort_first" : "clarity_then_comfort"
-
+                let payload = BackendEvolutionSyncPayload.make(stage: stage, depthScore: depthScore,
+                    romanceTension: romanceTension, sessionCount: sessionCount,
+                    reassuranceNeed: reassuranceNeed, boundaryNeed: boundaryNeed,
+                    playfulMomentum: playfulMomentum, trustSignal: trustSignal, lastThemeCue: lastThemeCue,
+                    preferredName: preferredName, isScreenwriter: isScreenwriter, latestUserMessage: latestUserMessage)
                 request.httpBody = try JSONSerialization.data(withJSONObject: payload)
-                let (_, response) = try await URLSession.shared.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
+                let (_, response) = try await screenplayHTTPResponse(for: request, owner: owner)
                 let status = (response as? HTTPURLResponse)?.statusCode ?? -1
                 // 404 = backend doesn't support this endpoint yet — silently skip.
                 if status != 200 && status != 204 && status != 404 {
