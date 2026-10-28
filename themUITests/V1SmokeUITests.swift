@@ -2407,6 +2407,12 @@ final class V1SmokeUITests: XCTestCase {
         let finalDraft = accessibleDraftText(in: app)
         XCTAssertEqual(finalDraft.components(separatedBy: "HOME VOICE HANDOFF").count - 1, 1)
         XCTAssertEqual(finalDraft.components(separatedBy: switchProject ? "Original B keeps" : "Original A keeps").count - 1, 1)
+        let originalBytes = Array(beforeB.utf8), deliveredBytes = Array(finalDraft.utf8)
+        let preservedPrefix = zip(originalBytes, deliveredBytes).prefix { $0.0 == $0.1 }.count
+        let preservedSuffix = zip(originalBytes.dropFirst(preservedPrefix).reversed(),
+            deliveredBytes.dropFirst(preservedPrefix).reversed()).prefix { $0.0 == $0.1 }.count
+        XCTAssertEqual(preservedPrefix + preservedSuffix, originalBytes.count,
+            "Insertion must retain every original byte, including CRLF, decomposed accents and whitespace")
         XCTAssertEqual(Data((field.value as? String ?? "").utf8), Data(unsent.utf8), "B must also preserve the newer unsent seed")
         _ = try await waitForWriterLoopSavedVersion(projectID: projectB, draft: finalDraft, fixture: fixture, app: app, timeout: 20)
         let savedB = try await writerLoopProject(id: projectB, fixture: fixture)
