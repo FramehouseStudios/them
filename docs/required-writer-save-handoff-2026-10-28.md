@@ -523,3 +523,29 @@ fetch, scoped durable retirement, relaunch and late-response fencing remain
 required before the full Load Server action is complete or published.
 The signed ScreenplayStudioDraftRecoveryTests result is recorded separately in
 `/private/tmp/them-load-server-empty-guard-summary.json`.
+
+## T-1203 candidate review — do not integrate yet
+
+Zora preserved candidate `1f03d3574b39768a016185ae9def9c572a5b6a9a` on
+`codex/T-1203-load-server-fence`, based on4a3525c. It has static parse and
+whitespace checks only; no native tests or integration proof. The earlier
+array queue can be read forward, but after its first resolution the object
+manifest cannot be decoded by the older array-only app on rollback. This
+needs a reviewed migration/rollback solution before publication.
+
+Jarvis source review found two additional critical design issues. First,
+`isCoveredByLoadServerResolution` and `purgeResolvedEntries` cover every
+ordinary scoped row before the timestamp cutoff, including pending/inflight
+rows the writer did not choose to discard. That can delete distinct writer
+edits. Second, `DraftSaveRequest.outboxEntry` materializes `createdAt` using
+the current time each time it is created. A request captured before the choice
+but materialized afterward can evade the timestamp fence. Thus wall-clock
+cutoff is not a reliable immutable admission authority. These are verified
+source findings; no simulated proof or claim of data loss in production.
+
+Do not merge or use the candidate as-is. Next: design an immutable captured
+request authority, exact explicitly selected durable row identities, a durable
+late-admission fence and a reviewed rollback-compatible storage strategy.
+Preserve the candidate and original #962 history for comparison. Retest
+relaunch, newer pending edits, legacy data, persistence failure and actual
+Load Server UI after the canonical VM integration exists.
