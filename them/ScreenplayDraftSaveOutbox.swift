@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 import Network
 
 nonisolated extension Notification.Name {
@@ -31,9 +32,12 @@ nonisolated struct ScreenplayDraftLoadServerRetirement: Codable, Equatable, Send
     let projectId: String
     let ownerUserId: String
     let deliveryOrigin: ScreenplayDraftSaveOrigin
-    let requestAuthority: ScreenplayDraftSaveRequestAuthority
-    let source: String
-    let notes: String
+    let requestAuthority: ScreenplayDraftSaveRequestAuthority?
+    let requestDigest: String?
+    // Decode-only compatibility for the unreleased v1 marker. New markers
+    // leave these nil so the fence never retains writer notes or source text.
+    let source: String?
+    let notes: String?
 }
 
 nonisolated struct ScreenplayDraftSaveOutboxEntry: Identifiable, Codable, Equatable {
@@ -138,7 +142,8 @@ actor ScreenplayDraftSaveOutbox {
     private static let retirementProjectID = "load-server-retirement"
     private static let retirementOwnerID = "load-server-retirement"
     private static let retirementSource = "studio_load_server_retirement"
-    private static let retirementNotesPrefix = "load-server-retirement-v1:"
+    private static let retirementNotesPrefix = "load-server-retirement-v2:"
+    private static let legacyRetirementNotesPrefix = "load-server-retirement-v1:"
 
     private let storageDirectory: URL
     private let manifestURL: URL
@@ -416,6 +421,12 @@ actor ScreenplayDraftSaveOutbox {
             entries[index].nextAttemptAt = 0
             entries[index].lastError = Self.conflictReason
         } else {
+            // Older rows have no minted request authority. Their stable ID is
+            // usable only when the exact row is already durable; an in-memory
+            // value alone cannot authorize destructive retirement.
+            guard request.requestAuthority != nil else {
+                throw BackendMemoryAPIError.invalidResponse
+            }
             var parked = request
             parked.status = .parked
             parked.updatedAt = now.timeIntervalSince1970
@@ -470,6 +481,12 @@ actor ScreenplayDraftSaveOutbox {
                     throw BackendMemoryAPIError.server(status: 409, message: "screenplay_save_id_reused")
                 }
             } else {
+                // Only current-authority requests may be fenced before their
+                // row materializes. Legacy nil-authority requests need an
+                // exact durable parked row selected above.
+                guard request.requestAuthority != nil else {
+                    throw BackendMemoryAPIError.invalidResponse
+                }
                 selected[request.id] = request
             }
         }
@@ -510,6 +527,10 @@ actor ScreenplayDraftSaveOutbox {
                         throw BackendMemoryAPIError.invalidResponse
                     }
                     entries.remove(at: index)
+                } else if request.requestAuthority == nil {
+                    // Re-check legacy durability at commit time. Another actor
+                    // turn may have removed the selected row after capture.
+                    throw BackendMemoryAPIError.invalidResponse
                 }
                 retirementMarkers.append(try makeRetirementMarker(for: request))
                 retiredIDs.append(request.id)
@@ -547,11 +568,23 @@ actor ScreenplayDraftSaveOutbox {
         try loadIfNeeded()
         let cleanProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
         let cleanOwnerUserId = ownerUserId.trimmingCharacters(in: .whitespacesAndNewlines)
+        let previousEntries = entries
+        let previousMarkers = retirementMarkers
         entries.removeAll { entry in
             entry.projectId == cleanProjectId &&
                 entry.ownerUserId == cleanOwnerUserId
         }
-        try persist()
+        retirementMarkers.removeAll { marker in
+            marker.loadServerRetirement?.projectId == cleanProjectId &&
+                marker.loadServerRetirement?.ownerUserId == cleanOwnerUserId
+        }
+        do {
+            try persist()
+        } catch {
+            entries = previousEntries
+            retirementMarkers = previousMarkers
+            throw error
+        }
         publishSnapshot()
     }
 
@@ -803,8 +836,7 @@ actor ScreenplayDraftSaveOutbox {
 
     private func validateRetirableRequest(_ entry: ScreenplayDraftSaveOutboxEntry) throws {
         guard entry.initialization == nil, entry.loadServerRetirement == nil,
-              validIdentifier(entry.id, limit: 96), let origin = entry.deliveryOrigin,
-              entry.requestAuthority != nil else {
+              validIdentifier(entry.id, limit: 96), let origin = entry.deliveryOrigin else {
             throw BackendMemoryAPIError.invalidResponse
         }
         try validateScope(projectId: entry.projectId, ownerUserId: entry.ownerUserId,
@@ -830,6 +862,8 @@ actor ScreenplayDraftSaveOutbox {
 
     private func validateRetirementMarker(_ marker: ScreenplayDraftSaveOutboxEntry) throws {
         guard let retirement = marker.loadServerRetirement,
+              let requestDigest = retirement.requestDigest,
+              validRequestDigest(requestDigest),
               marker.id == retirement.requestID,
               marker.projectId == Self.retirementProjectID,
               marker.ownerUserId == Self.retirementOwnerID,
@@ -837,9 +871,17 @@ actor ScreenplayDraftSaveOutbox {
               try decodedRetirementNotes(marker.notes) == retirement,
               marker.initialization == nil,
               marker.requestAuthority == retirement.requestAuthority,
+              retirement.source == nil,
+              retirement.notes == nil,
+              marker.draft.isEmpty,
+              marker.title.isEmpty,
+              marker.phase.isEmpty,
+              marker.studioWriteAnchors.isEmpty,
+              marker.screenplayBindings.isEmpty,
+              marker.baseVersionId.isEmpty,
               let sentinel = marker.deliveryOrigin,
               sentinel.backendURL == retirement.deliveryOrigin.backendURL,
-              sentinel.documentID == retirementDocumentID(retirement.requestAuthority) else {
+              sentinel.documentID == retirementDocumentID(requestDigest) else {
             throw BackendMemoryAPIError.invalidResponse
         }
         try validateScope(projectId: retirement.projectId, ownerUserId: retirement.ownerUserId,
@@ -850,7 +892,8 @@ actor ScreenplayDraftSaveOutbox {
         entry.projectId == Self.retirementProjectID &&
             entry.ownerUserId == Self.retirementOwnerID &&
             entry.source == Self.retirementSource &&
-            entry.notes.hasPrefix(Self.retirementNotesPrefix)
+            (entry.notes.hasPrefix(Self.retirementNotesPrefix) ||
+                entry.notes.hasPrefix(Self.legacyRetirementNotesPrefix))
     }
 
     private func hydratedRetirementMarker(
@@ -859,6 +902,35 @@ actor ScreenplayDraftSaveOutbox {
         let decoded = try decodedRetirementNotes(stored.notes)
         if let embedded = stored.loadServerRetirement, embedded != decoded {
             throw BackendMemoryAPIError.invalidResponse
+        }
+        if decoded.requestDigest == nil {
+            guard stored.notes.hasPrefix(Self.legacyRetirementNotesPrefix),
+                  let source = decoded.source,
+                  let notes = decoded.notes else {
+                throw BackendMemoryAPIError.invalidResponse
+            }
+            var request = ScreenplayDraftSaveOutboxEntry(
+                id: decoded.requestID,
+                projectId: decoded.projectId,
+                ownerUserId: decoded.ownerUserId,
+                draft: stored.draft,
+                title: stored.title,
+                phase: stored.phase,
+                notes: notes,
+                source: source,
+                studioWriteAnchors: stored.studioWriteAnchors,
+                screenplayBindings: stored.screenplayBindings,
+                baseVersionId: stored.baseVersionId,
+                createdAt: stored.createdAt,
+                updatedAt: stored.updatedAt,
+                status: .parked,
+                retries: stored.retries,
+                nextAttemptAt: 0,
+                lastError: Self.conflictReason
+            )
+            request.deliveryOrigin = decoded.deliveryOrigin
+            request.requestAuthority = decoded.requestAuthority
+            return try makeRetirementMarker(for: request)
         }
         var marker = stored
         marker.requestAuthority = decoded.requestAuthority
@@ -876,8 +948,15 @@ actor ScreenplayDraftSaveOutbox {
     }
 
     private func decodedRetirementNotes(_ notes: String) throws -> ScreenplayDraftLoadServerRetirement {
-        guard notes.hasPrefix(Self.retirementNotesPrefix),
-              let data = Data(base64Encoded: String(notes.dropFirst(Self.retirementNotesPrefix.count))) else {
+        let encoded: Substring
+        if notes.hasPrefix(Self.retirementNotesPrefix) {
+            encoded = notes.dropFirst(Self.retirementNotesPrefix.count)
+        } else if notes.hasPrefix(Self.legacyRetirementNotesPrefix) {
+            encoded = notes.dropFirst(Self.legacyRetirementNotesPrefix.count)
+        } else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        guard let data = Data(base64Encoded: String(encoded)) else {
             throw BackendMemoryAPIError.invalidResponse
         }
         return try JSONDecoder().decode(ScreenplayDraftLoadServerRetirement.self, from: data)
@@ -887,43 +966,44 @@ actor ScreenplayDraftSaveOutbox {
         for request: ScreenplayDraftSaveOutboxEntry
     ) throws -> ScreenplayDraftSaveOutboxEntry {
         try validateRetirableRequest(request)
-        guard let origin = request.deliveryOrigin,
-              let authority = request.requestAuthority else {
+        guard let origin = request.deliveryOrigin else {
             throw BackendMemoryAPIError.invalidResponse
         }
+        let digest = try requestDigest(request)
         let retirement = ScreenplayDraftLoadServerRetirement(
             requestID: request.id,
             projectId: request.projectId,
             ownerUserId: request.ownerUserId,
             deliveryOrigin: origin,
-            requestAuthority: authority,
-            source: request.source,
-            notes: request.notes
+            requestAuthority: request.requestAuthority,
+            requestDigest: digest,
+            source: nil,
+            notes: nil
         )
         var marker = ScreenplayDraftSaveOutboxEntry(
             id: request.id,
             projectId: Self.retirementProjectID,
             ownerUserId: Self.retirementOwnerID,
-            draft: request.draft,
-            title: request.title,
-            phase: request.phase,
+            draft: "",
+            title: "",
+            phase: "",
             notes: try encodedRetirementNotes(retirement),
             source: Self.retirementSource,
-            studioWriteAnchors: request.studioWriteAnchors,
-            screenplayBindings: request.screenplayBindings,
-            baseVersionId: request.baseVersionId,
-            createdAt: request.createdAt,
-            updatedAt: request.updatedAt,
+            studioWriteAnchors: [],
+            screenplayBindings: [],
+            baseVersionId: "",
+            createdAt: 0,
+            updatedAt: 0,
             status: .parked,
-            retries: request.retries,
+            retries: 0,
             nextAttemptAt: 0,
             lastError: Self.retirementReason
         )
         marker.deliveryOrigin = ScreenplayDraftSaveOrigin(
-            documentID: retirementDocumentID(authority),
+            documentID: retirementDocumentID(digest),
             backendURL: origin.backendURL
         )
-        marker.requestAuthority = authority
+        marker.requestAuthority = request.requestAuthority
         marker.loadServerRetirement = retirement
         try validateRetirementMarker(marker)
         return marker
@@ -938,15 +1018,11 @@ actor ScreenplayDraftSaveOutbox {
               retirement.projectId == request.projectId,
               retirement.ownerUserId == request.ownerUserId,
               retirement.deliveryOrigin == request.deliveryOrigin,
-              retirement.requestAuthority == request.requestAuthority else {
+              retirement.requestAuthority == request.requestAuthority,
+              let digest = retirement.requestDigest else {
             return false
         }
-        return marker.draft.utf8.elementsEqual(request.draft.utf8) &&
-            marker.title == request.title && marker.phase == request.phase &&
-            retirement.notes == request.notes && retirement.source == request.source &&
-            marker.studioWriteAnchors == request.studioWriteAnchors &&
-            marker.screenplayBindings == request.screenplayBindings &&
-            marker.baseVersionId == request.baseVersionId
+        return (try? requestDigest(request)) == digest
     }
 
     private func sameImmutableRequest(
@@ -977,8 +1053,51 @@ actor ScreenplayDraftSaveOutbox {
             entry.deliveryOrigin == deliveryOrigin
     }
 
-    private func retirementDocumentID(_ authority: ScreenplayDraftSaveRequestAuthority) -> String {
-        "retired-\(authority.id.uuidString.lowercased())-\(authority.generation)"
+    private func requestDigest(_ request: ScreenplayDraftSaveOutboxEntry) throws -> String {
+        var projection = Data()
+        appendCanonical(Data("io.them.screenplay-draft-save-retirement-v2".utf8), to: &projection)
+        for value in [request.id, request.projectId, request.ownerUserId] {
+            appendCanonical(Data(value.utf8), to: &projection)
+        }
+        guard let origin = request.deliveryOrigin else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        appendCanonical(Data(origin.documentID.utf8), to: &projection)
+        appendCanonical(Data(origin.backendURL.absoluteString.utf8), to: &projection)
+        if let authority = request.requestAuthority {
+            projection.append(1)
+            appendCanonical(Data(authority.id.uuidString.lowercased().utf8), to: &projection)
+            appendCanonicalInteger(authority.generation, to: &projection)
+        } else {
+            projection.append(0)
+        }
+        for value in [request.draft, request.title, request.phase, request.notes,
+                      request.source, request.baseVersionId] {
+            appendCanonical(Data(value.utf8), to: &projection)
+        }
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        appendCanonical(try encoder.encode(request.studioWriteAnchors), to: &projection)
+        appendCanonical(try encoder.encode(request.screenplayBindings), to: &projection)
+        return SHA256.hash(data: projection).map { String(format: "%02x", $0) }.joined()
+    }
+
+    private func appendCanonical(_ bytes: Data, to projection: inout Data) {
+        appendCanonicalInteger(UInt64(bytes.count), to: &projection)
+        projection.append(bytes)
+    }
+
+    private func appendCanonicalInteger(_ value: UInt64, to projection: inout Data) {
+        var bigEndian = value.bigEndian
+        Swift.withUnsafeBytes(of: &bigEndian) { projection.append(contentsOf: $0) }
+    }
+
+    private func validRequestDigest(_ digest: String) -> Bool {
+        digest.utf8.count == 64 && digest.allSatisfy { $0.isHexDigit && !$0.isUppercase }
+    }
+
+    private func retirementDocumentID(_ digest: String) -> String {
+        "retired-\(digest)"
     }
 
     private func validIdentifier(_ value: String, limit: Int = 128) -> Bool {

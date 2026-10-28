@@ -429,6 +429,12 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
         let marker = try XCTUnwrap(priorRows.first(where: { $0.id == request.id }))
 
         XCTAssertEqual(marker.status, .parked)
+        XCTAssertTrue(marker.draft.isEmpty)
+        XCTAssertTrue(marker.title.isEmpty)
+        XCTAssertTrue(marker.phase.isEmpty)
+        XCTAssertTrue(marker.studioWriteAnchors.isEmpty)
+        XCTAssertTrue(marker.screenplayBindings.isEmpty)
+        XCTAssertTrue(marker.baseVersionId.isEmpty)
         XCTAssertNotEqual(marker.projectId, request.projectId)
         XCTAssertNotEqual(marker.ownerUserId, request.ownerUserId)
         XCTAssertNotEqual(marker.deliveryOrigin, request.deliveryOrigin)
@@ -477,7 +483,141 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
             "A prior retry mutation must not erase the fence when the new app returns")
     }
 
-    func testLegacyConflictWithoutRequestAuthorityIsPreserved() async throws {
+    func testRetirementMarkerKeepsOnlyScopeAuthorityAndCanonicalDigest() async throws {
+        let origin = ScreenplayDraftSaveOrigin(
+            documentID: "document-private",
+            backendURL: URL(string: "https://save.test")!
+        )
+        let privateDraft = "PRIVATE RETIRED WORDS\r\nCafe\u{0301}\t"
+        let request = makeEntry(id: "privacy-fence", draft: privateDraft, origin: origin,
+            authority: .init(id: UUID(), generation: 21))
+        let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let selection = try await store.captureLoadServerSelection(projectId: request.projectId,
+            ownerUserId: request.ownerUserId, deliveryOrigin: origin, explicitRequests: [request])
+        _ = try await store.resolveLoadServerSelection(selection)
+
+        let privacyMarkers = try await store.retirementMarkersForTesting()
+        let marker = try XCTUnwrap(privacyMarkers.first)
+        XCTAssertTrue(marker.draft.isEmpty)
+        XCTAssertTrue(marker.title.isEmpty)
+        XCTAssertTrue(marker.phase.isEmpty)
+        XCTAssertTrue(marker.studioWriteAnchors.isEmpty)
+        XCTAssertTrue(marker.screenplayBindings.isEmpty)
+        XCTAssertTrue(marker.baseVersionId.isEmpty)
+        XCTAssertNil(marker.loadServerRetirement?.source)
+        XCTAssertNil(marker.loadServerRetirement?.notes)
+        XCTAssertEqual(marker.loadServerRetirement?.requestDigest?.count, 64)
+        let manifest = try Data(contentsOf: storageDirectory.appendingPathComponent("queue.json"))
+        XCTAssertNil(manifest.range(of: Data(privateDraft.utf8)),
+            "A retirement fence must not retain screenplay bytes")
+    }
+
+    func testUnreleasedV1MarkerIsRewrittenWithoutItsScreenplayContent() async throws {
+        let origin = ScreenplayDraftSaveOrigin(
+            documentID: "document-a",
+            backendURL: URL(string: "https://save.test")!
+        )
+        let authority = ScreenplayDraftSaveRequestAuthority(id: UUID(), generation: 22)
+        let privateDraft = "LEGACY PRIVATE RETIRED WORDS"
+        let request = makeEntry(id: "legacy-v1-marker", draft: privateDraft, origin: origin,
+            authority: authority)
+        let retirement = ScreenplayDraftLoadServerRetirement(
+            requestID: request.id,
+            projectId: request.projectId,
+            ownerUserId: request.ownerUserId,
+            deliveryOrigin: origin,
+            requestAuthority: authority,
+            requestDigest: nil,
+            source: request.source,
+            notes: request.notes
+        )
+        let retirementNotes = "load-server-retirement-v1:" +
+            (try JSONEncoder().encode(retirement)).base64EncodedString()
+        var marker = ScreenplayDraftSaveOutboxEntry(
+            id: request.id,
+            projectId: "load-server-retirement",
+            ownerUserId: "load-server-retirement",
+            draft: request.draft,
+            title: request.title,
+            phase: request.phase,
+            notes: retirementNotes,
+            source: "studio_load_server_retirement",
+            studioWriteAnchors: request.studioWriteAnchors,
+            screenplayBindings: request.screenplayBindings,
+            baseVersionId: request.baseVersionId,
+            createdAt: request.createdAt,
+            updatedAt: request.updatedAt,
+            status: .parked,
+            retries: request.retries,
+            nextAttemptAt: 0,
+            lastError: "old marker"
+        )
+        marker.deliveryOrigin = .init(
+            documentID: "retired-\(authority.id.uuidString.lowercased())-\(authority.generation)",
+            backendURL: origin.backendURL
+        )
+        marker.requestAuthority = authority
+        marker.loadServerRetirement = retirement
+        try FileManager.default.createDirectory(at: storageDirectory, withIntermediateDirectories: true)
+        let manifestURL = storageDirectory.appendingPathComponent("queue.json")
+        try JSONEncoder().encode([marker]).write(to: manifestURL, options: .atomic)
+
+        let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let migratedMarkers = try await store.retirementMarkersForTesting()
+        let migrated = try XCTUnwrap(migratedMarkers.first)
+        XCTAssertTrue(migrated.draft.isEmpty)
+        XCTAssertTrue(migrated.notes.hasPrefix("load-server-retirement-v2:"))
+        XCTAssertNotNil(migrated.loadServerRetirement?.requestDigest)
+        XCTAssertNil(try Data(contentsOf: manifestURL).range(of: Data(privateDraft.utf8)))
+    }
+
+    func testCanonicalDigestLengthPrefixesEveryExactField() async throws {
+        let origin = ScreenplayDraftSaveOrigin(
+            documentID: "document-a",
+            backendURL: URL(string: "https://save.test")!
+        )
+        let authority = ScreenplayDraftSaveRequestAuthority(id: UUID(), generation: 30)
+        let seed = makeEntry(id: "boundary-safe", draft: "Exact\r\nCafe\u{0301}", origin: origin,
+            authority: authority)
+        var originalPayload = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: JSONEncoder().encode(seed)) as? [String: Any]
+        )
+        originalPayload["title"] = "ab"
+        originalPayload["phase"] = "c"
+        let original = try JSONDecoder().decode(ScreenplayDraftSaveOutboxEntry.self,
+            from: JSONSerialization.data(withJSONObject: originalPayload))
+        var boundaryCollisionPayload = originalPayload
+        boundaryCollisionPayload["title"] = "a"
+        boundaryCollisionPayload["phase"] = "bc"
+        let boundaryCollision = try JSONDecoder().decode(ScreenplayDraftSaveOutboxEntry.self,
+            from: JSONSerialization.data(withJSONObject: boundaryCollisionPayload))
+
+        let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let selection = try await store.captureLoadServerSelection(projectId: original.projectId,
+            ownerUserId: original.ownerUserId, deliveryOrigin: origin, explicitRequests: [original])
+        _ = try await store.resolveLoadServerSelection(selection)
+        do {
+            _ = try await store.beginDeliveryUnlessRetiredByLoadServer(boundaryCollision)
+            XCTFail("Adjacent field concatenation collided with the retired request")
+        } catch BackendMemoryAPIError.server(let status, let message) {
+            XCTAssertEqual(status, 409)
+            XCTAssertEqual(message, "screenplay_save_id_reused")
+        }
+
+        var byteDistinctPayload = originalPayload
+        byteDistinctPayload["draft"] = original.draft.precomposedStringWithCanonicalMapping
+        let byteDistinct = try JSONDecoder().decode(ScreenplayDraftSaveOutboxEntry.self,
+            from: JSONSerialization.data(withJSONObject: byteDistinctPayload))
+        do {
+            _ = try await store.beginDeliveryUnlessRetiredByLoadServer(byteDistinct)
+            XCTFail("Unicode-normalized screenplay bytes collided with the retired request")
+        } catch BackendMemoryAPIError.server(let status, let message) {
+            XCTAssertEqual(status, 409)
+            XCTAssertEqual(message, "screenplay_save_id_reused")
+        }
+    }
+
+    func testLegacyDurableParkedConflictCanRetireWithoutManufacturedAuthority() async throws {
         let origin = ScreenplayDraftSaveOrigin(
             documentID: "document-a",
             backendURL: URL(string: "https://save.test")!
@@ -488,14 +628,79 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
         _ = try await store.retainConflict(projectId: legacy.projectId,
             ownerUserId: legacy.ownerUserId, deliveryOrigin: origin)
 
+        let selection = try await store.captureLoadServerSelection(projectId: legacy.projectId,
+            ownerUserId: legacy.ownerUserId, deliveryOrigin: origin)
+        _ = try await store.resolveLoadServerSelection(selection)
+        let legacyEntries = try await store.entriesForTesting()
+        let legacyMarkers = try await store.retirementMarkersForTesting()
+        XCTAssertTrue(legacyEntries.isEmpty)
+        let marker = try XCTUnwrap(legacyMarkers.first)
+        XCTAssertNil(marker.requestAuthority)
+        XCTAssertNil(marker.loadServerRetirement?.requestAuthority)
+        XCTAssertNotNil(marker.loadServerRetirement?.requestDigest)
+        let legacyDelivery = try await store.beginDeliveryUnlessRetiredByLoadServer(legacy)
+        XCTAssertNil(legacyDelivery)
+
+        let absentDirectory = storageDirectory.appendingPathComponent("absent-legacy", isDirectory: true)
+        let absentStore = ScreenplayDraftSaveOutbox(storageDirectory: absentDirectory)
         do {
-            _ = try await store.captureLoadServerSelection(projectId: legacy.projectId,
-                ownerUserId: legacy.ownerUserId, deliveryOrigin: origin)
-            XCTFail("A legacy row without immutable request authority was selected for deletion")
-        } catch BackendMemoryAPIError.invalidResponse {
-            let retained = try await store.entriesForTesting()
-            XCTAssertEqual(retained.map(\.id), [legacy.id])
+            _ = try await absentStore.captureLoadServerSelection(projectId: legacy.projectId,
+                ownerUserId: legacy.ownerUserId, deliveryOrigin: origin, explicitRequests: [legacy])
+            XCTFail("An in-memory legacy request acquired deletion authority")
+        } catch BackendMemoryAPIError.invalidResponse {}
+        do {
+            _ = try await absentStore.retainConflict(legacy)
+            XCTFail("An absent legacy request was synthesized as a durable conflict")
+        } catch BackendMemoryAPIError.invalidResponse {}
+    }
+
+    func testProjectRemovalPurgesExactMarkersAndRollsBackEveryCollectionOnFailure() async throws {
+        let failMarker = storageDirectory.appendingPathComponent("fail-next-write")
+        let store = ScreenplayDraftSaveOutbox(
+            storageDirectory: storageDirectory,
+            manifestWriter: { data, url in
+                if FileManager.default.fileExists(atPath: failMarker.path) {
+                    throw NSError(domain: "ScreenplayDraftSaveOutboxTests", code: 2)
+                }
+                try data.write(to: url, options: .atomic)
+            }
+        )
+        let origin = ScreenplayDraftSaveOrigin(
+            documentID: "document-a",
+            backendURL: URL(string: "https://save.test")!
+        )
+        let mine = makeEntry(id: "mine-marker", draft: "Mine", origin: origin,
+            authority: .init(id: UUID(), generation: 40))
+        let theirs = replacingOwner(of: makeEntry(id: "their-marker", draft: "Theirs", origin: origin,
+            authority: .init(id: UUID(), generation: 41)), with: "user-2")
+        for request in [mine, theirs] {
+            let selection = try await store.captureLoadServerSelection(projectId: request.projectId,
+                ownerUserId: request.ownerUserId, deliveryOrigin: origin, explicitRequests: [request])
+            _ = try await store.resolveLoadServerSelection(selection)
         }
+        let activeMine = makeEntry(id: "mine-active", draft: "Active", createdAt: 200, origin: origin,
+            authority: .init(id: UUID(), generation: 42))
+        try await store.enqueue(activeMine)
+        let manifestURL = storageDirectory.appendingPathComponent("queue.json")
+        let before = try Data(contentsOf: manifestURL)
+        try Data().write(to: failMarker)
+
+        do {
+            try await store.removeAll(projectId: mine.projectId, ownerUserId: mine.ownerUserId)
+            XCTFail("A failed project purge reported success")
+        } catch {
+            XCTAssertEqual(try Data(contentsOf: manifestURL), before)
+            let entriesAfterFailure = try await store.entriesForTesting()
+            let markersAfterFailure = try await store.retirementMarkersForTesting()
+            XCTAssertEqual(entriesAfterFailure.map(\.id), [activeMine.id])
+            XCTAssertEqual(Set(markersAfterFailure.map(\.id)), Set([mine.id, theirs.id]))
+        }
+        try FileManager.default.removeItem(at: failMarker)
+        try await store.removeAll(projectId: mine.projectId, ownerUserId: mine.ownerUserId)
+        let entriesAfterRemoval = try await store.entriesForTesting()
+        let markersAfterRemoval = try await store.retirementMarkersForTesting()
+        XCTAssertTrue(entriesAfterRemoval.isEmpty)
+        XCTAssertEqual(markersAfterRemoval.map(\.id), [theirs.id])
     }
 
     func testPassiveAbsorptionRequiresTheFreshAcknowledgementsExactTargetAndBase() {
