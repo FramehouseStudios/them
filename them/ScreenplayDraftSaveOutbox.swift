@@ -252,6 +252,27 @@ actor ScreenplayDraftSaveOutbox {
         publishSnapshot()
     }
 
+    /// Port of original #962 retention: a server conflict is not deletion.
+    /// Preserve every immutable row in the exact owner/project/document origin.
+    @discardableResult
+    func retainConflict(projectId: String, ownerUserId: String,
+        deliveryOrigin: ScreenplayDraftSaveOrigin?, now: Date = Date()) throws -> ScreenplayDraftSaveOutboxEntry? {
+        try loadIfNeeded()
+        let previous = entries
+        let project = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
+        let owner = ownerUserId.trimmingCharacters(in: .whitespacesAndNewlines)
+        for index in entries.indices where entries[index].projectId == project &&
+            entries[index].ownerUserId == owner && entries[index].deliveryOrigin == deliveryOrigin {
+            entries[index].status = .parked
+            entries[index].updatedAt = now.timeIntervalSince1970
+            entries[index].nextAttemptAt = 0
+            entries[index].lastError = "Server draft changed. Choose Keep Mine or Load Server."
+        }
+        do { try persist() } catch { entries = previous; throw error }
+        publishSnapshot()
+        return entries.last { $0.projectId == project && $0.ownerUserId == owner && $0.deliveryOrigin == deliveryOrigin }
+    }
+
     func removeAll(projectId: String, ownerUserId: String) throws {
         try loadIfNeeded()
         let cleanProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)

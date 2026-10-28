@@ -6561,10 +6561,9 @@ final class ScreenplayStudioViewModel: ObservableObject {
                     return completion(serverVersion.id)
                 }
 
-                guard ownsCompletion() else {
-                    try? await draftSaveOutbox.markParked(id: request.id, error: "The server draft changed. Review this project before saving again.")
-                    return nil
-                }
+                _ = try await draftSaveOutbox.retainConflict(projectId: request.projectId,
+                    ownerUserId: request.ownerUserId, deliveryOrigin: request.deliveryOrigin)
+                guard ownsCompletion() else { return nil }
                 conflictState = SaveConflictState(
                     projectId: request.projectId,
                     baseVersionId: "",
@@ -6581,10 +6580,6 @@ final class ScreenplayStudioViewModel: ObservableObject {
                     draft: fountainDraft,
                     baseVersionId: "",
                     surfaceCandidate: false
-                )
-                try? await draftSaveOutbox.removeAll(
-                    projectId: request.projectId,
-                    ownerUserId: request.ownerUserId
                 )
                 return nil
             }
@@ -6641,10 +6636,9 @@ final class ScreenplayStudioViewModel: ObservableObject {
                     .trimmingCharacters(in: .whitespacesAndNewlines)
                 let serverVersionId = (result.payload.serverVersionId ?? "")
                     .trimmingCharacters(in: .whitespacesAndNewlines)
-                guard ownsCompletion() else {
-                    try? await draftSaveOutbox.markParked(id: request.id, error: "The server draft changed. Review this project before saving again.")
-                    return nil
-                }
+                _ = try await draftSaveOutbox.retainConflict(projectId: request.projectId,
+                    ownerUserId: request.ownerUserId, deliveryOrigin: request.deliveryOrigin)
+                guard ownsCompletion() else { return nil }
                 conflictState = SaveConflictState(
                     projectId: request.projectId,
                     baseVersionId: baseVersionId,
@@ -6661,10 +6655,6 @@ final class ScreenplayStudioViewModel: ObservableObject {
                     draft: fountainDraft,
                     baseVersionId: baseVersionId.isEmpty ? latestVersionID : baseVersionId,
                     surfaceCandidate: false
-                )
-                try? await draftSaveOutbox.removeAll(
-                    projectId: request.projectId,
-                    ownerUserId: request.ownerUserId
                 )
                 return nil
             }
