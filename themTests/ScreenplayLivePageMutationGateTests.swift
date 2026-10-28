@@ -2,14 +2,6 @@ import Foundation
 import SwiftUI
 import XCTest
 #if os(iOS)
-    func testActualActiveStreamingPreviewCommitsOnlyAfterOriginalMutationIsDurable() async throws {
-        try await proveNativeInsertion(mode: .streamCommit, activePreview: true)
-    }
-
-    func testActualActiveStreamingCommitCannotResumeAfterProjectSwitch() async throws {
-        try await proveNativeInsertion(mode: .streamCommit, switchProject: true, activePreview: true)
-    }
-
 import UIKit
 #endif
 @testable import them
@@ -146,6 +138,14 @@ final class ScreenplayLivePageMutationGateTests: XCTestCase {
     }
 
 #if os(iOS)
+    func testActualActiveStreamingPreviewCommitsOnlyAfterOriginalMutationIsDurable() async throws {
+        try await proveNativeInsertion(mode: .streamCommit, activePreview: true)
+    }
+
+    func testActualActiveStreamingCommitCannotResumeAfterProjectSwitch() async throws {
+        try await proveNativeInsertion(mode: .streamCommit, switchProject: true, activePreview: true)
+    }
+
     func testActualNativeStandardInsertionWaitsForDurableIntent() async throws {
         try await proveNativeInsertion(mode: .insert)
     }
