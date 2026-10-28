@@ -2400,19 +2400,18 @@ final class V1SmokeUITests: XCTestCase {
         try assertHTTP(releasedB, context: "Release current B render")
         let idle = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == %@", "Send"), object: send)
         await fulfillment(of: [idle], timeout: 15)
-        // Native preview and submission completion are separate from the
-        // committed model. Yield while observing that model after completion.
-        let committed = element(identifier: "studio.draft.snapshot", in: app)
+        // The debug/model accessibility snapshot is capped at 1,000 characters.
+        // Read the complete editor after submission, then prove its saved bytes.
+        let committed = textInput("studio.draft.editor", in: app)
         let originalMarker = switchProject ? "Original B keeps" : "Original A keeps"
         let delivered = XCTNSPredicateExpectation(predicate: NSPredicate { object, _ in
             guard let snapshot = object as? XCUIElement, snapshot.exists else { return false }
-            let value = snapshot.value as? String ?? ""
-            let text = value.isEmpty ? snapshot.label : value
+            let text = snapshot.value as? String ?? ""
             return text.components(separatedBy: "HOME VOICE HANDOFF").count - 1 == 1
                 && text.components(separatedBy: originalMarker).count - 1 == 1
         }, object: committed)
         await fulfillment(of: [delivered], timeout: 25)
-        let finalDraft = accessibleDraftText(in: app)
+        let finalDraft = committed.value as? String ?? ""
         XCTAssertEqual(finalDraft.components(separatedBy: "HOME VOICE HANDOFF").count - 1, 1)
         XCTAssertEqual(finalDraft.components(separatedBy: switchProject ? "Original B keeps" : "Original A keeps").count - 1, 1)
         let originalBytes = Array(beforeB.utf8), deliveredBytes = Array(finalDraft.utf8)
@@ -2446,8 +2445,13 @@ final class V1SmokeUITests: XCTestCase {
         try await waitForStudioHeldRenderCount(1, in: app)
         app.terminate()
         app = launchApp(openStudio: true, submitTransportMode: "live-backend", resetState: false, launchEnvironment: fixture.appLaunchEnvironment)
-        XCTAssertTrue(waitForExactWriterLoopDraft(finalDraft, in: app, timeout: 20))
-        XCTAssertEqual(Data(accessibleDraftText(in: app).utf8), Data(finalDraft.utf8))
+        let restoredEditor = textInput("studio.draft.editor", in: app)
+        let restored = XCTNSPredicateExpectation(predicate: NSPredicate { object, _ in
+            guard let editor = object as? XCUIElement, editor.exists else { return false }
+            return Data((editor.value as? String ?? "").utf8) == Data(finalDraft.utf8)
+        }, object: restoredEditor)
+        await fulfillment(of: [restored], timeout: 20)
+        XCTAssertEqual(Data((restoredEditor.value as? String ?? "").utf8), Data(finalDraft.utf8))
         try await waitForStudioHeldRenderCount(1, in: app, openReply: true)
         let stats = try await requestJSON(baseURL: base, path: "/__them-proof/render", method: "GET", headers: [:], body: nil)
         try assertHTTP(stats, context: "Render owner final route counts")
