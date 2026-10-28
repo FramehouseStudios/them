@@ -1,7 +1,7 @@
 import Foundation
 
 /// Shared retry/deadline policy for voice and typed Studio transport.
-nonisolated enum StudioRenderExecutionPolicy {
+@MainActor enum StudioRenderExecutionPolicy {
     static func shouldRetry(for error: Error) -> Bool {
         if error is CancellationError || error is BackendTalkAcceptedReplyError || error is BackendTalkCustodyError || error is BackendStudioRenderDeadlineError || error is BackendStudioRenderUnconfirmedError { return false }
         if error is BackendTalkQueuedError { return false }

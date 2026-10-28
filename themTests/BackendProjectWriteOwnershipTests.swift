@@ -52,7 +52,7 @@ final class BackendProjectWriteOwnershipTests: XCTestCase {
             _ = try await makeAPI(state).upsertScreenplayProject(projectId: entry.projectId, title: entry.title,
                 phase: entry.phase, initialDraft: entry, initiatingIdentity: state.identity())
         }
-        XCTAssertTrue(state.requests().allSatisfy { $0.url?.path == "/session" })
+        XCTAssertTrue(state.requests().isEmpty, "Wrong-origin work must not send /session credentials")
     }
 
     private func initialEntry() -> ScreenplayDraftSaveOutboxEntry {
@@ -79,7 +79,7 @@ final class BackendProjectWriteOwnershipTests: XCTestCase {
                 default: _ = try await api.exportAccountData(initiatingIdentity: owner, backendURL: confirmed)
                 }
             }
-            XCTAssertTrue(state.requests().allSatisfy { $0.url?.path == "/session" })
+            XCTAssertTrue(state.requests().isEmpty, "Wrong-origin work must not send /session credentials")
         }
     }
 
@@ -113,8 +113,241 @@ final class BackendProjectWriteOwnershipTests: XCTestCase {
 
     override func tearDown() {
         ProjectWriteOwnershipProtocol.handler = nil
+        ProjectWriteOwnershipProtocol.interceptAllRequests = false
         super.tearDown()
     }
+
+    func testStudioHistoryCannotSendOriginalTextToAnotherBackend() async {
+        for annotation in [false, true] {
+            let state = ProjectWriteOwnershipState()
+            ProjectWriteOwnershipProtocol.handler = { request in
+                state.record(request)
+                return .json(#"{"error":"unavailable"}"#, status: 503)
+            }
+            do {
+                let api = makeAPI(state), origin = URL(string: "https://original-studio.test")!
+                if annotation {
+                    _ = try await api.annotateTurnHistory(turnId: "turn-a", studioMetadata: Self.studioMetadata,
+                        expectedBackendURL: origin, initiatingIdentity: state.identity())
+                } else {
+                    _ = try await api.commitRealtimeTurn(userMessage: "Original story", assistantMessage: "Original scene",
+                        expectedBackendURL: origin, initiatingIdentity: state.identity())
+                }
+                XCTFail("An original Studio request followed another backend.")
+            } catch BackendMemoryAPIError.server(let status, let message) {
+                XCTAssertEqual(status, 409); XCTAssertEqual(message, "backend_request_superseded")
+            } catch { XCTFail("Unexpected error: \(error)") }
+            XCTAssertTrue(state.requests().isEmpty, "Even /session credentials must stay off the changed backend")
+        }
+    }
+
+    func testStudioHistoryAcceptsTheCapturedBackendAndRefreshedSameOwner() async throws {
+        for annotation in [false, true] {
+            let state = ProjectWriteOwnershipState()
+            ProjectWriteOwnershipProtocol.handler = { request in
+                state.record(request)
+                if request.url?.path == "/session" { state.rotateToken(); return .json(#"{"error":"unavailable"}"#, status: 503) }
+                return .json(#"{"ok":true,"action":"saved","status":"saved","turn_id":"turn-a","state_version":"owned-state"}"#)
+            }
+            let api = makeAPI(state), owner = state.identity(), origin = URL(string: "https://project-write-ownership.test")!
+            if annotation {
+                _ = try await api.annotateTurnHistory(turnId: "turn-a", studioMetadata: Self.studioMetadata,
+                    expectedBackendURL: origin, initiatingIdentity: owner)
+            } else {
+                _ = try await api.commitRealtimeTurn(userMessage: "Original story", assistantMessage: "Original scene",
+                    expectedBackendURL: origin, initiatingIdentity: owner)
+            }
+            let writes = state.requests().filter { $0.url?.path != "/session" }
+            XCTAssertEqual(writes.count, 1)
+            XCTAssertEqual(writes.first?.value(forHTTPHeaderField: "Authorization"), "Bearer fixture-rotated")
+            let sync = await api.currentSyncState()
+            XCTAssertEqual(sync.stateVersion, "owned-state")
+        }
+    }
+
+    func testCapturedOriginIdentityCannotBootstrapToAnotherHostSchemeOrPort() async {
+        for expected in ["https://original-studio.test", "http://project-write-ownership.test", "https://project-write-ownership.test:8443"] {
+            let state = ProjectWriteOwnershipState()
+            ProjectWriteOwnershipProtocol.handler = { request in
+                state.record(request)
+                return .json(#"{"error":"unavailable"}"#, status: 503)
+            }
+            do {
+                _ = try await makeAPI(state).screenplayRequestIdentity(state.identity(), expectedBackendURL: URL(string: expected)!)
+                XCTFail("An operation with a foreign captured origin reached bootstrap")
+            } catch BackendMemoryAPIError.server(let status, let message) {
+                XCTAssertEqual(status, 409); XCTAssertEqual(message, "backend_request_superseded")
+            } catch { XCTFail("Unexpected error: \(error)") }
+            XCTAssertTrue(state.requests().isEmpty, "Rejected origin sent a credential-bearing request")
+        }
+    }
+
+    func testCapturedOriginIdentityStillBootstrapsAndAcceptsSameOwnerTokenRefresh() async throws {
+        let state = ProjectWriteOwnershipState()
+        ProjectWriteOwnershipProtocol.handler = { request in
+            state.record(request); state.rotateToken()
+            return .json(#"{"error":"unavailable"}"#, status: 503)
+        }
+        let owner = state.identity(), origin = URL(string: "https://PROJECT-WRITE-OWNERSHIP.test:443")!
+        let refreshed = try await makeAPI(state).screenplayRequestIdentity(owner, expectedBackendURL: origin)
+        XCTAssertEqual(refreshed.ownerContext, owner.ownerContext)
+        XCTAssertEqual(refreshed.accessToken, "fixture-rotated")
+        XCTAssertEqual(state.requests().map { $0.url!.path }, ["/session"])
+        XCTAssertTrue(state.requests().allSatisfy { OfflineTalkRecoveryScope.sameBackend($0.url!, origin) })
+        XCTAssertEqual(state.requests().first?.value(forHTTPHeaderField: "Authorization"), "Bearer fixture-access")
+        XCTAssertEqual(state.requests().first?.value(forHTTPHeaderField: "X-Client-Token"), "fixture-client")
+    }
+
+    func testCancelledSuccessfulBootstrapCannotPublishAfterBackendAdoption() async throws {
+        // Health adoption cancels the old flight; this proves cancellation
+        // and the metadata caller's post-await fence, not completion parsing.
+        // All HTTP remains inside this API's injected URLProtocol.
+        let key = "backend_base_url", previous = UserDefaults.standard.object(forKey: "backend_base_url")
+        defer {
+            if let previous { BackendUserDefaultsStore.set(previous, forKey: key) }
+            else { BackendUserDefaultsStore.removeObject(forKey: key) }
+        }
+        let originA = URL(string: "https://project-write-ownership.test:4443")!
+        let originB = URL(string: "https://project-write-ownership.test:4444")!
+        let storage = ProjectBootstrapIdentitySnapshot()
+        defer { storage.restore() }
+        let state = ProjectWriteOwnershipState()
+        let api = try await makeOriginDriftAPI(state, origin: originA)
+        let initialOrigin = await api.baseURL()
+        XCTAssertTrue(OfflineTalkRecoveryScope.sameBackend(initialOrigin, originA))
+        let tokenA = "fixture-held-origin-a"
+        let started = expectation(description: "original successful session bootstrap awaits its response")
+        let gate = ProjectWriteOwnershipReplyGate(started: started)
+        defer { gate.release() }
+        ProjectWriteOwnershipProtocol.handler = { request in
+            state.record(request)
+            if request.url?.path == "/session" {
+                return .init(status: 200, data: Data(Self.sessionResponse(token: tokenA).utf8), gate: gate)
+            }
+            return .json(OfflineTalkRecoveryScope.sameBackend(request.url!, originB) ? #"{"ok":true}"# : #"{"error":"unavailable"}"#,
+                status: OfflineTalkRecoveryScope.sameBackend(request.url!, originB) ? 200 : 503)
+        }
+        let owner = state.identity()
+        let pending = Task { try await api.screenplayRequestIdentity(owner, expectedBackendURL: originA) }
+        await fulfillment(of: [started], timeout: 3)
+        BackendUserDefaultsStore.set(originB.absoluteString, forKey: key)
+        _ = try await api.fetchHealth()
+        let changedOrigin = await api.baseURL()
+        XCTAssertTrue(OfflineTalkRecoveryScope.sameBackend(changedOrigin, originB))
+        gate.release()
+        do {
+            _ = try await pending.value
+            XCTFail("The original operation adopted the backend changed during bootstrap")
+        } catch BackendMemoryAPIError.server(let status, let message) {
+            XCTAssertEqual(status, 409); XCTAssertEqual(message, "backend_request_superseded")
+        } catch { XCTFail("Unexpected error: \(error)") }
+        let sessions = state.requests().filter { $0.url?.path == "/session" }
+        XCTAssertEqual(sessions.count, 1)
+        XCTAssertTrue(sessions.allSatisfy { OfflineTalkRecoveryScope.sameBackend($0.url!, originA) })
+        XCTAssertTrue(state.requests().allSatisfy { ["/bridge", "/health", "/session"].contains($0.url!.path) })
+        XCTAssertTrue(BackendAuthClient.sharedClientToken() != tokenA, "Stale successful A token was persisted")
+        let sync = await api.currentSyncState()
+        XCTAssertNotEqual(sync.stateVersion, "origin-a-state")
+        // A generic B bootstrap must not inherit an A result cached before
+        // the original metadata caller noticed the changed origin.
+        ProjectWriteOwnershipProtocol.handler = { request in
+            state.record(request); return .json(#"{"error":"unavailable"}"#, status: 503)
+        }
+        do { _ = try await api.bootstrapSession(); XCTFail("B reused A's stale cached session") }
+        catch BackendMemoryAPIError.server(let status, _) { XCTAssertEqual(status, 503) }
+        catch { XCTFail("Unexpected error: \(error)") }
+        let finalSessions = state.requests().filter { $0.url?.path == "/session" }
+        XCTAssertEqual(finalSessions.count, 2)
+        XCTAssertTrue(finalSessions.last.map { OfflineTalkRecoveryScope.sameBackend($0.url!, originB) } ?? false)
+    }
+
+    func testSuccessfulBootstrapRejectsAnActualForeignResponseOriginBeforePublication() async throws {
+        let storage = ProjectBootstrapIdentitySnapshot()
+        defer { storage.restore() }
+        let state = ProjectWriteOwnershipState(), token = "fixture-wrong-response-origin"
+        ProjectWriteOwnershipProtocol.handler = { request in
+            state.record(request)
+            return .init(status: 200, data: Data(Self.sessionResponse(token: token).utf8),
+                responseURL: URL(string: "https://foreign-origin.test/session"))
+        }
+        let api = makeAPI(state)
+        do { _ = try await api.bootstrapSession(force: true); XCTFail("A foreign bootstrap response was published") }
+        catch BackendMemoryAPIError.server(let status, let message) {
+            XCTAssertEqual(status, 409); XCTAssertEqual(message, "session_bootstrap_superseded")
+        } catch { XCTFail("Unexpected error: \(error)") }
+        XCTAssertTrue(BackendAuthClient.sharedClientToken() != token, "Foreign response token reached the canonical store")
+        let sync = await api.currentSyncState()
+        XCTAssertNotEqual(sync.stateVersion, "origin-a-state")
+        ProjectWriteOwnershipProtocol.handler = { request in
+            state.record(request); return .json(#"{"error":"unavailable"}"#, status: 503)
+        }
+        do { _ = try await api.bootstrapSession(); XCTFail("The foreign result was cached") }
+        catch BackendMemoryAPIError.server(let status, _) { XCTAssertEqual(status, 503) }
+        catch { XCTFail("Unexpected error: \(error)") }
+        XCTAssertEqual(state.requests().map { $0.url!.path }, ["/session", "/session"])
+    }
+
+    func testSuccessfulCachedSessionCannotFollowHealthyBackendAdoption() async throws {
+        let key = "backend_base_url", previous = UserDefaults.standard.object(forKey: "backend_base_url")
+        let storage = ProjectBootstrapIdentitySnapshot()
+        defer {
+            storage.restore()
+            if let previous { BackendUserDefaultsStore.set(previous, forKey: key) }
+            else { BackendUserDefaultsStore.removeObject(forKey: key) }
+        }
+        let originA = URL(string: "https://project-write-ownership.test:4453")!
+        let originB = URL(string: "https://project-write-ownership.test:4454")!
+        let state = ProjectWriteOwnershipState(), tokenA = "fixture-cached-origin-a"
+        let api = try await makeOriginDriftAPI(state, origin: originA)
+        ProjectWriteOwnershipProtocol.handler = { request in
+            state.record(request); return .json(Self.sessionResponse(token: tokenA))
+        }
+        let cached = try await api.bootstrapSession(force: true)
+        XCTAssertEqual(cached.clientToken, tokenA)
+        XCTAssertEqual(BackendAuthClient.sharedClientTokenBaseURL(), originA.absoluteString)
+        BackendUserDefaultsStore.set(originB.absoluteString, forKey: key)
+        ProjectWriteOwnershipProtocol.handler = { request in
+            state.record(request)
+            let healthy = request.url?.path != "/session" && OfflineTalkRecoveryScope.sameBackend(request.url!, originB)
+            return .json(healthy ? #"{"ok":true}"# : #"{"error":"unavailable"}"#, status: healthy ? 200 : 503)
+        }
+        _ = try await api.fetchHealth()
+        do { _ = try await api.bootstrapSession(); XCTFail("Backend B received a cached A session") }
+        catch BackendMemoryAPIError.server(let status, _) { XCTAssertEqual(status, 503) }
+        catch { XCTFail("Unexpected error: \(error)") }
+        let sessions = state.requests().filter { $0.url?.path == "/session" }
+        XCTAssertEqual(sessions.count, 2)
+        XCTAssertTrue(sessions.first.map { OfflineTalkRecoveryScope.sameBackend($0.url!, originA) } ?? false)
+        XCTAssertTrue(sessions.last.map { OfflineTalkRecoveryScope.sameBackend($0.url!, originB) } ?? false)
+        XCTAssertEqual(BackendAuthClient.sharedClientTokenBaseURL(), originA.absoluteString, "A token was rebound to B")
+    }
+
+    private func makeOriginDriftAPI(_ state: ProjectWriteOwnershipState, origin: URL) async throws -> BackendMemoryAPI {
+        ProjectWriteOwnershipProtocol.interceptAllRequests = true
+        ProjectWriteOwnershipProtocol.handler = { request in
+            state.record(request)
+            let healthy = OfflineTalkRecoveryScope.sameBackend(request.url!, origin)
+            return .json(healthy ? #"{"ok":true}"# : #"{"error":"unavailable"}"#, status: healthy ? 200 : 503)
+        }
+        BackendUserDefaultsStore.set(origin.absoluteString, forKey: "backend_base_url")
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [ProjectWriteOwnershipProtocol.self]
+        let api = BackendMemoryAPI(session: URLSession(configuration: configuration), requestIdentityProvider: { _ in state.identity() })
+        _ = try await api.fetchHealth()
+        return api
+    }
+
+    private static func sessionResponse(token: String) -> String {
+        #"{"client_token":""# + token + #"","expires_in":3600,"remembered_names":[],"state_version":"origin-a-state"}"#
+    }
+
+    private static let studioMetadata = BackendStudioThreadCommitMetadata(screenplayProjectId: "project-a",
+        screenplayDocumentRevisionId: "", screenplayTarget: "page", screenplayPromptSource: "typed",
+        screenplayWriteId: "", screenplayAnchorLine: nil, screenplayAnchorEndLine: nil, screenplayInsertionMode: "",
+        screenplayAnchorSceneLabel: "", screenplayAnchorDraftSceneId: "", screenplayAnchorOutlineSceneId: "",
+        screenplayAnchorOutlineBeatIds: [], screenplayAnchorScriptNodeId: "", screenplayNoteTitle: "", screenplayNoteBody: "",
+        screenplayInsertedText: "Exact scene", screenplayReplacementApplied: false, screenplayReplacedWriteId: "",
+        screenplayRevisedBlockText: "", screenplayResolvedAnchorExcerpt: "")
 
     func testMetadataWriteCannotAdoptAccountChangedDuringBootstrap() async throws {
         try await assertBootstrapSwitchIsRejected(version: false)
@@ -725,23 +958,63 @@ private final class ProjectWriteOwnershipState: @unchecked Sendable {
 private struct ProjectWriteOwnershipResponse {
     let status: Int
     let data: Data
+    var responseURL: URL? = nil
+    var gate: ProjectWriteOwnershipReplyGate? = nil
     static func json(_ body: String, status: Int = 200) -> Self { .init(status: status, data: Data(body.utf8)) }
 }
 
 private final class ProjectWriteOwnershipProtocol: URLProtocol {
     nonisolated(unsafe) static var handler: ((URLRequest) throws -> ProjectWriteOwnershipResponse)?
-    override class func canInit(with request: URLRequest) -> Bool { request.url?.host == "project-write-ownership.test" }
+    nonisolated(unsafe) static var interceptAllRequests = false
+    override class func canInit(with request: URLRequest) -> Bool { interceptAllRequests || request.url?.host == "project-write-ownership.test" }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
         do {
             guard let handler = Self.handler else { throw URLError(.badServerResponse) }
             let result = try handler(request)
-            let response = HTTPURLResponse(url: request.url!, statusCode: result.status,
-                httpVersion: "HTTP/1.1", headerFields: ["Content-Type": "application/json"])!
-            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-            client?.urlProtocol(self, didLoad: result.data)
-            client?.urlProtocolDidFinishLoading(self)
+            let deliver = { [self] in
+                let response = HTTPURLResponse(url: result.responseURL ?? request.url!, statusCode: result.status,
+                    httpVersion: "HTTP/1.1", headerFields: ["Content-Type": "application/json"])!
+                client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+                client?.urlProtocol(self, didLoad: result.data)
+                client?.urlProtocolDidFinishLoading(self)
+            }
+            if let gate = result.gate { gate.hold(deliver) } else { deliver() }
         } catch { client?.urlProtocol(self, didFailWithError: error) }
     }
     override func stopLoading() {}
+}
+
+// Test-only response barrier; holds no production identity or request data.
+private final class ProjectWriteOwnershipReplyGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private let started: XCTestExpectation
+    private var deliver: (() -> Void)?
+    private var released = false
+    init(started: XCTestExpectation) { self.started = started }
+    func hold(_ reply: @escaping () -> Void) {
+        lock.lock(); let alreadyReleased = released
+        if !alreadyReleased { deliver = reply }
+        lock.unlock(); started.fulfill()
+        if alreadyReleased { reply() }
+    }
+    func release() {
+        lock.lock(); released = true; let reply = deliver; deliver = nil; lock.unlock()
+        reply?()
+    }
+}
+
+// Roll back only the canonical client-session fields touched by successful
+// bootstrap fixtures. Values stay in memory and are never printed by tests.
+private struct ProjectBootstrapIdentitySnapshot {
+    private let token = BackendAuthClient.sharedClientToken()
+    private let expiry = BackendAuthClient.sharedClientTokenExpiry()
+    private let baseURL = BackendAuthClient.sharedClientTokenBaseURL()
+    private let cachedAt = UserDefaults.standard.object(forKey: "client_token_cached_at")
+    func restore() {
+        if let token { BackendAuthClient.persistSharedClientToken(token, expiryRaw: expiry, baseURLRaw: baseURL) }
+        else { BackendAuthClient.clearSharedClientToken() }
+        if let cachedAt { BackendUserDefaultsStore.set(cachedAt, forKey: "client_token_cached_at") }
+        else { BackendUserDefaultsStore.removeObject(forKey: "client_token_cached_at") }
+    }
 }

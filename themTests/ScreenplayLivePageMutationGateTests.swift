@@ -138,6 +138,14 @@ final class ScreenplayLivePageMutationGateTests: XCTestCase {
     }
 
 #if os(iOS)
+    func testActualActiveStreamingPreviewCommitsOnlyAfterOriginalMutationIsDurable() async throws {
+        try await proveNativeInsertion(mode: .streamCommit, activePreview: true)
+    }
+
+    func testActualActiveStreamingCommitCannotResumeAfterProjectSwitch() async throws {
+        try await proveNativeInsertion(mode: .streamCommit, switchProject: true, activePreview: true)
+    }
+
     func testActualNativeStandardInsertionWaitsForDurableIntent() async throws {
         try await proveNativeInsertion(mode: .insert)
     }
@@ -159,7 +167,7 @@ final class ScreenplayLivePageMutationGateTests: XCTestCase {
     }
 
     private func proveNativeInsertion(mode: ScreenplayInsertionRequest.Mode, switchProject: Bool = false,
-        stopBeforePersistFinishes: Bool = false, missingContext: Bool = false) async throws {
+        stopBeforePersistFinishes: Bool = false, missingContext: Bool = false, activePreview: Bool = false) async throws {
         let bridge = ScreenplayLiveDraftBridge.shared
         bridge.reconcileAccountStorage()
         let saved = (bridge.draftText, bridge.preferredProjectID, bridge.preferredVersionID, bridge.pendingInsertion)
@@ -197,7 +205,14 @@ final class ScreenplayLivePageMutationGateTests: XCTestCase {
             editorSelection: .constant(nil), currentCursorLine: .constant(1), lastCommittedWrite: .constant(nil),
             pendingReplacementTarget: .constant(nil), submittedReplacementTarget: .constant(nil)).makeCoordinator()
         coordinator.textView = editor
-        coordinator.primeParagraphElements(for: before, attributedText: editor.attributedText)
+        let heldText = activePreview ? before + "JOHN\nPartial" : before
+        if activePreview {
+            model = heldText; editor.text = heldText
+            coordinator.streamingPreviewBaseText = before
+            coordinator.streamingPreviewOriginalSelection = range
+            coordinator.streamingPreviewRange = NSRange(location: range.location, length: ("JOHN\nPartial" as NSString).length)
+        }
+        coordinator.primeParagraphElements(for: heldText, attributedText: editor.attributedText)
         let entered = expectation(description: "native held"), savedIntent = expectation(description: "native stored")
         entered.isInverted = missingContext
         savedIntent.isInverted = missingContext
@@ -213,8 +228,8 @@ final class ScreenplayLivePageMutationGateTests: XCTestCase {
         coordinator.applyInsertion(try XCTUnwrap(bridge.pendingInsertion))
         coordinator.endRepresentableUpdate()
         await fulfillment(of: missingContext ? [entered, savedIntent] : [entered], timeout: missingContext ? 0.1 : 3)
-        XCTAssertTrue((editor.text ?? "").utf8.elementsEqual(before.utf8))
-        XCTAssertTrue(model.utf8.elementsEqual(before.utf8))
+        XCTAssertTrue((editor.text ?? "").utf8.elementsEqual(heldText.utf8))
+        XCTAssertTrue(model.utf8.elementsEqual(heldText.utf8))
         if missingContext {
             let kept = await queue(backendURL: nativeBackend).allEntries()
             XCTAssertNotEqual(kept.first?.hasLivePageIntent, true)
@@ -232,19 +247,27 @@ final class ScreenplayLivePageMutationGateTests: XCTestCase {
         let deadline = Date().addingTimeInterval(3)
         if switchProject || stopBeforePersistFinishes {
             await Task.yield()
-            XCTAssertTrue(model.utf8.elementsEqual(before.utf8))
-            XCTAssertTrue((editor.text ?? "").utf8.elementsEqual(before.utf8))
+            XCTAssertTrue(model.utf8.elementsEqual(heldText.utf8))
+            XCTAssertTrue((editor.text ?? "").utf8.elementsEqual(heldText.utf8))
             if switchProject {
                 XCTAssertEqual(bridge.preferredProjectID, "native-b")
                 XCTAssertTrue(bridge.draftText.utf8.elementsEqual("B's exact words.  ".utf8))
             }
         } else {
-            while model.utf8.elementsEqual(before.utf8), Date() < deadline { await Task.yield() }
+            while model.utf8.elementsEqual(heldText.utf8), Date() < deadline { await Task.yield() }
             XCTAssertTrue(model.contains(insertion))
             XCTAssertTrue((editor.text ?? "").contains(insertion))
         }
         let rows = await queue(backendURL: nativeBackend).allEntries()
         XCTAssertEqual(rows.first?.hasLivePageIntent, true)
+        if activePreview {
+            let exported = try await box.exportRecoveryEntry(context.request.admission.entryID, initiatingIdentity: owner, backendURL: nativeBackend)
+            let payload = try XCTUnwrap(JSONSerialization.jsonObject(with: exported.data) as? [String: Any])
+            let plan = try XCTUnwrap(payload["page_delivery"] as? [String: Any])
+            XCTAssertEqual(plan["beforeDraft"] as? String, before)
+            XCTAssertEqual(plan["afterDraft"] as? String, after)
+            XCTAssertFalse((plan["beforeDraft"] as? String ?? "").contains("Partial"))
+        }
     }
 #endif
 

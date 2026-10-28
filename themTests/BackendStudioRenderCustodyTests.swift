@@ -24,6 +24,12 @@ final class BackendStudioRenderCustodyTests: XCTestCase {
         let packet = try await queue().receivedReply(XCTUnwrap(rows.first).id, initiatingIdentity: fixture.identity(), backendURL: base)
         XCTAssertEqual(packet.response.body, fixture.json)
         XCTAssertEqual(packet.response.headers["x-them-render-complete"], "1")
+        let delivery = try XCTUnwrap(result.delivery)
+        XCTAssertTrue(delivery.writesToPage)
+        XCTAssertEqual(delivery.receipt.entryID, packet.entry.id)
+        XCTAssertEqual(delivery.receipt.responseID, packet.response.id)
+        XCTAssertEqual(delivery.request.owner, fixture.identity().ownerContext)
+        XCTAssertEqual(delivery.request.backendURL, base)
         let request = try XCTUnwrap(JSONSerialization.jsonObject(with: XCTUnwrap(packet.requestBody)) as? [String: Any])
         XCTAssertEqual(request["transcript"] as? String, "My original direction")
         XCTAssertNil(packet.entry.headers["Authorization"])
@@ -116,6 +122,19 @@ final class BackendStudioRenderCustodyTests: XCTestCase {
         let packet = try await queue().receivedReply(XCTUnwrap(rows.first).id, initiatingIdentity: fixture.identity(), backendURL: base)
         XCTAssertTrue(String(decoding: packet.response.body, as: UTF8.self).contains("event: done"))
         XCTAssertEqual(packet.response.headers["x-them-render-complete"], "1")
+        let delivery = try XCTUnwrap(result.delivery)
+        XCTAssertTrue(delivery.writesToPage)
+        XCTAssertEqual(delivery.receipt.responseID, packet.response.id)
+        XCTAssertEqual(delivery.request.admission.entryID, packet.entry.id)
+    }
+
+    func testRetainedStreamReconstructsFrameBoundariesWhenAsyncLinesOmitBlanks() {
+        var frames = Data()
+        for line in ["event: delta", "data: {\"delta\":\"cafe\\u0301\"}", "event: done", "data: {\"reply\":\"cafe\\u0301\"}"] {
+            BackendStudioRenderCustody.appendStreamLine(line, to: &frames)
+        }
+        XCTAssertEqual(String(decoding: frames, as: UTF8.self),
+            "event: delta\ndata: {\"delta\":\"cafe\\u0301\"}\n\nevent: done\ndata: {\"reply\":\"cafe\\u0301\"}\n")
     }
 
     func testCutSSEIsHeldWithoutQualityApprovalOrAutomaticReplay() async throws {

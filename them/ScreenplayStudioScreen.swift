@@ -608,6 +608,11 @@ Replace is best when this file should become the script you edit. Append is safe
 
     private var studioLifecycleInteractionBoundView: some View {
         studioLifecycleDebugBoundView
+            .onReceive(NotificationCenter.default.publisher(for: .themStudioPromptSubmissionStopped)) { notification in
+                guard StudioPromptSubmissionLease.shouldRevoke(state: perceivedSpeedState, notification: notification,
+                    currentScope: .current(), isCurrentEditor: ScreenplayLiveDraftSyncService.shared.ownsEditor(vm)) else { return }
+                revokeStudioPromptSubmission()
+            }
             .onChange(of: studioPromptFocused) { _, _ in
                 publishDebugStudioDiffState()
             }
@@ -722,6 +727,7 @@ Replace is best when this file should become the script you edit. Append is safe
     private var studioLifecycleTaskBoundView: some View {
         studioStateBoundView
             .onDisappear {
+                revokeStudioPromptSubmission()
                 backendThreadViewStatePersistTask?.cancel()
                 backendAskNoteHistoryPersistTask?.cancel()
                 liveDraftBridge.clearAnchoredTextRect()
@@ -2725,29 +2731,30 @@ private var directionOneHeaderDoneButton: some View {
 }
 
 private var directionOneCompactTalkButton: some View {
-    Button {
-        if talkIsActive {
-            onStopTalk()
+    let isActive = talkIsActive || isSubmittingStudioPrompt
+    return Button {
+        if isActive {
+            stopStudioPromptAndTalk()
         } else if canTalk {
             onArmTalk()
         }
     } label: {
-        Image(systemName: talkIsActive ? "stop.fill" : "waveform")
+        Image(systemName: isActive ? "stop.fill" : "waveform")
             .font(.system(size: 12, weight: .semibold))
             .foregroundStyle(
-                talkIsActive
+                isActive
                     ? Color.red.opacity(0.86)
                     : (canTalk ? directionOneChromeText.opacity(0.90) : directionOneChromeSecondaryText)
             )
             .frame(width: 28, height: 28)
             .background(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(talkIsActive ? Color.red.opacity(0.10) : directionOneChromePanelSoft)
+                    .fill(isActive ? Color.red.opacity(0.10) : directionOneChromePanelSoft)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .stroke(
-                        talkIsActive
+                        isActive
                             ? Color.red.opacity(0.22)
                             : directionOneChromeStroke.opacity(0.55),
                         lineWidth: 1
@@ -2755,10 +2762,10 @@ private var directionOneCompactTalkButton: some View {
             )
     }
     .buttonStyle(.plain)
-    .disabled(!canTalk && !talkIsActive)
-    .accessibilityLabel(talkIsActive ? "Stop talking" : "Start talking")
+    .disabled(!canTalk && !isActive)
+    .accessibilityLabel(isActive ? "Stop talking" : "Start talking")
     .accessibilityIdentifier("studio.compact.talk")
-    .help(talkIsActive ? "Stop talking" : "Start talking")
+    .help(isActive ? "Stop talking" : "Start talking")
 }
 
 private var directionOneCompactDoneButton: some View {
@@ -2785,22 +2792,23 @@ private var directionOneCompactDoneButton: some View {
 }
 
 private var directionOneTalkButton: some View {
-    Button {
-        if talkIsActive {
-            onStopTalk()
+    let isActive = talkIsActive || isSubmittingStudioPrompt
+    return Button {
+        if isActive {
+            stopStudioPromptAndTalk()
         } else if canTalk {
             onArmTalk()
         }
     } label: {
         HStack(spacing: 6) {
             Circle()
-                .fill(talkIsActive ? Color.white.opacity(0.92) : (canTalk ? Color.white.opacity(0.92) : Color.herStudioActiveFill.opacity(0.30)))
+                .fill(isActive ? Color.white.opacity(0.92) : (canTalk ? Color.white.opacity(0.92) : Color.herStudioActiveFill.opacity(0.30)))
                 .frame(width: 8, height: 8)
-            Text(talkIsActive ? "Stop" : "Talk")
+            Text(isActive ? "Stop" : "Talk")
                 .font(.system(size: 11, weight: .semibold, design: .default))
         }
         .foregroundStyle(
-            talkIsActive
+            isActive
                 ? Color.red.opacity(0.86)
                 : (canTalk ? Color.white : Color.herText.opacity(0.42))
         )
@@ -2809,7 +2817,7 @@ private var directionOneTalkButton: some View {
         .background(
             RoundedRectangle(cornerRadius: 9, style: .continuous)
                 .fill(
-                    talkIsActive
+                    isActive
                         ? Color.red.opacity(0.10)
                         : (canTalk ? Color.accentColor.opacity(0.92) : directionOneChromePanelSoft)
                 )
@@ -2817,7 +2825,7 @@ private var directionOneTalkButton: some View {
         .overlay(
             RoundedRectangle(cornerRadius: 9, style: .continuous)
                 .stroke(
-                    talkIsActive
+                    isActive
                         ? Color.red.opacity(0.22)
                         : (canTalk ? Color.accentColor.opacity(0.94) : directionOneChromeStroke.opacity(0.55)),
                     lineWidth: 1
@@ -2825,7 +2833,7 @@ private var directionOneTalkButton: some View {
         )
     }
     .buttonStyle(.plain)
-    .disabled(!canTalk && !talkIsActive)
+    .disabled(!canTalk && !isActive)
 }
 private var directionOneScriptEditor: some View {
     GeometryReader { proxy in
@@ -5035,7 +5043,7 @@ private var projectsSidebarContent: some View {
             revisionColor: $vm.revisionColor,
             snapshotLabel: $vm.snapshotLabel,
             presentation: draftToolsPresentation,
-            actions: draftToolsActions, recoveryVM: vm, onStopTalk: onStopTalk
+            actions: draftToolsActions, recoveryVM: vm, onStopTalk: stopStudioPromptAndTalk
         )
     }
 
@@ -8246,16 +8254,7 @@ Current draft version:
         }
     }
 
-    private var studioPromptPlaceholder: String {
-        switch studioPromptIntent {
-        case .advice:
-            return "Ask for guidance or the next move"
-        case .rewrite:
-            return "Describe the rewrite you want on the page"
-        case .voicePin:
-            return "Pin a note for io.them to hold"
-        }
-    }
+    private var studioPromptPlaceholder: String { studioPromptIntent.placeholder }
 
     private var promptRoutingControl: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -8302,16 +8301,7 @@ Current draft version:
 
     private func selectStudioPromptRoutingMode(_ mode: PromptRoutingMode) {
         studioPromptRoutingMode = mode
-        switch mode {
-        case .automatic:
-            studioPromptIntent = .advice
-        case .page:
-            studioPromptIntent = .rewrite
-        case .voicePin:
-            if studioPromptIntent == .rewrite {
-                studioPromptIntent = .voicePin
-            }
-        }
+        studioPromptIntent = studioPromptIntent.selectingDestination(mode)
     }
 
     private func selectStudioPromptIntent(_ intent: StudioPromptIntent) {
@@ -8321,7 +8311,7 @@ Current draft version:
             if studioPromptRoutingMode == .page {
                 studioPromptRoutingMode = .voicePin
             }
-        case .rewrite:
+        case .write, .rewrite:
             studioPromptRoutingMode = .page
         case .voicePin:
             studioPromptRoutingMode = .voicePin
@@ -10174,7 +10164,7 @@ Return revised screenplay lines only.
     private func restoredStudioPromptIntent(
         for exchange: StudioAskNoteExchange
     ) -> StudioPromptIntent {
-        guard exchange.target == .voicePin else { return .rewrite }
+        guard exchange.target == .voicePin else { return .write }
         return resolvedMemoryDomain(for: exchange) == .companion ? .voicePin : .advice
     }
 
@@ -12921,23 +12911,31 @@ Return revised screenplay lines only.
         perceivedSpeedState = completedState
     }
 
-    @MainActor
-    private func waitForCommittedStudioPageWrite(
-        submittedAt: Date,
-        timeoutMs: UInt64 = 8_000
-    ) async -> ScreenplayCommittedWrite? {
-        let deadline = Date().addingTimeInterval(TimeInterval(timeoutMs) / 1_000)
-        while Date() < deadline {
-            if let committedWrite = liveDraftBridge.lastCommittedWrite {
-                let insertedText = committedWrite.insertedText.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !insertedText.isEmpty,
-                   committedWrite.committedAt >= submittedAt.addingTimeInterval(-0.5) {
-                    return committedWrite
-                }
-            }
-            try? await Task.sleep(nanoseconds: 100_000_000)
+    private func studioPromptMayPublish(_ lease: StudioPromptSubmissionLease) -> Bool {
+        lease.mayPublish(state: perceivedSpeedState, documentIsCurrent: liveDraftBridge.permitsLiveTalkDocument(lease.document),
+            backendURL: BackendAuthClient.resolvedBackendBaseURL(), selectedProjectID: vm.selectedProjectID,
+            originProjectID: liveDraftBridge.draftOrigin.projectID, isCurrentEditor: !isSubmittingPrompt && ScreenplayLiveDraftSyncService.shared.ownsEditor(vm),
+            isCancelled: Task.isCancelled)
+    }
+
+    private func finishStudioPromptSubmission(_ lease: StudioPromptSubmissionLease) {
+        guard let completed = lease.finishedState(state: perceivedSpeedState) else { return }
+        if studioPromptMayPublish(lease), liveDraftBridge.autoInsertStatusText == perceivedSpeedState.statusText {
+            liveDraftBridge.autoInsertStatusText = ""
         }
-        return nil
+        isSubmittingStudioPrompt = false; isResolvingPendingScreenplayQuestion = false
+        sendingVoicePinSuggestionID = nil; perceivedSpeedState = completed
+    }
+
+    private func revokeStudioPromptSubmission() {
+        perceivedSpeedState = .idle
+        isSubmittingStudioPrompt = false; isResolvingPendingScreenplayQuestion = false
+        sendingVoicePinSuggestionID = nil
+    }
+
+    private func stopStudioPromptAndTalk() {
+        revokeStudioPromptSubmission()
+        onStopTalk()
     }
 
     func submitStudioPromptText(
@@ -12960,6 +12958,12 @@ Return revised screenplay lines only.
             return
         }
         guard !isSubmittingStudioPrompt, !isSubmittingPrompt else { return }
+        guard let document = liveDraftBridge.captureLiveTalkDocument(), vm.selectedProjectID == document.projectID,
+              ScreenplayLiveDraftSyncService.shared.ownsEditor(vm) else {
+            vm.infoText = "The writing account or page is still changing. Reopen Studio, then try again."; return
+        }
+        let backendURL = BackendAuthClient.resolvedBackendBaseURL()
+        let seedAtSubmission = studioPromptSeed
         let routesToPage = shouldRoutePromptToPage(text, routingMode)
         let featureSnapshotForSubmission = routesToPage ? featureWorkflowSnapshot : nil
         let restoredStudioContextForSubmission = routesToPage ? restoredStudioPromptContinuityContext : []
@@ -12973,7 +12977,7 @@ Return revised screenplay lines only.
         let baseSubmittedText = featureContinuationPrompt ?? text
         let compatibleIntent = intent?.compatible(routesToPage: routesToPage)
         let submittedText = compatibleIntent?.preparing(baseSubmittedText) ?? baseSubmittedText
-        let requestID = requestIDOverride ?? "studio-\(UUID().uuidString.lowercased())"
+        let requestID = StudioPromptSubmissionLease.requestID(proposed: requestIDOverride)
         let pendingQuestionAtSubmission = vm.pendingScreenplayQuestion
         let pendingQuestionIDAtSubmission = pendingQuestionAtSubmission?.id
         if let featureSnapshotForSubmission {
@@ -13005,6 +13009,9 @@ Return revised screenplay lines only.
         } else {
             liveDraftBridge.clearPendingPageWriteReplacement()
         }
+        let lease = StudioPromptSubmissionLease(document: document, backendURL: backendURL, state: perceivedSpeedState,
+            pendingReplacementID: liveDraftBridge.pendingReplacementTarget?.id,
+            submittedReplacementID: liveDraftBridge.submittedReplacementTarget?.id)
         let debugReplacementMode = resolvedStudioDebugReplacementModeForSubmission(debugSubmitReplacementMode)
         let preparedDebugSubmitToken = matchingPreparedStudioDebugSubmitToken(
             text: text,
@@ -13064,6 +13071,15 @@ Return revised screenplay lines only.
         }
 #endif
         Task { @MainActor in
+            let watcher = Task { @MainActor in
+                await StudioPromptSubmissionLease.watchRevocation(changes: StudioPromptSubmissionLease.revocationEvents(bridge: liveDraftBridge),
+                    isCurrent: { lease.ownsDispatch(state: perceivedSpeedState) && perceivedSpeedState.isActive },
+                    stillOwned: { lease.stillOwnsScope(documentID: liveDraftBridge.draftOrigin.documentID, owner: .current(),
+                        backendURL: BackendAuthClient.resolvedBackendBaseURL(), isCurrentEditor: ScreenplayLiveDraftSyncService.shared.ownsEditor(vm)) },
+                    onRevoked: { finishStudioPromptSubmission(lease) })
+            }
+            defer { watcher.cancel(); finishStudioPromptSubmission(lease) }
+            guard studioPromptMayPublish(lease) else { return }
 #if DEBUG
             if let effectiveDebugSubmitToken {
                 setStudioDebugSubmitStage("on_submit_started", token: effectiveDebugSubmitToken)
@@ -13077,44 +13093,43 @@ Return revised screenplay lines only.
                         responseStatus: "answered",
                         answer: text
                     )
+                    guard studioPromptMayPublish(lease) else { return }
                     dismissPendingScreenplayQuestion(id: pendingQuestionAtSubmission.id)
                     isResolvingPendingScreenplayQuestion = false
                 } catch is BackendTalkQueuedError {
+                    guard studioPromptMayPublish(lease) else { return }
                     dismissPendingScreenplayQuestion(id: pendingQuestionAtSubmission.id)
                     isResolvingPendingScreenplayQuestion = false
-                    isSubmittingStudioPrompt = false
-                    self.sendingVoicePinSuggestionID = nil
-                    liveDraftBridge.clearPendingPageWriteReplacement()
-                    completePerceivedSpeedResponse(requestID: requestID)
-                    if clearSeedOnSuccess {
+                    if lease.ownsReplacement(pendingID: liveDraftBridge.pendingReplacementTarget?.id,
+                        submittedID: liveDraftBridge.submittedReplacementTarget?.id) { liveDraftBridge.clearPendingPageWriteReplacement() }
+                    if clearSeedOnSuccess, StudioPromptSubmissionLease.mayClearSeed(original: seedAtSubmission, current: studioPromptSeed) {
                         studioPromptSeed = ""
                     }
                     vm.infoText = "Answer saved. Clementine will use it when you're online."
+                    finishStudioPromptSubmission(lease)
                     completion?(nil)
                     return
                 } catch {
+                    guard studioPromptMayPublish(lease) else { return }
                     restorePendingScreenplayQuestion(pendingQuestionAtSubmission)
                     isResolvingPendingScreenplayQuestion = false
-                    isSubmittingStudioPrompt = false
-                    self.sendingVoicePinSuggestionID = nil
-                    liveDraftBridge.clearPendingPageWriteReplacement()
-                    completePerceivedSpeedResponse(requestID: requestID)
+                    if lease.ownsReplacement(pendingID: liveDraftBridge.pendingReplacementTarget?.id,
+                        submittedID: liveDraftBridge.submittedReplacementTarget?.id) { liveDraftBridge.clearPendingPageWriteReplacement() }
                     let resolutionError = "Couldn’t save that answer. \(error.localizedDescription)"
                     vm.infoText = resolutionError
+                    finishStudioPromptSubmission(lease)
                     completion?(resolutionError)
                     return
                 }
             }
             let submittedAt = Date()
             let error = await onSubmitPrompt(submittedText, routingMode, requestID)
+            guard studioPromptMayPublish(lease) else { return }
 #if DEBUG || os(macOS)
             if let effectiveDebugSubmitToken {
                 setStudioDebugSubmitStage("on_submit_finished", token: effectiveDebugSubmitToken, error: error ?? "")
             }
 #endif
-            isSubmittingStudioPrompt = false
-            self.sendingVoicePinSuggestionID = nil
-            completePerceivedSpeedResponse(requestID: requestID)
             if let error, !error.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
 #if DEBUG || os(macOS)
                 if let effectiveDebugSubmitToken {
@@ -13131,23 +13146,27 @@ Return revised screenplay lines only.
                 }
 #endif
                 vm.infoText = error
+                finishStudioPromptSubmission(lease)
                 completion?(error)
                 return
             }
-            if clearSeedOnSuccess {
+            if clearSeedOnSuccess, StudioPromptSubmissionLease.mayClearSeed(original: seedAtSubmission, current: studioPromptSeed) {
                 studioPromptSeed = ""
             }
             if let pendingQuestionIDAtSubmission {
                 dismissPendingScreenplayQuestion(id: pendingQuestionIDAtSubmission)
                 await vm.refreshPendingScreenplayQuestion()
+                guard studioPromptMayPublish(lease) else { return }
             }
             let resolvedTarget: StudioTarget = routesToPage ? .page : .voicePin
             let committedPageWrite: ScreenplayCommittedWrite?
             if routesToPage {
-                committedPageWrite = await waitForCommittedStudioPageWrite(submittedAt: submittedAt)
+                committedPageWrite = await StudioPromptSubmissionLease.waitForCommittedWrite(submittedAt: submittedAt,
+                    isCurrent: { studioPromptMayPublish(lease) }, currentWrite: { liveDraftBridge.lastCommittedWrite })
             } else {
                 committedPageWrite = nil
             }
+            guard studioPromptMayPublish(lease) else { return }
             let pageInsertedTextFallback: String? = {
                 guard routesToPage else { return nil }
                 if let committedPageWrite {
@@ -13160,30 +13179,8 @@ Return revised screenplay lines only.
             let promptSummary = (displayText ?? text).trimmingCharacters(in: .whitespacesAndNewlines)
             let voicePinTextFallback: String? = {
                 guard !routesToPage else { return nil }
-                let defaults = UserDefaults.standard
-                let storedUpdatedAtSeconds = defaults.double(forKey: ScreenplayLiveDraftBridge.latestVoicePinReplyUpdatedAtStorageKey)
-                let storedUpdatedAt = storedUpdatedAtSeconds > 0
-                    ? Date(timeIntervalSince1970: storedUpdatedAtSeconds)
-                    : Date.distantPast
-                let latestUpdatedAt = max(liveDraftBridge.latestVoicePinReplyUpdatedAt, storedUpdatedAt)
-                guard latestUpdatedAt >= submittedAt.addingTimeInterval(-5.0) else { return nil }
-                let latestPrompt = {
-                    let bridgePrompt = liveDraftBridge.latestVoicePinPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
-                    if !bridgePrompt.isEmpty { return bridgePrompt }
-                    return defaults.string(forKey: ScreenplayLiveDraftBridge.latestVoicePinPromptStorageKey)?
-                        .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                }()
-                guard latestPrompt.isEmpty ||
-                        latestPrompt == text ||
-                        latestPrompt == promptSummary ||
-                        latestPrompt == submittedText else { return nil }
-                let latest = {
-                    let bridgeReply = liveDraftBridge.latestVoicePinReply.trimmingCharacters(in: .whitespacesAndNewlines)
-                    if !bridgeReply.isEmpty { return bridgeReply }
-                    return defaults.string(forKey: ScreenplayLiveDraftBridge.latestVoicePinReplyStorageKey)?
-                        .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                }()
-                return latest.isEmpty ? nil : latest
+                return StudioPromptSubmissionLease.voicePinReply(bridge: liveDraftBridge,
+                    submittedAt: submittedAt, matchingPrompts: [text, promptSummary, submittedText])
             }()
             lastCommittedStudioPrompt = promptSummary
             lastCommittedStudioPromptTarget = resolvedTarget
@@ -13215,6 +13212,7 @@ Return revised screenplay lines only.
             }
 #endif
             vm.infoText = successMessage
+            finishStudioPromptSubmission(lease)
             completion?(nil)
         }
     }
@@ -13268,7 +13266,7 @@ Return revised screenplay lines only.
     ) {
         let resolvedTarget: StudioTarget = routesToPage ? .page : .voicePin
         let promptSummary = (displayText ?? prompt).trimmingCharacters(in: .whitespacesAndNewlines)
-        let memoryDomain = debugStudioPromptMemoryDomain(for: prompt, routesToPage: routesToPage)
+        let memoryDomain = StudioPromptSubmissionLease.debugMemoryDomain(for: prompt, routesToPage: routesToPage)
         var matchingExchange: StudioAskNoteExchange?
         let noteTitle: String
         let noteBody: String
@@ -13432,39 +13430,6 @@ Lucy--
 
 The door closes softly. That is worse than a slam.
 """
-    }
-
-    private func debugStudioPromptMemoryDomain(for prompt: String, routesToPage: Bool) -> StudioMemoryDomain {
-        guard !routesToPage else { return .project }
-        let normalized = " \(prompt.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()) "
-        let companionCues = [
-            " i feel ",
-            " i am ",
-            " i'm ",
-            " im ",
-            " spiraling ",
-            " reassure ",
-            " talk me through ",
-            " stuck ",
-            " need you "
-        ]
-        let projectCues = [
-            " screenplay ",
-            " script ",
-            " scene ",
-            " midpoint ",
-            " story ",
-            " character ",
-            " beat ",
-            " act ",
-            " calls him ",
-            " parking lot "
-        ]
-        let hasCompanion = companionCues.contains(where: normalized.contains)
-        let hasProject = projectCues.contains(where: normalized.contains)
-        if hasCompanion && hasProject { return .mixed }
-        if hasCompanion { return .companion }
-        return .project
     }
 
     private func debugMentionedCharacterName(from prompt: String) -> String? {

@@ -555,6 +555,9 @@ actor OfflineTalkOutbox {
         var record = try readStoredRecord(blobURL(for: admission.entry.bodyRef))
         let originalBody = try record.validatedBody(matching: admission.entry)
         guard record.sha256 == admission.bodyDigest, record.state != .settled else { throw BackendMemoryAPIError.invalidResponse }
+        if StudioRenderEndpoint.paths.contains(admission.entry.endpoint), try studioRenderWritesToPage(originalBody) == false {
+            throw BackendMemoryAPIError.invalidResponse
+        }
         if let requestedProject = try offlineTalkRequestProjectID(body: originalBody, headers: admission.entry.headers),
            requestedProject != projectID { throw OfflineTalkPreviousOwnerError() }
         if let existing = record.pageDelivery {
@@ -629,6 +632,53 @@ actor OfflineTalkOutbox {
         return matched
     }
 
+    /// Bind the validated complete render to the originally admitted request.
+    /// No response lookup can promote an incomplete/malformed page into delivery.
+    func studioRenderDelivery(_ admission: OfflineTalkLiveAdmission, owner: BackendAuthRequestIdentity,
+                              backendURL: URL) throws -> BackendStudioRenderDeliveryReceipt {
+        try requireScope(owner, backendURL: backendURL)
+        guard StudioRenderEndpoint.paths.contains(admission.entry.endpoint),
+              ScreenplayStudioAuthContextPolicy.matches(expected: admission.owner, current: owner.ownerContext),
+              OfflineTalkRecoveryScope.sameBackend(admission.backendURL, backendURL) else { throw OfflineTalkPreviousOwnerError() }
+        let packet = try receivedReply(admission.entryID, initiatingIdentity: owner, backendURL: backendURL)
+        let record = try readStoredRecord(blobURL(for: packet.entry.bodyRef))
+        _ = try record.validatedBody(matching: admission.entry)
+        guard record.sha256 == admission.bodyDigest, !packet.response.bodyOmitted,
+              packet.response.headers["x-them-render-complete"] == "1" else { throw BackendMemoryAPIError.invalidResponse }
+        let recovery = try OfflineStudioRenderRecovery(packet: packet)
+        let page = try studioRenderWritesToPage(record.body)
+        guard recovery.isComplete, !page || recovery.qualityConfirmed else { throw BackendMemoryAPIError.invalidResponse }
+        return .init(receipt: .init(entryID: packet.entry.id, responseID: packet.response.id, bodyOmitted: false),
+            request: .init(admission: admission, owner: owner.ownerContext, backendURL: backendURL), writesToPage: page)
+    }
+
+    /// The UI calls this only after publishing a pin in its original lease.
+    /// Inspect the stored target as well as the capability; a page cannot use it.
+    @discardableResult
+    func confirmPublishedStudioPin(_ delivery: BackendStudioRenderDeliveryReceipt,
+                                   owner: BackendAuthRequestIdentity) throws -> Bool {
+        guard !delivery.writesToPage else { throw BackendMemoryAPIError.invalidResponse }
+        try requireScope(owner, backendURL: delivery.request.backendURL)
+        try loadIfNeeded()
+        guard entries.contains(where: { $0.id == delivery.receipt.entryID && belongs($0,
+            scope: .init(identity: owner, backendURL: delivery.request.backendURL)) }) else { return false }
+        let current = try studioRenderDelivery(delivery.request.admission, owner: owner, backendURL: delivery.request.backendURL)
+        guard !current.writesToPage, current.receipt == delivery.receipt, current.request == delivery.request else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        try acknowledgeReceivedReply(current.receipt.entryID, receiptID: current.receipt.responseID,
+            initiatingIdentity: owner, backendURL: current.request.backendURL)
+        return true
+    }
+
+    private func studioRenderWritesToPage(_ body: Data) throws -> Bool {
+        guard let request = try JSONSerialization.jsonObject(with: body) as? [String: Any] else { throw BackendMemoryAPIError.invalidResponse }
+        guard request["screenplay_target"] == nil || request["screenplay_target"] is String else { throw BackendMemoryAPIError.invalidResponse }
+        let target = (request["screenplay_target"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard ["", "page", "voice_pin", "voicepin"].contains(target) else { throw BackendMemoryAPIError.invalidResponse }
+        return target == "page"
+    }
+
     /// Called only after the owned player's final segment. Receiving/decoding
     /// headers or finishing its first segment cannot manufacture delivery.
     @discardableResult
@@ -656,7 +706,15 @@ actor OfflineTalkOutbox {
         owner: BackendAuthRequestIdentity, backendURL: URL) throws -> Bool {
         let record = try readStoredRecord(blobURL(for: entry.bodyRef))
         _ = try record.validatedBody(matching: entry)
-        guard record.state == .received, let response = record.response, let playback = record.playback else { return false }
+        guard record.state == .received, let response = record.response else { return false }
+        if StudioRenderEndpoint.paths.contains(entry.endpoint) {
+            guard response.headers["x-them-render-complete"] == "1", try studioRenderWritesToPage(record.body),
+                  record.pageDelivery?.liveMutation != nil, record.savedPage != nil else { return false }
+            try acknowledgeReceivedReply(entry.id, receiptID: response.id, initiatingIdentity: owner,
+                backendURL: backendURL, deliveryPlanID: record.pageDelivery?.id)
+            return true
+        }
+        guard let playback = record.playback else { return false }
         if let plan = record.pageDelivery {
             guard plan.liveMutation != nil, record.savedPage != nil else { return false }
         } else if playback.requiresPageSave { return false }
@@ -757,6 +815,16 @@ actor OfflineTalkOutbox {
         try loadIfNeeded()
         guard entries.contains(where: { $0.id == id && belongs($0, scope: .init(identity: owner, backendURL: backendURL)) }) else { return }
         let reply = try receivedReply(id, initiatingIdentity: owner, backendURL: backendURL)
+        if StudioRenderEndpoint.paths.contains(reply.entry.endpoint) {
+            guard let body = reply.requestBody else { throw BackendMemoryAPIError.invalidResponse }
+            if try studioRenderWritesToPage(body) {
+                let recovery = try OfflineStudioRenderRecovery(packet: reply)
+                guard recovery.isComplete, recovery.qualityConfirmed,
+                      reply.pageDelivery?.liveMutation != nil, reply.savedPage != nil else {
+                    throw BackendError.stage("offline_outbox", "The original rendered page still needs its exact saved version. Its recovery copy is kept.")
+                }
+            }
+        }
         if let plan = reply.pageDelivery, plan.id != deliveryPlanID {
             throw BackendError.stage("offline_outbox", "This reply has a pending page delivery. Confirm its saved page before acknowledging it.")
         }
@@ -1061,6 +1129,7 @@ actor OfflineTalkOutbox {
             } else if StudioRenderEndpoint.paths.contains(entry.endpoint) {
                 var recovered = row ?? entry
                 recovered.status = .parked; recovered.nextAttemptAt = 0; recovered.interruptedEnqueue = nil
+                recovered.hasLivePageIntent = record.pageDelivery?.liveMutation == nil ? nil : true
                 recovered.lastError = "Studio request held for review. It will not generate again automatically."
                 if let index = next.firstIndex(where: { $0.id == entry.id }) { next[index] = recovered }
                 else { next.append(recovered) }

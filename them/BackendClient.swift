@@ -1914,6 +1914,7 @@ struct BackendRealtimeStudioRenderResult: Equatable, Sendable {
     let memoryApplied: BackendRealtimeStudioMemoryApplied?
     let screenplayQuality: BackendRealtimeStudioScreenplayQuality?
     let structuralQuality: BackendRealtimeStudioStructuralQuality?
+    var delivery: BackendStudioRenderDeliveryReceipt? = nil
 }
 
 private struct BackendRealtimeStudioRenderStreamEvent: Decodable {
@@ -2695,8 +2696,14 @@ final class BackendClient {
     func fetchMemoryCharacterTraits(
         characterName: String? = nil,
         projectID: String? = nil,
-        projectTitle: String? = nil
+        projectTitle: String? = nil,
+        expectedScope: ScreenplayCharacterVoiceMemoryRequestScope? = nil
     ) async throws -> BackendCharacterTraitsResponse {
+        let owner = talkIdentityProvider(false)
+        if let expectedScope {
+            try owner.requireCurrentOwner(talkIdentityProvider(false))
+            guard expectedScope.matches(owner: owner.ownerContext, projectID: projectID ?? "", backendURL: baseURL) else { throw CancellationError() }
+        }
         persistSharedBackendBaseURL(baseURL)
         var url = baseURL
         url.appendPathComponent("memory")
@@ -2704,7 +2711,7 @@ final class BackendClient {
 
         let normalizedName = characterName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let normalizedProjectID = projectID?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let normalizedProjectTitle = projectTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let normalizedProjectTitle = expectedScope?.permitsPage == true ? "" : (projectTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "")
         if !normalizedName.isEmpty || !normalizedProjectID.isEmpty || !normalizedProjectTitle.isEmpty {
             var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
             components?.queryItems = [
@@ -2723,7 +2730,9 @@ final class BackendClient {
         request.cachePolicy = .reloadIgnoringLocalCacheData
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue(personaFlowKey, forHTTPHeaderField: "X-Persona-Key")
-        if shouldAttachUserIDHeader {
+        if expectedScope != nil {
+            request.setValue(owner.userID, forHTTPHeaderField: "X-User-Id")
+        } else if shouldAttachUserIDHeader {
             let userID = resolveUserID()
             if !userID.isEmpty {
                 request.setValue(userID, forHTTPHeaderField: "X-User-Id")
@@ -2732,10 +2741,16 @@ final class BackendClient {
         if let token = appToken() {
             request.setValue(token, forHTTPHeaderField: "X-APP-TOKEN")
         }
-        attachAuthorizationHeader(to: &request)
+        attachAuthorizationHeader(to: &request, capturedIdentity: expectedScope == nil ? nil : owner)
+        if expectedScope != nil { try owner.requireCurrentOwner(talkIdentityProvider(false)) }
 
         let (data, response) = try await urlSession.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
-        guard let http = response as? HTTPURLResponse else {
+        if let expectedScope {
+            try owner.requireCurrentOwner(talkIdentityProvider(false))
+            guard expectedScope.matches(owner: owner.ownerContext, projectID: normalizedProjectID, backendURL: baseURL) else { throw CancellationError() }
+        }
+        guard let http = response as? HTTPURLResponse, let responseURL = http.url,
+              BackendAPIResponseValidator.hasMatchingOrigin(requestURL: url, responseURL: responseURL) else {
             throw BackendError.http(-1, "Invalid character-traits response.")
         }
         guard (200...299).contains(http.statusCode) else {
@@ -2746,7 +2761,16 @@ final class BackendClient {
             throw BackendError.http(http.statusCode, raw)
         }
         do {
-            return try JSONDecoder().decode(BackendCharacterTraitsResponse.self, from: data)
+            let payload = try JSONDecoder().decode(BackendCharacterTraitsResponse.self, from: data)
+            if expectedScope != nil, let responseUserID = payload.userId, !responseUserID.isEmpty,
+               responseUserID != owner.userID { throw BackendMemoryAPIError.server(status: 409, message: "auth_request_superseded") }
+            if let expectedScope, expectedScope.permitsPage {
+                return .init(schemaVersion: payload.schemaVersion, userId: payload.userId,
+                    characters: ScreenplayCharacterVoiceMemoryPersistencePolicy.projectRecords(payload.characters, scope: expectedScope), error: payload.error)
+            }
+            return payload
+        } catch let error as BackendMemoryAPIError {
+            throw error
         } catch {
             let raw = String(data: data, encoding: .utf8) ?? ""
             throw BackendError.http(502, raw.isEmpty ? "Invalid character-traits payload." : raw)
@@ -3756,12 +3780,15 @@ final class BackendClient {
                     "Studio render response ended without screenplay quality confirmation."
                 )
             }
-            return BackendRealtimeStudioRenderResult(
+            var result = BackendRealtimeStudioRenderResult(
                 reply: reply,
                 memoryApplied: payload.memoryApplied?.hasSignal == true ? payload.memoryApplied : nil,
                 screenplayQuality: payload.screenplayQuality,
                 structuralQuality: payload.structuralQuality
             )
+            result.delivery = try await custody.delivery(owner: talkIdentityProvider(false), backendURL: resolvedBaseURL)
+            try owner.requireCurrentOwner(talkIdentityProvider(false))
+            return result
             } catch { throw BackendTalkAcceptedReplyError(entryID: custody.admission.entryID, underlyingError: error) }
         }
 
@@ -3911,7 +3938,7 @@ final class BackendClient {
             func validatedResult(
                 reply rawReply: String,
                 quality eventQuality: BackendRealtimeStudioScreenplayQuality?
-            ) throws -> BackendRealtimeStudioRenderResult {
+            ) async throws -> BackendRealtimeStudioRenderResult {
                 try owner.requireCurrentOwner(talkIdentityProvider(false))
                 let reply = rawReply.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !reply.isEmpty else {
@@ -3930,12 +3957,15 @@ final class BackendClient {
                         "Studio render stream ended without screenplay quality confirmation."
                     )
                 }
-                return BackendRealtimeStudioRenderResult(
+                var result = BackendRealtimeStudioRenderResult(
                     reply: reply,
                     memoryApplied: latestMemoryApplied,
                     screenplayQuality: quality,
                     structuralQuality: latestStructuralQuality
                 )
+                result.delivery = try await custody.delivery(owner: talkIdentityProvider(false), backendURL: resolvedBaseURL)
+                try owner.requireCurrentOwner(talkIdentityProvider(false))
+                return result
             }
 
             func trace(
@@ -4060,7 +4090,7 @@ final class BackendClient {
             }
 
             for try await rawLine in bytes.lines {
-                retainedFrames.append(Data((rawLine + "\n").utf8))
+                BackendStudioRenderCustody.appendStreamLine(rawLine, to: &retainedFrames)
                 guard retainedFrames.count <= OfflineTalkStoredResponse.maxBodyBytes else {
                     throw BackendTalkCustodyError(underlyingError: BackendMemoryAPIError.invalidResponse)
                 }
@@ -4072,7 +4102,7 @@ final class BackendClient {
                         finishedRetention = true
                         try owner.requireCurrentOwner(talkIdentityProvider(false))
                         let resolvedReply = finalReply.isEmpty ? accumulated.trimmingCharacters(in: .whitespacesAndNewlines) : finalReply
-                        return try validatedResult(
+                        return try await validatedResult(
                             reply: resolvedReply,
                             quality: latestScreenplayQuality
                         )
@@ -4104,7 +4134,7 @@ final class BackendClient {
                             lastPartialCallbackCharacterCount = reply.count
                             await onPartial(reply)
                         }
-                        return try validatedResult(
+                        return try await validatedResult(
                             reply: reply,
                             quality: payload.screenplayQuality
                         )
@@ -4141,7 +4171,7 @@ final class BackendClient {
             }
 
             let resolvedReply = finalReply.isEmpty ? accumulated.trimmingCharacters(in: .whitespacesAndNewlines) : finalReply
-            return try validatedResult(
+            return try await validatedResult(
                 reply: resolvedReply,
                 quality: latestScreenplayQuality
             )
@@ -6324,7 +6354,11 @@ final class BackendClient {
         }
     }
 
-    private func attachAuthorizationHeader(to request: inout URLRequest) {
+    private func attachAuthorizationHeader(to request: inout URLRequest, capturedIdentity: BackendAuthRequestIdentity? = nil) {
+        if let capturedIdentity {
+            request.setValue(capturedIdentity.accessToken.isEmpty ? nil : "Bearer \(capturedIdentity.accessToken)", forHTTPHeaderField: "Authorization")
+            return
+        }
         guard let value = BackendAuthClient.authorizationHeaderValue(), !value.isEmpty else { return }
         request.setValue(value, forHTTPHeaderField: "Authorization")
     }

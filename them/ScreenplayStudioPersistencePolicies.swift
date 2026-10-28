@@ -39,17 +39,11 @@ struct ScreenplayProjectScopedState {
 }
 
 struct ScreenplayCharacterTraitsRefreshPolicy {
-    static func shouldFallbackToUserLibrary(
-        response: BackendCharacterTraitsResponse,
-        projectID: String?,
-        projectTitle: String?
-    ) -> Bool {
-        let scopedProjectID = (projectID ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        let scopedProjectTitle = (projectTitle ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        let responseError = (response.error ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        return response.characters.isEmpty &&
-            responseError.isEmpty &&
-            (!scopedProjectID.isEmpty || !scopedProjectTitle.isEmpty)
+    // An empty project library is authoritative. Global-library display is an
+    // explicitly unscoped request, never a fallback retagged as project data.
+    static func projectIDForRequest(_ projectID: String?) -> String? {
+        let value = (projectID ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return value.isEmpty ? nil : value
     }
 }
 
