@@ -5,30 +5,27 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
-### T-1202 — Restore pending manual saves after background draining
+### T-1202 — Restore pending manual saves and exact queued recovery
 
-- **Owner:** Codex (Jarvis). **Status:** in-progress on
-  `codex/T-1202-required-writer-save`, exact published #976 base36f07be.
-- **Trigger:** #976/#977 hosted writer-save gate failed. Exact #976 canonical
-  writer harness passed locally; hosted scheduling cause is not yet proven.
-- **Reproduced:** actual VM/HTTP/outbox held drain loses the later same-project
-  or B-project Save: focused signed baseline6/2/0; each bad case sends only1
-  request. Current rehearsal excludes original50d04ae's handoff from #962.
-- **Fix:** adapt that source capability to current immutable completion ownership;
-  one canonical dispatcher, acknowledgement/base rule and failure-retention
-  helper. Preserve different projects/origins and explicitly captured newer bases.
-- **Proof:** first corrected signed focus8/0/0. Final e7a4730 full-unit checkpoint1111/1/0 exposed conflict-path
-  queue deletion. dd25bc0 ports the original #962 retention method with exact
-  delivery-origin scoping; revised proof is pending. No paid
-  calls, original-head/main/production mutations or claim #962 is integrated.
-- **Latest:** dd25bc0 signed units1112/0/0 and canonical writer1/0/0 passed,
-  but recovery UI0/3/0 exposed stale duplicate saves after acknowledgement.
-  Actual Zora chat independently reviewed canonical request identity and
-  returned two actionable payload/count corrections; both are accepted.
-  Canonical delivery/flight plus strict exact passive readback now passes signed
-  full units1115/0/0; its recovery workflow is pending. Canonical-ID-only UI
-  remained0/3/0. No recovery-ready/publication claim until corrected proof passes.
-- **Evidence:** `docs/required-writer-save-handoff-2026-10-28.md`.
+- **Owner:** Codex (Jarvis), with bounded independent review in actual chat
+  `ZORA - THEM`. **Status:** in-progress on `codex/T-1202-required-writer-save`,
+  published #976 base36f07be. Original heads/history remain preserved.
+- **Fixed locally:** lost pending manual-save handoff, canonical durable save
+  ID, pre-await flight ownership, queued document identity restoration, retained
+  conflicts, queued anchors/bindings authority, timestamp-only binding churn,
+  consumed pending-slot replay and duplicate passive screenplay versions.
+- **Current proof:** signed focused57/0/0; authenticated recovery UI3/0/0
+  (reconnect, real auth refresh, Keep Mine); macOS scaffold build, D009 and
+  diff checks pass. Full1126/0/0 was an earlier checkpoint before final
+  projection refinements; no current broad claim is inherited. All previous
+  red/initialization results remain in the report and private proof archive.
+- **Scope discipline:** no paid calls, new backend/framework, main mutation,
+  original-head rewrite, GitHub advancement or production change. Screen and
+  Bridge shrink; orb/Clementine/aesthetic are preserved. Zora's separate
+  T1201 f826edd remains frozen and not integrated/native-proven.
+- **Next:** exact explicit Load Server retirement and late-request authority,
+  then full current publication gates before normal #976 advancement.
+- **Evidence and exact files:** `docs/required-writer-save-handoff-2026-10-28.md`.
 
 ### T-1187 — Fence Studio publication and settle the original render
 

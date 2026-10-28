@@ -108,6 +108,60 @@ final class ScreenplaySaveCompletionOwnershipTests: XCTestCase {
         XCTAssertTrue(rows.isEmpty)
     }
 
+    func testPendingExplicitSaveRetainsChangedMetadataEvenWhenWordsMatch() async throws {
+        let fixture = try SaveCompletionFixture()
+        defer { fixture.close() }
+        fixture.select("a", draft: fixture.a, base: "a-base")
+        let save = fixture.startSave()
+        defer { save.cancel() }
+        try await fixture.waitForFirstSave()
+        let binding = try JSONDecoder().decode(BackendScreenplayBindingRecord.self,
+            from: Data("{\"draftSceneId\":\"explicit-new-binding\"}".utf8))
+        fixture.model.screenplayBindings = [binding]
+        await fixture.model.manualSaveDraft()
+        fixture.peer.releaseFirst(.success)
+        try await fixture.waitForSave(save)
+        XCTAssertEqual(fixture.peer.writes.count, 2, "Explicit changed metadata was absorbed as passive housekeeping")
+        XCTAssertEqual(fixture.model.screenplayBindings, [binding])
+        XCTAssertEqual(fixture.peer.writes.last?.base, "a-ack-1")
+    }
+
+    func testAcknowledgementKeepsNewerRestoredMetadataWhileMarkingTheSameWordsSaved() async throws {
+        let fixture = try SaveCompletionFixture()
+        defer { fixture.close() }
+        fixture.select("a", draft: fixture.a, base: "a-base")
+        let save = fixture.startSave()
+        defer { save.cancel() }
+        try await fixture.waitForFirstSave()
+        let anchor = try JSONDecoder().decode(BackendScreenplayWriteAnchor.self,
+            from: Data("{\"writeId\":\"restored-history-note\",\"anchorLine\":4}".utf8))
+        let binding = try JSONDecoder().decode(BackendScreenplayBindingRecord.self,
+            from: Data("{\"draftSceneId\":\"restored-scene-binding\"}".utf8))
+        fixture.model.studioWriteAnchors = [anchor]
+        fixture.model.screenplayBindings = [binding]
+        fixture.peer.releaseFirst(.success)
+        try await fixture.waitForSave(save)
+        XCTAssertEqual(fixture.model.studioWriteAnchors, [anchor], "An older acknowledgement erased newer history projections")
+        XCTAssertEqual(fixture.model.screenplayBindings, [binding])
+        XCTAssertEqual(fixture.peer.writes.count, 1)
+        XCTAssertFalse(fixture.model.hasUnsavedDraftChanges)
+    }
+
+    func testIdenticalPendingManualSaveIsConsumedWithoutOuterRedispatch() async throws {
+        let fixture = try SaveCompletionFixture()
+        defer { fixture.close() }
+        fixture.select("a", draft: fixture.a, base: "a-base")
+        let save = fixture.startSave()
+        defer { save.cancel() }
+        try await fixture.waitForFirstSave()
+        await fixture.model.manualSaveDraft()
+        fixture.peer.releaseFirst(.success)
+        try await fixture.waitForSave(save)
+        XCTAssertEqual(fixture.peer.writes.count, 1, "The outer dispatcher replayed an already consumed pending intent")
+        let rows = try await fixture.queue.entriesForTesting()
+        XCTAssertTrue(rows.isEmpty)
+    }
+
     func testManualSaveBehindBackgroundDrainIsDispatchedExactlyOnce() async throws {
         try await assertPendingSaveFollowsBackgroundDrain(switchProject: false)
     }
@@ -330,7 +384,10 @@ private final class SaveCompletionFixture {
 
 private nonisolated final class SaveCompletionPeer: @unchecked Sendable {
     enum Outcome { case success, conflict, offline }
-    struct Write { let project: String; let base: String; let draft: String }
+    struct Write {
+        let project: String; let base: String; let draft: String; let id: String
+        let anchors: [BackendScreenplayWriteAnchor]; let bindings: [BackendScreenplayBindingRecord]
+    }
     private let lock = NSLock()
     private var recorded: [Write] = []
     private var held: (SaveCompletionProtocol, Write)?
@@ -359,8 +416,14 @@ private nonisolated final class SaveCompletionPeer: @unchecked Sendable {
                 }
             }
             let payload = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+            let decoder = JSONDecoder(); decoder.keyDecodingStrategy = .convertFromSnakeCase
+            let anchors = try decoder.decode([BackendScreenplayWriteAnchor].self,
+                from: JSONSerialization.data(withJSONObject: payload["studio_write_anchors"] ?? []))
+            let bindings = try decoder.decode([BackendScreenplayBindingRecord].self,
+                from: JSONSerialization.data(withJSONObject: payload["screenplay_bindings"] ?? []))
             let write = Write(project: path.split(separator: "/").dropLast().last.map(String.init) ?? "",
-                base: payload["base_version_id"] as? String ?? "", draft: try XCTUnwrap(payload["draft"] as? String))
+                base: payload["base_version_id"] as? String ?? "", draft: try XCTUnwrap(payload["draft"] as? String),
+                id: payload["client_request_id"] as? String ?? "", anchors: anchors, bindings: bindings)
             lock.lock(); recorded.append(write); let count = recorded.count
             if count == 1 { held = (transport, write) }; lock.unlock()
             if count == 1 { started.fulfill() }
@@ -382,9 +445,14 @@ private nonisolated final class SaveCompletionPeer: @unchecked Sendable {
                 "server_version": ["id": "a-remote", "draft": "Other A words"]])
         case .success:
             let version = "\(write.project)-ack-\(number)"
-            transport.respond(status: 200, payload: ["status": "saved", "project_id": write.project,
-                "version_id": version, "project": ["id": write.project, "title": write.project.uppercased()],
-                "version": ["id": version, "draft": write.draft]])
+            do {
+                let anchors = try JSONSerialization.jsonObject(with: JSONEncoder().encode(write.anchors))
+                let bindings = try JSONSerialization.jsonObject(with: JSONEncoder().encode(write.bindings))
+                transport.respond(status: 200, payload: ["status": "saved", "project_id": write.project,
+                    "version_id": version, "project": ["id": write.project, "title": write.project.uppercased()],
+                    "version": ["id": version, "project_id": write.project, "client_request_id": write.id,
+                        "draft": write.draft, "studio_write_anchors": anchors, "screenplay_bindings": bindings]])
+            } catch { transport.fail(error) }
         }
     }
 

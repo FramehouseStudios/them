@@ -36,6 +36,28 @@ nonisolated struct ScreenplayDraftSaveOutboxEntry: Identifiable, Codable, Equata
     var lastError: String
     var initialization: ScreenplayInitialProjectMetadata? = nil
     var deliveryOrigin: ScreenplayDraftSaveOrigin? = nil
+
+    var isPassiveAutosave: Bool { source == "studio_autosave" && notes.isEmpty }
+
+    func isSatisfiedByAcknowledgement(of saved: Self, versionID: String) -> Bool {
+        guard isPassiveAutosave, deliveryOrigin != nil, !versionID.isEmpty,
+              baseVersionId == saved.baseVersionId || baseVersionId == versionID else { return false }
+        var originalBase = self
+        originalBase.baseVersionId = saved.baseVersionId
+        return originalBase.hasSameWritingTarget(as: saved)
+    }
+
+    func hasSameTarget(as other: Self) -> Bool {
+        hasSameWritingTarget(as: other) && studioWriteAnchors == other.studioWriteAnchors &&
+            screenplayBindings == other.screenplayBindings
+    }
+
+    private func hasSameWritingTarget(as other: Self) -> Bool {
+        projectId == other.projectId && ownerUserId == other.ownerUserId &&
+            deliveryOrigin == other.deliveryOrigin && baseVersionId == other.baseVersionId &&
+            title == other.title && phase == other.phase && initialization == other.initialization &&
+            draft.utf8.elementsEqual(other.draft.utf8)
+    }
 }
 
 nonisolated struct ScreenplayDraftSaveOutboxSnapshot: Equatable {
@@ -61,6 +83,12 @@ nonisolated struct ScreenplayDraftSaveOutboxSnapshot: Equatable {
             "lastError": lastError,
         ]
     }
+}
+
+nonisolated enum ScreenplayDraftSaveDelivery {
+    case deliver(ScreenplayDraftSaveOutboxEntry)
+    case alreadyInflight(ScreenplayDraftSaveOutboxEntry)
+    case parked(ScreenplayDraftSaveOutboxEntry)
 }
 
 actor ScreenplayDraftSaveOutbox {
@@ -151,31 +179,47 @@ actor ScreenplayDraftSaveOutbox {
             return entries[index]
         }
         if let existing = entries.first(where: { existing in
-            existing.projectId == entry.projectId &&
-                existing.ownerUserId == entry.ownerUserId &&
-                existing.deliveryOrigin == entry.deliveryOrigin &&
-                existing.status != .parked &&
-                existing.baseVersionId == entry.baseVersionId &&
-                existing.title == entry.title && existing.phase == entry.phase &&
-                existing.source == entry.source && existing.notes == entry.notes &&
-                existing.studioWriteAnchors == entry.studioWriteAnchors &&
-                existing.screenplayBindings == entry.screenplayBindings &&
-                existing.initialization == entry.initialization &&
-                existing.draft.utf8.elementsEqual(entry.draft.utf8)
+            existing.status != .parked && existing.hasSameTarget(as: entry) &&
+                ((existing.source == entry.source && existing.notes == entry.notes) ||
+                    (entry.isPassiveAutosave && entry.deliveryOrigin != nil))
         }) {
             let nextSnapshot = snapshotFor(entries)
             publish(nextSnapshot)
             return existing
         }
+        let previous = entries
         entries.append(entry)
         entries.sort { lhs, rhs in
             if lhs.createdAt == rhs.createdAt { return lhs.id < rhs.id }
             return lhs.createdAt < rhs.createdAt
         }
-        try persist()
+        do { try persist() } catch { entries = previous; throw error }
         let nextSnapshot = snapshotFor(entries)
         publish(nextSnapshot)
         return entry
+    }
+
+    /// Canonical identity and inflight admission share one actor transaction.
+    func beginDelivery(_ entry: ScreenplayDraftSaveOutboxEntry,
+        continuingInflightID: String? = nil) throws -> ScreenplayDraftSaveDelivery {
+        let retained = try enqueueForDelivery(entry)
+        if retained.status == .parked { return .parked(retained) }
+        if retained.status == .inflight {
+            return continuingInflightID == retained.id && entry.id == retained.id
+                ? .deliver(retained) : .alreadyInflight(retained)
+        }
+        try markInflight(id: retained.id)
+        guard let inflight = entries.first(where: { $0.id == retained.id }) else { throw BackendMemoryAPIError.invalidResponse }
+        return .deliver(inflight)
+    }
+
+    /// Check the actual stored row before absorbing an identical passive retry.
+    /// Actor memory alone is not evidence that the earlier write reached disk.
+    func hasDurableTarget(id: String, matching entry: ScreenplayDraftSaveOutboxEntry) throws -> Bool {
+        guard fileManager.fileExists(atPath: manifestURL.path) else { return false }
+        let stored = try JSONDecoder().decode([ScreenplayDraftSaveOutboxEntry].self,
+            from: Data(contentsOf: manifestURL))
+        return stored.contains { $0.id == id && $0.hasSameTarget(as: entry) }
     }
 
     func beginNext(
@@ -219,9 +263,10 @@ actor ScreenplayDraftSaveOutbox {
     func markInflight(id: String, now: Date = Date()) throws {
         try loadIfNeeded()
         guard let index = entries.firstIndex(where: { $0.id == id }) else { return }
+        let previous = entries
         entries[index].status = .inflight
         entries[index].updatedAt = now.timeIntervalSince1970
-        try persist()
+        do { try persist() } catch { entries = previous; throw error }
         publishSnapshot()
     }
 

@@ -10787,26 +10787,7 @@ Return revised screenplay lines only.
     }
 
     private func currentScreenplayBindingPayload() -> [BackendScreenplayBindingRecord] {
-        let bindingSnapshot = liveDraftBridge.projectBinding
-        guard !bindingSnapshot.projectID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return [] }
-        let timestamp = max(bindingSnapshot.updatedAt.timeIntervalSince1970 * 1000, 1)
-        return bindingSnapshot.sceneBindings.map { binding in
-            BackendScreenplayBindingRecord(
-                draftSceneId: binding.draftSceneID,
-                draftLine: binding.draftLine,
-                draftEndLine: binding.draftEndLine,
-                draftSlugline: binding.draftSlugline,
-                draftShortLabel: binding.draftShortLabel,
-                outlineSceneId: binding.outlineSceneID,
-                outlineSceneTitle: binding.outlineSceneTitle,
-                outlineSceneSlugline: binding.outlineSceneSlugline,
-                outlineBeatIds: binding.outlineBeatIDs,
-                outlineBeatLabels: binding.outlineBeatLabels,
-                actTitle: binding.actTitle,
-                matchedBy: binding.matchedBy,
-                updatedAt: timestamp
-            )
-        }
+        ScreenplayBindingPayload.make(snapshot: liveDraftBridge.projectBinding, previous: vm.screenplayBindings)
     }
 
     private func currentStudioWriteAnchorPayload(from entries: [StudioAskNoteExchange]) -> [BackendScreenplayWriteAnchor] {

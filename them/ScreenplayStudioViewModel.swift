@@ -1432,9 +1432,10 @@ final class ScreenplayStudioViewModel: ObservableObject {
         }
     }
 
-    private struct DraftSaveCompletion {
-        let versionID: String
-        let mayContinueEditing: Bool
+    private enum DraftSaveCompletion {
+        case saved(versionID: String, mayContinueEditing: Bool, confirmed: ScreenplayConfirmedDraftSave?)
+        case waitingForDelivery
+        case needsDecision
     }
 
     private enum EmptyBaseDraftSavePreflightResult {
@@ -1961,6 +1962,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
             }
         }
         isHydratingDraft = true
+        studioWriteAnchors = entry.studioWriteAnchors
+        screenplayBindings = entry.screenplayBindings
         fountainDraft = entry.draft
         isHydratingDraft = false
         loadedDraftProjectID = projectID
@@ -5943,16 +5946,19 @@ final class ScreenplayStudioViewModel: ObservableObject {
     private func hydrateDraft(from project: BackendScreenplayProjectSummary) {
         let selectedVersion = ScreenplayProjectDraftRestorePolicy.preferredVersion(in: project)
         let nextDraft = selectedVersion?.draft ?? ""
-        studioWriteAnchors = (selectedVersion?.studioWriteAnchors ?? []).filter { anchor in
-            !anchor.writeId.trimmingCharacters(in: .whitespacesAndNewlines).lowercased().hasPrefix("binding:")
-        }
-        screenplayBindings = selectedVersion?.screenplayBindings ?? []
         applyServerDraft(
             nextDraft,
             versionId: selectedVersion?.id ?? "",
             serverUpdatedAt: selectedVersion?.updatedAt ?? selectedVersion?.createdAt ?? 0,
             serverDraftExcerpt: selectedVersion?.draftExcerpt ?? ""
         )
+        guard !hasUnsavedDraftChanges, loadedDraftProjectID == project.id,
+              latestVersionID == (selectedVersion?.id ?? ""),
+              fountainDraft.utf8.elementsEqual(nextDraft.utf8) else { return }
+        studioWriteAnchors = (selectedVersion?.studioWriteAnchors ?? []).filter { anchor in
+            !anchor.writeId.trimmingCharacters(in: .whitespacesAndNewlines).lowercased().hasPrefix("binding:")
+        }
+        screenplayBindings = selectedVersion?.screenplayBindings ?? []
     }
 
     func applyServerDraft(
@@ -6228,7 +6234,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
 
         isDraftSaveInFlight = true
         var completedCount = 0
-        var acknowledged: (DraftSaveRequest, DraftSaveCompletion)?
+        var acknowledged: (DraftSaveRequest, String, ScreenplayConfirmedDraftSave?)?
         var failed: DraftSaveRequest?
         while completedCount < 4 {
             let entry: ScreenplayDraftSaveOutboxEntry?
@@ -6249,8 +6255,20 @@ final class ScreenplayStudioViewModel: ObservableObject {
             }
             adoptQueuedDraftIntoUnchangedEditorIfNeeded(entry)
             let request = DraftSaveRequest(entry: entry, authContext: currentContext)
-            guard let completion = await performDraftSave(request) else { failed = request; break }
-            acknowledged = (request, completion)
+            // Derived history/binding projections can refresh while the real
+            // write is in flight. Its fresh acknowledgement already owns the
+            // same words; only that passive row needs no additional version.
+            if let (saved, versionID, proof) = acknowledged, proof != nil,
+               ScreenplayStudioAuthContextPolicy.matches(expected: saved.authContext, current: request.authContext),
+               request.outboxEntry.isSatisfiedByAcknowledgement(of: saved.outboxEntry, versionID: versionID) {
+                do { try await draftSaveOutbox.remove(id: entry.id) }
+                catch { errorText = "The acknowledged local retry could not be retired: \(error.localizedDescription)"; break }
+                completedCount += 1
+                continue
+            }
+            guard let completion = await performDraftSave(request, continuingInflightID: entry.id) else { failed = request; break }
+            guard case .saved(let versionID, _, let proof) = completion else { break }
+            acknowledged = (request, versionID, proof)
             completedCount += 1
         }
         await refreshDraftSaveOutboxStatus()
@@ -6263,8 +6281,11 @@ final class ScreenplayStudioViewModel: ObservableObject {
         guard let pending else { return }
         // Restore the handoff from original50d04ae using the current immutable
         // owner/document completion contract, never another project's UI base.
-        let next = acknowledged.map { request, completion in
-            draftSaveFollowingAcknowledgement(pending, saved: request, versionID: completion.versionID)
+        if let (saved, versionID, proof) = acknowledged, proof != nil,
+           ScreenplayStudioAuthContextPolicy.matches(expected: saved.authContext, current: pending.authContext),
+           pending.outboxEntry.isSatisfiedByAcknowledgement(of: saved.outboxEntry, versionID: versionID) { return }
+        let next = acknowledged.map { request, versionID, _ in
+            draftSaveFollowingAcknowledgement(pending, saved: request, versionID: versionID)
         } ?? pending
         await dispatchDraftSaveRequest(next)
     }
@@ -6313,10 +6334,18 @@ final class ScreenplayStudioViewModel: ObservableObject {
             errorText = "Select a project first."
             return
         }
+        if request.outboxEntry.isPassiveAutosave && !hasUnsavedDraftChanges { return }
+        // A conflict requires an explicit choice. Passive housekeeping must
+        // not submit the same rejected page again; local recovery keeps edits.
+        if request.outboxEntry.isPassiveAutosave && conflictState?.projectId == request.projectId { return }
         await dispatchDraftSaveRequest(request)
     }
 
     private func dispatchDraftSaveRequest(_ request: DraftSaveRequest) async {
+        if request.outboxEntry.isPassiveAutosave, authContextIsCurrent(request.authContext),
+           conflictState?.projectId == request.projectId,
+           request.deliveryOrigin?.documentID == ScreenplayLiveDraftBridge.shared.draftOrigin.documentID,
+           selectedProjectID == request.projectId { return }
         // Acquire the flight before the first actor hop. A save captured on
         // the old base must not race a queue drain across this suspension.
         if isDraftSaveInFlight {
@@ -6385,11 +6414,17 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 }
                 return
             }
+            guard case .saved(let versionID, let mayContinueEditing, let proof) = completion else { return }
             if let queuedRequest = pendingDraftSaveRequest {
+                pendingDraftSaveRequest = nil
                 let sameOwnerProject = activeRequest.projectId == queuedRequest.projectId &&
                     activeRequest.deliveryOrigin == queuedRequest.deliveryOrigin &&
                     ScreenplayStudioAuthContextPolicy.matches(expected: activeRequest.authContext, current: queuedRequest.authContext)
-                if sameOwnerProject, ScreenplayDraftSaveCoalescingPolicy.shouldCoalesce(
+                if sameOwnerProject, proof != nil, queuedRequest.outboxEntry.isSatisfiedByAcknowledgement(
+                    of: activeRequest.outboxEntry, versionID: versionID) {
+                    nextRequest = nil
+                } else if sameOwnerProject, activeRequest.outboxEntry.hasSameTarget(as: queuedRequest.outboxEntry),
+                          ScreenplayDraftSaveCoalescingPolicy.shouldCoalesce(
                     activeDraft: activeRequest.draft,
                     activeSource: activeRequest.source,
                     activeNotes: activeRequest.notes,
@@ -6402,13 +6437,13 @@ final class ScreenplayStudioViewModel: ObservableObject {
                     nextRequest = nil
                 } else {
                     nextRequest = draftSaveFollowingAcknowledgement(queuedRequest,
-                        saved: activeRequest, versionID: completion.versionID)
+                        saved: activeRequest, versionID: versionID)
                 }
                 continue
             }
 
             let currentDraft = fountainDraft
-            guard completion.mayContinueEditing, selectedProjectID == activeRequest.projectId,
+            guard mayContinueEditing, selectedProjectID == activeRequest.projectId,
             ScreenplayDraftSaveCompletionPolicy.hasUnsavedChanges(
                 currentDraft: currentDraft,
                 savedDraft: activeRequest.draft
@@ -6443,6 +6478,13 @@ final class ScreenplayStudioViewModel: ObservableObject {
         if (pending.projectId != active.projectId || pending.deliveryOrigin != active.deliveryOrigin ||
             !ScreenplayStudioAuthContextPolicy.matches(expected: active.authContext, current: pending.authContext)),
            authContextIsCurrent(pending.authContext) { return pending }
+        if pending.outboxEntry.isPassiveAutosave, pending.deliveryOrigin != nil,
+           authContextIsCurrent(active.authContext),
+           ScreenplayStudioAuthContextPolicy.matches(expected: active.authContext, current: pending.authContext),
+           (try? await draftSaveOutbox.hasDurableTarget(id: active.id, matching: pending.outboxEntry)) == true,
+           authContextIsCurrent(active.authContext) {
+            return nil // Exact disk readback, not a failed request alone, owns these words.
+        }
         do {
             try await draftSaveOutbox.enqueue(pending.outboxEntry)
             if !shouldQueuePendingDraftSaveAfterFailure {
@@ -6456,7 +6498,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         return nil
     }
 
-    private func performDraftSave(_ submittedRequest: DraftSaveRequest) async -> DraftSaveCompletion? {
+    private func performDraftSave(_ submittedRequest: DraftSaveRequest, continuingInflightID: String? = nil) async -> DraftSaveCompletion? {
         var request = submittedRequest
         let bridge = ScreenplayLiveDraftBridge.shared
         let documentID = request.deliveryOrigin?.documentID ?? bridge.draftOrigin.documentID
@@ -6466,8 +6508,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 && loadedDraftProjectID == request.projectId && bridge.draftOrigin.documentID == documentID
                 && (request.deliveryOrigin?.permitsBackend(BackendAuthClient.resolvedBackendBaseURL()) ?? true)
         }
-        func completion(_ versionID: String) -> DraftSaveCompletion {
-            .init(versionID: versionID, mayContinueEditing: ownsCompletion())
+        func completion(_ versionID: String, confirmed: ScreenplayConfirmedDraftSave? = nil) -> DraftSaveCompletion {
+            .saved(versionID: versionID, mayContinueEditing: ownsCompletion(), confirmed: confirmed)
         }
         let normalized = request.draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalized.isEmpty else {
@@ -6498,9 +6540,15 @@ final class ScreenplayStudioViewModel: ObservableObject {
 
         shouldQueuePendingDraftSaveAfterFailure = false
         do {
-            let retained = try await draftSaveOutbox.enqueueForDelivery(request.outboxEntry)
-            request = DraftSaveRequest(entry: retained, authContext: request.authContext)
-            try await draftSaveOutbox.markInflight(id: request.id)
+            switch try await draftSaveOutbox.beginDelivery(request.outboxEntry, continuingInflightID: continuingInflightID) {
+            case .deliver(let retained): request = DraftSaveRequest(entry: retained, authContext: request.authContext)
+            case .alreadyInflight:
+                await refreshDraftSaveOutboxStatus()
+                return .waitingForDelivery
+            case .parked:
+                await refreshDraftSaveOutboxStatus()
+                return .needsDecision
+            }
         } catch {
             guard ownsCompletion() else { return nil }
             hasUnsavedDraftChanges = true
@@ -6553,18 +6601,17 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 }
                 let serverDraft = serverVersion.draft ?? ""
                 if serverDraft.utf8.elementsEqual(request.draft.utf8) {
-                    if let evidence = ScreenplayConfirmedDraftSave.readback(entry: request.outboxEntry,
+                    let confirmed = ScreenplayConfirmedDraftSave.readback(entry: request.outboxEntry,
                         version: serverVersion, projectID: request.projectId, responseURL: responseURL,
-                        owner: request.authContext, currentOwner: currentStudioAuthContext()) {
-                        _ = try await liveReplyOutbox.recordConfirmedPageSave(evidence)
-                    }
+                        owner: request.authContext, currentOwner: currentStudioAuthContext())
+                    if let confirmed { _ = try await liveReplyOutbox.recordConfirmedPageSave(confirmed) }
                     try await draftSaveOutbox.markSucceeded(
                         id: request.id,
                         serverVersionId: serverVersion.id
                     )
                     guard ownsCompletion() else {
                         reconcileAcknowledgedDraftRecovery(request, versionID: serverVersion.id)
-                        return completion(serverVersion.id)
+                        return completion(serverVersion.id, confirmed: confirmed)
                     }
                     latestVersionID = serverVersion.id
                     lastSavedDraftFingerprint = fingerprint(for: request.draft)
@@ -6584,7 +6631,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
                         baseVersionId: serverVersion.id,
                         dirty: hasUnsavedDraftChanges
                     )
-                    return completion(serverVersion.id)
+                    return completion(serverVersion.id, confirmed: confirmed)
                 }
 
                 _ = try await draftSaveOutbox.retainConflict(projectId: request.projectId,
@@ -6667,7 +6714,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 try await draftSaveOutbox.remove(id: request.id)
                 guard ownsCompletion() else {
                     reconcileAcknowledgedDraftRecovery(request, versionID: evidence.versionID)
-                    return completion(evidence.versionID)
+                    return completion(evidence.versionID, confirmed: evidence)
                 }
                 latestVersionID = evidence.versionID
                 lastSavedDraftFingerprint = fingerprint(for: request.draft)
@@ -6679,7 +6726,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 infoText = hasUnsavedDraftChanges ? infoText : "Your latest words are already saved."
                 persistLocalDraftRecovery(projectId: request.projectId, draft: fountainDraft,
                     baseVersionId: evidence.versionID, dirty: hasUnsavedDraftChanges)
-                return completion(evidence.versionID)
+                return completion(evidence.versionID, confirmed: evidence)
             }
             if conflictDetected {
                 let baseVersionId = (result.payload.baseVersionId ?? "")
@@ -6718,16 +6765,15 @@ final class ScreenplayStudioViewModel: ObservableObject {
                   result.payload.version.map({ $0.id == nextVersionId && ($0.draft?.utf8.elementsEqual(request.draft.utf8) ?? true) }) ?? true else {
                 throw BackendMemoryAPIError.invalidResponse
             }
-            if let evidence = ScreenplayConfirmedDraftSave.ordinary(entry: request.outboxEntry,
+            let confirmed = ScreenplayConfirmedDraftSave.ordinary(entry: request.outboxEntry,
                 version: result.payload.version, versionID: result.payload.versionId,
                 projectID: result.payload.projectId, responseURL: result.responseURL,
-                owner: request.authContext, currentOwner: currentStudioAuthContext()) {
-                _ = try await liveReplyOutbox.recordConfirmedPageSave(evidence)
-            }
+                owner: request.authContext, currentOwner: currentStudioAuthContext())
+            if let confirmed { _ = try await liveReplyOutbox.recordConfirmedPageSave(confirmed) }
             try await draftSaveOutbox.markSucceeded(id: request.id, serverVersionId: nextVersionId)
             guard ownsCompletion() else {
                 reconcileAcknowledgedDraftRecovery(request, versionID: nextVersionId)
-                return completion(nextVersionId)
+                return completion(nextVersionId, confirmed: confirmed)
             }
             conflictState = nil
             if let nextProject = result.payload.project {
@@ -6735,12 +6781,14 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 selectedProject = nextProject
             }
             latestVersionID = nextVersionId
-            if let savedAnchors = result.payload.version?.studioWriteAnchors {
+            if let savedAnchors = result.payload.version?.studioWriteAnchors,
+               studioWriteAnchors == request.studioWriteAnchors {
                 studioWriteAnchors = savedAnchors.filter { anchor in
                     !anchor.writeId.trimmingCharacters(in: .whitespacesAndNewlines).lowercased().hasPrefix("binding:")
                 }
             }
-            if let savedBindings = result.payload.version?.screenplayBindings {
+            if let savedBindings = result.payload.version?.screenplayBindings,
+               screenplayBindings == request.screenplayBindings {
                 screenplayBindings = savedBindings
             }
             syncLiveDraftBridgeProjectContext()
@@ -6779,7 +6827,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
             }
             if request.source == "studio_snapshot" || request.source == "studio_conflict_resolve" {
                 await loadSelectedProjectOutline()
-                guard ownsCompletion() else { return completion(nextVersionId) }
+                guard ownsCompletion() else { return completion(nextVersionId, confirmed: confirmed) }
             }
             persistLocalDraftRecovery(
                 projectId: request.projectId,
@@ -6788,11 +6836,11 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 dirty: hasUnsavedDraftChanges
             )
             await recomputeRevision(for: fountainDraft, source: request.source, api: draftSaveAPI, isCurrent: ownsCompletion)
-            guard ownsCompletion() else { return completion(nextVersionId) }
+            guard ownsCompletion() else { return completion(nextVersionId, confirmed: confirmed) }
             if !errorText.isEmpty {
                 errorText = ""
             }
-            return completion(nextVersionId)
+            return completion(nextVersionId, confirmed: confirmed)
         } catch {
             guard authContextIsCurrent(request.authContext) else {
                 try? await draftSaveOutbox.markRetryable(

@@ -26,6 +26,30 @@ final class ScreenplayDraftSaveEvidenceTests: XCTestCase {
         XCTAssertNil(restored(changed))
     }
 
+    @MainActor
+    func testBindingRefreshKeepsTimestampUntilTheWritingTargetActuallyChanges() {
+        func snapshot(time: TimeInterval, outlineID: String) -> ScreenplayProjectBindingSnapshot {
+            let binding = ScreenplayProjectSceneBindingSnapshot(id: "binding-1", draftSceneID: "scene-1",
+                draftLine: 1, draftEndLine: 4, draftSlugline: "INT. ROOM - NIGHT", draftShortLabel: "ROOM",
+                outlineSceneID: outlineID, outlineSceneTitle: nil, outlineSceneSlugline: nil,
+                outlineSceneObjective: nil, outlineSceneSummary: nil, outlineBeatIDs: [], outlineBeatLabels: [],
+                actTitle: nil, matchedBy: "scene")
+            return .init(updatedAt: Date(timeIntervalSince1970: time), projectID: "project-a", projectTitle: "A",
+                versionID: "server-version", phase: "scene_draft", draftSceneCount: 1, outlineSceneCount: 1,
+                boundSceneCount: 1, draftCharacterCount: 0, projectCharacterCount: 0, boundCharacterCount: 0,
+                sceneBindings: [binding])
+        }
+        let first = ScreenplayBindingPayload.make(snapshot: snapshot(time: 100, outlineID: "outline-a"), previous: [])
+        XCTAssertEqual(first.first?.outlineSceneTitle, "", "Match the server's normalized empty metadata contract")
+        XCTAssertEqual(first.first?.actTitle, "")
+        let unchanged = ScreenplayBindingPayload.make(snapshot: snapshot(time: 200, outlineID: "outline-a"), previous: first)
+        XCTAssertEqual(unchanged, first, "Observation time alone manufactured changed save metadata")
+        let changed = ScreenplayBindingPayload.make(snapshot: snapshot(time: 200, outlineID: "outline-b"), previous: first)
+        XCTAssertEqual(changed.first?.outlineSceneId, "outline-b")
+        XCTAssertEqual(changed.first?.updatedAt, 200_000)
+        XCTAssertNotEqual(changed, first, "A real writer binding change was lost")
+    }
+
     func testPostEvidenceUsesImmutableRequestAndExactEcho() throws {
         let entry = entry()
         let evidence = try XCTUnwrap(ordinary(entry, version: version(entry)))

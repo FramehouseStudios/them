@@ -1,5 +1,25 @@
 # T1202 — required writer-save gate and missing drain handoff
 
+## Current checkpoint (2026-10-28)
+
+VERIFIED on the final typed-projection source: focused signed units **57/0/0**,
+authenticated recovery UI **3/0/0**, macOS scaffold build, D009 and diff checks
+pass. The UI proves one recovered version across reconnect, real401/refresh/
+fresh-bearer save, and explicit Keep Mine. Source SHA recheck found0 mismatches.
+The earlier broad1126/0/0 checkpoint predates the final projection refinements
+and is not presented as a full-unit run of the current head. All earlier
+failures and the Accessibility initialization error remain recorded below.
+
+No paid model calls, GitHub head advancement, main merge or deployment. The
+backend is unchanged from published #976; no unchanged backend suite was
+rerun in this pass. Full current gates remain required before publication.
+Explicit Load Server retirement is the next implementation task. This is a
+verified local recovery component, not integrated-main or real-phone proof.
+
+Actual chat ZORA - THEM reviewed the code and challenged unsafe assumptions;
+Jarvis implemented the corrections and owns integration. Her separate T1201
+f826edd source stays frozen, preserved and not integrated/native-proven.
+
 ## Scope and original work
 
 Base: exact published36f07bef00d7af00f64ea38c81fe656428ce2ca3 (#976).
@@ -252,3 +272,217 @@ This confirms the identity root fix while exposing a separate missing #962
 passive-housekeeping capability. No count assertion was weakened and no
 recovery-ready claim is made. Next: prevent passive work from duplicating
 explicit saves and writing while a conflict choice is unresolved.
+
+## Passive duplicate fix and atomic delivery review
+
+After exact origin restoration, authentic refresh still created two byte-identical
+versions (manual and passive), and true conflict retained an identical passive
+copy beside the manual request. These are independent duplicate producers,
+not justification to weaken the exact-one assertions. The first housekeeping
+checkpoint passed signed1121/0/0; the final atomic-outcome refinement is not
+covered by that earlier count.
+
+The outbox now preserves an existing explicit request's ID/source/notes when
+identical incoming passive housekeeping targets the same valid origin/base
+and all desired payload fields. The exception applies only to active rows,
+never parked. Explicit incoming intents or changed bytes/bindings remain
+distinct. A returned current project/version can satisfy a passive retry only
+when its exact words/title/phase/anchors/bindings and base all match, adapting
+original #962's satisfied-autosave capability. Only that ID is retired.
+
+Zora identified a concurrency gap before publication. Actor-atomic delivery
+now has explicit deliver/already-inflight/parked dispositions. Only the queue
+drain can continue its exact prior beginNext claim; another caller joins
+inflight work without dispatching again. VM saved/waiting/needs-decision
+outcomes prevent terminal attention from entering generic failure retention.
+Inflight transition rolls back if persistence fails. Passive submission is
+rechecked while a conflict choice is unresolved, including pending handoffs;
+identical passive work cannot manufacture another rejected copy.
+
+Final signed proof and actual recovery remain pending. Explicit Load Server
+retirement/relaunch authority is still a separate known task before any
+publication. No source push, main merge, paid call or production change.
+
+### Adversarial corrections before publication
+
+Atomic-outcome signed units passed **1122/0/0**, but Zora then found three
+remaining risks; that count does not prove the corrected source:
+
+1. A cached selectedProject was being treated as a fresh receipt. That shortcut
+   and its policy were removed entirely. Passive pending work can now be
+   absorbed only against the same flight's freshly returned acknowledgement,
+   exact target/origin/base and matching auth. A clean background task simply
+   creates no new save intent; explicit Save still executes.
+2. Failed-request equality alone did not prove retention. Failure absorption
+   now checks the exact stored manifest row/ID/target and rechecks current auth
+   after the actor wait. Otherwise it preserves the passive request.
+3. Failed queue insertion could leave an undurable actor-memory row. Append/
+   sort now restores the previous actor state if persistence throws.
+
+Focused signed four-class proof is running on this corrected source. Zora's
+review lane is frozen; she has not run native/backend jobs, edited this checkout,
+used provider credits or published anything. Direct coordination and accepted
+findings are recorded in her actual chat, not attributed to an imaginary
+independent reviewer. Her separate T1201 commit remains preserved/unintegrated.
+
+### Current corrected checkpoint
+
+After removing cached-project confirmation and requiring exact manifest-backed
+retention, focused signed Outbox/Completion/Evidence/Origin checks passed
+**65/0/0**. These are current focused counts; the1122/0/0 broader run was on
+the earlier atomic source and is not relabeled as current. The three actual
+recovery workflows are now running on the corrected source.
+
+Jarvis self-review also identified a pending-slot ownership hazard in the new
+dispatch wrapper: a request consumed by the inner coalescing loop must clear
+its pending slot, or the outer wrapper could dispatch it again. A same-words
+manual pending regression and the canonical one-line consumption fix are next.
+This finding will be resolved before any publication, even if the current
+three recovery scenarios pass.
+
+## Binding-clock duplicate root and pending-slot consumption
+
+Fresh-ack recovery improved to **2/1/0**. Auth-refresh's remaining failure was
+exact-one-version: the two saved versions had identical raw draft and all
+binding fields except `screenplayBindings[].updatedAt`. A read-only comparison
+recorded changed field names only, without exposing script or credentials.
+Source currentScreenplayBindingPayload assigned every row the refreshed whole
+project snapshot timestamp, so an observation refresh manufactured a payload
+change and therefore another screenplay version.
+
+The producer moved into `them/ScreenplayBindingPayload.swift`. It preserves a
+prior record only when every mapping field matches; real changed mappings get
+the new timestamp. It emits empty optional strings in the backend's existing
+normalized form (backend/index.js normalizeStoredScreenplayBinding) so the
+server round trip does not manufacture a nil/empty-string difference. Strict
+queue/evidence comparisons remain intact. Screen shrinks19 lines; Bridge
+remains5 lines smaller. No new persistence system, framework or dependency.
+
+The inner dispatcher now clears a consumed pending intent before deciding
+whether to coalesce it; the outer wrapper cannot redispatch that same slot.
+An actual VM/HTTP regression asserts an identical pending manual intent causes
+only one request and leaves no queue row.
+
+Signed four-class focus before empty-string alignment: **67/0/0**. Current
+Evidence/Completion focus after the contract alignment: **31/0/0**. Current
+three-workflow recovery proof is running; source SHA identities are recorded
+in stable-binding-source-identities.json. No broad count is inherited by the
+new producer. Zora agreed with fixing the timestamp producer instead of
+weakening payload equality and remains frozen.
+
+## Full exact changed-file scope from published #976 base
+
+- TASKS.md
+- docs/required-writer-save-handoff-2026-10-28.md
+- them/ScreenplayBindingPayload.swift
+- them/ScreenplayDraftSaveEvidence.swift
+- them/ScreenplayDraftSaveOutbox.swift
+- them/ScreenplayLiveDraftBridge.swift
+- them/ScreenplayStudioScreen.swift
+- them/ScreenplayStudioViewModel.swift
+- themTests/ScreenplayDraftSaveEvidenceTests.swift
+- themTests/ScreenplayDraftSaveOutboxTests.swift
+- themTests/ScreenplayLiveDraftOriginTests.swift
+- themTests/ScreenplaySaveCompletionOwnershipTests.swift
+- themUITests/V1SmokeUITests.swift
+
+## Preserve queued metadata authority during hydration
+
+Producer-only recovery remained **2/1/0**, with the same real-auth duplicate
+assertion. The remaining root was earlier in restoration: queued text/base/
+origin were restored, but queued anchors/bindings were omitted; hydrateDraft
+then assigned old server metadata *before* applyServerDraft rejected the text
+overwrite. A refresh could therefore replace unresolved local metadata and
+force a new binding timestamp even with the stable producer.
+
+Queued text, anchors and bindings now restore together. Server metadata is
+adopted only after its exact project/version/raw draft was actually loaded
+and is clean. The protected-local case keeps the queued payload intact.
+A regression extends actual project hydration with queued annotations and
+bindings and asserts both survive the server conflict. Versionless projects
+explicitly clear old project metadata after their empty draft is accepted.
+
+The first edit assertion matched two source regions and made no source change;
+the shell nevertheless launched an unchanged-source focus. It is excluded
+from corrected proof. The process had already exited before the verified
+interrupt attempt, so no signal was sent. Subsequent commands use fail-fast
+execution and scope the patch to exact methods. The applied metadata focus
+passed; its raw summary is stored separately. Final broad signed checkpoint
+and final actual recovery remain pending on the final versionless guard.
+
+### Final broad native checkpoint and infrastructure interruption
+
+Final-metadata full signed units passed **1126/0/0** on the frozen SHA-identified
+source. The final recovery result bundle WhQfAa failed before XCTest initialized
+Accessibility: no requested workflow executed, one runner error, start/finish
+separated by approximately11 hours. No product timing claim or passing UI claim
+is derived from that interval. Simulator's actual native AX tree was readable
+afterward. One fresh run is active with a temporary keep-awake assertion bound
+to that process; no security settings or login credentials were changed.
+
+## Passive projections versus explicit writer intent
+
+The responsive current-source recovery still exposed one extra auth version.
+Its additional anchors were restored conversation-history projections (3 vs0),
+not changed screenplay words. Screen derives these from the separately
+persisted canonical history; bindings derive from the canonical outline and
+parsed page. Creating another screenplay version merely for those passive
+refreshes violates the existing exact-one writer-save contract.
+
+DECIDED implementation distinction, reviewed by Zora: strict full-metadata
+queue equality stays intact, and every explicit manual/snapshot/resolve/page
+write or nonempty-note request stays independent. Only an empty-note passive
+autosave may be absorbed after the SAME FLIGHT's fresh typed confirmation of
+identical owner/project/document/backend/base/title/phase/raw writer words.
+Only its exact passive ID is removed. No cached-project shortcut is restored.
+The existing ScreenplayConfirmedDraftSave object must be present; a bare
+version ID or incomplete legacy acknowledgement cannot authorize absorption.
+
+Acknowledgements now replace editor anchors/bindings only if those values
+still equal the submitted request. Newer restored projections remain in the
+editor. An actual held-request test proves this preservation, and another
+proves an explicit second Save with changed metadata still dispatches twice
+on the first acknowledgement's version. The peer now echoes the real
+immutable ID/project/draft/metadata contract instead of omitting those fields.
+Current focused signed checks: **57/0/0**. Actual recovery remains running.
+
+Not covered by this component proof: microphone/model quality, real phone,
+shipping endpoint, Release/TestFlight, production, all original stack merges,
+T1201 process-relaunch pin retirement, and explicit Load Server cleanup.
+Canonical projection persistence/regeneration remains covered by its existing
+source contracts; no new crash-durability claim for conversation history is
+made by these save tests.
+
+## Final current-source result and next action
+
+The typed-projection recovery bundle A0NSUM passes **3/0/0**, on the same source
+as focused **57/0/0**. It executes authenticated local backend writes and
+strict exact-one-version/auth-refresh/Keep Mine assertions; no retry loop or
+weakened cardinality assertion produced the result. All providers remain
+intercepted; no microphone, paid model quality, physical iPhone or shipping
+endpoint claim. Mac desktop scaffold build succeeds on this same source.
+
+`typed-projection-source-identities.json` and its post-UI check prove unchanged
+Swift files. D009 passes against locally recorded origin/main78b8c94; Screen
+shrinks19 lines and Bridge5 lines relative to the #976 base. `git diff --check`
+passes. Current backend, scripts and CI files are unchanged from the published
+base; their earlier results are not relabeled as new local runs.
+
+Next implementation: finish explicit Load Server retirement with exact owner/
+project/backend/document scope, preserving newer edits and late in-flight
+requests, using the preserved original #962 authority work as source. No broad
+removeAll or premature deletion. Then run the current required publication
+checkpoint and advance #976 normally only after the complete scoped workflow
+is ready; reconcile #977/T1200 and review/prove Zora's preserved T1201 separately.
+Main protections and the production hold remain intact.
+
+## Permanent private evidence archive
+
+- Path: `/Users/halfmutantfilms/io.them-worktrees/_proof/T-1202-save-recovery-20261028-pc9bm8ix`
+- Copied artifacts: 33537 files, 0 SHA-256 mismatches.
+- Manifest SHA-256: `1dead6d9edb27a1d1de42e5750209afb3992a3ed7303ca02ac1e9b431c0125fc`
+
+The archive contains the prior failures, runner initialization interruption,
+final focused/unit/UI summaries, macOS build log and frozen source identities.
+It is private local evidence, not staged or uploaded. Original temporary proof
+was preserved; nothing was deleted or overwritten.

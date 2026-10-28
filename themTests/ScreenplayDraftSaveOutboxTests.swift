@@ -6,7 +6,13 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
     func testProjectHydrationRestoresQueuedWriterBeforeRemoteDraft() async throws {
         let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
         let local = "\r\nWriter words cafe\u{0301}\r\n \t "
-        try await queue.enqueue(replacingOwner(of: makeEntry(id: "queued", draft: local), with: ScreenplayStudioAuthContext.current().userID))
+        let entry = replacingOwner(of: makeEntry(id: "queued", draft: local), with: ScreenplayStudioAuthContext.current().userID)
+        var queuedPayload = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(entry)) as? [String: Any])
+        queuedPayload["screenplayBindings"] = [["draftSceneId": "queued-scene", "outlineSceneId": "writer-outline", "updatedAt": 100]]
+        queuedPayload["studioWriteAnchors"] = [["writeId": "queued-writer-annotation", "anchorLine": 4]]
+        let queued = try JSONDecoder().decode(ScreenplayDraftSaveOutboxEntry.self,
+            from: JSONSerialization.data(withJSONObject: queuedPayload))
+        try await queue.enqueue(queued)
         let suite = "them.queued-hydration.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
@@ -21,6 +27,8 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
         XCTAssertEqual(Data(model.fountainDraft.utf8), Data(local.utf8))
         XCTAssertTrue(model.hasUnsavedDraftChanges)
         XCTAssertNotNil(model.conflictState)
+        XCTAssertEqual(model.screenplayBindings, queued.screenplayBindings, "Protected local words lost their queued binding metadata")
+        XCTAssertEqual(model.studioWriteAnchors, queued.studioWriteAnchors, "Server hydration replaced unresolved local annotations")
         let retained = try await queue.entriesForTesting()
         XCTAssertEqual(retained.map { Data($0.draft.utf8) }, [Data(local.utf8)])
     }
@@ -53,6 +61,29 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
         XCTAssertEqual(bridge.draftOrigin.documentID, origin)
         let kept = try await queue.entriesForTesting()
         XCTAssertEqual(kept.map(\.id), [entry.id])
+    }
+
+    @MainActor
+    func testVersionlessProjectHydrationClearsThePreviousProjectsMetadata() async throws {
+        let suite = "them.empty-project-metadata.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore:
+            ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "empty-project"),
+            draftSaveOutbox: ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory))
+        model.autosaveEnabled = false
+        model.selectedProjectID = "old-project"
+        model.applyServerDraft("Earlier saved words", versionId: "old-version")
+        model.screenplayBindings = [try JSONDecoder().decode(BackendScreenplayBindingRecord.self,
+            from: Data("{\"draftSceneId\":\"old-scene\"}".utf8))]
+        model.selectedProjectID = "new-versionless-project"
+        let project = try JSONDecoder().decode(BackendScreenplayProjectSummary.self,
+            from: Data("{\"id\":\"new-versionless-project\",\"title\":\"New\"}".utf8))
+        let applied = await model.hydrateDraftRestoringQueuedSaves(from: project)
+        XCTAssertTrue(applied)
+        XCTAssertTrue(model.fountainDraft.isEmpty)
+        XCTAssertTrue(model.screenplayBindings.isEmpty, "A new empty project inherited another project's binding metadata")
+        XCTAssertTrue(model.studioWriteAnchors.isEmpty)
     }
 
     @MainActor
@@ -205,6 +236,93 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
         }
         let rows = try await store.entriesForTesting()
         XCTAssertEqual(rows.count, changes.count + 1)
+    }
+
+    func testPassiveDeliveryKeepsTheExistingExplicitIntentAndRequestIdentifier() async throws {
+        let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        var payload = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(makeEntry(id: "explicit-save"))) as? [String: Any])
+        payload["source"] = "studio_manual"; payload["notes"] = "Writer checkpoint"
+        payload["deliveryOrigin"] = ["documentID": "exact-document", "backendURL": "https://save.test"]
+        let explicit = try JSONDecoder().decode(ScreenplayDraftSaveOutboxEntry.self,
+            from: JSONSerialization.data(withJSONObject: payload))
+        try await store.enqueue(explicit)
+        var passive = makeEntry(id: "passive-repeat"); passive.deliveryOrigin = explicit.deliveryOrigin
+        guard case .deliver(let delivery) = try await store.beginDelivery(passive) else {
+            return XCTFail("The pending explicit request was not claimed")
+        }
+        XCTAssertEqual(delivery.id, explicit.id)
+        XCTAssertEqual(delivery.source, "studio_manual")
+        XCTAssertEqual(delivery.notes, "Writer checkpoint")
+        XCTAssertEqual(delivery.status, .inflight)
+        let rows = try await store.entriesForTesting()
+        XCTAssertEqual(rows.count, 1, "Housekeeping manufactured a second explicit save")
+    }
+
+    func testJoiningAnInflightSaveDoesNotGrantASecondDelivery() async throws {
+        let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let entry = makeEntry(id: "claimed-once")
+        guard case .deliver = try await store.beginDelivery(entry) else { return XCTFail("First claim failed") }
+        guard case .alreadyInflight(let retained) = try await store.beginDelivery(entry) else {
+            return XCTFail("An already inflight request was granted a second delivery")
+        }
+        XCTAssertEqual(retained.id, entry.id)
+        let rows = try await store.entriesForTesting()
+        XCTAssertEqual(rows.count, 1)
+        XCTAssertEqual(rows.first?.status, .inflight)
+    }
+
+    func testDeliveryCannotReactivateAParkedRequest() async throws {
+        let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let entry = makeEntry(id: "needs-choice")
+        try await store.enqueue(entry)
+        try await store.markParked(id: entry.id, error: "Requires a writer choice")
+        guard case .parked(let retained) = try await store.beginDelivery(entry) else {
+            return XCTFail("A parked conflict was silently retried")
+        }
+        XCTAssertEqual(retained.id, entry.id)
+        let rows = try await store.entriesForTesting()
+        XCTAssertEqual(rows.map(\.status), [.parked])
+        XCTAssertEqual(rows.map(\.draft), [entry.draft])
+    }
+
+    func testPassiveAbsorptionRequiresTheFreshAcknowledgementsExactTargetAndBase() {
+        var passive = makeEntry(id: "passive-after-ack")
+        passive.deliveryOrigin = .init(documentID: "exact-document", backendURL: URL(string: "https://save.test")!)
+        let saved = passive
+        XCTAssertTrue(passive.isSatisfiedByAcknowledgement(of: saved, versionID: "fresh-ack"))
+        var projection = try! XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(passive)) as? [String: Any])
+        projection["screenplayBindings"] = [["draftSceneId": "restored-projection"]]
+        let projected = try! JSONDecoder().decode(ScreenplayDraftSaveOutboxEntry.self,
+            from: JSONSerialization.data(withJSONObject: projection))
+        XCTAssertFalse(projected.hasSameTarget(as: saved), "Queue equality must still preserve different metadata")
+        XCTAssertTrue(projected.isSatisfiedByAcknowledgement(of: saved, versionID: "fresh-ack"),
+            "Restoring derived metadata must not create another screenplay version after a fresh same-flight acknowledgement")
+        projection["source"] = "studio_snapshot"
+        let explicit = try! JSONDecoder().decode(ScreenplayDraftSaveOutboxEntry.self,
+            from: JSONSerialization.data(withJSONObject: projection))
+        XCTAssertFalse(explicit.isSatisfiedByAcknowledgement(of: saved, versionID: "fresh-ack"))
+        passive.baseVersionId = "fresh-ack"
+        XCTAssertTrue(passive.isSatisfiedByAcknowledgement(of: saved, versionID: "fresh-ack"))
+        passive.baseVersionId = "other-captured-base"
+        XCTAssertFalse(passive.isSatisfiedByAcknowledgement(of: saved, versionID: "fresh-ack"))
+        passive.baseVersionId = saved.baseVersionId
+        passive.deliveryOrigin = .init(documentID: "another-document", backendURL: URL(string: "https://save.test")!)
+        XCTAssertFalse(passive.isSatisfiedByAcknowledgement(of: saved, versionID: "fresh-ack"))
+        passive.deliveryOrigin = nil
+        XCTAssertFalse(passive.isSatisfiedByAcknowledgement(of: saved, versionID: "fresh-ack"))
+    }
+
+    func testFailureAbsorptionNeedsAnExactRowActuallyStoredOnDisk() async throws {
+        let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let entry = makeEntry(id: "durable-before-failure")
+        let absent = try await store.hasDurableTarget(id: entry.id, matching: entry)
+        XCTAssertFalse(absent)
+        try await store.enqueue(entry)
+        let present = try await store.hasDurableTarget(id: entry.id, matching: entry)
+        XCTAssertTrue(present)
+        let different = makeEntry(id: "different", draft: entry.draft + " ")
+        let mismatch = try await store.hasDurableTarget(id: entry.id, matching: different)
+        XCTAssertFalse(mismatch)
     }
 
     func testSnapshotCountsOnlyTheCurrentAccount() async throws {

@@ -87,16 +87,21 @@ nonisolated struct ScreenplayConfirmedDraftSave: Sendable {
     static func passiveAutosaveReadback(entry: ScreenplayDraftSaveOutboxEntry,
         response: BackendScreenplayVersionMutationResponse, responseURL: URL?,
         owner: ScreenplayStudioAuthContext, currentOwner: ScreenplayStudioAuthContext) -> Self? {
-        guard entry.source == "studio_autosave", entry.notes.isEmpty,
-              let project = response.project, project.id == entry.projectId,
-              project.title == entry.title,
-              let version = response.serverVersion,
-              response.serverVersionId == version.id, project.activeVersionId == version.id,
-              version.phase == entry.phase,
-              (version.studioWriteAnchors ?? []) == entry.studioWriteAnchors,
-              (version.screenplayBindings ?? []) == entry.screenplayBindings else { return nil }
+        guard let project = response.project, let version = response.serverVersion,
+              response.serverVersionId == version.id,
+              passiveAutosaveTargetMatches(entry: entry, project: project, version: version) else { return nil }
         return readback(entry: entry, version: version, projectID: response.projectId ?? "",
             responseURL: responseURL, owner: owner, currentOwner: currentOwner)
+    }
+
+    static func passiveAutosaveTargetMatches(entry: ScreenplayDraftSaveOutboxEntry,
+        project: BackendScreenplayProjectSummary, version: BackendScreenplayVersion) -> Bool {
+        entry.initialization == nil && entry.isPassiveAutosave &&
+            project.id == entry.projectId && project.title == entry.title &&
+            project.activeVersionId == version.id && version.projectId == entry.projectId &&
+            version.phase == entry.phase && version.draft?.utf8.elementsEqual(entry.draft.utf8) == true &&
+            (version.studioWriteAnchors ?? []) == entry.studioWriteAnchors &&
+            (version.screenplayBindings ?? []) == entry.screenplayBindings
     }
 
     static func initial(entry: ScreenplayDraftSaveOutboxEntry, version: BackendScreenplayVersion?,
