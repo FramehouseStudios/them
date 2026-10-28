@@ -2659,7 +2659,7 @@ struct ScreenplayFeatureWorkflowContextPersistencePolicy {
     ) -> Bool {
         let activeProjectID = normalizedIdentifier(projectID)
         guard !activeProjectID.isEmpty else { return false }
-        guard let current, !current.isEmpty else { return true }
+        guard let current, !current.isEmpty, current.planFacts != nil else { return true }
         guard isFreshForProjectFallback(current, now: now),
               projectScopedContext(current, matchesProjectID: activeProjectID) else {
             return true
