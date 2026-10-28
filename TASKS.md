@@ -5,6 +5,22 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1199 — Keep integrity actions readable on the narrow page
+
+- **Owner:** Codex (Jarvis), bounded source handoff preserved from Zora.
+- **Status:** in-progress on `codex/T-1199-integrity-banner-integration`,
+  base published36f07be (#976); original helper12014d0 preserved byfe1f68f.
+- **Root:** banner summary and four text actions shared one forced horizontal
+  row; labels compressed to vertical columns and pushed the page away.
+- **Fix:** existing ViewThatFits pattern, summary above actions, one/two rows
+  then column; same callbacks, colors and inspector IDs,44pt minimum targets.
+- **Binary:** actual narrow screenshot is readable, all four actions hittable,
+  nonoverlapping and contained; Review opens Draft inspector; underlying saved
+  bytes, relaunch and stale-reply custody still pass the existing A/B workflow.
+- **Proof:** native/UI pending; no provider calls, main/original-head mutation
+  or production changes. No unchanged full-unit/backend rerun for this view fix.
+- **Evidence:** `docs/T1199-integrity-banner-layout-handoff.md`.
+
 ### T-1187 — Fence Studio publication and settle the original render
 
 - **Owner:** Codex (Jarvis). **Status:** review on
