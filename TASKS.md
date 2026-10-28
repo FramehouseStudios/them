@@ -17,11 +17,11 @@
 - **Binary:** releasing A success/conflict/failure after selection B cannot
   change B's selected project, exact text, base or recovery. A acknowledges its
   own queue; pending A uses A's acknowledged base; pending B retains B's base.
-- **Status:** local implementation for integration review. Native tests UNRUN
-  by assignment; Jarvis owns all Xcode/simulator resources. Static checks and
-  exact scope are recorded in `docs/save-completion-owner-2026-10-27.md`.
-- **Next:** Jarvis integrates the scoped commit into T1182 and runs the six
-  held-response cases plus the appropriate signed checkpoint. Main, original
+- **Status:** integrated with original commits400e1927/312a0d08 preserved in
+  merge f642023. Signed full native checkpoint VERIFIED979/0/0, including six
+  held-save cases; local VM/HTTP/storage proof, not authenticated live-phone
+  proof. Details: `docs/save-completion-owner-2026-10-27.md`.
+- **Next:** finish T1182 delivery/settlement on the combined tree. Main, original
   PR heads, production, credentials and provider calls remain untouched.
 
 ### T-1182 — Keep accepted live replies with their initiating writer
@@ -79,7 +79,20 @@
   passes versus T1181 parent: Root14930 unchanged, bridge12784→12781.
   No unchanged broad reruns. Typed/render routing, recovery finish modes and
   normal receipt settlement remain pending; this is not ready for deployment.
-- **Next insertion contract:** preserve real-time reveal through explicit v4
+- **Combined/final checkpoint:** Zora commits400e1927/312a0d08 preserved in
+  mergef642023; signed full units VERIFIED979/0/0. Subsequent review found and
+  fixed held fallback writing after Stop and missing ownership falling into
+  legacy nil-context insertion. First focus30/1/0 was an unwaited no-write
+  fixture expectation; corrected final focus VERIFIED42/0/0. Authenticated
+  local raw-audio/page/save/exact-relaunch UI1/0/0 and Stop UI1/0/0; Stop cancels
+  actual Page reservation with HTTP200/dropped1. Mac scaffold build exit0.
+  Synthetic provider responses only, no paid calls. D009 Root14930→14919,
+  bridge12784→12774; diff pass. Backend/scripts unchanged, prior2996/0/5 inherited.
+  Full979 precedes the final focused fixes; no final full-unit rerun claimed.
+  Final runtimebe05f16; permanent `_proof/T-1182-client-native-20261027-g6og7pmv`
+  has6480 hashed files/zero mismatches and17 committed Swift matches. Native
+  jobs terminal; exact temporary dependency link removed, its target preserved.
+- **Connected insertion contract:** preserve real-time reveal through explicit v4
   live mutation intent in the existing admitted blob before native prepare,
   including exact before/range/insertion/after/document. Bind it atomically to
   completed response and enriched metadata receipts. Keep old append recovery

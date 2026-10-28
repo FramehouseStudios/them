@@ -83,6 +83,95 @@ incompatible pending request cannot publish a SwiftUI update storm.
 Full units/UI/macOS remain a coherent integration checkpoint after these
 changed boundaries, rather than repeated unchanged gates.
 
+Preserving integration merge `f642023` passed signed full units **979/0/0**
+on the erased task-owned simulator, including Zora's six held-save cases.
+That is the intermediate checkpoint before the following review fixes.
+
+Zora's bounded source review then established two real gaps: Stop did not
+revoke a queued standard live fallback during its held disk write, and
+anonymous transport identity could fail document staging then silently reach
+the legacy nil-context insertion path. Cancellation now revokes pending live
+standard insertion while preserving its held intention. A live-context
+requirement follows Root's preparation through playback and native clones;
+missing evidence fails closed instead of downgrading to legacy. Related
+reveal/render value types remain in the same extracted insertion contract.
+The first follow-up `stop-required-context.xcresult` ran **30/1/0**: the
+missing-context case correctly performed no write but left its intentionally
+unused `native stored` XCTest expectation unwaited. That expectation is now
+inverted and waited alongside the no-write signal; no assertion was removed.
+Corrected `stop-context-corrected.xcresult` passed **42/0/0**, including the
+six save cases, pending-origin check, held native fallback Stop, missing native
+context and mismatched-owner plan rejection. A pending document capture now also ends
+thinking, reports an actionable page/account transition and resumes the mic,
+instead of silently returning with the voice turn stuck. Its existing pure
+prompt-detail helper moved to the confirmed-turn preparation owner.
+
+The exact final runtime also passed authenticated local UI:
+
+| Artifact | Pass / fail / skip | What it establishes |
+| --- | --- | --- |
+| `live-client-writer.xcresult` | 1/0/0 | Raw audio reaches intercepted server ASR, formatted page appears, save and exact relaunch |
+| `live-client-stop.xcresult` | 1/0/0 | Actual Studio Stop ends capture and cancels the authenticated Page reservation |
+| `live-client-macos.log` | build exit0 | macOS scaffold compiles; no signed release or interactive macOS claim |
+
+Each UI run used signing on and an erased task-owned simulator, real local
+authentication with REQUIRE_USER_AUTH=1, synthetic funds and intercepted
+provider responses. Each observed STT1/chat2/TTS23; **zero paid model calls**.
+Stop observed HTTP200, cancelled=true, dropped1, byReservation=true.
+D009 passes against the T1181 parent: Root14930→14919, bridge12784→12774;
+other protected files do not grow. Diff check passes.
+
+Backend/scripts are byte-unchanged from published18d27c3. The earlier Node20
+full result2996/0/5 is inherited, not a new backend run. Full units979/0/0 belong
+to intermediate mergef642023; the later42 focused and two UI cases cover the
+final review fixes. Do not present these as a new final full-unit run.
+
+Final runtime commit: `be05f16e43aa0de450b003ef8c10baa515cf3e77`.
+Permanent local evidence:
+`/Users/halfmutantfilms/io.them-worktrees/_proof/T-1182-client-native-20261027-g6og7pmv`.
+VERIFIED6480 files hashed, zero mismatches; all17 changed Swift files match
+that committed runtime. Manifest SHA256:
+`284546fbcc62b688684a913444928d9796f19dfeedc44d53128bf535ee10ace0`.
+All native/backend helper jobs are terminal; only the exact task-created
+dependency link was removed, with its target preserved. The evidence source
+snapshot precedes this final publication metadata; runtime bytes are identical.
+
+## End-of-session report
+
+1. **Completed:** live-client accepted-response custody connected; native
+   before-write intention connected and checked; preserving T1183 integration
+   proves stale save ownership; held Stop and missing-context gaps fixed.
+   T1182 and the product goal remain incomplete.
+2. **Files changed:** `them/BackendClient.swift`,
+   `them/BackendTalkStreamingTransport.swift`, `them/OfflineTalkOutbox.swift`,
+   `them/OfflineTalkPageDelivery.swift`, `them/OfflineTalkRecovery.swift`,
+   `them/ConfirmedStudioTurnPreparation.swift`, `them/RootExperienceView.swift`,
+   `them/ScreenplayLiveDraftBridge.swift`, `them/ScreenplayInsertionContract.swift`,
+   `them/ScreenplayLiveTalkPageContext.swift`, `them/ScreenplayStudioViewModel.swift`,
+   `themTests/BackendTalkLiveCustodyTests.swift`,
+   `themTests/OfflineTalkLiveCustodyTests.swift`,
+   `themTests/OfflineTalkLivePageIntentTests.swift`,
+   `themTests/ScreenplayLiveDraftOriginTests.swift`,
+   `themTests/ScreenplayLivePageMutationGateTests.swift`,
+   `themTests/ScreenplaySaveCompletionOwnershipTests.swift`, `TASKS.md`,
+   this report and `docs/save-completion-owner-2026-10-27.md`.
+3. **Root issues fixed:** acceptance/cancellation/decode ordering; one immutable
+   request through auth retry; original-owner metadata reads; early native
+   mutation before durable intention; stale project save publication; queued
+   fallback after Stop; missing ownership silently using legacy insertion;
+   generated isolated deallocation crashes; unavailable target leaving voice
+   thinking. The two fixture failures are recorded above, not hidden.
+4. **Verification:** exact scopes/counts/failures are above. Physical microphone,
+   natural voice/model quality, shipping backend and production remain unproven.
+5. **GitHub status:** scoped T1182 backup only. Original heads and helper commits
+   are preserved; no replacement PR, main merge, force push or deployment.
+6. **Next active task:** complete real delivery settlement and distinct live
+   mutation recovery. Existing append-oriented recovery must not be represented
+   as completed replacement recovery. Bind unbound promotion to the existing
+   first-project receipt; finish typed/render ownership afterward.
+7. **Continue status:** READY FOR CONTINUE. No new human action is required for
+   this local work. Production hold and independent review remain in force.
+
 ## Remaining live contract
 
 Root voice publication and before-mutation intent now have a source connection;

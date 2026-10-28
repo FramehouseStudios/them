@@ -39,7 +39,14 @@ acknowledge a paid live reply merely because this method returned a version ID.
 
 ## Verification boundaries
 
-- Native tests **UNRUN**: this helper was explicitly denied Xcode/simulator
+Jarvis integration update: original commits `400e1927` and `312a0d08` are
+preserved in merge `f642023` on the T1182 lane. Signed full iOS units on the
+erased owned simulator passed **979/0/0**, including all six held-save cases.
+This is local VM/transport/store proof with a generated anonymous transport
+identity; it is not authenticated-access, production or physical-phone proof.
+Later Stop/context-requirement changes are undergoing separate focused proof.
+
+- At helper handoff, native tests were **UNRUN**: the helper was explicitly denied Xcode/simulator
   resources; no compile or runtime pass is claimed.
 - Six new tests exercise the real VM -> BackendMemoryAPI -> URLSession ->
   draft-outbox path with a held version response: A success/conflict/failure
