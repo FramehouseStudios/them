@@ -5,24 +5,35 @@ import Combine
 final class OfflineTalkPageRecoveryController: ObservableObject {
     @Published var entries: [OfflineTalkOutboxEntry] = []
     @Published var scope: OfflineTalkRecoveryScope?
+    @Published private(set) var hasLoadedCurrentScope = false
+    @Published private(set) var loadError = ""
     private let vm: ScreenplayStudioViewModel
     private let bridge = ScreenplayLiveDraftBridge.shared
+    private let outbox: OfflineTalkOutbox
     private var applying = false
+    private var refreshGeneration = 0
 
-    init(vm: ScreenplayStudioViewModel) { self.vm = vm }
+    init(vm: ScreenplayStudioViewModel, outbox: OfflineTalkOutbox = .shared) { self.vm = vm; self.outbox = outbox }
 
     func refresh() async {
+        refreshGeneration += 1
+        let generation = refreshGeneration
         let owner = BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: false)
         let url = BackendAuthClient.resolvedBackendBaseURL()
         let expected = OfflineTalkRecoveryScope(identity: owner, backendURL: url)
         guard expected.isCurrent else { return }
-        if scope != expected { scope = expected; entries = [] }
+        if scope != expected { scope = expected; entries = []; hasLoadedCurrentScope = false; loadError = "" }
         do {
-            let state = try await OfflineTalkOutbox.shared.recoveryState(initiatingIdentity: owner, backendURL: url)
-            guard expected.isCurrent else { return }
+            let state = try await outbox.recoveryState(initiatingIdentity: owner, backendURL: url)
+            guard expected.isCurrent, generation == refreshGeneration else { return }
             let received = state.entries.filter { $0.receivedReply == true }
             if entries != received { entries = received }
-        } catch { if expected.isCurrent { entries = [] } }
+            hasLoadedCurrentScope = true
+            loadError = ""
+        } catch {
+            guard expected.isCurrent, generation == refreshGeneration else { return }
+            loadError = "Your kept replies could not be opened. Try again, or review the recovery copies in Data Controls."
+        }
     }
 
     func appendAndSave(_ packet: OfflineTalkReceivedReply, result: BackendTalkResult) async throws -> String {
@@ -36,6 +47,7 @@ final class OfflineTalkPageRecoveryController: ObservableObject {
             guard scope.isCurrent, !project.isEmpty, vm.selectedProjectID == project,
                   bridge.preferredProjectID == project, vm.selectedProject?.id == project,
                   document == nil || bridge.draftOrigin.documentID == document,
+                  ScreenplayLiveDraftSyncService.shared.ownsEditor(vm),
                   !vm.isLoading, vm.conflictState == nil, !bridge.isStreamingDraftPreviewActive else {
                 throw BackendError.stage("offline_outbox", "Open the intended project and resolve any conflict before recovering this scene.")
             }
@@ -44,27 +56,49 @@ final class OfflineTalkPageRecoveryController: ObservableObject {
         guard let output = result.screenplayOutput, output.writesToPage,
               result.renderContract.authoritativePageTextAvailable else { throw BackendMemoryAPIError.invalidResponse }
         let sourceProject = result.screenplayTrace.projectId ?? ""
-        guard sourceProject.isEmpty || sourceProject == project else {
+        let livePlan = packet.pageDelivery.flatMap { $0.liveMutation == nil ? nil : $0 }
+        let isLive = livePlan != nil
+        guard isLive || sourceProject.isEmpty || sourceProject == project else {
             throw BackendError.stage("offline_outbox", "This reply belongs to another project. Open that project to recover it.")
         }
         guard bridge.draftText.utf8.elementsEqual(before.utf8) else {
             throw BackendError.stage("offline_outbox", "The editor is still synchronizing. Your reply is kept; try again after it finishes.")
         }
         let range = NSRange(location: (before as NSString).length, length: 0)
-        let core = screenplayEditorPreparedInsertionCoreText(output.text, existing: before, insertionRange: range, replacementTarget: nil)
-        let after = before + screenplayEditorInsertionText(for: core, existing: before, selection: range)
-        let plan = try await OfflineTalkOutbox.shared.preparePageDelivery(packet.entry.id, receiptID: packet.response.id,
+        let core = livePlan?.liveMutation?.insertion.trimmingCharacters(in: .whitespacesAndNewlines)
+            ?? screenplayEditorPreparedInsertionCoreText(output.text, existing: before, insertionRange: range, replacementTarget: nil)
+        let after = livePlan?.afterDraft ?? before + screenplayEditorInsertionText(for: core, existing: before, selection: range)
+        let plan = try await outbox.preparePageDelivery(packet.entry.id, receiptID: packet.response.id,
             projectID: project, documentID: document, beforeDraft: before, afterDraft: after,
             initiatingIdentity: owner, backendURL: scope.backendURL)
         try requireTarget()
+        let fresh = try await outbox.receivedReply(packet.entry.id, initiatingIdentity: owner, backendURL: scope.backendURL)
+        try requireTarget()
+        guard (plan.liveMutation != nil) == isLive,
+              fresh.pageDelivery?.id == plan.id,
+              livePlan == nil || livePlan?.id == plan.id else {
+            throw BackendError.stage("offline_outbox", "This reply's recovery action changed. Close and reopen its review before changing the page. Your copy is kept.")
+        }
+        guard bridge.draftText.utf8.elementsEqual(vm.fountainDraft.utf8) else {
+            throw BackendError.stage("offline_outbox", "The editor is still synchronizing. Your reply is kept; try again after it finishes.")
+        }
+        let disposition = isLive ? try plan.liveRecoveryDisposition(project: project, document: bridge.draftOrigin.documentID,
+            draft: vm.fountainDraft, saved: fresh.savedPage) : nil
+        if disposition == .finishConfirmedSave {
+            try await outbox.acknowledgeReceivedReply(packet.entry.id, receiptID: fresh.response.id,
+                initiatingIdentity: owner, backendURL: scope.backendURL, deliveryPlanID: plan.id)
+            await refresh()
+            return "Original page change saved."
+        }
         var inserted = false
-        if plan.permitsInsertion(project: project, document: bridge.draftOrigin.documentID, draft: bridge.draftText),
+        if disposition != .saveCurrentPage, plan.permitsInsertion(project: project, document: bridge.draftOrigin.documentID, draft: bridge.draftText),
            vm.fountainDraft.utf8.elementsEqual(plan.beforeDraft.utf8) {
-            let start = plan.beforeDraft.components(separatedBy: "\n").count
+            let start = plan.liveMutationLineRange?.start ?? plan.beforeDraft.components(separatedBy: "\n").count
+            let end = plan.liveMutationLineRange?.end ?? plan.afterDraft.components(separatedBy: "\n").count
             let write = ScreenplayCommittedWrite(id: plan.id, writeID: plan.id.uuidString.lowercased(),
                 projectID: project, versionID: vm.latestVersionID, previousDraft: plan.beforeDraft,
-                committedDraft: plan.afterDraft, insertedText: core, replacementApplied: false,
-                replacedWriteID: nil, startLine: start, endLine: plan.afterDraft.components(separatedBy: "\n").count,
+                committedDraft: plan.afterDraft, insertedText: core, replacementApplied: (plan.liveMutation?.length ?? 0) > 0,
+                replacedWriteID: nil, startLine: start, endLine: end,
                 committedAt: Date(), authContext: owner.ownerContext)
             bridge.cancelStream()
             bridge.draftText = plan.afterDraft
@@ -91,13 +125,31 @@ final class OfflineTalkPageRecoveryController: ObservableObject {
         let saved = try await api.fetchScreenplayProject(projectId: project, includeDrafts: true, versionLimit: 32, initiatingIdentity: owner)
         try requireTarget()
         guard saved.payload.project?.id == project,
-              saved.payload.project?.versions?.contains(where: { ($0.draft ?? "").utf8.elementsEqual(plan.afterDraft.utf8) }) == true else {
+              let version = saved.payload.project?.versions?.first(where: { ($0.draft ?? "").utf8.elementsEqual(plan.afterDraft.utf8) }) else {
             throw BackendError.stage("offline_outbox", "The scene is kept locally, but its saved version is not confirmed. Finish recovery after saving; it will not append a second copy.")
         }
-        try await OfflineTalkOutbox.shared.acknowledgeReceivedReply(packet.entry.id, receiptID: packet.response.id,
+        if isLive {
+            guard let proof = ScreenplayConfirmedDraftSave.readback(entry: recoverySaveEntry(plan, owner: owner, backendURL: scope.backendURL),
+                version: version, projectID: project, responseURL: saved.responseURL, owner: owner.ownerContext,
+                currentOwner: BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: false).ownerContext) else {
+                throw BackendError.stage("offline_outbox", "The original page change is kept, but its exact saved version could not be verified. Review it before finishing recovery.")
+            }
+            _ = try await outbox.recordConfirmedPageSave(proof)
+            try requireTarget()
+        }
+        try await outbox.acknowledgeReceivedReply(packet.entry.id, receiptID: fresh.response.id,
             initiatingIdentity: owner, backendURL: scope.backendURL, deliveryPlanID: plan.id)
         await refresh()
-        return "Recovered scene saved."
+        return isLive ? "Original page change saved." : "Recovered scene saved."
+    }
+
+    private func recoverySaveEntry(_ plan: OfflineTalkPageDeliveryPlan, owner: BackendAuthRequestIdentity,
+                                   backendURL: URL) -> ScreenplayDraftSaveOutboxEntry {
+        .init(id: plan.id.uuidString.lowercased(), projectId: plan.projectID, ownerUserId: owner.userID,
+            draft: plan.afterDraft, title: "", phase: "scene_draft", notes: "", source: "studio_recovered_live_page",
+            studioWriteAnchors: [], screenplayBindings: [], baseVersionId: "", createdAt: 0, updatedAt: 0,
+            status: .parked, retries: 0, nextAttemptAt: 0, lastError: "",
+            deliveryOrigin: plan.documentID.map { .init(documentID: $0, backendURL: backendURL) })
     }
 }
 
@@ -114,10 +166,21 @@ struct OfflineTalkPageRecoveryPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            #if DEBUG
+            if IOThemRuntime.isRunningUITests {
+                Text(controller.hasLoadedCurrentScope && controller.loadError.isEmpty ? "\(controller.entries.count)" : "loading")
+                    .font(.caption).accessibilityIdentifier("studio.recovery.received-count")
+            }
+            #endif
+            if !controller.loadError.isEmpty {
+                Text(controller.loadError).font(.caption).foregroundStyle(.secondary)
+                Button("Try again") { Task { await controller.refresh() } }
+                    .accessibilityIdentifier("studio.recovery.retry")
+            }
             if !controller.entries.isEmpty {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Received replies").font(.headline)
-                    Text("Review a reply, then append its scene to this project. Existing words will stay intact.")
+                    Text("Review kept replies and finish their original page change or save.")
                         .font(.caption).foregroundStyle(.secondary)
                     ForEach(controller.entries) { entry in
                         Button("Review received reply") {

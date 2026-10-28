@@ -2364,6 +2364,11 @@ final class BackendClient {
         BackendDefaultBaseURLPolicy.currentFallbackBaseURL
     }
 
+    // No teardown touches UI/actor state. Explicit stateless destruction avoids
+    // the generated executor-hopping deallocator crashing when an old Studio
+    // model releases its client (covered by the obsolete-editor regression).
+    nonisolated deinit {}
+
     init(
         baseURL: URL = BackendClient.resolveURL(
             fromEnv: "BACKEND_URL",
@@ -4866,7 +4871,8 @@ final class BackendClient {
             }
             result.liveDeliveryReceipt = .init(receipt: .init(entryID: packet.entry.id,
                 responseID: packet.response.id, bodyOmitted: packet.response.bodyOmitted),
-                request: .init(admission: admission, owner: owner.ownerContext, backendURL: baseURL))
+                request: .init(admission: admission, owner: owner.ownerContext, backendURL: baseURL),
+                requiresPageSave: result.screenplayOutput?.writesToPage == true)
             result.turnMetaRateLimitNotice = metadataRateLimitNotice
             return result
         } catch {

@@ -486,6 +486,19 @@ final class V1SmokeUITests: XCTestCase {
         let projects = listed.payload["screenplay_projects"] as? [[String: Any]] ?? []
         XCTAssertEqual(projects.count, 1, "Commit and binding publications must not create duplicate projects.")
         XCTAssertEqual(stringValue(projects.first?["id"]), projectID)
+        // Read the real kept-reply controller after it has loaded its current
+        // scope. Save alone/first audio alone must not manufacture completion.
+        let deliveryDrawer = element(identifier: "studio.sidebar.right.drawer", in: app)
+        if !deliveryDrawer.exists { app.buttons["studio.sidebar.right.toggle"].tap() }
+        XCTAssertTrue(deliveryDrawer.waitForExistence(timeout: 8))
+        let draftTab = app.buttons["studio.right-panel.draft"]
+        XCTAssertTrue(waitForHittability(of: draftTab, timeout: 5)); draftTab.tap()
+        let receiptCount = app.staticTexts["studio.recovery.received-count"]
+        XCTAssertTrue(revealInStudioDrawer(receiptCount, drawer: deliveryDrawer, scrollingUp: true, maxSwipes: 10))
+        XCTAssertTrue(receiptCount.waitForExistence(timeout: 10))
+        let delivered = NSPredicate(format: "label == %@", "0")
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: delivered, object: receiptCount)], timeout: 20), .completed,
+            "A fully played and saved page remained held: \(receiptCount.label)")
         app.terminate()
         environment.removeValue(forKey: "THEM_UITEST_HOME_VOICE_PROMPT")
         environment.removeValue(forKey: "THEM_UITEST_HOME_VOICE_RAW_AUDIO")
@@ -1005,7 +1018,7 @@ final class V1SmokeUITests: XCTestCase {
         let final = try await writerLoopProject(id: projectID, fixture: fixture)
         let versions = final["versions"] as? [[String: Any]] ?? []
         XCTAssertEqual(versions.count, 2, "The original and explicitly saved edit must each be stored once.")
-        XCTAssertEqual(versions.filter { Data(stringValue($0["draft"]).utf8) == Data(newer.utf8) }.count, 1)
+        XCTAssertEqual(versions.filter { Data((($0["draft"] as? String) ?? "").utf8) == Data(newer.utf8) }.count, 1)
 #else
         throw XCTSkip("This is an iPhone crash/relaunch workflow.")
 #endif
@@ -2239,6 +2252,16 @@ final class V1SmokeUITests: XCTestCase {
 
     @MainActor
     func test_queued_talk_reply_plays_appends_saves_and_restores_once() async throws {
+        try await assertKeptTalkPageRecovery(liveReplacement: false)
+    }
+
+    @MainActor
+    func test_live_talk_replacement_recovers_saves_and_restores_once() async throws {
+        try await assertKeptTalkPageRecovery(liveReplacement: true)
+    }
+
+    @MainActor
+    private func assertKeptTalkPageRecovery(liveReplacement: Bool) async throws {
         guard let port = Int(ProcessInfo.processInfo.environment["THEM_UITEST_WRITER_LOOP_BACKEND_PORT"] ?? "") else {
             throw XCTSkip("Task-owned authenticated backend required; no injected success")
         }
@@ -2248,12 +2271,14 @@ final class V1SmokeUITests: XCTestCase {
         let created = try await requestJSON(baseURL: base, path: "/screenplay/projects", method: "POST",
             headers: fixture.authorizedHeaders, body: ["project_id": projectID, "title": "Keep my original words", "activate": true])
         try assertHTTP(created, context: "Recovery project")
-        let before = "INT. CONTROL ROOM - NIGHT\n\nMARA\nKeep my original words."
+        let before = liveReplacement
+            ? "INT. CONTROL ROOM - NIGHT\r\n\r\nKeep my cafe\u{0301} before.  \r\nOLD LINE TO REPLACE\r\nKeep my exact after.\t \r\n"
+            : "INT. CONTROL ROOM - NIGHT\n\nMARA\nKeep my original words."
         let saved = try await requestJSON(baseURL: base, path: "/screenplay/projects/\(projectID)/version", method: "POST",
             headers: fixture.authorizedHeaders, body: ["draft": before, "phase": "scene_draft", "base_version_id": ""])
         try assertHTTP(saved, context: "Recovery baseline")
         let version = try firstNonEmptyString(saved.payload["version_id"], saved.payload["server_version_id"], message: "Baseline version missing")
-        var app = launchApp(openStudio: true, receiveTalkPage: true, restoreProjectID: projectID,
+        var app = launchApp(openStudio: true, receiveTalkPage: true, receiveLiveTalkReplacement: liveReplacement, restoreProjectID: projectID,
             restoreVersionID: version, restoreLoadToken: Int(Date().timeIntervalSince1970), launchEnvironment: fixture.appLaunchEnvironment)
         defer { app.terminate() }
         XCTAssertTrue(waitForExactWriterLoopDraft(before, in: app, timeout: 25))
@@ -2273,7 +2298,10 @@ final class V1SmokeUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["talk.recovery.reply.text"].waitForExistence(timeout: 10))
         XCTAssertTrue(app.staticTexts["talk.recovery.reply.text"].label.contains("HOME VOICE HANDOFF"))
         let receivedScene = app.staticTexts["talk.recovery.reply.text"].label
-        let expectedDraft = before + "\n\n" + receivedScene.trimmingCharacters(in: .whitespacesAndNewlines)
+        let expectedDraft = liveReplacement
+            ? (before as NSString).replacingCharacters(in: (before as NSString).range(of: "OLD LINE TO REPLACE"),
+                with: receivedScene.trimmingCharacters(in: .whitespacesAndNewlines))
+            : before + "\n\n" + receivedScene.trimmingCharacters(in: .whitespacesAndNewlines)
         let play = app.buttons["talk.recovery.reply.play"]
         XCTAssertTrue(play.waitForExistence(timeout: 5)); play.tap()
         let playing = NSPredicate(format: "label == %@", "Stop playback")
@@ -2282,9 +2310,11 @@ final class V1SmokeUITests: XCTestCase {
         XCTAssertEqual(play.label, "Play reply")
         let append = app.buttons["talk.recovery.reply.append"]
         if !append.isHittable { app.swipeUp() }
-        XCTAssertTrue(waitForHittability(of: append, timeout: 5)); append.tap()
+        XCTAssertTrue(waitForHittability(of: append, timeout: 5))
+        if liveReplacement { XCTAssertEqual(append.label, "Recover original page change") }
+        append.tap()
         let status = app.staticTexts["talk.recovery.reply.status"]
-        let delivered = NSPredicate(format: "label == %@", "Recovered scene saved.")
+        let delivered = NSPredicate(format: "label == %@", liveReplacement ? "Original page change saved." : "Recovered scene saved.")
         XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: delivered, object: status)], timeout: 35), .completed,
             "Recovery did not confirm the saved version: \(status.label)")
         app.buttons["Close"].tap()
@@ -2294,12 +2324,16 @@ final class V1SmokeUITests: XCTestCase {
         XCTAssertTrue(waitForTextInputValue(in: editor, containing: "Someone on the other side pulls back.", timeout: 10))
         let draft = editor.value as? String ?? ""
         XCTAssertEqual(Data(draft.utf8), Data(expectedDraft.utf8), "The full native page must match the reviewed result, not the 1,000-character debug preview")
-        XCTAssertTrue(draft.utf8.starts(with: before.utf8), "Recovery changed existing writer bytes")
+        if liveReplacement {
+            XCTAssertFalse(draft.contains("OLD LINE TO REPLACE"))
+            XCTAssertTrue(draft.contains("Keep my cafe\u{0301} before.  \r\n"))
+            XCTAssertTrue(draft.hasSuffix("\r\nKeep my exact after.\t \r\n"))
+        } else { XCTAssertTrue(draft.utf8.starts(with: before.utf8), "Recovery changed existing writer bytes") }
         XCTAssertEqual(occurrenceCount(of: "HOME VOICE HANDOFF", in: draft), 1)
         let project = try await writerLoopProject(id: projectID, fixture: fixture)
         let versions = project["versions"] as? [[String: Any]] ?? []
-        XCTAssertEqual(versions.filter { stringValue($0["draft"]).utf8.elementsEqual(draft.utf8) }.count, 1,
-            "One append created multiple saved versions")
+        XCTAssertEqual(versions.filter { (($0["draft"] as? String) ?? "").utf8.elementsEqual(draft.utf8) }.count, 1,
+            "One recovered change must create exactly one exact saved version")
         app.terminate()
         app = launchApp(openStudio: true, resetState: false, launchEnvironment: fixture.appLaunchEnvironment)
         let restoredEditor = textInput("studio.draft.editor", in: app)
@@ -3868,6 +3902,7 @@ final class V1SmokeUITests: XCTestCase {
         interruptTalkEnqueue: Bool = false,
         receiveTalkReply: Bool = false,
         receiveTalkPage: Bool = false,
+        receiveLiveTalkReplacement: Bool = false,
         conflictSaveSuccess: Bool = false,
         liveMemory: Bool = false,
         showPendingScreenplayQuestion: Bool = false,
@@ -3948,7 +3983,8 @@ final class V1SmokeUITests: XCTestCase {
         }
         if interruptTalkEnqueue { arguments.append("--ui-talk-interrupted-enqueue-fixture") }
         if receiveTalkReply { arguments.append("--ui-talk-received-reply-fixture") }
-        if receiveTalkPage { arguments.append("--ui-talk-page-recovery-fixture") }
+        if receiveTalkPage || receiveLiveTalkReplacement { arguments.append("--ui-talk-page-recovery-fixture") }
+        if receiveLiveTalkReplacement { arguments.append("--ui-talk-live-page-replacement-fixture") }
         if conflictSaveSuccess {
             arguments.append("--ui-conflict-save-success")
         }

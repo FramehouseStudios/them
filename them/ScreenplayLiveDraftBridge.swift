@@ -2924,7 +2924,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         let owner = ScreenplayStudioAuthContext.current()
         guard !isReconcilingAccountStorage, storageOwnerUserID == owner.userID,
               draftOrigin.projectID == committedWriteProjectIDSnapshot() else { return nil }
-        persistDraftOriginForCurrentContext()
+        if draftOrigin.documentID == nil { persistDraftOriginForCurrentContext() }
         guard let documentID = draftOrigin.documentID else { return nil }
         return .init(owner: owner, projectID: draftOrigin.projectID, documentID: documentID)
     }

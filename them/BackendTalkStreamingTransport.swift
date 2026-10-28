@@ -31,8 +31,17 @@ nonisolated struct BackendTalkLiveRequestContext: Sendable, Equatable {
 nonisolated struct BackendTalkLiveDeliveryReceipt: Sendable, Equatable {
     let receipt: OfflineTalkLiveReceipt
     let request: BackendTalkLiveRequestContext
+    let requiresPageSave: Bool
     var owner: ScreenplayStudioAuthContext { request.owner }
     var backendURL: URL { request.backendURL }
+
+    @MainActor func confirmFinishedPlayback(outbox: OfflineTalkOutbox = .shared) async {
+        let current = BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: false)
+        guard ScreenplayStudioAuthContextPolicy.matches(expected: owner, current: current.ownerContext) else { return }
+        // Delivery failure keeps the original blob. It never regenerates or
+        // changes an unrelated screen's status from a late playback callback.
+        _ = try? await outbox.recordFinishedLivePlayback(self, owner: current)
+    }
 }
 
 /// The existing live /talk streaming transport, isolated from request/auth/recovery policy.

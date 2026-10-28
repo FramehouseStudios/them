@@ -35,6 +35,7 @@ nonisolated struct ScreenplayDraftSaveOutboxEntry: Identifiable, Codable, Equata
     var nextAttemptAt: TimeInterval
     var lastError: String
     var initialization: ScreenplayInitialProjectMetadata? = nil
+    var deliveryOrigin: ScreenplayDraftSaveOrigin? = nil
 }
 
 nonisolated struct ScreenplayDraftSaveOutboxSnapshot: Equatable {
@@ -134,6 +135,7 @@ actor ScreenplayDraftSaveOutbox {
         if let index = entries.firstIndex(where: { $0.id == entry.id }) {
             guard entries[index].projectId == entry.projectId,
                   entries[index].ownerUserId == entry.ownerUserId,
+                  entries[index].deliveryOrigin == entry.deliveryOrigin,
                   entries[index].draft.utf8.elementsEqual(entry.draft.utf8) else {
                 throw BackendMemoryAPIError.server(status: 409, message: "screenplay_save_id_reused")
             }
@@ -144,6 +146,7 @@ actor ScreenplayDraftSaveOutbox {
         if entries.contains(where: { existing in
             existing.projectId == entry.projectId &&
                 existing.ownerUserId == entry.ownerUserId &&
+                existing.deliveryOrigin == entry.deliveryOrigin &&
                 existing.status != .parked &&
                 existing.baseVersionId == entry.baseVersionId &&
                 existing.draft.utf8.elementsEqual(entry.draft.utf8)
@@ -217,10 +220,12 @@ actor ScreenplayDraftSaveOutbox {
     ) throws {
         try loadIfNeeded()
         guard let index = entries.firstIndex(where: { $0.id == id }) else { return }
+        let previous = entries
         let completed = entries.remove(at: index)
         entries.removeAll { entry in
             entry.projectId == completed.projectId &&
                 entry.ownerUserId == completed.ownerUserId &&
+                entry.deliveryOrigin == completed.deliveryOrigin &&
                 entry.status == .parked &&
                 entry.createdAt <= completed.createdAt
         }
@@ -229,13 +234,14 @@ actor ScreenplayDraftSaveOutbox {
             for queuedIndex in entries.indices where
                 entries[queuedIndex].projectId == completed.projectId &&
                 entries[queuedIndex].ownerUserId == completed.ownerUserId &&
+                entries[queuedIndex].deliveryOrigin == completed.deliveryOrigin &&
                 entries[queuedIndex].createdAt >= completed.createdAt &&
                 entries[queuedIndex].baseVersionId == completed.baseVersionId {
                 entries[queuedIndex].baseVersionId = nextBase
                 entries[queuedIndex].updatedAt = now.timeIntervalSince1970
             }
         }
-        try persist()
+        do { try persist() } catch { entries = previous; throw error }
         publishSnapshot()
     }
 
@@ -313,6 +319,7 @@ actor ScreenplayDraftSaveOutbox {
             studioWriteAnchors: [], screenplayBindings: [], baseVersionId: "", createdAt: now, updatedAt: now,
             status: .pending, retries: 0, nextAttemptAt: 0, lastError: "Project setup is kept on this device.")
         entry.initialization = .init(documentID: documentID, backendURL: origin, sourceProjectID: sourceProjectID)
+        entry.deliveryOrigin = .init(documentID: documentID, backendURL: origin)
         _ = try enqueue(entry)
         return entry
     }

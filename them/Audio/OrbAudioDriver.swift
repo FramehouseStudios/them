@@ -15,7 +15,7 @@ enum OrbAudioDriverError: LocalizedError {
 }
 
 @MainActor
-final class OrbAudioDriver: ObservableObject {
+final class OrbAudioDriver: NSObject, ObservableObject, AVAudioPlayerDelegate {
     @Published var isSpeaking: Bool = false
     @Published var level: CGFloat = 0.0
     @Published var isThinking: Bool = false
@@ -30,6 +30,8 @@ final class OrbAudioDriver: ObservableObject {
     private var meterTimer: Timer?
     private var thinkingTimer: Timer?
     private var onFinish: (() -> Void)?
+    private var onFailure: (() -> Void)?
+    private var interruptionSubscription: AnyCancellable?
     var onBargeIn: (() -> Void)?
     private let micEngine = AVAudioEngine()
     private var isMicMonitoring = false
@@ -48,8 +50,20 @@ final class OrbAudioDriver: ObservableObject {
     private let bargeInCooldownSec: TimeInterval = 0.40
     private let bargeInThresholdMultiplier: CGFloat = 1.18
 
-    init() {
+    override init() {
+        super.init()
         setMicSensitivity(micSensitivity)
+        #if os(iOS)
+        interruptionSubscription = NotificationCenter.default.publisher(for: AVAudioSession.interruptionNotification)
+            .receive(on: DispatchQueue.main).sink { [weak self] notification in
+                guard let type = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
+                      type == AVAudioSession.InterruptionType.began.rawValue else { return }
+                MainActor.assumeIsolated {
+                    guard let self, let player = self.player else { return }
+                    self.finishPlayback(player, successfully: false)
+                }
+            }
+        #endif
     }
 
     deinit {
@@ -62,29 +76,46 @@ final class OrbAudioDriver: ObservableObject {
         }
     }
 
-    func play(url: URL, onFinish: (() -> Void)? = nil) throws {
+    func play(url: URL, onFailure: (() -> Void)? = nil, onFinish: (() -> Void)? = nil) throws {
         stopThinkingAnimation()
-        stop(notifyFinish: false)
+        resetPlayback()
 
         let p = try AVAudioPlayer(contentsOf: url)
+        p.delegate = self
         p.isMeteringEnabled = true
         p.prepareToPlay()
         player = p
         self.onFinish = onFinish
+        self.onFailure = onFailure
 
         isSpeaking = true
         level = 0
 
         let ok = p.play()
         guard ok else {
-            stop(notifyFinish: false)
+            resetPlayback()
             throw OrbAudioDriverError.startPlaybackFailed
         }
         startMetering()
     }
 
     func stop() {
-        stop(notifyFinish: false)
+        resetPlayback()
+    }
+
+    nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+        Task { @MainActor [weak self] in self?.finishPlayback(player, successfully: flag) }
+    }
+
+    nonisolated func audioPlayerDecodeErrorDidOccur(_ player: AVAudioPlayer, error: Error?) {
+        Task { @MainActor [weak self] in self?.finishPlayback(player, successfully: false) }
+    }
+
+    private func finishPlayback(_ completedPlayer: AVAudioPlayer, successfully: Bool) {
+        guard player === completedPlayer else { return }
+        let callback = successfully ? onFinish : onFailure
+        resetPlayback()
+        callback?()
     }
 
     func startThinkingAnimation(minDurationMs: Int = 500, maxDurationMs: Int = 900) {
@@ -152,7 +183,7 @@ final class OrbAudioDriver: ObservableObject {
                             let elapsed = now.timeIntervalSince(self.lastBargeInAt)
                             if elapsed >= self.bargeInCooldownSec {
                                 self.lastBargeInAt = now
-                                self.stop(notifyFinish: false)
+                                self.resetPlayback()
                                 self.onBargeIn?()
                             }
                         }
@@ -202,23 +233,20 @@ final class OrbAudioDriver: ObservableObject {
         resetWaveformIfIdle()
     }
 
-    private func stop(notifyFinish: Bool) {
+    private func resetPlayback() {
         meterTimer?.invalidate()
         meterTimer = nil
 
         player?.stop()
         player = nil
 
-        let finish = onFinish
         onFinish = nil
+        onFailure = nil
 
         isSpeaking = false
         level = 0
         resetWaveformIfIdle()
 
-        if notifyFinish {
-            finish?()
-        }
     }
 
     private func startMetering() {
@@ -229,10 +257,9 @@ final class OrbAudioDriver: ObservableObject {
                 guard let self else { return }
                 guard let p = self.player else { return }
 
-                if !p.isPlaying {
-                    self.stop(notifyFinish: true)
-                    return
-                }
+                // Stopped/paused is not evidence that the whole reply played.
+                // Only the current player's successful delegate callback is.
+                guard p.isPlaying else { self.level = 0; return }
 
                 p.updateMeters()
                 let db = p.averagePower(forChannel: 0)

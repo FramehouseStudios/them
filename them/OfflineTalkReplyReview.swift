@@ -47,14 +47,18 @@ struct OfflineTalkReplyReviewView: View {
                             }
                         }.buttonStyle(.bordered).disabled(applying).accessibilityIdentifier("talk.recovery.reply.play")
                         if let onAppend, let packet, result.screenplayOutput?.writesToPage == true, !delivered {
-                            Text("Append this scene to \(destinationTitle ?? "the selected project"). Existing text will not be replaced.")
+                            Text(packet.pageDelivery?.liveMutation != nil
+                                ? (packet.savedPage != nil ? "The original change has a confirmed saved version. Finish recovery without inserting it again."
+                                    : "Recover the recorded page change in its original project. Newer edits need review before a replacement can be applied.")
+                                : "Append this scene to \(destinationTitle ?? "the selected project"). Existing text will not be replaced.")
                                 .font(.caption).foregroundStyle(.secondary)
-                            Button(packet.pageDelivery == nil ? "Append & save scene" : "Finish saved recovery") {
-                                player.stop(); playing = false; applying = true; error = ""; status = "Confirming the recovered scene and saved version…"
+                            Button(packet.savedPage != nil ? "Finish saved recovery" : packet.pageDelivery?.liveMutation != nil
+                                ? "Recover original page change" : packet.pageDelivery == nil ? "Append & save scene" : "Finish saved recovery") {
+                                player.stop(); playing = false; applying = true; error = ""; status = "Confirming the page change and saved version…"
                                 Task { @MainActor in
                                     defer { applying = false }
                                     do { status = try await onAppend(packet, result); delivered = true }
-                                    catch { self.error = error.localizedDescription; status = "Reply kept for recovery." }
+                                    catch { self.error = error.localizedDescription; status = "Recovery needs review. Refresh received replies to continue." }
                                 }
                             }.buttonStyle(.borderedProminent).disabled(applying)
                                 .accessibilityIdentifier("talk.recovery.reply.append")

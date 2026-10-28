@@ -1,5 +1,6 @@
 import Foundation
 import Network
+import CryptoKit
 
 nonisolated extension Notification.Name {
     static let themOfflineTalkOutboxUpdated = Notification.Name("io.them.them.offlineTalkOutboxUpdated")
@@ -523,7 +524,7 @@ actor OfflineTalkOutbox {
            requestedProject != projectID { throw OfflineTalkPreviousOwnerError() }
         if let existing = record.pageDelivery {
             guard let live = existing.liveMutation, live.entryID == admission.entryID,
-                  existing.projectID == projectID, existing.documentID == documentID,
+                  (existing.projectID == projectID || live.sourceProjectID == projectID), existing.documentID == documentID,
                   existing.beforeDraft.utf8.elementsEqual(beforeDraft.utf8), existing.afterDraft.utf8.elementsEqual(afterDraft.utf8),
                   live.location == range.location, live.length == range.length,
                   live.insertion.utf8.elementsEqual(insertion.utf8) else {
@@ -544,6 +545,89 @@ actor OfflineTalkOutbox {
         do { try loadIfNeeded(preservingActiveDrain: true); publishSnapshot() }
         catch { didLoad = false }
         return plan
+    }
+
+    /// An exact server echo can arrive while early native reveal is still
+    /// waiting for audio. Keep this evidence in the same admitted record.
+    @discardableResult
+    func recordConfirmedPageSave(_ proof: ScreenplayConfirmedDraftSave) throws -> Int {
+        let owner = requestIdentityProvider(false)
+        guard ScreenplayStudioAuthContextPolicy.matches(expected: proof.owner, current: owner.ownerContext) else {
+            throw OfflineTalkPreviousOwnerError()
+        }
+        try requireScope(owner, backendURL: proof.backendURL)
+        try loadIfNeeded()
+        let scope = OfflineTalkRecoveryScope(identity: owner, backendURL: proof.backendURL)
+        let candidates = entries.filter { $0.hasLivePageIntent == true && belongs($0, scope: scope) }
+        var matched = 0
+        for entry in candidates {
+            var record = try readStoredRecord(blobURL(for: entry.bodyRef))
+            _ = try record.validatedBody(matching: entry)
+            guard record.state != .settled, var plan = record.pageDelivery, var live = plan.liveMutation,
+                  plan.documentID == proof.documentID, plan.afterDraft.utf8.elementsEqual(proof.draft.utf8) else { continue }
+            if plan.projectID != proof.projectID {
+                guard plan.projectID.isEmpty, live.sourceProjectID.isEmpty, live.promotedProjectID == nil,
+                      proof.promotedFromProjectID == "", let initialID = proof.initialProjectReceiptID,
+                      !initialID.isEmpty, proof.initialProjectVersionID == proof.versionID else { continue }
+                plan.projectID = proof.projectID
+                live.promotedProjectID = proof.projectID
+                live.initialProjectReceiptID = initialID
+                live.initialProjectVersionID = proof.versionID
+                plan.liveMutation = live
+            }
+            if record.savedPage == nil {
+                let saved = OfflineTalkSavedPageEvidence(planID: plan.id, requestID: proof.requestID,
+                    ownerUserID: proof.owner.userID, projectID: proof.projectID, documentID: proof.documentID,
+                    versionID: proof.versionID, backendURL: try ScreenplayInitialProjectMetadata.origin(proof.backendURL),
+                    draftSHA256: Data(SHA256.hash(data: Data(proof.draft.utf8))))
+                try saved.validate(plan: plan, entry: entry)
+                record.pageDelivery = plan; record.pageDeliveryDigest = try plan.integrityDigest()
+                record.savedPage = saved
+                record.savedPageDigest = try offlineTalkDeliveryEvidenceDigest(saved)
+                _ = try record.validatedBody(matching: entry)
+                try requireScope(owner, backendURL: proof.backendURL)
+                try writeProtectedData(record.encoded(), to: blobURL(for: entry.bodyRef))
+            }
+            _ = try retireDeliveredLiveReplyIfReady(entry, owner: owner, backendURL: proof.backendURL)
+            matched += 1
+        }
+        return matched
+    }
+
+    /// Called only after the owned player's final segment. Receiving/decoding
+    /// headers or finishing its first segment cannot manufacture delivery.
+    @discardableResult
+    func recordFinishedLivePlayback(_ delivery: BackendTalkLiveDeliveryReceipt,
+                                    owner: BackendAuthRequestIdentity) throws -> Bool {
+        try requireScope(owner, backendURL: delivery.backendURL)
+        guard ScreenplayStudioAuthContextPolicy.matches(expected: delivery.owner, current: owner.ownerContext),
+              delivery.receipt.entryID == delivery.request.admission.entryID else { throw OfflineTalkPreviousOwnerError() }
+        try loadIfNeeded()
+        let scope = OfflineTalkRecoveryScope(identity: owner, backendURL: delivery.backendURL)
+        guard let entry = entries.first(where: { $0.id == delivery.receipt.entryID && belongs($0, scope: scope) }) else { return false }
+        var record = try readStoredRecord(blobURL(for: entry.bodyRef))
+        _ = try record.validatedBody(matching: entry)
+        guard record.state == .received, record.response?.id == delivery.receipt.responseID,
+              record.sha256 == delivery.request.admission.bodyDigest else { throw BackendMemoryAPIError.invalidResponse }
+        record.playback = .init(responseID: delivery.receipt.responseID,
+            requiresPageSave: delivery.requiresPageSave || record.pageDelivery != nil || record.playback?.requiresPageSave == true)
+        record.playbackDigest = try offlineTalkDeliveryEvidenceDigest(record.playback)
+        try requireScope(owner, backendURL: delivery.backendURL)
+        try writeProtectedData(record.encoded(), to: blobURL(for: entry.bodyRef))
+        return try retireDeliveredLiveReplyIfReady(entry, owner: owner, backendURL: delivery.backendURL)
+    }
+
+    private func retireDeliveredLiveReplyIfReady(_ entry: OfflineTalkOutboxEntry,
+        owner: BackendAuthRequestIdentity, backendURL: URL) throws -> Bool {
+        let record = try readStoredRecord(blobURL(for: entry.bodyRef))
+        _ = try record.validatedBody(matching: entry)
+        guard record.state == .received, let response = record.response, let playback = record.playback else { return false }
+        if let plan = record.pageDelivery {
+            guard plan.liveMutation != nil, record.savedPage != nil else { return false }
+        } else if playback.requiresPageSave { return false }
+        try acknowledgeReceivedReply(entry.id, receiptID: response.id, initiatingIdentity: owner,
+            backendURL: backendURL, deliveryPlanID: record.pageDelivery?.id)
+        return true
     }
 
     private func persistNewEntry(request: URLRequest, body: Data, idempotencyKey: String,
@@ -628,14 +712,20 @@ actor OfflineTalkOutbox {
         _ = try record.validatedBody(matching: entry)
         guard record.state == .received, let response = record.response else { throw BackendMemoryAPIError.invalidResponse }
         try requireScope(owner, backendURL: backendURL)
-        return .init(entry: entry, response: response, pageDelivery: record.pageDelivery)
+        return .init(entry: entry, response: response, pageDelivery: record.pageDelivery, savedPage: record.savedPage)
     }
 
     func acknowledgeReceivedReply(_ id: String, receiptID: String, initiatingIdentity owner: BackendAuthRequestIdentity,
                                   backendURL: URL, deliveryPlanID: UUID? = nil) throws {
+        try requireScope(owner, backendURL: backendURL)
+        try loadIfNeeded()
+        guard entries.contains(where: { $0.id == id && belongs($0, scope: .init(identity: owner, backendURL: backendURL)) }) else { return }
         let reply = try receivedReply(id, initiatingIdentity: owner, backendURL: backendURL)
         if let plan = reply.pageDelivery, plan.id != deliveryPlanID {
             throw BackendError.stage("offline_outbox", "This reply has a pending page delivery. Confirm its saved page before acknowledging it.")
+        }
+        if reply.pageDelivery?.liveMutation != nil, reply.savedPage == nil {
+            throw BackendError.stage("offline_outbox", "This page change is still kept on this device. Confirm its exact saved version before finishing recovery.")
         }
         guard reply.response.id == receiptID else {
             throw BackendError.stage("offline_outbox", "The saved reply changed. Reopen it before acknowledging delivery.")
@@ -675,6 +765,11 @@ actor OfflineTalkOutbox {
         var record = try readStoredRecord(blobURL(for: fresh.entry.bodyRef))
         _ = try record.validatedBody(matching: fresh.entry)
         record.response = try fresh.response.retainingTurnMetadata(metadata)
+        if var playback = record.playback, let response = record.response {
+            playback.responseID = response.id
+            record.playback = playback
+            record.playbackDigest = try offlineTalkDeliveryEvidenceDigest(playback)
+        }
         if var plan = record.pageDelivery, let response = record.response {
             plan.receiptID = response.id
             try plan.validate(response: response)
@@ -1071,10 +1166,12 @@ actor OfflineTalkOutbox {
         if entry.receivedReply == true {
             let packet = try receivedReply(id, initiatingIdentity: owner, backendURL: backendURL)
             payload["response"] = packet.response.exportPayload
+            if let saved = packet.savedPage { payload["saved_page"] = try JSONSerialization.jsonObject(with: JSONEncoder().encode(saved)) }
             if let plan = packet.pageDelivery { payload["page_delivery"] = try JSONSerialization.jsonObject(with: JSONEncoder().encode(plan)) }
         } else if entry.hasLivePageIntent == true {
             let record = try readStoredRecord(blobURL(for: entry.bodyRef))
             _ = try record.validatedBody(matching: entry)
+            if let saved = record.savedPage { payload["saved_page"] = try JSONSerialization.jsonObject(with: JSONEncoder().encode(saved)) }
             if let plan = record.pageDelivery {
                 payload["page_delivery"] = try JSONSerialization.jsonObject(with: JSONEncoder().encode(plan))
                 payload["delivery_state"] = "prepared_reply_incomplete"

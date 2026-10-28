@@ -5,6 +5,20 @@ import XCTest
 
 @MainActor
 final class ScreenplayLiveDraftOriginTests: XCTestCase {
+    func testCapturingExistingDocumentDoesNotRepublishItsOrigin() {
+        withBridge { bridge in
+            bridge.adoptLoadedProjectDraft("Writer words", projectID: "capture-a", versionID: "v1", owner: .current())
+            var publications = 0
+            let observation = bridge.$draftOrigin.dropFirst().sink { _ in publications += 1 }
+            let first = bridge.captureLiveTalkDocument()
+            let second = bridge.captureLiveTalkDocument()
+            XCTAssertNotNil(first)
+            XCTAssertEqual(first, second)
+            XCTAssertEqual(publications, 0, "Reading a stable target should not trigger another SwiftUI update")
+            withExtendedLifetime(observation) {}
+        }
+    }
+
     func testUnicodeEquivalentStringsRemainDifferentDraftObservations() {
         let decomposed = "Cafe\u{0301}.  \r\n"
         let composed = decomposed.precomposedStringWithCanonicalMapping

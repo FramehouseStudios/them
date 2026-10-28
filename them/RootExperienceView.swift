@@ -6159,7 +6159,8 @@ Write this approved story direction directly into screenplay pages now. Maintain
         var didInterruptSyncedVoiceInsert = false
         var didCommitSyncedVoiceFallback = false
         var didCommitEarlyStudioDraftPreviewFallback = false
-        var pendingStreamRemainderURL: URL?
+        var streamPlaybackDelivery = TalkStreamPlaybackDelivery()
+        var completedReplyReceipt: BackendTalkLiveDeliveryReceipt?
         let syncedPlaybackClock = SegmentedPlaybackClock()
         var debugSyncedPlaybackSeekApplied = false
         var debugSyncedPlaybackSeekCount = 0
@@ -6248,7 +6249,6 @@ Write this approved story direction directly into screenplay pages now. Maintain
 #endif
         }
 
-        var didReceiveTalkResponse = false
         var debugSyncedInsertCancelTask: Task<Void, Never>?
         let cleanClientTranscriptOverride = String(clientTranscriptOverride ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -6468,6 +6468,26 @@ Write this approved story direction directly into screenplay pages now. Maintain
             }
         }
 
+        func resumeMicAfterPlaybackIfAllowed() {
+            if pendingGoodbyeStopAfterPlayback || !conversationLoopEnabled {
+                pendingGoodbyeStopAfterPlayback = false
+                conversationLoopEnabled = false
+                voice.stopRecording()
+                voice.teardown()
+                return
+            }
+            voice.resumeRecordingIfNeeded()
+        }
+
+        func failPlaybackAndResumeMic() {
+            guard activeTurnBasedLatencyTurnID == clientLatencyTurnID, ownsLiveDocument() else { return }
+            activeTurnBasedLatencyTurnID = ""
+            voice.markRequestFailed()
+            screenplayDraftBridge.interruptSyncedVoiceTurn(reason: .other)
+            lastIssueSummary = "Clementine’s audio was interrupted. Check received replies in Document."
+            resumeMicAfterPlaybackIfAllowed()
+        }
+
         func finishPlaybackAndResumeMic() {
             guard activeTurnBasedLatencyTurnID == clientLatencyTurnID, ownsLiveDocument() else { return }
             syncedPlaybackClock.completeCurrentSegment()
@@ -6481,6 +6501,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
             }
             voice.markAssistantPlaybackEnded()
             activeTurnBasedLatencyTurnID = ""
+            if let completedReplyReceipt { Task { await completedReplyReceipt.confirmFinishedPlayback() } }
 #if DEBUG || os(macOS)
             if let debugVoiceTurnToken {
                 appendStudioDebugVoiceDraftBreadcrumb(
@@ -6493,33 +6514,21 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 finalizeDebugVoiceTurn(status: "ok")
             }
 #endif
-            if pendingGoodbyeStopAfterPlayback || !conversationLoopEnabled {
-                pendingGoodbyeStopAfterPlayback = false
-                conversationLoopEnabled = false
-                HerLog.ui.info("conversation loop ended after playback")
-                voice.stopRecording()
-                voice.teardown()
-                return
-            }
-            HerLog.ui.info("playback finished, resume mic")
-            voice.resumeRecordingIfNeeded()
+            resumeMicAfterPlaybackIfAllowed()
         }
 
         func playStreamRemainderOrFinish() {
             guard activeTurnBasedLatencyTurnID == clientLatencyTurnID, ownsLiveDocument() else { return }
-            syncedPlaybackClock.completeCurrentSegment()
-            guard let remainderURL = pendingStreamRemainderURL else {
-                guard didReceiveTalkResponse else {
-                    HerLog.audio.info("waiting for full streamed audio before finishing playback")
-                    return
-                }
-                finishPlaybackAndResumeMic()
-                return
+            let remainderURL: URL
+            switch streamPlaybackDelivery.firstSegmentFinished() {
+            case .wait: return
+            case .finish: finishPlaybackAndResumeMic(); return
+            case .play(let url): remainderURL = url
             }
-            pendingStreamRemainderURL = nil
+            syncedPlaybackClock.completeCurrentSegment()
             do {
                 HerLog.audio.info("playing stream remainder path=\(remainderURL.path, privacy: .public)")
-                try orbAudio.play(url: remainderURL, onFinish: {
+                try orbAudio.play(url: remainderURL, onFailure: { failPlaybackAndResumeMic() }, onFinish: {
                     Task { @MainActor in
                         finishPlaybackAndResumeMic()
                     }
@@ -7109,7 +7118,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
                     onResponseMetadataReady: onResponseMetadataReady,
                     onFirstAudioSegmentReady: { firstSegmentURL in
                         StudioActionDispatcher.enqueueTalkDelivery(isCurrent: isCurrentTalkTurn) {
-                            guard !didStartEarlyStreamPlayback else { return }
+                            guard !didStartEarlyStreamPlayback, !didRecordAssistantPlaybackStart else { return }
                             didStartEarlyStreamPlayback = true
                             HerLog.ui.info("stream first segment ready -> start playback early")
                             isThinking = false
@@ -7133,7 +7142,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
 #endif
                             voice.resumeRecordingIfNeeded()
                             do {
-                                try orbAudio.play(url: firstSegmentURL, onFinish: {
+                                try orbAudio.play(url: firstSegmentURL, onFailure: { failPlaybackAndResumeMic() }, onFinish: {
                                     Task { @MainActor in
                                         playStreamRemainderOrFinish()
                                     }
@@ -7239,7 +7248,8 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 result = try await requestTalk()
             }
             guard ownsTalkRequest(), ownsLiveDocument(), !Task.isCancelled else { return }
-            didReceiveTalkResponse = true
+            completedReplyReceipt = result.liveDeliveryReceipt
+            streamPlaybackDelivery.registerResponse(remainder: result.streamedRemainderURL)
             let confirmedPrompt = prepareConfirmedTurnPrompt(
                 ConfirmedStudioTurnPreparation.currentTranscript(clientOverride: clientTranscriptOverride, serverTranscript: result.transcript),
                 allowOpeningStudio: startedOnHome && cleanClientTranscriptOverride.isEmpty
@@ -7560,7 +7570,6 @@ Write this approved story direction directly into screenplay pages now. Maintain
             handleNoteCaptureIfNeeded(result.noteAction, turnId: result.commit?.turnId)
             isThinking = false
             if didStartEarlyStreamPlayback {
-                pendingStreamRemainderURL = result.streamedRemainderURL
                 if !orbAudio.isSpeaking {
                     playStreamRemainderOrFinish()
                 }
@@ -7579,7 +7588,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
 #endif
                 voice.resumeRecordingIfNeeded()
                 HerLog.audio.info("AUDIO file path=\(result.audioURL.path, privacy: .public)")
-                try orbAudio.play(url: result.audioURL, onFinish: {
+                try orbAudio.play(url: result.audioURL, onFailure: { failPlaybackAndResumeMic() }, onFinish: {
                     Task { @MainActor in
                         finishPlaybackAndResumeMic()
                     }

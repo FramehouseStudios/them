@@ -14,6 +14,10 @@ nonisolated struct OfflineTalkStoredBody: Codable {
     var response: OfflineTalkStoredResponse? = nil
     var pageDelivery: OfflineTalkPageDeliveryPlan? = nil
     var pageDeliveryDigest: Data? = nil
+    var savedPage: OfflineTalkSavedPageEvidence? = nil
+    var savedPageDigest: Data? = nil
+    var playback: OfflineTalkPlaybackEvidence? = nil
+    var playbackDigest: Data? = nil
 
     init(entry: OfflineTalkOutboxEntry, body: Data) {
         version = 1; self.entry = entry; self.body = body
@@ -40,6 +44,17 @@ nonisolated struct OfflineTalkStoredBody: Codable {
             }
             try pageDelivery.validate(response: response)
             guard pageDeliveryDigest == (try pageDelivery.integrityDigest()) else { throw BackendMemoryAPIError.invalidResponse }
+        }
+        guard (savedPage == nil) == (savedPageDigest == nil), (playback == nil) == (playbackDigest == nil) else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        if let savedPage {
+            try savedPage.validate(plan: pageDelivery, entry: entry)
+            guard savedPageDigest == (try offlineTalkDeliveryEvidenceDigest(savedPage)) else { throw BackendMemoryAPIError.invalidResponse }
+        }
+        if let playback {
+            guard state != .ready, playback.responseID == response?.id,
+                  playbackDigest == (try offlineTalkDeliveryEvidenceDigest(playback)) else { throw BackendMemoryAPIError.invalidResponse }
         }
         return body
     }
@@ -157,6 +172,7 @@ nonisolated struct OfflineTalkReceivedReply {
     let entry: OfflineTalkOutboxEntry
     let response: OfflineTalkStoredResponse
     var pageDelivery: OfflineTalkPageDeliveryPlan? = nil
+    var savedPage: OfflineTalkSavedPageEvidence? = nil
 }
 
 nonisolated struct OfflineTalkRecoveryScope: Equatable, Sendable {

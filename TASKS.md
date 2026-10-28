@@ -5,6 +5,25 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1184 — Bind live settlement to immutable save evidence
+
+- **Owner:** Codex (Zora), bounded implementation delegated by Jarvis.
+  **Branch:** `codex/T-1184-save-evidence`.
+  **Base:** `f588fb8df59f2b3fa74388b904635c498eab6ebc`.
+- **Scope:** existing save request/outbox provenance, validated ordinary/readback/
+  initial acknowledgement evidence, actual HTTP response origin and pre-dispatch
+  backend fencing. No new save store, live actor implementation or recovery UI.
+- **Binary:** old A saves retain A's original document/backend across retry and
+  coalescing; incomplete/wrong-origin/wrong-owner echo cannot settle live work;
+  exact server evidence reaches the canonical outbox before queue removal.
+- **Status:** combined source verified by Jarvis, including the actor consumer.
+  Signed full native checkpoint1022/0/0 includes the sixteen save-evidence cases.
+  Original helper5457b7e is preserved in the pending no-ff integration merge;
+  final frozen-source gate/publication are recorded in the T1182 report.
+- **Handoff:** `docs/save-evidence-provenance-2026-10-27.md`.
+  Integration: `docs/live-reply-settlement-2026-10-27.md`.
+  No main/original PR-head change, provider call or deployment.
+
 ### T-1183 — Keep draft-save completion with its original project
 
 - **Owner:** Codex (Zora), bounded implementation delegated by Jarvis.
@@ -99,6 +118,21 @@
   strict; never auto-resend a ready live intent or treat it as a completed reply.
   Normal receipt settlement waits for actual playback or exact saved-version
   evidence, including unbound initial-project promotion. Root gains no @State.
+- **Settlement/replacement checkpoint (2026-10-27):** immutable actual-server
+  save evidence + successful final playback now settle the existing live record.
+  Recovery applies the recorded replacement, preserves exact surrounding bytes,
+  refuses changed review actions and never replays an already-confirmed save.
+  Fixed premature first-segment completion, the active orb's stopped-as-success
+  assumption, old-player cleanup, and interrupted-goodbye microphone restart.
+  Signed checkpoint1022/0/0; final-runtime normal delivery and legacy append UI
+  passed, corrected raw-byte replacement proof1/0/0, Stop1/0/0 with actual
+  HTTP200/cancelled/dropped1/byReservation. Final frozen-source unit/Mac gates
+  and permanent proof/publication: `docs/live-reply-settlement-2026-10-27.md`.
+  Native/provider fixtures are deterministic; zero paid calls. Backend production
+  unchanged (prior Node20 2996/0/5 inherited, no redundant full backend rerun).
+  **Still in-progress:** typed Studio render/SSE accepted-output custody and
+  original request/document ownership; separate Notes rewrite lease/receipt and
+  recovery-preview player follow-ups. Real-phone/shipping proof remains open.
 
 ### T-1181 — Keep old request cleanup from clearing a replacement turn
 

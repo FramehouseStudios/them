@@ -35,6 +35,47 @@ enum OfflineTalkPageRecoveryUITestFixture {
             request.setValue(owner.userID, forHTTPHeaderField: "X-User-Id")
             request.setValue("them-dev", forHTTPHeaderField: "X-APP-TOKEN")
             request.setValue("ui-recovered-page-\(projectID)", forHTTPHeaderField: "X-Idempotency-Key")
+            if args.contains("--ui-talk-live-page-replacement-fixture") {
+                let bridge = ScreenplayLiveDraftBridge.shared
+                let deadline = Date().addingTimeInterval(8)
+                while Date() < deadline, bridge.draftOrigin.projectID != projectID || !bridge.draftText.contains("OLD LINE TO REPLACE") {
+                    try await Task.sleep(nanoseconds: 25_000_000)
+                }
+                try owner.requireCurrentOwner(BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: false))
+                guard let document = bridge.captureLiveTalkDocument(), document.projectID == projectID else {
+                    throw BackendMemoryAPIError.invalidResponse
+                }
+                let original = bridge.draftText
+                let range = (original as NSString).range(of: "OLD LINE TO REPLACE")
+                guard range.location != NSNotFound else { throw BackendMemoryAPIError.invalidResponse }
+                request.setValue("Bearer \(owner.accessToken)", forHTTPHeaderField: "Authorization")
+                request.setValue(owner.clientToken, forHTTPHeaderField: "X-CLIENT-TOKEN")
+                request.httpBody = body
+                let box = OfflineTalkOutbox.shared
+                let admission = try await box.admitLiveTalk(request: request, body: body, owner: owner, backendURL: url)
+                // Actual loopback HTTP creates the retained response. Only
+                // provider calls are intercepted by the external UI runner.
+                let (data, response) = try await URLSession.shared.data(for: request)
+                guard let http = response as? HTTPURLResponse, let responseURL = http.url else {
+                    throw BackendMemoryAPIError.invalidResponse
+                }
+                let receipt = try await box.completeLiveTalk(admission, response: .init(statusCode: http.statusCode,
+                    headers: http.allHeaderFields.reduce(into: [:]) { out, pair in
+                        if let name = pair.key as? String { out[name] = String(describing: pair.value) }
+                    }, body: data), responseURL: responseURL)
+                let packet = try await box.captureReceivedTurnMetadata(receipt.entryID, initiatingIdentity: owner, backendURL: url, client: api)
+                let decoded = try await api.decodeReceivedTalkReply(packet, initiatingIdentity: owner, backendURL: url)
+                defer { try? FileManager.default.removeItem(at: decoded.audioURL) }
+                guard let output = decoded.screenplayOutput, output.writesToPage,
+                      bridge.permitsLiveTalkDocument(document), bridge.draftText.utf8.elementsEqual(original.utf8) else {
+                    throw BackendMemoryAPIError.invalidResponse
+                }
+                let change = output.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                _ = try await box.prepareLivePageDelivery(admission, projectID: projectID, documentID: document.documentID,
+                    beforeDraft: original, range: range, insertion: change,
+                    afterDraft: (original as NSString).replacingCharacters(in: range, with: change), owner: owner, backendURL: url)
+                return // No native mutation, save or playback is manufactured.
+            }
             _ = try await OfflineTalkOutbox.shared.enqueue(request: request, body: body, reason: "UI queued-page proof")
             _ = await OfflineTalkOutbox.shared.drainDue(now: .distantFuture, initiatingIdentity: owner, backendURL: url)
         } catch {

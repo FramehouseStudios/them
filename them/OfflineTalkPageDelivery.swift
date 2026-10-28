@@ -119,14 +119,74 @@ nonisolated struct OfflineTalkPageDeliveryPlan: Codable, Equatable, Sendable {
     static func pendingReceiptID(entryID: String) -> String { "live-pending:\(entryID)" }
 
     func integrityDigest() throws -> Data {
-        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
-        return Data(SHA256.hash(data: try encoder.encode(self)))
+        try offlineTalkDeliveryEvidenceDigest(self)
     }
 
     func permitsInsertion(project: String, document: String?, draft: String) -> Bool {
         projectID == project && (documentID == nil || documentID == document)
             && beforeDraft.utf8.elementsEqual(draft.utf8)
     }
+
+    func liveRecoveryDisposition(project: String, document: String?, draft: String,
+                                 saved: OfflineTalkSavedPageEvidence?) throws -> OfflineTalkLiveRecoveryDisposition {
+        guard liveMutation != nil, projectID == project, documentID == document else { throw OfflineTalkPreviousOwnerError() }
+        if let saved {
+            guard saved.planID == id, saved.projectID == projectID, saved.documentID == documentID,
+                  saved.draftSHA256 == Data(SHA256.hash(data: Data(afterDraft.utf8))) else { throw BackendMemoryAPIError.invalidResponse }
+            return .finishConfirmedSave
+        }
+        if afterDraft.utf8.elementsEqual(draft.utf8) { return .saveCurrentPage }
+        if beforeDraft.utf8.elementsEqual(draft.utf8) { return .applyOriginalMutation }
+        throw BackendError.stage("offline_outbox", "This page has changed since the kept reply. Your current words are preserved. Review or export the original change before applying it.")
+    }
+
+    var liveMutationLineRange: (start: Int, end: Int)? {
+        guard let liveMutation else { return nil }
+        let before = beforeDraft as NSString, after = afterDraft as NSString
+        guard liveMutation.location >= 0, liveMutation.location <= before.length,
+              liveMutation.location <= after.length else { return nil }
+        let end = min(after.length, liveMutation.location + (liveMutation.insertion as NSString).length)
+        return (before.substring(to: liveMutation.location).components(separatedBy: "\n").count,
+                after.substring(to: end).components(separatedBy: "\n").count)
+    }
+}
+
+nonisolated enum OfflineTalkLiveRecoveryDisposition: Equatable { case applyOriginalMutation, saveCurrentPage, finishConfirmedSave }
+
+/// Evidence lives with the original mutation, including when an early page is
+/// saved before its audio response finishes. It is not permission to replay it.
+nonisolated struct OfflineTalkSavedPageEvidence: Codable, Equatable {
+    let planID: UUID
+    let requestID: String
+    let ownerUserID: String
+    let projectID: String
+    let documentID: String
+    let versionID: String
+    let backendURL: URL
+    let draftSHA256: Data
+
+    func validate(plan: OfflineTalkPageDeliveryPlan?, entry: OfflineTalkOutboxEntry) throws {
+        guard let plan, plan.liveMutation != nil, plan.id == planID,
+              !requestID.isEmpty, requestID.utf8.count <= 128,
+              !versionID.isEmpty, versionID.utf8.count <= 512,
+              !ownerUserID.isEmpty,
+              entry.headers.first(where: { $0.key.caseInsensitiveCompare("X-User-Id") == .orderedSame })?.value == ownerUserID,
+              let originalURL = URL(string: entry.urlString), OfflineTalkRecoveryScope.sameBackend(originalURL, backendURL),
+              plan.projectID == projectID, !projectID.isEmpty, plan.documentID == documentID,
+              draftSHA256 == Data(SHA256.hash(data: Data(plan.afterDraft.utf8))) else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+    }
+}
+
+nonisolated struct OfflineTalkPlaybackEvidence: Codable, Equatable {
+    var responseID: String
+    let requiresPageSave: Bool
+}
+
+nonisolated func offlineTalkDeliveryEvidenceDigest<Value: Encodable>(_ value: Value) throws -> Data {
+    let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
+    return Data(SHA256.hash(data: try encoder.encode(value)))
 }
 
 /// The same paragraph separators used by both native editors. Recovery only

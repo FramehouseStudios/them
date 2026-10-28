@@ -32,8 +32,10 @@ const allowedTests = [
   'themUITests/V1SmokeUITests/test_interrupted_talk_recovery_requires_confirmation_and_keeps_original_queue_on_relaunch',
   'themUITests/V1SmokeUITests/test_received_talk_reply_is_reviewed_and_exported_without_resend_after_relaunch',
   'themUITests/V1SmokeUITests/test_queued_talk_reply_plays_appends_saves_and_restores_once',
+  'themUITests/V1SmokeUITests/test_live_talk_replacement_recovers_saves_and_restores_once',
 ];
-const tests = process.env.ONLY_TESTING ? [process.env.ONLY_TESTING] : allowedTests.slice(1, 3);
+const tests = process.argv.length > 2 ? process.argv.slice(2)
+  : process.env.ONLY_TESTING ? [process.env.ONLY_TESTING] : allowedTests.slice(1, 3);
 if (tests.some(test => !allowedTests.includes(test))) throw new Error('Unsupported Home voice proof test');
 if (process.env.THEM_HOME_VOICE_LONG_AUDIO === '1' && (tests.length !== 1 || !tests[0].includes('home_raw_audio'))) throw new Error('Long audio regression requires the raw-audio case alone');
 // Reuse the measured audio asset so Stop interrupts an active turn, rather
