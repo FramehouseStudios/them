@@ -8801,7 +8801,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
         guard isStudioSurfaceActive else { return "" }
         let cleanText = textToInsert.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanText.isEmpty else { return "" }
-        if let lastCommittedWrite = screenplayDraftBridge.lastCommittedWrite {
+        if livePageContext == nil, let lastCommittedWrite = screenplayDraftBridge.lastCommittedWrite {
             let committedText = lastCommittedWrite.insertedText.trimmingCharacters(in: .whitespacesAndNewlines)
             if !committedText.isEmpty,
                committedText == cleanText,

@@ -7,7 +7,8 @@
 
 ### T-1187 — Fence Studio publication and settle the original render
 
-- **Owner:** Codex (Jarvis). **Status:** ready, after published T1185 checkpoint.
+- **Owner:** Codex (Jarvis). **Status:** in-progress on
+  `codex/T-1187-studio-publication-owner`, base published `abeed0d`.
 - **Scope:** original request/document/auth/backend guards through Root typed
   callbacks/final/catch/defer, Screen seed/history cleanup and internal deferred
   commit/annotation waits. Reuse fingerprint/date and perceived-speed leases;
@@ -18,6 +19,15 @@
   Normal typed page/pin publication saves/restores and retires only its own
   confirmed render, without fabricating audio delivery. No new Root @State/store.
 - **Hold:** main/original PRs/production/paid models remain unchanged.
+- **Current evidence:** combined signed focus compiled after two extraction
+  repairs, then executed90 pass/6 fail/0 skip (seven assertions/errors).
+  API positive fixture lacked required action/status and is corrected; render
+  SSE lookup, early-save and three Bridge fixture failures are being repaired.
+  Source review also found active native streaming commits bypassing v4
+  mutation/save evidence; both platform paths must be fixed before settlement
+  is called proven. Node20 proxy/runner contracts20/0/0. Actual delayed A/B UI
+  cases are integrated but UNRUN. No green full-checkpoint claim.
+- **Evidence:** `docs/studio-publication-ownership-2026-10-27.md`.
 
 ### T-1185 — Keep accepted Studio render output before consumer fencing
 
