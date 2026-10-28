@@ -138,6 +138,45 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
         XCTAssertEqual(retained.first.map { Data($0.draft.utf8) }, Data(raw.utf8))
     }
 
+    func testCoalescedDeliveryUsesTheDurableRequestIdentifierAcrossRestart() async throws {
+        let original = makeEntry(id: "durable-request")
+        let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        try await store.enqueue(original)
+        let restarted = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let duplicate = makeEntry(id: "fresh-caller-request")
+        let delivery = try await restarted.enqueueForDelivery(duplicate)
+        XCTAssertEqual(delivery.id, original.id)
+        XCTAssertEqual(delivery.baseVersionId, original.baseVersionId)
+        XCTAssertEqual(Data(delivery.draft.utf8), Data(original.draft.utf8))
+        try await restarted.markInflight(id: delivery.id)
+        try await restarted.markSucceeded(id: delivery.id, serverVersionId: "confirmed-version")
+        let remaining = try await restarted.entriesForTesting()
+        XCTAssertTrue(remaining.isEmpty, "An acknowledged coalesced request must retire its durable row")
+    }
+
+    func testIdenticalTextDoesNotCoalesceDistinctWriterIntentOrBindings() async throws {
+        let original = makeEntry(id: "original-intent")
+        let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        try await store.enqueue(original)
+        let changes: [[String: Any]] = [
+            ["title": "Retitled"], ["phase": "rewrite"],
+            ["source": "studio_conflict_resolve"], ["notes": "Explicit writer choice"],
+            ["studioWriteAnchors": [["writeId": "new-anchor", "anchorLine": 4]]],
+            ["screenplayBindings": [["draftSceneId": "new-scene", "outlineSceneId": "beat-2"]]]
+        ]
+        for (index, patch) in changes.enumerated() {
+            var payload = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(original)) as? [String: Any])
+            payload["id"] = "distinct-intent-\(index)"
+            for (key, value) in patch { payload[key] = value }
+            let changed = try JSONDecoder().decode(ScreenplayDraftSaveOutboxEntry.self,
+                from: JSONSerialization.data(withJSONObject: payload))
+            let retained = try await store.enqueueForDelivery(changed)
+            XCTAssertEqual(retained, changed, "Canonical delivery silently replaced writer intent: \(patch.keys)")
+        }
+        let rows = try await store.entriesForTesting()
+        XCTAssertEqual(rows.count, changes.count + 1)
+    }
+
     func testSnapshotCountsOnlyTheCurrentAccount() async throws {
         let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
         try await store.enqueue(makeEntry(id: "my-save"))

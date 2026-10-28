@@ -6299,6 +6299,21 @@ final class ScreenplayStudioViewModel: ObservableObject {
     }
 
     private func dispatchDraftSaveRequest(_ request: DraftSaveRequest) async {
+        // Acquire the flight before the first actor hop. A save captured on
+        // the old base must not race a queue drain across this suspension.
+        if isDraftSaveInFlight {
+            pendingDraftSaveRequest = request
+            return
+        }
+        isDraftSaveInFlight = true
+        await dispatchOwnedDraftSaveRequest(request)
+        let pending = pendingDraftSaveRequest
+        pendingDraftSaveRequest = nil
+        isDraftSaveInFlight = false
+        if let pending { await dispatchDraftSaveRequest(pending) }
+    }
+
+    private func dispatchOwnedDraftSaveRequest(_ request: DraftSaveRequest) async {
         let bridge = ScreenplayLiveDraftBridge.shared
         let documentID = request.deliveryOrigin?.documentID ?? bridge.draftOrigin.documentID
         func ownsQueuedPublication() -> Bool {
@@ -6313,8 +6328,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
             return
         }
 
-        if !isDraftSaveInFlight,
-           (try? await draftSaveOutbox.hasActiveEntries(
+        if (try? await draftSaveOutbox.hasActiveEntries(
                projectId: request.projectId,
                ownerUserId: request.ownerUserId
            )) == true {
@@ -6338,14 +6352,6 @@ final class ScreenplayStudioViewModel: ObservableObject {
             }
             return
         }
-
-        if isDraftSaveInFlight {
-            pendingDraftSaveRequest = request
-            return
-        }
-
-        isDraftSaveInFlight = true
-        defer { isDraftSaveInFlight = false }
 
         var nextRequest: DraftSaveRequest? = request
         while let activeRequest = nextRequest {
@@ -6432,7 +6438,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
         return nil
     }
 
-    private func performDraftSave(_ request: DraftSaveRequest) async -> DraftSaveCompletion? {
+    private func performDraftSave(_ submittedRequest: DraftSaveRequest) async -> DraftSaveCompletion? {
+        var request = submittedRequest
         let bridge = ScreenplayLiveDraftBridge.shared
         let documentID = request.deliveryOrigin?.documentID ?? bridge.draftOrigin.documentID
         func ownsCompletion() -> Bool {
@@ -6473,7 +6480,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
 
         shouldQueuePendingDraftSaveAfterFailure = false
         do {
-            try await draftSaveOutbox.enqueue(request.outboxEntry)
+            let retained = try await draftSaveOutbox.enqueueForDelivery(request.outboxEntry)
+            request = DraftSaveRequest(entry: retained, authContext: request.authContext)
             try await draftSaveOutbox.markInflight(id: request.id)
         } catch {
             guard ownsCompletion() else { return nil }
@@ -6631,6 +6639,30 @@ final class ScreenplayStudioViewModel: ObservableObject {
             }
             let conflictDetected = (result.payload.conflict ?? false)
                 || (result.payload.status?.localizedCaseInsensitiveContains("conflict") ?? false)
+            if conflictDetected,
+               let evidence = ScreenplayConfirmedDraftSave.passiveAutosaveReadback(entry: request.outboxEntry,
+                   response: result.payload, responseURL: result.responseURL,
+                   owner: request.authContext, currentOwner: currentStudioAuthContext()) {
+                _ = try await liveReplyOutbox.recordConfirmedPageSave(evidence)
+                // This readback satisfies only this passive retry. It cannot
+                // delete parked drafts or rebase another document's save chain.
+                try await draftSaveOutbox.remove(id: request.id)
+                guard ownsCompletion() else {
+                    reconcileAcknowledgedDraftRecovery(request, versionID: evidence.versionID)
+                    return completion(evidence.versionID)
+                }
+                latestVersionID = evidence.versionID
+                lastSavedDraftFingerprint = fingerprint(for: request.draft)
+                lastRevisionBaseDraft = request.draft
+                hasUnsavedDraftChanges = ScreenplayDraftSaveCompletionPolicy.hasUnsavedChanges(
+                    currentDraft: fountainDraft, savedDraft: request.draft)
+                conflictState = nil
+                autosaveStatusText = hasUnsavedDraftChanges ? "Unsaved changes" : "Saved"
+                infoText = hasUnsavedDraftChanges ? infoText : "Your latest words are already saved."
+                persistLocalDraftRecovery(projectId: request.projectId, draft: fountainDraft,
+                    baseVersionId: evidence.versionID, dirty: hasUnsavedDraftChanges)
+                return completion(evidence.versionID)
+            }
             if conflictDetected {
                 let baseVersionId = (result.payload.baseVersionId ?? "")
                     .trimmingCharacters(in: .whitespacesAndNewlines)

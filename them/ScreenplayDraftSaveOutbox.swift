@@ -128,6 +128,13 @@ actor ScreenplayDraftSaveOutbox {
 
     @discardableResult
     func enqueue(_ entry: ScreenplayDraftSaveOutboxEntry) throws -> ScreenplayDraftSaveOutboxSnapshot {
+        _ = try enqueueForDelivery(entry)
+        return snapshotFor(entries)
+    }
+
+    /// Delivery must use the ID and base actually retained on disk, including
+    /// when a second caller coalesces with an already queued identical save.
+    func enqueueForDelivery(_ entry: ScreenplayDraftSaveOutboxEntry) throws -> ScreenplayDraftSaveOutboxEntry {
         try loadIfNeeded()
         guard entry.draft.utf8.count <= Self.maxDraftBytes else {
             throw BackendMemoryAPIError.server(status: 413, message: "screenplay_draft_too_large")
@@ -141,19 +148,24 @@ actor ScreenplayDraftSaveOutbox {
             }
             let nextSnapshot = snapshotFor(entries)
             publish(nextSnapshot)
-            return nextSnapshot
+            return entries[index]
         }
-        if entries.contains(where: { existing in
+        if let existing = entries.first(where: { existing in
             existing.projectId == entry.projectId &&
                 existing.ownerUserId == entry.ownerUserId &&
                 existing.deliveryOrigin == entry.deliveryOrigin &&
                 existing.status != .parked &&
                 existing.baseVersionId == entry.baseVersionId &&
+                existing.title == entry.title && existing.phase == entry.phase &&
+                existing.source == entry.source && existing.notes == entry.notes &&
+                existing.studioWriteAnchors == entry.studioWriteAnchors &&
+                existing.screenplayBindings == entry.screenplayBindings &&
+                existing.initialization == entry.initialization &&
                 existing.draft.utf8.elementsEqual(entry.draft.utf8)
         }) {
             let nextSnapshot = snapshotFor(entries)
             publish(nextSnapshot)
-            return nextSnapshot
+            return existing
         }
         entries.append(entry)
         entries.sort { lhs, rhs in
@@ -163,7 +175,7 @@ actor ScreenplayDraftSaveOutbox {
         try persist()
         let nextSnapshot = snapshotFor(entries)
         publish(nextSnapshot)
-        return nextSnapshot
+        return entry
     }
 
     func beginNext(
@@ -247,8 +259,9 @@ actor ScreenplayDraftSaveOutbox {
 
     func remove(id: String) throws {
         try loadIfNeeded()
+        let previous = entries
         entries.removeAll { $0.id == id }
-        try persist()
+        do { try persist() } catch { entries = previous; throw error }
         publishSnapshot()
     }
 

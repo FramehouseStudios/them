@@ -255,14 +255,56 @@ final class ScreenplayDraftSaveEvidenceTests: XCTestCase {
         XCTAssertTrue(ScreenplayLiveDraftSyncService.shared.ownsEditor(replacement))
     }
 
+    func testPassiveReadbackRequiresCurrentExactTargetAndPreservesExplicitIntent() throws {
+        let passive = entry(source: "studio_autosave")
+        let response = try passiveResponse(passive)
+        func proof(_ entry: ScreenplayDraftSaveOutboxEntry, _ response: BackendScreenplayVersionMutationResponse) -> ScreenplayConfirmedDraftSave? {
+            ScreenplayConfirmedDraftSave.passiveAutosaveReadback(entry: entry, response: response,
+                responseURL: backend, owner: owner, currentOwner: owner)
+        }
+        XCTAssertEqual(proof(passive, response)?.requestID, passive.id)
+        for source in ["studio_manual", "studio_snapshot", "studio_conflict_resolve"] {
+            XCTAssertNil(proof(entry(source: source), response), "Explicit intent was silently satisfied: \(source)")
+        }
+        XCTAssertNil(proof(entry(source: "studio_autosave", notes: "Writer requested a checkpoint"), response))
+        for patch in [
+            ["serverVersionId": "historical"],
+            ["project": ["id": passive.projectId, "title": passive.title, "activeVersionId": "newer"]],
+            ["project": ["id": passive.projectId, "title": "Different title", "activeVersionId": "version-a"]]
+        ] as [[String: Any]] {
+            XCTAssertNil(proof(passive, try passiveResponse(passive, patch: patch)))
+        }
+        for patch in [
+            ["phase": "rewrite"], ["projectId": "other-project"],
+            ["draft": raw.precomposedStringWithCanonicalMapping],
+            ["studioWriteAnchors": [["writeId": "other-anchor"]]],
+            ["screenplayBindings": [["draftSceneId": "other-binding"]]]
+        ] as [[String: Any]] {
+            XCTAssertNil(proof(passive, try passiveResponse(passive, versionPatch: patch)))
+        }
+    }
+
+    private func passiveResponse(_ entry: ScreenplayDraftSaveOutboxEntry,
+        patch: [String: Any] = [:], versionPatch: [String: Any] = [:]) throws -> BackendScreenplayVersionMutationResponse {
+        var version: [String: Any] = ["id": "version-a", "projectId": entry.projectId,
+            "draft": entry.draft, "phase": entry.phase, "clientRequestId": "earlier-manual-save"]
+        version.merge(versionPatch) { _, new in new }
+        var payload: [String: Any] = ["projectId": entry.projectId, "conflict": true,
+            "serverVersionId": "version-a", "serverVersion": version,
+            "project": ["id": entry.projectId, "title": entry.title, "activeVersionId": "version-a"]]
+        payload.merge(patch) { _, new in new }
+        return try JSONDecoder().decode(BackendScreenplayVersionMutationResponse.self,
+            from: JSONSerialization.data(withJSONObject: payload))
+    }
+
     private func ordinary(_ entry: ScreenplayDraftSaveOutboxEntry, version: BackendScreenplayVersion) -> ScreenplayConfirmedDraftSave? {
         ScreenplayConfirmedDraftSave.ordinary(entry: entry, version: version, versionID: "version-a",
             projectID: entry.projectId, responseURL: backend, owner: owner, currentOwner: owner)
     }
 
-    private func entry(id: String = "save-a") -> ScreenplayDraftSaveOutboxEntry {
+    private func entry(id: String = "save-a", source: String = "studio_manual", notes: String = "") -> ScreenplayDraftSaveOutboxEntry {
         .init(id: id, projectId: "project-a", ownerUserId: owner.userID, draft: raw, title: "A", phase: "scene_draft",
-            notes: "", source: "studio_manual", studioWriteAnchors: [], screenplayBindings: [], baseVersionId: "base-a",
+            notes: notes, source: source, studioWriteAnchors: [], screenplayBindings: [], baseVersionId: "base-a",
             createdAt: 1, updatedAt: 1, status: .pending, retries: 0, nextAttemptAt: 0, lastError: "",
             deliveryOrigin: .init(documentID: "document-a", backendURL: backend))
     }

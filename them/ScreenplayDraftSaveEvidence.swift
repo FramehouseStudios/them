@@ -70,6 +70,23 @@ nonisolated struct ScreenplayConfirmedDraftSave: Sendable {
         return .init(entry: entry, owner: owner, versionID: version.id, origin: origin, responseURL: responseOrigin)
     }
 
+    /// A stale background retry can already be satisfied by another request's
+    /// current exact version. Explicit writer checkpoints still require a choice.
+    static func passiveAutosaveReadback(entry: ScreenplayDraftSaveOutboxEntry,
+        response: BackendScreenplayVersionMutationResponse, responseURL: URL?,
+        owner: ScreenplayStudioAuthContext, currentOwner: ScreenplayStudioAuthContext) -> Self? {
+        guard entry.source == "studio_autosave", entry.notes.isEmpty,
+              let project = response.project, project.id == entry.projectId,
+              project.title == entry.title,
+              let version = response.serverVersion,
+              response.serverVersionId == version.id, project.activeVersionId == version.id,
+              version.phase == entry.phase,
+              (version.studioWriteAnchors ?? []) == entry.studioWriteAnchors,
+              (version.screenplayBindings ?? []) == entry.screenplayBindings else { return nil }
+        return readback(entry: entry, version: version, projectID: response.projectId ?? "",
+            responseURL: responseURL, owner: owner, currentOwner: currentOwner)
+    }
+
     static func initial(entry: ScreenplayDraftSaveOutboxEntry, version: BackendScreenplayVersion?,
                         versionID: String?, projectID: String?, responseURL: URL?,
                         owner: ScreenplayStudioAuthContext, currentOwner: ScreenplayStudioAuthContext) -> Self? {
