@@ -21,16 +21,23 @@ nonisolated struct OfflineTalkStoredBody: Codable {
     }
 
     func validatedBody(matching row: OfflineTalkOutboxEntry? = nil, migratingLegacyReference: Bool = false) throws -> Data {
-        guard [1, 2, 3].contains(version), body.count == entry.bodyByteCount,
+        guard [1, 2, 3, 4].contains(version), body.count == entry.bodyByteCount,
               sha256 == Data(SHA256.hash(data: body)),
               row.map({ matches($0, migratingLegacyReference: migratingLegacyReference) }) ?? true,
-              state != .received || (version >= 2 && response != nil) else {
+              state != .received || (version >= 2 && response != nil),
+              state != .ready || response == nil,
+              version != 4 || pageDelivery?.liveMutation != nil else {
             throw BackendError.stage("offline_outbox", "Queued body identity could not be verified. All recovery files were kept.")
         }
         try response?.validate()
         guard (pageDelivery == nil) == (pageDeliveryDigest == nil) else { throw BackendMemoryAPIError.invalidResponse }
         if let pageDelivery {
-            guard version == 3, let response else { throw BackendMemoryAPIError.invalidResponse }
+            if let live = pageDelivery.liveMutation {
+                guard version == 4, live.entryID == entry.id,
+                      live.requestID == entry.idempotencyKey else { throw BackendMemoryAPIError.invalidResponse }
+            } else {
+                guard version == 3, response != nil else { throw BackendMemoryAPIError.invalidResponse }
+            }
             try pageDelivery.validate(response: response)
             guard pageDeliveryDigest == (try pageDelivery.integrityDigest()) else { throw BackendMemoryAPIError.invalidResponse }
         }

@@ -62,21 +62,61 @@ nonisolated func offlineTalkRequestProjectID(body: Data, headers: [String: Strin
 
 /// This intent stays in the existing received-result record. Persist it before
 /// changing the page; an uncertain retry may finish a save, never append again.
-nonisolated struct OfflineTalkPageDeliveryPlan: Codable, Equatable {
+nonisolated struct OfflineTalkLiveMutation: Codable, Equatable, Sendable {
+    let entryID: String
+    let requestID: String
+    let sourceProjectID: String
+    let documentID: String
+    let location: Int
+    let length: Int
+    let insertion: String
+    var promotedProjectID: String? = nil
+    var initialProjectReceiptID: String? = nil
+    var initialProjectVersionID: String? = nil
+
+    func validate(projectID: String, documentID: String?, before: String, after: String) throws {
+        guard UUID(uuidString: entryID) != nil, !requestID.isEmpty, requestID.utf8.count <= 128,
+              !self.documentID.isEmpty, self.documentID == documentID,
+              self.documentID.utf8.count <= 128, insertion.utf8.count <= 2 * 1024 * 1024,
+              sourceProjectID == projectID || (sourceProjectID.isEmpty && promotedProjectID == projectID
+                && !(initialProjectReceiptID ?? "").isEmpty && !(initialProjectVersionID ?? "").isEmpty) else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        let original = before as NSString
+        guard location >= 0, length >= 0, location <= original.length,
+              length <= original.length - location else { throw BackendMemoryAPIError.invalidResponse }
+        let expected = original.replacingCharacters(in: NSRange(location: location, length: length), with: insertion)
+        guard expected.utf8.elementsEqual(after.utf8) else { throw BackendMemoryAPIError.invalidResponse }
+    }
+}
+
+nonisolated struct OfflineTalkPageDeliveryPlan: Codable, Equatable, Sendable {
     let id: UUID
-    let receiptID: String
-    let projectID: String
+    var receiptID: String
+    var projectID: String
     let documentID: String?
     let beforeDraft: String
     let afterDraft: String
+    var liveMutation: OfflineTalkLiveMutation? = nil
 
-    func validate(response: OfflineTalkStoredResponse) throws {
-        guard receiptID == response.id, !projectID.isEmpty,
-              beforeDraft.utf8.count <= 2 * 1024 * 1024, afterDraft.utf8.count <= 2 * 1024 * 1024,
-              !afterDraft.utf8.elementsEqual(beforeDraft.utf8), afterDraft.utf8.starts(with: beforeDraft.utf8) else {
+    func validate(response: OfflineTalkStoredResponse?) throws {
+        guard beforeDraft.utf8.count <= 2 * 1024 * 1024, afterDraft.utf8.count <= 2 * 1024 * 1024 else {
             throw BackendError.stage("offline_outbox", "Recovery page identity could not be verified. Its files were kept.")
         }
+        if let liveMutation {
+            try liveMutation.validate(projectID: projectID, documentID: documentID, before: beforeDraft, after: afterDraft)
+            guard receiptID == (response?.id ?? Self.pendingReceiptID(entryID: liveMutation.entryID)) else {
+                throw BackendMemoryAPIError.invalidResponse
+            }
+        } else {
+            guard let response, receiptID == response.id, !projectID.isEmpty,
+                  !afterDraft.utf8.elementsEqual(beforeDraft.utf8), afterDraft.utf8.starts(with: beforeDraft.utf8) else {
+                throw BackendError.stage("offline_outbox", "Recovery page identity could not be verified. Its files were kept.")
+            }
+        }
     }
+
+    static func pendingReceiptID(entryID: String) -> String { "live-pending:\(entryID)" }
 
     func integrityDigest() throws -> Data {
         let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]

@@ -9,10 +9,47 @@ nonisolated struct BackendTalkCustodyError: LocalizedError {
     }
 }
 
+/// After HTTP200, decoding/metadata failure is recovery work, never a reason
+/// for Root's transient-error policy to submit another generation.
+nonisolated struct BackendTalkAcceptedReplyError: LocalizedError {
+    let entryID: String
+    let underlyingError: Error
+    var errorDescription: String? {
+        "The accepted response record was kept on this device, but delivery could not finish. Review it in Studio; generation was not repeated."
+    }
+}
+
+/// Only safe admission identity crosses into UI/playback values. Bearer and
+/// session credentials remain in the network client's captured request owner.
+nonisolated struct BackendTalkLiveRequestContext: Sendable, Equatable {
+    let admission: OfflineTalkLiveAdmission
+    let owner: ScreenplayStudioAuthContext
+    let backendURL: URL
+    var requestID: String { admission.requestID }
+}
+
+nonisolated struct BackendTalkLiveDeliveryReceipt: Sendable, Equatable {
+    let receipt: OfflineTalkLiveReceipt
+    let request: BackendTalkLiveRequestContext
+    var owner: ScreenplayStudioAuthContext { request.owner }
+    var backendURL: URL { request.backendURL }
+}
+
 /// The existing live /talk streaming transport, isolated from request/auth/recovery policy.
 nonisolated enum BackendTalkStreamingTransport {
+    typealias AcceptedResponseRetention = @Sendable (Data, HTTPURLResponse) async throws -> Void
+
+    static func retainIfAccepted(_ data: Data, response: URLResponse,
+        using retain: AcceptedResponseRetention?) async throws {
+        guard let http = response as? HTTPURLResponse, http.statusCode == 200, let retain else { return }
+        do { try await retain(data, http) }
+        catch { throw BackendTalkCustodyError(underlyingError: error) }
+    }
     /// Stop is not an offline failure and must never enter retry or recovery policy.
     static func checkCancellation(_ error: Error? = nil) throws {
+        // A failed completed-response write must retain its held request even
+        // when the consumer also cancelled. Cancellation cannot erase custody.
+        if let error = error as? BackendTalkCustodyError { throw error }
         if Task.isCancelled || error is CancellationError || (error as? URLError)?.code == .cancelled {
             throw CancellationError()
         }

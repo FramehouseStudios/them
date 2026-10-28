@@ -105,10 +105,11 @@ nonisolated struct OfflineTalkOutboxEntry: Identifiable, Codable, Equatable, Sen
     var lastError: String?
     var interruptedEnqueue: Bool? = nil
     var receivedReply: Bool? = nil
-    var canResumeInterruptedEnqueue: Bool { interruptedEnqueue == true && status == .parked && receivedReply != true }
+    var hasLivePageIntent: Bool? = nil
+    var canResumeInterruptedEnqueue: Bool { interruptedEnqueue == true && status == .parked && receivedReply != true && hasLivePageIntent != true }
 }
 
-nonisolated struct OfflineTalkOutboxSendResult {
+nonisolated struct OfflineTalkOutboxSendResult: Sendable {
     let statusCode: Int
     let headers: [String: String]
     let body: Data
@@ -126,15 +127,16 @@ nonisolated struct OfflineTalkOutboxEnqueueResult {
 }
 
 /// A pre-send custody capability. Contains no credentials or response contents.
-nonisolated struct OfflineTalkLiveAdmission: Sendable {
+nonisolated struct OfflineTalkLiveAdmission: Sendable, Equatable {
     var entryID: String { entry.id }
+    var requestID: String { entry.idempotencyKey }
     fileprivate let entry: OfflineTalkOutboxEntry
     fileprivate let owner: ScreenplayStudioAuthContext
     fileprivate let backendURL: URL
     fileprivate let bodyDigest: Data
 }
 
-nonisolated struct OfflineTalkLiveReceipt: Sendable {
+nonisolated struct OfflineTalkLiveReceipt: Sendable, Equatable {
     let entryID: String
     let responseID: String
     let bodyOmitted: Bool
@@ -163,6 +165,7 @@ actor OfflineTalkOutbox {
     static let shared = OfflineTalkOutbox(storageDirectory: defaultStorageDirectory())
 
     private static let maxBodyBytes = 25 * 1024 * 1024
+    private static let maxStoredRecordBytes = maxBodyBytes + OfflineTalkStoredResponse.maxBodyBytes + 7_340_032
     private static let backoffSeconds: [TimeInterval] = [5, 15, 60, 300, 1_800]
     private static let talkEndpoint = "/talk"
     private static let screenplayQuestionResolutionEndpoint = "/memory/screenplay-question/resolve"
@@ -178,6 +181,7 @@ actor OfflineTalkOutbox {
     private let requestIdentityProvider: @Sendable (Bool) -> BackendAuthRequestIdentity
     private let backendURLProvider: @Sendable () -> URL
     private let authRefresher: @Sendable (ScreenplayStudioAuthContext) async throws -> BackendAuthSessionState
+    private let beforeLiveResponseWrite: (@Sendable () throws -> Void)?
     private var drainingScope: OfflineTalkRecoveryScope?
     private var didLoad = false
     private var entries: [OfflineTalkOutboxEntry] = []
@@ -191,7 +195,7 @@ actor OfflineTalkOutbox {
          }, backendURLProvider: @escaping @Sendable () -> URL = { BackendAuthClient.resolvedBackendBaseURL() },
          authRefresher: @escaping @Sendable (ScreenplayStudioAuthContext) async throws -> BackendAuthSessionState = {
              try await BackendAuthClient.refreshAuthSession(force: true, expectedOwner: $0)
-         }) {
+         }, beforeLiveResponseWrite: (@Sendable () throws -> Void)? = nil) {
         self.storageDirectory = storageDirectory
         self.manifestURL = storageDirectory.appendingPathComponent("queue.jsonl")
         self.blobsDirectory = storageDirectory.appendingPathComponent("blobs", isDirectory: true)
@@ -199,6 +203,7 @@ actor OfflineTalkOutbox {
         self.requestIdentityProvider = requestIdentityProvider
         self.backendURLProvider = backendURLProvider
         self.authRefresher = authRefresher
+        self.beforeLiveResponseWrite = beforeLiveResponseWrite
     }
 
     func startNetworkMonitoring() {
@@ -459,8 +464,19 @@ actor OfflineTalkOutbox {
             return .init(entryID: entry.id, responseID: kept.id, bodyOmitted: kept.bodyOmitted)
         }
         guard record.state == .ready else { throw BackendMemoryAPIError.invalidResponse }
-        record.version = 2; record.state = .received; record.response = received
-        do { try writeProtectedData(record.encoded(), to: blobURL(for: entry.bodyRef)) }
+        record.version = record.pageDelivery?.liveMutation == nil ? 2 : 4
+        record.state = .received; record.response = received
+        if var plan = record.pageDelivery {
+            plan.receiptID = received.id
+            try plan.validate(response: received)
+            record.pageDelivery = plan; record.pageDeliveryDigest = try plan.integrityDigest()
+        }
+        do {
+            // Optional synchronous fault/observation seam; no private content
+            // leaves the actor and production uses the canonical writer.
+            try beforeLiveResponseWrite?()
+            try writeProtectedData(record.encoded(), to: blobURL(for: entry.bodyRef))
+        }
         catch {
             didLoad = false
             throw BackendError.stage("offline_outbox", "The accepted reply could not be kept on this device. Its request is held and will not be sent again automatically.")
@@ -471,6 +487,63 @@ actor OfflineTalkOutbox {
             publishSnapshot()
         } catch { didLoad = false } // Never overwrite an unreadable index from a stale cache.
         return .init(entryID: entry.id, responseID: received.id, bodyOmitted: received.bodyOmitted)
+    }
+
+    /// Explicit cancellation or a definite rejected response can retire only
+    /// the original ready admission. Completed response custody always wins.
+    @discardableResult
+    func endLiveTalkWithoutAcceptedResponse(_ admission: OfflineTalkLiveAdmission) throws -> Bool {
+        let entry = admission.entry, url = blobURL(for: admission.entry.bodyRef)
+        guard fileManager.fileExists(atPath: url.path) else { return false }
+        var record = try readStoredRecord(url)
+        _ = try record.validatedBody(matching: entry)
+        guard record.sha256 == admission.bodyDigest else { throw BackendMemoryAPIError.invalidResponse }
+        guard record.state == .ready, record.pageDelivery?.liveMutation == nil else { return false }
+        record.state = .settled
+        try writeProtectedData(record.encoded(), to: url)
+        didLoad = false
+        do { try loadIfNeeded(preservingActiveDrain: true); publishSnapshot() }
+        catch { didLoad = false } // The settled blob still prevents regeneration.
+        return true
+    }
+
+    /// The same admitted blob keeps the exact native mutation before early
+    /// reveal. A pending plan is not a completed response or permission to send.
+    func prepareLivePageDelivery(_ admission: OfflineTalkLiveAdmission,
+        projectID: String, documentID: String, beforeDraft: String, range: NSRange,
+        insertion: String, afterDraft: String, owner: BackendAuthRequestIdentity,
+        backendURL: URL) throws -> OfflineTalkPageDeliveryPlan {
+        try requireScope(owner, backendURL: backendURL)
+        guard ScreenplayStudioAuthContextPolicy.matches(expected: admission.owner, current: owner.ownerContext),
+              OfflineTalkRecoveryScope.sameBackend(admission.backendURL, backendURL) else { throw OfflineTalkPreviousOwnerError() }
+        var record = try readStoredRecord(blobURL(for: admission.entry.bodyRef))
+        let originalBody = try record.validatedBody(matching: admission.entry)
+        guard record.sha256 == admission.bodyDigest, record.state != .settled else { throw BackendMemoryAPIError.invalidResponse }
+        if let requestedProject = try offlineTalkRequestProjectID(body: originalBody, headers: admission.entry.headers),
+           requestedProject != projectID { throw OfflineTalkPreviousOwnerError() }
+        if let existing = record.pageDelivery {
+            guard let live = existing.liveMutation, live.entryID == admission.entryID,
+                  existing.projectID == projectID, existing.documentID == documentID,
+                  existing.beforeDraft.utf8.elementsEqual(beforeDraft.utf8), existing.afterDraft.utf8.elementsEqual(afterDraft.utf8),
+                  live.location == range.location, live.length == range.length,
+                  live.insertion.utf8.elementsEqual(insertion.utf8) else {
+                throw BackendError.stage("offline_outbox", "A different page mutation is already kept for this reply. Review it before changing the page.")
+            }
+            return existing
+        }
+        let live = OfflineTalkLiveMutation(entryID: admission.entryID, requestID: admission.requestID,
+            sourceProjectID: projectID, documentID: documentID, location: range.location, length: range.length, insertion: insertion)
+        let plan = OfflineTalkPageDeliveryPlan(id: UUID(),
+            receiptID: record.response?.id ?? OfflineTalkPageDeliveryPlan.pendingReceiptID(entryID: admission.entryID),
+            projectID: projectID, documentID: documentID, beforeDraft: beforeDraft, afterDraft: afterDraft, liveMutation: live)
+        try plan.validate(response: record.response)
+        record.version = 4; record.pageDelivery = plan; record.pageDeliveryDigest = try plan.integrityDigest()
+        try requireScope(owner, backendURL: backendURL)
+        try writeProtectedData(record.encoded(), to: blobURL(for: admission.entry.bodyRef))
+        didLoad = false
+        do { try loadIfNeeded(preservingActiveDrain: true); publishSnapshot() }
+        catch { didLoad = false }
+        return plan
     }
 
     private func persistNewEntry(request: URLRequest, body: Data, idempotencyKey: String,
@@ -583,7 +656,8 @@ actor OfflineTalkOutbox {
         backendURL: URL, client: BackendClient? = nil) async throws -> OfflineTalkReceivedReply {
         let packet = try receivedReply(id, initiatingIdentity: owner, backendURL: backendURL)
         let advertised = packet.response.headers["x-turn-meta-available"]?.lowercased() ?? ""
-        guard packet.pageDelivery == nil, packet.response.turnMetadata == nil, ["1", "true"].contains(advertised) else { return packet }
+        guard packet.pageDelivery == nil || packet.pageDelivery?.liveMutation != nil,
+              packet.response.turnMetadata == nil, ["1", "true"].contains(advertised) else { return packet }
         let identity = requestIdentityProvider(false)
         try requireScope(owner, backendURL: backendURL)
         let api: BackendClient
@@ -596,11 +670,16 @@ actor OfflineTalkOutbox {
         try requireScope(owner, backendURL: backendURL)
         guard currentScope.matches(identity: requestIdentityProvider(false), backendURL: backendURLProvider()) else { throw OfflineTalkPreviousOwnerError() }
         let fresh = try receivedReply(id, initiatingIdentity: owner, backendURL: backendURL)
-        if fresh.pageDelivery != nil || fresh.response.turnMetadata != nil { return fresh }
+        if (fresh.pageDelivery != nil && fresh.pageDelivery?.liveMutation == nil) || fresh.response.turnMetadata != nil { return fresh }
         guard fresh.response.id == packet.response.id else { throw BackendMemoryAPIError.invalidResponse }
         var record = try readStoredRecord(blobURL(for: fresh.entry.bodyRef))
         _ = try record.validatedBody(matching: fresh.entry)
         record.response = try fresh.response.retainingTurnMetadata(metadata)
+        if var plan = record.pageDelivery, let response = record.response {
+            plan.receiptID = response.id
+            try plan.validate(response: response)
+            record.pageDelivery = plan; record.pageDeliveryDigest = try plan.integrityDigest()
+        }
         try writeProtectedData(record.encoded(), to: blobURL(for: fresh.entry.bodyRef))
         return try receivedReply(id, initiatingIdentity: owner, backendURL: backendURL)
     }
@@ -844,7 +923,15 @@ actor OfflineTalkOutbox {
                 var recovered = row ?? entry
                 recovered.bodyRef = entry.bodyRef; recovered.bodyByteCount = entry.bodyByteCount
                 recovered.status = .parked; recovered.receivedReply = true; recovered.interruptedEnqueue = nil
+                recovered.hasLivePageIntent = record.pageDelivery?.liveMutation == nil ? nil : true
                 recovered.lastError = receivedReplyMessage(record.response)
+                if let index = next.firstIndex(where: { $0.id == entry.id }) { next[index] = recovered }
+                else { next.append(recovered) }
+            } else if record.pageDelivery?.liveMutation != nil {
+                var recovered = row ?? entry
+                recovered.status = .parked; recovered.nextAttemptAt = 0
+                recovered.hasLivePageIntent = true; recovered.interruptedEnqueue = nil
+                recovered.lastError = "A prepared page is kept. Its reply was interrupted; export or review the page before continuing. It will not generate again."
                 if let index = next.firstIndex(where: { $0.id == entry.id }) { next[index] = recovered }
                 else { next.append(recovered) }
             } else if row == nil {
@@ -867,7 +954,7 @@ actor OfflineTalkOutbox {
 
     private func readStoredRecord(_ url: URL) throws -> OfflineTalkStoredBody {
         let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
-        guard size <= Self.maxBodyBytes + OfflineTalkStoredResponse.maxBodyBytes + 7_340_032 else {
+        guard size <= Self.maxStoredRecordBytes else {
             throw BackendError.stage("offline_outbox", "Queued body exceeds the recovery limit. Its file was kept.")
         }
         return try PropertyListDecoder().decode(OfflineTalkStoredBody.self, from: Data(contentsOf: url))
@@ -876,6 +963,9 @@ actor OfflineTalkOutbox {
     private func storedBody(for entry: OfflineTalkOutboxEntry, allowReceived: Bool = false) throws -> Data {
         guard entry.bodyRef.hasSuffix(".turn") else { return try Data(contentsOf: blobURL(for: entry.bodyRef)) }
         let record = try readStoredRecord(blobURL(for: entry.bodyRef))
+        if record.pageDelivery?.liveMutation != nil && !allowReceived {
+            throw BackendError.stage("offline_outbox", "This request has prepared page text. Review its recovery; it cannot generate again.")
+        }
         guard record.state == .ready || (allowReceived && record.state == .received) else {
             didLoad = false
             throw BackendError.stage("offline_outbox", "This request has already settled. Refresh recovery before retrying.")
@@ -921,6 +1011,9 @@ actor OfflineTalkOutbox {
     }
 
     private func writeProtectedData(_ data: Data, to url: URL) throws {
+        guard url.pathExtension != "turn" || data.count <= Self.maxStoredRecordBytes else {
+            throw BackendError.stage("offline_outbox", "This recovery record exceeds the local limit. Its existing files were kept; no larger record was acknowledged.")
+        }
         try data.write(to: url, options: [.atomic])
         #if os(iOS)
         try fileManager.setAttributes(
@@ -979,6 +1072,13 @@ actor OfflineTalkOutbox {
             let packet = try receivedReply(id, initiatingIdentity: owner, backendURL: backendURL)
             payload["response"] = packet.response.exportPayload
             if let plan = packet.pageDelivery { payload["page_delivery"] = try JSONSerialization.jsonObject(with: JSONEncoder().encode(plan)) }
+        } else if entry.hasLivePageIntent == true {
+            let record = try readStoredRecord(blobURL(for: entry.bodyRef))
+            _ = try record.validatedBody(matching: entry)
+            if let plan = record.pageDelivery {
+                payload["page_delivery"] = try JSONSerialization.jsonObject(with: JSONEncoder().encode(plan))
+                payload["delivery_state"] = "prepared_reply_incomplete"
+            }
         }
         let data = try JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys, .prettyPrinted])
         try requireScope(owner, backendURL: backendURL)

@@ -34,6 +34,18 @@ final class OfflineTalkLiveCustodyTests: XCTestCase {
         XCTAssertEqual(calls, 0, "An admitted live turn is not permission to generate again")
     }
 
+    func testAdmissionCleanupCannotEraseAcceptedResponse() async throws {
+        let box = queue()
+        let admission = try await box.admitLiveTalk(request: request(), body: body,
+            owner: state.identity(), backendURL: backend)
+        let receipt = try await box.completeLiveTalk(admission, response: accepted(), responseURL: backend.appendingPathComponent("talk"))
+        let retired = try await box.endLiveTalkWithoutAcceptedResponse(admission)
+        XCTAssertFalse(retired)
+        let kept = try await queue().receivedReply(receipt.entryID, initiatingIdentity: state.identity(), backendURL: backend)
+        XCTAssertEqual(kept.response.id, receipt.responseID)
+        XCTAssertEqual(kept.response.body, audio)
+    }
+
     func testAcceptedReplySurvivesOwnerChangeAndRelaunchOnlyForOriginalWriter() async throws {
         let box = queue(), owner = state.identity()
         let admission = try await box.admitLiveTalk(request: request(), body: body, owner: owner, backendURL: backend)
