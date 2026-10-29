@@ -121,6 +121,273 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         XCTAssertEqual(payloads["project-b"]?["draft"] as? String, "B")
     }
 
+    @MainActor
+    func testExactOrdinaryDeletionPreservesConflictProjectAndFutureFields() {
+        let ordinary = "INT. CAFE - NIGHT\r\n\r\nCafe\u{301}.  \t"
+        let preserved = "A distinct preserved scene.\n"
+        store.save(ownerUserId: ownerUserID, projectId: "project", draft: ordinary,
+            baseVersionId: "ordinary-base", dirty: true, savedAt: 101)
+        store.savePreservedConflict(ownerUserId: ownerUserID, projectId: "project", draft: preserved,
+            baseVersionId: "preserved-base", savedAt: 202)
+        store.save(ownerUserId: ownerUserID, projectId: "other-project", draft: "Other",
+            baseVersionId: "other-base", dirty: true, savedAt: 303)
+        var payloads = store.payloads(ownerUserId: ownerUserID)
+        payloads["project"]?["failedAdmissions"] = Data([0, 1, 2, 255])
+        let scopedKey = ScreenplayOwnerScopedStoragePolicy.storageKey(baseKey: recoveryKey, ownerUserID: ownerUserID)
+        defaults.set(payloads, forKey: scopedKey)
+
+        XCTAssertEqual(store.deleteRecoverySlotIfMatching(
+            ownerUserId: ownerUserID, projectId: " project ", slot: .ordinary,
+            draft: ordinary, baseVersionId: "ordinary-base", savedAt: 101
+        ), .deleted)
+
+        let stored = store.payloads(ownerUserId: ownerUserID)
+        XCTAssertNil(stored["project"]?["draft"])
+        XCTAssertNil(stored["project"]?["baseVersionId"])
+        XCTAssertNil(stored["project"]?["dirty"])
+        XCTAssertNil(stored["project"]?["savedAt"])
+        let keptConflict = stored["project"]?["preservedConflict"] as? [String: Any]
+        XCTAssertEqual((keptConflict?["draft"] as? String).map { Data($0.utf8) }, Data(preserved.utf8))
+        XCTAssertEqual(keptConflict?["baseVersionId"] as? String, "preserved-base")
+        XCTAssertEqual(stored["project"]?["failedAdmissions"] as? Data, Data([0, 1, 2, 255]))
+        XCTAssertEqual(stored["other-project"]?["draft"] as? String, "Other")
+    }
+
+    @MainActor
+    func testExactPreservedDeletionPreservesOrdinaryAndFutureFields() {
+        let ordinary = "Newer ordinary words.\n \t"
+        let preserved = "Older preserved words.\r\n"
+        store.save(ownerUserId: ownerUserID, projectId: "project", draft: ordinary,
+            baseVersionId: "ordinary-base", dirty: true, savedAt: 404)
+        store.savePreservedConflict(ownerUserId: ownerUserID, projectId: "project", draft: preserved,
+            baseVersionId: "preserved-base", savedAt: 505)
+        var payloads = store.payloads(ownerUserId: ownerUserID)
+        payloads["project"]?["futureField"] = ["request": "kept"]
+        let scopedKey = ScreenplayOwnerScopedStoragePolicy.storageKey(baseKey: recoveryKey, ownerUserID: ownerUserID)
+        defaults.set(payloads, forKey: scopedKey)
+
+        XCTAssertEqual(store.deleteRecoverySlotIfMatching(
+            ownerUserId: ownerUserID, projectId: "project", slot: .preservedConflict,
+            draft: preserved, baseVersionId: "preserved-base", savedAt: 505
+        ), .deleted)
+
+        let stored = store.payloads(ownerUserId: ownerUserID)["project"]
+        XCTAssertNil(stored?["preservedConflict"])
+        XCTAssertEqual((stored?["draft"] as? String).map { Data($0.utf8) }, Data(ordinary.utf8))
+        XCTAssertEqual(stored?["baseVersionId"] as? String, "ordinary-base")
+        XCTAssertEqual(stored?["dirty"] as? Bool, true)
+        XCTAssertEqual(stored?["savedAt"] as? TimeInterval, 404)
+        XCTAssertEqual((stored?["futureField"] as? [String: String])?["request"], "kept")
+    }
+
+    @MainActor
+    func testStaleCandidateCannotDeleteRefreshedOrdinaryOrPreservedSlot() {
+        store.save(ownerUserId: ownerUserID, projectId: "project", draft: "Same ordinary",
+            baseVersionId: "base", dirty: true, savedAt: 2)
+        store.savePreservedConflict(ownerUserId: ownerUserID, projectId: "project", draft: "Same preserved",
+            baseVersionId: "base", savedAt: 4)
+
+        XCTAssertEqual(store.matchRecoverySlot(
+            ownerUserId: ownerUserID, projectId: "project", slot: .ordinary,
+            draft: "Same ordinary", baseVersionId: "base", savedAt: 1
+        ), .changed)
+        XCTAssertEqual(store.matchRecoverySlot(
+            ownerUserId: ownerUserID, projectId: "project", slot: .preservedConflict,
+            draft: "Same preserved", baseVersionId: "base", savedAt: 4
+        ), .matching)
+        XCTAssertEqual(store.deleteRecoverySlotIfMatching(
+            ownerUserId: ownerUserID, projectId: "project", slot: .ordinary,
+            draft: "Same ordinary", baseVersionId: "base", savedAt: 1
+        ), .changed)
+        XCTAssertEqual(store.deleteRecoverySlotIfMatching(
+            ownerUserId: ownerUserID, projectId: "project", slot: .preservedConflict,
+            draft: "Same preserved", baseVersionId: "base", savedAt: 3
+        ), .changed)
+
+        let stored = store.payloads(ownerUserId: ownerUserID)["project"]
+        XCTAssertEqual(stored?["draft"] as? String, "Same ordinary")
+        XCTAssertEqual(stored?["savedAt"] as? TimeInterval, 2)
+        let preserved = stored?["preservedConflict"] as? [String: Any]
+        XCTAssertEqual(preserved?["draft"] as? String, "Same preserved")
+        XCTAssertEqual(preserved?["savedAt"] as? TimeInterval, 4)
+    }
+
+    @MainActor
+    func testDeletionRequiresExactDraftBytesAndBaseVersion() {
+        let decomposed = "Cafe\u{301}.  \r\n"
+        let composed = "Caf\u{00E9}.  \r\n"
+        store.save(ownerUserId: ownerUserID, projectId: "project", draft: decomposed,
+            baseVersionId: "base-a", dirty: true, savedAt: 606)
+
+        XCTAssertEqual(store.matchRecoverySlot(
+            ownerUserId: ownerUserID, projectId: "project", slot: .ordinary,
+            draft: composed, baseVersionId: "base-a", savedAt: 606
+        ), .changed)
+        XCTAssertEqual(store.matchRecoverySlot(
+            ownerUserId: ownerUserID, projectId: "project", slot: .ordinary,
+            draft: decomposed, baseVersionId: "base-a", savedAt: 606
+        ), .matching)
+        XCTAssertEqual(store.deleteRecoverySlotIfMatching(
+            ownerUserId: ownerUserID, projectId: "project", slot: .ordinary,
+            draft: composed, baseVersionId: "base-a", savedAt: 606
+        ), .changed)
+        XCTAssertEqual(store.deleteRecoverySlotIfMatching(
+            ownerUserId: ownerUserID, projectId: "project", slot: .ordinary,
+            draft: decomposed, baseVersionId: "base-b", savedAt: 606
+        ), .changed)
+        XCTAssertEqual((store.payloads(ownerUserId: ownerUserID)["project"]?["draft"] as? String)
+            .map { Data($0.utf8) }, Data(decomposed.utf8))
+    }
+
+    @MainActor
+    func testExactSlotDeletionIsIsolatedByOwner() {
+        let project = "shared-project"
+        store.save(ownerUserId: "owner-a", projectId: project, draft: "Owner A",
+            baseVersionId: "base", dirty: true, savedAt: 707)
+        store.save(ownerUserId: "owner-b", projectId: project, draft: "Owner B",
+            baseVersionId: "base", dirty: true, savedAt: 808)
+
+        XCTAssertEqual(store.deleteRecoverySlotIfMatching(
+            ownerUserId: "owner-a", projectId: project, slot: .ordinary,
+            draft: "Owner A", baseVersionId: "base", savedAt: 707
+        ), .deleted)
+
+        XCTAssertNil(store.payloads(ownerUserId: "owner-a")[project])
+        let ownerB = store.payloads(ownerUserId: "owner-b")[project]
+        XCTAssertEqual(ownerB?["draft"] as? String, "Owner B")
+        XCTAssertEqual(ownerB?["savedAt"] as? TimeInterval, 808)
+    }
+
+    @MainActor
+    func testVacantSlotSaveRecognizesSamePageWithoutRewritingEitherSlot() {
+        store.save(ownerUserId: ownerUserID, projectId: "project", draft: "Ordinary",
+            baseVersionId: "base-o", dirty: true, savedAt: 10)
+        store.savePreservedConflict(ownerUserId: ownerUserID, projectId: "project", draft: "Preserved",
+            baseVersionId: "base-p", savedAt: 20)
+        let before = store.payloads(ownerUserId: ownerUserID)
+
+        XCTAssertEqual(store.saveInVacantRecoverySlot(
+            ownerUserId: ownerUserID, projectId: "project", draft: "Ordinary",
+            baseVersionId: "base-o", savedAt: 99
+        ), .present(.ordinary))
+        XCTAssertEqual(store.saveInVacantRecoverySlot(
+            ownerUserId: ownerUserID, projectId: "project", draft: "Preserved",
+            baseVersionId: "base-p", savedAt: 99
+        ), .present(.preservedConflict))
+
+        let after = store.payloads(ownerUserId: ownerUserID)
+        XCTAssertTrue(NSDictionary(dictionary: after).isEqual(to: before))
+        XCTAssertEqual(after["project"]?["savedAt"] as? TimeInterval, 10)
+        XCTAssertEqual((after["project"]?["preservedConflict"] as? [String: Any])?["savedAt"] as? TimeInterval, 20)
+    }
+
+    @MainActor
+    func testVacantSlotSaveUsesPreservedWithoutReplacingOrdinary() {
+        let ordinary = "Existing ordinary.\r\n"
+        let newer = "Current page.\n \t"
+        store.save(ownerUserId: ownerUserID, projectId: "project", draft: ordinary,
+            baseVersionId: "base-o", dirty: true, savedAt: 30)
+        var payloads = store.payloads(ownerUserId: ownerUserID)
+        payloads["project"]?["futureField"] = "keep"
+        let scopedKey = ScreenplayOwnerScopedStoragePolicy.storageKey(baseKey: recoveryKey, ownerUserID: ownerUserID)
+        defaults.set(payloads, forKey: scopedKey)
+
+        XCTAssertEqual(store.saveInVacantRecoverySlot(
+            ownerUserId: ownerUserID, projectId: "project", draft: newer,
+            baseVersionId: "base-new", savedAt: 40
+        ), .stored(.preservedConflict))
+
+        let stored = store.payloads(ownerUserId: ownerUserID)["project"]
+        XCTAssertEqual((stored?["draft"] as? String).map { Data($0.utf8) }, Data(ordinary.utf8))
+        XCTAssertEqual(stored?["baseVersionId"] as? String, "base-o")
+        XCTAssertEqual(stored?["savedAt"] as? TimeInterval, 30)
+        let preserved = stored?["preservedConflict"] as? [String: Any]
+        XCTAssertEqual((preserved?["draft"] as? String).map { Data($0.utf8) }, Data(newer.utf8))
+        XCTAssertEqual(preserved?["baseVersionId"] as? String, "base-new")
+        XCTAssertEqual(preserved?["savedAt"] as? TimeInterval, 40)
+        XCTAssertEqual(stored?["futureField"] as? String, "keep")
+    }
+
+    @MainActor
+    func testVacantSlotSaveUsesOrdinaryWithoutReplacingPreserved() {
+        let preserved = "Existing preserved.\n"
+        let current = "Current page.\r\n"
+        store.savePreservedConflict(ownerUserId: ownerUserID, projectId: "project", draft: preserved,
+            baseVersionId: "base-p", savedAt: 50)
+
+        XCTAssertEqual(store.saveInVacantRecoverySlot(
+            ownerUserId: ownerUserID, projectId: "project", draft: current,
+            baseVersionId: "base-current", savedAt: 60
+        ), .stored(.ordinary))
+
+        let stored = store.payloads(ownerUserId: ownerUserID)["project"]
+        XCTAssertEqual((stored?["draft"] as? String).map { Data($0.utf8) }, Data(current.utf8))
+        let kept = stored?["preservedConflict"] as? [String: Any]
+        XCTAssertEqual((kept?["draft"] as? String).map { Data($0.utf8) }, Data(preserved.utf8))
+        XCTAssertEqual(kept?["savedAt"] as? TimeInterval, 50)
+    }
+
+    @MainActor
+    func testVacantSlotSaveRefusesByteDistinctOccupiedAndMalformedSlots() {
+        store.save(ownerUserId: ownerUserID, projectId: "occupied", draft: "Ordinary",
+            baseVersionId: "base-o", dirty: true, savedAt: 70)
+        store.savePreservedConflict(ownerUserId: ownerUserID, projectId: "occupied", draft: "Preserved",
+            baseVersionId: "base-p", savedAt: 80)
+        var payloads = store.payloads(ownerUserId: ownerUserID)
+        payloads["malformed"] = [
+            "draft": "Partial ordinary",
+            "preservedConflict": [
+                "draft": "Valid preserved",
+                "baseVersionId": "base-p",
+                "dirty": true,
+                "savedAt": 90.0,
+            ],
+        ]
+        payloads["malformed-preserved"] = [
+            "draft": "Valid ordinary",
+            "baseVersionId": "base-o",
+            "dirty": true,
+            "savedAt": 95.0,
+            "preservedConflict": "unreadable",
+        ]
+        let scopedKey = ScreenplayOwnerScopedStoragePolicy.storageKey(baseKey: recoveryKey, ownerUserID: ownerUserID)
+        defaults.set(payloads, forKey: scopedKey)
+        let before = store.payloads(ownerUserId: ownerUserID)
+
+        XCTAssertEqual(store.saveInVacantRecoverySlot(
+            ownerUserId: ownerUserID, projectId: "occupied", draft: "Byte-distinct",
+            baseVersionId: "new-base", savedAt: 100
+        ), .occupied)
+        XCTAssertEqual(store.saveInVacantRecoverySlot(
+            ownerUserId: ownerUserID, projectId: "malformed", draft: "New page",
+            baseVersionId: "new-base", savedAt: 100
+        ), .occupied)
+        XCTAssertEqual(store.saveInVacantRecoverySlot(
+            ownerUserId: ownerUserID, projectId: "malformed-preserved", draft: "New page",
+            baseVersionId: "new-base", savedAt: 100
+        ), .occupied)
+
+        XCTAssertTrue(NSDictionary(dictionary: store.payloads(ownerUserId: ownerUserID)).isEqual(to: before))
+    }
+
+    @MainActor
+    func testVacantSlotSaveIsIsolatedByOwner() {
+        let project = "shared-project"
+        store.save(ownerUserId: "owner-b", projectId: project, draft: "Owner B",
+            baseVersionId: "base-b", dirty: true, savedAt: 110)
+
+        XCTAssertEqual(store.saveInVacantRecoverySlot(
+            ownerUserId: "owner-a", projectId: project, draft: "Owner A",
+            baseVersionId: "base-a", savedAt: 120
+        ), .stored(.ordinary))
+
+        XCTAssertEqual(store.payloads(ownerUserId: "owner-a")[project]?["draft"] as? String, "Owner A")
+        let ownerB = store.payloads(ownerUserId: "owner-b")[project]
+        XCTAssertEqual(ownerB?["draft"] as? String, "Owner B")
+        XCTAssertEqual(ownerB?["baseVersionId"] as? String, "base-b")
+        XCTAssertEqual(ownerB?["savedAt"] as? TimeInterval, 110)
+    }
+
     func testConditionalRecoveryCleanupPreservesNewerOtherOwnerAndDistinctConflict() {
         store.save(ownerUserId: ownerUserID, projectId: "project", draft: "Scene\n", baseVersionId: "v1", dirty: true)
         store.savePreservedConflict(ownerUserId: ownerUserID, projectId: "project", draft: "Different scene", baseVersionId: "v1")

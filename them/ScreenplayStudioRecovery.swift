@@ -137,6 +137,31 @@ enum ScreenplayConditionalRecoveryResult {
     case present, occupied, unconfirmed
 }
 
+enum ScreenplayLocalDraftRecoverySlot: Equatable {
+    case ordinary
+    case preservedConflict
+}
+
+enum ScreenplayConditionalRecoveryDeletionResult: Equatable {
+    case deleted
+    case missing
+    case changed
+    case unconfirmed
+}
+
+enum ScreenplayRecoverySlotMatchResult: Equatable {
+    case matching
+    case missing
+    case changed
+}
+
+enum ScreenplayVacantRecoveryWriteResult: Equatable {
+    case present(ScreenplayLocalDraftRecoverySlot)
+    case stored(ScreenplayLocalDraftRecoverySlot)
+    case occupied
+    case unconfirmed
+}
+
 struct ScreenplayLocalDraftRecoveryStore {
     static let defaultKey = "screenplay.studio.localDraftRecovery.v1"
 
@@ -235,6 +260,148 @@ struct ScreenplayLocalDraftRecoveryStore {
             nextPayloads[normalizedProjectId] = projectPayload
         }
         defaults.set(nextPayloads, forKey: ownerScopedKey(ownerUserId))
+    }
+
+    /// Revalidates the exact recovery decision without changing stored work.
+    @MainActor
+    func matchRecoverySlot(
+        ownerUserId: String,
+        projectId: String,
+        slot: ScreenplayLocalDraftRecoverySlot,
+        draft: String,
+        baseVersionId: String,
+        savedAt: TimeInterval
+    ) -> ScreenplayRecoverySlotMatchResult {
+        let project = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !project.isEmpty,
+              let payload = payloads(ownerUserId: ownerUserId)[project] else { return .missing }
+        let slotState = storedRecoverySlot(slot, in: payload)
+        guard slotState.exists else { return .missing }
+        guard let candidate = slotState.candidate,
+              exactRecoveryCandidate(candidate, draft: draft, baseVersionId: baseVersionId, savedAt: savedAt) else {
+            return .changed
+        }
+        return .matching
+    }
+
+    /// Deletes only the recovery copy the writer actually reviewed. A refreshed
+    /// or byte-distinct slot is left untouched for a new recovery decision.
+    @MainActor
+    func deleteRecoverySlotIfMatching(
+        ownerUserId: String,
+        projectId: String,
+        slot: ScreenplayLocalDraftRecoverySlot,
+        draft: String,
+        baseVersionId: String,
+        savedAt: TimeInterval
+    ) -> ScreenplayConditionalRecoveryDeletionResult {
+        let project = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !project.isEmpty else { return .missing }
+        var all = payloads(ownerUserId: ownerUserId)
+        guard var payload = all[project] else { return .missing }
+
+        let slotState = storedRecoverySlot(slot, in: payload)
+        guard slotState.exists else { return .missing }
+        guard let candidate = slotState.candidate,
+              exactRecoveryCandidate(candidate, draft: draft, baseVersionId: baseVersionId, savedAt: savedAt) else {
+            return .changed
+        }
+
+        switch slot {
+        case .ordinary:
+            for key in ["draft", "baseVersionId", "dirty", "savedAt"] {
+                payload.removeValue(forKey: key)
+            }
+        case .preservedConflict:
+            payload.removeValue(forKey: "preservedConflict")
+        }
+
+        if payload.isEmpty {
+            all.removeValue(forKey: project)
+        } else {
+            all[project] = payload
+        }
+        defaults.set(all, forKey: ownerScopedKey(ownerUserId))
+
+        let storedPayloads = payloads(ownerUserId: ownerUserId)
+        guard NSDictionary(dictionary: storedPayloads).isEqual(to: all) else {
+            return .unconfirmed
+        }
+        let storedProject = storedPayloads[project]
+        let slotIsAbsent: Bool
+        switch slot {
+        case .ordinary: slotIsAbsent = storedProject?["draft"] == nil
+        case .preservedConflict: slotIsAbsent = storedProject?["preservedConflict"] == nil
+        }
+        return slotIsAbsent ? .deleted : .unconfirmed
+    }
+
+    /// Keeps an exact draft without replacing either existing recovery copy.
+    /// A malformed partial slot is occupied, never an invitation to overwrite it.
+    @MainActor
+    func saveInVacantRecoverySlot(
+        ownerUserId: String,
+        projectId: String,
+        draft: String,
+        baseVersionId: String,
+        savedAt: TimeInterval = Date().timeIntervalSince1970
+    ) -> ScreenplayVacantRecoveryWriteResult {
+        let project = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !project.isEmpty else { return .unconfirmed }
+        var all = payloads(ownerUserId: ownerUserId)
+        var payload = all[project] ?? [:]
+
+        let ordinary = storedRecoverySlot(.ordinary, in: payload)
+        if let candidate = ordinary.candidate,
+           exactRecoveryCandidate(candidate, draft: draft, baseVersionId: baseVersionId) {
+            return .present(.ordinary)
+        }
+        let preserved = storedRecoverySlot(.preservedConflict, in: payload)
+        if let candidate = preserved.candidate,
+           exactRecoveryCandidate(candidate, draft: draft, baseVersionId: baseVersionId) {
+            return .present(.preservedConflict)
+        }
+
+        let slot: ScreenplayLocalDraftRecoverySlot
+        if !ordinary.exists {
+            slot = .ordinary
+        } else if !preserved.exists {
+            slot = .preservedConflict
+        } else {
+            return .occupied
+        }
+
+        let candidate: [String: Any] = [
+            "draft": draft,
+            "baseVersionId": baseVersionId,
+            "dirty": true,
+            "savedAt": savedAt,
+        ]
+        switch slot {
+        case .ordinary:
+            for (key, value) in candidate { payload[key] = value }
+        case .preservedConflict:
+            payload["preservedConflict"] = candidate
+        }
+        all[project] = payload
+        defaults.set(all, forKey: ownerScopedKey(ownerUserId))
+
+        let storedPayloads = payloads(ownerUserId: ownerUserId)
+        guard NSDictionary(dictionary: storedPayloads).isEqual(to: all) else {
+            return .unconfirmed
+        }
+        let storedProject = storedPayloads[project] ?? [:]
+        let storedCandidate: [String: Any]?
+        switch slot {
+        case .ordinary: storedCandidate = storedProject
+        case .preservedConflict: storedCandidate = storedProject["preservedConflict"] as? [String: Any]
+        }
+        guard let storedCandidate,
+              exactRecoveryCandidate(storedCandidate, draft: draft, baseVersionId: baseVersionId),
+              storedCandidate["savedAt"] as? TimeInterval == savedAt else {
+            return .unconfirmed
+        }
+        return .stored(slot)
     }
 
     /// Does not replace a different ordinary recovery copy or the preserved conflict.
@@ -342,6 +509,37 @@ struct ScreenplayLocalDraftRecoveryStore {
 
     private func ownerScopedKey(_ ownerUserId: String) -> String {
         ScreenplayOwnerScopedStoragePolicy.storageKey(baseKey: key, ownerUserID: ownerUserId)
+    }
+
+    private func storedRecoverySlot(
+        _ slot: ScreenplayLocalDraftRecoverySlot,
+        in payload: [String: Any]
+    ) -> (exists: Bool, candidate: [String: Any]?) {
+        switch slot {
+        case .ordinary:
+            let keys = ["draft", "baseVersionId", "dirty", "savedAt"]
+            let exists = keys.contains { payload[$0] != nil }
+            return (exists, exists ? payload : nil)
+        case .preservedConflict:
+            guard let value = payload["preservedConflict"] else { return (false, nil) }
+            return (true, value as? [String: Any])
+        }
+    }
+
+    private func exactRecoveryCandidate(
+        _ candidate: [String: Any],
+        draft: String,
+        baseVersionId: String,
+        savedAt: TimeInterval? = nil
+    ) -> Bool {
+        guard let storedDraft = candidate["draft"] as? String,
+              let storedBase = candidate["baseVersionId"] as? String,
+              candidate["dirty"] as? Bool == true else { return false }
+        if let savedAt {
+            guard candidate["savedAt"] as? TimeInterval == savedAt else { return false }
+        }
+        return storedDraft.utf8.elementsEqual(draft.utf8) &&
+            storedBase.utf8.elementsEqual(baseVersionId.utf8)
     }
 
     private func migrateLegacyPayloadsIfNeeded() {
