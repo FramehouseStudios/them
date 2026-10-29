@@ -211,12 +211,14 @@ nonisolated struct ScreenplayDraftSaveOutboxSnapshot: Equatable {
     let inflightCount: Int
     let parkedCount: Int
     let lastError: String
+    let isStorageReadable: Bool
 
     static let empty = ScreenplayDraftSaveOutboxSnapshot(
         pendingCount: 0,
         inflightCount: 0,
         parkedCount: 0,
-        lastError: ""
+        lastError: "",
+        isStorageReadable: true
     )
 
     var activeCount: Int { pendingCount + inflightCount }
@@ -227,6 +229,7 @@ nonisolated struct ScreenplayDraftSaveOutboxSnapshot: Equatable {
             "inflightCount": inflightCount,
             "parkedCount": parkedCount,
             "lastError": lastError,
+            "isStorageReadable": isStorageReadable,
         ]
     }
 }
@@ -302,7 +305,7 @@ actor ScreenplayDraftSaveOutbox {
             try loadIfNeeded()
             publishSnapshot()
         } catch {
-            publish(snapshotFor(entries, lastError: error.localizedDescription))
+            publish(snapshotFor(entries, lastError: error.localizedDescription, isStorageReadable: false))
         }
         guard networkMonitor == nil else { return }
         let monitor = NWPathMonitor()
@@ -336,7 +339,7 @@ actor ScreenplayDraftSaveOutbox {
             }
             return snapshotFor(scopedEntries)
         } catch {
-            return snapshotFor([], lastError: error.localizedDescription)
+            return snapshotFor([], lastError: error.localizedDescription, isStorageReadable: false)
         }
     }
 
@@ -1474,7 +1477,8 @@ actor ScreenplayDraftSaveOutbox {
 
     private func snapshotFor(
         _ entries: [ScreenplayDraftSaveOutboxEntry],
-        lastError: String = ""
+        lastError: String = "",
+        isStorageReadable: Bool = true
     ) -> ScreenplayDraftSaveOutboxSnapshot {
         let explicitError = lastError.trimmingCharacters(in: .whitespacesAndNewlines)
         return ScreenplayDraftSaveOutboxSnapshot(
@@ -1483,7 +1487,8 @@ actor ScreenplayDraftSaveOutbox {
             parkedCount: entries.filter { $0.status == .parked }.count,
             lastError: explicitError.isEmpty
                 ? entries.last(where: { !$0.lastError.isEmpty })?.lastError ?? ""
-                : explicitError
+                : explicitError,
+            isStorageReadable: isStorageReadable
         )
     }
 

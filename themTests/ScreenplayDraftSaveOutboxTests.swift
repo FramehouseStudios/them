@@ -1403,7 +1403,31 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
 
         XCTAssertFalse(firstRead.lastError.isEmpty)
         XCTAssertFalse(secondRead.lastError.isEmpty)
+        XCTAssertFalse(firstRead.isStorageReadable)
+        XCTAssertFalse(secondRead.isStorageReadable)
         XCTAssertEqual(try Data(contentsOf: manifestURL), corruptData)
+    }
+
+    @MainActor
+    func testStatusRefreshWarnsWhenQueueIsUnreadableWithoutReplacingPage() async throws {
+        try FileManager.default.createDirectory(at: storageDirectory, withIntermediateDirectories: true)
+        let corrupt = Data("{not-json".utf8)
+        let manifest = storageDirectory.appendingPathComponent("queue.json")
+        try corrupt.write(to: manifest)
+        let suite = "them.unreadable-status.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore:
+            ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "recovery"),
+            draftSaveOutbox: ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory))
+        model.autosaveEnabled = false
+        model.selectedProjectID = "project-1"
+        model.fountainDraft = "Writer words remain"
+        await model.refreshDraftSaveOutboxStatus()
+        XCTAssertEqual(model.errorText, ScreenplayDraftSaveRecoveryPresentationPolicy.unreadableQueueError)
+        XCTAssertEqual(model.autosaveStatusText, ScreenplayDraftSaveRecoveryPresentationPolicy.unreadableQueueStatus)
+        XCTAssertEqual(model.fountainDraft, "Writer words remain")
+        XCTAssertEqual(try Data(contentsOf: manifest), corrupt)
     }
 
     func testSuccessfulSaveRebasesCausallyFollowingDrafts() async throws {

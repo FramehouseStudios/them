@@ -6295,6 +6295,12 @@ final class ScreenplayStudioViewModel: ObservableObject {
         guard authContextIsCurrent(owner),
               OfflineTalkRecoveryScope.sameBackend(backendURL, BackendAuthClient.resolvedBackendBaseURL()),
               documentID == bridge.draftOrigin.documentID, projectID == selectedProjectID else { return }
+        guard snapshot.isStorageReadable else {
+            autosaveStatusText = ScreenplayDraftSaveRecoveryPresentationPolicy.unreadableQueueStatus
+            errorText = ScreenplayDraftSaveRecoveryPresentationPolicy.unreadableQueueError
+            return
+        }
+        if errorText == ScreenplayDraftSaveRecoveryPresentationPolicy.unreadableQueueError { errorText = "" }
         pendingInitialProject = pending
         if hasPendingInitialProject, projectID.isEmpty { hasUnsavedDraftChanges = true }
         queuedDraftSaveCount = snapshot.activeCount

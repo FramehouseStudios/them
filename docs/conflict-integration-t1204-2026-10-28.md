@@ -212,3 +212,18 @@ signed outbox suite passed 57/57, 0 failures, 0 skips, result:
 /private/tmp/them-t1205-envelope-readback-20261028.xcresult. This final
 readback change has not been rerun through the local iPhone workflow. No
 physical-phone, live provider, production or integrated-main claim is made.
+
+## Final rollback-workflow check and unreadable status
+
+The signed iPhone Keep Mine workflow passed 1/1, 0 failures and 0 skips
+against the authenticated local backend after the final durable-readback fix:
+/var/folders/27/kqhcss0n7t1dh_fj2wn98ynm0000gn/T/them-save-recovery-qoovvc/recovery-ios.xcresult.
+The provider was intercepted; this is not live model or physical-phone proof.
+
+Current-app queue snapshots now distinguish unreadable storage from ordinary
+per-row error text. Status refresh shows the existing safe-recovery warning
+when storage cannot be read while retaining the current page and original
+file. A focused signed simulator test passed 1/1, 0 failures, 0 skips:
+/private/tmp/them-t1205-queue-status-20261028.xcresult. This change was made
+after the local iPhone workflow above and cannot retrofit older released apps.
+The successful test is not a complete UI or release gate.
