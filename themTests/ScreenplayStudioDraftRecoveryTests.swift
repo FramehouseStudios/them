@@ -134,8 +134,7 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         let snapshot = store.recoverySnapshot(
             ownerUserId: ownerUserID,
             projectId: "project-recovery",
-            serverDraft: "INT. MOTEL ROOM - NIGHT",
-            fingerprint: stableFingerprint
+            serverDraft: "INT. MOTEL ROOM - NIGHT"
         )
 
         XCTAssertEqual(snapshot?.projectId, "project-recovery")
@@ -157,12 +156,39 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         let snapshot = store.recoverySnapshot(
             ownerUserId: ownerUserID,
             projectId: "project-recovery",
-            serverDraft: "INT. MOTEL ROOM - NIGHT",
-            fingerprint: stableFingerprint
+            serverDraft: "INT. MOTEL ROOM - NIGHT"
         )
 
         XCTAssertNil(snapshot)
         XCTAssertNil(store.payloads(ownerUserId: ownerUserID)["project-recovery"])
+    }
+
+    func testRecoveryPreservesExactFormattingUnicodeAndEmptyEdits() {
+        let examples: [(String, String)] = [
+            ("Scene\n", "Scene"),
+            ("e\u{301}", "\u{e9}"),
+            ("", "A deleted scene")
+        ]
+        for (index, pair) in examples.enumerated() {
+            let project = "exact-\(index)"
+            store.save(ownerUserId: ownerUserID, projectId: project, draft: pair.0, baseVersionId: "v1", dirty: true)
+            let reopened = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: recoveryKey)
+            let snapshot = reopened.recoverySnapshot(ownerUserId: ownerUserID, projectId: project, serverDraft: pair.1)
+            XCTAssertEqual(Array(snapshot?.draft.utf8 ?? "".utf8), Array(pair.0.utf8))
+            XCTAssertNotNil(snapshot)
+            XCTAssertNotNil(reopened.payloads(ownerUserId: ownerUserID)[project]?["draft"])
+        }
+    }
+
+    func testPreservedConflictRetainsExactEmptyAndWhitespaceEdits() {
+        for (index, pair) in [("", "Server"), ("Scene\n", "Scene")].enumerated() {
+            let project = "preserved-exact-\(index)"
+            store.savePreservedConflict(ownerUserId: ownerUserID, projectId: project, draft: pair.0, baseVersionId: "v1")
+            let snapshot = store.recoverySnapshot(ownerUserId: ownerUserID, projectId: project, serverDraft: pair.1)
+            XCTAssertNotNil(snapshot)
+            XCTAssertEqual(Array(snapshot?.draft.utf8 ?? "".utf8), Array(pair.0.utf8))
+            XCTAssertEqual(snapshot?.isPreservedConflict, true)
+        }
     }
 
     func testPreservedLiveSyncConflictSurvivesRemoteRecoveryWritesAndStoreReinitialization() {
@@ -199,8 +225,7 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         let snapshot = relaunchedStore.recoverySnapshot(
             ownerUserId: ownerUserID,
             projectId: "project-recovery",
-            serverDraft: remote,
-            fingerprint: stableFingerprint
+            serverDraft: remote
         )
 
         XCTAssertEqual(snapshot?.draft, local)
@@ -245,8 +270,7 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         let snapshot = relaunchedStore.recoverySnapshot(
             ownerUserId: ownerUserID,
             projectId: "project-recovery",
-            serverDraft: remote,
-            fingerprint: stableFingerprint
+            serverDraft: remote
         )
 
         XCTAssertEqual(snapshot?.draft, local)
@@ -499,8 +523,7 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         let relaunchedSnapshot = relaunchedStore.recoverySnapshot(
             ownerUserId: authOwnerID,
             projectId: projectID,
-            serverDraft: remote,
-            fingerprint: stableFingerprint
+            serverDraft: remote
         )
         XCTAssertEqual(relaunchedSnapshot?.draft, local)
         XCTAssertEqual(relaunchedSnapshot?.isPreservedConflict, true)
@@ -530,8 +553,7 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         let snapshot = store.recoverySnapshot(
             ownerUserId: ownerUserID,
             projectId: "project-recovery",
-            serverDraft: local,
-            fingerprint: stableFingerprint
+            serverDraft: local
         )
 
         XCTAssertNil(snapshot)
@@ -1901,14 +1923,5 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
             studioWriteAnchors: nil,
             screenplayBindings: nil
         )
-    }
-
-    private func stableFingerprint(_ value: String) -> String {
-        var hash: UInt64 = 14_695_981_039_346_656_037
-        for byte in value.utf8 {
-            hash ^= UInt64(byte)
-            hash = hash &* 1_099_511_628_211
-        }
-        return String(hash, radix: 16)
     }
 }

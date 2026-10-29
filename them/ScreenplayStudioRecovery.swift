@@ -187,8 +187,7 @@ struct ScreenplayLocalDraftRecoveryStore {
         savedAt: TimeInterval = Date().timeIntervalSince1970
     ) {
         let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalizedProjectId.isEmpty,
-              !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        guard !normalizedProjectId.isEmpty else { return }
         var nextPayloads = payloads(ownerUserId: ownerUserId)
         var projectPayload = nextPayloads[normalizedProjectId] ?? [:]
         projectPayload["preservedConflict"] = [
@@ -245,19 +244,16 @@ struct ScreenplayLocalDraftRecoveryStore {
     func recoverySnapshot(
         ownerUserId: String,
         projectId: String,
-        serverDraft: String,
-        fingerprint: (String) -> String
+        serverDraft: String
     ) -> ScreenplayLocalDraftRecoverySnapshot? {
         let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedProjectId.isEmpty,
               let stored = payloads(ownerUserId: ownerUserId)[normalizedProjectId] else { return nil }
 
-        let serverFingerprint = fingerprint(serverDraft.trimmingCharacters(in: .whitespacesAndNewlines))
         if let preserved = stored["preservedConflict"] as? [String: Any],
-           preserved["dirty"] as? Bool == true {
-            let draft = String(describing: preserved["draft"] ?? "")
-            if !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-               fingerprint(draft.trimmingCharacters(in: .whitespacesAndNewlines)) != serverFingerprint {
+           preserved["dirty"] as? Bool == true,
+           let draft = preserved["draft"] as? String {
+            if !draft.utf8.elementsEqual(serverDraft.utf8) {
                 return ScreenplayLocalDraftRecoverySnapshot(
                     projectId: normalizedProjectId,
                     draft: draft,
@@ -272,13 +268,12 @@ struct ScreenplayLocalDraftRecoveryStore {
         guard let latestStored = payloads(ownerUserId: ownerUserId)[normalizedProjectId] else { return nil }
         let storedDraft = String(describing: latestStored["draft"] ?? "")
         let storedDirty = latestStored["dirty"] as? Bool ?? false
-        guard storedDirty, !storedDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        guard storedDirty, latestStored["draft"] is String else {
             return nil
         }
 
-        let localFingerprint = fingerprint(storedDraft.trimmingCharacters(in: .whitespacesAndNewlines))
-        guard serverFingerprint != localFingerprint else {
-            clear(ownerUserId: ownerUserId, projectId: normalizedProjectId)
+        guard !storedDraft.utf8.elementsEqual(serverDraft.utf8) else {
+            clearOrdinaryDraft(ownerUserId: ownerUserId, projectId: normalizedProjectId)
             return nil
         }
 

@@ -7396,8 +7396,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         guard let snapshot = localDraftRecoveryStore.recoverySnapshot(
             ownerUserId: currentStudioAuthContext().userID,
             projectId: normalizedProjectId,
-            serverDraft: serverDraft,
-            fingerprint: { [weak self] value in self?.fingerprint(for: value) ?? value }
+            serverDraft: serverDraft
         ) else {
             recoveryCandidate = nil
             return
