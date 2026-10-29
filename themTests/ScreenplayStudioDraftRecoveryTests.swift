@@ -121,6 +121,144 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         XCTAssertEqual(payloads["project-b"]?["draft"] as? String, "B")
     }
 
+    func testConditionalRecoveryCleanupPreservesNewerOtherOwnerAndDistinctConflict() {
+        store.save(ownerUserId: ownerUserID, projectId: "project", draft: "Scene\n", baseVersionId: "v1", dirty: true)
+        store.savePreservedConflict(ownerUserId: ownerUserID, projectId: "project", draft: "Different scene", baseVersionId: "v1")
+        store.save(ownerUserId: "other", projectId: "project", draft: "Scene\n", baseVersionId: "v1", dirty: true)
+        store.clearMatchingRecovery(ownerUserId: ownerUserID, projectId: "project", draft: "Scene", baseVersionId: "v1")
+        XCTAssertNotNil(store.payloads(ownerUserId: ownerUserID)["project"]?["draft"])
+        store.clearMatchingRecovery(ownerUserId: ownerUserID, projectId: "project", draft: "Scene\n", baseVersionId: "v1")
+        let payload = store.payloads(ownerUserId: ownerUserID)["project"]
+        XCTAssertNil(payload?["draft"])
+        XCTAssertEqual((payload?["preservedConflict"] as? [String: Any])?["draft"] as? String, "Different scene")
+        XCTAssertEqual(store.payloads(ownerUserId: "other")["project"]?["draft"] as? String, "Scene\n")
+    }
+
+    func testConditionalRecoveryCleanupChecksBaseAndBothExactCopies() {
+        store.save(ownerUserId: ownerUserID, projectId: "project", draft: "Local", baseVersionId: "new", dirty: true)
+        store.savePreservedConflict(ownerUserId: ownerUserID, projectId: "project", draft: "Local", baseVersionId: "old")
+        store.clearMatchingRecovery(ownerUserId: ownerUserID, projectId: "project", draft: "Local", baseVersionId: "old")
+        let payload = store.payloads(ownerUserId: ownerUserID)["project"]
+        XCTAssertEqual(payload?["baseVersionId"] as? String, "new")
+        XCTAssertNil(payload?["preservedConflict"])
+    }
+
+    @MainActor
+    func testRetiredConflictDoesNotOverwriteConcurrentSaveOutcome() {
+        let owner = "recovery-fixture-owner"
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store,
+            studioAuthContextProvider: { .init(userID: owner, sessionIntentGeneration: 1) })
+        ScreenplayLiveDraftSyncService.shared.attach(to: model)
+        defer { ScreenplayLiveDraftSyncService.shared.detach() }
+        let project = "overlap-save"
+        let newer = "Newer cafe\u{301}.  \r\n"
+        model.selectedProjectID = project
+        model.fountainDraft = newer
+        model.latestVersionID = "saved-version"
+        model.hasUnsavedDraftChanges = false
+        model.autosaveStatusText = "Saved"
+        model.infoText = "Save completed."
+        model.errorText = ""
+        model.conflictState = .init(projectId: project, baseVersionId: "old", serverVersionId: "remote",
+            serverDraft: "Remote", serverDraftExcerpt: "Remote", serverUpdatedAt: 1)
+        store.save(ownerUserId: owner, projectId: project, draft: newer, baseVersionId: "saved-version", dirty: false)
+        let before = store.payloads(ownerUserId: owner)[project]!
+        XCTAssertTrue(model.reconcileRetiredServerChoice(selectedPage: "Earlier", saveFlightChanged: true,
+            ownerUserID: owner, projectID: project))
+        XCTAssertEqual(Data(model.fountainDraft.utf8), Data(newer.utf8))
+        XCTAssertEqual(model.latestVersionID, "saved-version")
+        XCTAssertFalse(model.hasUnsavedDraftChanges)
+        XCTAssertEqual(model.autosaveStatusText, "Saved")
+        XCTAssertEqual(model.infoText, "Save completed.")
+        XCTAssertEqual(store.payloads(ownerUserId: owner)[project]?["savedAt"] as? TimeInterval, before["savedAt"] as? TimeInterval)
+        XCTAssertEqual(store.payloads(ownerUserId: owner)[project]?["dirty"] as? Bool, false)
+        XCTAssertNil(model.conflictState)
+    }
+
+    @MainActor
+    func testRetiredConflictKeepsNewerUnsubmittedPage() {
+        let owner = "recovery-fixture-owner"
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store,
+            studioAuthContextProvider: { .init(userID: owner, sessionIntentGeneration: 1) })
+        ScreenplayLiveDraftSyncService.shared.attach(to: model)
+        defer { ScreenplayLiveDraftSyncService.shared.detach() }
+        let project = "overlap-edit"
+        let newer = "Newer words.\r\n \t"
+        model.selectedProjectID = project
+        model.latestVersionID = "old-base"
+        model.fountainDraft = newer
+        model.conflictState = .init(projectId: project, baseVersionId: "old-base", serverVersionId: "remote",
+            serverDraft: "Remote", serverDraftExcerpt: "Remote", serverUpdatedAt: 1)
+        XCTAssertTrue(model.reconcileRetiredServerChoice(selectedPage: "Earlier", saveFlightChanged: false,
+            ownerUserID: owner, projectID: project))
+        XCTAssertEqual(Data(model.fountainDraft.utf8), Data(newer.utf8))
+        XCTAssertTrue(model.hasUnsavedDraftChanges)
+        let stored = store.payloads(ownerUserId: owner)[project]
+        XCTAssertEqual((stored?["draft"] as? String).map { Data($0.utf8) }, Data(newer.utf8))
+        XCTAssertEqual(stored?["baseVersionId"] as? String, "old-base")
+        XCTAssertEqual(stored?["dirty"] as? Bool, true)
+        XCTAssertNil(model.conflictState)
+    }
+
+    @MainActor
+    func testRetiredConflictDoesNotReplaceOtherRecoveryOrUnrelatedError() {
+        let owner = "recovery-fixture-owner"
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store,
+            studioAuthContextProvider: { .init(userID: owner, sessionIntentGeneration: 1) })
+        ScreenplayLiveDraftSyncService.shared.attach(to: model)
+        defer { ScreenplayLiveDraftSyncService.shared.detach() }
+        let project = "occupied-recovery"
+        model.selectedProjectID = project
+        model.latestVersionID = "base"
+        model.fountainDraft = "New page"
+        model.errorText = "Another operation failed."
+        model.conflictState = .init(projectId: project, baseVersionId: "base", serverVersionId: "remote",
+            serverDraft: "Remote", serverDraftExcerpt: "Remote", serverUpdatedAt: 1)
+        store.save(ownerUserId: owner, projectId: project, draft: "Other recovery", baseVersionId: "other", dirty: true)
+        store.savePreservedConflict(ownerUserId: owner, projectId: project, draft: "Preserved conflict", baseVersionId: "v1")
+        XCTAssertTrue(model.reconcileRetiredServerChoice(selectedPage: "Earlier", saveFlightChanged: false,
+            ownerUserID: owner, projectID: project))
+        let payload = store.payloads(ownerUserId: owner)[project]
+        XCTAssertEqual(payload?["draft"] as? String, "Other recovery")
+        XCTAssertEqual((payload?["preservedConflict"] as? [String: Any])?["draft"] as? String, "Preserved conflict")
+        XCTAssertEqual(model.errorText, "Another operation failed.")
+        XCTAssertTrue(model.infoText.contains("Export"))
+        XCTAssertEqual(model.fountainDraft, "New page")
+        XCTAssertTrue(model.hasUnsavedDraftChanges)
+    }
+
+    @MainActor
+    func testRetiredConflictRejectsWrongOwnerWithoutMutation() {
+        let owner = "recovery-fixture-owner"
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store,
+            studioAuthContextProvider: { .init(userID: owner, sessionIntentGeneration: 1) })
+        ScreenplayLiveDraftSyncService.shared.attach(to: model)
+        defer { ScreenplayLiveDraftSyncService.shared.detach() }
+        model.selectedProjectID = "project"
+        model.fountainDraft = "Current page"
+        model.conflictState = .init(projectId: "project", baseVersionId: "base", serverVersionId: "remote",
+            serverDraft: "Remote", serverDraftExcerpt: "Remote", serverUpdatedAt: 1)
+        let wrongOwner = owner + "-different"
+        XCTAssertTrue(model.reconcileRetiredServerChoice(selectedPage: "Earlier", saveFlightChanged: false,
+            ownerUserID: wrongOwner, projectID: "project"))
+        XCTAssertNil(store.payloads(ownerUserId: wrongOwner)["project"])
+        XCTAssertNotNil(model.conflictState)
+        XCTAssertEqual(model.fountainDraft, "Current page")
+    }
+
+    @MainActor
+    func testConditionalRecoveryDoesNotMistakeMalformedStorageForAnOccupiedCopy() {
+        store.save(ownerUserId: ownerUserID, projectId: "bad", draft: "Old", baseVersionId: "base", dirty: true)
+        var payloads = store.payloads(ownerUserId: ownerUserID)
+        payloads["bad"]?["baseVersionId"] = 123
+        let key = ScreenplayOwnerScopedStoragePolicy.storageKey(baseKey: recoveryKey, ownerUserID: ownerUserID)
+        defaults.set(payloads, forKey: key)
+        let result = store.saveIfOrdinaryVacantOrMatching(ownerUserId: ownerUserID, projectId: "bad",
+            draft: "New", baseVersionId: "base")
+        guard case .unconfirmed = result else { return XCTFail("Malformed recovery must remain unconfirmed") }
+        XCTAssertEqual(store.payloads(ownerUserId: ownerUserID)["bad"]?["draft"] as? String, "Old")
+    }
+
     func testRecoverySnapshotPreservesUnsavedDraftBasedOnCurrentServerVersion() {
         store.save(
             ownerUserId: ownerUserID,
@@ -358,7 +496,7 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
     }
 
     @MainActor
-    func testLoadServerWithoutVerifiedHeadKeepsWriterWordsAndRecovery() {
+    func testLoadServerWithoutVerifiedHeadKeepsWriterWordsAndRecovery() async {
         let projectID = "unavailable-server-\(UUID().uuidString)"
         let owner = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""
         let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store)
@@ -371,7 +509,7 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         store.save(ownerUserId: owner, projectId: projectID, draft: writer, baseVersionId: "base", dirty: true)
         model.conflictState = .init(projectId: projectID, baseVersionId: "base", serverVersionId: "new",
             serverDraft: "", serverDraftExcerpt: "", serverUpdatedAt: 0)
-        model.applyServerVersionFromConflict()
+        await model.applyServerVersionFromConflict()
         XCTAssertEqual(Data(model.fountainDraft.utf8), Data(writer.utf8))
         XCTAssertNotNil(model.conflictState)
         XCTAssertTrue(model.hasUnsavedDraftChanges)
@@ -383,7 +521,7 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         // requests have not yet been retired. It must not replace the page.
         model.conflictState = .init(projectId: projectID, baseVersionId: "base", serverVersionId: "new",
             serverDraft: "A stale server snapshot", serverDraftExcerpt: "A stale server snapshot", serverUpdatedAt: 1)
-        model.applyServerVersionFromConflict()
+        await model.applyServerVersionFromConflict()
         XCTAssertEqual(Data(model.fountainDraft.utf8), Data(writer.utf8))
         XCTAssertNotNil(model.conflictState)
         XCTAssertTrue(model.hasUnsavedDraftChanges)

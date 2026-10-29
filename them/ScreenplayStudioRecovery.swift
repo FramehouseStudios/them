@@ -133,6 +133,10 @@ struct ScreenplaySceneSessionRestorePolicy {
     }
 }
 
+enum ScreenplayConditionalRecoveryResult {
+    case present, occupied, unconfirmed
+}
+
 struct ScreenplayLocalDraftRecoveryStore {
     static let defaultKey = "screenplay.studio.localDraftRecovery.v1"
 
@@ -231,6 +235,56 @@ struct ScreenplayLocalDraftRecoveryStore {
             nextPayloads[normalizedProjectId] = projectPayload
         }
         defaults.set(nextPayloads, forKey: ownerScopedKey(ownerUserId))
+    }
+
+    /// Does not replace a different ordinary recovery copy or the preserved conflict.
+    @MainActor
+    func saveIfOrdinaryVacantOrMatching(ownerUserId: String, projectId: String,
+                                        draft: String, baseVersionId: String) -> ScreenplayConditionalRecoveryResult {
+        let project = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !project.isEmpty else { return .unconfirmed }
+        var all = payloads(ownerUserId: ownerUserId)
+        var payload = all[project] ?? [:]
+        func exact(_ value: [String: Any]) -> Bool {
+            guard let text = value["draft"] as? String, let base = value["baseVersionId"] as? String else { return false }
+            return text.utf8.elementsEqual(draft.utf8) && base.utf8.elementsEqual(baseVersionId.utf8)
+        }
+        if let preserved = payload["preservedConflict"] as? [String: Any],
+           preserved["dirty"] as? Bool == true, exact(preserved) { return .present }
+        if payload["draft"] != nil {
+            guard payload["draft"] is String, payload["baseVersionId"] is String else { return .unconfirmed }
+            guard exact(payload) else { return .occupied }
+        }
+        payload["draft"] = draft
+        payload["baseVersionId"] = baseVersionId
+        payload["dirty"] = true
+        payload["savedAt"] = Date().timeIntervalSince1970
+        all[project] = payload
+        defaults.set(all, forKey: ownerScopedKey(ownerUserId))
+        let stored = payloads(ownerUserId: ownerUserId)[project] ?? [:]
+        return exact(stored) && stored["dirty"] as? Bool == true ? .present : .unconfirmed
+    }
+
+    /// Retire only recovery copies that still match the writer-selected save.
+    /// A later edit or a different preserved conflict remains recoverable.
+    func clearMatchingRecovery(ownerUserId: String, projectId: String, draft: String, baseVersionId: String) {
+        let project = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !project.isEmpty else { return }
+        var all = payloads(ownerUserId: ownerUserId)
+        guard var payload = all[project] else { return }
+        func matches(_ candidate: [String: Any]) -> Bool {
+            guard let storedDraft = candidate["draft"] as? String,
+                  let storedBase = candidate["baseVersionId"] as? String else { return false }
+            return storedDraft.utf8.elementsEqual(draft.utf8) && storedBase.utf8.elementsEqual(baseVersionId.utf8)
+        }
+        if matches(payload) {
+            for key in ["draft", "baseVersionId", "dirty", "savedAt"] { payload.removeValue(forKey: key) }
+        }
+        if let preserved = payload["preservedConflict"] as? [String: Any], matches(preserved) {
+            payload.removeValue(forKey: "preservedConflict")
+        }
+        if payload.isEmpty { all.removeValue(forKey: project) } else { all[project] = payload }
+        defaults.set(all, forKey: ownerScopedKey(ownerUserId))
     }
 
     func clear(ownerUserId: String, projectId: String) {

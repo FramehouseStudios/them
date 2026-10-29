@@ -2702,7 +2702,7 @@ final class V1SmokeUITests: XCTestCase {
         XCTAssertTrue(staticText(containing: "Which existing story facts", in: studio).exists)
     }
 
-    func test_draft_conflict_load_server_replaces_local_page() {
+    func test_draft_conflict_load_server_without_verified_head_keeps_local_page() {
         let app = launchApp(
             openStudio: true,
             structuralSeed: true,
@@ -2726,25 +2726,22 @@ final class V1SmokeUITests: XCTestCase {
         loadServer.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
 
         XCTAssertTrue(
-            waitForDraft(in: app, containing: "EXT. FERRY TERMINAL - DAWN", timeout: 5),
-            "Load Server did not replace the local page. Accessibility hierarchy:\n\(app.debugDescription)"
+            waitForDraft(in: app, containing: "INT. DINER - NIGHT", timeout: 5),
+            "An unverified cached server preview must not replace the local page."
         )
-        XCTAssertTrue(
-            waitForDisappearance(of: banner, timeout: 5),
-            "Conflict banner remained after Load Server. Accessibility hierarchy:\n\(app.debugDescription)"
-        )
-        XCTAssertTrue(
-            staticText(containing: "Loaded latest server draft", in: app).waitForExistence(timeout: 5),
-            "Load Server confirmation was not presented."
-        )
+        XCTAssertTrue(banner.exists, "An unverified server draft must leave the conflict open.")
+        var snapshot: [String: Any] = [:]
+        XCTAssertTrue(waitForRestoreSnapshot(in: app, timeout: 5) { state in
+            snapshot = state
+            return stringValue(state["error_text"]).contains("Your local words are kept")
+        }, "The unavailable server choice must explain that local words were kept: \(snapshot)")
     }
 
-    func test_draft_conflict_keep_mine_preserves_local_page() {
+    func test_draft_conflict_keep_mine_without_verified_origin_keeps_conflict() {
         let app = launchApp(
             openStudio: true,
             structuralSeed: true,
-            showDraftConflict: true,
-            conflictSaveSuccess: true
+            showDraftConflict: true
         )
         defer { app.terminate() }
 
@@ -2767,14 +2764,12 @@ final class V1SmokeUITests: XCTestCase {
             waitForDraft(in: app, containing: "INT. DINER - NIGHT", timeout: 5),
             "Keep Mine replaced the local page unexpectedly. Accessibility hierarchy:\n\(app.debugDescription)"
         )
-        XCTAssertTrue(
-            waitForDisappearance(of: banner, timeout: 5),
-            "Conflict banner remained after Keep Mine. Accessibility hierarchy:\n\(app.debugDescription)"
-        )
-        XCTAssertTrue(
-            staticText(containing: "Local draft saved", in: app).waitForExistence(timeout: 5),
-            "Keep Mine confirmation was not presented."
-        )
+        XCTAssertTrue(banner.exists, "An unverified conflict must remain open.")
+        var snapshot: [String: Any] = [:]
+        XCTAssertTrue(waitForRestoreSnapshot(in: app, timeout: 5) { state in
+            snapshot = state
+            return stringValue(state["error_text"]).contains("Your words are kept")
+        }, "Keep Mine must report that it could not confirm the local copy: \(snapshot)")
     }
 
     func test_studio_compact_drawers_fit_phone_and_remain_mutually_exclusive() {
@@ -3297,6 +3292,166 @@ final class V1SmokeUITests: XCTestCase {
             stringValue(resolvedBody["active_version_id"] ?? resolvedBody["activeVersionId"]).lowercased(),
             localVersionID.lowercased()
         )
+    }
+
+    @MainActor
+    func test_screenplay_load_server_fetches_head_and_retires_selected_conflict() async throws {
+        let configuredPort = Int(
+            ProcessInfo.processInfo.environment["THEM_UITEST_SCREENPLAY_SAVE_BACKEND_PORT"] ?? ""
+        ) ?? 31337
+        let baseURL = try XCTUnwrap(URL(string: "http://127.0.0.1:\(configuredPort)"))
+        guard await backendRestoreContractIsAvailable(baseURL: baseURL) else {
+            throw XCTSkip("Screenplay save recovery server is not running on \(baseURL.absoluteString).")
+        }
+
+        let fixture = try await seedBackendRestoreContractFixture(baseURL: baseURL)
+        let marker = "SAVE-CONFLICT-\(UUID().uuidString.uppercased())"
+        var app = launchApp(
+            openStudio: true,
+            screenplaySaveNetworkFaultMarker: marker,
+            restoreProjectID: fixture.projectID,
+            restoreVersionID: fixture.versionID,
+            restoreLoadToken: fixture.loadToken,
+            launchEnvironment: fixture.appLaunchEnvironment
+        )
+
+        XCTAssertTrue(app.otherElements["studio.surface"].waitForExistence(timeout: 12))
+        var queuedSnapshot: [String: Any] = [:]
+        XCTAssertTrue(
+            waitForRestoreSnapshot(in: app, timeout: 60) { snapshot in
+                queuedSnapshot = snapshot
+                return stringValue(snapshot["draft_tail_preview"]).contains(marker)
+                    && intValue(snapshot["queued_draft_save_count"]) == 1
+                    && intValue(snapshot["parked_draft_save_count"]) == 0
+                    && boolValue(snapshot["has_unsaved_draft_changes"])
+                    && stringValue(snapshot["error_text"]).isEmpty
+            },
+            "Offline screenplay save was not queued before stale-version setup. Snapshot: \(queuedSnapshot)"
+        )
+        app.terminate()
+
+        let ownerHeaders = [
+            "X-APP-TOKEN": fixture.appLaunchEnvironment["THEM_UITEST_APP_TOKEN"] ?? "them-dev",
+            "X-Client-Token": fixture.appLaunchEnvironment["THEM_UITEST_CLIENT_TOKEN"] ?? "",
+            "Authorization": "Bearer \(fixture.appLaunchEnvironment["THEM_UITEST_AUTH_DEBUG_ACCESS_TOKEN"] ?? "")",
+        ]
+        let competingDraft = "\(fixture.expectedDraft)\n\nSERVER-COLLABORATOR-\(UUID().uuidString.uppercased())"
+        let competingSave = try await requestJSON(
+            baseURL: baseURL,
+            path: "/screenplay/projects/\(fixture.projectID)/version",
+            method: "POST",
+            headers: ownerHeaders,
+            body: [
+                "draft": competingDraft,
+                "title": "Concurrent server revision",
+                "phase": "scene_draft",
+                "source": "ui_network_fault_competitor",
+                "base_version_id": fixture.versionID,
+                "conflict_strategy": "reject_if_stale",
+                "client_request_id": "ui-competitor-\(UUID().uuidString.lowercased())",
+            ]
+        )
+        try assertHTTP(competingSave, context: "competing screenplay version")
+        let competingVersionID = try firstNonEmptyString(
+            competingSave.payload["version_id"],
+            competingSave.payload["server_version_id"],
+            message: "Competing screenplay save did not return a version id."
+        )
+
+        app = launchApp(
+            openStudio: true,
+            resetState: false,
+            launchEnvironment: fixture.appLaunchEnvironment
+        )
+        defer { app.terminate() }
+
+        XCTAssertTrue(app.otherElements["studio.surface"].waitForExistence(timeout: 12))
+        var conflictSnapshot: [String: Any] = [:]
+        XCTAssertTrue(
+            waitForRestoreSnapshot(in: app, timeout: 75) { snapshot in
+                conflictSnapshot = snapshot
+                return stringValue(snapshot["selected_project_id"]).lowercased() == fixture.projectID.lowercased()
+                    && stringValue(snapshot["conflict_project_id"]).lowercased() == fixture.projectID.lowercased()
+                    && stringValue(snapshot["conflict_server_version_id"]).lowercased() == competingVersionID.lowercased()
+                    && stringValue(snapshot["draft_tail_preview"]).contains(marker)
+                    && intValue(snapshot["queued_draft_save_count"]) == 0
+                    && intValue(snapshot["parked_draft_save_count"]) == 1
+                    && boolValue(snapshot["has_unsaved_draft_changes"])
+                    && stringValue(snapshot["error_text"]).isEmpty
+            },
+            "Queued draft did not restore a clean stale-version decision. Snapshot: \(conflictSnapshot)"
+        )
+
+        let preResolutionProject = try await requestJSON(
+            baseURL: baseURL,
+            path: "/screenplay/projects/\(fixture.projectID)",
+            method: "GET",
+            headers: ownerHeaders,
+            body: nil,
+            queryItems: [
+                URLQueryItem(name: "include_drafts", value: "1"),
+                URLQueryItem(name: "version_limit", value: "24"),
+            ]
+        )
+        try assertHTTP(preResolutionProject, context: "pre-resolution screenplay project")
+        let preResolutionEnvelope = preResolutionProject.payload["payload"] as? [String: Any]
+            ?? preResolutionProject.payload
+        let preResolutionBody = preResolutionEnvelope["project"] as? [String: Any]
+            ?? preResolutionEnvelope
+        let preResolutionVersions = preResolutionBody["versions"] as? [[String: Any]] ?? []
+        XCTAssertEqual(
+            preResolutionVersions.filter { stringValue($0["draft"]).contains(marker) }.count,
+            0,
+            "A stale queued save must not commit before the writer chooses a resolution."
+        )
+
+        // Advance the head after the conflict was displayed. The choice must
+        // fetch the current version, not reuse the cached conflict snapshot.
+        let newestMarker = "SERVER-HEAD-\(UUID().uuidString.uppercased())"
+        let newestDraft = "\(competingDraft)\n\n\(newestMarker)"
+        let newestSave = try await requestJSON(baseURL: baseURL,
+            path: "/screenplay/projects/\(fixture.projectID)/version", method: "POST", headers: ownerHeaders,
+            body: ["draft": newestDraft, "title": "Latest server revision", "phase": "scene_draft",
+                   "source": "ui_network_fault_competitor", "base_version_id": competingVersionID,
+                   "conflict_strategy": "reject_if_stale", "client_request_id": "ui-newest-\(UUID().uuidString.lowercased())"])
+        try assertHTTP(newestSave, context: "newest screenplay version")
+        let newestID = try firstNonEmptyString(newestSave.payload["version_id"], newestSave.payload["server_version_id"],
+            message: "Newest screenplay save did not return a version id.")
+        let loadServer = app.buttons["studio.conflict.load-server"]
+        if !loadServer.isHittable { app.swipeUp() }
+        XCTAssertTrue(loadServer.waitForExistence(timeout: 5))
+        XCTAssertTrue(loadServer.isHittable)
+        loadServer.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        var loaded: [String: Any] = [:]
+        XCTAssertTrue(waitForRestoreSnapshot(in: app, timeout: 75) { snapshot in
+            loaded = snapshot
+            return stringValue(snapshot["conflict_project_id"]).isEmpty &&
+                stringValue(snapshot["draft_tail_preview"]).contains(newestMarker) &&
+                intValue(snapshot["queued_draft_save_count"]) == 0 &&
+                intValue(snapshot["parked_draft_save_count"]) == 0 &&
+                !boolValue(snapshot["has_unsaved_draft_changes"]) &&
+                stringValue(snapshot["error_text"]).isEmpty
+        }, "Load Server did not load the fetched head and retire the selected copy: \(loaded)")
+        let readback = try await requestJSON(baseURL: baseURL,
+            path: "/screenplay/projects/\(fixture.projectID)", method: "GET", headers: ownerHeaders, body: nil,
+            queryItems: [URLQueryItem(name: "include_drafts", value: "1"), URLQueryItem(name: "version_limit", value: "24")])
+        try assertHTTP(readback, context: "load-server readback")
+        let envelope = readback.payload["payload"] as? [String: Any] ?? readback.payload
+        let project = envelope["project"] as? [String: Any] ?? envelope
+        let versions = project["versions"] as? [[String: Any]] ?? []
+        XCTAssertEqual(stringValue(project["active_version_id"] ?? project["activeVersionId"]).lowercased(), newestID.lowercased())
+        XCTAssertEqual(versions.filter { stringValue($0["draft"]).contains(marker) }.count, 0,
+                       "Load Server must not save the retired local copy.")
+        app.terminate()
+        app = launchApp(openStudio: true, resetState: false, launchEnvironment: fixture.appLaunchEnvironment)
+        XCTAssertTrue(app.otherElements["studio.surface"].waitForExistence(timeout: 12))
+        var restored: [String: Any] = [:]
+        XCTAssertTrue(waitForRestoreSnapshot(in: app, timeout: 60) { snapshot in
+            restored = snapshot
+            return stringValue(snapshot["draft_tail_preview"]).contains(newestMarker) &&
+                intValue(snapshot["queued_draft_save_count"]) == 0 &&
+                intValue(snapshot["parked_draft_save_count"]) == 0
+        }, "Server choice did not survive relaunch: \(restored)")
     }
 
     @MainActor

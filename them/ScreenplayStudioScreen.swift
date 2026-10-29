@@ -4505,13 +4505,13 @@ private func refreshStudioCreativeInstincts(
                         .foregroundStyle(Color.red.opacity(0.90))
                     HStack(spacing: 8) {
                         Button("Load Server") {
-                            vm.applyServerVersionFromConflict()
+                            Task { await vm.applyServerVersionFromConflict() }
                         }
-                        .buttonStyle(.bordered)
+                        .buttonStyle(.bordered).disabled(vm.isPreparingConflictResolution)
                         Button("Keep Mine") {
                             Task { await vm.keepLocalDraftAfterConflict() }
                         }
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(.borderedProminent).disabled(vm.isPreparingConflictResolution)
                     }
                 }
                 .padding(10)
@@ -9132,14 +9132,14 @@ Current draft version:
             excerpt: conflict.serverDraftExcerpt
         ) {
             Button {
-                vm.applyServerVersionFromConflict()
+                Task { await vm.applyServerVersionFromConflict() }
             } label: {
                 Text("1 Load Server")
             }
             .buttonStyle(.bordered)
             .tint(Color.white.opacity(0.24))
             .keyboardShortcut("1", modifiers: [])
-            .accessibilityIdentifier("studio.conflict.load-server")
+            .accessibilityIdentifier("studio.conflict.load-server").disabled(vm.isPreparingConflictResolution)
 
             Button {
                 Task { await vm.keepLocalDraftAfterConflict() }
@@ -9149,7 +9149,7 @@ Current draft version:
             .buttonStyle(.borderedProminent)
             .tint(Color.white.opacity(0.24))
             .keyboardShortcut("2", modifiers: [])
-            .accessibilityIdentifier("studio.conflict.keep-mine")
+            .accessibilityIdentifier("studio.conflict.keep-mine").disabled(vm.isPreparingConflictResolution)
         }
     }
 
@@ -15988,7 +15988,7 @@ Look at the city.
                     break
                 }
                 vm.errorText = ""
-                vm.applyServerVersionFromConflict()
+                await vm.applyServerVersionFromConflict()
                 if vm.conflictState != nil {
                     status = "error"
                     errorText = "conflict_not_cleared"
