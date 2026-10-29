@@ -146,6 +146,11 @@ enum ScreenplaySaveHeadPreflight {
             guard let version = versions.first(where: { $0.id == head }), version.draft != nil else {
                 return .unverified
             }
+            if let versionProject = version.projectId,
+               versionProject.trimmingCharacters(in: .whitespacesAndNewlines) !=
+                project.id.trimmingCharacters(in: .whitespacesAndNewlines) {
+                return .unverified
+            }
             return .current(version)
         }
         guard versions.isEmpty, project.versionCount == 0 else { return .unverified }

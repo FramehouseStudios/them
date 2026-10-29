@@ -1306,6 +1306,11 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         guard case .unverified = ScreenplaySaveHeadPreflight.evaluate(noHead) else {
             return XCTFail("A historical version without a declared head is not authoritative")
         }
+        let foreignHead = try project(["activeVersionId": "active", "versionCount": 1,
+            "versions": [["id": "active", "projectId": "other-project", "draft": "Foreign"]]])
+        guard case .unverified = ScreenplaySaveHeadPreflight.evaluate(foreignHead) else {
+            return XCTFail("A version from another project is not an authoritative head")
+        }
         let empty = try project(["versionCount": 0, "versions": []])
         guard case .versionless = ScreenplaySaveHeadPreflight.evaluate(empty) else {
             return XCTFail("Explicitly empty projects must remain writable")
