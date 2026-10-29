@@ -233,6 +233,8 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
         XCTAssertThrowsError(try JSONDecoder().decode([PriorDraftSaveOutboxEntry].self,
             from: protectedBytes), "An array-only build must fail before it can drop lineage")
         XCTAssertEqual(try Data(contentsOf: manifestURL), protectedBytes)
+        let isDurable = try await store.hasDurableTarget(id: resolution.id, matching: resolution)
+        XCTAssertTrue(isDurable, "Durable readback must understand the protected envelope")
 
         let relaunched = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
         let next = try await relaunched.beginNext(projectId: conflict.projectId,
@@ -303,6 +305,10 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
 
             XCTAssertFalse(first.lastError.isEmpty)
             XCTAssertFalse(second.lastError.isEmpty)
+            do {
+                _ = try await store.hasDurableTarget(id: entry.id, matching: entry)
+                XCTFail("Malformed or unknown storage was accepted by durable readback")
+            } catch {}
             XCTAssertEqual(try Data(contentsOf: manifestURL), original)
         }
     }

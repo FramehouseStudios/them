@@ -415,8 +415,7 @@ actor ScreenplayDraftSaveOutbox {
     /// Actor memory alone is not evidence that the earlier write reached disk.
     func hasDurableTarget(id: String, matching entry: ScreenplayDraftSaveOutboxEntry) throws -> Bool {
         guard fileManager.fileExists(atPath: manifestURL.path) else { return false }
-        let stored = try JSONDecoder().decode([ScreenplayDraftSaveOutboxEntry].self,
-            from: Data(contentsOf: manifestURL))
+        let stored = try Self.decodeStoredEntries(Data(contentsOf: manifestURL))
         return stored.contains { $0.id == id && $0.hasSameTarget(as: entry) }
     }
 
@@ -1020,18 +1019,7 @@ actor ScreenplayDraftSaveOutbox {
             return
         }
         let data = try Data(contentsOf: manifestURL)
-        let decoder = JSONDecoder()
-        let decodedEntries: [ScreenplayDraftSaveOutboxEntry]
-        if let legacyEntries = try? decoder.decode([ScreenplayDraftSaveOutboxEntry].self, from: data) {
-            decodedEntries = legacyEntries
-        } else {
-            let manifest = try decoder.decode(ScreenplayDraftSaveOutboxManifest.self, from: data)
-            guard manifest.schemaVersion == Self.lineageManifestSchemaVersion,
-                  manifest.entries.contains(where: { !$0.supersededConflictRequests.isEmpty }) else {
-                throw BackendMemoryAPIError.invalidResponse
-            }
-            decodedEntries = manifest.entries
-        }
+        let decodedEntries = try Self.decodeStoredEntries(data)
         var restoredEntries: [ScreenplayDraftSaveOutboxEntry] = []
         var restoredMarkers: [ScreenplayDraftSaveOutboxEntry] = []
         for entry in decodedEntries {
@@ -1058,6 +1046,21 @@ actor ScreenplayDraftSaveOutbox {
         retirementMarkers = restoredMarkers
         try persist()
         didLoad = true
+    }
+
+    private static func decodeStoredEntries(
+        _ data: Data
+    ) throws -> [ScreenplayDraftSaveOutboxEntry] {
+        let decoder = JSONDecoder()
+        if let legacyEntries = try? decoder.decode([ScreenplayDraftSaveOutboxEntry].self, from: data) {
+            return legacyEntries
+        }
+        let manifest = try decoder.decode(ScreenplayDraftSaveOutboxManifest.self, from: data)
+        guard manifest.schemaVersion == Self.lineageManifestSchemaVersion,
+              manifest.entries.contains(where: { !$0.supersededConflictRequests.isEmpty }) else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        return manifest.entries
     }
 
     private func persist() throws {

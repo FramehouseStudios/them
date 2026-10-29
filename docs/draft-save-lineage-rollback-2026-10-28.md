@@ -13,8 +13,9 @@ contracts, or claim that an older app provides a complete rollback experience.
   keep their prior storage shape.
 - A queue containing any entry with `supersededConflictRequests` is written as
   a schema-versioned object with `schemaVersion: 2` and `entries`.
-- Current code reads both formats. Unknown versions, malformed envelopes, and a
-  v2 envelope without lineage fail before normalization or persistence.
+- One strict decoder serves both queue restoration and direct durable-row
+  confirmation. It reads both formats; unknown versions, malformed envelopes,
+  and a v2 envelope without lineage fail before normalization or persistence.
 - The confirmed Keep Mine transaction removes the resolution and every exact
   referenced parked conflict in one atomic write. If no lineage remains, that
   same write returns the queue to the legacy array while retaining unrelated
@@ -52,8 +53,9 @@ has confirmed the resolution and persisted a lineage-free legacy array.
 
 ## Verification boundary
 
-Focused deterministic tests were added for legacy-array compatibility, old-decoder
-rejection, current-client restoration and retry, malformed/unknown schema
-preservation, atomic write rollback, and the return to a legacy array while
-preserving unrelated and retirement rows. Native execution is intentionally
-deferred to the integrating owner for this isolated handoff.
+Focused deterministic tests were added for legacy-array compatibility,
+old-decoder rejection, current-client restoration and retry, malformed/unknown
+schema preservation, envelope-aware durable readback, atomic write rollback,
+and the return to a legacy array while preserving unrelated and retirement
+rows. Native execution is intentionally deferred to the integrating owner for
+this isolated handoff.
