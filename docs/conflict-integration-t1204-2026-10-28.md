@@ -157,3 +157,22 @@ the additive lineage field and remains unsafe until explicitly solved. The
 separate T-1204 copy UI is still uncommitted. Unknown-origin conflict recovery,
 Load Server, queue blockers, security/release proof and integrated main remain
 open.
+
+## Exact conflict identity and rollback review
+
+A signed reproduction showed that Swift canonical String equality accepted a
+request whose note had different UTF-8 bytes as the same stored conflict
+(0/1, 1 failure, 0 skips):
+/private/tmp/them-t1205-conflict-byte-red-20261028.xcresult. Conflict identity
+now uses the existing exact immutable request digest, which covers origin,
+authority, draft bytes, metadata and lineage and excludes delivery state.
+The focused signed outbox suite passed 49/49, 0 failed, 0 skipped:
+/private/tmp/them-t1205-conflict-byte-green-20261028.xcresult. God-file gate
+and git diff --check passed. Same-ID enqueue/coalescing identity needs a
+separate audit; this fix covers conflict selection/retention/completion.
+
+Zora verified that an old array-only app can strip unresolved lineage on a
+queue rewrite, leaving it stranded after re-upgrade and potentially allowing
+a repeat version. A conditional fail-closed manifest envelope is being built
+in her separate lane. It has not been integrated or tested. Older-client
+rollback, full relaunch UI, Load Server and physical-phone proof remain open.

@@ -1282,19 +1282,14 @@ actor ScreenplayDraftSaveOutbox {
         _ lhs: ScreenplayDraftSaveOutboxEntry,
         _ rhs: ScreenplayDraftSaveOutboxEntry
     ) -> Bool {
-        lhs.id == rhs.id && lhs.projectId == rhs.projectId &&
-            lhs.ownerUserId == rhs.ownerUserId &&
-            lhs.deliveryOrigin == rhs.deliveryOrigin &&
-            lhs.requestAuthority == rhs.requestAuthority &&
-            lhs.initialization == rhs.initialization &&
-            lhs.loadServerRetirement == nil && rhs.loadServerRetirement == nil &&
-            lhs.draft.utf8.elementsEqual(rhs.draft.utf8) &&
-            lhs.title == rhs.title && lhs.phase == rhs.phase &&
-            lhs.notes == rhs.notes && lhs.source == rhs.source &&
-            lhs.studioWriteAnchors == rhs.studioWriteAnchors &&
-            lhs.screenplayBindings == rhs.screenplayBindings &&
-            lhs.baseVersionId == rhs.baseVersionId &&
-            lhs.supersededConflictRequests == rhs.supersededConflictRequests
+        // Conflict authorization compares the exact serialized request, not
+        // Swift's canonically equivalent String/model equality. The digest
+        // includes origin presence, UTF-8 fields, metadata and lineage.
+        guard lhs.initialization == nil, rhs.initialization == nil,
+              lhs.loadServerRetirement == nil, rhs.loadServerRetirement == nil,
+              let left = try? conflictRequestDigest(lhs),
+              let right = try? conflictRequestDigest(rhs) else { return false }
+        return left == right
     }
 
     private func exactScope(

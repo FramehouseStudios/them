@@ -999,6 +999,28 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
         XCTAssertEqual(otherCopies.map(\.id), [otherOwner.id])
     }
 
+    func testConflictSelectionRejectsCanonicallyEqualButByteDistinctMetadata() async throws {
+        let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let original = makeEntry(id: "exact-metadata", draft: "Same writer words")
+        var payload = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(original)) as? [String: Any])
+        payload["notes"] = "caf\u{00e9}"
+        let stored = try JSONDecoder().decode(ScreenplayDraftSaveOutboxEntry.self,
+            from: JSONSerialization.data(withJSONObject: payload))
+        payload["notes"] = "cafe\u{0301}"
+        let changed = try JSONDecoder().decode(ScreenplayDraftSaveOutboxEntry.self,
+            from: JSONSerialization.data(withJSONObject: payload))
+        XCTAssertFalse(stored.notes.utf8.elementsEqual(changed.notes.utf8))
+        try await store.enqueue(stored)
+        _ = try await store.retainConflict(stored)
+        do {
+            _ = try await store.conflictResolutionReferences(for: changed)
+            XCTFail("Byte-distinct metadata must not authorize a different stored conflict")
+        } catch BackendMemoryAPIError.invalidResponse {}
+        let rows = try await store.entriesForTesting()
+        XCTAssertEqual(rows.count, 1)
+        XCTAssertEqual(rows.first?.status, .parked)
+    }
+
     func testLegacyDurableParkedConflictCanRetireWithoutManufacturedAuthority() async throws {
         let origin = ScreenplayDraftSaveOrigin(
             documentID: "document-a",
