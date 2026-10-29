@@ -190,3 +190,25 @@ metadata, preserving distinct writer intents. Signed outbox suite passed
 same-ID byte-distinct notes, different-ID byte-distinct title, and durable-base
 retry. God-file gate and git diff --check passed. This does not prove the
 entire app, production or the rollback envelope under development.
+
+
+## Rollback fence and first-read validation
+
+The local preserving merge adds a schema-v2 envelope only while unresolved
+Keep Mine lineage exists; old array-only clients cannot decode or rewrite it.
+New clients accept validated legacy arrays and the protected envelope. A
+confirmed atomic resolution returns to the old array shape once no lineage
+remains. This is fail-closed storage protection, not a guarantee that every
+old app shows a clear warning. Old releases must not be deployed as a rollback
+for devices that may have protected queues; use a compatible recovery build.
+
+Signed focused outbox suite before the first-read fix: 55/55. Authenticated
+local iPhone Keep Mine workflow with that staged fence: 1/1, provider fixture
+only, result:
+/var/folders/27/kqhcss0n7t1dh_fj2wn98ynm0000gn/T/them-save-recovery-3Z6cZt/recovery-ios.xcresult.
+After review identified a first durable-read migration/validation gap, the
+read now loads and validates first, then re-reads the persisted file. The
+signed outbox suite passed 57/57, 0 failures, 0 skips, result:
+/private/tmp/them-t1205-envelope-readback-20261028.xcresult. This final
+readback change has not been rerun through the local iPhone workflow. No
+physical-phone, live provider, production or integrated-main claim is made.

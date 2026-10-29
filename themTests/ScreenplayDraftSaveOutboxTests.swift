@@ -210,6 +210,109 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: manifestURL), malformed)
     }
 
+    func testLineageManifestRejectsArrayOnlyDowngradeAndRestoresExactRetry() async throws {
+        let origin = ScreenplayDraftSaveOrigin(
+            documentID: "document-a",
+            backendURL: URL(string: "https://save.test")!
+        )
+        let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let conflict = makeEntry(id: "parked-conflict", draft: "Exact local words", createdAt: 100,
+            origin: origin, authority: .init(id: UUID(), generation: 1))
+        try await store.enqueue(conflict)
+        _ = try await store.retainConflict(conflict)
+        var resolution = makeEntry(id: "keep-mine", draft: conflict.draft, createdAt: 101,
+            origin: origin, authority: .init(id: UUID(), generation: 2))
+        resolution.supersededConflictRequests = try await store.conflictResolutionReferences(for: conflict)
+        try await store.enqueue(resolution)
+        let manifestURL = storageDirectory.appendingPathComponent("queue.json")
+        let protectedBytes = try Data(contentsOf: manifestURL)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: protectedBytes) as? [String: Any])
+
+        XCTAssertEqual(object["schemaVersion"] as? Int, 2)
+        XCTAssertEqual((object["entries"] as? [[String: Any]])?.count, 2)
+        XCTAssertThrowsError(try JSONDecoder().decode([PriorDraftSaveOutboxEntry].self,
+            from: protectedBytes), "An array-only build must fail before it can drop lineage")
+        XCTAssertEqual(try Data(contentsOf: manifestURL), protectedBytes)
+        let isDurable = try await store.hasDurableTarget(id: resolution.id, matching: resolution)
+        XCTAssertTrue(isDurable, "Durable readback must understand the protected envelope")
+
+        let relaunched = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let next = try await relaunched.beginNext(projectId: conflict.projectId,
+            ownerUserId: conflict.ownerUserId, force: true)
+        XCTAssertEqual(next?.id, resolution.id)
+        XCTAssertEqual(next?.supersededConflictRequests, resolution.supersededConflictRequests)
+        XCTAssertNotNil(try JSONSerialization.jsonObject(
+            with: Data(contentsOf: manifestURL)) as? [String: Any])
+    }
+
+    func testLineageEnvelopeTransitionWriteFailureRollsBackToExactLegacyArray() async throws {
+        let failMarker = storageDirectory.appendingPathComponent("fail-next-write")
+        let store = ScreenplayDraftSaveOutbox(
+            storageDirectory: storageDirectory,
+            manifestWriter: { data, url in
+                if FileManager.default.fileExists(atPath: failMarker.path) {
+                    throw NSError(domain: "ScreenplayDraftSaveOutboxTests", code: 4)
+                }
+                try data.write(to: url, options: .atomic)
+            }
+        )
+        let origin = ScreenplayDraftSaveOrigin(
+            documentID: "document-a",
+            backendURL: URL(string: "https://save.test")!
+        )
+        let conflict = makeEntry(id: "legacy-parked", draft: "Exact local words", createdAt: 100,
+            origin: origin, authority: .init(id: UUID(), generation: 1))
+        try await store.enqueue(conflict)
+        _ = try await store.retainConflict(conflict)
+        var resolution = makeEntry(id: "protected-resolution", draft: conflict.draft, createdAt: 101,
+            origin: origin, authority: .init(id: UUID(), generation: 2))
+        resolution.supersededConflictRequests = try await store.conflictResolutionReferences(for: conflict)
+        let manifestURL = storageDirectory.appendingPathComponent("queue.json")
+        let legacyBytes = try Data(contentsOf: manifestURL)
+        XCTAssertNotNil(try JSONSerialization.jsonObject(with: legacyBytes) as? [[String: Any]])
+        try Data().write(to: failMarker)
+
+        do {
+            try await store.enqueue(resolution)
+            XCTFail("A failed envelope write reported a durable resolution")
+        } catch {}
+
+        XCTAssertEqual(try Data(contentsOf: manifestURL), legacyBytes)
+        let retained = try await store.entriesForTesting()
+        XCTAssertEqual(retained.map(\.id), [conflict.id])
+    }
+
+    func testUnknownOrMalformedLineageManifestFailsClosedWithoutRewrite() async throws {
+        let entry = makeEntry(id: "protected")
+        let encodedEntry = try XCTUnwrap(JSONSerialization.jsonObject(
+            with: JSONEncoder().encode(entry)) as? [String: Any])
+        let payloads: [[String: Any]] = [
+            ["schemaVersion": 99, "entries": [encodedEntry]],
+            ["schemaVersion": 2, "entries": "not-an-array"],
+            ["schemaVersion": 2, "entries": [encodedEntry]],
+        ]
+
+        for (index, payload) in payloads.enumerated() {
+            let directory = storageDirectory.appendingPathComponent("invalid-\(index)", isDirectory: true)
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            let manifestURL = directory.appendingPathComponent("queue.json")
+            let original = try JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
+            try original.write(to: manifestURL, options: .atomic)
+            let store = ScreenplayDraftSaveOutbox(storageDirectory: directory)
+
+            let first = await store.snapshot(ownerUserId: entry.ownerUserId)
+            let second = await store.snapshot(ownerUserId: entry.ownerUserId)
+
+            XCTAssertFalse(first.lastError.isEmpty)
+            XCTAssertFalse(second.lastError.isEmpty)
+            do {
+                _ = try await store.hasDurableTarget(id: entry.id, matching: entry)
+                XCTFail("Malformed or unknown storage was accepted by durable readback")
+            } catch {}
+            XCTAssertEqual(try Data(contentsOf: manifestURL), original)
+        }
+    }
+
     @MainActor
     func testRequestCreationTimeSurvivesMaterializationRebaseAndRelaunch() {
         let context = ScreenplayStudioAuthContext(userID: "writer", sessionIntentGeneration: 1)
@@ -1004,6 +1107,7 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
         let evidence = try makeOrdinaryEvidence(for: resolution, versionID: "server-v2")
         let manifestURL = storageDirectory.appendingPathComponent("queue.json")
         let before = try Data(contentsOf: manifestURL)
+        XCTAssertNotNil(try JSONSerialization.jsonObject(with: before) as? [String: Any])
         try Data().write(to: failMarker)
 
         do {
@@ -1021,6 +1125,50 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
         let remaining = try await store.entriesForTesting()
         XCTAssertEqual(remaining.map(\.id), [unrelated.id])
         XCTAssertEqual(remaining.first?.draft, unrelated.draft)
+        XCTAssertNotNil(try JSONSerialization.jsonObject(
+            with: Data(contentsOf: manifestURL)) as? [[String: Any]])
+    }
+
+    func testConfirmedConflictCompletionReturnsToLegacyArrayAndPreservesRetirementMarker() async throws {
+        let origin = ScreenplayDraftSaveOrigin(
+            documentID: "document-a",
+            backendURL: URL(string: "https://save.test")!
+        )
+        let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let retired = makeEntry(id: "retired-load-server", draft: "Retired words", createdAt: 90,
+            origin: origin, authority: .init(id: UUID(), generation: 1))
+        let selection = try await store.captureLoadServerSelection(projectId: retired.projectId,
+            ownerUserId: retired.ownerUserId, deliveryOrigin: origin, explicitRequests: [retired])
+        _ = try await store.resolveLoadServerSelection(selection)
+
+        let conflict = makeEntry(id: "original-conflict", draft: "Original words", createdAt: 100,
+            origin: origin, authority: .init(id: UUID(), generation: 2))
+        try await store.enqueue(conflict)
+        _ = try await store.retainConflict(conflict)
+        var resolution = makeEntry(id: "confirmed-keep-mine", draft: "Kept words", createdAt: 101,
+            origin: origin, authority: .init(id: UUID(), generation: 3))
+        resolution.supersededConflictRequests = try await store.conflictResolutionReferences(for: conflict)
+        let unrelated = makeEntry(id: "unrelated-pending", draft: "Later words", createdAt: 102,
+            origin: origin, authority: .init(id: UUID(), generation: 4))
+        try await store.enqueue(resolution)
+        try await store.enqueue(unrelated)
+        try await store.markInflight(id: resolution.id)
+        let manifestURL = storageDirectory.appendingPathComponent("queue.json")
+        XCTAssertNotNil(try JSONSerialization.jsonObject(
+            with: Data(contentsOf: manifestURL)) as? [String: Any])
+
+        try await store.completeConfirmedConflictResolution(resolution,
+            evidence: try makeOrdinaryEvidence(for: resolution, versionID: "server-v2"),
+            echoedRequestID: resolution.id)
+
+        let legacyBytes = try Data(contentsOf: manifestURL)
+        let priorRows = try JSONDecoder().decode([PriorDraftSaveOutboxEntry].self, from: legacyBytes)
+        XCTAssertEqual(Set(priorRows.map(\.id)), Set([retired.id, unrelated.id]))
+        let relaunched = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let restoredEntries = try await relaunched.entriesForTesting()
+        let restoredMarkers = try await relaunched.retirementMarkersForTesting()
+        XCTAssertEqual(restoredEntries.map(\.id), [unrelated.id])
+        XCTAssertEqual(restoredMarkers.map(\.id), [retired.id])
     }
 
     func testParkedConflictCopiesRemainSeparateAndOwnerScopedAfterRelaunch() async throws {
@@ -1203,6 +1351,44 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
         XCTAssertEqual(mine.pendingCount, 1)
         XCTAssertEqual(theirs.pendingCount, 1)
         XCTAssertEqual(all.pendingCount, 2)
+    }
+
+    func testFirstDurableReadProtectsLegacyArrayWithLineage() async throws {
+        try FileManager.default.createDirectory(at: storageDirectory, withIntermediateDirectories: true)
+        var entry = makeEntry(id: "linked-resolution")
+        entry.supersededConflictRequests = [.init(requestID: "parked", projectId: entry.projectId,
+            ownerUserId: entry.ownerUserId, deliveryOrigin: nil, requestAuthority: nil,
+            requestDigest: String(repeating: "a", count: 64))]
+        let manifest = storageDirectory.appendingPathComponent("queue.json")
+        try JSONEncoder().encode([entry]).write(to: manifest)
+        let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let present = try await store.hasDurableTarget(id: entry.id, matching: entry)
+        XCTAssertTrue(present)
+        let protected = try JSONSerialization.jsonObject(with: Data(contentsOf: manifest)) as? [String: Any]
+        XCTAssertEqual(protected?["schemaVersion"] as? Int, 2)
+    }
+
+    func testDurableReadRejectsEnvelopeWithMalformedRetirementMarker() async throws {
+        try FileManager.default.createDirectory(at: storageDirectory, withIntermediateDirectories: true)
+        var entry = makeEntry(id: "linked-resolution")
+        entry.supersededConflictRequests = [.init(requestID: "parked", projectId: entry.projectId,
+            ownerUserId: entry.ownerUserId, deliveryOrigin: nil, requestAuthority: nil,
+            requestDigest: String(repeating: "a", count: 64))]
+        var marker = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(makeEntry(id: "marker"))) as? [String: Any])
+        marker["projectId"] = "load-server-retirement"
+        marker["ownerUserId"] = "load-server-retirement"
+        marker["source"] = "studio_load_server_retirement"
+        marker["notes"] = "load-server-retirement-v2:invalid"
+        let resolution = try JSONSerialization.jsonObject(with: JSONEncoder().encode(entry))
+        let corrupt = try JSONSerialization.data(withJSONObject: ["schemaVersion": 2, "entries": [resolution, marker]], options: [.sortedKeys])
+        let manifest = storageDirectory.appendingPathComponent("queue.json")
+        try corrupt.write(to: manifest)
+        let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        do {
+            _ = try await store.hasDurableTarget(id: entry.id, matching: entry)
+            XCTFail("A malformed marker must prevent durable proof")
+        } catch {}
+        XCTAssertEqual(try Data(contentsOf: manifest), corrupt)
     }
 
     func testCorruptManifestIsNotSilentlyReplacedByAnEmptyQueue() async throws {
