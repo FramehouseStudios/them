@@ -21,36 +21,44 @@ nonisolated enum ScreenplayDraftSaveMetadataPolicy {
     }
 
     private struct Anchor: Equatable {
-        let writeID: String
+        let writeID: ExactText
         let line: Int
         let endLine: Int
-        let sceneLabel: String
-        let excerpt: String
-        let insertedText: String
+        let sceneLabel: ExactText
+        let excerpt: ExactText
+        let insertedText: ExactText
         let updatedAt: TimeInterval
     }
 
     private struct Binding: Equatable {
-        let draftSceneID: String
+        let draftSceneID: ExactText
         let draftLine: Int
         let draftEndLine: Int
-        let draftSlugline: String
-        let draftShortLabel: String
-        let outlineSceneID: String
-        let outlineSceneTitle: String
-        let outlineSceneSlugline: String
-        let outlineBeatIDs: [String]
-        let outlineBeatLabels: [String]
-        let actTitle: String
-        let matchedBy: String
+        let draftSlugline: ExactText
+        let draftShortLabel: ExactText
+        let outlineSceneID: ExactText
+        let outlineSceneTitle: ExactText
+        let outlineSceneSlugline: ExactText
+        let outlineBeatIDs: [ExactText]
+        let outlineBeatLabels: [ExactText]
+        let actTitle: ExactText
+        let matchedBy: ExactText
         let updatedAt: TimeInterval
+    }
+
+    /// Swift String equality is canonically equivalent; the backend's JS Map,
+    /// Set and equality operations compare exact UTF-16 code units instead.
+    private struct ExactText: Hashable {
+        let codeUnits: [UInt16]
+
+        var isEmpty: Bool { codeUnits.isEmpty }
     }
 
     private static func canonicalAnchors(
         _ anchors: [BackendScreenplayWriteAnchor]
     ) -> [Anchor]? {
-        var order: [String] = []
-        var byID: [String: Anchor] = [:]
+        var order: [ExactText] = []
+        var byID: [ExactText: Anchor] = [:]
         for anchor in anchors {
             guard let writeID = snippet(anchor.writeId, limit: 72),
                   let sceneLabel = snippet(anchor.anchorSceneLabel, limit: 140),
@@ -76,8 +84,8 @@ nonisolated enum ScreenplayDraftSaveMetadataPolicy {
     private static func canonicalBindings(
         _ bindings: [BackendScreenplayBindingRecord]
     ) -> [Binding]? {
-        var order: [String] = []
-        var byID: [String: Binding] = [:]
+        var order: [ExactText] = []
+        var byID: [ExactText: Binding] = [:]
         for binding in bindings {
             guard let draftSceneID = snippet(binding.draftSceneId, limit: 96),
                   let draftSlugline = snippet(binding.draftSlugline, limit: 180),
@@ -116,8 +124,8 @@ nonisolated enum ScreenplayDraftSaveMetadataPolicy {
         _ values: [String]?,
         limit: Int,
         itemLimit: Int
-    ) -> [String]? {
-        var result: [String] = []
+    ) -> [ExactText]? {
+        var result: [ExactText] = []
         for value in values ?? [] {
             guard let clean = snippet(value, limit: itemLimit) else { return nil }
             guard !clean.isEmpty, !result.contains(clean) else { continue }
@@ -127,20 +135,23 @@ nonisolated enum ScreenplayDraftSaveMetadataPolicy {
         return result
     }
 
-    private static func snippet(_ value: String?, limit: Int) -> String? {
+    private static func snippet(_ value: String?, limit: Int) -> ExactText? {
         let clean = collapseECMAScriptWhitespace(value ?? "")
         let codeUnits = Array(clean.utf16)
-        guard !clean.isEmpty, codeUnits.count > limit else { return clean }
+        guard !codeUnits.isEmpty, codeUnits.count > limit else {
+            return ExactText(codeUnits: codeUnits)
+        }
         let boundary = max(1, limit - 1)
-        guard boundary < codeUnits.count else { return clean }
+        guard boundary < codeUnits.count else { return ExactText(codeUnits: codeUnits) }
         if isHighSurrogate(codeUnits[boundary - 1]), isLowSurrogate(codeUnits[boundary]) {
             // JavaScript preserves a lone surrogate here. Swift cannot represent
             // that stored value exactly, so comparison must fail closed.
             return nil
         }
-        var prefix = String(decoding: codeUnits[..<boundary], as: UTF16.self)
-        while prefix.last == " " { prefix.removeLast() }
-        return prefix + "…"
+        var prefix = Array(codeUnits[..<boundary])
+        while prefix.last == UInt16(0x0020) { prefix.removeLast() }
+        prefix.append(0x2026)
+        return ExactText(codeUnits: prefix)
     }
 
     private static func collapseECMAScriptWhitespace(_ value: String) -> String {

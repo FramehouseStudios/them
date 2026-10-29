@@ -104,6 +104,51 @@ final class ScreenplayDraftSaveMetadataPolicyTests: XCTestCase {
         XCTAssertTrue(matchesWriteID(requested: requested, confirmed: confirmed))
     }
 
+    func testComposedAndDecomposedIDsRemainDistinctDedupEntries() {
+        let composed = "caf\u{00E9}"
+        let decomposed = "cafe\u{0301}"
+        let requested = [anchor(writeID: composed), anchor(writeID: decomposed)]
+
+        XCTAssertTrue(ScreenplayDraftSaveMetadataPolicy.matchesServerEcho(
+            requestedAnchors: requested,
+            confirmedAnchors: requested,
+            requestedBindings: [],
+            confirmedBindings: []
+        ))
+        XCTAssertFalse(ScreenplayDraftSaveMetadataPolicy.matchesServerEcho(
+            requestedAnchors: requested,
+            confirmedAnchors: [anchor(writeID: decomposed)],
+            requestedBindings: [],
+            confirmedBindings: []
+        ))
+    }
+
+    func testComposedAndDecomposedMetadataTextIsNotEqual() {
+        let composed = "caf\u{00E9}"
+        let decomposed = "cafe\u{0301}"
+
+        XCTAssertFalse(matches(
+            anchor(writeID: "write-1", insertedText: composed),
+            anchor(writeID: "write-1", insertedText: decomposed),
+            binding(sceneID: "scene-1"),
+            binding(sceneID: "scene-1")
+        ))
+    }
+
+    func testComposedAndDecomposedListValuesAreNotDeduplicated() {
+        let composed = "b\u{00E9}at"
+        let decomposed = "be\u{0301}at"
+        let requested = binding(sceneID: "scene-1", beatIDs: [composed, decomposed])
+        let incompleteEcho = binding(sceneID: "scene-1", beatIDs: [decomposed])
+
+        XCTAssertFalse(matches(
+            anchor(writeID: "write-1"),
+            anchor(writeID: "write-1"),
+            requested,
+            incompleteEcho
+        ))
+    }
+
     private func matches(
         _ requestedAnchor: BackendScreenplayWriteAnchor,
         _ confirmedAnchor: BackendScreenplayWriteAnchor,
