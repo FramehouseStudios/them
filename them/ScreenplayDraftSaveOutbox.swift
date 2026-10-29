@@ -157,10 +157,14 @@ nonisolated extension ScreenplayDraftSaveOutboxEntry {
             forKey: .requestAuthority)
         loadServerRetirement = try container.decodeIfPresent(ScreenplayDraftLoadServerRetirement.self,
             forKey: .loadServerRetirement)
-        supersededConflictRequests = try container.decodeIfPresent(
-            [ScreenplayDraftConflictRequestReference].self,
-            forKey: .supersededConflictRequests
-        ) ?? []
+        if container.contains(.supersededConflictRequests) {
+            supersededConflictRequests = try container.decode(
+                [ScreenplayDraftConflictRequestReference].self,
+                forKey: .supersededConflictRequests
+            )
+        } else {
+            supersededConflictRequests = []
+        }
     }
 
     func encode(to encoder: Encoder) throws {

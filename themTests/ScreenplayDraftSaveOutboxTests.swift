@@ -191,6 +191,25 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
         XCTAssertTrue(saved.allSatisfy { $0.supersededConflictRequests.isEmpty })
     }
 
+    func testPresentNullConflictLineageFailsClosedWithoutRewritingManifest() async throws {
+        let entry = makeEntry(id: "null-lineage")
+        var payload = try XCTUnwrap(JSONSerialization.jsonObject(
+            with: JSONEncoder().encode(entry)) as? [String: Any])
+        payload["supersededConflictRequests"] = NSNull()
+        let malformed = try JSONSerialization.data(withJSONObject: [payload], options: [.sortedKeys])
+        try FileManager.default.createDirectory(at: storageDirectory, withIntermediateDirectories: true)
+        let manifestURL = storageDirectory.appendingPathComponent("queue.json")
+        try malformed.write(to: manifestURL, options: .atomic)
+
+        let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let firstRead = await store.snapshot(ownerUserId: entry.ownerUserId)
+        let secondRead = await store.snapshot(ownerUserId: entry.ownerUserId)
+
+        XCTAssertFalse(firstRead.lastError.isEmpty)
+        XCTAssertFalse(secondRead.lastError.isEmpty)
+        XCTAssertEqual(try Data(contentsOf: manifestURL), malformed)
+    }
+
     @MainActor
     func testRequestCreationTimeSurvivesMaterializationRebaseAndRelaunch() {
         let context = ScreenplayStudioAuthContext(userID: "writer", sessionIntentGeneration: 1)
