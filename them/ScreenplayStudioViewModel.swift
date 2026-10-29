@@ -6665,7 +6665,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 baseVersionId: request.baseVersionId
             )
             autosaveStatusText = "Save needs attention"
-            infoText = "Your current page is still open. Export it or try Save again."
+            infoText = "Your page is still open but may not survive closing THEM. Export it or try Save again."
             errorText = "The local save queue could not be secured: \(error.localizedDescription)"
             return nil
         }
