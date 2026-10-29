@@ -316,6 +316,49 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
         XCTAssertEqual(retained.first.map { Data($0.draft.utf8) }, Data(raw.utf8))
     }
 
+    func testSameIDRejectsByteDistinctMetadataButKeepsDurableRebase() async throws {
+        let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let original = makeEntry(id: "same-id", draft: "Same words")
+        var payload = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(original)) as? [String: Any])
+        payload["notes"] = "caf\u{00e9}"
+        let first = try JSONDecoder().decode(ScreenplayDraftSaveOutboxEntry.self,
+            from: JSONSerialization.data(withJSONObject: payload))
+        try await store.enqueue(first)
+        payload["notes"] = "cafe\u{0301}"
+        let changed = try JSONDecoder().decode(ScreenplayDraftSaveOutboxEntry.self,
+            from: JSONSerialization.data(withJSONObject: payload))
+        do {
+            _ = try await store.enqueueForDelivery(changed)
+            XCTFail("A reused ID must reject byte-distinct notes")
+        } catch BackendMemoryAPIError.server(let status, let message) {
+            XCTAssertEqual(status, 409)
+            XCTAssertEqual(message, "screenplay_save_id_reused")
+        }
+        var staleBase = first
+        staleBase.baseVersionId = "older-client-base"
+        let retained = try await store.enqueueForDelivery(staleBase)
+        XCTAssertEqual(retained.baseVersionId, first.baseVersionId)
+        XCTAssertEqual(Data(retained.notes.utf8), Data(first.notes.utf8))
+    }
+
+    func testDifferentIDsDoNotCoalesceByteDistinctMetadata() async throws {
+        let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let original = makeEntry(id: "first", draft: "Same words")
+        var payload = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(original)) as? [String: Any])
+        payload["title"] = "caf\u{00e9}"
+        let first = try JSONDecoder().decode(ScreenplayDraftSaveOutboxEntry.self,
+            from: JSONSerialization.data(withJSONObject: payload))
+        try await store.enqueue(first)
+        payload["id"] = "second"
+        payload["title"] = "cafe\u{0301}"
+        let second = try JSONDecoder().decode(ScreenplayDraftSaveOutboxEntry.self,
+            from: JSONSerialization.data(withJSONObject: payload))
+        let retained = try await store.enqueueForDelivery(second)
+        XCTAssertEqual(retained.id, second.id)
+        let rows = try await store.entriesForTesting()
+        XCTAssertEqual(Set(rows.map(\.id)), Set([first.id, second.id]))
+    }
+
     func testCoalescedDeliveryUsesTheDurableRequestIdentifierAcrossRestart() async throws {
         let original = makeEntry(id: "durable-request")
         let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)

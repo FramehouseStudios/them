@@ -89,16 +89,28 @@ nonisolated struct ScreenplayDraftSaveOutboxEntry: Identifiable, Codable, Equata
     }
 
     func hasSameTarget(as other: Self) -> Bool {
-        hasSameWritingTarget(as: other) && studioWriteAnchors == other.studioWriteAnchors &&
-            screenplayBindings == other.screenplayBindings
+        hasSameWritingTarget(as: other) &&
+            Self.exactEncoded(studioWriteAnchors, other.studioWriteAnchors) &&
+            Self.exactEncoded(screenplayBindings, other.screenplayBindings)
     }
 
     private func hasSameWritingTarget(as other: Self) -> Bool {
-        projectId == other.projectId && ownerUserId == other.ownerUserId &&
-            deliveryOrigin == other.deliveryOrigin && baseVersionId == other.baseVersionId &&
-            title == other.title && phase == other.phase && initialization == other.initialization &&
-            supersededConflictRequests == other.supersededConflictRequests &&
+        projectId.utf8.elementsEqual(other.projectId.utf8) &&
+            ownerUserId.utf8.elementsEqual(other.ownerUserId.utf8) &&
+            Self.exactEncoded(deliveryOrigin, other.deliveryOrigin) &&
+            baseVersionId.utf8.elementsEqual(other.baseVersionId.utf8) &&
+            title.utf8.elementsEqual(other.title.utf8) &&
+            phase.utf8.elementsEqual(other.phase.utf8) &&
+            Self.exactEncoded(initialization, other.initialization) &&
+            Self.exactEncoded(supersededConflictRequests, other.supersededConflictRequests) &&
             draft.utf8.elementsEqual(other.draft.utf8)
+    }
+
+    private static func exactEncoded<T: Encodable>(_ lhs: T, _ rhs: T) -> Bool {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        guard let left = try? encoder.encode(lhs), let right = try? encoder.encode(rhs) else { return false }
+        return left == right
     }
 }
 
@@ -354,13 +366,16 @@ actor ScreenplayDraftSaveOutbox {
             return marker
         }
         if let index = entries.firstIndex(where: { $0.id == entry.id }) {
-            guard entries[index].projectId == entry.projectId,
-                  entries[index].ownerUserId == entry.ownerUserId,
-                  entries[index].deliveryOrigin == entry.deliveryOrigin,
-                  entries[index].requestAuthority == entry.requestAuthority,
-                  entries[index].loadServerRetirement == entry.loadServerRetirement,
-                  entries[index].supersededConflictRequests == entry.supersededConflictRequests,
-                  entries[index].draft.utf8.elementsEqual(entry.draft.utf8) else {
+            let stored = entries[index]
+            // The durable queue may have causally rebased this request. Use
+            // that stored base, but reject any other byte-distinct payload.
+            var comparable = entry
+            comparable.baseVersionId = stored.baseVersionId
+            guard stored.hasSameTarget(as: comparable),
+                  stored.source.utf8.elementsEqual(entry.source.utf8),
+                  stored.notes.utf8.elementsEqual(entry.notes.utf8),
+                  stored.requestAuthority == entry.requestAuthority,
+                  stored.loadServerRetirement == entry.loadServerRetirement else {
                 throw BackendMemoryAPIError.server(status: 409, message: "screenplay_save_id_reused")
             }
             let nextSnapshot = snapshotFor(entries)
@@ -369,7 +384,8 @@ actor ScreenplayDraftSaveOutbox {
         }
         if let existing = entries.first(where: { existing in
             existing.status != .parked && existing.hasSameTarget(as: entry) &&
-                ((existing.source == entry.source && existing.notes == entry.notes) ||
+                ((existing.source.utf8.elementsEqual(entry.source.utf8) &&
+                  existing.notes.utf8.elementsEqual(entry.notes.utf8)) ||
                     (entry.isPassiveAutosave && entry.deliveryOrigin != nil))
         }) {
             let nextSnapshot = snapshotFor(entries)

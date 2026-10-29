@@ -176,3 +176,17 @@ queue rewrite, leaving it stranded after re-upgrade and potentially allowing
 a repeat version. A conditional fail-closed manifest envelope is being built
 in her separate lane. It has not been integrated or tested. Older-client
 rollback, full relaunch UI, Load Server and physical-phone proof remain open.
+
+## Exact same-ID admission and coalescing
+
+Same-ID admission previously checked writer text but ignored byte-distinct
+metadata; coalescing used Swift canonical String/model equality. Admission now
+compares the complete stored writing target and exact source/notes bytes,
+while allowing the durable row's causal base to remain authoritative on a
+retry. Coalescing compares exact UTF-8 strings and deterministic encoded
+metadata, preserving distinct writer intents. Signed outbox suite passed
+51/51, 0 failed, 0 skipped on the erased simulator:
+/private/tmp/them-t1205-queue-exact-20261028.xcresult. The test includes
+same-ID byte-distinct notes, different-ID byte-distinct title, and durable-base
+retry. God-file gate and git diff --check passed. This does not prove the
+entire app, production or the rollback envelope under development.
