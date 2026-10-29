@@ -6335,9 +6335,16 @@ final class ScreenplayStudioViewModel: ObservableObject {
         }
 
         guard !normalized.isEmpty else {
-            autosaveStatusText = "Draft empty"
-            if !selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                clearLocalDraftRecovery(projectId: selectedProjectID)
+            autosaveStatusText = hasUnsavedDraftChanges ? "Empty page - unsaved" : "Draft empty"
+            if hasUnsavedDraftChanges, !selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                let result = localDraftRecoveryStore.saveIfOrdinaryVacantOrMatching(
+                    ownerUserId: authContext.userID, projectId: selectedProjectID,
+                    draft: draft, baseVersionId: latestVersionID)
+                switch result {
+                case .present: break
+                case .occupied: infoText = "Another recovery copy is stored. Export this page before closing or retry Save."
+                case .unconfirmed: infoText = "This page could not be secured locally. Keep it open and export it or retry Save."
+                }
             }
             return
         }

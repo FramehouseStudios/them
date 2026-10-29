@@ -259,6 +259,45 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         XCTAssertEqual(store.payloads(ownerUserId: ownerUserID)["bad"]?["draft"] as? String, "Old")
     }
 
+    @MainActor
+    func testEmptyPageDoesNotEraseDistinctRecoveryCopies() async {
+        let owner = "empty-page-owner"
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store,
+            studioAuthContextProvider: { .init(userID: owner, sessionIntentGeneration: 1) })
+        model.autosaveEnabled = false
+        model.selectedProjectID = "empty-page-project"
+        model.applyStructuralUITestDraft("Previously saved scene", versionID: "base")
+        store.save(ownerUserId: owner, projectId: model.selectedProjectID,
+            draft: "Earlier recovery", baseVersionId: "older", dirty: true)
+        store.savePreservedConflict(ownerUserId: owner, projectId: model.selectedProjectID,
+            draft: "Another recovery", baseVersionId: "other")
+        model.fountainDraft = ""
+        await model.handleDraftDebouncedChange("")
+        let payload = store.payloads(ownerUserId: owner)[model.selectedProjectID]
+        XCTAssertEqual(payload?["draft"] as? String, "Earlier recovery")
+        XCTAssertEqual((payload?["preservedConflict"] as? [String: Any])?["draft"] as? String, "Another recovery")
+        XCTAssertTrue(model.hasUnsavedDraftChanges)
+        XCTAssertEqual(model.autosaveStatusText, "Empty page - unsaved")
+        XCTAssertTrue(model.infoText.contains("Export"))
+    }
+
+    @MainActor
+    func testEmptyPageRetainsUnsavedDeletionWhenRecoveryIsVacant() async {
+        let owner = "empty-page-owner"
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store,
+            studioAuthContextProvider: { .init(userID: owner, sessionIntentGeneration: 1) })
+        model.autosaveEnabled = false
+        model.selectedProjectID = "empty-page-vacant"
+        model.applyStructuralUITestDraft("Previously saved scene", versionID: "base")
+        model.fountainDraft = ""
+        await model.handleDraftDebouncedChange("")
+        let snapshot = store.recoverySnapshot(ownerUserId: owner, projectId: model.selectedProjectID,
+            serverDraft: "Previously saved scene")
+        XCTAssertNotNil(snapshot)
+        XCTAssertEqual(snapshot?.draft, "")
+        XCTAssertTrue(model.hasUnsavedDraftChanges)
+    }
+
     func testRecoverySnapshotPreservesUnsavedDraftBasedOnCurrentServerVersion() {
         store.save(
             ownerUserId: ownerUserID,
