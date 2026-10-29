@@ -699,12 +699,67 @@ actor ScreenplayDraftSaveOutbox {
             }
             referencesByID[reference.requestID] = reference
         }
+        // A lineage-bearing conflict is canonical only when every ancestor's
+        // inherited references are already flattened into the current row.
+        // Reject cycles and partial chains instead of silently selecting a tip
+        // that would leave an older parked request behind.
+        for reference in current.supersededConflictRequests {
+            guard let conflict = entries.first(where: { $0.id == reference.requestID }) else {
+                throw BackendMemoryAPIError.invalidResponse
+            }
+            for inherited in conflict.supersededConflictRequests {
+                guard inherited.requestID != current.id,
+                      referencesByID[inherited.requestID] == inherited else {
+                    throw BackendMemoryAPIError.invalidResponse
+                }
+            }
+        }
         let currentReference = try makeConflictReference(current)
         guard referencesByID[currentReference.requestID] == nil else {
             throw BackendMemoryAPIError.invalidResponse
         }
         referencesByID[currentReference.requestID] = currentReference
         return referencesByID.values.sorted { $0.requestID < $1.requestID }
+    }
+
+    /// Finds the one canonical relaunch root for an exact visible local page.
+    /// Every matching candidate must have valid flattened lineage before a tip
+    /// can be selected; timestamps and queue order never grant authority.
+    func parkedConflictLineageTip(
+        projectId: String,
+        ownerUserId: String,
+        deliveryOrigin: ScreenplayDraftSaveOrigin,
+        draft: String
+    ) throws -> ScreenplayDraftSaveOutboxEntry? {
+        try loadIfNeeded()
+        let project = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
+        let owner = ownerUserId.trimmingCharacters(in: .whitespacesAndNewlines)
+        try validateScope(projectId: project, ownerUserId: owner,
+                          deliveryOrigin: deliveryOrigin)
+        let candidates = entries.filter { entry in
+            exactScope(entry, projectId: project, ownerUserId: owner,
+                       deliveryOrigin: deliveryOrigin) &&
+                entry.initialization == nil &&
+                entry.status == .parked &&
+                entry.lastError == Self.conflictReason &&
+                entry.draft.utf8.elementsEqual(draft.utf8)
+        }
+        guard !candidates.isEmpty else { return nil }
+
+        let candidateIDs = Set(candidates.map(\.id))
+        var referencedCandidateIDs = Set<String>()
+        for candidate in candidates {
+            // This validates the candidate, every flattened reference, and
+            // every referenced durable parked row before tip selection.
+            _ = try conflictResolutionReferences(for: candidate)
+            for reference in candidate.supersededConflictRequests
+                where candidateIDs.contains(reference.requestID) {
+                referencedCandidateIDs.insert(reference.requestID)
+            }
+        }
+        let tips = candidates.filter { !referencedCandidateIDs.contains($0.id) }
+        guard tips.count == 1 else { throw BackendMemoryAPIError.invalidResponse }
+        return tips[0]
     }
 
     /// Captures only exact immutable requests explicitly supplied by the VM.

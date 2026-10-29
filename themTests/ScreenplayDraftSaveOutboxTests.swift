@@ -635,6 +635,128 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
             [firstResolution.id, original.id, selectedRoot.id].sorted())
     }
 
+    func testParkedConflictLineageTipFindsSecondConflictResolutionAfterRelaunch() async throws {
+        let origin = ScreenplayDraftSaveOrigin(
+            documentID: "document-a",
+            backendURL: URL(string: "https://save.test")!
+        )
+        let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let page = "Same exact writer page\r\n"
+        let original = makeEntry(id: "original-conflict", draft: page, createdAt: 100,
+            origin: origin, authority: .init(id: UUID(), generation: 1))
+        try await store.enqueue(original)
+        _ = try await store.retainConflict(original)
+        var secondConflict = makeEntry(id: "keep-mine-conflicted", draft: page, createdAt: 101,
+            origin: origin, authority: .init(id: UUID(), generation: 2))
+        secondConflict.supersededConflictRequests = try await store.conflictResolutionReferences(
+            for: original)
+        try await store.enqueue(secondConflict)
+        _ = try await store.retainConflict(secondConflict)
+
+        let relaunched = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let tip = try await relaunched.parkedConflictLineageTip(projectId: original.projectId,
+            ownerUserId: original.ownerUserId, deliveryOrigin: origin, draft: page)
+
+        XCTAssertEqual(tip?.id, secondConflict.id)
+        let exactTip = try XCTUnwrap(tip)
+        let references = try await relaunched.conflictResolutionReferences(for: exactTip)
+        XCTAssertEqual(Set(references.map(\.requestID)), Set([original.id, secondConflict.id]))
+    }
+
+    func testParkedConflictLineageTipRejectsUnrelatedSamePageAmbiguity() async throws {
+        let origin = ScreenplayDraftSaveOrigin(
+            documentID: "document-a",
+            backendURL: URL(string: "https://save.test")!
+        )
+        let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let page = "Identical visible words"
+        let first = makeEntry(id: "unrelated-one", draft: page, createdAt: 100,
+            origin: origin, authority: .init(id: UUID(), generation: 1))
+        let second = makeEntry(id: "unrelated-two", draft: page, createdAt: 101,
+            origin: origin, authority: .init(id: UUID(), generation: 2))
+        for entry in [first, second] {
+            try await store.enqueue(entry)
+            _ = try await store.retainConflict(entry)
+        }
+
+        do {
+            _ = try await store.parkedConflictLineageTip(projectId: first.projectId,
+                ownerUserId: first.ownerUserId, deliveryOrigin: origin, draft: page)
+            XCTFail("Queue order selected one of two unrelated same-page conflicts")
+        } catch BackendMemoryAPIError.invalidResponse {}
+        let retained = try await store.entriesForTesting()
+        XCTAssertEqual(Set(retained.map(\.id)), Set([first.id, second.id]))
+    }
+
+    func testParkedConflictLineageTipRejectsMalformedFlattenedLineage() async throws {
+        let origin = ScreenplayDraftSaveOrigin(
+            documentID: "document-a",
+            backendURL: URL(string: "https://save.test")!
+        )
+        let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let page = "Exact page"
+        let ancestor = makeEntry(id: "ancestor", draft: page, createdAt: 100,
+            origin: origin, authority: .init(id: UUID(), generation: 1))
+        try await store.enqueue(ancestor)
+        _ = try await store.retainConflict(ancestor)
+        var malformed = makeEntry(id: "malformed-tip", draft: page, createdAt: 101,
+            origin: origin, authority: .init(id: UUID(), generation: 2))
+        malformed.supersededConflictRequests = [ScreenplayDraftConflictRequestReference(
+            requestID: ancestor.id,
+            projectId: ancestor.projectId,
+            ownerUserId: ancestor.ownerUserId,
+            deliveryOrigin: origin,
+            requestAuthority: ancestor.requestAuthority,
+            requestDigest: String(repeating: "a", count: 64)
+        )]
+        try await store.enqueue(malformed)
+        _ = try await store.retainConflict(malformed)
+
+        do {
+            _ = try await store.parkedConflictLineageTip(projectId: ancestor.projectId,
+                ownerUserId: ancestor.ownerUserId, deliveryOrigin: origin, draft: page)
+            XCTFail("Malformed lineage selected a relaunch root")
+        } catch BackendMemoryAPIError.invalidResponse {}
+        let markers = try await store.retirementMarkersForTesting()
+        XCTAssertTrue(markers.isEmpty)
+    }
+
+    func testParkedConflictLineageTipRejectsValidButNonFlattenedChain() async throws {
+        let origin = ScreenplayDraftSaveOrigin(
+            documentID: "document-a",
+            backendURL: URL(string: "https://save.test")!
+        )
+        let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let page = "Same page through three conflicts"
+        let original = makeEntry(id: "chain-original", draft: page, createdAt: 100,
+            origin: origin, authority: .init(id: UUID(), generation: 1))
+        try await store.enqueue(original)
+        _ = try await store.retainConflict(original)
+        var middle = makeEntry(id: "chain-middle", draft: page, createdAt: 101,
+            origin: origin, authority: .init(id: UUID(), generation: 2))
+        middle.supersededConflictRequests = try await store.conflictResolutionReferences(for: original)
+        try await store.enqueue(middle)
+        _ = try await store.retainConflict(middle)
+        let middleReferences = try await store.conflictResolutionReferences(for: middle)
+        let middleReference = try XCTUnwrap(
+            middleReferences.first(where: { $0.requestID == middle.id }))
+        var partialTip = makeEntry(id: "chain-partial-tip", draft: page, createdAt: 102,
+            origin: origin, authority: .init(id: UUID(), generation: 3))
+        // The reference itself is exact, but the original inherited reference
+        // is intentionally omitted. A canonical flattened tip must reject it.
+        partialTip.supersededConflictRequests = [middleReference]
+        try await store.enqueue(partialTip)
+        _ = try await store.retainConflict(partialTip)
+
+        do {
+            _ = try await store.parkedConflictLineageTip(projectId: original.projectId,
+                ownerUserId: original.ownerUserId, deliveryOrigin: origin, draft: page)
+            XCTFail("A partial non-flattened chain selected a relaunch root")
+        } catch BackendMemoryAPIError.invalidResponse {}
+        let retained = try await store.entriesForTesting()
+        XCTAssertEqual(Set(retained.map(\.id)), Set([original.id, middle.id, partialTip.id]))
+    }
+
     func testInteractiveLoadServerRejectsUnknownOriginInFlattenedLineage() async throws {
         let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
         let legacy = makeEntry(id: "legacy-unknown-origin", draft: "Legacy exact words")
