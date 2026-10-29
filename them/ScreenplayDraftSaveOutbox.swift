@@ -256,6 +256,9 @@ nonisolated struct ScreenplayDraftLoadServerSelection: Equatable {
     let ownerUserId: String
     let deliveryOrigin: ScreenplayDraftSaveOrigin
     let requests: [ScreenplayDraftSaveOutboxEntry]
+    /// Interactive choices may retire only rows that remain exact, durable,
+    /// parked conflicts with no active write in the same document scope.
+    let isInteractive: Bool
 }
 
 nonisolated struct ScreenplayDraftLoadServerResolution: Equatable {
@@ -756,8 +759,64 @@ actor ScreenplayDraftSaveOutbox {
             projectId: project,
             ownerUserId: owner,
             deliveryOrigin: deliveryOrigin,
-            requests: selected.values.sorted { $0.id < $1.id }
+            requests: selected.values.sorted { $0.id < $1.id },
+            isInteractive: false
         )
+    }
+
+    /// Captures one writer-selected, durable parked conflict and its canonical
+    /// flattened lineage. Unlike the general late-request fencing API above,
+    /// this path never grants retirement authority to an absent request and
+    /// refuses to race a pending or inflight write in the same document scope.
+    func captureInteractiveLoadServerSelection(
+        root: ScreenplayDraftSaveOutboxEntry
+    ) throws -> ScreenplayDraftLoadServerSelection {
+        try loadIfNeeded()
+        try validateRetirableRequest(root)
+        guard let origin = root.deliveryOrigin,
+              let current = entries.first(where: { $0.id == root.id }),
+              sameImmutableRequest(current, root),
+              current.status == .parked,
+              current.lastError == Self.conflictReason else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+
+        var selected: [String: ScreenplayDraftSaveOutboxEntry] = [current.id: current]
+        // conflictResolutionReferences already flattens inherited lineage into
+        // this root. Validate those exact durable rows; do not infer by scope.
+        for reference in current.supersededConflictRequests {
+            guard reference.projectId == current.projectId,
+                  reference.ownerUserId == current.ownerUserId,
+                  reference.requestID != current.id,
+                  reference.deliveryOrigin == origin,
+                  selected[reference.requestID] == nil,
+                  let ancestor = entries.first(where: { $0.id == reference.requestID }) else {
+                throw BackendMemoryAPIError.invalidResponse
+            }
+            try validateRetirableRequest(ancestor)
+            guard exactScope(ancestor, projectId: current.projectId,
+                             ownerUserId: current.ownerUserId, deliveryOrigin: origin),
+                  ancestor.status == .parked,
+                  ancestor.lastError == Self.conflictReason,
+                  conflictReference(reference, matches: ancestor) else {
+                throw BackendMemoryAPIError.invalidResponse
+            }
+            selected[ancestor.id] = ancestor
+        }
+
+        let selection = ScreenplayDraftLoadServerSelection(
+            id: UUID(),
+            projectId: current.projectId,
+            ownerUserId: current.ownerUserId,
+            deliveryOrigin: origin,
+            requests: selected.values.sorted { $0.id < $1.id },
+            isInteractive: true
+        )
+        try validate(selection)
+        guard !hasActiveLoadServerEntry(in: selection) else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        return selection
     }
 
     /// Retire only the exact immutable requests captured by the selection. Each
@@ -768,6 +827,22 @@ actor ScreenplayDraftSaveOutbox {
     ) throws -> ScreenplayDraftLoadServerResolution {
         try loadIfNeeded()
         try validate(selection)
+        if selection.isInteractive {
+            guard !hasActiveLoadServerEntry(in: selection) else {
+                throw BackendMemoryAPIError.invalidResponse
+            }
+            // Revalidate the complete selection before mutating either
+            // collection. A disappeared, replaced, or reactivated row cannot
+            // be converted into a retirement marker by stale UI authority.
+            for request in selection.requests {
+                guard let current = entries.first(where: { $0.id == request.id }),
+                      sameImmutableRequest(current, request),
+                      current.status == .parked,
+                      current.lastError == Self.conflictReason else {
+                    throw BackendMemoryAPIError.invalidResponse
+                }
+            }
+        }
         let previousEntries = entries
         let previousMarkers = retirementMarkers
         var retiredIDs: [String] = []
@@ -1161,6 +1236,18 @@ actor ScreenplayDraftSaveOutbox {
                              deliveryOrigin: selection.deliveryOrigin) else {
                 throw BackendMemoryAPIError.invalidResponse
             }
+        }
+    }
+
+    private func hasActiveLoadServerEntry(
+        in selection: ScreenplayDraftLoadServerSelection
+    ) -> Bool {
+        entries.contains { entry in
+            entry.initialization == nil &&
+                exactScope(entry, projectId: selection.projectId,
+                           ownerUserId: selection.ownerUserId,
+                           deliveryOrigin: selection.deliveryOrigin) &&
+                (entry.status == .pending || entry.status == .inflight)
         }
     }
 

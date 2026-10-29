@@ -585,6 +585,196 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
         XCTAssertEqual(markers.map(\.id), [selected.id])
     }
 
+    func testInteractiveLoadServerCapturesExactRootAndFlattenedParkedLineage() async throws {
+        let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let origin = ScreenplayDraftSaveOrigin(
+            documentID: "document-a",
+            backendURL: URL(string: "https://save.test")!
+        )
+        let otherOrigin = ScreenplayDraftSaveOrigin(
+            documentID: "document-b",
+            backendURL: origin.backendURL
+        )
+        let authority = UUID()
+        let original = makeEntry(id: "original-conflict", draft: "Original exact words",
+            createdAt: 100, origin: origin, authority: .init(id: authority, generation: 1))
+        try await store.enqueue(original)
+        _ = try await store.retainConflict(original)
+
+        var firstResolution = makeEntry(id: "first-resolution", draft: "First kept words",
+            createdAt: 101, origin: origin, authority: .init(id: authority, generation: 2))
+        firstResolution.supersededConflictRequests = try await store.conflictResolutionReferences(
+            for: original)
+        try await store.enqueue(firstResolution)
+        _ = try await store.retainConflict(firstResolution)
+
+        var selectedRoot = makeEntry(id: "selected-root", draft: "Latest kept words",
+            createdAt: 102, origin: origin, authority: .init(id: authority, generation: 3))
+        selectedRoot.supersededConflictRequests = try await store.conflictResolutionReferences(
+            for: firstResolution)
+        try await store.enqueue(selectedRoot)
+        _ = try await store.retainConflict(selectedRoot)
+
+        let unrelated = makeEntry(id: "unrelated-other-document", draft: "Keep these words",
+            createdAt: 103, origin: otherOrigin, authority: .init(id: UUID(), generation: 1))
+        try await store.enqueue(unrelated)
+        _ = try await store.retainConflict(unrelated)
+
+        let selection = try await store.captureInteractiveLoadServerSelection(root: selectedRoot)
+        XCTAssertEqual(selection.requests.map(\.id),
+            [firstResolution.id, original.id, selectedRoot.id].sorted())
+        let resolution = try await store.resolveLoadServerSelection(selection)
+
+        XCTAssertEqual(resolution.retiredRequestIDs,
+            [firstResolution.id, original.id, selectedRoot.id].sorted())
+        let remaining = try await store.entriesForTesting()
+        XCTAssertEqual(remaining.map(\.id), [unrelated.id])
+        XCTAssertEqual(remaining.first.map { Data($0.draft.utf8) }, Data(unrelated.draft.utf8))
+        let markers = try await store.retirementMarkersForTesting()
+        XCTAssertEqual(markers.map(\.id).sorted(),
+            [firstResolution.id, original.id, selectedRoot.id].sorted())
+    }
+
+    func testInteractiveLoadServerRejectsUnknownOriginInFlattenedLineage() async throws {
+        let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let legacy = makeEntry(id: "legacy-unknown-origin", draft: "Legacy exact words")
+        try await store.enqueue(legacy)
+        _ = try await store.retainConflict(legacy)
+        do {
+            _ = try await store.captureInteractiveLoadServerSelection(root: legacy)
+            XCTFail("An unknown-origin root acquired interactive retirement authority")
+        } catch BackendMemoryAPIError.invalidResponse {}
+        let origin = ScreenplayDraftSaveOrigin(
+            documentID: "known-document",
+            backendURL: URL(string: "https://save.test")!
+        )
+        var selectedRoot = makeEntry(id: "known-root", draft: "Current exact words",
+            createdAt: 101, origin: origin, authority: .init(id: UUID(), generation: 2))
+        selectedRoot.supersededConflictRequests = try await store.conflictResolutionReferences(
+            for: legacy)
+        try await store.enqueue(selectedRoot)
+        _ = try await store.retainConflict(selectedRoot)
+
+        do {
+            _ = try await store.captureInteractiveLoadServerSelection(root: selectedRoot)
+            XCTFail("Unknown-origin lineage acquired interactive retirement authority")
+        } catch BackendMemoryAPIError.invalidResponse {}
+
+        let retained = try await store.entriesForTesting()
+        XCTAssertEqual(Set(retained.map(\.id)), Set([legacy.id, selectedRoot.id]))
+        XCTAssertTrue(retained.allSatisfy { $0.status == .parked })
+        let markers = try await store.retirementMarkersForTesting()
+        XCTAssertTrue(markers.isEmpty)
+    }
+
+    func testInteractiveLoadServerRejectsActiveSameScopeWritesAtCaptureAndResolve() async throws {
+        let origin = ScreenplayDraftSaveOrigin(
+            documentID: "document-a",
+            backendURL: URL(string: "https://save.test")!
+        )
+        let captureStore = ScreenplayDraftSaveOutbox(
+            storageDirectory: storageDirectory.appendingPathComponent("capture", isDirectory: true))
+        let captureRoot = makeEntry(id: "capture-root", origin: origin,
+            authority: .init(id: UUID(), generation: 1))
+        let captureBlocker = makeEntry(id: "capture-blocker", draft: "Active words",
+            createdAt: 101, origin: origin, authority: .init(id: UUID(), generation: 2))
+        try await captureStore.enqueue(captureRoot)
+        _ = try await captureStore.retainConflict(captureRoot)
+        try await captureStore.enqueue(captureBlocker)
+        do {
+            _ = try await captureStore.captureInteractiveLoadServerSelection(root: captureRoot)
+            XCTFail("A pending same-scope write did not block capture")
+        } catch BackendMemoryAPIError.invalidResponse {}
+        try await captureStore.markInflight(id: captureBlocker.id)
+        do {
+            _ = try await captureStore.captureInteractiveLoadServerSelection(root: captureRoot)
+            XCTFail("An inflight same-scope write did not block capture")
+        } catch BackendMemoryAPIError.invalidResponse {}
+
+        let resolveStore = ScreenplayDraftSaveOutbox(
+            storageDirectory: storageDirectory.appendingPathComponent("resolve", isDirectory: true))
+        let resolveRoot = makeEntry(id: "resolve-root", origin: origin,
+            authority: .init(id: UUID(), generation: 3))
+        let resolveBlocker = makeEntry(id: "resolve-blocker", draft: "Late active words",
+            createdAt: 101, origin: origin, authority: .init(id: UUID(), generation: 4))
+        try await resolveStore.enqueue(resolveRoot)
+        _ = try await resolveStore.retainConflict(resolveRoot)
+        let selection = try await resolveStore.captureInteractiveLoadServerSelection(root: resolveRoot)
+        try await resolveStore.enqueue(resolveBlocker)
+        do {
+            _ = try await resolveStore.resolveLoadServerSelection(selection)
+            XCTFail("A pending same-scope write did not block resolution")
+        } catch BackendMemoryAPIError.invalidResponse {}
+        try await resolveStore.markInflight(id: resolveBlocker.id)
+        do {
+            _ = try await resolveStore.resolveLoadServerSelection(selection)
+            XCTFail("An inflight same-scope write did not block resolution")
+        } catch BackendMemoryAPIError.invalidResponse {}
+        let resolveRows = try await resolveStore.entriesForTesting()
+        let resolveMarkers = try await resolveStore.retirementMarkersForTesting()
+        XCTAssertEqual(Set(resolveRows.map(\.id)), Set([resolveRoot.id, resolveBlocker.id]))
+        XCTAssertTrue(resolveMarkers.isEmpty)
+    }
+
+    func testInteractiveLoadServerFailsClosedWhenSelectionDisappearsOrMutates() async throws {
+        let origin = ScreenplayDraftSaveOrigin(
+            documentID: "document-a",
+            backendURL: URL(string: "https://save.test")!
+        )
+        let otherOrigin = ScreenplayDraftSaveOrigin(
+            documentID: "document-b",
+            backendURL: origin.backendURL
+        )
+        let disappearedStore = ScreenplayDraftSaveOutbox(
+            storageDirectory: storageDirectory.appendingPathComponent("disappeared", isDirectory: true))
+        let ancestor = makeEntry(id: "ancestor", origin: origin,
+            authority: .init(id: UUID(), generation: 1))
+        try await disappearedStore.enqueue(ancestor)
+        _ = try await disappearedStore.retainConflict(ancestor)
+        var root = makeEntry(id: "root", createdAt: 101, origin: origin,
+            authority: .init(id: UUID(), generation: 2))
+        root.supersededConflictRequests = try await disappearedStore.conflictResolutionReferences(
+            for: ancestor)
+        let unrelated = makeEntry(id: "unrelated", draft: "Unrelated exact words",
+            createdAt: 102, origin: otherOrigin, authority: .init(id: UUID(), generation: 1))
+        try await disappearedStore.enqueue(root)
+        _ = try await disappearedStore.retainConflict(root)
+        try await disappearedStore.enqueue(unrelated)
+        let disappearedSelection = try await disappearedStore
+            .captureInteractiveLoadServerSelection(root: root)
+        try await disappearedStore.remove(id: ancestor.id)
+        do {
+            _ = try await disappearedStore.resolveLoadServerSelection(disappearedSelection)
+            XCTFail("A disappeared selected ancestor was silently retired")
+        } catch BackendMemoryAPIError.invalidResponse {}
+        let disappearedRows = try await disappearedStore.entriesForTesting()
+        let disappearedMarkers = try await disappearedStore.retirementMarkersForTesting()
+        XCTAssertEqual(Set(disappearedRows.map(\.id)), Set([root.id, unrelated.id]))
+        XCTAssertTrue(disappearedMarkers.isEmpty)
+
+        let mutatedStore = ScreenplayDraftSaveOutbox(
+            storageDirectory: storageDirectory.appendingPathComponent("mutated", isDirectory: true))
+        let authority = ScreenplayDraftSaveRequestAuthority(id: UUID(), generation: 1)
+        let original = makeEntry(id: "mutable-root", draft: "Original bytes", origin: origin,
+            authority: authority)
+        try await mutatedStore.enqueue(original)
+        _ = try await mutatedStore.retainConflict(original)
+        let mutatedSelection = try await mutatedStore.captureInteractiveLoadServerSelection(root: original)
+        try await mutatedStore.remove(id: original.id)
+        let replacement = makeEntry(id: original.id, draft: "Different bytes", origin: origin,
+            authority: authority)
+        _ = try await mutatedStore.retainConflict(replacement)
+        do {
+            _ = try await mutatedStore.resolveLoadServerSelection(mutatedSelection)
+            XCTFail("A byte-distinct replacement was retired by stale selection authority")
+        } catch BackendMemoryAPIError.invalidResponse {}
+        let mutatedRows = try await mutatedStore.entriesForTesting()
+        let retainedReplacement = try XCTUnwrap(mutatedRows.first)
+        XCTAssertEqual(Data(retainedReplacement.draft.utf8), Data(replacement.draft.utf8))
+        let mutatedMarkers = try await mutatedStore.retirementMarkersForTesting()
+        XCTAssertTrue(mutatedMarkers.isEmpty)
+    }
+
     func testLoadServerDoesNotInferConsentForAnotherParkedDraftInTheSameDocument() async throws {
         let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
         let origin = ScreenplayDraftSaveOrigin(
