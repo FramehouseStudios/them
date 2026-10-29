@@ -219,6 +219,14 @@ nonisolated struct ScreenplayDraftSaveOutboxSnapshot: Equatable {
     }
 }
 
+/// A lineage-bearing queue uses an object envelope so array-only builds fail
+/// before decoding or rewriting any rows. Legacy arrays remain the storage
+/// format whenever no unresolved conflict lineage needs newer-client custody.
+nonisolated private struct ScreenplayDraftSaveOutboxManifest: Codable {
+    let schemaVersion: Int
+    let entries: [ScreenplayDraftSaveOutboxEntry]
+}
+
 nonisolated enum ScreenplayDraftSaveDelivery {
     case deliver(ScreenplayDraftSaveOutboxEntry)
     case alreadyInflight(ScreenplayDraftSaveOutboxEntry)
@@ -243,6 +251,7 @@ nonisolated struct ScreenplayDraftLoadServerResolution: Equatable {
 actor ScreenplayDraftSaveOutbox {
     static let shared = ScreenplayDraftSaveOutbox(storageDirectory: defaultStorageDirectory())
 
+    private static let lineageManifestSchemaVersion = 2
     private static let maxDraftBytes = 2 * 1024 * 1024
     private static let backoffSeconds: [TimeInterval] = [2, 5, 15, 60, 300]
     private static let conflictReason = "Server draft changed. Choose Keep Mine or Load Server."
@@ -1011,7 +1020,18 @@ actor ScreenplayDraftSaveOutbox {
             return
         }
         let data = try Data(contentsOf: manifestURL)
-        let decodedEntries = try JSONDecoder().decode([ScreenplayDraftSaveOutboxEntry].self, from: data)
+        let decoder = JSONDecoder()
+        let decodedEntries: [ScreenplayDraftSaveOutboxEntry]
+        if let legacyEntries = try? decoder.decode([ScreenplayDraftSaveOutboxEntry].self, from: data) {
+            decodedEntries = legacyEntries
+        } else {
+            let manifest = try decoder.decode(ScreenplayDraftSaveOutboxManifest.self, from: data)
+            guard manifest.schemaVersion == Self.lineageManifestSchemaVersion,
+                  manifest.entries.contains(where: { !$0.supersededConflictRequests.isEmpty }) else {
+                throw BackendMemoryAPIError.invalidResponse
+            }
+            decodedEntries = manifest.entries
+        }
         var restoredEntries: [ScreenplayDraftSaveOutboxEntry] = []
         var restoredMarkers: [ScreenplayDraftSaveOutboxEntry] = []
         for entry in decodedEntries {
@@ -1048,7 +1068,14 @@ actor ScreenplayDraftSaveOutbox {
             if lhs.createdAt == rhs.createdAt { return lhs.id < rhs.id }
             return lhs.createdAt < rhs.createdAt
         }
-        let data = try encoder.encode(stored)
+        let data = if stored.contains(where: { !$0.supersededConflictRequests.isEmpty }) {
+            try encoder.encode(ScreenplayDraftSaveOutboxManifest(
+                schemaVersion: Self.lineageManifestSchemaVersion,
+                entries: stored
+            ))
+        } else {
+            try encoder.encode(stored)
+        }
         try manifestWriter(data, manifestURL)
         #if os(iOS)
         try? fileManager.setAttributes(
