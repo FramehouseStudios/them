@@ -368,6 +368,46 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
     }
 
     @MainActor
+    func testBackgroundMatchingDraftCannotDismissUnresolvedConflict() {
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store)
+        model.autosaveEnabled = false
+        model.selectedProjectID = "conflicted-project"
+        let writer = "Exact local words.  \r\n"
+        model.applyServerDraft(writer, versionId: "old")
+        model.hasUnsavedDraftChanges = true
+        let conflict = ScreenplayStudioViewModel.SaveConflictState(projectId: "conflicted-project",
+            baseVersionId: "old", serverVersionId: "new", serverDraft: "Server words",
+            serverDraftExcerpt: "Server words", serverUpdatedAt: 0)
+        model.conflictState = conflict
+        model.applyServerDraft(writer, versionId: "later")
+        XCTAssertEqual(model.conflictState, conflict)
+        XCTAssertEqual(Data(model.fountainDraft.utf8), Data(writer.utf8))
+        XCTAssertTrue(model.hasUnsavedDraftChanges)
+    }
+
+    @MainActor
+    func testManualSaveAndSnapshotDoNotBypassConflictOrEraseSnapshotLabel() async {
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store)
+        model.autosaveEnabled = false
+        model.selectedProjectID = "conflicted-project"
+        let writer = "Exact local words.  \r\n"
+        model.fountainDraft = writer
+        model.hasUnsavedDraftChanges = true
+        let conflict = ScreenplayStudioViewModel.SaveConflictState(projectId: "conflicted-project",
+            baseVersionId: "old", serverVersionId: "new", serverDraft: "Server words",
+            serverDraftExcerpt: "Server words", serverUpdatedAt: 0)
+        model.conflictState = conflict
+        model.snapshotLabel = "Do not lose this note"
+        await model.manualSaveDraft()
+        XCTAssertEqual(model.conflictState, conflict)
+        XCTAssertFalse(model.errorText.isEmpty)
+        await model.createRevisionSnapshot()
+        XCTAssertEqual(model.conflictState, conflict)
+        XCTAssertEqual(model.snapshotLabel, "Do not lose this note")
+        XCTAssertEqual(Data(model.fountainDraft.utf8), Data(writer.utf8))
+    }
+
+    @MainActor
     func testKeepMineWithoutWritableProjectPreservesConflictAndWords() async {
         let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store)
         model.autosaveEnabled = false

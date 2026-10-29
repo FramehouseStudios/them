@@ -168,14 +168,64 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
         XCTAssertEqual(restored.first?.lastError, "Interrupted while saving.")
     }
 
+    func testPreLineageManifestDecodesSavesAndRelaunchesWithEmptyLineage() async throws {
+        let legacyEntry = makeEntry(id: "pre-lineage")
+        let priorShape = try JSONDecoder().decode(PriorDraftSaveOutboxEntry.self,
+            from: JSONEncoder().encode(legacyEntry))
+        let legacyData = try JSONEncoder().encode([priorShape])
+        let legacyObject = try XCTUnwrap(JSONSerialization.jsonObject(with: legacyData) as? [[String: Any]])
+        XCTAssertNil(legacyObject.first?["supersededConflictRequests"])
+        try FileManager.default.createDirectory(at: storageDirectory, withIntermediateDirectories: true)
+        try legacyData.write(to: storageDirectory.appendingPathComponent("queue.json"), options: .atomic)
+
+        let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let restoredLegacy = try await store.entriesForTesting()
+        XCTAssertEqual(restoredLegacy.map(\.id), [legacyEntry.id])
+        XCTAssertEqual(restoredLegacy.first?.supersededConflictRequests, [])
+
+        let newEntry = makeEntry(id: "post-lineage", draft: "Later draft", createdAt: 101)
+        try await store.enqueue(newEntry)
+        let relaunched = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let saved = try await relaunched.entriesForTesting()
+        XCTAssertEqual(saved.map(\.id), [legacyEntry.id, newEntry.id])
+        XCTAssertTrue(saved.allSatisfy { $0.supersededConflictRequests.isEmpty })
+    }
+
+    func testPresentNullConflictLineageFailsClosedWithoutRewritingManifest() async throws {
+        let entry = makeEntry(id: "null-lineage")
+        var payload = try XCTUnwrap(JSONSerialization.jsonObject(
+            with: JSONEncoder().encode(entry)) as? [String: Any])
+        payload["supersededConflictRequests"] = NSNull()
+        let malformed = try JSONSerialization.data(withJSONObject: [payload], options: [.sortedKeys])
+        try FileManager.default.createDirectory(at: storageDirectory, withIntermediateDirectories: true)
+        let manifestURL = storageDirectory.appendingPathComponent("queue.json")
+        try malformed.write(to: manifestURL, options: .atomic)
+
+        let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let firstRead = await store.snapshot(ownerUserId: entry.ownerUserId)
+        let secondRead = await store.snapshot(ownerUserId: entry.ownerUserId)
+
+        XCTAssertFalse(firstRead.lastError.isEmpty)
+        XCTAssertFalse(secondRead.lastError.isEmpty)
+        XCTAssertEqual(try Data(contentsOf: manifestURL), malformed)
+    }
+
     @MainActor
     func testRequestCreationTimeSurvivesMaterializationRebaseAndRelaunch() {
         let context = ScreenplayStudioAuthContext(userID: "writer", sessionIntentGeneration: 1)
         let authority = ScreenplayDraftSaveRequestAuthority(id: UUID(), generation: 0)
+        let reference = ScreenplayDraftConflictRequestReference(requestID: "older", projectId: "project",
+            ownerUserId: "writer", deliveryOrigin: nil, requestAuthority: nil,
+            requestDigest: String(repeating: "a", count: 64))
         let request = ScreenplayStudioViewModel.DraftSaveRequest(id: "request", createdAt: 123,
             projectId: "project", ownerUserId: "writer", draft: "Writer words", title: "Title",
             phase: "scene_draft", source: "studio_manual", notes: "", studioWriteAnchors: [],
-            screenplayBindings: [], baseVersionId: "base", authContext: context, requestAuthority: authority)
+            screenplayBindings: [], baseVersionId: "base", authContext: context, requestAuthority: authority,
+            supersededConflictRequests: [reference])
+        XCTAssertEqual(request.outboxEntry.supersededConflictRequests, [reference])
+        XCTAssertEqual(request.rebased(on: "new-base").outboxEntry.supersededConflictRequests, [reference])
+        XCTAssertEqual(ScreenplayStudioViewModel.DraftSaveRequest(entry: request.outboxEntry,
+            authContext: context).supersededConflictRequests, [reference])
         XCTAssertEqual(request.outboxEntry.requestAuthority, authority)
         XCTAssertEqual(request.rebased(on: "new-base").outboxEntry.requestAuthority, authority)
         XCTAssertEqual(ScreenplayStudioViewModel.DraftSaveRequest(entry: request.outboxEntry,
@@ -770,6 +820,166 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
         XCTAssertTrue(remaining.allSatisfy { $0.baseVersionId == "server-v1" })
     }
 
+    func testConflictLineageReferencesExactLegacyNilOriginWithoutWriterContent() async throws {
+        let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let legacy = makeEntry(id: "legacy-nil-origin", draft: "Private exact writer words")
+        try await store.enqueue(legacy)
+        _ = try await store.retainConflict(legacy)
+
+        let references = try await store.conflictResolutionReferences(for: legacy)
+
+        let reference = try XCTUnwrap(references.first)
+        XCTAssertEqual(reference.requestID, legacy.id)
+        XCTAssertNil(reference.deliveryOrigin)
+        XCTAssertNil(reference.requestAuthority)
+        XCTAssertEqual(reference.requestDigest.count, 64)
+        let payload = try XCTUnwrap(JSONSerialization.jsonObject(
+            with: JSONEncoder().encode(reference)) as? [String: Any])
+        XCTAssertNil(payload["draft"])
+        XCTAssertNil(payload["title"])
+        XCTAssertNil(payload["notes"])
+        XCTAssertNil(payload["source"])
+        XCTAssertFalse(String(data: try JSONEncoder().encode(reference), encoding: .utf8)?
+            .contains(legacy.draft) == true)
+    }
+
+    func testDifferentConflictLineagesNeverCoalesce() async throws {
+        let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let first = makeEntry(id: "conflict-one", draft: "First private draft", createdAt: 100)
+        let second = makeEntry(id: "conflict-two", draft: "Second private draft", createdAt: 101)
+        for conflict in [first, second] {
+            try await store.enqueue(conflict)
+            _ = try await store.retainConflict(conflict)
+        }
+        let firstReferences = try await store.conflictResolutionReferences(for: first)
+        let secondReferences = try await store.conflictResolutionReferences(for: second)
+        let origin = ScreenplayDraftSaveOrigin(
+            documentID: "document-a",
+            backendURL: URL(string: "https://save.test")!
+        )
+        var firstResolution = makeEntry(id: "resolution-one", draft: "Same replacement", createdAt: 102,
+            origin: origin, authority: .init(id: UUID(), generation: 1))
+        firstResolution.supersededConflictRequests = firstReferences
+        var secondResolution = makeEntry(id: "resolution-two", draft: "Same replacement", createdAt: 103,
+            origin: origin, authority: .init(id: UUID(), generation: 2))
+        secondResolution.supersededConflictRequests = secondReferences
+
+        let firstAdmitted = try await store.enqueueForDelivery(firstResolution)
+        let secondAdmitted = try await store.enqueueForDelivery(secondResolution)
+        XCTAssertEqual(firstAdmitted.id, firstResolution.id)
+        XCTAssertEqual(secondAdmitted.id, secondResolution.id)
+        let rows = try await store.entriesForTesting()
+        XCTAssertTrue(rows.contains { $0.id == firstResolution.id })
+        XCTAssertTrue(rows.contains { $0.id == secondResolution.id })
+    }
+
+    func testOnlyExactLinkedResolutionMayCrossItsParkedConflictBarrier() async throws {
+        let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let conflict = makeEntry(id: "parked", draft: "Original", createdAt: 100)
+        try await store.enqueue(conflict)
+        _ = try await store.retainConflict(conflict)
+        let references = try await store.conflictResolutionReferences(for: conflict)
+        let origin = ScreenplayDraftSaveOrigin(
+            documentID: "document-a",
+            backendURL: URL(string: "https://save.test")!
+        )
+        var resolution = makeEntry(id: "resolution", draft: "Replacement", createdAt: 101,
+            origin: origin, authority: .init(id: UUID(), generation: 3))
+        resolution.supersededConflictRequests = references
+        try await store.enqueue(resolution)
+        try await store.enqueue(makeEntry(id: "later-unrelated", draft: "Later", createdAt: 102,
+            origin: origin, authority: .init(id: UUID(), generation: 4)))
+
+        let next = try await store.beginNext(projectId: conflict.projectId,
+            ownerUserId: conflict.ownerUserId, force: true)
+        XCTAssertEqual(next?.id, resolution.id)
+
+        let blockedDirectory = storageDirectory.appendingPathComponent("unrelated-barrier", isDirectory: true)
+        let blockedStore = ScreenplayDraftSaveOutbox(storageDirectory: blockedDirectory)
+        let unrelatedConflict = makeEntry(id: "unrelated-conflict", draft: "Other", createdAt: 99)
+        try await blockedStore.enqueue(unrelatedConflict)
+        _ = try await blockedStore.retainConflict(unrelatedConflict)
+        try await blockedStore.enqueue(resolution)
+        let blocked = try await blockedStore.beginNext(projectId: conflict.projectId,
+            ownerUserId: conflict.ownerUserId, force: true)
+        XCTAssertNil(blocked)
+    }
+
+    func testLinkedResolutionCannotSkipAnEarlierUnrelatedPendingEdit() async throws {
+        let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let conflict = makeEntry(id: "parked", draft: "Original", createdAt: 100)
+        try await store.enqueue(conflict)
+        _ = try await store.retainConflict(conflict)
+        let references = try await store.conflictResolutionReferences(for: conflict)
+        let origin = ScreenplayDraftSaveOrigin(
+            documentID: "document-a",
+            backendURL: URL(string: "https://save.test")!
+        )
+        try await store.enqueue(makeEntry(id: "unrelated-pending", draft: "Independent edit",
+            createdAt: 101, origin: origin, authority: .init(id: UUID(), generation: 5)))
+        var resolution = makeEntry(id: "resolution", draft: "Replacement", createdAt: 102,
+            origin: origin, authority: .init(id: UUID(), generation: 6))
+        resolution.supersededConflictRequests = references
+        try await store.enqueue(resolution)
+
+        let next = try await store.beginNext(projectId: conflict.projectId,
+            ownerUserId: conflict.ownerUserId, force: true)
+
+        XCTAssertNil(next)
+        let rows = try await store.entriesForTesting()
+        XCTAssertEqual(rows.first(where: { $0.id == "unrelated-pending" })?.status, .pending)
+        XCTAssertEqual(rows.first(where: { $0.id == resolution.id })?.status, .pending)
+    }
+
+    func testConfirmedConflictCompletionIsAtomicAndPreservesUnrelatedRows() async throws {
+        let failMarker = storageDirectory.appendingPathComponent("fail-next-write")
+        let store = ScreenplayDraftSaveOutbox(
+            storageDirectory: storageDirectory,
+            manifestWriter: { data, url in
+                if FileManager.default.fileExists(atPath: failMarker.path) {
+                    throw NSError(domain: "ScreenplayDraftSaveOutboxTests", code: 3)
+                }
+                try data.write(to: url, options: .atomic)
+            }
+        )
+        let conflict = makeEntry(id: "original", draft: "Original private words", createdAt: 100)
+        try await store.enqueue(conflict)
+        _ = try await store.retainConflict(conflict)
+        let references = try await store.conflictResolutionReferences(for: conflict)
+        let origin = ScreenplayDraftSaveOrigin(
+            documentID: "document-a",
+            backendURL: URL(string: "https://save.test")!
+        )
+        var resolution = makeEntry(id: "resolution", draft: "Kept writer words", createdAt: 101,
+            origin: origin, authority: .init(id: UUID(), generation: 5))
+        resolution.supersededConflictRequests = references
+        let unrelated = replacingOwner(of: makeEntry(id: "unrelated", draft: "Other owner words",
+            createdAt: 102, origin: origin), with: "user-2")
+        try await store.enqueue(resolution)
+        try await store.enqueue(unrelated)
+        try await store.markInflight(id: resolution.id)
+        let evidence = try makeOrdinaryEvidence(for: resolution, versionID: "server-v2")
+        let manifestURL = storageDirectory.appendingPathComponent("queue.json")
+        let before = try Data(contentsOf: manifestURL)
+        try Data().write(to: failMarker)
+
+        do {
+            try await store.completeConfirmedConflictResolution(resolution, evidence: evidence,
+                echoedRequestID: resolution.id)
+            XCTFail("A failed atomic manifest write reported completion")
+        } catch {}
+        XCTAssertEqual(try Data(contentsOf: manifestURL), before)
+        let rolledBack = try await store.entriesForTesting()
+        XCTAssertEqual(Set(rolledBack.map(\.id)), Set([conflict.id, resolution.id, unrelated.id]))
+
+        try FileManager.default.removeItem(at: failMarker)
+        try await store.completeConfirmedConflictResolution(resolution, evidence: evidence,
+            echoedRequestID: resolution.id)
+        let remaining = try await store.entriesForTesting()
+        XCTAssertEqual(remaining.map(\.id), [unrelated.id])
+        XCTAssertEqual(remaining.first?.draft, unrelated.draft)
+    }
+
     func testParkedConflictCopiesRemainSeparateAndOwnerScopedAfterRelaunch() async throws {
         let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
         let first = makeEntry(id: "copy-one", draft: "First writer's words")
@@ -1122,7 +1332,25 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
         replaced.deliveryOrigin = entry.deliveryOrigin
         replaced.requestAuthority = entry.requestAuthority
         replaced.loadServerRetirement = entry.loadServerRetirement
+        replaced.supersededConflictRequests = entry.supersededConflictRequests
         return replaced
+    }
+
+    private func makeOrdinaryEvidence(
+        for entry: ScreenplayDraftSaveOutboxEntry,
+        versionID: String
+    ) throws -> ScreenplayConfirmedDraftSave {
+        let version = try JSONDecoder().decode(BackendScreenplayVersion.self,
+            from: JSONSerialization.data(withJSONObject: [
+                "id": versionID,
+                "projectId": entry.projectId,
+                "clientRequestId": entry.id,
+                "draft": entry.draft,
+            ]))
+        let owner = ScreenplayStudioAuthContext(userID: entry.ownerUserId, sessionIntentGeneration: 7)
+        return try XCTUnwrap(ScreenplayConfirmedDraftSave.ordinary(entry: entry, version: version,
+            versionID: versionID, projectID: entry.projectId,
+            responseURL: entry.deliveryOrigin?.backendURL, owner: owner, currentOwner: owner))
     }
 }
 

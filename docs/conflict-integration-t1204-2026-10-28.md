@@ -113,3 +113,47 @@ unavailable project leaves the conflict and exact page intact. Result:
 negative path has not yet received handler-level fault injection. The old
 parked conflict is deliberately not retired by this change; durable
 supersession, atomic retirement, relaunch and real UI proof remain required.
+
+## T-1205 Keep Mine integration in progress
+
+The local worktree codex/T-1205-keep-mine has an uncommitted preserving merge
+of Zora's lineage commits through 36c41bf and VM integration. The first signed
+queue build failed before running tests due to async calls inside XCTest
+assertion autoclosures; those were corrected. The subsequent focused outbox
+suite passed 48/48, 0 failed, 0 skipped:
+/private/tmp/them-t1205-lineage-fixed-20261028.xcresult. Later VM changes
+bind reconstructed conflicts only to exact owner/project/document/page matches,
+block ordinary Save/Snapshot during conflict, and preserve snapshot labels.
+Focused recovery suite after these VM changes: 79/79, 0 failed, 0 skipped:
+/private/tmp/them-t1205-conflict-guard-20261028.xcresult.
+
+Do not publish or call this integration complete: raw Swift metadata equality
+can reject legitimate backend-normalized nil/empty values. Zora is preparing a
+canonical comparison, including UTF-16 truncation boundaries. The exact linked
+VM/backend UI flow, crash and relaunch, earlier unrelated queued-row recovery,
+unknown-origin copies, and old-client rollback remain unproven. The separate
+T-1204 recovery UI remains uncommitted. No main or GitHub change was made.
+
+## T-1205 local conflict workflow checkpoint
+
+An authenticated local-backend iPhone workflow first failed 0/1 after Keep
+Mine: the UI cleared its conflict but two saves remained parked. The exact
+mechanism of that original failure is unconfirmed. Backend-normalized metadata
+comparison was added using Zora's local commits 00e13f0, 4c7ee7c and 140b142;
+the signed metadata suite passed 10/10. The same local iPhone workflow then
+passed 1/1, 0 failed, 0 skipped: it restores a stale conflict after relaunch,
+chooses Keep Mine, verifies the queue clears, and reads one saved version from
+the authenticated local backend. Result:
+/var/folders/27/kqhcss0n7t1dh_fj2wn98ynm0000gn/T/them-save-recovery-Sehjvv/recovery-ios.xcresult.
+
+Background reads now preserve an unresolved conflict even if their text equals
+the page. Its focused signed regression passed 1/1. The same local iPhone
+workflow passed again 1/1 after this change:
+/var/folders/27/kqhcss0n7t1dh_fj2wn98ynm0000gn/T/them-save-recovery-m8u2yE/recovery-ios.xcresult.
+The local backend used a test provider fixture; no paid model call occurred.
+These tests do not establish real microphone, live model, physical iPhone,
+all conflict edge cases or production readiness. Old-client rollback may drop
+the additive lineage field and remains unsafe until explicitly solved. The
+separate T-1204 copy UI is still uncommitted. Unknown-origin conflict recovery,
+Load Server, queue blockers, security/release proof and integrated main remain
+open.

@@ -1344,6 +1344,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         let authContext: ScreenplayStudioAuthContext
         let deliveryOrigin: ScreenplayDraftSaveOrigin?
         let requestAuthority: ScreenplayDraftSaveRequestAuthority?
+        let supersededConflictRequests: [ScreenplayDraftConflictRequestReference]
 
         init(
             id: String,
@@ -1360,7 +1361,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
             baseVersionId: String,
             authContext: ScreenplayStudioAuthContext,
             deliveryOrigin: ScreenplayDraftSaveOrigin? = nil,
-            requestAuthority: ScreenplayDraftSaveRequestAuthority? = nil
+            requestAuthority: ScreenplayDraftSaveRequestAuthority? = nil,
+            supersededConflictRequests: [ScreenplayDraftConflictRequestReference] = []
         ) {
             self.id = id
             self.createdAt = createdAt
@@ -1377,6 +1379,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
             self.authContext = authContext
             self.deliveryOrigin = deliveryOrigin
             self.requestAuthority = requestAuthority
+            self.supersededConflictRequests = supersededConflictRequests
         }
 
         init(entry: ScreenplayDraftSaveOutboxEntry, authContext: ScreenplayStudioAuthContext) {
@@ -1395,6 +1398,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
             self.authContext = authContext
             deliveryOrigin = entry.deliveryOrigin
             requestAuthority = entry.requestAuthority
+            supersededConflictRequests = entry.supersededConflictRequests
         }
 
         var outboxEntry: ScreenplayDraftSaveOutboxEntry {
@@ -1418,7 +1422,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 nextAttemptAt: now,
                 lastError: "",
                 deliveryOrigin: deliveryOrigin,
-                requestAuthority: requestAuthority
+                requestAuthority: requestAuthority,
+                supersededConflictRequests: supersededConflictRequests
             )
         }
 
@@ -1438,7 +1443,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 baseVersionId: serverVersionId.trimmingCharacters(in: .whitespacesAndNewlines),
                 authContext: authContext,
                 deliveryOrigin: deliveryOrigin,
-                requestAuthority: requestAuthority
+                requestAuthority: requestAuthority,
+                supersededConflictRequests: supersededConflictRequests
             )
         }
     }
@@ -1748,6 +1754,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
     private var outlineRevisionProjectID = ""
     private var isCrossDeviceRefreshInFlight = false
     private var isDraftSaveInFlight = false
+    private var isPreparingConflictResolution = false
     private var outlineMutationRetryTask: Task<Void, Never>?
     private var outlineMutationDrainCoordinator = ScreenplayOutlineMutationDrainCoordinator()
     private var outlineMutationTerminalAcceptance: [String: Bool] = [:]
@@ -4350,6 +4357,10 @@ final class ScreenplayStudioViewModel: ObservableObject {
     }
 
     func manualSaveDraft() async {
+        guard conflictState?.projectId != selectedProjectID else {
+            errorText = "Resolve the draft conflict before saving. Your local words are kept."
+            return
+        }
         let owner = BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: false)
         let scope = OfflineTalkRecoveryScope(identity: owner, backendURL: BackendAuthClient.resolvedBackendBaseURL())
         if !isSaving, let documentID = ScreenplayLiveDraftBridge.shared.draftOrigin.documentID {
@@ -4419,6 +4430,10 @@ final class ScreenplayStudioViewModel: ObservableObject {
     #endif
 
     func createRevisionSnapshot() async {
+        guard conflictState?.projectId != selectedProjectID else {
+            errorText = "Resolve the draft conflict before creating a snapshot. Your local words are kept."
+            return
+        }
         let label = snapshotLabel.trimmingCharacters(in: .whitespacesAndNewlines)
         let note = label.isEmpty ? "Snapshot" : label
         await saveCurrentDraft(source: "studio_snapshot", notes: note)
@@ -4526,12 +4541,67 @@ final class ScreenplayStudioViewModel: ObservableObject {
             errorText = "A save is still in progress. Your local words are kept."
             return
         }
+        guard !isPreparingConflictResolution else { return }
+        isPreparingConflictResolution = true
+        defer { isPreparingConflictResolution = false }
+        let owner = currentStudioAuthContext()
+        let page = fountainDraft
+        let document = ScreenplayLiveDraftBridge.shared.draftOrigin.documentID
+        let backend = BackendAuthClient.resolvedBackendBaseURL()
+        let references: [ScreenplayDraftConflictRequestReference]
+        do {
+            if let retained = conflict.retainedRequest {
+                guard let origin = retained.deliveryOrigin, origin.documentID == document,
+                      origin.permitsBackend(backend) else {
+                    errorText = "The origin of this local copy cannot be confirmed. Your words are kept."
+                    return
+                }
+                references = try await draftSaveOutbox.conflictResolutionReferences(for: retained)
+            } else {
+                // On relaunch the visible conflict may have been reconstructed
+                // without its durable row. Bind only one exact page/owner/
+                // document match; never infer a choice from project scope alone.
+                let parked = try await draftSaveOutbox.parkedConflictEntries(
+                    projectId: conflict.projectId, ownerUserId: owner.userID)
+                let relevant = parked.filter { row in
+                    guard let origin = row.deliveryOrigin else { return true }
+                    return origin.documentID == document && origin.permitsBackend(backend)
+                }
+                let matching = relevant.filter { row in
+                    guard let origin = row.deliveryOrigin else { return false }
+                    return origin.documentID == document && origin.permitsBackend(backend) &&
+                        row.draft.utf8.elementsEqual(page.utf8)
+                }
+                if matching.count == 1, let exact = matching.first {
+                    references = try await draftSaveOutbox.conflictResolutionReferences(for: exact)
+                } else if relevant.isEmpty {
+                    references = []
+                } else {
+                    throw BackendMemoryAPIError.invalidResponse
+                }
+            }
+        } catch {
+            guard authContextIsCurrent(owner), conflictState == conflict else { return }
+            errorText = "The local conflict copy could not be confirmed. Your words are kept."
+            return
+        }
+        guard authContextIsCurrent(owner), conflictState == conflict,
+              selectedProjectID == conflict.projectId, fountainDraft.utf8.elementsEqual(page.utf8),
+              ScreenplayLiveDraftBridge.shared.draftOrigin.documentID == document,
+              OfflineTalkRecoveryScope.sameBackend(backend, BackendAuthClient.resolvedBackendBaseURL()),
+              !isDraftSaveInFlight, !isSaving else { return }
+        guard let request = makeDraftSaveRequest(draft: page, source: "studio_conflict_resolve",
+            notes: "Conflict resolved: keep local", baseVersionOverride: conflict.serverVersionId,
+            supersededConflictRequests: references) else {
+            errorText = "Select a project first. Your local words are kept."
+            return
+        }
+        if !references.isEmpty && request.deliveryOrigin == nil {
+            errorText = "This document could not be confirmed. Your local conflict copy is kept."
+            return
+        }
         errorText = ""
-        await saveCurrentDraft(
-            source: "studio_conflict_resolve",
-            notes: "Conflict resolved: keep local",
-            baseVersionOverride: conflict.serverVersionId
-        )
+        await dispatchDraftSaveRequest(request)
     }
 
     func clearDraft() {
@@ -5985,6 +6055,11 @@ final class ScreenplayStudioViewModel: ObservableObject {
         serverDraftExcerpt: String = ""
     ) {
         let normalizedProjectID = selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        // A background read is not an acknowledgement of the writer's
+        // conflict decision, even when its text matches the current page.
+        if !allowOverwriteDirtyLocalDraft, conflictState?.projectId == normalizedProjectID {
+            return
+        }
         let normalizedLocalDraft = fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedServerDraft = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedServerVersionID = versionId.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -6173,7 +6248,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
         draft: String,
         source: String,
         notes: String,
-        baseVersionOverride: String?
+        baseVersionOverride: String?,
+        supersededConflictRequests: [ScreenplayDraftConflictRequestReference] = []
     ) -> DraftSaveRequest? {
         guard let project = selectedProject else { return nil }
         let ownerUserId = BackendAuthClient.currentAuthSessionState().user?.userId
@@ -6199,7 +6275,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 .trimmingCharacters(in: .whitespacesAndNewlines),
             authContext: authContext,
             deliveryOrigin: origin,
-            requestAuthority: ScreenplayDraftSaveRequestAuthority(id: UUID(), generation: 0)
+            requestAuthority: ScreenplayDraftSaveRequestAuthority(id: UUID(), generation: 0),
+            supersededConflictRequests: supersededConflictRequests
         )
     }
 
@@ -6342,6 +6419,10 @@ final class ScreenplayStudioViewModel: ObservableObject {
         baseVersionOverride: String? = nil,
         draftOverride: String? = nil
     ) async {
+        if conflictState?.projectId == selectedProjectID && source != "studio_conflict_resolve" {
+            errorText = "Resolve the draft conflict before saving or creating a snapshot. Your local words are kept."
+            return
+        }
         guard let request = makeDraftSaveRequest(
             draft: draftOverride ?? fountainDraft,
             source: source,
@@ -6405,8 +6486,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
                     draft: fountainDraft,
                     baseVersionId: request.baseVersionId
                 )
-                autosaveStatusText = "Queued locally - reconnecting"
-                infoText = "Your newest draft is waiting safely behind the earlier save."
+                autosaveStatusText = "Local save waiting"
+                infoText = "Your draft is kept locally while earlier saves or conflicts need attention."
                 errorText = ""
                 await refreshDraftSaveOutboxStatus()
             } catch {
@@ -6795,7 +6876,21 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 throw BackendMemoryAPIError.server(status: 409, message: "The saved draft could not be confirmed. Your local words are kept.")
             }
             if let confirmed { _ = try await liveReplyOutbox.recordConfirmedPageSave(confirmed) }
-            try await draftSaveOutbox.markSucceeded(id: request.id, serverVersionId: nextVersionId)
+            if !request.supersededConflictRequests.isEmpty {
+                guard let confirmed, let version = result.payload.version,
+                      version.phase == request.phase, version.source == request.source,
+                      version.notes == request.notes,
+                      ScreenplayDraftSaveMetadataPolicy.matchesServerEcho(
+                          requestedAnchors: request.studioWriteAnchors, confirmedAnchors: version.studioWriteAnchors,
+                          requestedBindings: request.screenplayBindings, confirmedBindings: version.screenplayBindings),
+                      result.payload.project?.title == request.title else {
+                    throw BackendMemoryAPIError.server(status: 409, message: "The saved draft details could not be confirmed. Your local copies are kept.")
+                }
+                try await draftSaveOutbox.completeConfirmedConflictResolution(request.outboxEntry,
+                    evidence: confirmed, echoedRequestID: version.clientRequestId ?? "")
+            } else {
+                try await draftSaveOutbox.markSucceeded(id: request.id, serverVersionId: nextVersionId)
+            }
             guard ownsCompletion() else {
                 reconcileAcknowledgedDraftRecovery(request, versionID: nextVersionId)
                 return completion(nextVersionId, confirmed: confirmed)
