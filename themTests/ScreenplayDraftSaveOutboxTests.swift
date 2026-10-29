@@ -3,6 +3,47 @@ import XCTest
 
 final class ScreenplayDraftSaveOutboxTests: XCTestCase {
     @MainActor
+    func testInitialQueueWriteFailureDoesNotOverwriteDifferentRecovery() async throws {
+        let owner = ScreenplayStudioAuthContext.current()
+        let suite = "them.admission-failure.\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "recovery")
+        let writeAttempt = storageDirectory.appendingPathComponent("write-attempt")
+        let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory,
+            manifestWriter: { _, _ in
+                try Data().write(to: writeAttempt)
+                throw NSError(domain: "queue-write-fixture", code: 1)
+            })
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store, draftSaveOutbox: queue)
+        model.autosaveEnabled = false
+        let project = try JSONDecoder().decode(BackendScreenplayProjectSummary.self,
+            from: Data("{\"id\":\"project-1\",\"title\":\"Test\"}".utf8))
+        model.selectedProjectID = project.id
+        model.selectedProject = project
+        model.applyStructuralUITestDraft("Server baseline", versionID: "base")
+        ScreenplayLiveDraftSyncService.shared.attach(to: model)
+        defer { ScreenplayLiveDraftSyncService.shared.detach() }
+        let page = "Newer page cafe\u{301}. \r\n"
+        model.fountainDraft = page
+        model.hasUnsavedDraftChanges = true
+        store.save(ownerUserId: owner.userID, projectId: project.id,
+            draft: "Earlier distinct recovery", baseVersionId: "other-base", dirty: true)
+        store.savePreservedConflict(ownerUserId: owner.userID, projectId: project.id,
+            draft: "Another preserved copy", baseVersionId: "preserved-base")
+        await model.manualSaveDraft()
+        XCTAssertTrue(FileManager.default.fileExists(atPath: writeAttempt.path), "The injected manifest write was not reached")
+        let saved = store.payloads(ownerUserId: owner.userID)[project.id]
+        XCTAssertEqual(saved?["draft"] as? String, "Earlier distinct recovery")
+        XCTAssertEqual((saved?["preservedConflict"] as? [String: Any])?["draft"] as? String, "Another preserved copy")
+        XCTAssertEqual(Data(model.fountainDraft.utf8), Data(page.utf8))
+        XCTAssertTrue(model.hasUnsavedDraftChanges)
+        XCTAssertEqual(model.autosaveStatusText, "Save needs attention")
+        XCTAssertTrue(model.infoText.contains("may not survive"))
+        XCTAssertTrue(model.errorText.contains("could not be secured"))
+    }
+
+    @MainActor
     func testProjectHydrationRestoresQueuedWriterBeforeRemoteDraft() async throws {
         let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
         let local = "\r\nWriter words cafe\u{0301}\r\n \t "

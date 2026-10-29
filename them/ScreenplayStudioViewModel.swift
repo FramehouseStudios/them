@@ -6795,11 +6795,13 @@ final class ScreenplayStudioViewModel: ObservableObject {
         } catch {
             guard ownsCompletion() else { return nil }
             hasUnsavedDraftChanges = true
-            persistRecoveryForUnconfirmedSave(
-                projectId: request.projectId,
-                draft: fountainDraft,
-                baseVersionId: request.baseVersionId
-            )
+            let recoveryBase = fountainDraft.utf8.elementsEqual(request.draft.utf8)
+                ? request.baseVersionId : latestVersionID
+            // A failed queue admission is not permission to overwrite a
+            // distinct recovery copy already stored for this project.
+            _ = localDraftRecoveryStore.saveIfOrdinaryVacantOrMatching(
+                ownerUserId: request.ownerUserId, projectId: request.projectId,
+                draft: fountainDraft, baseVersionId: recoveryBase)
             autosaveStatusText = "Save needs attention"
             infoText = "Your page is still open but may not survive closing THEM. Export it or try Save again."
             errorText = "The local save queue could not be secured: \(error.localizedDescription)"
