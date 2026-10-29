@@ -6664,8 +6664,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 draft: fountainDraft,
                 baseVersionId: request.baseVersionId
             )
-            autosaveStatusText = "Saved locally"
-            infoText = "Your draft is preserved on this device."
+            autosaveStatusText = "Save needs attention"
+            infoText = "Your current page is still open. Export it or try Save again."
             errorText = "The local save queue could not be secured: \(error.localizedDescription)"
             return nil
         }
