@@ -84,6 +84,26 @@ final class ScreenplayDraftSaveMetadataPolicyTests: XCTestCase {
         ))
     }
 
+    func testUTF16BoundaryFailsClosedWhenBackendWouldStoreLoneSurrogate() {
+        let splitPair = String(repeating: "a", count: 70) + "😀z"
+
+        XCTAssertFalse(matchesWriteID(requested: splitPair, confirmed: splitPair))
+    }
+
+    func testUTF16BoundaryKeepsWholeEmojiWhenPairEndsAtTruncationPoint() {
+        let requested = String(repeating: "a", count: 69) + "😀zz"
+        let confirmed = String(repeating: "a", count: 69) + "😀…"
+
+        XCTAssertTrue(matchesWriteID(requested: requested, confirmed: confirmed))
+    }
+
+    func testUTF16BoundaryMaySplitGraphemeAtRepresentableCombiningScalar() {
+        let requested = String(repeating: "a", count: 70) + "e\u{0301}z"
+        let confirmed = String(repeating: "a", count: 70) + "e…"
+
+        XCTAssertTrue(matchesWriteID(requested: requested, confirmed: confirmed))
+    }
+
     private func matches(
         _ requestedAnchor: BackendScreenplayWriteAnchor,
         _ confirmedAnchor: BackendScreenplayWriteAnchor,
@@ -93,6 +113,15 @@ final class ScreenplayDraftSaveMetadataPolicyTests: XCTestCase {
         ScreenplayDraftSaveMetadataPolicy.matchesServerEcho(
             requestedAnchors: [requestedAnchor], confirmedAnchors: [confirmedAnchor],
             requestedBindings: [requestedBinding], confirmedBindings: [confirmedBinding]
+        )
+    }
+
+    private func matchesWriteID(requested: String, confirmed: String) -> Bool {
+        ScreenplayDraftSaveMetadataPolicy.matchesServerEcho(
+            requestedAnchors: [anchor(writeID: requested)],
+            confirmedAnchors: [anchor(writeID: confirmed)],
+            requestedBindings: [],
+            confirmedBindings: []
         )
     }
 
