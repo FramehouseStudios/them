@@ -83,6 +83,8 @@ struct ScreenplayHeldDraftRecoveryOverlay: View {
         .padding(12)
         .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(tint.opacity(0.10)))
         .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(tint.opacity(0.20), lineWidth: 1))
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("studio.held-draft-recovery.banner")
     }
 
     private var bannerTitle: String {
@@ -167,7 +169,22 @@ private struct ScreenplayHeldDraftRecoveryReview: View {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Done") { dismiss() }
                 }
+                #if DEBUG
+                if IOThemRuntime.isRunningUITests,
+                   ProcessInfo.processInfo.arguments.contains("--ui-held-draft-recovery-fixture") {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Simulate Identity Change") {
+                            NotificationCenter.default.post(
+                                name: .themBackendIdentityPartitionChanged,
+                                object: nil
+                            )
+                        }
+                        .accessibilityIdentifier("studio.held-draft-recovery.simulate-identity-change")
+                    }
+                }
+                #endif
             }
         }
+        .accessibilityIdentifier("studio.held-draft-recovery.review")
     }
 }

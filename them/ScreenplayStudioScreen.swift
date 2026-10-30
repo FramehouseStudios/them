@@ -435,6 +435,10 @@ struct ScreenplayStudioScreen: View {
             "recovery_slot": vm.recoveryCandidate.map { $0.isPreservedConflict ? "preservedConflict" : "ordinary" } ?? "",
             "recovery_base_version_id": vm.recoveryCandidate?.baseVersionId ?? "",
             "recovery_matches_current_draft": vm.recoveryCandidate.map { vm.fountainDraft.utf8.elementsEqual($0.draft.utf8) } ?? false,
+            "held_recovery_is_synthetic_fixture": ScreenplayStudioUITestFixtures
+                .isSyntheticHeldRecovery(vm.heldDraftRecovery),
+            "held_recovery_backend_is_loopback": ScreenplayStudioUITestFixtures
+                .heldRecoveryUsesLoopback(vm.heldDraftRecovery),
             "loaded_draft_project_id": vm.debugLoadedDraftProjectID,
             "load_project_token": trackedStudioDebugProjectLoadToken,
             "load_project_ack_token": studioDebugLoadProjectAckToken,
@@ -14702,7 +14706,9 @@ Look at the city.
             openStudioCommandBar()
         }
         applyUITestCompanionSignalFixtureIfNeeded(arguments)
-        applyUITestDraftConflictFixtureIfNeeded()
+        didApplyUITestDraftConflictFixture = ScreenplayStudioUITestFixtures.applyDraftConflictIfRequested(
+            viewModel: vm, alreadyApplied: didApplyUITestDraftConflictFixture)
+        ScreenplayStudioUITestFixtures.applyHeldDraftRecoveryIfRequested(viewModel: vm)
         applyUITestPendingScreenplayQuestionFixtureIfNeeded()
         if let prompt = uiTestLaunchArgumentValue("--ui-auto-submit-page-prompt", in: arguments) {
             studioPromptRoutingMode = .page
@@ -14843,37 +14849,6 @@ Look at the city.
         isDirectionOneRightRailExpanded = true
     }
 
-    private func applyUITestDraftConflictFixtureIfNeeded() {
-        guard IOThemRuntime.isRunningUITests,
-              ProcessInfo.processInfo.arguments.contains("--ui-show-draft-conflict"),
-              !didApplyUITestDraftConflictFixture,
-              vm.conflictState == nil else {
-            return
-        }
-        let selectedID = vm.selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let project = vm.selectedProject ?? vm.projects.first(where: {
-            selectedID.isEmpty || $0.id == selectedID
-        }) else { return }
-        vm.selectedProject = project
-        vm.selectedProjectID = project.id
-        let serverDraft = """
-        EXT. FERRY TERMINAL - DAWN
-        MARA
-        The server copy survives.
-        """
-        vm.conflictState = ScreenplayStudioViewModel.SaveConflictState(
-            projectId: project.id,
-            baseVersionId: vm.latestVersionID,
-            serverVersionId: "ui-server-version",
-            serverDraft: serverDraft,
-            serverDraftExcerpt: "EXT. FERRY TERMINAL - DAWN",
-            serverUpdatedAt: Date().timeIntervalSince1970 * 1_000
-        )
-        vm.hasUnsavedDraftChanges = true
-        vm.autosaveStatusText = "Conflict detected"
-        vm.infoText = "Another device updated this draft. Choose keep mine or load server."
-        didApplyUITestDraftConflictFixture = true
-    }
     #endif
 
     private func applyDebugDraftInspectorIfNeeded() {
