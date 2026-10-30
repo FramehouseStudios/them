@@ -81,6 +81,13 @@ nonisolated struct ScreenplayDraftSaveOutboxEntry: Identifiable, Codable, Equata
     /// rebase after its confirmed acknowledgement. References contain no draft
     /// text, but bind the complete immutable request digest.
     var deferredConflictRequests: [ScreenplayDraftConflictRequestReference] = []
+    /// Versioned per-row ordering semantics. Nil is a legacy row whose broad
+    /// rebase behavior is preserved for migration; new rows use version 1.
+    var saveOrderingVersion: Int? = nil
+    /// Exact predecessor authority for a request captured during its flight.
+    /// Independent and explicit-base requests deliberately leave this nil.
+    var savePredecessor: ScreenplayDraftConflictRequestReference? = nil
+    var hasExplicitBaseSelection: Bool = false
 
     var isPassiveAutosave: Bool { source == "studio_autosave" && notes.isEmpty }
 
@@ -108,6 +115,9 @@ nonisolated struct ScreenplayDraftSaveOutboxEntry: Identifiable, Codable, Equata
             Self.exactEncoded(initialization, other.initialization) &&
             Self.exactEncoded(supersededConflictRequests, other.supersededConflictRequests) &&
             Self.exactEncoded(deferredConflictRequests, other.deferredConflictRequests) &&
+            saveOrderingVersion == other.saveOrderingVersion &&
+            Self.exactEncoded(savePredecessor, other.savePredecessor) &&
+            hasExplicitBaseSelection == other.hasExplicitBaseSelection &&
             draft.utf8.elementsEqual(other.draft.utf8)
     }
 
@@ -144,6 +154,9 @@ nonisolated extension ScreenplayDraftSaveOutboxEntry {
         case loadServerRetirement
         case supersededConflictRequests
         case deferredConflictRequests
+        case saveOrderingVersion
+        case savePredecessor
+        case hasExplicitBaseSelection
     }
 
     init(from decoder: Decoder) throws {
@@ -191,6 +204,11 @@ nonisolated extension ScreenplayDraftSaveOutboxEntry {
         } else {
             deferredConflictRequests = []
         }
+        saveOrderingVersion = try container.decodeIfPresent(Int.self, forKey: .saveOrderingVersion)
+        savePredecessor = try container.decodeIfPresent(ScreenplayDraftConflictRequestReference.self,
+            forKey: .savePredecessor)
+        hasExplicitBaseSelection = try container.decodeIfPresent(Bool.self,
+            forKey: .hasExplicitBaseSelection) ?? false
     }
 
     func encode(to encoder: Encoder) throws {
@@ -218,6 +236,11 @@ nonisolated extension ScreenplayDraftSaveOutboxEntry {
         try container.encodeIfPresent(loadServerRetirement, forKey: .loadServerRetirement)
         try container.encode(supersededConflictRequests, forKey: .supersededConflictRequests)
         try container.encode(deferredConflictRequests, forKey: .deferredConflictRequests)
+        try container.encodeIfPresent(saveOrderingVersion, forKey: .saveOrderingVersion)
+        try container.encodeIfPresent(savePredecessor, forKey: .savePredecessor)
+        if hasExplicitBaseSelection {
+            try container.encode(true, forKey: .hasExplicitBaseSelection)
+        }
     }
 }
 
@@ -308,10 +331,12 @@ actor ScreenplayDraftSaveOutbox {
 
     private static let lineageManifestSchemaVersion = 2
     private static let deferredManifestSchemaVersion = 3
+    private static let orderedManifestSchemaVersion = 4
     private static let maxDraftBytes = 2 * 1024 * 1024
     private static let backoffSeconds: [TimeInterval] = [2, 5, 15, 60, 300]
     static let conflictReason = "Server draft changed. Choose Keep Mine or Load Server."
     static let loadServerDeferredReason = "Newer local words are held for an explicit recovery choice."
+    static let unprovenPredecessorReason = "The earlier save outcome could not be proven. Review this exact local save before sending it."
     private static let retirementReason = "Load Server retired this exact local request. Update io.them before retrying it."
     private static let retirementProjectID = "load-server-retirement"
     private static let retirementOwnerID = "load-server-retirement"
@@ -404,6 +429,46 @@ actor ScreenplayDraftSaveOutbox {
         }
         _ = try enqueueForDelivery(entry)
         return true
+    }
+
+    /// Durably admits one new-semantics request. A declared follower is linked
+    /// only to the exact active predecessor supplied by its owning VM. If that
+    /// predecessor already disappeared, the child is parked rather than
+    /// guessing from scope, timestamps, or another view model.
+    func admitPendingSave(
+        _ submitted: ScreenplayDraftSaveOutboxEntry,
+        following predecessor: ScreenplayDraftSaveOutboxEntry?
+    ) throws -> ScreenplayDraftSaveOutboxEntry {
+        try loadIfNeeded()
+        guard submitted.saveOrderingVersion == 1,
+              submitted.savePredecessor == nil,
+              submitted.status == .pending else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        var entry = submitted
+        if let predecessor {
+            guard !entry.hasExplicitBaseSelection,
+                  predecessor.id != entry.id,
+                  predecessor.ownerUserId == entry.ownerUserId,
+                  predecessor.projectId == entry.projectId,
+                  predecessor.deliveryOrigin == entry.deliveryOrigin,
+                  predecessor.baseVersionId == entry.baseVersionId,
+                  predecessor.createdAt <= entry.createdAt else {
+                throw BackendMemoryAPIError.invalidResponse
+            }
+            entry.savePredecessor = try makeConflictReference(predecessor)
+            let exactActive = entries.first { stored in
+                stored.id == predecessor.id &&
+                    (stored.status == .pending || stored.status == .inflight) &&
+                    conflictReference(entry.savePredecessor!, matches: stored)
+            }
+            if exactActive == nil {
+                entry.status = .parked
+                entry.nextAttemptAt = 0
+                entry.lastError = Self.unprovenPredecessorReason
+            }
+        }
+        return try enqueueForDelivery(entry)
     }
 
     /// Delivery must use the ID and base actually retained on disk, including
@@ -615,6 +680,7 @@ actor ScreenplayDraftSaveOutbox {
     func markSucceeded(
         id: String,
         serverVersionId: String,
+        mayRebaseDeclaredFollowers: Bool = false,
         now: Date = Date()
     ) throws {
         try loadIfNeeded()
@@ -623,14 +689,26 @@ actor ScreenplayDraftSaveOutbox {
         let completed = entries.remove(at: index)
         let nextBase = serverVersionId.trimmingCharacters(in: .whitespacesAndNewlines)
         if !nextBase.isEmpty {
-            for queuedIndex in entries.indices where
-                entries[queuedIndex].projectId == completed.projectId &&
-                entries[queuedIndex].ownerUserId == completed.ownerUserId &&
-                entries[queuedIndex].deliveryOrigin == completed.deliveryOrigin &&
-                entries[queuedIndex].status != .parked &&
-                entries[queuedIndex].createdAt >= completed.createdAt &&
-                entries[queuedIndex].baseVersionId == completed.baseVersionId {
-                entries[queuedIndex].baseVersionId = nextBase
+            for queuedIndex in entries.indices {
+                let queued = entries[queuedIndex]
+                let legacyFollower = queued.saveOrderingVersion == nil &&
+                    queued.projectId == completed.projectId &&
+                    queued.ownerUserId == completed.ownerUserId &&
+                    queued.deliveryOrigin == completed.deliveryOrigin &&
+                    queued.status != .parked &&
+                    queued.createdAt >= completed.createdAt &&
+                    queued.baseVersionId == completed.baseVersionId
+                let declaredFollower = queued.saveOrderingVersion == 1 &&
+                    queued.status != .parked &&
+                    queued.savePredecessor.map { conflictReference($0, matches: completed) } == true
+                guard legacyFollower || declaredFollower else { continue }
+                if declaredFollower && !mayRebaseDeclaredFollowers {
+                    entries[queuedIndex].status = .parked
+                    entries[queuedIndex].nextAttemptAt = 0
+                    entries[queuedIndex].lastError = Self.unprovenPredecessorReason
+                } else {
+                    entries[queuedIndex].baseVersionId = nextBase
+                }
                 entries[queuedIndex].updatedAt = now.timeIntervalSince1970
             }
         }
@@ -1491,10 +1569,18 @@ actor ScreenplayDraftSaveOutbox {
         let manifest = try decoder.decode(ScreenplayDraftSaveOutboxManifest.self, from: data)
         let hasLineage = manifest.entries.contains { !$0.supersededConflictRequests.isEmpty }
         let hasDeferred = manifest.entries.contains { !$0.deferredConflictRequests.isEmpty }
+        let hasOrdering = manifest.entries.contains { $0.saveOrderingVersion != nil }
         guard (manifest.schemaVersion == Self.lineageManifestSchemaVersion && hasLineage && !hasDeferred) ||
-              (manifest.schemaVersion == Self.deferredManifestSchemaVersion && (hasLineage || hasDeferred)) else {
+              (manifest.schemaVersion == Self.deferredManifestSchemaVersion && (hasLineage || hasDeferred) && !hasOrdering) ||
+              (manifest.schemaVersion == Self.orderedManifestSchemaVersion && hasOrdering) else {
             throw BackendMemoryAPIError.invalidResponse
         }
+        guard manifest.entries.allSatisfy({ entry in
+            guard let ordering = entry.saveOrderingVersion else {
+                return entry.savePredecessor == nil && !entry.hasExplicitBaseSelection
+            }
+            return ordering == 1 && (entry.savePredecessor == nil || !entry.hasExplicitBaseSelection)
+        }) else { throw BackendMemoryAPIError.invalidResponse }
         return manifest.entries
     }
 
@@ -1506,7 +1592,12 @@ actor ScreenplayDraftSaveOutbox {
             if lhs.createdAt == rhs.createdAt { return lhs.id < rhs.id }
             return lhs.createdAt < rhs.createdAt
         }
-        let data = if stored.contains(where: { !$0.deferredConflictRequests.isEmpty }) {
+        let data = if stored.contains(where: { $0.saveOrderingVersion != nil }) {
+            try encoder.encode(ScreenplayDraftSaveOutboxManifest(
+                schemaVersion: Self.orderedManifestSchemaVersion,
+                entries: stored
+            ))
+        } else if stored.contains(where: { !$0.deferredConflictRequests.isEmpty }) {
             try encoder.encode(ScreenplayDraftSaveOutboxManifest(
                 schemaVersion: Self.deferredManifestSchemaVersion,
                 entries: stored
@@ -1559,7 +1650,8 @@ actor ScreenplayDraftSaveOutbox {
 
     private func isWriterDecisionParked(_ entry: ScreenplayDraftSaveOutboxEntry) -> Bool {
         entry.lastError == Self.conflictReason ||
-            entry.lastError == Self.loadServerDeferredReason
+            entry.lastError == Self.loadServerDeferredReason ||
+            entry.lastError == Self.unprovenPredecessorReason
     }
 
     private func deferredConflictRequestsAreCurrent(
@@ -1902,6 +1994,12 @@ actor ScreenplayDraftSaveOutbox {
             appendCanonical(Data("deferred-conflict-requests-v1".utf8), to: &projection)
             appendCanonical(try encoder.encode(request.deferredConflictRequests), to: &projection)
         }
+        if let ordering = request.saveOrderingVersion {
+            appendCanonical(Data("save-ordering-v1".utf8), to: &projection)
+            appendCanonicalInteger(UInt64(ordering), to: &projection)
+            appendCanonical(try encoder.encode(request.savePredecessor), to: &projection)
+            projection.append(request.hasExplicitBaseSelection ? 1 : 0)
+        }
         return SHA256.hash(data: projection).map { String(format: "%02x", $0) }.joined()
     }
 
@@ -1968,6 +2066,12 @@ actor ScreenplayDraftSaveOutbox {
         if !request.deferredConflictRequests.isEmpty {
             appendCanonical(Data("deferred-conflict-requests-v1".utf8), to: &projection)
             appendCanonical(try encoder.encode(request.deferredConflictRequests), to: &projection)
+        }
+        if let ordering = request.saveOrderingVersion {
+            appendCanonical(Data("save-ordering-v1".utf8), to: &projection)
+            appendCanonicalInteger(UInt64(ordering), to: &projection)
+            appendCanonical(try encoder.encode(request.savePredecessor), to: &projection)
+            projection.append(request.hasExplicitBaseSelection ? 1 : 0)
         }
         return SHA256.hash(data: projection).map { String(format: "%02x", $0) }.joined()
     }

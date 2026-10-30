@@ -26,6 +26,30 @@ final class ScreenplaySaveCompletionOwnershipTests: XCTestCase {
         XCTAssertEqual(fixture.peer.writes.count, 1)
     }
 
+    func testPendingManualSaveIsDurableBeforeEarlierWriteCompletes() async throws {
+        let fixture = try SaveCompletionFixture()
+        defer { fixture.close() }
+        fixture.select("a", draft: fixture.a, base: "a-base")
+        let save = fixture.startSave()
+        defer { fixture.peer.releaseFirst(.offline); save.cancel() }
+        try await fixture.waitForFirstSave()
+
+        let newer = fixture.a + "\r\nThe writer's newer exact words.  \t"
+        fixture.model.fountainDraft = newer
+        fixture.model.noteManualDraftEdit()
+        await fixture.model.manualSaveDraft()
+
+        let rows = try await fixture.reloadQueueEntries()
+        let pending = try XCTUnwrap(rows.first { $0.draft.utf8.elementsEqual(newer.utf8) },
+            "The pending manual request must survive process termination before the earlier acknowledgement.")
+        XCTAssertEqual(pending.ownerUserId, fixture.owner)
+        XCTAssertEqual(pending.projectId, "a")
+        XCTAssertEqual(pending.baseVersionId, "a-base")
+        XCTAssertEqual(pending.deliveryOrigin, try fixture.currentOrigin())
+        XCTAssertFalse(pending.id.isEmpty)
+        XCTAssertEqual(pending.source, "studio_manual")
+    }
+
     func testNonOwningAcknowledgementDoesNotRebaseDistinctRecovery() async throws {
         let fixture = try SaveCompletionFixture()
         defer { fixture.close() }
@@ -451,6 +475,11 @@ private final class SaveCompletionFixture {
         model.infoText = "Current \(id) notice"
         model.errorText = "Current \(id) local status"
         store.save(ownerUserId: owner, projectId: id, draft: draft, baseVersionId: base, dirty: dirty)
+    }
+
+    func reloadQueueEntries() async throws -> [ScreenplayDraftSaveOutboxEntry] {
+        let reopened = ScreenplayDraftSaveOutbox(storageDirectory: directory)
+        return try await reopened.entriesForTesting()
     }
 
     func currentOrigin() throws -> ScreenplayDraftSaveOrigin {

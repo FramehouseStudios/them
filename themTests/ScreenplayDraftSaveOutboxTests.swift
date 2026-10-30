@@ -2561,6 +2561,91 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
         XCTAssertEqual(stored.map(\.baseVersionId), ["server-v2", "server-v2"])
     }
 
+    func testDeclaredFollowerRebasesButIndependentAndExplicitBaseRequestsDoNot() async throws {
+        let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        var first = makeDeliverableEntry(id: "ordered-first", draft: "First", createdAt: 100)
+        first.saveOrderingVersion = 1
+        _ = try await store.admitPendingSave(first, following: nil)
+        guard case .deliver(let active) = try await store.beginDelivery(first) else {
+            return XCTFail("Expected the predecessor to begin delivery")
+        }
+
+        var follower = makeDeliverableEntry(id: "ordered-follower", draft: "Follower", createdAt: 101)
+        follower.saveOrderingVersion = 1
+        _ = try await store.admitPendingSave(follower, following: active)
+        var independent = makeDeliverableEntry(id: "ordered-independent", draft: "Independent", createdAt: 102)
+        independent.saveOrderingVersion = 1
+        _ = try await store.admitPendingSave(independent, following: nil)
+        var explicit = makeDeliverableEntry(id: "ordered-explicit", draft: "Explicit", createdAt: 103)
+        explicit.saveOrderingVersion = 1
+        explicit.hasExplicitBaseSelection = true
+        _ = try await store.admitPendingSave(explicit, following: nil)
+
+        try await store.markSucceeded(id: active.id, serverVersionId: "verified-v2",
+            mayRebaseDeclaredFollowers: true)
+        let rows = try await store.entriesForTesting()
+        XCTAssertEqual(rows.first { $0.id == follower.id }?.baseVersionId, "verified-v2")
+        XCTAssertEqual(rows.first { $0.id == independent.id }?.baseVersionId, follower.baseVersionId)
+        XCTAssertEqual(rows.first { $0.id == explicit.id }?.baseVersionId, explicit.baseVersionId)
+    }
+
+    func testMissingOrUnprovenPredecessorParksExactFollower() async throws {
+        let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        var first = makeDeliverableEntry(id: "proof-first", draft: "First exact", createdAt: 100)
+        first.saveOrderingVersion = 1
+        var missingFollower = makeDeliverableEntry(id: "missing-follower", draft: "Keep missing exact", createdAt: 101)
+        missingFollower.saveOrderingVersion = 1
+        let missing = try await store.admitPendingSave(missingFollower, following: first)
+        XCTAssertEqual(missing.status, .parked)
+        XCTAssertEqual(missing.draft, missingFollower.draft)
+
+        _ = try await store.admitPendingSave(first, following: nil)
+        guard case .deliver(let active) = try await store.beginDelivery(first) else {
+            return XCTFail("Expected the predecessor to begin delivery")
+        }
+        var unprovenFollower = makeDeliverableEntry(id: "unproven-follower", draft: "Keep unproven exact", createdAt: 102)
+        unprovenFollower.saveOrderingVersion = 1
+        _ = try await store.admitPendingSave(unprovenFollower, following: active)
+        try await store.markSucceeded(id: active.id, serverVersionId: "unproven-v2")
+
+        let relaunched = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let rows = try await relaunched.entriesForTesting()
+        let unproven = try XCTUnwrap(rows.first { $0.id == unprovenFollower.id })
+        XCTAssertEqual(unproven.status, .parked)
+        XCTAssertEqual(unproven.baseVersionId, unprovenFollower.baseVersionId)
+        XCTAssertEqual(unproven.draft, unprovenFollower.draft)
+        let surfaced = try await relaunched.parkedConflictEntries(
+            projectId: unproven.projectId, ownerUserId: unproven.ownerUserId)
+        XCTAssertTrue(surfaced.contains { $0.id == unproven.id })
+    }
+
+    func testDeclaredFollowersFormAnExactAcknowledgementChain() async throws {
+        let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        var first = makeDeliverableEntry(id: "chain-first", draft: "First", createdAt: 100)
+        first.saveOrderingVersion = 1
+        _ = try await store.admitPendingSave(first, following: nil)
+        guard case .deliver(let activeFirst) = try await store.beginDelivery(first) else {
+            return XCTFail("Expected first delivery")
+        }
+        var second = makeDeliverableEntry(id: "chain-second", draft: "Second", createdAt: 101)
+        second.saveOrderingVersion = 1
+        let admittedSecond = try await store.admitPendingSave(second, following: activeFirst)
+        var third = makeDeliverableEntry(id: "chain-third", draft: "Third", createdAt: 102)
+        third.saveOrderingVersion = 1
+        _ = try await store.admitPendingSave(third, following: admittedSecond)
+
+        try await store.markSucceeded(id: activeFirst.id, serverVersionId: "chain-v2",
+            mayRebaseDeclaredFollowers: true)
+        let nextSecond = try await store.beginNext(projectId: second.projectId,
+            ownerUserId: second.ownerUserId, deliveryOrigin: second.deliveryOrigin, force: true)
+        let activeSecond = try XCTUnwrap(nextSecond)
+        XCTAssertEqual(activeSecond.baseVersionId, "chain-v2")
+        try await store.markSucceeded(id: activeSecond.id, serverVersionId: "chain-v3",
+            mayRebaseDeclaredFollowers: true)
+        let rows = try await store.entriesForTesting()
+        XCTAssertEqual(rows.first { $0.id == third.id }?.baseVersionId, "chain-v3")
+    }
+
     func testLaterDraftCannotSkipOlderBackedOffSave() async throws {
         let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
         try await store.enqueue(makeDeliverableEntry(id: "save-1", draft: "Draft one", createdAt: 100))
