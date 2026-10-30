@@ -2683,7 +2683,8 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
             XCTFail("A failed acknowledgement write reported success")
         } catch {}
         try FileManager.default.removeItem(at: failMarker)
-        XCTAssertEqual(try await store.entriesForTesting(), beforeRows)
+        let afterRows = try await store.entriesForTesting()
+        XCTAssertEqual(afterRows, beforeRows)
         XCTAssertEqual(try Data(contentsOf: manifest), beforeBytes)
     }
 
