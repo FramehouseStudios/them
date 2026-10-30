@@ -1,0 +1,133 @@
+import SwiftUI
+
+extension View {
+    func screenplayRecoveryOverlay(topInset: CGFloat) -> some View {
+        frame(maxWidth: 560)
+            .padding(.horizontal, 20)
+            .padding(.top, 70 + topInset)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .transition(.move(edge: .top).combined(with: .opacity))
+    }
+}
+
+/// A narrow recovery surface for an exact outbox row deliberately held by
+/// Load Server. It never saves or retires the row without another explicit
+/// conflict choice.
+struct ScreenplayHeldDraftRecoveryOverlay: View {
+    @ObservedObject var viewModel: ScreenplayStudioViewModel
+    let topInset: CGFloat
+    @State private var reviewedEntry: ScreenplayDraftSaveOutboxEntry?
+
+    @ViewBuilder
+    var body: some View {
+        if viewModel.isHeldDraftRecoveryDeferred {
+            Button {
+                viewModel.reopenHeldDraftRecovery()
+            } label: {
+                Label("Review held local copy", systemImage: "tray.full.fill")
+                    .font(.system(size: 12, weight: .semibold))
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 9)
+                    .background(.ultraThinMaterial, in: Capsule())
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("studio.held-draft-recovery.reopen")
+            .padding(.top, 70 + topInset)
+            .padding(.trailing, 20)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+        } else {
+            ZStack(alignment: .top) {
+                Color.black.opacity(0.08).ignoresSafeArea()
+                banner.screenplayRecoveryOverlay(topInset: topInset)
+            }
+            .sheet(item: $reviewedEntry) { entry in
+                ScreenplayHeldDraftRecoveryReview(entry: entry)
+            }
+        }
+    }
+
+    private var banner: some View {
+        let tint = Color.orange.opacity(0.88)
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(tint)
+                    .padding(.top, 1)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(viewModel.heldDraftRecoveryIsLoadServerCopy
+                         ? "Newer unsent words are held"
+                         : "A copy from another document is held")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(Color.herText.opacity(0.88))
+                    Text(presentationMessage)
+                        .font(.system(size: 12))
+                        .foregroundStyle(Color.herText.opacity(0.74))
+                    NumberedChoiceHintText(
+                        message: viewModel.heldDraftRecoveryIsLoadServerCopy
+                            ? "Recover it, preview its exact words, or leave it safely held for later."
+                            : "Preview the exact held words. Reopen their original document and backend to resolve them.")
+                }
+                Spacer(minLength: 0)
+            }
+            HStack(spacing: 8) {
+                if viewModel.heldDraftRecoveryIsLoadServerCopy {
+                    NumberedChoiceActionButton(number: "1", title: "Recover Local", prominence: .prominent) {
+                        Task { await viewModel.recoverHeldDraftSave() }
+                    }
+                    .accessibilityIdentifier("studio.held-draft-recovery.primary-action")
+                }
+                NumberedChoiceActionButton(
+                    number: viewModel.heldDraftRecoveryIsLoadServerCopy ? "2" : "1",
+                    title: "Preview Exact Copy",
+                    prominence: viewModel.heldDraftRecoveryIsLoadServerCopy ? .regular : .prominent
+                ) {
+                    Task { reviewedEntry = await viewModel.confirmedHeldDraftRecoveryForReview() }
+                }
+                .accessibilityIdentifier("studio.held-draft-recovery.preview")
+                NumberedChoiceActionButton(
+                    number: viewModel.heldDraftRecoveryIsLoadServerCopy ? "3" : "2",
+                    title: "Not Now"
+                ) {
+                    viewModel.leaveHeldDraftRecoveryForLater()
+                }
+                .accessibilityIdentifier("studio.held-draft-recovery.secondary-action")
+            }
+        }
+        .padding(12)
+        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(tint.opacity(0.10)))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(tint.opacity(0.20), lineWidth: 1))
+    }
+
+    private var presentationMessage: String {
+        if viewModel.heldDraftRecoveryIsLoadServerCopy {
+            return viewModel.heldDraftRecoveryServerIsOnPage
+                ? "The verified server draft is on the page. A newer local save is held separately and will not save automatically."
+                : "A newer local save is held separately and will not save automatically. This message has not verified that the current page matches the server."
+        }
+        return "This exact copy belongs to another local document or backend. The current page has not been replaced."
+    }
+}
+
+private struct ScreenplayHeldDraftRecoveryReview: View {
+    let entry: ScreenplayDraftSaveOutboxEntry
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                Text(entry.draft)
+                    .font(.system(.body, design: .monospaced))
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding()
+            }
+            .navigationTitle("Exact Held Copy")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+    }
+}

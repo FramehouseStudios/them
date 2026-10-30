@@ -3,6 +3,27 @@ import XCTest
 
 final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
     @MainActor
+    func testNotNowKeepsExactHeldRowDiscoverableInSameSession() {
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store)
+        let held = ScreenplayDraftSaveOutboxEntry(
+            id: "held-row", projectId: "project", ownerUserId: "writer",
+            draft: "Exact held words", title: "Title", phase: "scene_draft",
+            notes: "", source: "studio_save", studioWriteAnchors: [],
+            screenplayBindings: [], baseVersionId: "server-v2", createdAt: 100,
+            updatedAt: 100, status: .parked, retries: 0, nextAttemptAt: 0,
+            lastError: ScreenplayDraftSaveOutbox.loadServerDeferredReason)
+        model.heldDraftRecovery = held
+
+        model.leaveHeldDraftRecoveryForLater()
+
+        XCTAssertEqual(model.heldDraftRecovery, held)
+        XCTAssertTrue(model.isHeldDraftRecoveryDeferred)
+        model.reopenHeldDraftRecovery()
+        XCTAssertEqual(model.heldDraftRecovery, held)
+        XCTAssertFalse(model.isHeldDraftRecoveryDeferred)
+    }
+
+    @MainActor
     func testBridgeDraftAdoptionPreservesRawWhitespaceAndUnicode() async {
         let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store)
         model.selectedProjectID = ""

@@ -2084,21 +2084,15 @@ Replace is best when this file should become the script you edit. Append is safe
                         .ignoresSafeArea()
 
                     draftConflictBanner(conflict)
-                        .frame(maxWidth: 560)
-                        .padding(.horizontal, 20)
-                        .padding(.top, 70 + compactTopInset)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                        .transition(.move(edge: .top).combined(with: .opacity))
+                        .screenplayRecoveryOverlay(topInset: compactTopInset)
+                } else if vm.heldDraftRecovery != nil {
+                    ScreenplayHeldDraftRecoveryOverlay(viewModel: vm, topInset: compactTopInset)
                 } else if let recovery = vm.recoveryCandidate {
                     Color.black.opacity(0.08)
                         .ignoresSafeArea()
 
                     draftRecoveryBanner(recovery)
-                        .frame(maxWidth: 560)
-                        .padding(.horizontal, 20)
-                        .padding(.top, 70 + compactTopInset)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                        .transition(.move(edge: .top).combined(with: .opacity))
+                        .screenplayRecoveryOverlay(topInset: compactTopInset)
                 }
             }
             .animation(.easeOut(duration: 0.18), value: vm.conflictState != nil)

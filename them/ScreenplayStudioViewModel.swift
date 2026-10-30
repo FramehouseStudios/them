@@ -1345,6 +1345,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         let deliveryOrigin: ScreenplayDraftSaveOrigin?
         let requestAuthority: ScreenplayDraftSaveRequestAuthority?
         let supersededConflictRequests: [ScreenplayDraftConflictRequestReference]
+        let deferredConflictRequests: [ScreenplayDraftConflictRequestReference]
 
         init(
             id: String,
@@ -1362,7 +1363,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
             authContext: ScreenplayStudioAuthContext,
             deliveryOrigin: ScreenplayDraftSaveOrigin? = nil,
             requestAuthority: ScreenplayDraftSaveRequestAuthority? = nil,
-            supersededConflictRequests: [ScreenplayDraftConflictRequestReference] = []
+            supersededConflictRequests: [ScreenplayDraftConflictRequestReference] = [],
+            deferredConflictRequests: [ScreenplayDraftConflictRequestReference] = []
         ) {
             self.id = id
             self.createdAt = createdAt
@@ -1380,6 +1382,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
             self.deliveryOrigin = deliveryOrigin
             self.requestAuthority = requestAuthority
             self.supersededConflictRequests = supersededConflictRequests
+            self.deferredConflictRequests = deferredConflictRequests
         }
 
         init(entry: ScreenplayDraftSaveOutboxEntry, authContext: ScreenplayStudioAuthContext) {
@@ -1399,6 +1402,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
             deliveryOrigin = entry.deliveryOrigin
             requestAuthority = entry.requestAuthority
             supersededConflictRequests = entry.supersededConflictRequests
+            deferredConflictRequests = entry.deferredConflictRequests
         }
 
         var outboxEntry: ScreenplayDraftSaveOutboxEntry {
@@ -1423,7 +1427,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 lastError: "",
                 deliveryOrigin: deliveryOrigin,
                 requestAuthority: requestAuthority,
-                supersededConflictRequests: supersededConflictRequests
+                supersededConflictRequests: supersededConflictRequests,
+                deferredConflictRequests: deferredConflictRequests
             )
         }
 
@@ -1444,7 +1449,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 authContext: authContext,
                 deliveryOrigin: deliveryOrigin,
                 requestAuthority: requestAuthority,
-                supersededConflictRequests: supersededConflictRequests
+                supersededConflictRequests: supersededConflictRequests,
+                deferredConflictRequests: deferredConflictRequests
             )
         }
     }
@@ -1739,6 +1745,17 @@ final class ScreenplayStudioViewModel: ObservableObject {
     @Published var showResolvedComments: Bool = true
     @Published var snapshotLabel: String = ""
     @Published var recoveryCandidate: LocalDraftRecoveryCandidate?
+    @Published var heldDraftRecovery: ScreenplayDraftSaveOutboxEntry?
+    @Published private(set) var isHeldDraftRecoveryDeferred = false
+    var heldDraftRecoveryIsLoadServerCopy: Bool {
+        heldDraftRecovery?.lastError == ScreenplayDraftSaveOutbox.loadServerDeferredReason
+    }
+    var heldDraftRecoveryServerIsOnPage: Bool {
+        guard heldDraftRecoveryIsLoadServerCopy, let project = selectedProject,
+              case .current(let version) = ScreenplaySaveHeadPreflight.evaluate(project),
+              let draft = version.draft else { return false }
+        return fountainDraft.utf8.elementsEqual(draft.utf8)
+    }
     private var recoveryReviewOwner: ScreenplayStudioAuthContext?
     private var recoveryReviewProjectID = ""
     private var reviewedRecoveryCopies: Set<RecoveryReviewIdentity> = []
@@ -2027,7 +2044,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         switch relaunchedConflict {
         case .held:
             autosaveStatusText = "Save conflict needs recovery"
-            errorText = "An earlier save conflict belongs to another local document or backend. Its exact words are kept in Recovery; restore or export that copy before saving this project."
+            errorText = "An earlier save conflict belongs to another local document or backend. Its exact words remain held in the local save queue; reopen that document on its original backend to resolve it."
             return false
         case .restore(let retained, let version):
             entry = retained
@@ -4867,7 +4884,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
                   let serverDraft = version.draft else {
                 throw BackendMemoryAPIError.invalidResponse
             }
-            _ = try await draftSaveOutbox.resolveLoadServerSelection(selection)
+            let resolution = try await draftSaveOutbox.resolveLoadServerSelection(
+                selection, serverVersionID: version.id)
             guard contextIsCurrent() else {
                 // Retirement is already durable. Dismiss only the exact old
                 // choice; never modify the page in the newly selected context.
@@ -4887,13 +4905,100 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 !anchor.writeId.trimmingCharacters(in: .whitespacesAndNewlines).lowercased().hasPrefix("binding:")
             }
             screenplayBindings = version.screenplayBindings ?? []
-            autosaveStatusText = "Server draft loaded"
-            infoText = "Loaded the server draft."
+            heldDraftRecovery = resolution.retainedRequests.last
+            isHeldDraftRecoveryDeferred = false
+            autosaveStatusText = resolution.retainedRequests.isEmpty
+                ? "Server draft loaded" : "Server draft loaded - local copy held"
+            infoText = resolution.retainedRequests.isEmpty
+                ? "Loaded the server draft."
+                : "Loaded the server draft. Your newer unsent words are held for recovery and will not save automatically."
             errorText = ""
             await refreshDraftSaveOutboxStatus()
         } catch {
             guard stillCurrent() else { return }
             errorText = "The server draft could not be loaded safely. Your local words are kept."
+        }
+    }
+
+    func recoverHeldDraftSave() async {
+        guard let held = heldDraftRecovery else { return }
+        let owner = currentStudioAuthContext()
+        let backend = BackendAuthClient.resolvedBackendBaseURL()
+        guard held.ownerUserId == owner.userID, held.projectId == selectedProjectID,
+              let origin = held.deliveryOrigin,
+              origin.documentID == ScreenplayLiveDraftBridge.shared.draftOrigin.documentID,
+              origin.permitsBackend(backend),
+              let project = selectedProject,
+              case .current(let serverVersion) = ScreenplaySaveHeadPreflight.evaluate(project),
+              let serverDraft = serverVersion.draft else {
+            errorText = "The held local copy could not be matched to this document. It remains stored."
+            return
+        }
+        do {
+            let current = try await draftSaveOutbox.heldLoadServerRecoveryEntries(
+                projectId: held.projectId, ownerUserId: held.ownerUserId)
+            guard authContextIsCurrent(owner), selectedProjectID == held.projectId,
+                  current.contains(held) else {
+                throw BackendMemoryAPIError.invalidResponse
+            }
+        } catch {
+            errorText = "The held local copy changed or could not be confirmed. It remains stored."
+            return
+        }
+        isHydratingDraft = true
+        fountainDraft = held.draft
+        isHydratingDraft = false
+        latestVersionID = held.baseVersionId
+        isManualDraftEditing = true
+        lastManualDraftEditAt = Date()
+        hasUnsavedDraftChanges = true
+        conflictState = SaveConflictState(
+            projectId: held.projectId,
+            baseVersionId: held.baseVersionId,
+            serverVersionId: serverVersion.id,
+            serverDraft: serverDraft,
+            serverDraftExcerpt: serverVersion.draftExcerpt ?? "",
+            serverUpdatedAt: serverVersion.updatedAt ?? serverVersion.createdAt ?? 0,
+            retainedRequest: held
+        )
+        heldDraftRecovery = nil
+        isHeldDraftRecoveryDeferred = false
+        persistLocalDraftRecovery(projectId: held.projectId, draft: held.draft,
+                                  baseVersionId: held.baseVersionId, dirty: true)
+        autosaveStatusText = "Recovered held local draft"
+        infoText = "Recovered your exact unsent words. Choose Keep Mine to save them or Load Server to leave the server version."
+        errorText = ""
+    }
+
+    func leaveHeldDraftRecoveryForLater() {
+        guard heldDraftRecovery != nil else { return }
+        isHeldDraftRecoveryDeferred = true
+        infoText = "Your unsent local copy remains safely held and will not save automatically."
+    }
+
+    func reopenHeldDraftRecovery() {
+        guard heldDraftRecovery != nil else { return }
+        isHeldDraftRecoveryDeferred = false
+    }
+
+    func confirmedHeldDraftRecoveryForReview() async -> ScreenplayDraftSaveOutboxEntry? {
+        guard let held = heldDraftRecovery else { return nil }
+        let owner = currentStudioAuthContext()
+        guard held.ownerUserId == owner.userID, held.projectId == selectedProjectID else {
+            errorText = "This held copy belongs to another account or project. It remains stored."
+            return nil
+        }
+        do {
+            let rows = try await draftSaveOutbox.parkedConflictEntries(
+                projectId: held.projectId, ownerUserId: held.ownerUserId)
+            guard authContextIsCurrent(owner), selectedProjectID == held.projectId,
+                  rows.contains(held) else {
+                throw BackendMemoryAPIError.invalidResponse
+            }
+            return held
+        } catch {
+            errorText = "The held copy changed or could not be confirmed. It remains stored."
+            return nil
         }
     }
 
@@ -4944,6 +5049,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         let document = ScreenplayLiveDraftBridge.shared.draftOrigin.documentID
         let backend = BackendAuthClient.resolvedBackendBaseURL()
         let references: [ScreenplayDraftConflictRequestReference]
+        let deferredReferences: [ScreenplayDraftConflictRequestReference]
         do {
             if let retained = conflict.retainedRequest {
                 guard let origin = retained.deliveryOrigin, origin.documentID == document,
@@ -4951,7 +5057,9 @@ final class ScreenplayStudioViewModel: ObservableObject {
                     errorText = "The origin of this local copy cannot be confirmed. Your words are kept."
                     return
                 }
-                references = try await draftSaveOutbox.conflictResolutionReferences(for: retained)
+                let plan = try await draftSaveOutbox.conflictResolutionPlan(for: retained)
+                references = plan.supersededConflictRequests
+                deferredReferences = plan.deferredConflictRequests
             } else {
                 // On relaunch the visible conflict may have been reconstructed
                 // without its durable row. Bind only one exact page/owner/
@@ -4964,7 +5072,9 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 let tip = try await draftSaveOutbox.parkedConflictLineageTip(
                     projectId: conflict.projectId, ownerUserId: owner.userID, deliveryOrigin: origin, draft: page)
                 if let tip {
-                    references = try await draftSaveOutbox.conflictResolutionReferences(for: tip)
+                    let plan = try await draftSaveOutbox.conflictResolutionPlan(for: tip)
+                    references = plan.supersededConflictRequests
+                    deferredReferences = plan.deferredConflictRequests
                 } else {
                     let parked = try await draftSaveOutbox.parkedConflictEntries(
                         projectId: conflict.projectId, ownerUserId: owner.userID)
@@ -4974,6 +5084,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
                     }
                     guard relevant.isEmpty else { throw BackendMemoryAPIError.invalidResponse }
                     references = []
+                    deferredReferences = []
                 }
             }
         } catch {
@@ -4988,7 +5099,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
               !isDraftSaveInFlight, !isSaving else { return }
         guard let request = makeDraftSaveRequest(draft: page, source: "studio_conflict_resolve",
             notes: "Conflict resolved: keep local", baseVersionOverride: conflict.serverVersionId,
-            supersededConflictRequests: references) else {
+            supersededConflictRequests: references,
+            deferredConflictRequests: deferredReferences) else {
             errorText = "Select a project first. Your local words are kept."
             return
         }
@@ -6445,6 +6557,10 @@ final class ScreenplayStudioViewModel: ObservableObject {
         if !ScreenplayProjectScopedState.matches(conflictState?.projectId, selectedProjectId: projectID) {
             conflictState = nil
         }
+        if !ScreenplayProjectScopedState.matches(heldDraftRecovery?.projectId, selectedProjectId: projectID) {
+            heldDraftRecovery = nil
+            isHeldDraftRecoveryDeferred = false
+        }
         if !ScreenplayProjectScopedState.matches(
             pendingScreenplayQuestion?.projectId,
             selectedProjectId: projectID
@@ -6739,7 +6855,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
         source: String,
         notes: String,
         baseVersionOverride: String?,
-        supersededConflictRequests: [ScreenplayDraftConflictRequestReference] = []
+        supersededConflictRequests: [ScreenplayDraftConflictRequestReference] = [],
+        deferredConflictRequests: [ScreenplayDraftConflictRequestReference] = []
     ) -> DraftSaveRequest? {
         guard let project = selectedProject else { return nil }
         let ownerUserId = BackendAuthClient.currentAuthSessionState().user?.userId
@@ -6766,7 +6883,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
             authContext: authContext,
             deliveryOrigin: origin,
             requestAuthority: ScreenplayDraftSaveRequestAuthority(id: UUID(), generation: 0),
-            supersededConflictRequests: supersededConflictRequests
+            supersededConflictRequests: supersededConflictRequests,
+            deferredConflictRequests: deferredConflictRequests
         )
     }
 
@@ -6778,6 +6896,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
         let projectID = selectedProjectID
         let backendURL = BackendAuthClient.resolvedBackendBaseURL()
         let snapshot = await draftSaveOutbox.snapshot(ownerUserId: ownerUserId)
+        let heldRows = (try? await draftSaveOutbox.parkedConflictEntries(
+            projectId: projectID, ownerUserId: ownerUserId)) ?? []
         let pending = if let documentID {
             try? await draftSaveOutbox.pendingInitialProject(ownerUserID: ownerUserId, backendURL: backendURL,
                 documentID: documentID, sourceProjectID: projectID)
@@ -6796,6 +6916,19 @@ final class ScreenplayStudioViewModel: ObservableObject {
         queuedDraftSaveCount = snapshot.activeCount
         parkedDraftSaveCount = snapshot.parkedCount
         guard !isSaving, conflictState == nil else { return }
+        if heldDraftRecovery == nil {
+            let loadServerCopy = heldRows.last { row in
+                row.lastError == ScreenplayDraftSaveOutbox.loadServerDeferredReason &&
+                    row.deliveryOrigin?.documentID == documentID &&
+                    row.deliveryOrigin?.permitsBackend(backendURL) == true
+            }
+            let foreignCopy = heldRows.last { row in
+                row.deliveryOrigin?.documentID != documentID ||
+                    row.deliveryOrigin?.permitsBackend(backendURL) != true
+            }
+            heldDraftRecovery = loadServerCopy ?? foreignCopy
+            isHeldDraftRecoveryDeferred = false
+        }
         if snapshot.parkedCount > 0 {
             autosaveStatusText = snapshot.parkedCount == 1
                 ? "1 local save needs attention"
