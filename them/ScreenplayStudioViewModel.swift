@@ -7292,7 +7292,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
     private func dispatchDurablyAdmittedDraftSaveRequest(_ request: DraftSaveRequest) async {
         isDraftSaveInFlight = true
         activeDraftSaveRequest = request
-        _ = await performDraftSave(request)
+        _ = await performDraftSave(request, requiresPriorAdmission: true)
         let pending = pendingDraftSaveRequest
         pendingDraftSaveRequest = nil
         activeDraftSaveRequest = nil
@@ -7441,7 +7441,11 @@ final class ScreenplayStudioViewModel: ObservableObject {
         return nil
     }
 
-    private func performDraftSave(_ submittedRequest: DraftSaveRequest, continuingInflightID: String? = nil) async -> DraftSaveCompletion? {
+    private func performDraftSave(
+        _ submittedRequest: DraftSaveRequest,
+        continuingInflightID: String? = nil,
+        requiresPriorAdmission: Bool = false
+    ) async -> DraftSaveCompletion? {
         var request = submittedRequest
         let bridge = ScreenplayLiveDraftBridge.shared
         let documentID = request.deliveryOrigin?.documentID ?? bridge.draftOrigin.documentID
@@ -7465,8 +7469,14 @@ final class ScreenplayStudioViewModel: ObservableObject {
 
         shouldQueuePendingDraftSaveAfterFailure = false
         do {
-            guard let delivery = try await draftSaveOutbox.beginDeliveryUnlessRetiredByLoadServer(
-                request.outboxEntry, continuingInflightID: continuingInflightID) else { return nil }
+            let delivery = if requiresPriorAdmission {
+                try await draftSaveOutbox.beginPreviouslyAdmittedDeliveryUnlessRetiredByLoadServer(
+                    request.outboxEntry)
+            } else {
+                try await draftSaveOutbox.beginDeliveryUnlessRetiredByLoadServer(
+                    request.outboxEntry, continuingInflightID: continuingInflightID)
+            }
+            guard let delivery else { return nil }
             switch delivery {
             case .deliver(let retained):
                 request = DraftSaveRequest(entry: retained, authContext: request.authContext)

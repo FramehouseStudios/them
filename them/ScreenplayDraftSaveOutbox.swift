@@ -1296,6 +1296,37 @@ actor ScreenplayDraftSaveOutbox {
         return try beginDelivery(entry, continuingInflightID: continuingInflightID)
     }
 
+    /// A process-local handoff is only a delivery hint for a row that was
+    /// already admitted durably. It must never recreate a row consumed by an
+    /// earlier acknowledgement, and delivery must use any causal rebase that
+    /// the actor committed after the hint was captured.
+    func beginPreviouslyAdmittedDeliveryUnlessRetiredByLoadServer(
+        _ entry: ScreenplayDraftSaveOutboxEntry
+    ) throws -> ScreenplayDraftSaveDelivery? {
+        try loadIfNeeded()
+        if let marker = retirementMarkers.first(where: { $0.id == entry.id }) {
+            guard retirementMarker(marker, matches: entry) else {
+                throw BackendMemoryAPIError.server(status: 409, message: "screenplay_save_id_reused")
+            }
+            return nil
+        }
+        guard let stored = entries.first(where: { $0.id == entry.id }) else { return nil }
+        // Base and predecessor are the only immutable projections that causal
+        // completion may rewrite after admission. Every other byte and the
+        // request authority must still match the original handoff.
+        var comparable = entry
+        comparable.baseVersionId = stored.baseVersionId
+        comparable.savePredecessor = stored.savePredecessor
+        guard stored.hasSameTarget(as: comparable),
+              stored.source.utf8.elementsEqual(entry.source.utf8),
+              stored.notes.utf8.elementsEqual(entry.notes.utf8),
+              stored.requestAuthority == entry.requestAuthority,
+              stored.loadServerRetirement == entry.loadServerRetirement else {
+            throw BackendMemoryAPIError.server(status: 409, message: "screenplay_save_id_reused")
+        }
+        return try beginDelivery(stored)
+    }
+
     func removeAll(projectId: String, ownerUserId: String) throws {
         try loadIfNeeded()
         let cleanProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)

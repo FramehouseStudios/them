@@ -2439,6 +2439,54 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
         XCTAssertFalse(passive.isSatisfiedByAcknowledgement(of: saved, versionID: "fresh-ack"))
     }
 
+    func testPreviouslyAdmittedDeliveryUsesDurablyRebasedRow() async throws {
+        let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let authority = ScreenplayDraftSaveRequestAuthority(id: UUID(), generation: 1)
+        var root = makeDeliverableEntry(id: "causal-root", draft: "Earlier words",
+            createdAt: 100, authority: authority)
+        root.source = "studio_manual"
+        root.saveOrderingVersion = 1
+        try await store.enqueue(root)
+        var follower = makeDeliverableEntry(id: "causal-follower", draft: "Newer words",
+            createdAt: 101, authority: authority)
+        follower.source = "studio_manual"
+        follower.saveOrderingVersion = 1
+        let admitted = try await store.admitPendingSave(follower, following: root)
+
+        try await store.markSucceeded(id: root.id, serverVersionId: "server-v2",
+            mayRebaseDeclaredFollowers: true)
+        guard case .deliver(let delivery)? = try await store
+            .beginPreviouslyAdmittedDeliveryUnlessRetiredByLoadServer(admitted) else {
+            return XCTFail("The admitted follower was not deliverable")
+        }
+        XCTAssertEqual(delivery.id, follower.id)
+        XCTAssertEqual(delivery.baseVersionId, "server-v2")
+        XCTAssertEqual(Data(delivery.draft.utf8), Data(follower.draft.utf8))
+    }
+
+    func testPreviouslyAdmittedDeliveryDoesNotResurrectConsumedFollower() async throws {
+        let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let authority = ScreenplayDraftSaveRequestAuthority(id: UUID(), generation: 1)
+        var root = makeDeliverableEntry(id: "satisfied-root", createdAt: 100,
+            authority: authority)
+        root.source = "studio_manual"
+        root.saveOrderingVersion = 1
+        try await store.enqueue(root)
+        var follower = makeDeliverableEntry(id: "satisfied-follower", createdAt: 101,
+            authority: authority)
+        follower.source = "studio_manual"
+        follower.saveOrderingVersion = 1
+        let admitted = try await store.admitPendingSave(follower, following: root)
+
+        try await store.markSucceeded(id: root.id, serverVersionId: "server-v2",
+            mayRebaseDeclaredFollowers: true)
+        let delivery = try await store
+            .beginPreviouslyAdmittedDeliveryUnlessRetiredByLoadServer(admitted)
+        XCTAssertNil(delivery)
+        let rows = try await store.entriesForTesting()
+        XCTAssertTrue(rows.isEmpty, "A volatile handoff recreated a causally satisfied save")
+    }
+
     func testFailureAbsorptionNeedsAnExactRowActuallyStoredOnDisk() async throws {
         let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
         let entry = makeEntry(id: "durable-before-failure")
