@@ -6205,8 +6205,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
             await refreshDraftSaveOutboxStatus()
             return
         }
-        let ownerUserId = BackendAuthClient.currentAuthSessionState().user?.userId
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let initialContext = currentStudioAuthContext()
+        let ownerUserId = initialContext.userID
 
         isDraftSaveInFlight = true
         var completedCount = 0
@@ -6226,7 +6226,10 @@ final class ScreenplayStudioViewModel: ObservableObject {
             }
             guard let entry else { break }
             let currentContext = currentStudioAuthContext()
-            guard currentContext.userID == entry.ownerUserId.trimmingCharacters(in: .whitespacesAndNewlines) else {
+            guard ScreenplayStudioAuthContextPolicy.matches(expected: initialContext, current: currentContext),
+                  currentContext.userID == entry.ownerUserId.trimmingCharacters(in: .whitespacesAndNewlines) else {
+                do { try await draftSaveOutbox.releaseInflightClaim(entry) }
+                catch { errorText = "A local save could not be returned to its queue. Its words remain stored." }
                 break
             }
             adoptQueuedDraftIntoUnchangedEditorIfNeeded(entry)
