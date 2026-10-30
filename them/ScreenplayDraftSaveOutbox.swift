@@ -437,7 +437,7 @@ actor ScreenplayDraftSaveOutbox {
             return entries[index]
         }
         if let existing = entries.first(where: { existing in
-            existing.status != .parked && existing.hasSameTarget(as: entry) &&
+            entry.isPassiveAutosave && existing.status != .parked && existing.hasSameTarget(as: entry) &&
                 ((existing.source.utf8.elementsEqual(entry.source.utf8) &&
                   existing.notes.utf8.elementsEqual(entry.notes.utf8)) ||
                     (entry.isPassiveAutosave && entry.deliveryOrigin != nil))
