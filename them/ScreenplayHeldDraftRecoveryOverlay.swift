@@ -1,4 +1,5 @@
 import SwiftUI
+import ScreenplayStudio
 
 extension View {
     func screenplayRecoveryOverlay(topInset: CGFloat) -> some View {
@@ -26,7 +27,7 @@ struct ScreenplayHeldDraftRecoveryOverlay: View {
                     viewModel.reopenHeldDraftRecovery()
                 } label: {
                     Label("Review held local copy", systemImage: "tray.full.fill")
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(IOThemTypography.UI.captionStrong)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 9)
                         .background(.ultraThinMaterial, in: Capsule())
@@ -64,15 +65,15 @@ struct ScreenplayHeldDraftRecoveryOverlay: View {
         return VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .top, spacing: 10) {
                 Image(systemName: "exclamationmark.triangle.fill")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(IOThemTypography.UI.captionStrong)
                     .foregroundStyle(tint)
                     .padding(.top, 1)
                 VStack(alignment: .leading, spacing: 3) {
                     Text(bannerTitle)
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(IOThemTypography.UI.captionStrong)
                         .foregroundStyle(Color.herText.opacity(0.88))
                     Text(presentationMessage)
-                        .font(.system(size: 12))
+                        .font(IOThemTypography.UI.caption)
                         .foregroundStyle(Color.herText.opacity(0.74))
                     NumberedChoiceHintText(message: choiceHint)
                 }
@@ -166,7 +167,7 @@ private struct ScreenplayHeldDraftRecoveryReview: View {
                 if let entry = viewModel.heldDraftRecoveryForReview(token) {
                     ScrollView {
                         Text(entry.draft)
-                            .font(.system(.body, design: .monospaced))
+                            .font(.body.monospaced())
                             .textSelection(.enabled)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding()
