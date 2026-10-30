@@ -50,6 +50,50 @@ final class ScreenplaySaveCompletionOwnershipTests: XCTestCase {
         XCTAssertEqual(pending.source, "studio_manual")
     }
 
+    func testReversePendingAdmissionsParkLaterExactRequestWithoutSiblingRebase() async throws {
+        let fixture = try SaveCompletionFixture()
+        defer {
+            fixture.model.debugBeforePendingSaveAdmission = nil
+            fixture.close()
+        }
+        fixture.select("a", draft: fixture.a, base: "a-base")
+        let activeSave = fixture.startSave()
+        defer { fixture.peer.releaseFirst(.offline); activeSave.cancel() }
+        try await fixture.waitForFirstSave()
+
+        let firstAdmissionStarted = expectation(description: "first pending admission suspended")
+        let releaseFirstAdmission = expectation(description: "release first pending admission")
+        var admissionCount = 0
+        fixture.model.debugBeforePendingSaveAdmission = { _ in
+            admissionCount += 1
+            guard admissionCount == 1 else { return }
+            firstAdmissionStarted.fulfill()
+            _ = await XCTWaiter.fulfillment(of: [releaseFirstAdmission], timeout: 3)
+        }
+
+        let secondWords = fixture.a + "\nSecond exact request"
+        fixture.model.fountainDraft = secondWords
+        fixture.model.noteManualDraftEdit()
+        let secondSave = Task { @MainActor in await fixture.model.manualSaveDraft() }
+        let admissionResult = await XCTWaiter.fulfillment(of: [firstAdmissionStarted], timeout: 3)
+        XCTAssertEqual(admissionResult, .completed)
+
+        let thirdWords = secondWords + "\nThird exact request"
+        fixture.model.fountainDraft = thirdWords
+        fixture.model.noteManualDraftEdit()
+        await fixture.model.manualSaveDraft()
+        releaseFirstAdmission.fulfill()
+        await secondSave.value
+
+        let rows = try await fixture.reloadQueueEntries()
+        let second = try XCTUnwrap(rows.first { $0.draft == secondWords })
+        let third = try XCTUnwrap(rows.first { $0.draft == thirdWords })
+        XCTAssertEqual(second.status, .pending)
+        XCTAssertEqual(third.status, .parked)
+        XCTAssertEqual(third.baseVersionId, "a-base")
+        XCTAssertEqual(third.lastError, ScreenplayDraftSaveOutbox.unprovenPredecessorReason)
+    }
+
     func testNonOwningAcknowledgementDoesNotRebaseDistinctRecovery() async throws {
         let fixture = try SaveCompletionFixture()
         defer { fixture.close() }
@@ -587,6 +631,7 @@ private nonisolated final class SaveCompletionPeer: @unchecked Sendable {
     enum Outcome { case success, conflict, offline }
     struct Write {
         let project: String; let base: String; let draft: String; let id: String
+        let phase: String; let source: String; let notes: String
         let anchors: [BackendScreenplayWriteAnchor]; let bindings: [BackendScreenplayBindingRecord]
     }
     private let lock = NSLock()
@@ -624,7 +669,9 @@ private nonisolated final class SaveCompletionPeer: @unchecked Sendable {
                 from: JSONSerialization.data(withJSONObject: payload["screenplay_bindings"] ?? []))
             let write = Write(project: path.split(separator: "/").dropLast().last.map(String.init) ?? "",
                 base: payload["base_version_id"] as? String ?? "", draft: try XCTUnwrap(payload["draft"] as? String),
-                id: payload["client_request_id"] as? String ?? "", anchors: anchors, bindings: bindings)
+                id: payload["client_request_id"] as? String ?? "",
+                phase: payload["phase"] as? String ?? "", source: payload["source"] as? String ?? "",
+                notes: payload["notes"] as? String ?? "", anchors: anchors, bindings: bindings)
             lock.lock(); recorded.append(write); let count = recorded.count
             if count == 1 { held = (transport, write) }; lock.unlock()
             if count == 1 { started.fulfill() }
@@ -652,7 +699,8 @@ private nonisolated final class SaveCompletionPeer: @unchecked Sendable {
                 transport.respond(status: 200, payload: ["status": "saved", "project_id": write.project,
                     "version_id": version, "project": ["id": write.project, "title": write.project.uppercased()],
                     "version": ["id": version, "project_id": write.project, "client_request_id": write.id,
-                        "draft": write.draft, "studio_write_anchors": anchors, "screenplay_bindings": bindings]])
+                        "draft": write.draft, "phase": write.phase, "source": write.source, "notes": write.notes,
+                        "studio_write_anchors": anchors, "screenplay_bindings": bindings]])
             } catch { transport.fail(error) }
         }
     }

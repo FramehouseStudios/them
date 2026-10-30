@@ -2646,6 +2646,32 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
         XCTAssertEqual(rows.first { $0.id == third.id }?.baseVersionId, "chain-v3")
     }
 
+    func testReverseAdmissionParksReservedFollowerInsteadOfReorderingIt() async throws {
+        let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        var first = makeDeliverableEntry(id: "reverse-first", draft: "First", createdAt: 100)
+        first.saveOrderingVersion = 1
+        _ = try await store.admitPendingSave(first, following: nil)
+        guard case .deliver(let activeFirst) = try await store.beginDelivery(first) else {
+            return XCTFail("Expected first delivery")
+        }
+
+        // This is the exact actor-hop inversion: the third request reaches the
+        // outbox before its synchronously reserved second-request predecessor.
+        var reservedSecond = makeDeliverableEntry(id: "reverse-second", draft: "Second", createdAt: 101)
+        reservedSecond.saveOrderingVersion = 1
+        var third = makeDeliverableEntry(id: "reverse-third", draft: "Third exact", createdAt: 102)
+        third.saveOrderingVersion = 1
+        let reversedThird = try await store.admitPendingSave(third, following: reservedSecond)
+        XCTAssertEqual(reversedThird.status, .parked)
+        XCTAssertEqual(reversedThird.draft, third.draft)
+
+        let admittedSecond = try await store.admitPendingSave(reservedSecond, following: activeFirst)
+        XCTAssertEqual(admittedSecond.status, .pending)
+        let rows = try await store.entriesForTesting()
+        XCTAssertEqual(rows.first { $0.id == third.id }?.status, .parked)
+        XCTAssertEqual(rows.first { $0.id == reservedSecond.id }?.status, .pending)
+    }
+
     func testLaterDraftCannotSkipOlderBackedOffSave() async throws {
         let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
         try await store.enqueue(makeDeliverableEntry(id: "save-1", draft: "Draft one", createdAt: 100))

@@ -456,13 +456,25 @@ actor ScreenplayDraftSaveOutbox {
                   predecessor.createdAt <= entry.createdAt else {
                 throw BackendMemoryAPIError.invalidResponse
             }
-            entry.savePredecessor = try makeConflictReference(predecessor)
             let exactActive = entries.first { stored in
-                stored.id == predecessor.id &&
-                    (stored.status == .pending || stored.status == .inflight) &&
-                    conflictReference(entry.savePredecessor!, matches: stored)
+                guard stored.id == predecessor.id,
+                      stored.status == .pending || stored.status == .inflight else { return false }
+                // A process-local reservation is created before its own actor
+                // admission returns, so it may not yet contain the predecessor
+                // link that the actor persisted. Normalize only that link and
+                // still compare every other immutable target and authority.
+                var comparable = predecessor
+                comparable.savePredecessor = stored.savePredecessor
+                return stored.hasSameTarget(as: comparable) &&
+                    stored.source.utf8.elementsEqual(predecessor.source.utf8) &&
+                    stored.notes.utf8.elementsEqual(predecessor.notes.utf8) &&
+                    stored.requestAuthority == predecessor.requestAuthority &&
+                    stored.loadServerRetirement == predecessor.loadServerRetirement
             }
-            if exactActive == nil {
+            if let exactActive {
+                entry.savePredecessor = try makeConflictReference(exactActive)
+            } else {
+                entry.savePredecessor = try makeConflictReference(predecessor)
                 entry.status = .parked
                 entry.nextAttemptAt = 0
                 entry.lastError = Self.unprovenPredecessorReason
@@ -689,6 +701,9 @@ actor ScreenplayDraftSaveOutbox {
         let completed = entries.remove(at: index)
         let nextBase = serverVersionId.trimmingCharacters(in: .whitespacesAndNewlines)
         if !nextBase.isEmpty {
+            var rebasedPredecessors: [(before: ScreenplayDraftSaveOutboxEntry,
+                                      after: ScreenplayDraftSaveOutboxEntry)] = []
+            var satisfiedFollowerIDs = Set<String>()
             for queuedIndex in entries.indices {
                 let queued = entries[queuedIndex]
                 let legacyFollower = queued.saveOrderingVersion == nil &&
@@ -706,11 +721,48 @@ actor ScreenplayDraftSaveOutbox {
                     entries[queuedIndex].status = .parked
                     entries[queuedIndex].nextAttemptAt = 0
                     entries[queuedIndex].lastError = Self.unprovenPredecessorReason
+                } else if declaredFollower {
+                    let hasDeclaredDescendant = entries.contains { descendant in
+                        descendant.id != queued.id && descendant.savePredecessor.map {
+                            conflictReference($0, matches: queued)
+                        } == true
+                    }
+                    var comparableQueued = queued
+                    comparableQueued.saveOrderingVersion = nil
+                    comparableQueued.savePredecessor = nil
+                    comparableQueued.hasExplicitBaseSelection = false
+                    var comparableCompleted = completed
+                    comparableCompleted.saveOrderingVersion = nil
+                    comparableCompleted.savePredecessor = nil
+                    comparableCompleted.hasExplicitBaseSelection = false
+                    let acknowledgementAlreadySatisfiesFollower = !hasDeclaredDescendant &&
+                        comparableQueued.hasSameTarget(as: comparableCompleted) &&
+                        queued.source.utf8.elementsEqual(completed.source.utf8) &&
+                        queued.notes.utf8.elementsEqual(completed.notes.utf8)
+                    if acknowledgementAlreadySatisfiesFollower {
+                        satisfiedFollowerIDs.insert(queued.id)
+                    } else {
+                        let before = entries[queuedIndex]
+                        entries[queuedIndex].baseVersionId = nextBase
+                        rebasedPredecessors.append((before, entries[queuedIndex]))
+                    }
                 } else {
                     entries[queuedIndex].baseVersionId = nextBase
                 }
                 entries[queuedIndex].updatedAt = now.timeIntervalSince1970
             }
+            for pair in rebasedPredecessors {
+                let replacement = try makeConflictReference(pair.after)
+                for descendantIndex in entries.indices where
+                    !satisfiedFollowerIDs.contains(entries[descendantIndex].id) &&
+                    entries[descendantIndex].savePredecessor.map({
+                        conflictReference($0, matches: pair.before)
+                    }) == true {
+                    entries[descendantIndex].savePredecessor = replacement
+                    entries[descendantIndex].updatedAt = now.timeIntervalSince1970
+                }
+            }
+            entries.removeAll { satisfiedFollowerIDs.contains($0.id) }
         }
         do { try persist() } catch { entries = previous; throw error }
         publishSnapshot()
@@ -841,6 +893,19 @@ actor ScreenplayDraftSaveOutbox {
             entries[index].updatedAt = now.timeIntervalSince1970
             entries[index].nextAttemptAt = 0
             entries[index].lastError = Self.conflictReason
+            var newlyParked = [entries[index]]
+            while let predecessor = newlyParked.popLast() {
+                for childIndex in entries.indices where entries[childIndex].status == .pending &&
+                    entries[childIndex].savePredecessor.map({
+                        conflictReference($0, matches: predecessor)
+                    }) == true {
+                    entries[childIndex].status = .parked
+                    entries[childIndex].updatedAt = now.timeIntervalSince1970
+                    entries[childIndex].nextAttemptAt = 0
+                    entries[childIndex].lastError = Self.conflictReason
+                    newlyParked.append(entries[childIndex])
+                }
+            }
         } else {
             // Older rows have no minted request authority. Their stable ID is
             // usable only when the exact row is already durable; an in-memory

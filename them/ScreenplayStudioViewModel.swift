@@ -2239,6 +2239,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         isDraftSaveInFlight
     }
     var debugAfterDraftSaveClaim: (() -> Void)?
+    var debugBeforePendingSaveAdmission: ((String) async -> Void)?
     #endif
 
     func selectProject(_ projectID: String) async {
@@ -7135,8 +7136,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         if let failed, let queued = pending {
             pending = await pendingDraftSaveAfterFailure(queued, after: failed)
         }
-        if completedCount == 4, pending == nil, authContextIsCurrent(context),
-           currentRecoveryOrigin(projectID: projectId) == deliveryOrigin {
+        if completedCount > 0, pending == nil, authContextIsCurrent(context) {
             Task { @MainActor [weak self] in
                 await Task.yield()
                 await self?.resumeQueuedDraftSavesIfNeeded()
@@ -7232,7 +7232,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
                     }
                 }
             }
-            let predecessor = activeDraftSaveRequest.flatMap { active -> ScreenplayDraftSaveOutboxEntry? in
+            let previousTail = activeDraftSaveRequest
+            let predecessor = previousTail.flatMap { active -> ScreenplayDraftSaveOutboxEntry? in
                 guard !request.hasExplicitBaseSelection,
                       request.source != "studio_conflict_resolve",
                       request.projectId == active.projectId,
@@ -7242,17 +7243,28 @@ final class ScreenplayStudioViewModel: ObservableObject {
                         expected: active.authContext, current: request.authContext) else { return nil }
                 return active.outboxEntry
             }
+            // Reserve the process-local tail before the actor hop. Another
+            // MainActor save may enter while admission is suspended; it must
+            // name this request, not the same earlier predecessor.
+            if predecessor != nil { activeDraftSaveRequest = request }
+            #if DEBUG
+            await debugBeforePendingSaveAdmission?(request.id)
+            #endif
             do {
                 let admitted = try await draftSaveOutbox.admitPendingSave(
                     request.outboxEntry, following: predecessor)
                 // Multiple manual requests form an exact durable chain, not
                 // siblings that would all reuse the first acknowledgement.
-                if isDraftSaveInFlight, admitted.status == .pending {
+                if isDraftSaveInFlight, admitted.status == .pending,
+                   activeDraftSaveRequest?.id == request.id {
                     activeDraftSaveRequest = DraftSaveRequest(entry: admitted,
                         authContext: request.authContext)
                 }
                 await refreshDraftSaveOutboxStatus()
             } catch {
+                if isDraftSaveInFlight, activeDraftSaveRequest?.id == request.id {
+                    activeDraftSaveRequest = previousTail
+                }
                 if authContextIsCurrent(request.authContext), selectedProjectID == request.projectId {
                     errorText = "This pending save could not be secured. Keep the page open and export it or try Save again."
                 }
