@@ -1461,6 +1461,12 @@ final class ScreenplayStudioViewModel: ObservableObject {
         case canonicalVersion(BackendScreenplayVersion, URL?)
     }
 
+    private enum RelaunchedConflictRecovery {
+        case none
+        case restore(ScreenplayDraftSaveOutboxEntry, BackendScreenplayVersion)
+        case held
+    }
+
     private struct CharacterTraitsRefreshResult {
         let traits: BackendCharacterTraitsResponse
         let archetypes: BackendCharacterArchetypesResponse?
@@ -1986,8 +1992,12 @@ final class ScreenplayStudioViewModel: ObservableObject {
         guard isCurrent?() ?? true else { return false }
         guard !projectID.isEmpty else { return true }
         let pendingEntry: ScreenplayDraftSaveOutboxEntry?
+        let relaunchedConflict: RelaunchedConflictRecovery
         do {
             pendingEntry = try await draftSaveOutbox.pendingEntry(projectId: projectID, ownerUserId: context.userID)
+            relaunchedConflict = if pendingEntry == nil, let serverProject {
+                try await relaunchedConflictRecovery(project: serverProject, owner: context, backend: backend)
+            } else { .none }
         } catch {
             guard isCurrent?() ?? true, authContextIsCurrent(context), selectedProjectID == projectID,
                   ScreenplayLiveDraftBridge.shared.draftOrigin.documentID == documentID,
@@ -2002,7 +2012,24 @@ final class ScreenplayStudioViewModel: ObservableObject {
               OfflineTalkRecoveryScope.sameBackend(backend, BackendAuthClient.resolvedBackendBaseURL()),
               ScreenplayLiveDraftSyncService.shared.ownsEditor(self) else { return false }
         if errorText == ScreenplayDraftSaveRecoveryPresentationPolicy.unreadableQueueError { errorText = "" }
-        guard let entry = pendingEntry,
+        let entry: ScreenplayDraftSaveOutboxEntry
+        let conflictVersion: BackendScreenplayVersion?
+        if let pendingEntry {
+            entry = pendingEntry
+            conflictVersion = nil
+        } else {
+            switch relaunchedConflict {
+            case .none: return true
+            case .held:
+                autosaveStatusText = "Save conflict needs recovery"
+                errorText = "An earlier save conflict belongs to another local document. Its exact words are kept in Recovery; restore or export that copy before saving this project."
+                return false
+            case .restore(let retained, let version):
+                entry = retained
+                conflictVersion = version
+            }
+        }
+        guard
               ScreenplayQueuedDraftHydrationPolicy.shouldRestoreBeforeServerHydration(
                 expectedAuthContext: context, currentAuthContext: currentStudioAuthContext(),
                 selectedProjectID: selectedProjectID, queuedProjectID: entry.projectId, queuedDraft: entry.draft,
@@ -2044,10 +2071,50 @@ final class ScreenplayStudioViewModel: ObservableObject {
         isManualDraftEditing = true
         lastManualDraftEditAt = Date()
         hasUnsavedDraftChanges = true
-        autosaveStatusText = "Queued locally - reconnecting"
-        infoText = "Restored your local screenplay save and reconnecting."
+        if let conflictVersion {
+            conflictState = SaveConflictState(projectId: projectID, baseVersionId: entry.baseVersionId,
+                serverVersionId: conflictVersion.id, serverDraft: conflictVersion.draft ?? "",
+                serverDraftExcerpt: conflictVersion.draftExcerpt ?? "",
+                serverUpdatedAt: conflictVersion.updatedAt ?? conflictVersion.createdAt ?? 0,
+                retainedRequest: entry)
+            autosaveStatusText = "Conflict detected"
+            infoText = "Restored your conflicted local draft. Choose keep mine or load server."
+        } else {
+            autosaveStatusText = "Queued locally - reconnecting"
+            infoText = "Restored your local screenplay save and reconnecting."
+        }
         persistLocalDraftRecovery(projectId: projectID, draft: entry.draft, baseVersionId: entry.baseVersionId, dirty: true)
         return true
+    }
+
+    private func relaunchedConflictRecovery(project: BackendScreenplayProjectSummary,
+        owner: ScreenplayStudioAuthContext, backend: URL) async throws -> RelaunchedConflictRecovery {
+        guard case .current(let serverVersion) = ScreenplaySaveHeadPreflight.evaluate(project),
+              let serverDraft = serverVersion.draft else { return .none }
+        let parked = try await draftSaveOutbox.parkedConflictEntries(
+            projectId: project.id, ownerUserId: owner.userID)
+        guard !parked.isEmpty else { return .none }
+        guard let recovery = localDraftRecoveryStore.recoverySnapshot(
+            ownerUserId: owner.userID, projectId: project.id, serverDraft: serverDraft) else { return .held }
+        let matching = parked.filter { row in
+            row.draft.utf8.elementsEqual(recovery.draft.utf8) &&
+                row.baseVersionId.utf8.elementsEqual(recovery.baseVersionId.utf8) &&
+                row.deliveryOrigin?.permitsBackend(backend) == true
+        }
+        var origins: [ScreenplayDraftSaveOrigin] = []
+        for row in matching {
+            if let origin = row.deliveryOrigin, !origins.contains(origin) { origins.append(origin) }
+        }
+        var tips: [ScreenplayDraftSaveOutboxEntry] = []
+        for origin in origins {
+            if let tip = try await draftSaveOutbox.parkedConflictLineageTip(
+                projectId: project.id, ownerUserId: owner.userID,
+                deliveryOrigin: origin, draft: recovery.draft) { tips.append(tip) }
+        }
+        guard tips.count == 1, let retainedOrigin = tips[0].deliveryOrigin,
+              ScreenplayLiveDraftBridge.shared.draftOrigin.documentID == retainedOrigin.documentID,
+              retainedOrigin.permitsBackend(backend) else { return .held }
+        return .restore(tips[0], serverVersion)
     }
 
     func refreshSelectedProjectForDebug() async {

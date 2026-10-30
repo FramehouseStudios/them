@@ -13,7 +13,9 @@ nonisolated struct ScreenplayDraftSaveOrigin: Codable, Equatable, Sendable {
     static func restoredSnapshot(entry: ScreenplayDraftSaveOutboxEntry, draft: String,
         owner: ScreenplayStudioAuthContext, currentOwner: ScreenplayStudioAuthContext,
         backendURL: URL) -> ScreenplayLiveDraftOriginSnapshot? {
-        guard entry.initialization == nil, entry.status == .pending || entry.status == .inflight,
+        let isRestorable = entry.status == .pending || entry.status == .inflight ||
+            (entry.status == .parked && entry.lastError == ScreenplayDraftSaveOutbox.conflictReason)
+        guard entry.initialization == nil, isRestorable,
               entry.ownerUserId == owner.userID,
               ScreenplayStudioAuthContextPolicy.matches(expected: owner, current: currentOwner),
               entry.draft.utf8.elementsEqual(draft.utf8), let origin = entry.deliveryOrigin,

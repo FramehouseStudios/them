@@ -356,7 +356,7 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
         XCTAssertEqual(rows.first(where: { $0.id == foreign.id })?.draft, foreign.draft)
     }
 
-    func testScopedConflictDoesNotBlockDifferentDocumentOrBackend() async throws {
+    func testScopedConflictFencesDifferentDocumentAndBackendWithoutDeletingEitherDraft() async throws {
         let original = ScreenplayDraftSaveOrigin(documentID: "document-a", backendURL: URL(string: "https://save.test")!)
         let others = [ScreenplayDraftSaveOrigin(documentID: "document-b", backendURL: original.backendURL),
                       ScreenplayDraftSaveOrigin(documentID: "document-a", backendURL: URL(string: "https://other.test")!)]
@@ -366,11 +366,16 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
             let independent = makeDeliverableEntry(id: "independent", draft: "Independent words", createdAt: 101, origin: origin)
             try await queue.enqueue(conflict)
             _ = try await queue.retainConflict(conflict)
-            guard case .deliver = try await queue.beginDelivery(independent) else {
-                return XCTFail("An unrelated origin must not be blocked by a scoped conflict")
+            guard case .parked = try await queue.beginDelivery(independent) else {
+                return XCTFail("A different origin must not bypass an unresolved project conflict")
             }
             let rows = try await queue.entriesForTesting()
             XCTAssertEqual(rows.first(where: { $0.id == conflict.id })?.draft, conflict.draft)
+            XCTAssertEqual(rows.first(where: { $0.id == independent.id })?.draft, independent.draft)
+            XCTAssertEqual(rows.first(where: { $0.id == independent.id })?.status, .pending)
+            let resumed = try await queue.beginNext(projectId: independent.projectId,
+                ownerUserId: independent.ownerUserId, deliveryOrigin: origin, force: true)
+            XCTAssertNil(resumed, "Background resume must honor the same project-wide conflict fence")
         }
     }
 
@@ -463,6 +468,98 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
         XCTAssertEqual(adoptedDocumentID, "queued-document")
         XCTAssertEqual(Data(model.fountainDraft.utf8), Data(local.utf8))
         XCTAssertEqual(bridge.draftOrigin.documentID, "queued-document")
+    }
+
+    @MainActor
+    func testRelaunchRestoresExactSameOriginConflictAndWriterChoice() async throws {
+        let restoreOwner = try installAuthenticatedFixtureOwner()
+        defer { restoreOwner() }
+        let owner = ScreenplayStudioAuthContext.current()
+        let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let local = "Exact conflicted cafe\u{0301} words.  \r\n"
+        var entry = replacingOwner(of: makeEntry(id: "relaunch-conflict", draft: local), with: owner.userID)
+        entry.deliveryOrigin = .init(documentID: "conflict-document",
+            backendURL: BackendAuthClient.resolvedBackendBaseURL())
+        let bridge = ScreenplayLiveDraftBridge.shared
+        XCTAssertTrue(bridge.adoptLoadedProjectDraft(local, projectID: entry.projectId,
+            versionID: entry.baseVersionId, owner: owner, queuedEntry: entry))
+        try await queue.enqueue(entry)
+        let retainedCandidate = try await queue.retainConflict(entry)
+        let retained = try XCTUnwrap(retainedCandidate)
+
+        let suite = "them.conflict-relaunch-same.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let recovery = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "recovery")
+        recovery.save(ownerUserId: owner.userID, projectId: entry.projectId, draft: local,
+            baseVersionId: entry.baseVersionId, dirty: true)
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: recovery, draftSaveOutbox: queue)
+        model.autosaveEnabled = false
+        model.selectedProjectID = entry.projectId
+        ScreenplayLiveDraftSyncService.shared.attach(to: model)
+        let project = try JSONDecoder().decode(BackendScreenplayProjectSummary.self,
+            from: JSONSerialization.data(withJSONObject: ["id": entry.projectId, "title": entry.title,
+                "activeVersionId": "server-v2", "versions": [["id": "server-v2", "projectId": entry.projectId,
+                    "draft": "Collaborator words", "draftExcerpt": "Collaborator words", "updatedAt": 200]]]))
+
+        let applied = await model.hydrateDraftRestoringQueuedSaves(from: project)
+
+        XCTAssertTrue(applied)
+        XCTAssertEqual(Data(model.fountainDraft.utf8), Data(local.utf8))
+        XCTAssertEqual(model.conflictState?.retainedRequest?.id, retained.id)
+        XCTAssertEqual(model.conflictState?.serverVersionId, "server-v2")
+        XCTAssertEqual(bridge.draftOrigin.documentID, entry.deliveryOrigin?.documentID)
+        XCTAssertTrue(model.hasUnsavedDraftChanges)
+        let rows = try await queue.entriesForTesting()
+        XCTAssertEqual(rows.first?.status, .parked)
+    }
+
+    @MainActor
+    func testRelaunchChangedOriginHoldsBothDraftsAndFencesLaterSave() async throws {
+        let restoreOwner = try installAuthenticatedFixtureOwner()
+        defer { restoreOwner() }
+        let owner = ScreenplayStudioAuthContext.current()
+        let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let conflicted = "Earlier conflicted words"
+        var entry = replacingOwner(of: makeEntry(id: "old-conflict", draft: conflicted), with: owner.userID)
+        entry.deliveryOrigin = .init(documentID: "old-document", backendURL: BackendAuthClient.resolvedBackendBaseURL())
+        try await queue.enqueue(entry)
+        _ = try await queue.retainConflict(entry)
+
+        var current = replacingOwner(of: makeEntry(id: "new-document-save", draft: "Current document words",
+            createdAt: 200), with: owner.userID)
+        current.deliveryOrigin = .init(documentID: "new-document", backendURL: BackendAuthClient.resolvedBackendBaseURL())
+        let bridge = ScreenplayLiveDraftBridge.shared
+        XCTAssertTrue(bridge.adoptLoadedProjectDraft(current.draft, projectID: current.projectId,
+            versionID: current.baseVersionId, owner: owner, queuedEntry: current))
+
+        let suite = "them.conflict-relaunch-changed.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let recovery = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "recovery")
+        recovery.save(ownerUserId: owner.userID, projectId: entry.projectId, draft: conflicted,
+            baseVersionId: entry.baseVersionId, dirty: true)
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: recovery, draftSaveOutbox: queue)
+        model.autosaveEnabled = false
+        model.selectedProjectID = entry.projectId
+        ScreenplayLiveDraftSyncService.shared.attach(to: model)
+        let project = try JSONDecoder().decode(BackendScreenplayProjectSummary.self,
+            from: JSONSerialization.data(withJSONObject: ["id": entry.projectId, "title": entry.title,
+                "activeVersionId": "server-v2", "versions": [["id": "server-v2", "projectId": entry.projectId,
+                    "draft": "Server words"]]]))
+
+        let applied = await model.hydrateDraftRestoringQueuedSaves(from: project)
+
+        XCTAssertFalse(applied)
+        XCTAssertEqual(bridge.draftOrigin.documentID, "new-document")
+        XCTAssertEqual(Data(bridge.draftText.utf8), Data(current.draft.utf8))
+        XCTAssertTrue(model.errorText.contains("Recovery"))
+        guard case .parked = try await queue.beginDelivery(current) else {
+            return XCTFail("A changed-origin save must remain fenced by the unresolved conflict")
+        }
+        let rows = try await queue.entriesForTesting()
+        XCTAssertEqual(Set(rows.map(\.id)), Set([entry.id, current.id]))
+        XCTAssertEqual(rows.first(where: { $0.id == current.id })?.status, .pending)
     }
 
     @MainActor
