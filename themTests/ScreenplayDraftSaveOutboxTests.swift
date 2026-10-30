@@ -522,6 +522,54 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
     }
 
     @MainActor
+    func testRelaunchSameOriginConflictWithoutRecoveryProofOffersReadOnlyExactPreview() async throws {
+        let restoreOwner = try installAuthenticatedFixtureOwner()
+        defer { restoreOwner() }
+        let owner = ScreenplayStudioAuthContext.current()
+        let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let local = "Unverified same-document cafe\u{0301} words.  \r\n"
+        var entry = replacingOwner(of: makeEntry(id: "same-origin-unverified", draft: local),
+            with: owner.userID)
+        entry.deliveryOrigin = .init(documentID: "same-document",
+            backendURL: BackendAuthClient.resolvedBackendBaseURL())
+        try await queue.enqueue(entry)
+        _ = try await queue.retainConflict(entry)
+        let bridge = ScreenplayLiveDraftBridge.shared
+        XCTAssertTrue(bridge.adoptLoadedProjectDraft(local, projectID: entry.projectId,
+            versionID: entry.baseVersionId, owner: owner, queuedEntry: entry))
+
+        let suite = "them.conflict-relaunch-same-unverified.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: .init(
+            defaults: defaults, key: "recovery"), draftSaveOutbox: queue)
+        model.autosaveEnabled = false
+        model.selectedProjectID = entry.projectId
+        ScreenplayLiveDraftSyncService.shared.attach(to: model)
+        let project = try JSONDecoder().decode(BackendScreenplayProjectSummary.self,
+            from: JSONSerialization.data(withJSONObject: ["id": entry.projectId, "title": entry.title,
+                "activeVersionId": "server-v2", "versions": [["id": "server-v2",
+                    "projectId": entry.projectId, "draft": "Server words"]]]))
+
+        let applied = await model.hydrateDraftRestoringQueuedSaves(from: project)
+
+        XCTAssertFalse(applied)
+        XCTAssertNil(model.conflictState)
+        XCTAssertTrue(model.heldDraftRecoveryIsCurrentContextCopy)
+        XCTAssertFalse(model.heldDraftRecoveryIsLoadServerCopy)
+        XCTAssertTrue(model.errorText.contains("belongs to this document"))
+        XCTAssertFalse(model.errorText.contains("another local document"))
+        XCTAssertEqual(Data(bridge.draftText.utf8), Data(local.utf8))
+        let confirmedToken = await model.confirmedHeldDraftRecoveryForReview()
+        let token = try XCTUnwrap(confirmedToken)
+        let reviewed = try XCTUnwrap(model.heldDraftRecoveryForReview(token))
+        XCTAssertEqual(reviewed.id, entry.id)
+        XCTAssertEqual(Data(reviewed.draft.utf8), Data(local.utf8))
+        let rows = try await queue.entriesForTesting()
+        XCTAssertEqual(rows.first?.status, .parked)
+    }
+
+    @MainActor
     func testRelaunchCrossBackendConflictBlocksPendingHydrationWithoutRelabeling() async throws {
         let restoreOwner = try installAuthenticatedFixtureOwner()
         defer { restoreOwner() }
