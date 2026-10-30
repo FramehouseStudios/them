@@ -54,15 +54,24 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
     }
 
     @MainActor
-    func testIdentityPartitionChangeClearsHeldDraftPresentation() async {
-        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store)
-        model.heldDraftRecovery = ScreenplayDraftSaveOutboxEntry(
-            id: "held-row", projectId: "project", ownerUserId: "writer",
+    func testIdentityPartitionChangeClearsHeldDraftPresentation() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("held-identity-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let queue = ScreenplayDraftSaveOutbox(storageDirectory: root)
+        let owner = ScreenplayStudioAuthContext(userID: "writer", sessionIntentGeneration: 7)
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store,
+            draftSaveOutbox: queue, studioAuthContextProvider: { owner })
+        model.selectedProjectID = "project"
+        let held = ScreenplayDraftSaveOutboxEntry(
+            id: "held-row", projectId: "project", ownerUserId: owner.userID,
             draft: "Private prior-writer words", title: "Title", phase: "scene_draft",
             notes: "", source: "studio_save", studioWriteAnchors: [],
             screenplayBindings: [], baseVersionId: "server-v2", createdAt: 100,
             updatedAt: 100, status: .parked, retries: 0, nextAttemptAt: 0,
             lastError: ScreenplayDraftSaveOutbox.loadServerDeferredReason)
+        try await queue.enqueue(held)
+        model.heldDraftRecovery = held
         model.leaveHeldDraftRecoveryForLater()
 
         NotificationCenter.default.post(name: .themBackendIdentityPartitionChanged, object: nil)
@@ -70,6 +79,12 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
 
         XCTAssertNil(model.heldDraftRecovery)
         XCTAssertFalse(model.isHeldDraftRecoveryDeferred)
+        await model.refreshDraftSaveOutboxStatus()
+        XCTAssertNil(model.heldDraftRecovery,
+            "An outbox refresh resurfaced private held words before a new context was verified")
+        let retained = try await queue.entriesForTesting()
+        XCTAssertEqual(retained.map(\.id), [held.id])
+        XCTAssertEqual(retained.first.map { Data($0.draft.utf8) }, Data(held.draft.utf8))
     }
 
     @MainActor

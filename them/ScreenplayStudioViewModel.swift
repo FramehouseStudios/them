@@ -1790,6 +1790,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
     @Published var recoveryCandidate: LocalDraftRecoveryCandidate?
     @Published var heldDraftRecovery: ScreenplayDraftSaveOutboxEntry?
     @Published private(set) var isHeldDraftRecoveryDeferred = false
+    private var heldDraftRecoveryPresentationRequiresVerifiedContext = false
     var heldDraftRecoveryIsLoadServerCopy: Bool {
         heldDraftRecovery?.lastError == ScreenplayDraftSaveOutbox.loadServerDeferredReason
     }
@@ -1909,8 +1910,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
                 self?.invalidateCoverageIfContextChanged()
-                self?.heldDraftRecovery = nil
-                self?.isHeldDraftRecoveryDeferred = false
+                self?.invalidateHeldDraftRecoveryPresentationForIdentityChange()
             }
         draftDebounceCancellable = $fountainDraft
             .map(ScreenplayDraftTextObservation.init)
@@ -2100,7 +2100,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
         let conflictVersion: BackendScreenplayVersion?
         switch relaunchedConflict {
         case .held:
-            if heldDraftRecovery == nil {
+            if heldDraftRecovery == nil,
+               !heldDraftRecoveryPresentationRequiresVerifiedContext {
                 heldDraftRecovery = heldDraftRecoveryCandidate(
                     in: parkedConflicts, documentID: documentID, backendURL: backend,
                     includeUnverifiedCurrentContext: true)
@@ -4702,6 +4703,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
               !documentID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         verifiedRecoveryContext = VerifiedRecoveryContext(owner: owner, projectID: requestedID,
             origin: ScreenplayDraftSaveOrigin(documentID: documentID, backendURL: backend))
+        heldDraftRecoveryPresentationRequiresVerifiedContext = false
         if let draft = ScreenplayProjectDraftRestorePolicy.preferredVersion(in: project)?.draft {
             evaluateLocalDraftRecovery(projectId: requestedID, serverDraft: draft)
         }
@@ -5052,6 +5054,12 @@ final class ScreenplayStudioViewModel: ObservableObject {
 
     func reopenHeldDraftRecovery() {
         guard heldDraftRecovery != nil else { return }
+        isHeldDraftRecoveryDeferred = false
+    }
+
+    private func invalidateHeldDraftRecoveryPresentationForIdentityChange() {
+        heldDraftRecoveryPresentationRequiresVerifiedContext = true
+        heldDraftRecovery = nil
         isHeldDraftRecoveryDeferred = false
     }
 
@@ -7014,7 +7022,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
         queuedDraftSaveCount = snapshot.activeCount
         parkedDraftSaveCount = snapshot.parkedCount
         guard !isSaving, conflictState == nil else { return }
-        if heldDraftRecovery == nil {
+        if heldDraftRecovery == nil,
+           !heldDraftRecoveryPresentationRequiresVerifiedContext {
             heldDraftRecovery = heldDraftRecoveryCandidate(
                 in: heldRows, documentID: documentID, backendURL: backendURL)
             isHeldDraftRecoveryDeferred = false
