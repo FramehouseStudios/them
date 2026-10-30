@@ -988,6 +988,8 @@ Replace is best when this file should become the script you edit. Append is safe
 
     private var studioThreadStateBoundView: some View {
         studioObservedView
+            // Writes held back while a project restores were never sent once the restore ended (restore UI test, 2026-10-01).
+            .onChange(of: shouldDeferBackendThreadViewPersist(for: activeStudioAskNoteHistoryKey)) { wasDeferred, deferred in if wasDeferred && !deferred { retryStudioBackgroundPersistence() } }
             .onChange(of: studioAskNoteHistory) { _, newValue in
                 persistStudioAskNoteHistory(newValue, for: activeStudioAskNoteHistoryKey)
                 persistStudioWriteAnchorSnapshot(
@@ -10795,11 +10797,7 @@ Return revised screenplay lines only.
     private func restoreFullThreadBrowseState(for key: String) {
         let normalizedKey = key.trimmingCharacters(in: .whitespacesAndNewlines)
         isRestoringFullThreadBrowseState = true
-        defer {
-            DispatchQueue.main.async {
-                self.isRestoringFullThreadBrowseState = false
-            }
-        }
+        defer { DispatchQueue.main.async { self.isRestoringFullThreadBrowseState = false } }
         guard !normalizedKey.isEmpty else {
             isAwaitingInitialFullThreadRestore = false
             isAwaitingInitialAcknowledgedDiffHydration = false
