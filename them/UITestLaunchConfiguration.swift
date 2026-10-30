@@ -23,6 +23,7 @@ nonisolated enum UITestLaunchConfiguration {
             // signed out) would otherwise carry the previous test's page into
             // this launch's supposedly empty Studio.
             ScreenplayLiveDraftFileStore.removeAllForUITesting()
+            ScreenplayRecoveryOverflowStore.removeAllForUITesting()
             ScreenplayDraftSaveOutbox.resetStoredQueueForUITesting()
             OfflineTalkOutbox.resetStoredQueueForUITesting()
             ScreenplayOutlineMutationOutbox.resetStoredQueueForUITesting()

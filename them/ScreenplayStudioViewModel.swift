@@ -1486,6 +1486,16 @@ final class ScreenplayStudioViewModel: ObservableObject {
         let baseVersionId: String
         let savedAt: TimeInterval
         let isPreservedConflict: Bool
+        var overflowSnapshot: ScreenplayRecoveryOverflowSnapshot? = nil
+    }
+
+    private struct RecoveryReviewIdentity: Hashable {
+        let slot: String
+        let draft: Data
+        let base: Data
+        let savedAtBits: UInt64
+        let recordID: String
+        let authenticatedDigest: String
     }
 
     struct SaveConflictState: Equatable {
@@ -1723,6 +1733,9 @@ final class ScreenplayStudioViewModel: ObservableObject {
     @Published var showResolvedComments: Bool = true
     @Published var snapshotLabel: String = ""
     @Published var recoveryCandidate: LocalDraftRecoveryCandidate?
+    private var recoveryReviewOwner: ScreenplayStudioAuthContext?
+    private var recoveryReviewProjectID = ""
+    private var reviewedRecoveryCopies: Set<RecoveryReviewIdentity> = []
     @Published var conflictState: SaveConflictState? { didSet { conflictGeneration &+= 1 } }
     private var conflictGeneration: UInt64 = 0
     @Published var queuedDraftSaveCount: Int = 0
@@ -1766,15 +1779,26 @@ final class ScreenplayStudioViewModel: ObservableObject {
     private var pendingDraftSaveRequest: DraftSaveRequest?
     private var shouldQueuePendingDraftSaveAfterFailure = false
     private let localDraftRecoveryStore: ScreenplayLocalDraftRecoveryStore
+    private let overflowRecoveryStore: ScreenplayRecoveryOverflowStore
+    private let recoveryOriginProvider: ((String) -> ScreenplayDraftSaveOrigin?)?
+    private struct VerifiedRecoveryContext {
+        let owner: ScreenplayStudioAuthContext
+        let projectID: String
+        let origin: ScreenplayDraftSaveOrigin
+    }
+    private var verifiedRecoveryContext: VerifiedRecoveryContext?
     private let studioAuthContextProvider: (() -> ScreenplayStudioAuthContext)?
     private let draftSaveOutbox: ScreenplayDraftSaveOutbox
     private let outlineMutationOutbox = ScreenplayOutlineMutationOutbox.shared
     private let craftClient: BackendClient
-    private let projectSelectionAPI = BackendMemoryAPI()
+    private let projectSelectionAPI: BackendMemoryAPI
     private let draftSaveAPI: BackendMemoryAPI
+    private let draftSaveIdentityProvider: () -> BackendAuthRequestIdentity
     private let liveReplyOutbox: OfflineTalkOutbox
     private var clientTokenOwnedProjectIDs: Set<String> = []
     private var activeLoadRequestID: UUID?
+    private var projectOutlineLoadGeneration: UInt64 = 0
+    private var bridgeAdoptionGeneration: UInt64 = 0
 
     convenience init(coverageAuthContextProvider: (() -> ScreenplayStudioAuthContext)? = nil) {
         self.init(localDraftRecoveryStore: ScreenplayLocalDraftRecoveryStore(),
@@ -1782,17 +1806,27 @@ final class ScreenplayStudioViewModel: ObservableObject {
     }
 
     init(localDraftRecoveryStore: ScreenplayLocalDraftRecoveryStore,
+         overflowRecoveryStore: ScreenplayRecoveryOverflowStore? = nil,
+         recoveryOriginProvider: ((String) -> ScreenplayDraftSaveOrigin?)? = nil,
          draftSaveOutbox: ScreenplayDraftSaveOutbox = .shared,
          craftClient: BackendClient = BackendClient(),
          coverageAuthContextProvider: (() -> ScreenplayStudioAuthContext)? = nil,
          draftSaveAPI: BackendMemoryAPI = .shared,
+         projectSelectionAPI: BackendMemoryAPI = BackendMemoryAPI(),
+         draftSaveIdentityProvider: @escaping () -> BackendAuthRequestIdentity = {
+             BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: true)
+         },
          liveReplyOutbox: OfflineTalkOutbox = .shared,
          studioAuthContextProvider: (() -> ScreenplayStudioAuthContext)? = nil) {
         self.localDraftRecoveryStore = localDraftRecoveryStore
+        self.overflowRecoveryStore = overflowRecoveryStore ?? ScreenplayRecoveryOverflowStore()
+        self.recoveryOriginProvider = recoveryOriginProvider
         self.studioAuthContextProvider = studioAuthContextProvider
         self.draftSaveOutbox = draftSaveOutbox
         self.craftClient = craftClient
         self.draftSaveAPI = draftSaveAPI
+        self.projectSelectionAPI = projectSelectionAPI
+        self.draftSaveIdentityProvider = draftSaveIdentityProvider
         self.liveReplyOutbox = liveReplyOutbox
         self.coverageAuthContextProvider = coverageAuthContextProvider
         fountainDraft = ScreenplayLiveDraftBridge.shared.draftText
@@ -1942,24 +1976,30 @@ final class ScreenplayStudioViewModel: ObservableObject {
         await load()
     }
 
-    private func restorePendingDraftSaveBeforeProjectHydration(serverProject: BackendScreenplayProjectSummary? = nil) async -> Bool {
+    private func restorePendingDraftSaveBeforeProjectHydration(serverProject: BackendScreenplayProjectSummary? = nil,
+                                                               isCurrent: (() -> Bool)? = nil,
+                                                               onProvenAdoption: ((String) -> Void)? = nil) async -> Bool {
         let projectID = selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
         let context = currentStudioAuthContext()
+        let backend = BackendAuthClient.resolvedBackendBaseURL()
         let documentID = ScreenplayLiveDraftBridge.shared.draftOrigin.documentID
+        guard isCurrent?() ?? true else { return false }
         guard !projectID.isEmpty else { return true }
         let pendingEntry: ScreenplayDraftSaveOutboxEntry?
         do {
             pendingEntry = try await draftSaveOutbox.pendingEntry(projectId: projectID, ownerUserId: context.userID)
         } catch {
-            guard authContextIsCurrent(context), selectedProjectID == projectID,
+            guard isCurrent?() ?? true, authContextIsCurrent(context), selectedProjectID == projectID,
                   ScreenplayLiveDraftBridge.shared.draftOrigin.documentID == documentID,
+                  OfflineTalkRecoveryScope.sameBackend(backend, BackendAuthClient.resolvedBackendBaseURL()),
                   ScreenplayLiveDraftSyncService.shared.ownsEditor(self) else { return false }
             autosaveStatusText = ScreenplayDraftSaveRecoveryPresentationPolicy.unreadableQueueStatus
             errorText = ScreenplayDraftSaveRecoveryPresentationPolicy.unreadableQueueError
             return false
         }
-        guard authContextIsCurrent(context), selectedProjectID == projectID,
+        guard isCurrent?() ?? true, authContextIsCurrent(context), selectedProjectID == projectID,
               ScreenplayLiveDraftBridge.shared.draftOrigin.documentID == documentID,
+              OfflineTalkRecoveryScope.sameBackend(backend, BackendAuthClient.resolvedBackendBaseURL()),
               ScreenplayLiveDraftSyncService.shared.ownsEditor(self) else { return false }
         if errorText == ScreenplayDraftSaveRecoveryPresentationPolicy.unreadableQueueError { errorText = "" }
         guard let entry = pendingEntry,
@@ -1985,6 +2025,13 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 errorText = "The queued save belongs to a different document or backend. Its words are kept for recovery."
                 return false
             }
+            guard let restoredDocumentID = bridge.draftOrigin.documentID,
+                  let origin = entry.deliveryOrigin,
+                  restoredDocumentID.utf8.elementsEqual(origin.documentID.utf8) else {
+                errorText = "The queued document could not be confirmed. Its words are kept for recovery."
+                return false
+            }
+            onProvenAdoption?(restoredDocumentID)
         }
         isHydratingDraft = true
         studioWriteAnchors = entry.studioWriteAnchors
@@ -2033,6 +2080,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
     var debugIsDraftSaveInFlight: Bool {
         isDraftSaveInFlight
     }
+    var debugAfterDraftSaveClaim: (() -> Void)?
     #endif
 
     func selectProject(_ projectID: String) async {
@@ -2124,11 +2172,11 @@ final class ScreenplayStudioViewModel: ObservableObject {
         guard !cleanProjectID.isEmpty else { return false }
         guard fingerprint(for: text) != lastSavedDraftFingerprint else { return true }
         let owner = currentStudioAuthContext()
-        let result = localDraftRecoveryStore.saveInVacantRecoverySlot(
+        let result = secureRecoveryCopy(
             ownerUserId: owner.userID, projectId: cleanProjectID, draft: text,
             baseVersionId: latestVersionID, preferPreservedConflict: true)
         switch result {
-        case .present, .stored:
+        case .secured:
             if recoveryCandidate == nil {
                 surfaceRemainingRecovery(owner: owner, projectID: cleanProjectID)
             }
@@ -2455,6 +2503,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
             errorText = "Add at least a slugline, title, objective, or summary."
             return
         }
+
         isSaving = true
         defer { isSaving = false }
         errorText = ""
@@ -4462,6 +4511,37 @@ final class ScreenplayStudioViewModel: ObservableObject {
         )
     }
 
+    private func currentRecoveryOrigin(projectID: String) -> ScreenplayDraftSaveOrigin? {
+        if let recoveryOriginProvider { return recoveryOriginProvider(projectID) }
+        let bridge = ScreenplayLiveDraftBridge.shared
+        guard let verified = verifiedRecoveryContext, verified.projectID == projectID,
+              authContextIsCurrent(verified.owner), selectedProjectID == projectID,
+              bridge.draftOrigin.projectID == projectID,
+              bridge.draftOrigin.documentID == verified.origin.documentID,
+              verified.origin.permitsBackend(BackendAuthClient.resolvedBackendBaseURL()) else { return nil }
+        return verified.origin
+    }
+
+    private func currentRecoveryBackend(projectID: String) -> URL? {
+        currentRecoveryOrigin(projectID: projectID)?.backendURL
+    }
+
+    private func bindVerifiedRecoveryContext(project: BackendScreenplayProjectSummary, requestedID: String,
+        owner: ScreenplayStudioAuthContext, requestedBackend: URL, responseURL: URL?) {
+        guard let responseURL, project.id == requestedID, selectedProjectID == requestedID,
+              authContextIsCurrent(owner), OfflineTalkRecoveryScope.sameBackend(requestedBackend, responseURL),
+              OfflineTalkRecoveryScope.sameBackend(requestedBackend, BackendAuthClient.resolvedBackendBaseURL()),
+              let backend = try? ScreenplayInitialProjectMetadata.origin(responseURL) else { return }
+        let bridge = ScreenplayLiveDraftBridge.shared
+        guard bridge.draftOrigin.projectID == requestedID, let documentID = bridge.draftOrigin.documentID,
+              !documentID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        verifiedRecoveryContext = VerifiedRecoveryContext(owner: owner, projectID: requestedID,
+            origin: ScreenplayDraftSaveOrigin(documentID: documentID, backendURL: backend))
+        if let draft = ScreenplayProjectDraftRestorePolicy.preferredVersion(in: project)?.draft {
+            evaluateLocalDraftRecovery(projectId: requestedID, serverDraft: draft)
+        }
+    }
+
     private func recoverySlot(for candidate: LocalDraftRecoveryCandidate) -> ScreenplayLocalDraftRecoverySlot {
         candidate.isPreservedConflict ? .preservedConflict : .ordinary
     }
@@ -4469,18 +4549,60 @@ final class ScreenplayStudioViewModel: ObservableObject {
     private func recoveryCandidateIsCurrent(_ candidate: LocalDraftRecoveryCandidate) -> Bool {
         guard authContextIsCurrent(candidate.owner),
               ScreenplayProjectScopedState.matches(candidate.projectId, selectedProjectId: selectedProjectID) else { return false }
+        if let expected = candidate.overflowSnapshot {
+            guard let backend = currentRecoveryBackend(projectID: candidate.projectId),
+                  let expectedBackend = URL(string: expected.backendOrigin),
+                  OfflineTalkRecoveryScope.sameBackend(backend, expectedBackend),
+                  case let .present(current) = overflowRecoveryStore.load(
+                    ownerUserID: candidate.owner.userID, projectID: candidate.projectId,
+                    backendURL: backend, documentID: expected.documentID) else { return false }
+            return current.recordID == expected.recordID && current.contentDigest == expected.contentDigest
+        }
         return localDraftRecoveryStore.matchRecoverySlot(
             ownerUserId: candidate.owner.userID, projectId: candidate.projectId,
             slot: recoverySlot(for: candidate), draft: candidate.draft,
             baseVersionId: candidate.baseVersionId, savedAt: candidate.savedAt) == .matching
     }
 
+    private func recoveryReviewIdentity(_ candidate: LocalDraftRecoveryCandidate) -> RecoveryReviewIdentity {
+        RecoveryReviewIdentity(slot: candidate.overflowSnapshot != nil ? "overflow" : (candidate.isPreservedConflict ? "preserved" : "ordinary"),
+            draft: Data(candidate.draft.utf8), base: Data(candidate.baseVersionId.utf8),
+            savedAtBits: candidate.savedAt.bitPattern, recordID: candidate.overflowSnapshot?.recordID ?? "",
+            authenticatedDigest: candidate.overflowSnapshot?.contentDigest ?? "")
+    }
+
+    private func updateRecoveryReviewScope(owner: ScreenplayStudioAuthContext, projectID: String) {
+        if recoveryReviewOwner != owner || recoveryReviewProjectID != projectID {
+            reviewedRecoveryCopies.removeAll()
+            recoveryReviewOwner = owner
+            recoveryReviewProjectID = projectID
+        }
+    }
+
     /// Surface another stored copy without comparing it to, or clearing it for, the current page.
     private func surfaceRemainingRecovery(owner: ScreenplayStudioAuthContext, projectID: String,
-                                          excluding excluded: ScreenplayLocalDraftRecoverySlot? = nil) {
+                                          excluding excluded: ScreenplayLocalDraftRecoverySlot? = nil,
+                                          excludingOverflow: Bool = false) {
         recoveryCandidate = nil
-        guard authContextIsCurrent(owner), selectedProjectID == projectID,
-              let payload = localDraftRecoveryStore.payloads(ownerUserId: owner.userID)[projectID] else { return }
+        guard authContextIsCurrent(owner), selectedProjectID == projectID else { return }
+        updateRecoveryReviewScope(owner: owner, projectID: projectID)
+        if !excludingOverflow, let backend = currentRecoveryBackend(projectID: projectID) {
+            switch overflowRecoveryStore.discover(ownerUserID: owner.userID, projectID: projectID,
+                                                  backendURL: backend) {
+            case .present(let snapshot):
+                let candidate = LocalDraftRecoveryCandidate(owner: owner, projectId: projectID,
+                    draft: snapshot.draft, baseVersionId: snapshot.baseVersionID, savedAt: snapshot.savedAt,
+                    isPreservedConflict: false, overflowSnapshot: snapshot)
+                if !reviewedRecoveryCopies.contains(recoveryReviewIdentity(candidate)) {
+                    recoveryCandidate = candidate
+                    return
+                }
+            case .unconfirmed:
+                errorText = "An older recovery file could not be read and has been kept. Keep the current page open and export it before closing."
+            case .missing: break
+            }
+        }
+        guard let payload = localDraftRecoveryStore.payloads(ownerUserId: owner.userID)[projectID] else { return }
         for slot in [ScreenplayLocalDraftRecoverySlot.preservedConflict, .ordinary] where slot != excluded {
             let item: [String: Any]?
             switch slot {
@@ -4490,9 +4612,11 @@ final class ScreenplayStudioViewModel: ObservableObject {
             guard let item, item["dirty"] as? Bool == true,
                   let draft = item["draft"] as? String, let base = item["baseVersionId"] as? String,
                   let savedAt = item["savedAt"] as? TimeInterval else { continue }
-            recoveryCandidate = LocalDraftRecoveryCandidate(owner: owner, projectId: projectID,
+            let candidate = LocalDraftRecoveryCandidate(owner: owner, projectId: projectID,
                 draft: draft, baseVersionId: base, savedAt: savedAt,
                 isPreservedConflict: slot == .preservedConflict)
+            guard !reviewedRecoveryCopies.contains(recoveryReviewIdentity(candidate)) else { continue }
+            recoveryCandidate = candidate
             return
         }
     }
@@ -4506,17 +4630,20 @@ final class ScreenplayStudioViewModel: ObservableObject {
         if fountainDraft.utf8.elementsEqual(candidate.draft.utf8) {
             // The writer kept the page, not the older recovery base. Do not
             // alter the page, its version, save status, or the stored copy.
+            updateRecoveryReviewScope(owner: candidate.owner, projectID: candidate.projectId)
+            reviewedRecoveryCopies.insert(recoveryReviewIdentity(candidate))
             surfaceRemainingRecovery(owner: candidate.owner, projectID: candidate.projectId,
-                                     excluding: recoverySlot(for: candidate))
+                                     excluding: candidate.overflowSnapshot == nil ? recoverySlot(for: candidate) : nil,
+                                     excludingOverflow: candidate.overflowSnapshot != nil)
             return
         }
         let currentIsDirty = hasUnsavedDraftChanges || fingerprint(for: fountainDraft) != lastSavedDraftFingerprint
         if currentIsDirty && !fountainDraft.utf8.elementsEqual(candidate.draft.utf8) {
-            let preserved = localDraftRecoveryStore.saveInVacantRecoverySlot(
+            let preserved = secureRecoveryCopy(
                 ownerUserId: candidate.owner.userID, projectId: candidate.projectId,
                 draft: fountainDraft, baseVersionId: latestVersionID)
             switch preserved {
-            case .present, .stored: break
+            case .secured: break
             case .occupied, .unconfirmed:
                 errorText = "The current page could not be kept alongside the recovery copy. Export it before replacing it."
                 return
@@ -4525,13 +4652,18 @@ final class ScreenplayStudioViewModel: ObservableObject {
         isHydratingDraft = true
         fountainDraft = candidate.draft
         isHydratingDraft = false
-        if !candidate.baseVersionId.isEmpty { latestVersionID = candidate.baseVersionId }
+        // An unknown base remains unknown; adopting the displayed server base
+        // would give recovered words authority they have not established.
+        latestVersionID = candidate.baseVersionId
         syncLiveDraftBridgeProjectContext()
         hasUnsavedDraftChanges = fingerprint(for: candidate.draft) != lastSavedDraftFingerprint
         autosaveStatusText = "Recovered local draft"
         infoText = "Recovered your local draft. The recovery copy remains available."
+        updateRecoveryReviewScope(owner: candidate.owner, projectID: candidate.projectId)
+        reviewedRecoveryCopies.insert(recoveryReviewIdentity(candidate))
         surfaceRemainingRecovery(owner: candidate.owner, projectID: candidate.projectId,
-                                 excluding: recoverySlot(for: candidate))
+                                 excluding: candidate.overflowSnapshot == nil ? recoverySlot(for: candidate) : nil,
+                                 excludingOverflow: candidate.overflowSnapshot != nil)
     }
 
     private func discardSelectedRecoveryCopy() -> Bool {
@@ -4543,11 +4675,19 @@ final class ScreenplayStudioViewModel: ObservableObject {
             errorText = "This recovery copy changed or belongs to another session. Review the available copies again."
             return false
         }
-        let result = localDraftRecoveryStore.deleteRecoverySlotIfMatching(
-            ownerUserId: candidate.owner.userID, projectId: candidate.projectId,
-            slot: recoverySlot(for: candidate), draft: candidate.draft,
-            baseVersionId: candidate.baseVersionId, savedAt: candidate.savedAt)
-        guard result == .deleted else {
+        let deleted: Bool
+        if let snapshot = candidate.overflowSnapshot {
+            guard let backend = currentRecoveryBackend(projectID: candidate.projectId) else { return false }
+            deleted = overflowRecoveryStore.deleteIfMatching(ownerUserID: candidate.owner.userID,
+                projectID: candidate.projectId, backendURL: backend,
+                documentID: snapshot.documentID, expected: snapshot) == .deleted
+        } else {
+            deleted = localDraftRecoveryStore.deleteRecoverySlotIfMatching(
+                ownerUserId: candidate.owner.userID, projectId: candidate.projectId,
+                slot: recoverySlot(for: candidate), draft: candidate.draft,
+                baseVersionId: candidate.baseVersionId, savedAt: candidate.savedAt) == .deleted
+        }
+        guard deleted else {
             errorText = "The recovery copy could not be safely discarded. Your stored work was kept."
             return false
         }
@@ -5894,7 +6034,10 @@ final class ScreenplayStudioViewModel: ObservableObject {
         reportErrors: Bool = true,
         remoteRefresh: Bool = false
     ) async {
+        projectOutlineLoadGeneration &+= 1
+        let generation = projectOutlineLoadGeneration
         let authContext = currentStudioAuthContext()
+        let requestedBackend = BackendAuthClient.resolvedBackendBaseURL()
         let id = selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
         let documentID = ScreenplayLiveDraftBridge.shared.draftOrigin.documentID
         clearTransientProjectStateForSelectionChange(to: id)
@@ -5938,16 +6081,23 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 )
                 detailLoadedWithClientTokenOwner = shouldUseClientTokenOwner
             } catch BackendMemoryAPIError.server(let status, _) where shouldUseClientTokenOwner && status == 404 {
+                guard generation == projectOutlineLoadGeneration else { return }
                 detailResult = try await projectSelectionAPI.fetchScreenplayProject(
                     projectId: id,
                     includeDrafts: true,
                     versionLimit: 24
                 )
             }
-            guard authContextIsCurrent(authContext),
+            guard generation == projectOutlineLoadGeneration, authContextIsCurrent(authContext),
                   ScreenplayLiveDraftSyncService.shared.ownsEditor(self),
                   ScreenplayLiveDraftBridge.shared.draftOrigin.documentID == documentID,
-                  selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines) == id else {
+                  selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines) == id,
+                  OfflineTalkRecoveryScope.sameBackend(requestedBackend, BackendAuthClient.resolvedBackendBaseURL()) else {
+                return
+            }
+            guard let responseURL = detailResult.responseURL,
+                  OfflineTalkRecoveryScope.sameBackend(requestedBackend, responseURL) else {
+                if reportErrors { errorText = "The project response could not be verified. Your current page is kept." }
                 return
             }
             updateClientTokenOwnerContext(
@@ -5968,35 +6118,70 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 includeAuthToken: refreshedOwnerHeaders.includeAuthToken,
                 clientTokenOverride: refreshedOwnerHeaders.clientTokenOverride
             )
-            guard authContextIsCurrent(authContext),
+            guard generation == projectOutlineLoadGeneration, authContextIsCurrent(authContext),
                   ScreenplayLiveDraftSyncService.shared.ownsEditor(self),
                   ScreenplayLiveDraftBridge.shared.draftOrigin.documentID == documentID,
-                  selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines) == id else {
+                  selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines) == id,
+                  OfflineTalkRecoveryScope.sameBackend(requestedBackend, BackendAuthClient.resolvedBackendBaseURL()) else {
                 return
             }
-            if let project = detailResult.payload.project {
+            let verifiedOutlineResult: BackendReadResult<BackendScreenplayOutlineResponse>? = outlineResult.flatMap { result in
+                guard let url = result.responseURL, OfflineTalkRecoveryScope.sameBackend(requestedBackend, url),
+                      result.payload.projectId == id,
+                      result.payload.project.map({ $0.id == id }) ?? true else { return nil }
+                return result
+            }
+            if let project = detailResult.payload.project, project.id != id {
+                if reportErrors { errorText = "The project response did not match the selected project. Your current page is kept." }
+                return
+            }
+            errorText = ""
+            if let project = detailResult.payload.project, project.id == id {
                 selectedProject = project
                 selectedProjectID = project.id
                 upsertProject(project)
-                guard await hydrateDraftRestoringQueuedSaves(from: project) else { return }
+                var hydratedDocumentID: String?
+                guard await hydrateDraftRestoringQueuedSaves(from: project, expectedBackend: requestedBackend,
+                    isCurrent: { self.projectOutlineLoadGeneration == generation },
+                    onHydrated: { hydratedDocumentID = $0 }) else { return }
+                guard generation == projectOutlineLoadGeneration, authContextIsCurrent(authContext),
+                      ScreenplayLiveDraftSyncService.shared.ownsEditor(self),
+                      selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines) == id,
+                      ScreenplayLiveDraftBridge.shared.draftOrigin.documentID == (hydratedDocumentID ?? documentID),
+                      OfflineTalkRecoveryScope.sameBackend(requestedBackend, BackendAuthClient.resolvedBackendBaseURL()) else { return }
+                if hydratedDocumentID != nil {
+                    bindVerifiedRecoveryContext(project: project, requestedID: id, owner: authContext,
+                        requestedBackend: requestedBackend, responseURL: detailResult.responseURL)
+                }
                 hydrateCollaboration(from: project)
-            } else if let project = outlineResult?.payload.project {
+            } else if let project = verifiedOutlineResult?.payload.project, project.id == id {
                 selectedProject = project
                 selectedProjectID = project.id
                 upsertProject(project)
-                guard await hydrateDraftRestoringQueuedSaves(from: project) else { return }
+                var hydratedDocumentID: String?
+                guard await hydrateDraftRestoringQueuedSaves(from: project, expectedBackend: requestedBackend,
+                    isCurrent: { self.projectOutlineLoadGeneration == generation },
+                    onHydrated: { hydratedDocumentID = $0 }) else { return }
+                guard generation == projectOutlineLoadGeneration, authContextIsCurrent(authContext),
+                      ScreenplayLiveDraftSyncService.shared.ownsEditor(self),
+                      selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines) == id,
+                      ScreenplayLiveDraftBridge.shared.draftOrigin.documentID == (hydratedDocumentID ?? documentID),
+                      OfflineTalkRecoveryScope.sameBackend(requestedBackend, BackendAuthClient.resolvedBackendBaseURL()) else { return }
+                if hydratedDocumentID != nil {
+                    bindVerifiedRecoveryContext(project: project, requestedID: id, owner: authContext,
+                        requestedBackend: requestedBackend, responseURL: verifiedOutlineResult?.responseURL)
+                }
                 hydrateCollaboration(from: project)
             } else {
                 selectedProject = projects.first(where: { $0.id == id })
             }
             adoptCanonicalOutlineState(
-                outlineResult?.payload.outlineRevision,
-                outline: outlineResult?.payload.outline ?? detailResult.payload.project?.outline,
-                project: outlineResult?.payload.project ?? detailResult.payload.project,
+                verifiedOutlineResult?.payload.outlineRevision,
+                outline: verifiedOutlineResult?.payload.outline ?? detailResult.payload.project?.outline,
+                project: verifiedOutlineResult?.payload.project ?? detailResult.payload.project,
                 projectId: id
             )
             reconcileSceneSessionState(with: outline)
-            errorText = ""
             let refreshedVersion = latestVersionID.trimmingCharacters(in: .whitespacesAndNewlines)
             if remoteRefresh,
                conflictState == nil,
@@ -6012,10 +6197,11 @@ final class ScreenplayStudioViewModel: ObservableObject {
             await refreshOutlineMutationOutboxStatus()
             await resumeQueuedOutlineMutationsIfNeeded()
         } catch {
-            guard authContextIsCurrent(authContext),
+            guard generation == projectOutlineLoadGeneration, authContextIsCurrent(authContext),
                   ScreenplayLiveDraftSyncService.shared.ownsEditor(self),
                   ScreenplayLiveDraftBridge.shared.draftOrigin.documentID == documentID,
-                  selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines) == id else {
+                  selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines) == id,
+                  OfflineTalkRecoveryScope.sameBackend(requestedBackend, BackendAuthClient.resolvedBackendBaseURL()) else {
                 return
             }
             clearTransientProjectStateForSelectionChange(to: id)
@@ -6216,11 +6402,19 @@ final class ScreenplayStudioViewModel: ObservableObject {
     }
 
     @discardableResult
-    func hydrateDraftRestoringQueuedSaves(from project: BackendScreenplayProjectSummary) async -> Bool {
+    func hydrateDraftRestoringQueuedSaves(from project: BackendScreenplayProjectSummary,
+                                            expectedBackend: URL? = nil,
+                                            isCurrent: (() -> Bool)? = nil,
+                                            onHydrated: ((String?) -> Void)? = nil) async -> Bool {
         let context = currentStudioAuthContext()
-        guard project.id == selectedProjectID else { return false }
-        guard await restorePendingDraftSaveBeforeProjectHydration(serverProject: project) else { return false }
-        guard authContextIsCurrent(context), project.id == selectedProjectID else { return false }
+        func backendIsCurrent() -> Bool {
+            expectedBackend.map { OfflineTalkRecoveryScope.sameBackend($0, BackendAuthClient.resolvedBackendBaseURL()) } ?? true
+        }
+        guard project.id == selectedProjectID, backendIsCurrent(), isCurrent?() ?? true else { return false }
+        var restoredDocumentID: String?
+        guard await restorePendingDraftSaveBeforeProjectHydration(serverProject: project, isCurrent: isCurrent,
+            onProvenAdoption: { restoredDocumentID = $0 }) else { return false }
+        guard authContextIsCurrent(context), project.id == selectedProjectID, backendIsCurrent(), isCurrent?() ?? true else { return false }
         let declaredHead = (project.activeVersionId ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         let declaredLast = (project.lastVersionId ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         if !declaredHead.isEmpty || !declaredLast.isEmpty {
@@ -6229,7 +6423,10 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 return false
             }
         }
+        let priorAdoption = bridgeAdoptionGeneration
         hydrateDraft(from: project)
+        onHydrated?(bridgeAdoptionGeneration != priorAdoption
+            ? ScreenplayLiveDraftBridge.shared.draftOrigin.documentID : restoredDocumentID)
         return true
     }
 
@@ -6414,11 +6611,11 @@ final class ScreenplayStudioViewModel: ObservableObject {
         guard !normalized.isEmpty else {
             autosaveStatusText = hasUnsavedDraftChanges ? "Empty page - unsaved" : "Draft empty"
             if hasUnsavedDraftChanges, !selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                let result = localDraftRecoveryStore.saveIfOrdinaryVacantOrMatching(
+                let result = secureRecoveryCopy(
                     ownerUserId: authContext.userID, projectId: selectedProjectID,
                     draft: draft, baseVersionId: latestVersionID)
                 switch result {
-                case .present: break
+                case .secured: break
                 case .occupied: infoText = "Another recovery copy is stored. Export this page before closing or retry Save."
                 case .unconfirmed: infoText = "This page could not be secured locally. Keep it open and export it or retry Save."
                 }
@@ -6525,20 +6722,20 @@ final class ScreenplayStudioViewModel: ObservableObject {
         queuedDraftSaveCount = snapshot.activeCount
         parkedDraftSaveCount = snapshot.parkedCount
         guard !isSaving, conflictState == nil else { return }
-        if snapshot.activeCount > 0 {
-            autosaveStatusText = snapshot.activeCount == 1
-                ? "Queued locally - reconnecting"
-                : "\(snapshot.activeCount) saves queued locally"
-        } else if snapshot.parkedCount > 0 {
+        if snapshot.parkedCount > 0 {
             autosaveStatusText = snapshot.parkedCount == 1
                 ? "1 local save needs attention"
                 : "\(snapshot.parkedCount) local saves need attention"
+        } else if snapshot.activeCount > 0 {
+            autosaveStatusText = snapshot.activeCount == 1
+                ? "Queued locally - reconnecting"
+                : "\(snapshot.activeCount) saves queued locally"
         }
     }
 
     func resumeQueuedDraftSavesIfNeeded(force: Bool = false) async {
         guard !isPreparingConflictResolution, !isDraftSaveInFlight,
-              !isSaving,
+              !isSaving, ScreenplayLiveDraftSyncService.shared.ownsEditor(self),
               !isStreamingDraftPreviewActive else {
             return
         }
@@ -6548,19 +6745,27 @@ final class ScreenplayStudioViewModel: ObservableObject {
             await refreshDraftSaveOutboxStatus()
             return
         }
-        let ownerUserId = BackendAuthClient.currentAuthSessionState().user?.userId
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let context = currentStudioAuthContext()
+        let ownerUserId = context.userID
+        guard let deliveryOrigin = currentRecoveryOrigin(projectID: projectId) else {
+            await refreshDraftSaveOutboxStatus()
+            return
+        }
 
         isDraftSaveInFlight = true
         var completedCount = 0
         var acknowledged: (DraftSaveRequest, String, ScreenplayConfirmedDraftSave?)?
         var failed: DraftSaveRequest?
         while completedCount < 4 {
+            guard authContextIsCurrent(context), selectedProjectID == projectId,
+                  ScreenplayLiveDraftSyncService.shared.ownsEditor(self),
+                  currentRecoveryOrigin(projectID: projectId) == deliveryOrigin else { break }
             let entry: ScreenplayDraftSaveOutboxEntry?
             do {
                 entry = try await draftSaveOutbox.beginNext(
                     projectId: projectId,
                     ownerUserId: ownerUserId,
+                    deliveryOrigin: deliveryOrigin,
                     force: force
                 )
             } catch {
@@ -6568,8 +6773,21 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 break
             }
             guard let entry else { break }
+            guard authContextIsCurrent(context), selectedProjectID == projectId,
+                  ScreenplayLiveDraftSyncService.shared.ownsEditor(self),
+                  currentRecoveryOrigin(projectID: projectId) == deliveryOrigin else {
+                do { try await draftSaveOutbox.releaseInflightClaim(entry) }
+                catch { errorText = "A local save could not be returned to its queue. Its words remain stored." }
+                break
+            }
+            #if DEBUG
+            debugAfterDraftSaveClaim?()
+            #endif
             let currentContext = currentStudioAuthContext()
-            guard currentContext.userID == entry.ownerUserId.trimmingCharacters(in: .whitespacesAndNewlines) else {
+            guard ScreenplayStudioAuthContextPolicy.matches(expected: context, current: currentContext),
+                  currentContext.userID == entry.ownerUserId.trimmingCharacters(in: .whitespacesAndNewlines) else {
+                do { try await draftSaveOutbox.releaseInflightClaim(entry) }
+                catch { errorText = "A local save could not be returned to its queue. Its words remain stored." }
                 break
             }
             adoptQueuedDraftIntoUnchangedEditorIfNeeded(entry)
@@ -6596,6 +6814,13 @@ final class ScreenplayStudioViewModel: ObservableObject {
         isDraftSaveInFlight = false
         if let failed, let queued = pending {
             pending = await pendingDraftSaveAfterFailure(queued, after: failed)
+        }
+        if completedCount == 4, pending == nil, authContextIsCurrent(context),
+           currentRecoveryOrigin(projectID: projectId) == deliveryOrigin {
+            Task { @MainActor [weak self] in
+                await Task.yield()
+                await self?.resumeQueuedDraftSavesIfNeeded()
+            }
         }
         guard let pending else { return }
         // Restore the handoff from original50d04ae using the current immutable
@@ -6676,11 +6901,11 @@ final class ScreenplayStudioViewModel: ObservableObject {
             // The pending request can outlive the currently visible project.
             // Preserve its exact words without replacing another recovery copy.
             if authContextIsCurrent(request.authContext) {
-                let result = localDraftRecoveryStore.saveInVacantRecoverySlot(
+                let result = secureRecoveryCopy(
                     ownerUserId: request.ownerUserId, projectId: request.projectId,
-                    draft: request.draft, baseVersionId: request.baseVersionId)
+                    draft: request.draft, baseVersionId: request.baseVersionId, origin: request.deliveryOrigin)
                 switch result {
-                case .present, .stored: break
+                case .secured: break
                 case .occupied, .unconfirmed:
                     if selectedProjectID == request.projectId {
                         errorText = "This pending save could not be secured alongside existing recovery copies. Keep the page open and export it."
@@ -6696,6 +6921,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         pendingDraftSaveRequest = nil
         isDraftSaveInFlight = false
         if let pending { await dispatchDraftSaveRequest(pending) }
+        else { await resumeQueuedDraftSavesIfNeeded() }
     }
 
     private func dispatchOwnedDraftSaveRequest(_ request: DraftSaveRequest) async {
@@ -6715,7 +6941,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
 
         if (try? await draftSaveOutbox.hasActiveEntries(
                projectId: request.projectId,
-               ownerUserId: request.ownerUserId
+               ownerUserId: request.ownerUserId,
+               deliveryOrigin: request.deliveryOrigin
            )) == true {
             do {
                 guard try await draftSaveOutbox.enqueueUnlessRetiredByLoadServer(request.outboxEntry) else { return }
@@ -6857,25 +7084,6 @@ final class ScreenplayStudioViewModel: ObservableObject {
 
         guard authContextIsCurrent(request.authContext) else { return nil }
 
-        #if DEBUG
-        if IOThemRuntime.isRunningUITests,
-           request.source == "studio_conflict_resolve",
-           ProcessInfo.processInfo.arguments.contains("--ui-conflict-save-success") {
-            conflictState = nil
-            latestVersionID = "ui-local-version"
-            lastSavedDraftFingerprint = fingerprint(for: request.draft)
-            lastRevisionBaseDraft = request.draft
-            hasUnsavedDraftChanges = false
-            isManualDraftEditing = false
-            lastManualDraftEditAt = .distantPast
-            loadedDraftProjectID = request.projectId
-            autosaveStatusText = "Autosaved"
-            errorText = ""
-            infoText = "Local draft saved."
-            clearLocalDraftRecovery(projectId: request.projectId)
-            return completion("ui-local-version")
-        }
-        #endif
 
         shouldQueuePendingDraftSaveAfterFailure = false
         do {
@@ -6883,11 +7091,19 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 request.outboxEntry, continuingInflightID: continuingInflightID) else { return nil }
             switch delivery {
             case .deliver(let retained): request = DraftSaveRequest(entry: retained, authContext: request.authContext)
-            case .alreadyInflight:
+            case .alreadyInflight, .waiting:
                 await refreshDraftSaveOutboxStatus()
                 return .waitingForDelivery
-            case .parked:
+            case .parked(let held):
                 await refreshDraftSaveOutboxStatus()
+                if ownsCompletion() {
+                    autosaveStatusText = "Save needs attention"
+                    if await draftSaveOutbox.hasValidDeliveryScope(held) {
+                        errorText = "A local save needs attention before it can be sent. Your words remain on this device."
+                    } else {
+                        errorText = "This local save has no verified destination. Its words are kept for recovery and were not sent."
+                    }
+                }
                 return .needsDecision
             }
         } catch {
@@ -6906,27 +7122,49 @@ final class ScreenplayStudioViewModel: ObservableObject {
             return nil
         }
 
+        #if DEBUG
+        if IOThemRuntime.isRunningUITests,
+           request.source == "studio_conflict_resolve",
+           ProcessInfo.processInfo.arguments.contains("--ui-conflict-save-success"),
+           await draftSaveOutbox.hasValidDeliveryScope(request.outboxEntry) {
+            do { try await draftSaveOutbox.remove(id: request.id) }
+            catch { errorText = "The test save could not be retired."; return nil }
+            conflictState = nil
+            latestVersionID = "ui-local-version"
+            lastSavedDraftFingerprint = fingerprint(for: request.draft)
+            lastRevisionBaseDraft = request.draft
+            hasUnsavedDraftChanges = false
+            isManualDraftEditing = false
+            lastManualDraftEditAt = .distantPast
+            loadedDraftProjectID = request.projectId
+            autosaveStatusText = "Autosaved"
+            errorText = ""
+            infoText = "Local draft saved."
+            clearLocalDraftRecovery(projectId: request.projectId)
+            return completion("ui-local-version")
+        }
+        #endif
+
         isSaving = true
         defer { isSaving = false }
         do {
             guard authContextIsCurrent(request.authContext) else {
-                try? await draftSaveOutbox.markRetryable(
-                    id: request.id,
-                    error: "Account changed before save confirmation."
-                )
+                try? await draftSaveOutbox.releaseInflightClaim(request.outboxEntry)
                 return nil
             }
-            if let origin = request.deliveryOrigin {
-                let writeURL = await draftSaveAPI.baseURL()
-                var readURL = writeURL
-                if request.baseVersionId.isEmpty { readURL = await projectSelectionAPI.baseURL() }
-                guard origin.permitsBackend(BackendAuthClient.resolvedBackendBaseURL()),
-                      origin.permitsBackend(writeURL), origin.permitsBackend(readURL) else {
-                    throw BackendMemoryAPIError.server(status: 409, message: "The queued draft belongs to another backend. Its original words are kept for recovery.")
-                }
-                guard authContextIsCurrent(request.authContext), !Task.isCancelled else {
-                    throw BackendMemoryAPIError.server(status: 409, message: "auth_request_superseded")
-                }
+            guard let origin = request.deliveryOrigin,
+                  await draftSaveOutbox.hasValidDeliveryScope(request.outboxEntry) else {
+                throw BackendMemoryAPIError.server(status: 409, message: "This local save has no verified destination. Its words are kept for recovery.")
+            }
+            let writeURL = await draftSaveAPI.baseURL()
+            var readURL = writeURL
+            if request.baseVersionId.isEmpty { readURL = await projectSelectionAPI.baseURL() }
+            guard origin.permitsBackend(BackendAuthClient.resolvedBackendBaseURL()),
+                  origin.permitsBackend(writeURL), origin.permitsBackend(readURL) else {
+                throw BackendMemoryAPIError.server(status: 409, message: "The queued draft belongs to another backend. Its original words are kept for recovery.")
+            }
+            guard authContextIsCurrent(request.authContext), !Task.isCancelled else {
+                throw BackendMemoryAPIError.server(status: 409, message: "auth_request_superseded")
             }
 #if DEBUG
             if IOThemRuntime.isRunningUITests,
@@ -6934,11 +7172,19 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 throw URLError(.notConnectedToInternet)
             }
 #endif
-            switch try await emptyBaseDraftSavePreflight(for: request) {
+            let identity = draftSaveIdentityProvider()
+            guard !identity.userID.isEmpty,
+                  ScreenplayStudioAuthContextPolicy.matches(expected: request.authContext, current: identity.ownerContext),
+                  authContextIsCurrent(request.authContext), !Task.isCancelled else {
+                throw BackendMemoryAPIError.server(status: 409, message: "auth_request_superseded")
+            }
+            switch try await emptyBaseDraftSavePreflight(for: request, initiatingIdentity: identity) {
             case .notRequired, .versionlessProject:
                 break
             case .canonicalVersion(let serverVersion, let responseURL):
-                guard authContextIsCurrent(request.authContext) else { return nil }
+                guard authContextIsCurrent(request.authContext) else {
+                    throw BackendMemoryAPIError.server(status: 409, message: "auth_request_superseded")
+                }
                 guard !serverVersion.id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                     throw BackendMemoryAPIError.invalidResponse
                 }
@@ -6952,6 +7198,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
                         id: request.id,
                         serverVersionId: serverVersion.id
                     )
+                    retireAcknowledgedOverflow(request, confirmed: confirmed)
                     guard ownsCompletion() else {
                         reconcileAcknowledgedDraftRecovery(request, versionID: serverVersion.id)
                         return completion(serverVersion.id, confirmed: confirmed)
@@ -7000,6 +7247,9 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 return nil
             }
             let ownerHeaders = projectOwnerHeaderOptions(forProjectID: request.projectId)
+            guard authContextIsCurrent(request.authContext), !Task.isCancelled else {
+                throw BackendMemoryAPIError.server(status: 409, message: "auth_request_superseded")
+            }
             let baseVersionId = request.baseVersionId
             let result: BackendReadResult<BackendScreenplayVersionMutationResponse>
             do {
@@ -7018,11 +7268,14 @@ final class ScreenplayStudioViewModel: ObservableObject {
                     expectedBackendURL: request.deliveryOrigin?.backendURL,
                     includeUserIdentity: ownerHeaders.includeUserIdentity,
                     includeAuthToken: ownerHeaders.includeAuthToken,
-                    clientTokenOverride: ownerHeaders.clientTokenOverride
+                    clientTokenOverride: ownerHeaders.clientTokenOverride,
+                    initiatingIdentity: identity
                 )
             } catch BackendMemoryAPIError.server(let status, _)
                         where ownerHeaders.usesDebugClientTokenOwner && status == 404 {
-                guard authContextIsCurrent(request.authContext) else { return nil }
+                guard authContextIsCurrent(request.authContext) else {
+                    throw BackendMemoryAPIError.server(status: 409, message: "auth_request_superseded")
+                }
                 result = try await draftSaveAPI.upsertScreenplayProjectVersion(
                     projectId: request.projectId,
                     draft: request.draft,
@@ -7035,14 +7288,12 @@ final class ScreenplayStudioViewModel: ObservableObject {
                     baseVersionId: baseVersionId,
                     conflictStrategy: "reject_if_stale",
                     clientRequestId: request.id,
-                    expectedBackendURL: request.deliveryOrigin?.backendURL
+                    expectedBackendURL: request.deliveryOrigin?.backendURL,
+                    initiatingIdentity: identity
                 )
             }
             guard authContextIsCurrent(request.authContext) else {
-                try? await draftSaveOutbox.markRetryable(
-                    id: request.id,
-                    error: "Account changed before save confirmation."
-                )
+                try? await draftSaveOutbox.releaseInflightClaim(request.outboxEntry)
                 return nil
             }
             let conflictDetected = (result.payload.conflict ?? false)
@@ -7055,6 +7306,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 // This readback satisfies only this passive retry. It cannot
                 // delete parked drafts or rebase another document's save chain.
                 try await draftSaveOutbox.remove(id: request.id)
+                retireAcknowledgedOverflow(request, confirmed: evidence)
                 guard ownsCompletion() else {
                     reconcileAcknowledgedDraftRecovery(request, versionID: evidence.versionID)
                     return completion(evidence.versionID, confirmed: evidence)
@@ -7133,6 +7385,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
             } else {
                 try await draftSaveOutbox.markSucceeded(id: request.id, serverVersionId: nextVersionId)
             }
+            retireAcknowledgedOverflow(request, confirmed: confirmed)
             guard ownsCompletion() else {
                 reconcileAcknowledgedDraftRecovery(request, versionID: nextVersionId)
                 return completion(nextVersionId, confirmed: confirmed)
@@ -7205,10 +7458,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
             return completion(nextVersionId, confirmed: confirmed)
         } catch {
             guard authContextIsCurrent(request.authContext) else {
-                try? await draftSaveOutbox.markRetryable(
-                    id: request.id,
-                    error: "Account changed before save confirmation."
-                )
+                try? await draftSaveOutbox.releaseInflightClaim(request.outboxEntry)
                 return nil
             }
             let retryable = ScreenplayDraftSaveRetryPolicy.shouldRetry(error)
@@ -7239,6 +7489,24 @@ final class ScreenplayStudioViewModel: ObservableObject {
         }
     }
 
+    func retireAcknowledgedOverflow(_ request: DraftSaveRequest, confirmed: ScreenplayConfirmedDraftSave?) {
+        guard let confirmed, authContextIsCurrent(request.authContext), confirmed.owner == request.authContext,
+              confirmed.requestID == request.id, confirmed.projectID == request.projectId,
+              confirmed.draft.utf8.elementsEqual(request.draft.utf8),
+              let origin = request.deliveryOrigin, origin.documentID == confirmed.documentID,
+              origin.permitsBackend(confirmed.backendURL),
+              case let .present(snapshot) = overflowRecoveryStore.load(ownerUserID: request.ownerUserId,
+                projectID: request.projectId, backendURL: origin.backendURL, documentID: origin.documentID),
+              snapshot.draft.utf8.elementsEqual(request.draft.utf8),
+              snapshot.baseVersionID.utf8.elementsEqual(request.baseVersionId.utf8),
+              overflowRecoveryStore.deleteIfMatching(ownerUserID: request.ownerUserId, projectID: request.projectId,
+                backendURL: origin.backendURL, documentID: origin.documentID, expected: snapshot) == .deleted else { return }
+        if recoveryCandidate?.overflowSnapshot?.recordID == snapshot.recordID,
+           selectedProjectID == request.projectId, authContextIsCurrent(request.authContext) {
+            surfaceRemainingRecovery(owner: request.authContext, projectID: request.projectId)
+        }
+    }
+
     private func reconcileAcknowledgedDraftRecovery(_ request: DraftSaveRequest, versionID: String) {
         let payload = localDraftRecoveryStore.payloads(ownerUserId: request.ownerUserId)[request.projectId]
         guard let keptDraft = payload?["draft"] as? String,
@@ -7251,7 +7519,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
     }
 
     private func emptyBaseDraftSavePreflight(
-        for request: DraftSaveRequest
+        for request: DraftSaveRequest,
+        initiatingIdentity identity: BackendAuthRequestIdentity
     ) async throws -> EmptyBaseDraftSavePreflightResult {
         guard request.baseVersionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return .notRequired
@@ -7269,7 +7538,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 versionLimit: 1,
                 includeUserIdentity: ownerHeaders.includeUserIdentity,
                 includeAuthToken: ownerHeaders.includeAuthToken,
-                clientTokenOverride: ownerHeaders.clientTokenOverride
+                clientTokenOverride: ownerHeaders.clientTokenOverride,
+                initiatingIdentity: identity
             )
         } catch BackendMemoryAPIError.server(let status, _)
                     where ownerHeaders.usesDebugClientTokenOwner && status == 404 {
@@ -7279,7 +7549,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
             detailResult = try await projectSelectionAPI.fetchScreenplayProject(
                 projectId: request.projectId,
                 includeDrafts: true,
-                versionLimit: 1
+                versionLimit: 1,
+                initiatingIdentity: identity
             )
         }
         guard authContextIsCurrent(request.authContext) else {
@@ -7518,8 +7789,10 @@ final class ScreenplayStudioViewModel: ObservableObject {
     private func adoptLoadedDraftIntoBridge(owner: ScreenplayStudioAuthContext) {
         guard ScreenplayLiveDraftSyncService.shared.ownsEditor(self),
               loadedDraftProjectID == selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines) else { return }
-        ScreenplayLiveDraftBridge.shared.adoptLoadedProjectDraft(fountainDraft, projectID: loadedDraftProjectID,
-            versionID: latestVersionID, owner: owner)
+        if ScreenplayLiveDraftBridge.shared.adoptLoadedProjectDraft(fountainDraft, projectID: loadedDraftProjectID,
+            versionID: latestVersionID, owner: owner) {
+            bridgeAdoptionGeneration &+= 1
+        }
     }
 
     @discardableResult
@@ -7629,21 +7902,77 @@ final class ScreenplayStudioViewModel: ObservableObject {
             recoveryCandidate = nil
             return
         }
+        let owner = currentStudioAuthContext()
+        updateRecoveryReviewScope(owner: owner, projectID: normalizedProjectId)
+        if let backend = currentRecoveryBackend(projectID: normalizedProjectId) {
+        switch overflowRecoveryStore.discover(ownerUserID: owner.userID, projectID: normalizedProjectId,
+                                              backendURL: backend) {
+        case .present(let snapshot):
+            let candidate = LocalDraftRecoveryCandidate(owner: owner, projectId: normalizedProjectId,
+                draft: snapshot.draft, baseVersionId: snapshot.baseVersionID, savedAt: snapshot.savedAt,
+                isPreservedConflict: false, overflowSnapshot: snapshot)
+            if !reviewedRecoveryCopies.contains(recoveryReviewIdentity(candidate)) {
+                recoveryCandidate = candidate
+                return
+            }
+        case .unconfirmed:
+            errorText = "An older recovery file could not be read and has been kept. Keep the current page open and export it before closing."
+        case .missing: break
+        }
+        }
         guard let snapshot = localDraftRecoveryStore.recoverySnapshot(
-            ownerUserId: currentStudioAuthContext().userID,
+            ownerUserId: owner.userID,
             projectId: normalizedProjectId,
             serverDraft: serverDraft
         ) else {
             recoveryCandidate = nil
             return
         }
-        recoveryCandidate = LocalDraftRecoveryCandidate(
-            owner: currentStudioAuthContext(), projectId: snapshot.projectId,
-            draft: snapshot.draft,
-            baseVersionId: snapshot.baseVersionId,
-            savedAt: snapshot.savedAt,
-            isPreservedConflict: snapshot.isPreservedConflict
-        )
+        let candidate = LocalDraftRecoveryCandidate(
+            owner: owner, projectId: snapshot.projectId, draft: snapshot.draft,
+            baseVersionId: snapshot.baseVersionId, savedAt: snapshot.savedAt,
+            isPreservedConflict: snapshot.isPreservedConflict)
+        if reviewedRecoveryCopies.contains(recoveryReviewIdentity(candidate)) {
+            surfaceRemainingRecovery(owner: owner, projectID: normalizedProjectId)
+        } else {
+            recoveryCandidate = candidate
+        }
+    }
+
+    private enum SecureRecoveryResult { case secured, occupied, unconfirmed }
+
+    private func secureRecoveryCopy(ownerUserId: String, projectId: String, draft: String,
+                                    baseVersionId: String, savedAt: TimeInterval = Date().timeIntervalSince1970,
+                                    preferPreservedConflict: Bool = false,
+                                    origin: ScreenplayDraftSaveOrigin? = nil) -> SecureRecoveryResult {
+        let result = localDraftRecoveryStore.saveInVacantRecoverySlot(ownerUserId: ownerUserId,
+            projectId: projectId, draft: draft, baseVersionId: baseVersionId, savedAt: savedAt,
+            preferPreservedConflict: preferPreservedConflict)
+        switch result {
+        case .present, .stored: return .secured
+        case .unconfirmed: return .unconfirmed
+        case .occupied:
+            guard let scope = origin ?? currentRecoveryOrigin(projectID: projectId) else { return .unconfirmed }
+            switch overflowRecoveryStore.saveIfVacant(ownerUserID: ownerUserId, projectID: projectId,
+                backendURL: scope.backendURL, documentID: scope.documentID,
+                draft: draft, baseVersionID: baseVersionId, savedAt: savedAt) {
+            case .present, .stored: return .secured
+            case .occupied(let existing):
+                // A reviewed copy can protect the same exact page even when
+                // reopening the project created a new local document ID.
+                let owner = currentStudioAuthContext()
+                let reviewed = LocalDraftRecoveryCandidate(owner: owner, projectId: projectId,
+                    draft: existing.draft, baseVersionId: existing.baseVersionID, savedAt: existing.savedAt,
+                    isPreservedConflict: false, overflowSnapshot: existing)
+                if owner.userID == ownerUserId, recoveryReviewOwner == owner,
+                   recoveryReviewProjectID == projectId,
+                   reviewedRecoveryCopies.contains(recoveryReviewIdentity(reviewed)),
+                   existing.draft.utf8.elementsEqual(draft.utf8),
+                   existing.baseVersionID.utf8.elementsEqual(baseVersionId.utf8) { return .secured }
+                return .occupied
+            case .unconfirmed: return .unconfirmed
+            }
+        }
     }
 
     private func persistLocalDraftRecovery(
@@ -7662,11 +7991,11 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 return
             }
             if dirty {
-                let result = localDraftRecoveryStore.saveInVacantRecoverySlot(
+                let result = secureRecoveryCopy(
                     ownerUserId: candidate.owner.userID, projectId: normalizedProjectId,
                     draft: draft, baseVersionId: baseVersionId, savedAt: savedAt)
                 switch result {
-                case .present, .stored: break
+                case .secured: break
                 case .occupied: infoText = "Other recovery copies are stored. Export this page before closing or retry Save."
                 case .unconfirmed: infoText = "This page could not be secured locally. Keep it open and export it or retry Save."
                 }
@@ -7719,7 +8048,13 @@ final class ScreenplayStudioViewModel: ObservableObject {
         )
         // Keep the visible decision tied to a real stored copy; another page
         // may have been stored in the other vacant slot, or neither slot was free.
-        if let selectedRecovery { return selectedRecovery }
+        if let selectedRecovery {
+            guard recoveryCandidateIsCurrent(selectedRecovery) else {
+                errorText = "A recovery copy changed. Reopen the project before replacing it."
+                return nil
+            }
+            return selectedRecovery
+        }
         let candidate = LocalDraftRecoveryCandidate(
             owner: currentStudioAuthContext(), projectId: normalizedProjectId,
             draft: draft,
@@ -7727,6 +8062,10 @@ final class ScreenplayStudioViewModel: ObservableObject {
             savedAt: savedAt,
             isPreservedConflict: false
         )
+        guard recoveryCandidateIsCurrent(candidate) else {
+            infoText = "This page could not be secured locally. Keep it open and export it or retry Save."
+            return nil
+        }
         if surfaceCandidate {
             recoveryCandidate = candidate
         }

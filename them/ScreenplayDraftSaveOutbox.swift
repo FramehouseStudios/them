@@ -245,6 +245,7 @@ nonisolated private struct ScreenplayDraftSaveOutboxManifest: Codable {
 nonisolated enum ScreenplayDraftSaveDelivery {
     case deliver(ScreenplayDraftSaveOutboxEntry)
     case alreadyInflight(ScreenplayDraftSaveOutboxEntry)
+    case waiting(ScreenplayDraftSaveOutboxEntry)
     case parked(ScreenplayDraftSaveOutboxEntry)
 }
 
@@ -423,6 +424,24 @@ actor ScreenplayDraftSaveOutbox {
     func beginDelivery(_ entry: ScreenplayDraftSaveOutboxEntry,
         continuingInflightID: String? = nil) throws -> ScreenplayDraftSaveDelivery {
         let retained = try enqueueForDelivery(entry)
+        // Older rows without a document/backend origin are kept but may not
+        // be delivered under whichever backend is currently selected.
+        if retained.initialization == nil && !hasValidDeliveryScope(retained) { return .parked(retained) }
+        let blockedByConflict = retained.initialization == nil &&
+            (hasUnscopedConflict(projectId: retained.projectId, ownerUserId: retained.ownerUserId) ||
+             hasBlockingScopedConflict(for: retained))
+        let waitingForSave = retained.initialization == nil && hasEarlierActiveSave(for: retained)
+        if blockedByConflict || waitingForSave {
+            if retained.status == .inflight, continuingInflightID == retained.id,
+               let index = entries.firstIndex(where: { $0.id == retained.id }) {
+                let previous = entries
+                entries[index].status = .pending
+                do { try persist() } catch { entries = previous; throw error }
+                publishSnapshot()
+                return blockedByConflict ? .parked(entries[index]) : .waiting(entries[index])
+            }
+            return blockedByConflict ? .parked(retained) : .waiting(retained)
+        }
         if retained.status == .parked { return .parked(retained) }
         if retained.status == .inflight {
             return continuingInflightID == retained.id && entry.id == retained.id
@@ -446,6 +465,7 @@ actor ScreenplayDraftSaveOutbox {
     func beginNext(
         projectId: String,
         ownerUserId: String,
+        deliveryOrigin: ScreenplayDraftSaveOrigin? = nil,
         now: Date = Date(),
         force: Bool = false
     ) throws -> ScreenplayDraftSaveOutboxEntry? {
@@ -453,6 +473,9 @@ actor ScreenplayDraftSaveOutbox {
         let cleanProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
         let cleanOwnerUserId = ownerUserId.trimmingCharacters(in: .whitespacesAndNewlines)
         let nowSeconds = now.timeIntervalSince1970
+        // Check the whole queue before claiming: an unknown-origin conflict may
+        // be newer than the first pending request and still blocks publication.
+        if hasUnscopedConflict(projectId: cleanProjectId, ownerUserId: cleanOwnerUserId) { return nil }
         var nextIndex: Int?
         var blockingConflicts: [ScreenplayDraftSaveOutboxEntry] = []
         for index in entries.indices {
@@ -460,15 +483,23 @@ actor ScreenplayDraftSaveOutbox {
             guard candidate.projectId == cleanProjectId,
                   candidate.ownerUserId == cleanOwnerUserId,
                   candidate.initialization == nil else { continue }
+            if hasValidDeliveryScope(candidate), let deliveryOrigin,
+               candidate.deliveryOrigin != deliveryOrigin { continue }
             if candidate.status == .parked && candidate.lastError == Self.conflictReason {
+                // An unscoped conflict cannot authorize a replacement, but it
+                // must still fence later writes until its words are recovered.
+                guard hasValidDeliveryScope(candidate) else { return nil }
                 blockingConflicts.append(candidate)
                 continue
             }
+            if !hasValidDeliveryScope(candidate) { continue }
+            if hasEarlierActiveSave(for: candidate) { continue }
             guard candidate.status == .pending,
                   force || candidate.nextAttemptAt <= nowSeconds else {
                 return nil
             }
             guard blockingConflicts.allSatisfy({ conflict in
+                conflict.deliveryOrigin != candidate.deliveryOrigin ||
                 candidate.supersededConflictRequests.contains { reference in
                     conflictReference(reference, matches: conflict)
                 }
@@ -489,6 +520,18 @@ actor ScreenplayDraftSaveOutbox {
         return entries[index]
     }
 
+    /// A context change after claiming must not strand the exact durable row.
+    func releaseInflightClaim(_ request: ScreenplayDraftSaveOutboxEntry) throws {
+        try loadIfNeeded()
+        guard let index = entries.firstIndex(where: { $0.id == request.id }),
+              entries[index].status == .inflight,
+              sameImmutableRequest(entries[index], request) else { return }
+        let previous = entries
+        entries[index].status = .pending
+        do { try persist() } catch { entries = previous; throw error }
+        publishSnapshot()
+    }
+
     /// Clearing a page must not strand any pending, inflight, parked or setup save.
     func hasUnresolvedEntries(projectId: String, ownerUserId: String) throws -> Bool {
         try loadIfNeeded()
@@ -500,13 +543,16 @@ actor ScreenplayDraftSaveOutbox {
         }
     }
 
-    func hasActiveEntries(projectId: String, ownerUserId: String) throws -> Bool {
+    func hasActiveEntries(projectId: String, ownerUserId: String,
+                          deliveryOrigin: ScreenplayDraftSaveOrigin? = nil) throws -> Bool {
         try loadIfNeeded()
         let cleanProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
         let cleanOwnerUserId = ownerUserId.trimmingCharacters(in: .whitespacesAndNewlines)
         return entries.contains { entry in
             entry.projectId == cleanProjectId &&
                 entry.ownerUserId == cleanOwnerUserId &&
+                (entry.initialization != nil || hasValidDeliveryScope(entry)) &&
+                (deliveryOrigin == nil || entry.initialization != nil || entry.deliveryOrigin == deliveryOrigin) &&
                 (entry.status == .pending || entry.status == .inflight)
         }
     }
@@ -1137,7 +1183,7 @@ actor ScreenplayDraftSaveOutbox {
         let cleanOwnerUserId = ownerUserId.trimmingCharacters(in: .whitespacesAndNewlines)
         return entries.first { entry in
             entry.projectId == cleanProjectId && entry.ownerUserId == cleanOwnerUserId && entry.initialization == nil &&
-                (entry.status == .pending || entry.status == .inflight)
+                hasValidDeliveryScope(entry) && (entry.status == .pending || entry.status == .inflight)
         }
     }
 
@@ -1185,7 +1231,8 @@ actor ScreenplayDraftSaveOutbox {
         var restoredEntries: [ScreenplayDraftSaveOutboxEntry] = []
         var restoredMarkers: [ScreenplayDraftSaveOutboxEntry] = []
         for entry in decodedEntries {
-            if isRetirementMarkerCandidate(entry) {
+            if isRetirementMarkerLike(entry) {
+                guard isRetirementMarkerCandidate(entry) else { throw BackendMemoryAPIError.invalidResponse }
                 var marker = try hydratedRetirementMarker(entry)
                 marker.status = .parked
                 marker.nextAttemptAt = 0
@@ -1265,6 +1312,43 @@ actor ScreenplayDraftSaveOutbox {
               origin == deliveryOrigin.backendURL else {
             throw BackendMemoryAPIError.invalidResponse
         }
+    }
+
+    private func hasEarlierActiveSave(for candidate: ScreenplayDraftSaveOutboxEntry) -> Bool {
+        entries.contains { prior in
+            prior.id != candidate.id && prior.ownerUserId == candidate.ownerUserId &&
+            prior.projectId == candidate.projectId && prior.initialization == nil &&
+            prior.deliveryOrigin == candidate.deliveryOrigin && hasValidDeliveryScope(prior) &&
+            (prior.status == .inflight || (prior.status == .pending &&
+             (prior.createdAt < candidate.createdAt ||
+              (prior.createdAt == candidate.createdAt && prior.id < candidate.id))))
+        }
+    }
+
+    private func hasBlockingScopedConflict(for candidate: ScreenplayDraftSaveOutboxEntry) -> Bool {
+        entries.contains { conflict in
+            guard conflict.id != candidate.id, conflict.ownerUserId == candidate.ownerUserId,
+                  conflict.projectId == candidate.projectId, conflict.initialization == nil,
+                  conflict.status == .parked, conflict.lastError == Self.conflictReason,
+                  hasValidDeliveryScope(conflict), conflict.deliveryOrigin == candidate.deliveryOrigin,
+                  (conflict.createdAt < candidate.createdAt ||
+                   (conflict.createdAt == candidate.createdAt && conflict.id < candidate.id)) else { return false }
+            return !candidate.supersededConflictRequests.contains { conflictReference($0, matches: conflict) }
+        }
+    }
+
+    private func hasUnscopedConflict(projectId: String, ownerUserId: String) -> Bool {
+        entries.contains { conflict in
+            conflict.ownerUserId == ownerUserId && conflict.projectId == projectId &&
+            conflict.initialization == nil && conflict.status == .parked &&
+            conflict.lastError == Self.conflictReason && !hasValidDeliveryScope(conflict)
+        }
+    }
+
+    func hasValidDeliveryScope(_ entry: ScreenplayDraftSaveOutboxEntry) -> Bool {
+        guard entry.initialization == nil, let origin = entry.deliveryOrigin else { return false }
+        return (try? validateScope(projectId: entry.projectId, ownerUserId: entry.ownerUserId,
+                                   deliveryOrigin: origin)) != nil
     }
 
     // Parking retains words; it does not authorize later destructive retirement.
@@ -1353,6 +1437,12 @@ actor ScreenplayDraftSaveOutbox {
         }
         try validateScope(projectId: retirement.projectId, ownerUserId: retirement.ownerUserId,
                           deliveryOrigin: retirement.deliveryOrigin)
+    }
+
+    private func isRetirementMarkerLike(_ entry: ScreenplayDraftSaveOutboxEntry) -> Bool {
+        entry.projectId == Self.retirementProjectID || entry.ownerUserId == Self.retirementOwnerID ||
+            entry.source == Self.retirementSource || entry.notes.hasPrefix(Self.retirementNotesPrefix) ||
+            entry.notes.hasPrefix(Self.legacyRetirementNotesPrefix) || entry.loadServerRetirement != nil
     }
 
     private func isRetirementMarkerCandidate(_ entry: ScreenplayDraftSaveOutboxEntry) -> Bool {
@@ -1645,9 +1735,9 @@ actor ScreenplayDraftSaveOutbox {
     ) -> ScreenplayDraftSaveOutboxSnapshot {
         let explicitError = lastError.trimmingCharacters(in: .whitespacesAndNewlines)
         return ScreenplayDraftSaveOutboxSnapshot(
-            pendingCount: entries.filter { $0.status == .pending }.count,
-            inflightCount: entries.filter { $0.status == .inflight }.count,
-            parkedCount: entries.filter { $0.status == .parked }.count,
+            pendingCount: entries.filter { $0.status == .pending && ($0.initialization != nil || hasValidDeliveryScope($0)) }.count,
+            inflightCount: entries.filter { $0.status == .inflight && ($0.initialization != nil || hasValidDeliveryScope($0)) }.count,
+            parkedCount: entries.filter { $0.status == .parked || ($0.initialization == nil && !hasValidDeliveryScope($0)) }.count,
             lastError: explicitError.isEmpty
                 ? entries.last(where: { !$0.lastError.isEmpty })?.lastError ?? ""
                 : explicitError,

@@ -377,7 +377,10 @@ struct ScreenplayStudioScreen: View {
             .onReceive(
                 NotificationCenter.default.publisher(for: .themScreenplayDraftSaveOutboxUpdated)
             ) { _ in
-                Task { await vm.refreshDraftSaveOutboxStatus() }
+                Task {
+                    await vm.refreshDraftSaveOutboxStatus()
+                    await vm.resumeQueuedDraftSavesIfNeeded()
+                }
             }
             .onReceive(
                 NotificationCenter.default.publisher(for: .themScreenplayDraftSaveOutboxRetryRequested)
@@ -9086,7 +9089,9 @@ Current draft version:
             title: recoveryAlreadyOnPage ? "Recovery copy matches page" : "Unsaved local draft found",
             message: recoveryAlreadyOnPage
                 ? "This recovery copy matches the current page. Keep it or discard the copy."
-                : "Saved \(savedText). Recover it or keep the current page.",
+                : recovery.overflowSnapshot != nil
+                    ? "A newer page was kept separately while earlier recovery copies wait. Recover it or keep the current page."
+                    : "Saved \(savedText). Recover it or keep the current page.",
             hint: recoveryAlreadyOnPage
                 ? "Press 1 to keep the current page or 2 to discard the recovery copy."
                 : "Press 1 to recover local or 2 to keep the current page.",

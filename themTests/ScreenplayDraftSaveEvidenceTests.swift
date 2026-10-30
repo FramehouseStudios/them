@@ -345,6 +345,37 @@ final class ScreenplayDraftSaveEvidenceTests: XCTestCase {
             projectID: entry.projectId, responseURL: backend, owner: owner, currentOwner: owner)
     }
 
+    @MainActor
+    func testOverflowRetirementRequiresExactConfirmedOriginBaseAndBytes() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let overflow = ScreenplayRecoveryOverflowStore(rootDirectory: root)
+        let origin = ScreenplayDraftSaveOrigin(documentID: "document-a", backendURL: backend)
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: .init(), overflowRecoveryStore: overflow,
+            recoveryOriginProvider: { _ in origin }, studioAuthContextProvider: { self.owner })
+        let requested = entry()
+        let evidence = try XCTUnwrap(ordinary(requested, version: version(requested)))
+        guard case .stored = overflow.saveIfVacant(ownerUserID: owner.userID, projectID: requested.projectId,
+            backendURL: backend, documentID: origin.documentID, draft: raw, baseVersionID: requested.baseVersionId) else {
+            return XCTFail("Could not seed overflow")
+        }
+        let request = ScreenplayStudioViewModel.DraftSaveRequest(entry: requested, authContext: owner)
+        model.retireAcknowledgedOverflow(request, confirmed: nil)
+        var wrong = requested
+        wrong.baseVersionId = "different-base"
+        model.retireAcknowledgedOverflow(.init(entry: wrong, authContext: owner), confirmed: evidence)
+        wrong = requested
+        wrong.deliveryOrigin = .init(documentID: "document-b", backendURL: backend)
+        model.retireAcknowledgedOverflow(.init(entry: wrong, authContext: owner), confirmed: evidence)
+        guard case .present = overflow.load(ownerUserID: owner.userID, projectID: requested.projectId,
+            backendURL: backend, documentID: origin.documentID) else {
+            return XCTFail("Unproven acknowledgement must retain overflow")
+        }
+        model.retireAcknowledgedOverflow(request, confirmed: evidence)
+        XCTAssertEqual(overflow.load(ownerUserID: owner.userID, projectID: requested.projectId,
+            backendURL: backend, documentID: origin.documentID), .missing)
+    }
+
     private func entry(id: String = "save-a", source: String = "studio_manual", notes: String = "") -> ScreenplayDraftSaveOutboxEntry {
         .init(id: id, projectId: "project-a", ownerUserId: owner.userID, draft: raw, title: "A", phase: "scene_draft",
             notes: notes, source: source, studioWriteAnchors: [], screenplayBindings: [], baseVersionId: "base-a",
