@@ -486,6 +486,10 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
         try await queue.enqueue(entry)
         let retainedCandidate = try await queue.retainConflict(entry)
         let retained = try XCTUnwrap(retainedCandidate)
+        var later = replacingOwner(of: makeEntry(id: "later-pending", draft: "Later queued words",
+            createdAt: 200), with: owner.userID)
+        later.deliveryOrigin = entry.deliveryOrigin
+        try await queue.enqueue(later)
 
         let suite = "them.conflict-relaunch-same.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
@@ -511,7 +515,60 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
         XCTAssertEqual(bridge.draftOrigin.documentID, entry.deliveryOrigin?.documentID)
         XCTAssertTrue(model.hasUnsavedDraftChanges)
         let rows = try await queue.entriesForTesting()
-        XCTAssertEqual(rows.first?.status, .parked)
+        XCTAssertEqual(rows.first(where: { $0.id == entry.id })?.status, .parked)
+        XCTAssertEqual(rows.first(where: { $0.id == later.id })?.status, .pending)
+        XCTAssertEqual(rows.first(where: { $0.id == later.id }).map { Data($0.draft.utf8) },
+            Data(later.draft.utf8))
+    }
+
+    @MainActor
+    func testRelaunchCrossBackendConflictBlocksPendingHydrationWithoutRelabeling() async throws {
+        let restoreOwner = try installAuthenticatedFixtureOwner()
+        defer { restoreOwner() }
+        let owner = ScreenplayStudioAuthContext.current()
+        let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let conflicted = "Other backend conflict words"
+        var conflict = replacingOwner(of: makeEntry(id: "other-backend-conflict", draft: conflicted),
+            with: owner.userID)
+        conflict.deliveryOrigin = .init(documentID: "other-backend-document",
+            backendURL: URL(string: "https://cross-backend.invalid")!)
+        try await queue.enqueue(conflict)
+        _ = try await queue.retainConflict(conflict)
+
+        var pending = replacingOwner(of: makeEntry(id: "current-backend-pending",
+            draft: "Current backend pending words", createdAt: 200), with: owner.userID)
+        pending.deliveryOrigin = .init(documentID: "current-backend-document",
+            backendURL: BackendAuthClient.resolvedBackendBaseURL())
+        try await queue.enqueue(pending)
+        let bridge = ScreenplayLiveDraftBridge.shared
+        XCTAssertTrue(bridge.adoptLoadedProjectDraft(pending.draft, projectID: pending.projectId,
+            versionID: pending.baseVersionId, owner: owner, queuedEntry: pending))
+
+        let suite = "them.conflict-relaunch-cross-backend.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let recovery = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "recovery")
+        recovery.save(ownerUserId: owner.userID, projectId: conflict.projectId, draft: conflicted,
+            baseVersionId: conflict.baseVersionId, dirty: true)
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: recovery, draftSaveOutbox: queue)
+        model.autosaveEnabled = false
+        model.selectedProjectID = conflict.projectId
+        ScreenplayLiveDraftSyncService.shared.attach(to: model)
+        let project = try JSONDecoder().decode(BackendScreenplayProjectSummary.self,
+            from: JSONSerialization.data(withJSONObject: ["id": conflict.projectId, "title": conflict.title,
+                "activeVersionId": "server-v2", "versions": [["id": "server-v2",
+                    "projectId": conflict.projectId, "draft": "Server words"]]]))
+
+        let applied = await model.hydrateDraftRestoringQueuedSaves(from: project)
+
+        XCTAssertFalse(applied)
+        XCTAssertNil(model.conflictState)
+        XCTAssertEqual(bridge.draftOrigin.documentID, pending.deliveryOrigin?.documentID)
+        XCTAssertEqual(Data(bridge.draftText.utf8), Data(pending.draft.utf8))
+        XCTAssertTrue(model.errorText.contains("backend"))
+        let rows = try await queue.entriesForTesting()
+        XCTAssertEqual(rows.first(where: { $0.id == conflict.id })?.status, .parked)
+        XCTAssertEqual(rows.first(where: { $0.id == pending.id })?.status, .pending)
     }
 
     @MainActor

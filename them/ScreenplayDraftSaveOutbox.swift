@@ -234,6 +234,11 @@ nonisolated struct ScreenplayDraftSaveOutboxSnapshot: Equatable {
     }
 }
 
+nonisolated struct ScreenplayDraftSaveHydrationQueueState: Equatable {
+    let pendingEntry: ScreenplayDraftSaveOutboxEntry?
+    let parkedConflicts: [ScreenplayDraftSaveOutboxEntry]
+}
+
 /// A lineage-bearing queue uses an object envelope so array-only builds fail
 /// before decoding or rewriting any rows. Legacy arrays remain the storage
 /// format whenever no unresolved conflict lineage needs newer-client custody.
@@ -1227,6 +1232,25 @@ actor ScreenplayDraftSaveOutbox {
         guard !project.isEmpty, !owner.isEmpty else { return [] }
         return entries.filter { $0.projectId == project && $0.ownerUserId == owner &&
             $0.initialization == nil && $0.status == .parked && $0.lastError == Self.conflictReason }
+    }
+
+    /// Pending hydration and conflict precedence must come from one actor
+    /// snapshot; separate reads can otherwise admit a pending row while a
+    /// conflict is being parked for the same writer and project.
+    func hydrationQueueState(projectId: String,
+        ownerUserId: String) throws -> ScreenplayDraftSaveHydrationQueueState {
+        try loadIfNeeded()
+        let project = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
+        let owner = ownerUserId.trimmingCharacters(in: .whitespacesAndNewlines)
+        let pending = entries.first { entry in
+            entry.projectId == project && entry.ownerUserId == owner && entry.initialization == nil &&
+                hasValidDeliveryScope(entry) && (entry.status == .pending || entry.status == .inflight)
+        }
+        let conflicts = entries.filter { entry in
+            entry.projectId == project && entry.ownerUserId == owner && entry.initialization == nil &&
+                entry.status == .parked && entry.lastError == Self.conflictReason
+        }
+        return .init(pendingEntry: pending, parkedConflicts: conflicts)
     }
 
     func pendingEntry(projectId: String, ownerUserId: String) throws -> ScreenplayDraftSaveOutboxEntry? {

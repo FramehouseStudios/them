@@ -1992,11 +1992,17 @@ final class ScreenplayStudioViewModel: ObservableObject {
         guard isCurrent?() ?? true else { return false }
         guard !projectID.isEmpty else { return true }
         let pendingEntry: ScreenplayDraftSaveOutboxEntry?
+        let hasParkedConflict: Bool
         let relaunchedConflict: RelaunchedConflictRecovery
         do {
-            pendingEntry = try await draftSaveOutbox.pendingEntry(projectId: projectID, ownerUserId: context.userID)
-            relaunchedConflict = if pendingEntry == nil, let serverProject {
-                try await relaunchedConflictRecovery(project: serverProject, owner: context, backend: backend)
+            let queueState = try await draftSaveOutbox.hydrationQueueState(
+                projectId: projectID, ownerUserId: context.userID)
+            pendingEntry = queueState.pendingEntry
+            let parkedConflicts = queueState.parkedConflicts
+            hasParkedConflict = !parkedConflicts.isEmpty
+            relaunchedConflict = if let serverProject {
+                try await relaunchedConflictRecovery(project: serverProject, owner: context,
+                    backend: backend, parked: parkedConflicts)
             } else { .none }
         } catch {
             guard isCurrent?() ?? true, authContextIsCurrent(context), selectedProjectID == projectID,
@@ -2012,22 +2018,24 @@ final class ScreenplayStudioViewModel: ObservableObject {
               OfflineTalkRecoveryScope.sameBackend(backend, BackendAuthClient.resolvedBackendBaseURL()),
               ScreenplayLiveDraftSyncService.shared.ownsEditor(self) else { return false }
         if errorText == ScreenplayDraftSaveRecoveryPresentationPolicy.unreadableQueueError { errorText = "" }
+        if serverProject == nil, hasParkedConflict {
+            autosaveStatusText = "Restoring save conflict"
+            return true
+        }
         let entry: ScreenplayDraftSaveOutboxEntry
         let conflictVersion: BackendScreenplayVersion?
-        if let pendingEntry {
+        switch relaunchedConflict {
+        case .held:
+            autosaveStatusText = "Save conflict needs recovery"
+            errorText = "An earlier save conflict belongs to another local document or backend. Its exact words are kept in Recovery; restore or export that copy before saving this project."
+            return false
+        case .restore(let retained, let version):
+            entry = retained
+            conflictVersion = version
+        case .none:
+            guard let pendingEntry else { return true }
             entry = pendingEntry
             conflictVersion = nil
-        } else {
-            switch relaunchedConflict {
-            case .none: return true
-            case .held:
-                autosaveStatusText = "Save conflict needs recovery"
-                errorText = "An earlier save conflict belongs to another local document. Its exact words are kept in Recovery; restore or export that copy before saving this project."
-                return false
-            case .restore(let retained, let version):
-                entry = retained
-                conflictVersion = version
-            }
         }
         guard
               ScreenplayQueuedDraftHydrationPolicy.shouldRestoreBeforeServerHydration(
@@ -2088,12 +2096,11 @@ final class ScreenplayStudioViewModel: ObservableObject {
     }
 
     private func relaunchedConflictRecovery(project: BackendScreenplayProjectSummary,
-        owner: ScreenplayStudioAuthContext, backend: URL) async throws -> RelaunchedConflictRecovery {
-        guard case .current(let serverVersion) = ScreenplaySaveHeadPreflight.evaluate(project),
-              let serverDraft = serverVersion.draft else { return .none }
-        let parked = try await draftSaveOutbox.parkedConflictEntries(
-            projectId: project.id, ownerUserId: owner.userID)
+        owner: ScreenplayStudioAuthContext, backend: URL,
+        parked: [ScreenplayDraftSaveOutboxEntry]) async throws -> RelaunchedConflictRecovery {
         guard !parked.isEmpty else { return .none }
+        guard case .current(let serverVersion) = ScreenplaySaveHeadPreflight.evaluate(project),
+              let serverDraft = serverVersion.draft else { return .held }
         guard let recovery = localDraftRecoveryStore.recoverySnapshot(
             ownerUserId: owner.userID, projectId: project.id, serverDraft: serverDraft) else { return .held }
         let matching = parked.filter { row in
