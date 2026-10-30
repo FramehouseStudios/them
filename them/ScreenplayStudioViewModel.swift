@@ -1326,6 +1326,22 @@ extension View {
     }
 }
 
+nonisolated enum ScreenplayHeldDraftRecoveryReviewPolicy {
+    static func permits(
+        token: ScreenplayStudioViewModel.HeldDraftRecoveryReviewToken,
+        currentOwner: ScreenplayStudioAuthContext,
+        selectedProjectID: String,
+        presentationDocumentID: String?,
+        backendURL: URL,
+        heldRowID: String
+    ) -> Bool {
+        token.owner == currentOwner && token.projectID == selectedProjectID &&
+            token.presentationDocumentID == presentationDocumentID &&
+            token.rowID == heldRowID &&
+            OfflineTalkRecoveryScope.sameBackend(token.backendURL, backendURL)
+    }
+}
+
 @MainActor
 final class ScreenplayStudioViewModel: ObservableObject {
     struct DraftSaveRequest {
@@ -1499,6 +1515,15 @@ final class ScreenplayStudioViewModel: ObservableObject {
         let savedAt: TimeInterval
         let isPreservedConflict: Bool
         var overflowSnapshot: ScreenplayRecoveryOverflowSnapshot? = nil
+    }
+
+    struct HeldDraftRecoveryReviewToken: Identifiable, Equatable {
+        let id: UUID
+        let rowID: String
+        let owner: ScreenplayStudioAuthContext
+        let projectID: String
+        let presentationDocumentID: String?
+        let backendURL: URL
     }
 
     private struct RecoveryReviewIdentity: Hashable {
@@ -1855,7 +1880,11 @@ final class ScreenplayStudioViewModel: ObservableObject {
         fountainDraft = ScreenplayLiveDraftBridge.shared.draftText
         coverageIdentityCancellable = NotificationCenter.default.publisher(for: .themBackendIdentityPartitionChanged)
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in self?.invalidateCoverageIfContextChanged() }
+            .sink { [weak self] _ in
+                self?.invalidateCoverageIfContextChanged()
+                self?.heldDraftRecovery = nil
+                self?.isHeldDraftRecoveryDeferred = false
+            }
         draftDebounceCancellable = $fountainDraft
             .map(ScreenplayDraftTextObservation.init)
             .removeDuplicates()
@@ -4981,9 +5010,11 @@ final class ScreenplayStudioViewModel: ObservableObject {
         isHeldDraftRecoveryDeferred = false
     }
 
-    func confirmedHeldDraftRecoveryForReview() async -> ScreenplayDraftSaveOutboxEntry? {
+    func confirmedHeldDraftRecoveryForReview() async -> HeldDraftRecoveryReviewToken? {
         guard let held = heldDraftRecovery else { return nil }
         let owner = currentStudioAuthContext()
+        let documentID = ScreenplayLiveDraftBridge.shared.draftOrigin.documentID
+        let backend = BackendAuthClient.resolvedBackendBaseURL()
         guard held.ownerUserId == owner.userID, held.projectId == selectedProjectID else {
             errorText = "This held copy belongs to another account or project. It remains stored."
             return nil
@@ -4992,14 +5023,34 @@ final class ScreenplayStudioViewModel: ObservableObject {
             let rows = try await draftSaveOutbox.parkedConflictEntries(
                 projectId: held.projectId, ownerUserId: held.ownerUserId)
             guard authContextIsCurrent(owner), selectedProjectID == held.projectId,
+                  ScreenplayLiveDraftBridge.shared.draftOrigin.documentID == documentID,
+                  OfflineTalkRecoveryScope.sameBackend(
+                    backend, BackendAuthClient.resolvedBackendBaseURL()),
                   rows.contains(held) else {
                 throw BackendMemoryAPIError.invalidResponse
             }
-            return held
+            return HeldDraftRecoveryReviewToken(
+                id: UUID(), rowID: held.id, owner: owner,
+                projectID: held.projectId, presentationDocumentID: documentID,
+                backendURL: backend)
         } catch {
             errorText = "The held copy changed or could not be confirmed. It remains stored."
             return nil
         }
+    }
+
+    func heldDraftRecoveryForReview(
+        _ token: HeldDraftRecoveryReviewToken
+    ) -> ScreenplayDraftSaveOutboxEntry? {
+        guard let held = heldDraftRecovery,
+              ScreenplayHeldDraftRecoveryReviewPolicy.permits(
+                token: token,
+                currentOwner: currentStudioAuthContext(),
+                selectedProjectID: selectedProjectID,
+                presentationDocumentID: ScreenplayLiveDraftBridge.shared.draftOrigin.documentID,
+                backendURL: BackendAuthClient.resolvedBackendBaseURL(),
+                heldRowID: held.id) else { return nil }
+        return held
     }
 
     /// A retired conflict cannot authorize overwriting a subsequent save or edit.

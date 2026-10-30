@@ -15,34 +15,44 @@ extension View {
 /// conflict choice.
 struct ScreenplayHeldDraftRecoveryOverlay: View {
     @ObservedObject var viewModel: ScreenplayStudioViewModel
+    @ObservedObject private var bridge = ScreenplayLiveDraftBridge.shared
     let topInset: CGFloat
-    @State private var reviewedEntry: ScreenplayDraftSaveOutboxEntry?
+    @State private var reviewedToken: ScreenplayStudioViewModel.HeldDraftRecoveryReviewToken?
 
-    @ViewBuilder
     var body: some View {
-        if viewModel.isHeldDraftRecoveryDeferred {
-            Button {
-                viewModel.reopenHeldDraftRecovery()
-            } label: {
-                Label("Review held local copy", systemImage: "tray.full.fill")
-                    .font(.system(size: 12, weight: .semibold))
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 9)
-                    .background(.ultraThinMaterial, in: Capsule())
+        Group {
+            if viewModel.isHeldDraftRecoveryDeferred {
+                Button {
+                    viewModel.reopenHeldDraftRecovery()
+                } label: {
+                    Label("Review held local copy", systemImage: "tray.full.fill")
+                        .font(.system(size: 12, weight: .semibold))
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 9)
+                        .background(.ultraThinMaterial, in: Capsule())
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("studio.held-draft-recovery.reopen")
+                .padding(.top, 70 + topInset)
+                .padding(.trailing, 20)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+            } else {
+                ZStack(alignment: .top) {
+                    Color.black.opacity(0.08).ignoresSafeArea()
+                    banner.screenplayRecoveryOverlay(topInset: topInset)
+                }
             }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("studio.held-draft-recovery.reopen")
-            .padding(.top, 70 + topInset)
-            .padding(.trailing, 20)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-        } else {
-            ZStack(alignment: .top) {
-                Color.black.opacity(0.08).ignoresSafeArea()
-                banner.screenplayRecoveryOverlay(topInset: topInset)
-            }
-            .sheet(item: $reviewedEntry) { entry in
-                ScreenplayHeldDraftRecoveryReview(entry: entry)
-            }
+        }
+        .sheet(item: $reviewedToken) { token in
+            ScreenplayHeldDraftRecoveryReview(viewModel: viewModel, token: token)
+        }
+        .onChange(of: viewModel.selectedProjectID) { _, _ in reviewedToken = nil }
+        .onChange(of: bridge.draftOrigin.documentID) { _, _ in reviewedToken = nil }
+        .onReceive(NotificationCenter.default.publisher(for: .themBackendIdentityPartitionChanged)) { _ in
+            reviewedToken = nil
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in
+            reviewedToken = nil
         }
     }
 
@@ -70,7 +80,18 @@ struct ScreenplayHeldDraftRecoveryOverlay: View {
                 }
                 Spacer(minLength: 0)
             }
-            HStack(spacing: 8) {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) { actionButtons }
+                VStack(alignment: .leading, spacing: 8) { actionButtons }
+            }
+        }
+        .padding(12)
+        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(tint.opacity(0.10)))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(tint.opacity(0.20), lineWidth: 1))
+    }
+
+    @ViewBuilder
+    private var actionButtons: some View {
                 if viewModel.heldDraftRecoveryIsLoadServerCopy {
                     NumberedChoiceActionButton(number: "1", title: "Recover Local", prominence: .prominent) {
                         Task { await viewModel.recoverHeldDraftSave() }
@@ -82,7 +103,7 @@ struct ScreenplayHeldDraftRecoveryOverlay: View {
                     title: "Preview Exact Copy",
                     prominence: viewModel.heldDraftRecoveryIsLoadServerCopy ? .regular : .prominent
                 ) {
-                    Task { reviewedEntry = await viewModel.confirmedHeldDraftRecoveryForReview() }
+                    Task { reviewedToken = await viewModel.confirmedHeldDraftRecoveryForReview() }
                 }
                 .accessibilityIdentifier("studio.held-draft-recovery.preview")
                 NumberedChoiceActionButton(
@@ -92,11 +113,6 @@ struct ScreenplayHeldDraftRecoveryOverlay: View {
                     viewModel.leaveHeldDraftRecoveryForLater()
                 }
                 .accessibilityIdentifier("studio.held-draft-recovery.secondary-action")
-            }
-        }
-        .padding(12)
-        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(tint.opacity(0.10)))
-        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(tint.opacity(0.20), lineWidth: 1))
     }
 
     private var presentationMessage: String {
@@ -110,17 +126,27 @@ struct ScreenplayHeldDraftRecoveryOverlay: View {
 }
 
 private struct ScreenplayHeldDraftRecoveryReview: View {
-    let entry: ScreenplayDraftSaveOutboxEntry
+    @ObservedObject var viewModel: ScreenplayStudioViewModel
+    let token: ScreenplayStudioViewModel.HeldDraftRecoveryReviewToken
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                Text(entry.draft)
-                    .font(.system(.body, design: .monospaced))
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding()
+            Group {
+                if let entry = viewModel.heldDraftRecoveryForReview(token) {
+                    ScrollView {
+                        Text(entry.draft)
+                            .font(.system(.body, design: .monospaced))
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding()
+                    }
+                } else {
+                    ContentUnavailableView(
+                        "Preview Closed",
+                        systemImage: "lock.fill",
+                        description: Text("The account, project, document, or backend context changed."))
+                }
             }
             .navigationTitle("Exact Held Copy")
             .toolbar {
