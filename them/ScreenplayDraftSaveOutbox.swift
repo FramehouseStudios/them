@@ -234,6 +234,11 @@ nonisolated struct ScreenplayDraftSaveOutboxSnapshot: Equatable {
     }
 }
 
+nonisolated struct ScreenplayDraftSaveHydrationQueueState: Equatable {
+    let pendingEntry: ScreenplayDraftSaveOutboxEntry?
+    let parkedConflicts: [ScreenplayDraftSaveOutboxEntry]
+}
+
 /// A lineage-bearing queue uses an object envelope so array-only builds fail
 /// before decoding or rewriting any rows. Legacy arrays remain the storage
 /// format whenever no unresolved conflict lineage needs newer-client custody.
@@ -279,7 +284,7 @@ actor ScreenplayDraftSaveOutbox {
     private static let lineageManifestSchemaVersion = 2
     private static let maxDraftBytes = 2 * 1024 * 1024
     private static let backoffSeconds: [TimeInterval] = [2, 5, 15, 60, 300]
-    private static let conflictReason = "Server draft changed. Choose Keep Mine or Load Server."
+    static let conflictReason = "Server draft changed. Choose Keep Mine or Load Server."
     private static let retirementReason = "Load Server retired this exact local request. Update io.them before retrying it."
     private static let retirementProjectID = "load-server-retirement"
     private static let retirementOwnerID = "load-server-retirement"
@@ -489,8 +494,6 @@ actor ScreenplayDraftSaveOutbox {
             guard candidate.projectId == cleanProjectId,
                   candidate.ownerUserId == cleanOwnerUserId,
                   candidate.initialization == nil else { continue }
-            if hasValidDeliveryScope(candidate), let deliveryOrigin,
-               candidate.deliveryOrigin != deliveryOrigin { continue }
             if candidate.status == .parked && candidate.lastError == Self.conflictReason {
                 // An unscoped conflict cannot authorize a replacement, but it
                 // must still fence later writes until its words are recovered.
@@ -498,6 +501,8 @@ actor ScreenplayDraftSaveOutbox {
                 blockingConflicts.append(candidate)
                 continue
             }
+            if hasValidDeliveryScope(candidate), let deliveryOrigin,
+               candidate.deliveryOrigin != deliveryOrigin { continue }
             if !hasValidDeliveryScope(candidate) { continue }
             if hasEarlierActiveSave(for: candidate) { continue }
             guard candidate.status == .pending,
@@ -505,7 +510,7 @@ actor ScreenplayDraftSaveOutbox {
                 return nil
             }
             guard blockingConflicts.allSatisfy({ conflict in
-                conflict.deliveryOrigin != candidate.deliveryOrigin ||
+                conflict.deliveryOrigin == candidate.deliveryOrigin &&
                 candidate.supersededConflictRequests.contains { reference in
                     conflictReference(reference, matches: conflict)
                 }
@@ -1229,6 +1234,25 @@ actor ScreenplayDraftSaveOutbox {
             $0.initialization == nil && $0.status == .parked && $0.lastError == Self.conflictReason }
     }
 
+    /// Pending hydration and conflict precedence must come from one actor
+    /// snapshot; separate reads can otherwise admit a pending row while a
+    /// conflict is being parked for the same writer and project.
+    func hydrationQueueState(projectId: String,
+        ownerUserId: String) throws -> ScreenplayDraftSaveHydrationQueueState {
+        try loadIfNeeded()
+        let project = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
+        let owner = ownerUserId.trimmingCharacters(in: .whitespacesAndNewlines)
+        let pending = entries.first { entry in
+            entry.projectId == project && entry.ownerUserId == owner && entry.initialization == nil &&
+                hasValidDeliveryScope(entry) && (entry.status == .pending || entry.status == .inflight)
+        }
+        let conflicts = entries.filter { entry in
+            entry.projectId == project && entry.ownerUserId == owner && entry.initialization == nil &&
+                entry.status == .parked && entry.lastError == Self.conflictReason
+        }
+        return .init(pendingEntry: pending, parkedConflicts: conflicts)
+    }
+
     func pendingEntry(projectId: String, ownerUserId: String) throws -> ScreenplayDraftSaveOutboxEntry? {
         try loadIfNeeded()
         let cleanProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1382,10 +1406,11 @@ actor ScreenplayDraftSaveOutbox {
             guard conflict.id != candidate.id, conflict.ownerUserId == candidate.ownerUserId,
                   conflict.projectId == candidate.projectId, conflict.initialization == nil,
                   conflict.status == .parked, conflict.lastError == Self.conflictReason,
-                  hasValidDeliveryScope(conflict), conflict.deliveryOrigin == candidate.deliveryOrigin,
+                  hasValidDeliveryScope(conflict),
                   (conflict.createdAt < candidate.createdAt ||
                    (conflict.createdAt == candidate.createdAt && conflict.id < candidate.id)) else { return false }
-            return !candidate.supersededConflictRequests.contains { conflictReference($0, matches: conflict) }
+            return conflict.deliveryOrigin != candidate.deliveryOrigin ||
+                !candidate.supersededConflictRequests.contains { conflictReference($0, matches: conflict) }
         }
     }
 
