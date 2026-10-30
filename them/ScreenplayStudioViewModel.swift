@@ -1362,6 +1362,9 @@ final class ScreenplayStudioViewModel: ObservableObject {
         let requestAuthority: ScreenplayDraftSaveRequestAuthority?
         let supersededConflictRequests: [ScreenplayDraftConflictRequestReference]
         let deferredConflictRequests: [ScreenplayDraftConflictRequestReference]
+        let saveOrderingVersion: Int?
+        let savePredecessor: ScreenplayDraftConflictRequestReference?
+        let hasExplicitBaseSelection: Bool
 
         init(
             id: String,
@@ -1380,7 +1383,10 @@ final class ScreenplayStudioViewModel: ObservableObject {
             deliveryOrigin: ScreenplayDraftSaveOrigin? = nil,
             requestAuthority: ScreenplayDraftSaveRequestAuthority? = nil,
             supersededConflictRequests: [ScreenplayDraftConflictRequestReference] = [],
-            deferredConflictRequests: [ScreenplayDraftConflictRequestReference] = []
+            deferredConflictRequests: [ScreenplayDraftConflictRequestReference] = [],
+            saveOrderingVersion: Int? = nil,
+            savePredecessor: ScreenplayDraftConflictRequestReference? = nil,
+            hasExplicitBaseSelection: Bool = false
         ) {
             self.id = id
             self.createdAt = createdAt
@@ -1399,6 +1405,9 @@ final class ScreenplayStudioViewModel: ObservableObject {
             self.requestAuthority = requestAuthority
             self.supersededConflictRequests = supersededConflictRequests
             self.deferredConflictRequests = deferredConflictRequests
+            self.saveOrderingVersion = saveOrderingVersion
+            self.savePredecessor = savePredecessor
+            self.hasExplicitBaseSelection = hasExplicitBaseSelection
         }
 
         init(entry: ScreenplayDraftSaveOutboxEntry, authContext: ScreenplayStudioAuthContext) {
@@ -1419,6 +1428,9 @@ final class ScreenplayStudioViewModel: ObservableObject {
             requestAuthority = entry.requestAuthority
             supersededConflictRequests = entry.supersededConflictRequests
             deferredConflictRequests = entry.deferredConflictRequests
+            saveOrderingVersion = entry.saveOrderingVersion
+            savePredecessor = entry.savePredecessor
+            hasExplicitBaseSelection = entry.hasExplicitBaseSelection
         }
 
         var outboxEntry: ScreenplayDraftSaveOutboxEntry {
@@ -1444,7 +1456,10 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 deliveryOrigin: deliveryOrigin,
                 requestAuthority: requestAuthority,
                 supersededConflictRequests: supersededConflictRequests,
-                deferredConflictRequests: deferredConflictRequests
+                deferredConflictRequests: deferredConflictRequests,
+                saveOrderingVersion: saveOrderingVersion,
+                savePredecessor: savePredecessor,
+                hasExplicitBaseSelection: hasExplicitBaseSelection
             )
         }
 
@@ -1466,7 +1481,10 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 deliveryOrigin: deliveryOrigin,
                 requestAuthority: requestAuthority,
                 supersededConflictRequests: supersededConflictRequests,
-                deferredConflictRequests: deferredConflictRequests
+                deferredConflictRequests: deferredConflictRequests,
+                saveOrderingVersion: saveOrderingVersion,
+                savePredecessor: savePredecessor,
+                hasExplicitBaseSelection: hasExplicitBaseSelection
             )
         }
     }
@@ -1833,6 +1851,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
     private var outlineMutationAwaitedIDs: Set<String> = []
     private var latestOptimisticOutlineMutationByProject: [String: ScreenplayOutlineMutationOutboxEntry] = [:]
     private var pendingDraftSaveRequest: DraftSaveRequest?
+    private var activeDraftSaveRequest: DraftSaveRequest?
     private var shouldQueuePendingDraftSaveAfterFailure = false
     private let localDraftRecoveryStore: ScreenplayLocalDraftRecoveryStore
     private let overflowRecoveryStore: ScreenplayRecoveryOverflowStore
@@ -2220,6 +2239,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         isDraftSaveInFlight
     }
     var debugAfterDraftSaveClaim: (() -> Void)?
+    var debugBeforePendingSaveAdmission: ((String) async -> Void)?
     #endif
 
     func selectProject(_ projectID: String) async {
@@ -6960,7 +6980,9 @@ final class ScreenplayStudioViewModel: ObservableObject {
             deliveryOrigin: origin,
             requestAuthority: ScreenplayDraftSaveRequestAuthority(id: UUID(), generation: 0),
             supersededConflictRequests: supersededConflictRequests,
-            deferredConflictRequests: deferredConflictRequests
+            deferredConflictRequests: deferredConflictRequests,
+            saveOrderingVersion: 1,
+            hasExplicitBaseSelection: baseVersionOverride != nil
         )
     }
 
@@ -7019,6 +7041,11 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 row.deliveryOrigin?.documentID == documentID &&
                 row.deliveryOrigin?.permitsBackend(backendURL) == true
         }
+        let unprovenCopy = rows.last { row in
+            row.lastError == ScreenplayDraftSaveOutbox.unprovenPredecessorReason &&
+                row.deliveryOrigin?.documentID == documentID &&
+                row.deliveryOrigin?.permitsBackend(backendURL) == true
+        }
         let currentContextCopy = includeUnverifiedCurrentContext ? rows.last { row in
             row.deliveryOrigin?.documentID == documentID &&
                 row.deliveryOrigin?.permitsBackend(backendURL) == true
@@ -7027,7 +7054,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
             row.deliveryOrigin?.documentID != documentID ||
                 row.deliveryOrigin?.permitsBackend(backendURL) != true
         }
-        return loadServerCopy ?? currentContextCopy ?? foreignCopy
+        return loadServerCopy ?? unprovenCopy ?? currentContextCopy ?? foreignCopy
     }
 
     func resumeQueuedDraftSavesIfNeeded(force: Bool = false) async {
@@ -7100,6 +7127,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 completedCount += 1
                 continue
             }
+            activeDraftSaveRequest = request
             guard let completion = await performDraftSave(request, continuingInflightID: entry.id) else { failed = request; break }
             guard case .saved(let versionID, _, let proof) = completion else { break }
             acknowledged = (request, versionID, proof)
@@ -7108,12 +7136,12 @@ final class ScreenplayStudioViewModel: ObservableObject {
         await refreshDraftSaveOutboxStatus()
         var pending = pendingDraftSaveRequest
         pendingDraftSaveRequest = nil
+        activeDraftSaveRequest = nil
         isDraftSaveInFlight = false
         if let failed, let queued = pending {
             pending = await pendingDraftSaveAfterFailure(queued, after: failed)
         }
-        if completedCount == 4, pending == nil, authContextIsCurrent(context),
-           currentRecoveryOrigin(projectID: projectId) == deliveryOrigin {
+        if completedCount > 0, pending == nil, authContextIsCurrent(context) {
             Task { @MainActor [weak self] in
                 await Task.yield()
                 await self?.resumeQueuedDraftSavesIfNeeded()
@@ -7128,7 +7156,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         let next = acknowledged.map { request, versionID, _ in
             draftSaveFollowingAcknowledgement(pending, saved: request, versionID: versionID)
         } ?? pending
-        await dispatchDraftSaveRequest(next)
+        await dispatchDurablyAdmittedDraftSaveRequest(next)
     }
 
     private func adoptQueuedDraftIntoUnchangedEditorIfNeeded(_ entry: ScreenplayDraftSaveOutboxEntry) {
@@ -7209,15 +7237,72 @@ final class ScreenplayStudioViewModel: ObservableObject {
                     }
                 }
             }
-            pendingDraftSaveRequest = request
+            let previousTail = activeDraftSaveRequest
+            let predecessor = previousTail.flatMap { active -> ScreenplayDraftSaveOutboxEntry? in
+                guard !request.hasExplicitBaseSelection,
+                      request.source != "studio_conflict_resolve",
+                      request.projectId == active.projectId,
+                      request.deliveryOrigin == active.deliveryOrigin,
+                      request.baseVersionId == active.baseVersionId,
+                      ScreenplayStudioAuthContextPolicy.matches(
+                        expected: active.authContext, current: request.authContext) else { return nil }
+                return active.outboxEntry
+            }
+            // Reserve the process-local tail before the actor hop. Another
+            // MainActor save may enter while admission is suspended; it must
+            // name this request, not the same earlier predecessor.
+            if predecessor != nil { activeDraftSaveRequest = request }
+            #if DEBUG
+            await debugBeforePendingSaveAdmission?(request.id)
+            #endif
+            do {
+                let admitted = try await draftSaveOutbox.admitPendingSave(
+                    request.outboxEntry, following: predecessor)
+                // Multiple manual requests form an exact durable chain, not
+                // siblings that would all reuse the first acknowledgement.
+                if isDraftSaveInFlight, admitted.status == .pending,
+                   activeDraftSaveRequest?.id == request.id {
+                    activeDraftSaveRequest = DraftSaveRequest(entry: admitted,
+                        authContext: request.authContext)
+                }
+                if admitted.status == .pending {
+                    // A volatile delivery hint is safe only after the exact row
+                    // is durable. It lets an A request finish while B is visible;
+                    // a crash loses only the hint, never the request.
+                    pendingDraftSaveRequest = DraftSaveRequest(entry: admitted,
+                        authContext: request.authContext)
+                }
+                await refreshDraftSaveOutboxStatus()
+            } catch {
+                if isDraftSaveInFlight, activeDraftSaveRequest?.id == request.id {
+                    activeDraftSaveRequest = previousTail
+                }
+                if authContextIsCurrent(request.authContext), selectedProjectID == request.projectId {
+                    errorText = "This pending save could not be secured. Keep the page open and export it or try Save again."
+                }
+            }
             return
         }
         isDraftSaveInFlight = true
+        activeDraftSaveRequest = request
         await dispatchOwnedDraftSaveRequest(request)
         let pending = pendingDraftSaveRequest
         pendingDraftSaveRequest = nil
+        activeDraftSaveRequest = nil
         isDraftSaveInFlight = false
-        if let pending { await dispatchDraftSaveRequest(pending) }
+        if let pending { await dispatchDurablyAdmittedDraftSaveRequest(pending) }
+        else { await resumeQueuedDraftSavesIfNeeded() }
+    }
+
+    private func dispatchDurablyAdmittedDraftSaveRequest(_ request: DraftSaveRequest) async {
+        isDraftSaveInFlight = true
+        activeDraftSaveRequest = request
+        _ = await performDraftSave(request, requiresPriorAdmission: true)
+        let pending = pendingDraftSaveRequest
+        pendingDraftSaveRequest = nil
+        activeDraftSaveRequest = nil
+        isDraftSaveInFlight = false
+        if let pending { await dispatchDurablyAdmittedDraftSaveRequest(pending) }
         else { await resumeQueuedDraftSavesIfNeeded() }
     }
 
@@ -7264,6 +7349,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
 
         var nextRequest: DraftSaveRequest? = request
         while let activeRequest = nextRequest {
+            activeDraftSaveRequest = activeRequest
             pendingDraftSaveRequest = nil
             let completion = await performDraftSave(activeRequest)
             guard let completion else {
@@ -7276,33 +7362,12 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 }
                 return
             }
-            guard case .saved(let versionID, let mayContinueEditing, let proof) = completion else { return }
-            if let queuedRequest = pendingDraftSaveRequest {
-                pendingDraftSaveRequest = nil
-                let sameOwnerProject = activeRequest.projectId == queuedRequest.projectId &&
-                    activeRequest.deliveryOrigin == queuedRequest.deliveryOrigin &&
-                    ScreenplayStudioAuthContextPolicy.matches(expected: activeRequest.authContext, current: queuedRequest.authContext)
-                if sameOwnerProject, proof != nil, queuedRequest.outboxEntry.isSatisfiedByAcknowledgement(
-                    of: activeRequest.outboxEntry, versionID: versionID) {
-                    nextRequest = nil
-                } else if sameOwnerProject, activeRequest.outboxEntry.hasSameTarget(as: queuedRequest.outboxEntry),
-                          ScreenplayDraftSaveCoalescingPolicy.shouldCoalesce(
-                    activeDraft: activeRequest.draft,
-                    activeSource: activeRequest.source,
-                    activeNotes: activeRequest.notes,
-                    activeBaseVersionOverride: activeRequest.baseVersionId,
-                    pendingDraft: queuedRequest.draft,
-                    pendingSource: queuedRequest.source,
-                    pendingNotes: queuedRequest.notes,
-                    pendingBaseVersionOverride: queuedRequest.baseVersionId
-                ) {
-                    nextRequest = nil
-                } else {
-                    nextRequest = draftSaveFollowingAcknowledgement(queuedRequest,
-                        saved: activeRequest, versionID: versionID)
-                }
-                continue
-            }
+            guard case .saved(_, let mayContinueEditing, _) = completion else { return }
+            // Every pending request was admitted before becoming a volatile
+            // hint. Leave it for the one exact-claim handoff path, which will
+            // use the actor's rebased row or observe that it was consumed.
+            // Replaying this stale snapshot here could resurrect that row.
+            if pendingDraftSaveRequest != nil { return }
 
             let currentDraft = fountainDraft
             guard mayContinueEditing, selectedProjectID == activeRequest.projectId,
@@ -7328,7 +7393,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
 
     private func draftSaveFollowingAcknowledgement(_ pending: DraftSaveRequest,
         saved: DraftSaveRequest, versionID: String) -> DraftSaveRequest {
-        let follows = pending.source != "studio_conflict_resolve" && pending.projectId == saved.projectId &&
+        let follows = !pending.hasExplicitBaseSelection && pending.source != "studio_conflict_resolve" && pending.projectId == saved.projectId &&
             pending.deliveryOrigin == saved.deliveryOrigin && pending.baseVersionId == saved.baseVersionId &&
             ScreenplayStudioAuthContextPolicy.matches(expected: saved.authContext, current: pending.authContext)
         return follows ? pending.rebased(on: versionID) : pending
@@ -7360,7 +7425,11 @@ final class ScreenplayStudioViewModel: ObservableObject {
         return nil
     }
 
-    private func performDraftSave(_ submittedRequest: DraftSaveRequest, continuingInflightID: String? = nil) async -> DraftSaveCompletion? {
+    private func performDraftSave(
+        _ submittedRequest: DraftSaveRequest,
+        continuingInflightID: String? = nil,
+        requiresPriorAdmission: Bool = false
+    ) async -> DraftSaveCompletion? {
         var request = submittedRequest
         let bridge = ScreenplayLiveDraftBridge.shared
         let documentID = request.deliveryOrigin?.documentID ?? bridge.draftOrigin.documentID
@@ -7384,10 +7453,18 @@ final class ScreenplayStudioViewModel: ObservableObject {
 
         shouldQueuePendingDraftSaveAfterFailure = false
         do {
-            guard let delivery = try await draftSaveOutbox.beginDeliveryUnlessRetiredByLoadServer(
-                request.outboxEntry, continuingInflightID: continuingInflightID) else { return nil }
+            let delivery = if requiresPriorAdmission {
+                try await draftSaveOutbox.beginPreviouslyAdmittedDeliveryUnlessRetiredByLoadServer(
+                    request.outboxEntry)
+            } else {
+                try await draftSaveOutbox.beginDeliveryUnlessRetiredByLoadServer(
+                    request.outboxEntry, continuingInflightID: continuingInflightID)
+            }
+            guard let delivery else { return nil }
             switch delivery {
-            case .deliver(let retained): request = DraftSaveRequest(entry: retained, authContext: request.authContext)
+            case .deliver(let retained):
+                request = DraftSaveRequest(entry: retained, authContext: request.authContext)
+                activeDraftSaveRequest = request
             case .alreadyInflight, .waiting:
                 await refreshDraftSaveOutboxStatus()
                 return .waitingForDelivery
@@ -7662,6 +7739,19 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 version: result.payload.version, versionID: result.payload.versionId,
                 projectID: result.payload.projectId, responseURL: result.responseURL,
                 owner: request.authContext, currentOwner: currentStudioAuthContext())
+            let hasExactFollowerRebaseProof: Bool = {
+                guard confirmed != nil, let version = result.payload.version,
+                      version.clientRequestId == request.id,
+                      version.phase == request.phase,
+                      version.source == request.source,
+                      version.notes == request.notes,
+                      result.payload.project?.title == request.title else { return false }
+                return ScreenplayDraftSaveMetadataPolicy.matchesServerEcho(
+                    requestedAnchors: request.studioWriteAnchors,
+                    confirmedAnchors: version.studioWriteAnchors,
+                    requestedBindings: request.screenplayBindings,
+                    confirmedBindings: version.screenplayBindings)
+            }()
             // A version ID alone is not proof that this conflict choice saved
             // the requested bytes under the correct writer and document.
             if request.source == "studio_conflict_resolve", confirmed == nil {
@@ -7681,7 +7771,9 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 try await draftSaveOutbox.completeConfirmedConflictResolution(request.outboxEntry,
                     evidence: confirmed, echoedRequestID: version.clientRequestId ?? "")
             } else {
-                try await draftSaveOutbox.markSucceeded(id: request.id, serverVersionId: nextVersionId)
+                try await draftSaveOutbox.markSucceeded(id: request.id,
+                    serverVersionId: nextVersionId,
+                    mayRebaseDeclaredFollowers: hasExactFollowerRebaseProof)
             }
             retireAcknowledgedOverflow(request, confirmed: confirmed)
             guard ownsCompletion() else {
