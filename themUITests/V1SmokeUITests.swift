@@ -2,6 +2,7 @@ import Foundation
 import XCTest
 
 final class V1SmokeUITests: XCTestCase {
+    private var structuralSeedToken = 0
     override func setUpWithError() throws {
         continueAfterFailure = false
     }
@@ -3129,6 +3130,55 @@ final class V1SmokeUITests: XCTestCase {
     }
 
     @MainActor
+    func test_recovery_controls_preserve_independent_copies_across_relaunch() throws {
+        let preserved = "INT. ROOM - DAY\n\nPRESERVED RECOVERY COPY."
+        var app = launchApp(openStudio: true, structuralSeed: true, recoveryTwoSlotFixture: true)
+        XCTAssertTrue(app.otherElements["studio.surface"].waitForExistence(timeout: 15))
+        XCTAssertTrue(waitForRestoreSnapshot(in: app, timeout: 20) { snapshot in
+            stringValue(snapshot["recovery_slot"]) == "preservedConflict"
+                && stringValue(snapshot["recovery_base_version_id"]) == "recovery-base-b"
+                && !boolValue(snapshot["recovery_matches_current_draft"])
+        })
+        let originalPage = accessibleDraftText(in: app)
+        XCTAssertFalse(originalPage.isEmpty)
+        XCTAssertNotEqual(Data(originalPage.utf8), Data(preserved.utf8))
+        let recover = app.buttons["studio.draft-recovery.primary-action"]
+        XCTAssertTrue(recover.waitForExistence(timeout: 10))
+        XCTAssertTrue(recover.label.contains("Recover Local"))
+        recover.tap()
+        XCTAssertTrue(waitForRestoreSnapshot(in: app, timeout: 15) { snapshot in
+            stringValue(snapshot["recovery_slot"]) == "ordinary"
+                && stringValue(snapshot["recovery_base_version_id"]) == "recovery-base-a"
+        })
+        XCTAssertEqual(Data(accessibleDraftText(in: app).utf8), Data(preserved.utf8))
+        let keep = app.buttons["studio.draft-recovery.secondary-action"]
+        XCTAssertTrue(keep.waitForExistence(timeout: 10))
+        XCTAssertTrue(keep.label.contains("Keep Current"))
+        keep.tap()
+        XCTAssertTrue(waitForRestoreSnapshot(in: app, timeout: 15) { snapshot in
+            stringValue(snapshot["recovery_slot"]) == "preservedConflict"
+                && boolValue(snapshot["recovery_matches_current_draft"])
+        })
+        let keepMatching = app.buttons["studio.draft-recovery.primary-action"]
+        XCTAssertTrue(keepMatching.waitForExistence(timeout: 10))
+        XCTAssertTrue(keepMatching.label.contains("Keep Current"))
+        keepMatching.tap()
+        XCTAssertTrue(waitForRestoreSnapshot(in: app, timeout: 15) { !boolValue($0["recovery_present"]) })
+        XCTAssertEqual(Data(accessibleDraftText(in: app).utf8), Data(preserved.utf8))
+        app.terminate()
+        app = launchApp(openStudio: true, structuralSeed: true, recoveryTwoSlotFixture: true, resetState: false)
+        defer { app.terminate() }
+        XCTAssertTrue(app.otherElements["studio.surface"].waitForExistence(timeout: 15))
+        var relaunchState = "snapshot unavailable"
+        XCTAssertTrue(waitForRestoreSnapshot(in: app, timeout: 20) { snapshot in
+            relaunchState = "project=\(stringValue(snapshot["selected_project_id"])) slot=\(stringValue(snapshot["recovery_slot"])) base=\(stringValue(snapshot["recovery_base_version_id"]))"
+            return stringValue(snapshot["recovery_slot"]) == "preservedConflict"
+                && stringValue(snapshot["recovery_base_version_id"]) == "recovery-base-b"
+        }, "Synthetic relaunch recovery: \(relaunchState)")
+        XCTAssertEqual(Data(accessibleDraftText(in: app).utf8), Data(originalPage.utf8))
+    }
+
+    @MainActor
     func test_screenplay_save_outbox_restores_conflict_choice_and_resolves_once() async throws {
         let configuredPort = Int(
             ProcessInfo.processInfo.environment["THEM_UITEST_SCREENPLAY_SAVE_BACKEND_PORT"] ?? ""
@@ -4305,6 +4355,7 @@ final class V1SmokeUITests: XCTestCase {
         openCommandBar: Bool = false,
         openExportTools: Bool = false,
         structuralSeed: Bool = false,
+        recoveryTwoSlotFixture: Bool = false,
         realtimeStub: Bool = false,
         routePage: Bool = false,
         routeVoicePin: Bool = false,
@@ -4369,11 +4420,13 @@ final class V1SmokeUITests: XCTestCase {
             arguments.append("--ui-open-export-tools")
         }
         if structuralSeed {
+            structuralSeedToken += 1
             arguments.append(contentsOf: [
                 "-studio_debug_seed_structural_token",
-                "\(Int(Date().timeIntervalSince1970 * 1_000))"
+                "\(structuralSeedToken)"
             ])
         }
+        if recoveryTwoSlotFixture { arguments.append("--ui-draft-recovery-two-slot-fixture") }
         if realtimeStub {
             arguments.append("--ui-realtime-stub")
         }

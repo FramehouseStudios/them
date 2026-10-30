@@ -28,6 +28,18 @@ nonisolated enum UITestLaunchConfiguration {
             ScreenplayOutlineMutationOutbox.resetStoredQueueForUITesting()
         }
 
+        // Synthetic drafts exercise the production recovery store only in UI tests.
+        if arguments.contains("--ui-draft-recovery-two-slot-fixture"),
+           arguments.contains("--ui-reset-state"), !arguments.contains("--ui-preserve-state") {
+            let store = ScreenplayLocalDraftRecoveryStore(defaults: defaults)
+            store.save(ownerUserId: "", projectId: "debug-structural",
+                       draft: "INT. ROOM - DAY\n\nORDINARY RECOVERY COPY.",
+                       baseVersionId: "recovery-base-a", dirty: true, savedAt: 100)
+            store.savePreservedConflict(ownerUserId: "", projectId: "debug-structural",
+                                        draft: "INT. ROOM - DAY\n\nPRESERVED RECOVERY COPY.",
+                                        baseVersionId: "recovery-base-b", savedAt: 200)
+        }
+
         if arguments.contains("--ui-seed-remembered-login"),
            defaults === UserDefaults.standard {
             let account = BackendLocalDemoAccount.standard

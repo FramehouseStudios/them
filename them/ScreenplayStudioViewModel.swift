@@ -4406,7 +4406,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
         autosaveStatusText = normalizedDraft.isEmpty ? "Ready" : "Loaded latest draft"
         recoveryCandidate = nil
         let projectID = selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !projectID.isEmpty {
+        if !projectID.isEmpty,
+           !ProcessInfo.processInfo.arguments.contains("--ui-draft-recovery-two-slot-fixture") {
             clearLocalDraftRecovery(projectId: projectID)
         }
     }

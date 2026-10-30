@@ -428,6 +428,10 @@ struct ScreenplayStudioScreen: View {
             "conflict_project_id": vm.conflictState?.projectId ?? "",
             "conflict_server_version_id": vm.conflictState?.serverVersionId ?? "",
             "conflict_fixture_applied": didApplyUITestDraftConflictFixture,
+            "recovery_present": vm.recoveryCandidate != nil,
+            "recovery_slot": vm.recoveryCandidate.map { $0.isPreservedConflict ? "preservedConflict" : "ordinary" } ?? "",
+            "recovery_base_version_id": vm.recoveryCandidate?.baseVersionId ?? "",
+            "recovery_matches_current_draft": vm.recoveryCandidate.map { vm.fountainDraft.utf8.elementsEqual($0.draft.utf8) } ?? false,
             "loaded_draft_project_id": vm.debugLoadedDraftProjectID,
             "load_project_token": trackedStudioDebugProjectLoadToken,
             "load_project_ack_token": studioDebugLoadProjectAckToken,
@@ -9095,7 +9099,7 @@ Current draft version:
                 prominence: .prominent
             ) {
                 vm.restoreDraftFromRecovery()
-            }
+            }.accessibilityIdentifier("studio.draft-recovery.primary-action")
             NumberedChoiceActionButton(
                 number: "2",
                 title: recoveryAlreadyOnPage ? "Discard Copy" : "Keep Current"
@@ -9105,7 +9109,7 @@ Current draft version:
                 } else {
                     vm.keepServerDraft()
                 }
-            }
+            }.accessibilityIdentifier("studio.draft-recovery.secondary-action")
         }
     }
 
@@ -14591,6 +14595,9 @@ Look at the city.
         shouldRestoreInspectorWorkspaceOnNextOutlineChange = true
         vm.outline = outline
         vm.applyStructuralUITestDraft(sampleDraft, versionID: "debug-version")
+        if ProcessInfo.processInfo.arguments.contains("--ui-draft-recovery-two-slot-fixture") {
+            vm.applyServerDraft(sampleDraft, versionId: "debug-version")
+        }
         vm.characterTraits = BackendCharacterTraitsResponse(
             schemaVersion: 1,
             userId: "ui-structural",
