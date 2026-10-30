@@ -367,6 +367,7 @@ private final class AuthenticatedFiveSaveDrainFixture {
               ), origin.documentID == documentID else {
             throw FiveSaveFixtureError.documentIdentityChanged
         }
+        var predecessor: ScreenplayDraftSaveOutboxEntry?
         for index in drafts.indices {
             var entry = ScreenplayDraftSaveOutboxEntry(
                 id: requestIDs[index],
@@ -388,14 +389,19 @@ private final class AuthenticatedFiveSaveDrainFixture {
                 lastError: ""
             )
             entry.deliveryOrigin = origin
-            try await queue.enqueue(entry)
+            entry.saveOrderingVersion = 1
+            predecessor = try await queue.admitPendingSave(entry, following: predecessor)
         }
         let queued = try await queue.entriesForTesting()
         guard queued.count == 5,
               queued.allSatisfy({ $0.ownerUserId == owner &&
                   $0.projectId == projectID &&
                   $0.deliveryOrigin?.documentID == documentID &&
-                  $0.deliveryOrigin?.permitsBackend(backend) == true }) else {
+                  $0.deliveryOrigin?.permitsBackend(backend) == true &&
+                  $0.saveOrderingVersion == 1 &&
+                  $0.status == .pending }),
+              queued.first?.savePredecessor == nil,
+              queued.dropFirst().allSatisfy({ $0.savePredecessor != nil }) else {
             throw FiveSaveFixtureError.documentIdentityChanged
         }
     }
