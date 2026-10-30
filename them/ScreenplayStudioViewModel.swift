@@ -1987,6 +1987,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
     var debugIsDraftSaveInFlight: Bool {
         isDraftSaveInFlight
     }
+    var debugAfterDraftSaveClaim: (() -> Void)?
     #endif
 
     func selectProject(_ projectID: String) async {
@@ -6225,6 +6226,9 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 break
             }
             guard let entry else { break }
+            #if DEBUG
+            debugAfterDraftSaveClaim?()
+            #endif
             let currentContext = currentStudioAuthContext()
             guard ScreenplayStudioAuthContextPolicy.matches(expected: initialContext, current: currentContext),
                   currentContext.userID == entry.ownerUserId.trimmingCharacters(in: .whitespacesAndNewlines) else {

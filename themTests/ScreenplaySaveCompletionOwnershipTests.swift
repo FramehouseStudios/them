@@ -108,6 +108,32 @@ final class ScreenplaySaveCompletionOwnershipTests: XCTestCase {
         XCTAssertTrue(rows.isEmpty)
     }
 
+    func testAccountIntentChangeAfterClaimKeepsDraftPending() async throws {
+        let fixture = try SaveCompletionFixture()
+        let intentKey = "auth_session_intent_generation"
+        let previous = UserDefaults.standard.object(forKey: intentKey)
+        defer {
+            fixture.model.debugAfterDraftSaveClaim = nil
+            if let previous { UserDefaults.standard.set(previous, forKey: intentKey) }
+            else { UserDefaults.standard.removeObject(forKey: intentKey) }
+            fixture.close()
+        }
+        fixture.select("a", draft: fixture.a, base: "a-base")
+        let earlier = ScreenplayDraftSaveOutboxEntry(id: UUID().uuidString, projectId: "a", ownerUserId: fixture.owner,
+            draft: fixture.a, title: "A", phase: "draft", notes: "", source: "studio_manual",
+            studioWriteAnchors: [], screenplayBindings: [], baseVersionId: "a-base", createdAt: 1, updatedAt: 1,
+            status: .pending, retries: 0, nextAttemptAt: 0, lastError: "")
+        try await fixture.queue.enqueue(earlier)
+        fixture.model.debugAfterDraftSaveClaim = { _ = BackendAuthClient.reserveAuthSessionIntent() }
+        await fixture.model.resumeQueuedDraftSavesIfNeeded(force: true)
+        let rows = try await fixture.queue.entriesForTesting()
+        XCTAssertEqual(rows.count, 1)
+        XCTAssertEqual(rows.first?.status, .pending)
+        XCTAssertEqual(rows.first.map { Data($0.draft.utf8) }, Data(fixture.a.utf8))
+        XCTAssertTrue(fixture.peer.writes.isEmpty)
+        XCTAssertFalse(fixture.model.debugIsDraftSaveInFlight)
+    }
+
     func testManualSaveBehindBackgroundDrainIsDispatchedExactlyOnce() async throws {
         try await assertPendingSaveFollowsBackgroundDrain(switchProject: false)
     }
