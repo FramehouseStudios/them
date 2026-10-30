@@ -2843,6 +2843,80 @@ final class V1SmokeUITests: XCTestCase {
         XCTAssertTrue(waitForDraft(in: app, containing: "INT. DINER - NIGHT", timeout: 5))
     }
 
+    func test_held_draft_copy_controls_preview_defer_reopen_and_dismiss_on_simulated_identity_change() throws {
+#if os(iOS)
+        let app = launchApp(
+            openStudio: true,
+            structuralSeed: true,
+            heldDraftRecoveryFixture: true
+        )
+        defer { app.terminate() }
+
+        let banner = element(identifier: "studio.held-draft-recovery.banner", in: app)
+        XCTAssertTrue(
+            banner.waitForExistence(timeout: 10),
+            "Synthetic held-copy banner missing. Accessibility hierarchy:\n\(app.debugDescription)"
+        )
+        var fixtureSnapshot: [String: Any] = [:]
+        XCTAssertTrue(waitForRestoreSnapshot(in: app, timeout: 5) { state in
+            fixtureSnapshot = state
+            return boolValue(state["held_recovery_is_synthetic_fixture"]) &&
+                boolValue(state["held_recovery_backend_is_loopback"])
+        }, "Held-copy fixture used a non-synthetic account or non-loopback backend: \(fixtureSnapshot)")
+        let controls = [
+            app.buttons["studio.held-draft-recovery.primary-action"],
+            app.buttons["studio.held-draft-recovery.preview"],
+            app.buttons["studio.held-draft-recovery.secondary-action"],
+        ]
+        for control in controls {
+            XCTAssertTrue(control.waitForExistence(timeout: 3), "Held-copy control is not readable.")
+            XCTAssertFalse(control.label.isEmpty, "Held-copy control lost its readable label.")
+            XCTAssertTrue(waitForHittability(of: control, timeout: 3), "Held-copy control is not tappable at phone width: \(control.frame)")
+            XCTAssertGreaterThanOrEqual(control.frame.minX, app.frame.minX - 1)
+            XCTAssertLessThanOrEqual(control.frame.maxX, app.frame.maxX + 1)
+            XCTAssertGreaterThan(control.frame.width, 44)
+        }
+
+        let preview = app.buttons["studio.held-draft-recovery.preview"]
+        preview.tap()
+        let review = element(identifier: "studio.held-draft-recovery.review", in: app)
+        XCTAssertTrue(review.waitForExistence(timeout: 5), "Exact-copy preview did not open.")
+        XCTAssertTrue(staticText(containing: "THE EXACT HELD UI FIXTURE COPY", in: app).exists)
+        XCTAssertEqual(
+            review.buttons.matching(NSPredicate(format: "label CONTAINS[c] %@", "Export")).count,
+            0,
+            "The synthetic held-copy review must not expose an external export action."
+        )
+        app.buttons["Done"].tap()
+        XCTAssertTrue(waitForDisappearance(of: review, timeout: 3))
+
+        app.buttons["studio.held-draft-recovery.secondary-action"].tap()
+        let reopen = app.buttons["studio.held-draft-recovery.reopen"]
+        XCTAssertTrue(reopen.waitForExistence(timeout: 3), "Not Now did not expose the reopen control.")
+        XCTAssertTrue(reopen.isHittable)
+        XCTAssertFalse(app.buttons["studio.held-draft-recovery.preview"].exists)
+        reopen.tap()
+        XCTAssertTrue(app.buttons["studio.held-draft-recovery.preview"].waitForExistence(timeout: 3))
+
+        app.buttons["studio.held-draft-recovery.preview"].tap()
+        XCTAssertTrue(review.waitForExistence(timeout: 3))
+        let simulatedChange = app.buttons["studio.held-draft-recovery.simulate-identity-change"]
+        XCTAssertTrue(simulatedChange.waitForExistence(timeout: 3))
+        XCTAssertTrue(simulatedChange.isHittable)
+        simulatedChange.tap()
+        XCTAssertTrue(
+            waitForDisappearance(of: review, timeout: 3),
+            "The simulated identity-partition change did not close the private preview."
+        )
+        XCTAssertTrue(
+            waitForDisappearance(of: banner, timeout: 3),
+            "The simulated identity-partition change did not clear the held-copy presentation."
+        )
+#else
+        throw XCTSkip("The narrow-width held-copy workflow is an iPhone UI contract.")
+#endif
+    }
+
     func test_restored_screenplay_question_can_be_answered_or_skipped() {
         let answerApp = launchApp(
             openStudio: true,
@@ -4370,6 +4444,7 @@ final class V1SmokeUITests: XCTestCase {
         openExportTools: Bool = false,
         structuralSeed: Bool = false,
         recoveryTwoSlotFixture: Bool = false,
+        heldDraftRecoveryFixture: Bool = false,
         realtimeStub: Bool = false,
         routePage: Bool = false,
         routeVoicePin: Bool = false,
@@ -4441,6 +4516,7 @@ final class V1SmokeUITests: XCTestCase {
             ])
         }
         if recoveryTwoSlotFixture { arguments.append("--ui-draft-recovery-two-slot-fixture") }
+        if heldDraftRecoveryFixture { arguments.append("--ui-held-draft-recovery-fixture") }
         if realtimeStub {
             arguments.append("--ui-realtime-stub")
         }
@@ -4527,6 +4603,16 @@ final class V1SmokeUITests: XCTestCase {
         }
         app.launchArguments = arguments
         var environment = launchEnvironment
+        if heldDraftRecoveryFixture {
+            // Synthetic DEBUG-only credentials keep the fixture account-scoped
+            // without reading a real account or contacting an external backend.
+            environment["THEM_UITEST_AUTH_SIGNED_IN"] = "1"
+            environment["THEM_UITEST_AUTH_DEBUG_ACCESS_TOKEN_ENABLED"] = "1"
+            environment["THEM_UITEST_AUTH_DEBUG_ACCESS_TOKEN"] = "synthetic-held-copy-access"
+            environment["THEM_UITEST_USER_ID"] = "synthetic-held-copy-writer"
+            environment["THEM_UITEST_CLIENT_TOKEN"] = "synthetic-held-copy-client"
+            environment["THEM_UITEST_BACKEND_BASE_URL"] = "http://127.0.0.1:9"
+        }
         if let restoreUnboundDraft {
             environment["THEM_UITEST_RESTORE_UNBOUND_DRAFT_BASE64"] = Data(restoreUnboundDraft.utf8).base64EncodedString()
         }
