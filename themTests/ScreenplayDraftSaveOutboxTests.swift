@@ -610,7 +610,15 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
         XCTAssertFalse(applied)
         XCTAssertEqual(bridge.draftOrigin.documentID, "new-document")
         XCTAssertEqual(Data(bridge.draftText.utf8), Data(current.draft.utf8))
-        XCTAssertTrue(model.errorText.contains("Recovery"))
+        XCTAssertTrue(model.errorText.contains("local save queue"))
+        let held = try XCTUnwrap(model.heldDraftRecovery)
+        XCTAssertEqual(held.id, entry.id)
+        XCTAssertEqual(held.deliveryOrigin?.documentID, "old-document")
+        XCTAssertEqual(Data(held.draft.utf8), Data(conflicted.utf8))
+        let confirmedToken = await model.confirmedHeldDraftRecoveryForReview()
+        let reviewToken = try XCTUnwrap(confirmedToken)
+        let reviewed = try XCTUnwrap(model.heldDraftRecoveryForReview(reviewToken))
+        XCTAssertEqual(Data(reviewed.draft.utf8), Data(conflicted.utf8))
         guard case .parked = try await queue.beginDelivery(current) else {
             return XCTFail("A changed-origin save must remain fenced by the unresolved conflict")
         }
