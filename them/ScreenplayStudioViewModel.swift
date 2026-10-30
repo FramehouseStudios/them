@@ -1775,6 +1775,14 @@ final class ScreenplayStudioViewModel: ObservableObject {
     var heldDraftRecoveryIsLoadServerCopy: Bool {
         heldDraftRecovery?.lastError == ScreenplayDraftSaveOutbox.loadServerDeferredReason
     }
+    var heldDraftRecoveryIsCurrentContextCopy: Bool {
+        guard let held = heldDraftRecovery,
+              held.ownerUserId == currentStudioAuthContext().userID,
+              held.projectId == selectedProjectID,
+              let origin = held.deliveryOrigin,
+              origin.documentID == ScreenplayLiveDraftBridge.shared.draftOrigin.documentID else { return false }
+        return origin.permitsBackend(BackendAuthClient.resolvedBackendBaseURL())
+    }
     var heldDraftRecoveryServerIsOnPage: Bool {
         guard heldDraftRecoveryIsLoadServerCopy, let project = selectedProject,
               case .current(let version) = ScreenplaySaveHeadPreflight.evaluate(project),
@@ -2038,13 +2046,14 @@ final class ScreenplayStudioViewModel: ObservableObject {
         guard isCurrent?() ?? true else { return false }
         guard !projectID.isEmpty else { return true }
         let pendingEntry: ScreenplayDraftSaveOutboxEntry?
+        let parkedConflicts: [ScreenplayDraftSaveOutboxEntry]
         let hasParkedConflict: Bool
         let relaunchedConflict: RelaunchedConflictRecovery
         do {
             let queueState = try await draftSaveOutbox.hydrationQueueState(
                 projectId: projectID, ownerUserId: context.userID)
             pendingEntry = queueState.pendingEntry
-            let parkedConflicts = queueState.parkedConflicts
+            parkedConflicts = queueState.parkedConflicts
             hasParkedConflict = !parkedConflicts.isEmpty
             relaunchedConflict = if let serverProject {
                 try await relaunchedConflictRecovery(project: serverProject, owner: context,
@@ -2072,8 +2081,18 @@ final class ScreenplayStudioViewModel: ObservableObject {
         let conflictVersion: BackendScreenplayVersion?
         switch relaunchedConflict {
         case .held:
+            if heldDraftRecovery == nil {
+                heldDraftRecovery = heldDraftRecoveryCandidate(
+                    in: parkedConflicts, documentID: documentID, backendURL: backend,
+                    includeUnverifiedCurrentContext: true)
+                isHeldDraftRecoveryDeferred = false
+            }
             autosaveStatusText = "Save conflict needs recovery"
-            errorText = "An earlier save conflict belongs to another local document or backend. Its exact words remain held in the local save queue; reopen that document on its original backend to resolve it."
+            errorText = if heldDraftRecoveryIsCurrentContextCopy {
+                "An earlier save conflict belongs to this document, but its server version or recovery match could not be verified. Its exact words remain held in the local save queue for read-only preview."
+            } else {
+                "An earlier save conflict belongs to another local document or backend. Its exact words remain held in the local save queue; reopen that document on its original backend to resolve it."
+            }
             return false
         case .restore(let retained, let version):
             entry = retained
@@ -6974,16 +6993,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
         parkedDraftSaveCount = snapshot.parkedCount
         guard !isSaving, conflictState == nil else { return }
         if heldDraftRecovery == nil {
-            let loadServerCopy = heldRows.last { row in
-                row.lastError == ScreenplayDraftSaveOutbox.loadServerDeferredReason &&
-                    row.deliveryOrigin?.documentID == documentID &&
-                    row.deliveryOrigin?.permitsBackend(backendURL) == true
-            }
-            let foreignCopy = heldRows.last { row in
-                row.deliveryOrigin?.documentID != documentID ||
-                    row.deliveryOrigin?.permitsBackend(backendURL) != true
-            }
-            heldDraftRecovery = loadServerCopy ?? foreignCopy
+            heldDraftRecovery = heldDraftRecoveryCandidate(
+                in: heldRows, documentID: documentID, backendURL: backendURL)
             isHeldDraftRecoveryDeferred = false
         }
         if snapshot.parkedCount > 0 {
@@ -6995,6 +7006,28 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 ? "Queued locally - reconnecting"
                 : "\(snapshot.activeCount) saves queued locally"
         }
+    }
+
+    private func heldDraftRecoveryCandidate(
+        in rows: [ScreenplayDraftSaveOutboxEntry],
+        documentID: String?,
+        backendURL: URL,
+        includeUnverifiedCurrentContext: Bool = false
+    ) -> ScreenplayDraftSaveOutboxEntry? {
+        let loadServerCopy = rows.last { row in
+            row.lastError == ScreenplayDraftSaveOutbox.loadServerDeferredReason &&
+                row.deliveryOrigin?.documentID == documentID &&
+                row.deliveryOrigin?.permitsBackend(backendURL) == true
+        }
+        let currentContextCopy = includeUnverifiedCurrentContext ? rows.last { row in
+            row.deliveryOrigin?.documentID == documentID &&
+                row.deliveryOrigin?.permitsBackend(backendURL) == true
+        } : nil
+        let foreignCopy = rows.last { row in
+            row.deliveryOrigin?.documentID != documentID ||
+                row.deliveryOrigin?.permitsBackend(backendURL) != true
+        }
+        return loadServerCopy ?? currentContextCopy ?? foreignCopy
     }
 
     func resumeQueuedDraftSavesIfNeeded(force: Bool = false) async {

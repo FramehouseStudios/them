@@ -65,18 +65,13 @@ struct ScreenplayHeldDraftRecoveryOverlay: View {
                     .foregroundStyle(tint)
                     .padding(.top, 1)
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(viewModel.heldDraftRecoveryIsLoadServerCopy
-                         ? "Newer unsent words are held"
-                         : "A copy from another document is held")
+                    Text(bannerTitle)
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(Color.herText.opacity(0.88))
                     Text(presentationMessage)
                         .font(.system(size: 12))
                         .foregroundStyle(Color.herText.opacity(0.74))
-                    NumberedChoiceHintText(
-                        message: viewModel.heldDraftRecoveryIsLoadServerCopy
-                            ? "Recover it, preview its exact words, or leave it safely held for later."
-                            : "Preview the exact held words. Reopen their original document and backend to resolve them.")
+                    NumberedChoiceHintText(message: choiceHint)
                 }
                 Spacer(minLength: 0)
             }
@@ -88,6 +83,22 @@ struct ScreenplayHeldDraftRecoveryOverlay: View {
         .padding(12)
         .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(tint.opacity(0.10)))
         .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(tint.opacity(0.20), lineWidth: 1))
+    }
+
+    private var bannerTitle: String {
+        if viewModel.heldDraftRecoveryIsLoadServerCopy { return "Newer unsent words are held" }
+        if viewModel.heldDraftRecoveryIsCurrentContextCopy { return "A local conflict is held" }
+        return "A copy from another document is held"
+    }
+
+    private var choiceHint: String {
+        if viewModel.heldDraftRecoveryIsLoadServerCopy {
+            return "Recover it, preview its exact words, or leave it safely held for later."
+        }
+        if viewModel.heldDraftRecoveryIsCurrentContextCopy {
+            return "Preview the exact held words or leave them safely held while their server match is unresolved."
+        }
+        return "Preview the exact held words. Reopen their original document and backend to resolve them."
     }
 
     @ViewBuilder
@@ -120,6 +131,9 @@ struct ScreenplayHeldDraftRecoveryOverlay: View {
             return viewModel.heldDraftRecoveryServerIsOnPage
                 ? "The verified server draft is on the page. A newer local save is held separately and will not save automatically."
                 : "A newer local save is held separately and will not save automatically. This message has not verified that the current page matches the server."
+        }
+        if viewModel.heldDraftRecoveryIsCurrentContextCopy {
+            return "This exact local conflict belongs to the current document, but its server or recovery match could not be verified. The current page has not been replaced."
         }
         return "This exact copy belongs to another local document or backend. The current page has not been replaced."
     }
