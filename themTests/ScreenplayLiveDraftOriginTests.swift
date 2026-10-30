@@ -188,6 +188,8 @@ final class ScreenplayLiveDraftOriginTests: XCTestCase {
             XCTAssertTrue(bridge.adoptLoadedProjectDraft("", projectID: "", versionID: "", owner: .current()))
             XCTAssertEqual(bridge.draftOrigin.projectID, "")
             XCTAssertEqual(bridge.draftOrigin.versionID, "")
+            XCTAssertEqual(bridge.projectBinding.projectID, "")
+            XCTAssertEqual(bridge.projectBinding.versionID, "")
             XCTAssertNotEqual(bridge.draftOrigin.documentID, boundDocument)
         }
     }

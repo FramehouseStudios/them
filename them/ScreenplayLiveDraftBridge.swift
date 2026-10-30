@@ -3286,6 +3286,11 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         guard !isReconcilingAccountStorage, storageOwnerUserID == owner.userID,
               ScreenplayStudioAuthContextPolicy.matches(expected: owner, current: .current()),
               queuedEntry == nil || (restored?.projectID == projectID && restored?.versionID == versionID) else { return false }
+        if projectID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           versionID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            projectBindingContext = nil
+            projectBinding = .empty
+        }
         if let restored {
             draftOrigin = restored
             if let encoded = ScreenplayLiveDraftOriginPolicy.encoded(restored) {
@@ -3295,6 +3300,11 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         preferredProjectID = projectID
         preferredVersionID = versionID
         if restored == nil { persistDraftOriginForCurrentContext(event: .acceptedLoad, projectID: projectID, versionID: versionID) }
+        if projectID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           versionID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            featureSpine = .empty
+            reconcileFeatureWorkflowContextWithActiveProject()
+        }
         draftText = draft
         return true
     }
@@ -3446,10 +3456,9 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
     }
 
     private func refreshProjectBindingSnapshot() {
-        guard let context = projectBindingContext else {
-            projectBinding = .empty
-            return
-        }
+        // A restored binding remains authoritative until an explicit unbind
+        // or fresh project hydration supplies a new binding context.
+        guard let context = projectBindingContext else { return }
 
         let actTitlesByID = Dictionary(
             context.outline.acts.map { ($0.id, $0.title.trimmingCharacters(in: .whitespacesAndNewlines)) },
@@ -6468,6 +6477,10 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         Self.migrateLegacyWorkspaceIfNeeded()
         isReconcilingAccountStorage = true
         storageOwnerUserID = nextOwnerUserID
+        // Draft observers rebuild bindings synchronously. Drop the previous
+        // owner's context before assigning the newly restored draft.
+        projectBindingContext = nil
+        projectBinding = .empty
 
         let restoredBinding = Self.restoreProjectBindingSnapshot(ownerUserID: nextOwnerUserID)
         let restoredDraft = Self.restoreDraftText(ownerUserID: nextOwnerUserID)
@@ -6482,7 +6495,6 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
 
         preferredProjectID = restoredProjectID
         preferredVersionID = restoredVersionID
-        projectBinding = restoredBinding
         draftOrigin = ScreenplayLiveDraftOriginPolicy.restored(
             encoded: UserDefaults.standard.string(forKey: Self.ownerScopedKey(Self.draftOriginStorageKey, ownerUserID: nextOwnerUserID)),
             draft: restoredDraft,
@@ -6493,6 +6505,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         )
         structuredDraft = Self.restoreStructuredDraft(ownerUserID: nextOwnerUserID)
         draftText = restoredDraft
+        projectBinding = restoredBinding
         projectRecentTurns = Self.restoreConversationTurns(
             forKey: Self.projectRecentTurnsStorageKey,
             ownerUserID: nextOwnerUserID
