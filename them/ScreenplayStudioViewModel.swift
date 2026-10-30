@@ -7151,7 +7151,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         let next = acknowledged.map { request, versionID, _ in
             draftSaveFollowingAcknowledgement(pending, saved: request, versionID: versionID)
         } ?? pending
-        await dispatchDraftSaveRequest(next)
+        await dispatchDurablyAdmittedDraftSaveRequest(next)
     }
 
     private func adoptQueuedDraftIntoUnchangedEditorIfNeeded(_ entry: ScreenplayDraftSaveOutboxEntry) {
@@ -7260,6 +7260,13 @@ final class ScreenplayStudioViewModel: ObservableObject {
                     activeDraftSaveRequest = DraftSaveRequest(entry: admitted,
                         authContext: request.authContext)
                 }
+                if admitted.status == .pending {
+                    // A volatile delivery hint is safe only after the exact row
+                    // is durable. It lets an A request finish while B is visible;
+                    // a crash loses only the hint, never the request.
+                    pendingDraftSaveRequest = DraftSaveRequest(entry: admitted,
+                        authContext: request.authContext)
+                }
                 await refreshDraftSaveOutboxStatus()
             } catch {
                 if isDraftSaveInFlight, activeDraftSaveRequest?.id == request.id {
@@ -7278,7 +7285,19 @@ final class ScreenplayStudioViewModel: ObservableObject {
         pendingDraftSaveRequest = nil
         activeDraftSaveRequest = nil
         isDraftSaveInFlight = false
-        if let pending { await dispatchDraftSaveRequest(pending) }
+        if let pending { await dispatchDurablyAdmittedDraftSaveRequest(pending) }
+        else { await resumeQueuedDraftSavesIfNeeded() }
+    }
+
+    private func dispatchDurablyAdmittedDraftSaveRequest(_ request: DraftSaveRequest) async {
+        isDraftSaveInFlight = true
+        activeDraftSaveRequest = request
+        _ = await performDraftSave(request)
+        let pending = pendingDraftSaveRequest
+        pendingDraftSaveRequest = nil
+        activeDraftSaveRequest = nil
+        isDraftSaveInFlight = false
+        if let pending { await dispatchDurablyAdmittedDraftSaveRequest(pending) }
         else { await resumeQueuedDraftSavesIfNeeded() }
     }
 
