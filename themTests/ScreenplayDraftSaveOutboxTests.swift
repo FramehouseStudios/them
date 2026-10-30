@@ -853,6 +853,42 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
             with: Data(contentsOf: manifestURL)) as? [String: Any])
     }
 
+    func testDeferredReferenceManifestUsesNewSchemaAndRejectsSchemaTwoDowngrade() async throws {
+        let origin = ScreenplayDraftSaveOrigin(
+            documentID: "document-a", backendURL: URL(string: "https://save.test")!)
+        let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let conflict = makeEntry(id: "conflict", createdAt: 100, origin: origin,
+            authority: .init(id: UUID(), generation: 1))
+        let pending = makeEntry(id: "pending", draft: "Newer exact words", createdAt: 101,
+            origin: origin, authority: .init(id: UUID(), generation: 2))
+        try await store.enqueue(conflict)
+        _ = try await store.retainConflict(conflict)
+        try await store.enqueue(pending)
+        let plan = try await store.conflictResolutionPlan(for: conflict)
+        var resolution = makeEntry(id: "resolution", createdAt: 102, origin: origin,
+            authority: .init(id: UUID(), generation: 3))
+        resolution.supersededConflictRequests = plan.supersededConflictRequests
+        resolution.deferredConflictRequests = plan.deferredConflictRequests
+        try await store.enqueue(resolution)
+
+        let manifestURL = storageDirectory.appendingPathComponent("queue.json")
+        let protected = try XCTUnwrap(JSONSerialization.jsonObject(
+            with: Data(contentsOf: manifestURL)) as? [String: Any])
+        XCTAssertEqual(protected["schemaVersion"] as? Int, 3)
+
+        var downgraded = protected
+        downgraded["schemaVersion"] = 2
+        let downgradedBytes = try JSONSerialization.data(withJSONObject: downgraded, options: [.sortedKeys])
+        let downgradeDirectory = storageDirectory.appendingPathComponent("schema-two", isDirectory: true)
+        try FileManager.default.createDirectory(at: downgradeDirectory, withIntermediateDirectories: true)
+        let downgradeURL = downgradeDirectory.appendingPathComponent("queue.json")
+        try downgradedBytes.write(to: downgradeURL, options: .atomic)
+        let downgradedStore = ScreenplayDraftSaveOutbox(storageDirectory: downgradeDirectory)
+        let snapshot = await downgradedStore.snapshot(ownerUserId: conflict.ownerUserId)
+        XCTAssertFalse(snapshot.isStorageReadable)
+        XCTAssertEqual(try Data(contentsOf: downgradeURL), downgradedBytes)
+    }
+
     func testLineageEnvelopeTransitionWriteFailureRollsBackToExactLegacyArray() async throws {
         let failMarker = storageDirectory.appendingPathComponent("fail-next-write")
         let store = ScreenplayDraftSaveOutbox(
@@ -1397,7 +1433,7 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
         XCTAssertTrue(markers.isEmpty)
     }
 
-    func testInteractiveLoadServerRejectsActiveSameScopeWritesAtCaptureAndResolve() async throws {
+    func testInteractiveLoadServerHoldsExactPendingRowsAndRejectsInflightOrUncapturedRows() async throws {
         let origin = ScreenplayDraftSaveOrigin(
             documentID: "document-a",
             backendURL: URL(string: "https://save.test")!
@@ -1411,13 +1447,25 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
         try await captureStore.enqueue(captureRoot)
         _ = try await captureStore.retainConflict(captureRoot)
         try await captureStore.enqueue(captureBlocker)
+        let captured = try await captureStore.captureInteractiveLoadServerSelection(root: captureRoot)
+        XCTAssertEqual(captured.deferredRequests, [captureBlocker])
+        let capturedResolution = try await captureStore.resolveLoadServerSelection(
+            captured, serverVersionID: "server-v2")
+        XCTAssertEqual(capturedResolution.retainedRequests.map(\.id), [captureBlocker.id])
+        XCTAssertEqual(capturedResolution.retainedRequests.first?.draft, captureBlocker.draft)
+        XCTAssertEqual(capturedResolution.retainedRequests.first?.baseVersionId, "server-v2")
+        XCTAssertEqual(capturedResolution.retainedRequests.first?.status, .parked)
+        XCTAssertEqual(capturedResolution.retainedRequests.first?.lastError,
+                       ScreenplayDraftSaveOutbox.loadServerDeferredReason)
+
+        let inflightStore = ScreenplayDraftSaveOutbox(
+            storageDirectory: storageDirectory.appendingPathComponent("inflight", isDirectory: true))
+        try await inflightStore.enqueue(captureRoot)
+        _ = try await inflightStore.retainConflict(captureRoot)
+        try await inflightStore.enqueue(captureBlocker)
+        try await inflightStore.markInflight(id: captureBlocker.id)
         do {
-            _ = try await captureStore.captureInteractiveLoadServerSelection(root: captureRoot)
-            XCTFail("A pending same-scope write did not block capture")
-        } catch BackendMemoryAPIError.invalidResponse {}
-        try await captureStore.markInflight(id: captureBlocker.id)
-        do {
-            _ = try await captureStore.captureInteractiveLoadServerSelection(root: captureRoot)
+            _ = try await inflightStore.captureInteractiveLoadServerSelection(root: captureRoot)
             XCTFail("An inflight same-scope write did not block capture")
         } catch BackendMemoryAPIError.invalidResponse {}
 
@@ -1997,6 +2045,79 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
         XCTAssertEqual(rows.first(where: { $0.id == resolution.id })?.status, .pending)
     }
 
+    func testKeepMineBypassesOnlyCapturedPendingRowThenRebasesItsExactWords() async throws {
+        let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let origin = ScreenplayDraftSaveOrigin(
+            documentID: "document-a",
+            backendURL: URL(string: "https://save.test")!
+        )
+        let conflict = makeDeliverableEntry(id: "parked", draft: "Conflict words", createdAt: 100,
+            origin: origin, authority: .init(id: UUID(), generation: 1))
+        let pending = makeDeliverableEntry(id: "pending-newer", draft: "Exact newer words", createdAt: 101,
+            origin: origin, authority: .init(id: UUID(), generation: 2))
+        try await store.enqueue(conflict)
+        _ = try await store.retainConflict(conflict)
+        try await store.enqueue(pending)
+        let plan = try await store.conflictResolutionPlan(for: conflict)
+        XCTAssertEqual(plan.deferredConflictRequests.map(\.requestID), [pending.id])
+
+        var resolution = makeDeliverableEntry(id: "resolution", draft: conflict.draft, createdAt: 102,
+            origin: origin, authority: .init(id: UUID(), generation: 3))
+        resolution.supersededConflictRequests = plan.supersededConflictRequests
+        resolution.deferredConflictRequests = plan.deferredConflictRequests
+        try await store.enqueue(resolution)
+
+        let claimed = try await store.beginNext(projectId: conflict.projectId,
+            ownerUserId: conflict.ownerUserId, deliveryOrigin: origin, force: true)
+        XCTAssertEqual(claimed?.id, resolution.id)
+        try await store.completeConfirmedConflictResolution(
+            resolution,
+            evidence: try makeOrdinaryEvidence(for: resolution, versionID: "server-v2"),
+            echoedRequestID: resolution.id)
+
+        let remaining = try await store.entriesForTesting()
+        let retained = try XCTUnwrap(remaining.first(where: { $0.id == pending.id }))
+        XCTAssertEqual(Data(retained.draft.utf8), Data(pending.draft.utf8))
+        XCTAssertEqual(retained.baseVersionId, "server-v2")
+        XCTAssertEqual(retained.status, .pending)
+        let next = try await store.beginNext(projectId: conflict.projectId,
+            ownerUserId: conflict.ownerUserId, deliveryOrigin: origin, force: true)
+        XCTAssertEqual(next?.id, pending.id)
+    }
+
+    func testKeepMineFailsClosedWhenCapturedPendingRowChangesBeforeAdmission() async throws {
+        let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let origin = ScreenplayDraftSaveOrigin(
+            documentID: "document-a",
+            backendURL: URL(string: "https://save.test")!
+        )
+        let conflict = makeDeliverableEntry(id: "parked", draft: "Conflict words", createdAt: 100,
+            origin: origin, authority: .init(id: UUID(), generation: 1))
+        let pending = makeDeliverableEntry(id: "pending", draft: "Original pending bytes", createdAt: 101,
+            origin: origin, authority: .init(id: UUID(), generation: 2))
+        try await store.enqueue(conflict)
+        _ = try await store.retainConflict(conflict)
+        try await store.enqueue(pending)
+        let plan = try await store.conflictResolutionPlan(for: conflict)
+        try await store.remove(id: pending.id)
+        let replacement = makeDeliverableEntry(id: pending.id, draft: "Changed pending bytes", createdAt: 101,
+            origin: origin, authority: pending.requestAuthority)
+        try await store.enqueue(replacement)
+
+        var resolution = makeDeliverableEntry(id: "resolution", draft: conflict.draft, createdAt: 102,
+            origin: origin, authority: .init(id: UUID(), generation: 3))
+        resolution.supersededConflictRequests = plan.supersededConflictRequests
+        resolution.deferredConflictRequests = plan.deferredConflictRequests
+        try await store.enqueue(resolution)
+
+        let claimed = try await store.beginNext(projectId: conflict.projectId,
+            ownerUserId: conflict.ownerUserId, deliveryOrigin: origin, force: true)
+        XCTAssertNil(claimed)
+        let rows = try await store.entriesForTesting()
+        XCTAssertEqual(rows.first(where: { $0.id == pending.id })?.draft, replacement.draft)
+        XCTAssertEqual(rows.first(where: { $0.id == resolution.id })?.status, .pending)
+    }
+
     func testConfirmedConflictCompletionIsAtomicAndPreservesUnrelatedRows() async throws {
         let failMarker = storageDirectory.appendingPathComponent("fail-next-write")
         let store = ScreenplayDraftSaveOutbox(
@@ -2559,6 +2680,7 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
         replaced.requestAuthority = entry.requestAuthority
         replaced.loadServerRetirement = entry.loadServerRetirement
         replaced.supersededConflictRequests = entry.supersededConflictRequests
+        replaced.deferredConflictRequests = entry.deferredConflictRequests
         return replaced
     }
 

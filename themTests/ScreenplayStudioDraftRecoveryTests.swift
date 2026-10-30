@@ -3,6 +3,76 @@ import XCTest
 
 final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
     @MainActor
+    func testNotNowKeepsExactHeldRowDiscoverableInSameSession() {
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store)
+        let held = ScreenplayDraftSaveOutboxEntry(
+            id: "held-row", projectId: "project", ownerUserId: "writer",
+            draft: "Exact held words", title: "Title", phase: "scene_draft",
+            notes: "", source: "studio_save", studioWriteAnchors: [],
+            screenplayBindings: [], baseVersionId: "server-v2", createdAt: 100,
+            updatedAt: 100, status: .parked, retries: 0, nextAttemptAt: 0,
+            lastError: ScreenplayDraftSaveOutbox.loadServerDeferredReason)
+        model.heldDraftRecovery = held
+
+        model.leaveHeldDraftRecoveryForLater()
+
+        XCTAssertEqual(model.heldDraftRecovery, held)
+        XCTAssertTrue(model.isHeldDraftRecoveryDeferred)
+        model.reopenHeldDraftRecovery()
+        XCTAssertEqual(model.heldDraftRecovery, held)
+        XCTAssertFalse(model.isHeldDraftRecoveryDeferred)
+    }
+
+    @MainActor
+    func testHeldPreviewTokenRejectsEveryChangedPrivacyBoundary() {
+        let backend = URL(string: "https://save.test")!
+        let owner = ScreenplayStudioAuthContext(userID: "writer", sessionIntentGeneration: 7)
+        let token = ScreenplayStudioViewModel.HeldDraftRecoveryReviewToken(
+            id: UUID(), rowID: "held-row", owner: owner, projectID: "project-a",
+            presentationDocumentID: "document-a", backendURL: backend)
+        func permits(
+            owner currentOwner: ScreenplayStudioAuthContext = owner,
+            project: String = "project-a",
+            document: String? = "document-a",
+            backend currentBackend: URL = backend,
+            rowID: String = "held-row"
+        ) -> Bool {
+            ScreenplayHeldDraftRecoveryReviewPolicy.permits(
+                token: token, currentOwner: currentOwner,
+                selectedProjectID: project, presentationDocumentID: document,
+                backendURL: currentBackend, heldRowID: rowID)
+        }
+
+        XCTAssertTrue(permits())
+        XCTAssertFalse(permits(owner: .init(userID: "other", sessionIntentGeneration: 7)))
+        XCTAssertFalse(permits(owner: .init(userID: "writer", sessionIntentGeneration: 8)))
+        XCTAssertFalse(permits(project: "project-b"))
+        XCTAssertFalse(permits(document: "document-b"))
+        XCTAssertFalse(permits(backend: URL(string: "https://other.test")!))
+        XCTAssertFalse(permits(rowID: "other-row"))
+        XCTAssertFalse(Mirror(reflecting: token).children.contains { $0.label == "draft" })
+    }
+
+    @MainActor
+    func testIdentityPartitionChangeClearsHeldDraftPresentation() async {
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store)
+        model.heldDraftRecovery = ScreenplayDraftSaveOutboxEntry(
+            id: "held-row", projectId: "project", ownerUserId: "writer",
+            draft: "Private prior-writer words", title: "Title", phase: "scene_draft",
+            notes: "", source: "studio_save", studioWriteAnchors: [],
+            screenplayBindings: [], baseVersionId: "server-v2", createdAt: 100,
+            updatedAt: 100, status: .parked, retries: 0, nextAttemptAt: 0,
+            lastError: ScreenplayDraftSaveOutbox.loadServerDeferredReason)
+        model.leaveHeldDraftRecoveryForLater()
+
+        NotificationCenter.default.post(name: .themBackendIdentityPartitionChanged, object: nil)
+        for _ in 0..<20 where model.heldDraftRecovery != nil { await Task.yield() }
+
+        XCTAssertNil(model.heldDraftRecovery)
+        XCTAssertFalse(model.isHeldDraftRecoveryDeferred)
+    }
+
+    @MainActor
     func testBridgeDraftAdoptionPreservesRawWhitespaceAndUnicode() async {
         let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store)
         model.selectedProjectID = ""
