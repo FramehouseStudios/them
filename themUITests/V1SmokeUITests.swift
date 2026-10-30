@@ -2875,6 +2875,7 @@ final class V1SmokeUITests: XCTestCase {
             XCTAssertGreaterThanOrEqual(control.frame.minX, app.frame.minX - 1)
             XCTAssertLessThanOrEqual(control.frame.maxX, app.frame.maxX + 1)
             XCTAssertGreaterThan(control.frame.width, 44)
+            XCTAssertGreaterThanOrEqual(control.frame.height, 44)
         }
 
         let preview = app.buttons["studio.held-draft-recovery.preview"]
