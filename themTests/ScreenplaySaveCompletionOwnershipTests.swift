@@ -213,7 +213,7 @@ final class ScreenplaySaveCompletionOwnershipTests: XCTestCase {
             }
             ScreenplayLiveDraftBridge.shared.reconcileAccountStorage()
         }
-        let fixture = try SaveCompletionFixture(useRecoveryOrigin: true)
+        let fixture = try SaveCompletionFixture()
         let intentKey = "auth_session_intent_generation"
         let previous = UserDefaults.standard.object(forKey: intentKey)
         defer {
@@ -368,15 +368,33 @@ private final class SaveCompletionFixture {
     private let priorProject: String
     private let priorVersion: String
     private let priorBinding: ScreenplayProjectBindingSnapshot
+    private let environment: SaveCompletionEnvironmentSnapshot
 
     nonisolated deinit {}
 
-    init(useRecoveryOrigin: Bool = false) throws {
+    init() throws {
         let bridge = ScreenplayLiveDraftBridge.shared
+        let savedEnvironment = SaveCompletionEnvironmentSnapshot()
         bridge.reconcileAccountStorage()
         priorDraft = bridge.draftText; priorProject = bridge.preferredProjectID
         priorVersion = bridge.preferredVersionID; priorBinding = bridge.projectBinding
+        let testOwner = "save-completion-\(UUID().uuidString.lowercased())"
+        let backend = URL(string: "https://save-completion.test")!
+        var installedEnvironment = false
+        defer {
+            if !installedEnvironment {
+                savedEnvironment.restore()
+                bridge.reconcileAccountStorage()
+                SaveCompletionEnvironmentSnapshot.removeOwnerScopedValues(owner: testOwner)
+            }
+        }
+        try savedEnvironment.install(owner: testOwner, backend: backend)
+        bridge.reconcileAccountStorage()
         owner = ScreenplayStudioAuthContext.current().userID
+        guard owner == testOwner, BackendAuthClient.currentAuthSessionState().isAuthenticated,
+              OfflineTalkRecoveryScope.sameBackend(BackendAuthClient.resolvedBackendBaseURL(), backend) else {
+            throw SaveCompletionFixtureError.environmentNotInstalled
+        }
         directory = FileManager.default.temporaryDirectory.appendingPathComponent("SaveCompletion-\(UUID())")
         suite = "them.save-completion.\(UUID())"
         defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
@@ -388,14 +406,26 @@ private final class SaveCompletionFixture {
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [SaveCompletionProtocol.self]
         session = URLSession(configuration: config)
-        let api = BackendMemoryAPI(session: session, baseURL: URL(string: "https://save-completion.test")!)
-        let recoveryOrigin: ((String) -> ScreenplayDraftSaveOrigin?)? = useRecoveryOrigin ? { projectID in
+        let context = ScreenplayStudioAuthContext.current()
+        let identity = BackendAuthRequestIdentity(sessionEpoch: 1, userID: testOwner,
+            clientToken: "save-completion-client", accessToken: "save-completion-access",
+            sessionIntentGeneration: context.sessionIntentGeneration)
+        let authenticatedState = BackendAuthSessionState(user: BackendAuthClient.currentAuthSessionState().user,
+            accessTokenPresent: true, refreshTokenPresent: true, accessExpiresAt: 0, refreshExpiresAt: 0,
+            currentSessionId: "save-completion-session", currentFamilyId: "save-completion-family",
+            tokenType: "Bearer", pendingEmailVerification: false, verificationRequired: false)
+        let api = BackendMemoryAPI(session: session, baseURL: backend,
+            requestIdentityProvider: { _ in identity }, projectWriteAuthRefresher: { _ in authenticatedState })
+        let recoveryOrigin: (String) -> ScreenplayDraftSaveOrigin? = { projectID in
             guard bridge.draftOrigin.projectID == projectID, let documentID = bridge.draftOrigin.documentID else { return nil }
-            return .init(documentID: documentID, backendURL: BackendAuthClient.resolvedBackendBaseURL())
-        } : nil
+            return .init(documentID: documentID, backendURL: backend)
+        }
         model = ScreenplayStudioViewModel(localDraftRecoveryStore: store, recoveryOriginProvider: recoveryOrigin,
-                                          draftSaveOutbox: queue, draftSaveAPI: api)
+                                          draftSaveOutbox: queue, draftSaveAPI: api,
+                                          draftSaveIdentityProvider: { identity })
         model.autosaveEnabled = false
+        environment = savedEnvironment
+        installedEnvironment = true
     }
 
     func select(_ id: String, draft: String, base: String, dirty: Bool = false) {
@@ -406,8 +436,11 @@ private final class SaveCompletionFixture {
         model.selectedProject = project
         model.applyStructuralUITestDraft(dirty ? draft + "\nEarlier saved baseline." : draft, versionID: base)
         if dirty { model.fountainDraft = draft; model.noteManualDraftEdit() }
-        _ = ScreenplayLiveDraftBridge.shared.adoptLoadedProjectDraft(draft, projectID: id,
-            versionID: base, owner: .current())
+        let bridge = ScreenplayLiveDraftBridge.shared
+        XCTAssertTrue(bridge.adoptLoadedProjectDraft(draft, projectID: id,
+            versionID: base, owner: .current()))
+        XCTAssertEqual(bridge.draftOrigin.projectID, id)
+        XCTAssertNotNil(bridge.draftOrigin.documentID)
         model.hasUnsavedDraftChanges = dirty
         model.autosaveStatusText = "Editing \(id)"
         model.infoText = "Current \(id) notice"
@@ -465,8 +498,58 @@ private final class SaveCompletionFixture {
         defaults.removePersistentDomain(forName: suite)
         try? FileManager.default.removeItem(at: directory)
         let bridge = ScreenplayLiveDraftBridge.shared
+        environment.restore()
+        bridge.reconcileAccountStorage()
+        SaveCompletionEnvironmentSnapshot.removeOwnerScopedValues(owner: owner)
         bridge.projectBinding = priorBinding
         _ = bridge.adoptLoadedProjectDraft(priorDraft, projectID: priorProject, versionID: priorVersion, owner: .current())
+    }
+}
+
+private enum SaveCompletionFixtureError: Error {
+    case environmentNotInstalled
+}
+
+@MainActor
+private struct SaveCompletionEnvironmentSnapshot {
+    private static let keys = [
+        "auth_user_payload", "auth_signed_in", "auth_session_token_deletion_pending",
+        "auth_access_token", "auth_refresh_token", "auth_access_expires_at", "auth_refresh_expires_at",
+        "auth_pending_email_verification", "auth_verification_required", "backend_base_url",
+    ]
+    private let values: [Any?]
+
+    init() { values = Self.keys.map { UserDefaults.standard.object(forKey: $0) } }
+
+    func install(owner: String, backend: URL) throws {
+        let user = BackendAuthUser(userId: owner, email: "save-completion@example.invalid",
+            authProvider: nil, emailVerified: true, emailVerifiedAt: nil, createdAt: nil, updatedAt: nil)
+        UserDefaults.standard.set(try JSONEncoder().encode(user), forKey: "auth_user_payload")
+        UserDefaults.standard.set(true, forKey: "auth_signed_in")
+        UserDefaults.standard.set(false, forKey: "auth_session_token_deletion_pending")
+        UserDefaults.standard.set("save-completion-access", forKey: "auth_access_token")
+        UserDefaults.standard.set("save-completion-refresh", forKey: "auth_refresh_token")
+        UserDefaults.standard.set(0, forKey: "auth_access_expires_at")
+        UserDefaults.standard.set(0, forKey: "auth_refresh_expires_at")
+        UserDefaults.standard.set(false, forKey: "auth_pending_email_verification")
+        UserDefaults.standard.set(false, forKey: "auth_verification_required")
+        UserDefaults.standard.set(backend.absoluteString, forKey: "backend_base_url")
+    }
+
+    func restore() {
+        for (index, key) in Self.keys.enumerated() {
+            if let value = values[index] { UserDefaults.standard.set(value, forKey: key) }
+            else { UserDefaults.standard.removeObject(forKey: key) }
+        }
+    }
+
+    static func removeOwnerScopedValues(owner: String) {
+        let probe = "save-completion-owner-probe"
+        let marker = ScreenplayOwnerScopedStoragePolicy.storageKey(baseKey: probe, ownerUserID: owner)
+        let suffix = String(marker.dropFirst(probe.count))
+        for key in UserDefaults.standard.dictionaryRepresentation().keys where key.hasSuffix(suffix) {
+            UserDefaults.standard.removeObject(forKey: key)
+        }
     }
 }
 
