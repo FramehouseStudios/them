@@ -1077,11 +1077,17 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
         let drafts = [raw, raw + " ", raw.replacingOccurrences(of: "\r\n", with: "\n"),
                       raw.precomposedStringWithCanonicalMapping]
         let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
-        try await store.enqueue(makeDeliverableEntry(id: "raw-0", draft: raw))
-        try await store.markInflight(id: "raw-0")
+        var first = makeDeliverableEntry(id: "raw-0", draft: raw)
+        first.saveOrderingVersion = 1
+        var predecessor = try await store.admitPendingSave(first, following: nil)
+        guard case .deliver = try await store.beginDelivery(predecessor) else {
+            return XCTFail("The first exact draft did not begin delivery")
+        }
         for index in 1..<drafts.count {
-            try await store.enqueue(makeDeliverableEntry(id: "raw-\(index)", draft: drafts[index],
-                                              createdAt: TimeInterval(100 + index)))
+            var follower = makeDeliverableEntry(id: "raw-\(index)", draft: drafts[index],
+                createdAt: TimeInterval(100 + index))
+            follower.saveOrderingVersion = 1
+            predecessor = try await store.admitPendingSave(follower, following: predecessor)
         }
         let relaunched = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
         let restored = try await relaunched.entriesForTesting()
@@ -1093,7 +1099,8 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
             XCTAssertEqual(next?.baseVersionId, index == 0 ? "server-v1" : "ack-\(index - 1)")
             XCTAssertEqual(next.map { Data($0.draft.utf8) }, Data(drafts[index].utf8))
             guard let next else { return }
-            try await relaunched.markSucceeded(id: next.id, serverVersionId: "ack-\(index)")
+            try await relaunched.markSucceeded(id: next.id, serverVersionId: "ack-\(index)",
+                mayRebaseDeclaredFollowers: true)
         }
         let remaining = try await relaunched.entriesForTesting()
         XCTAssertTrue(remaining.isEmpty)
