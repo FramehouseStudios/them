@@ -43,6 +43,28 @@ final class ScreenplayAuthenticatedFiveSaveDrainTests: XCTestCase {
         XCTAssertNotEqual(bridge.projectBinding.projectID, "writer-b-project")
     }
 
+    func testEmptyBaseManualCheckpointWithIdenticalServerWordsRequiresDecision() async throws {
+        let fixture = try AuthenticatedFiveSaveDrainFixture()
+        do {
+            try await fixture.enqueueFiveSaves(baseVersionID: "")
+            fixture.peer.setCanonicalDraft(fixture.drafts[0])
+            await fixture.model.resumeQueuedDraftSavesIfNeeded(force: true)
+            let rows = try await fixture.queue.entriesForTesting()
+            let first = try XCTUnwrap(rows.first { $0.id == fixture.requestIDs[0] })
+            XCTAssertEqual(first.status, .parked)
+            XCTAssertEqual(first.source, "studio_manual")
+            XCTAssertEqual(first.draft, fixture.drafts[0])
+            XCTAssertEqual(first.baseVersionId, "")
+            XCTAssertEqual(rows.count, 5)
+            XCTAssertEqual(fixture.model.conflictState?.projectId, fixture.projectID)
+            XCTAssertTrue(fixture.peer.writes.isEmpty)
+        } catch {
+            await fixture.close()
+            throw error
+        }
+        await fixture.close()
+    }
+
     func testAccountChangeDuringEmptyBasePreflightReturnsClaimWithoutWrite() async throws {
         let fixture = try AuthenticatedFiveSaveDrainFixture()
         do {
@@ -502,6 +524,7 @@ private nonisolated final class AuthenticatedFiveSavePeer: @unchecked Sendable {
     let preflightReceived = XCTestExpectation(description: "Preflight read began")
     private let preflightGate = DispatchSemaphore(value: 0)
     private var shouldHoldPreflight = false
+    private var canonicalDraft: String?
     private let backend: URL
     private let projectID: String
     private let owner: String
@@ -530,6 +553,7 @@ private nonisolated final class AuthenticatedFiveSavePeer: @unchecked Sendable {
         return recordedFailures
     }
 
+    func setCanonicalDraft(_ draft: String) { lock.lock(); canonicalDraft = draft; lock.unlock() }
     func holdPreflight() { lock.lock(); shouldHoldPreflight = true; lock.unlock() }
     func releasePreflight() { preflightGate.signal() }
 
@@ -545,12 +569,18 @@ private nonisolated final class AuthenticatedFiveSavePeer: @unchecked Sendable {
                 return
             }
             if url.path == "/screenplay/projects/\(projectID)", request.httpMethod == "GET" {
-                lock.lock(); let hold = shouldHoldPreflight; lock.unlock()
+                lock.lock(); let hold = shouldHoldPreflight; let draft = canonicalDraft; lock.unlock()
                 if hold {
                     preflightReceived.fulfill()
                     guard preflightGate.wait(timeout: .now() + 8) == .success else { throw URLError(.timedOut) }
                 }
-                transport.respond(status: 200, payload: ["project": ["id": projectID, "title": "Five Save Drain", "versions": []]])
+                if let draft {
+                    transport.respond(status: 200, payload: ["project": ["id": projectID, "title": "Five Save Drain",
+                        "active_version_id": "existing-version", "versions": [["id": "existing-version",
+                            "project_id": projectID, "draft": draft, "phase": "scene_draft"]]]])
+                } else {
+                    transport.respond(status: 200, payload: ["project": ["id": projectID, "title": "Five Save Drain", "versions": []]])
+                }
                 return
             }
             if url.path == "/screenplay/revision-colors" {
