@@ -186,11 +186,27 @@ actor ScreenplayDraftSaveOutbox {
               force || entry.nextAttemptAt <= nowSeconds else {
             return nil
         }
+        let previous = entries
         entries[index].status = .inflight
         entries[index].updatedAt = nowSeconds
-        try persist()
+        do { try persist() } catch { entries = previous; throw error }
         publishSnapshot()
         return entries[index]
+    }
+
+    /// Release only the exact claimed bytes; another request must not be changed.
+    func releaseInflightClaim(_ claimed: ScreenplayDraftSaveOutboxEntry) throws {
+        try loadIfNeeded()
+        guard claimed.status == .inflight,
+              let index = entries.firstIndex(where: { $0.id == claimed.id }),
+              entries[index].status == .inflight else { return }
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        guard try encoder.encode(entries[index]) == encoder.encode(claimed) else { return }
+        let previous = entries
+        entries[index].status = .pending
+        do { try persist() } catch { entries = previous; throw error }
+        publishSnapshot()
     }
 
     func hasActiveEntries(projectId: String, ownerUserId: String) throws -> Bool {
@@ -250,6 +266,27 @@ actor ScreenplayDraftSaveOutbox {
         entries.removeAll { $0.id == id }
         try persist()
         publishSnapshot()
+    }
+
+    /// Port of original #962 retention: a server conflict is not deletion.
+    /// Preserve every immutable row in the exact owner/project/document origin.
+    @discardableResult
+    func retainConflict(projectId: String, ownerUserId: String,
+        deliveryOrigin: ScreenplayDraftSaveOrigin?, now: Date = Date()) throws -> ScreenplayDraftSaveOutboxEntry? {
+        try loadIfNeeded()
+        let previous = entries
+        let project = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
+        let owner = ownerUserId.trimmingCharacters(in: .whitespacesAndNewlines)
+        for index in entries.indices where entries[index].projectId == project &&
+            entries[index].ownerUserId == owner && entries[index].deliveryOrigin == deliveryOrigin {
+            entries[index].status = .parked
+            entries[index].updatedAt = now.timeIntervalSince1970
+            entries[index].nextAttemptAt = 0
+            entries[index].lastError = "Server draft changed. Choose Keep Mine or Load Server."
+        }
+        do { try persist() } catch { entries = previous; throw error }
+        publishSnapshot()
+        return entries.last { $0.projectId == project && $0.ownerUserId == owner && $0.deliveryOrigin == deliveryOrigin }
     }
 
     func removeAll(projectId: String, ownerUserId: String) throws {
