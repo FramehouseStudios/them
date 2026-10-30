@@ -757,15 +757,23 @@ actor ScreenplayDraftSaveOutbox {
                 }
                 entries[queuedIndex].updatedAt = now.timeIntervalSince1970
             }
-            for pair in rebasedPredecessors {
+            var propagationIndex = 0
+            while propagationIndex < rebasedPredecessors.count {
+                let pair = rebasedPredecessors[propagationIndex]
+                propagationIndex += 1
                 let replacement = try makeConflictReference(pair.after)
                 for descendantIndex in entries.indices where
                     !satisfiedFollowerIDs.contains(entries[descendantIndex].id) &&
                     entries[descendantIndex].savePredecessor.map({
                         conflictReference($0, matches: pair.before)
                     }) == true {
+                    let before = entries[descendantIndex]
                     entries[descendantIndex].savePredecessor = replacement
                     entries[descendantIndex].updatedAt = now.timeIntervalSince1970
+                    // Rewriting this reference changes the descendant's own
+                    // digest. Carry that exact before/after pair forward so
+                    // every deeper declared child remains provably linked.
+                    rebasedPredecessors.append((before, entries[descendantIndex]))
                 }
             }
             entries.removeAll { satisfiedFollowerIDs.contains($0.id) }
