@@ -52,7 +52,10 @@ struct ScreenplayHeldDraftRecoveryOverlay: View {
             reviewedToken = nil
         }
         .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in
-            reviewedToken = nil
+            guard let token = reviewedToken else { return }
+            if viewModel.heldDraftRecoveryForReview(token) == nil {
+                reviewedToken = nil
+            }
         }
     }
 
@@ -81,8 +84,14 @@ struct ScreenplayHeldDraftRecoveryOverlay: View {
             }
         }
         .padding(12)
-        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(tint.opacity(0.10)))
-        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(tint.opacity(0.20), lineWidth: 1))
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color.herShellPanel)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(tint.opacity(0.48), lineWidth: 1)
+        )
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("studio.held-draft-recovery.banner")
     }
@@ -106,25 +115,33 @@ struct ScreenplayHeldDraftRecoveryOverlay: View {
     @ViewBuilder
     private var actionButtons: some View {
                 if viewModel.heldDraftRecoveryIsLoadServerCopy {
-                    NumberedChoiceActionButton(number: "1", title: "Recover Local", prominence: .prominent) {
+                    NumberedChoiceActionButton(
+                        number: "1", title: "Recover Local", prominence: .prominent,
+                        tint: Color.herStudioAccent
+                    ) {
                         Task { await viewModel.recoverHeldDraftSave() }
                     }
+                    .frame(minHeight: 44)
                     .accessibilityIdentifier("studio.held-draft-recovery.primary-action")
                 }
                 NumberedChoiceActionButton(
                     number: viewModel.heldDraftRecoveryIsLoadServerCopy ? "2" : "1",
                     title: "Preview Exact Copy",
-                    prominence: viewModel.heldDraftRecoveryIsLoadServerCopy ? .regular : .prominent
+                    prominence: viewModel.heldDraftRecoveryIsLoadServerCopy ? .regular : .prominent,
+                    tint: Color.herStudioAccent
                 ) {
                     Task { reviewedToken = await viewModel.confirmedHeldDraftRecoveryForReview() }
                 }
+                .frame(minHeight: 44)
                 .accessibilityIdentifier("studio.held-draft-recovery.preview")
                 NumberedChoiceActionButton(
                     number: viewModel.heldDraftRecoveryIsLoadServerCopy ? "3" : "2",
-                    title: "Not Now"
+                    title: "Not Now",
+                    tint: Color.herStudioAccent
                 ) {
                     viewModel.leaveHeldDraftRecoveryForLater()
                 }
+                .frame(minHeight: 44)
                 .accessibilityIdentifier("studio.held-draft-recovery.secondary-action")
     }
 
