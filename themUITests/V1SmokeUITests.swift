@@ -3244,15 +3244,12 @@ final class V1SmokeUITests: XCTestCase {
         XCTAssertTrue(keep.waitForExistence(timeout: 10))
         XCTAssertTrue(keep.label.contains("Keep Current"))
         keep.tap()
-        XCTAssertTrue(waitForRestoreSnapshot(in: app, timeout: 15) { snapshot in
-            stringValue(snapshot["recovery_slot"]) == "preservedConflict"
-                && boolValue(snapshot["recovery_matches_current_draft"])
+        // The preserved copy was already reviewed in this session. Keeping
+        // the current page must not loop that retained copy back into the
+        // banner; relaunch below proves it was hidden, not deleted.
+        XCTAssertTrue(waitForRestoreSnapshot(in: app, timeout: 15) {
+            !boolValue($0["recovery_present"])
         })
-        let keepMatching = app.buttons["studio.draft-recovery.primary-action"]
-        XCTAssertTrue(keepMatching.waitForExistence(timeout: 10))
-        XCTAssertTrue(keepMatching.label.contains("Keep Current"))
-        keepMatching.tap()
-        XCTAssertTrue(waitForRestoreSnapshot(in: app, timeout: 15) { !boolValue($0["recovery_present"]) })
         XCTAssertEqual(Data(accessibleDraftText(in: app).utf8), Data(preserved.utf8))
         app.terminate()
         app = launchApp(openStudio: true, structuralSeed: true, recoveryTwoSlotFixture: true, resetState: false)
