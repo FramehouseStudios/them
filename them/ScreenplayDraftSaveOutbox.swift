@@ -489,6 +489,17 @@ actor ScreenplayDraftSaveOutbox {
         return entries[index]
     }
 
+    /// Clearing a page must not strand any pending, inflight, parked or setup save.
+    func hasUnresolvedEntries(projectId: String, ownerUserId: String) throws -> Bool {
+        try loadIfNeeded()
+        let project = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
+        let owner = ownerUserId.trimmingCharacters(in: .whitespacesAndNewlines)
+        return entries.contains { entry in
+            entry.ownerUserId == owner &&
+                (entry.projectId == project || entry.initialization?.sourceProjectID == project)
+        }
+    }
+
     func hasActiveEntries(projectId: String, ownerUserId: String) throws -> Bool {
         try loadIfNeeded()
         let cleanProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1260,8 +1271,18 @@ actor ScreenplayDraftSaveOutbox {
     // A missing origin is accepted only for an exact row already on disk.
     private func validateConflictRequest(_ entry: ScreenplayDraftSaveOutboxEntry) throws {
         guard entry.initialization == nil, entry.loadServerRetirement == nil,
-              validIdentifier(entry.id, limit: 96), validIdentifier(entry.projectId),
-              validIdentifier(entry.ownerUserId) else { throw BackendMemoryAPIError.invalidResponse }
+              validIdentifier(entry.id, limit: 96), validIdentifier(entry.projectId) else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        if entry.ownerUserId.isEmpty {
+            // Anonymous legacy work may only be parked if the exact row is
+            // already durable. It still cannot authorize a destructive choice.
+            guard entry.deliveryOrigin == nil,
+                  let existing = entries.first(where: { $0.id == entry.id }),
+                  sameImmutableRequest(existing, entry) else { throw BackendMemoryAPIError.invalidResponse }
+            return
+        }
+        guard validIdentifier(entry.ownerUserId) else { throw BackendMemoryAPIError.invalidResponse }
         if let origin = entry.deliveryOrigin {
             try validateScope(projectId: entry.projectId, ownerUserId: entry.ownerUserId,
                               deliveryOrigin: origin)

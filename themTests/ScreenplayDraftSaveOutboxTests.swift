@@ -44,6 +44,62 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
     }
 
     @MainActor
+    func testClearPageRefusesDurableQueuedSave() async throws {
+        let owner = ScreenplayStudioAuthContext.current()
+        let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let entry = replacingOwner(of: makeEntry(id: "queued-before-clear", draft: "Queued writer words"), with: owner.userID)
+        try await queue.enqueue(entry)
+        let suite = "them.clear-queued.\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: .init(defaults: defaults, key: "recovery"),
+            draftSaveOutbox: queue)
+        model.selectedProjectID = entry.projectId
+        model.fountainDraft = "Current writer words"
+        let cleared = await model.clearDraft()
+        XCTAssertFalse(cleared)
+        XCTAssertEqual(model.fountainDraft, "Current writer words")
+        let retained = try await queue.entriesForTesting()
+        XCTAssertEqual(retained.map(\.id), [entry.id])
+        XCTAssertTrue(model.errorText.contains("local save"))
+    }
+
+    func testAnonymousLegacyConflictCanOnlyParkAnExactDurableRow() async throws {
+        let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let entry = replacingOwner(of: makeEntry(id: "anonymous-conflict", draft: "Exact local words"), with: "")
+        do {
+            _ = try await queue.retainConflict(entry)
+            XCTFail("An absent anonymous row must not be manufactured")
+        } catch {}
+        try await queue.enqueue(entry)
+        let retained = try await queue.retainConflict(entry)
+        XCTAssertEqual(retained?.status, .parked)
+        XCTAssertEqual(retained.map { Data($0.draft.utf8) }, Data(entry.draft.utf8))
+        var different = entry
+        different.baseVersionId = "different-base"
+        do {
+            _ = try await queue.retainConflict(different)
+            XCTFail("A changed anonymous row must not be parked by stale authority")
+        } catch {}
+        for foreignOwner in ["other-owner", " "] {
+            let foreign = replacingOwner(of: entry, with: foreignOwner)
+            do {
+                _ = try await queue.retainConflict(foreign)
+                XCTFail("A different owner must not park this row")
+            } catch {}
+        }
+        do {
+            _ = try await queue.captureInteractiveLoadServerSelection(root: entry)
+            XCTFail("Anonymous legacy rows must not authorize deletion")
+        } catch {}
+        let rows = try await queue.entriesForTesting()
+        XCTAssertEqual(rows.count, 1)
+        XCTAssertEqual(rows.first?.ownerUserId, "")
+        XCTAssertEqual(rows.first?.baseVersionId, entry.baseVersionId)
+        XCTAssertEqual(rows.first?.status, .parked)
+    }
+
+    @MainActor
     func testProjectHydrationRestoresQueuedWriterBeforeRemoteDraft() async throws {
         let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
         let local = "\r\nWriter words cafe\u{0301}\r\n \t "
@@ -183,7 +239,7 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
     override func setUp() {
         super.setUp()
         storageDirectory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("ScreenplayDraftSaveOutboxTests-(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("ScreenplayDraftSaveOutboxTests-\(UUID().uuidString)", isDirectory: true)
     }
 
     override func tearDown() {

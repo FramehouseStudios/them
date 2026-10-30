@@ -26,6 +26,27 @@ final class ScreenplaySaveCompletionOwnershipTests: XCTestCase {
         XCTAssertEqual(fixture.peer.writes.count, 1)
     }
 
+    func testNonOwningAcknowledgementDoesNotRebaseDistinctRecovery() async throws {
+        let fixture = try SaveCompletionFixture()
+        defer { fixture.close() }
+        fixture.select("a", draft: fixture.a, base: "a-base")
+        let save = fixture.startSave()
+        defer { save.cancel() }
+        try await fixture.waitForFirstSave()
+        let distinct = "Independent recovery cafe\u{301}.  \r\n"
+        fixture.store.save(ownerUserId: fixture.owner, projectId: "a", draft: distinct,
+                           baseVersionId: "a-base", dirty: true)
+        fixture.select("b", draft: fixture.b, base: "b-base", dirty: true)
+        let before = fixture.snapshot()
+        fixture.peer.releaseFirst(.success)
+        try await fixture.waitForSave(save)
+        let kept = fixture.store.payloads(ownerUserId: fixture.owner)["a"]
+        XCTAssertEqual((kept?["draft"] as? String).map { Data($0.utf8) }, Data(distinct.utf8))
+        XCTAssertEqual(kept?["baseVersionId"] as? String, "a-base")
+        XCTAssertEqual(kept?["dirty"] as? Bool, true)
+        XCTAssertEqual(fixture.snapshot(), before)
+    }
+
     func testAConflictAfterSelectingBKeepsARequestAndLeavesBExactlyAlone() async throws {
         try await assertRejectedAStaysScoped(.conflict, expectedStatus: .parked)
     }
@@ -71,6 +92,11 @@ final class ScreenplaySaveCompletionOwnershipTests: XCTestCase {
         fixture.model.fountainDraft = newer
         fixture.model.hasUnsavedDraftChanges = true
         await fixture.model.manualSaveDraft() // Enters the real pending slot; HTTP A is still held.
+        let pendingRecovery = fixture.store.payloads(ownerUserId: fixture.owner)["a"]
+        let preserved = pendingRecovery?["preservedConflict"] as? [String: Any]
+        XCTAssertEqual((preserved?["draft"] as? String).map { Data($0.utf8) }, Data(newer.utf8),
+                       "The pending words must be protected before switching projects.")
+        XCTAssertEqual(preserved?["baseVersionId"] as? String, "a-base")
         fixture.select("b", draft: fixture.b, base: "b-base", dirty: true)
         let before = fixture.snapshot()
         fixture.peer.releaseFirst(.success)
@@ -81,9 +107,18 @@ final class ScreenplaySaveCompletionOwnershipTests: XCTestCase {
         XCTAssertEqual(writes.last.map { Data($0.draft.utf8) }, Data(newer.utf8))
         XCTAssertEqual(fixture.snapshot(), before)
         let kept = fixture.store.payloads(ownerUserId: fixture.owner)["a"]
-        XCTAssertEqual((kept?["draft"] as? String).map { Data($0.utf8) }, Data(newer.utf8))
-        XCTAssertEqual(kept?["baseVersionId"] as? String, "a-ack-2")
+        // This signed-out fixture has no document-origin proof. Keep both the
+        // previous acknowledged cache and the exact pending recovery rather
+        // than marking a byte-distinct copy clean on a bare version response.
+        XCTAssertEqual((kept?["draft"] as? String).map { Data($0.utf8) }, Data(fixture.a.utf8))
+        XCTAssertEqual(kept?["baseVersionId"] as? String, "a-ack-1")
         XCTAssertEqual(kept?["dirty"] as? Bool, false)
+        let retainedPending = kept?["preservedConflict"] as? [String: Any]
+        XCTAssertEqual((retainedPending?["draft"] as? String).map { Data($0.utf8) }, Data(newer.utf8))
+        XCTAssertEqual(retainedPending?["baseVersionId"] as? String, "a-base")
+        XCTAssertEqual(retainedPending?["dirty"] as? Bool, true)
+        let remaining = try await fixture.queue.entriesForTesting()
+        XCTAssertTrue(remaining.isEmpty, "Both network acknowledgements should retire their queue rows")
     }
 
     func testPendingBKeepsItsOwnBaseRatherThanAAcknowledgement() async throws {

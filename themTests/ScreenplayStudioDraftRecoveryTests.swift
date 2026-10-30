@@ -565,6 +565,155 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         XCTAssertTrue(model.hasUnsavedDraftChanges)
     }
 
+    @MainActor
+    func testDiscardRecoveryRemovesOnlyVisibleSlotAndShowsRemainingCopy() {
+        let owner = "slot-owner"
+        let project = "slot-project"
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store,
+            studioAuthContextProvider: { .init(userID: owner, sessionIntentGeneration: 1) })
+        model.selectedProjectID = project
+        store.save(ownerUserId: owner, projectId: project, draft: "Ordinary words", baseVersionId: "old", dirty: true)
+        store.savePreservedConflict(ownerUserId: owner, projectId: project, draft: "Preserved words", baseVersionId: "other")
+        model.applyServerDraft("Server words", versionId: "server")
+        XCTAssertEqual(model.recoveryCandidate?.draft, "Preserved words")
+        model.discardLocalRecoveryCopy()
+        let payload = store.payloads(ownerUserId: owner)[project]
+        XCTAssertNil(payload?["preservedConflict"])
+        XCTAssertEqual(payload?["draft"] as? String, "Ordinary words")
+        XCTAssertEqual(model.recoveryCandidate?.draft, "Ordinary words")
+        XCTAssertEqual(model.fountainDraft, "Server words")
+    }
+
+    @MainActor
+    func testRestoreRecoveryLeavesDistinctHiddenCopyIntact() async {
+        let owner = "slot-owner"
+        let project = "slot-restore"
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store,
+            studioAuthContextProvider: { .init(userID: owner, sessionIntentGeneration: 1) })
+        model.selectedProjectID = project
+        store.save(ownerUserId: owner, projectId: project, draft: "Ordinary words", baseVersionId: "old", dirty: true)
+        store.savePreservedConflict(ownerUserId: owner, projectId: project, draft: "Preserved words", baseVersionId: "other")
+        model.applyServerDraft("Server words", versionId: "server")
+        model.restoreDraftFromRecovery()
+        await model.handleDraftDebouncedChange("Preserved words")
+        let payload = store.payloads(ownerUserId: owner)[project]
+        XCTAssertEqual(model.fountainDraft, "Preserved words")
+        XCTAssertEqual(payload?["draft"] as? String, "Ordinary words")
+        XCTAssertEqual((payload?["preservedConflict"] as? [String: Any])?["draft"] as? String, "Preserved words")
+        XCTAssertEqual(model.recoveryCandidate?.draft, "Ordinary words")
+    }
+
+    @MainActor
+    func testRestoreDoesNotReplaceDirtyPageWhenBothRecoverySlotsAreOccupied() {
+        let owner = "slot-owner"
+        let project = "slot-full"
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store,
+            studioAuthContextProvider: { .init(userID: owner, sessionIntentGeneration: 1) })
+        model.selectedProjectID = project
+        store.save(ownerUserId: owner, projectId: project, draft: "Ordinary words", baseVersionId: "old", dirty: true)
+        store.savePreservedConflict(ownerUserId: owner, projectId: project, draft: "Preserved words", baseVersionId: "other")
+        model.applyServerDraft("Server words", versionId: "server")
+        model.fountainDraft = "New unsaved words"
+        model.hasUnsavedDraftChanges = true
+        model.restoreDraftFromRecovery()
+        let payload = store.payloads(ownerUserId: owner)[project]
+        XCTAssertEqual(model.fountainDraft, "New unsaved words")
+        XCTAssertEqual(payload?["draft"] as? String, "Ordinary words")
+        XCTAssertEqual((payload?["preservedConflict"] as? [String: Any])?["draft"] as? String, "Preserved words")
+        XCTAssertEqual(model.recoveryCandidate?.draft, "Preserved words")
+        XCTAssertTrue(model.errorText.contains("Export"))
+    }
+
+    @MainActor
+    func testStaleRecoveryChoiceCannotDeleteRefreshedSlot() {
+        let owner = "slot-owner"
+        let project = "slot-stale"
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store,
+            studioAuthContextProvider: { .init(userID: owner, sessionIntentGeneration: 1) })
+        model.selectedProjectID = project
+        store.savePreservedConflict(ownerUserId: owner, projectId: project,
+            draft: "First copy", baseVersionId: "old", savedAt: 100)
+        model.applyServerDraft("Server words", versionId: "server")
+        store.savePreservedConflict(ownerUserId: owner, projectId: project,
+            draft: "Replacement copy", baseVersionId: "old", savedAt: 101)
+        model.discardLocalRecoveryCopy()
+        let payload = store.payloads(ownerUserId: owner)[project]
+        XCTAssertEqual((payload?["preservedConflict"] as? [String: Any])?["draft"] as? String, "Replacement copy")
+        XCTAssertEqual(model.recoveryCandidate?.draft, "Replacement copy")
+        XCTAssertTrue(model.errorText.contains("changed"))
+    }
+
+    @MainActor
+    func testRemoteVersionAcknowledgementKeepsDistinctOrdinaryRecovery() {
+        let owner = "remote-owner"
+        let project = "remote-ack"
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store,
+            studioAuthContextProvider: { .init(userID: owner, sessionIntentGeneration: 1) })
+        model.selectedProjectID = project
+        model.fountainDraft = "Remote saved page"
+        store.save(ownerUserId: owner, projectId: project, draft: "Distinct local recovery", baseVersionId: "old", dirty: true)
+        model.adoptRemoteLiveVersion("new-version", projectID: project,
+            draftChecksum: LiveDraftText.checksum("Remote saved page"))
+        XCTAssertEqual(store.payloads(ownerUserId: owner)[project]?["draft"] as? String, "Distinct local recovery")
+        XCTAssertEqual(model.recoveryCandidate?.draft, "Distinct local recovery")
+        XCTAssertEqual(model.fountainDraft, "Remote saved page")
+    }
+
+    @MainActor
+    func testClearPageDoesNotDeleteRecoveryCopies() async {
+        let owner = "clear-page-owner"
+        let project = "clear-page-project"
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store,
+            studioAuthContextProvider: { .init(userID: owner, sessionIntentGeneration: 1) })
+        model.selectedProjectID = project
+        model.applyStructuralUITestDraft("Saved page", versionID: "base")
+        store.save(ownerUserId: owner, projectId: project, draft: "Ordinary copy", baseVersionId: "old", dirty: true)
+        store.savePreservedConflict(ownerUserId: owner, projectId: project, draft: "Preserved copy", baseVersionId: "other")
+        let cleared = await model.clearDraft()
+        XCTAssertTrue(cleared)
+        XCTAssertEqual(model.fountainDraft, "")
+        XCTAssertTrue(model.hasUnsavedDraftChanges)
+        let payload = store.payloads(ownerUserId: owner)[project]
+        XCTAssertEqual(payload?["draft"] as? String, "Ordinary copy")
+        XCTAssertEqual((payload?["preservedConflict"] as? [String: Any])?["draft"] as? String, "Preserved copy")
+    }
+
+    @MainActor
+    func testClearPageRefusesUnresolvedConflict() async {
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store)
+        model.selectedProjectID = "conflicted"
+        model.fountainDraft = "Writer words"
+        model.conflictState = .init(projectId: "conflicted", baseVersionId: "old", serverVersionId: "remote",
+            serverDraft: "Remote", serverDraftExcerpt: "Remote", serverUpdatedAt: 1)
+        let cleared = await model.clearDraft()
+        XCTAssertFalse(cleared)
+        XCTAssertEqual(model.fountainDraft, "Writer words")
+        XCTAssertNotNil(model.conflictState)
+    }
+
+    @MainActor
+    func testKeepingMatchingPageDoesNotRollBackConfirmedVersion() {
+        let owner = "same-page-owner"
+        let project = "same-page-project"
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store,
+            studioAuthContextProvider: { .init(userID: owner, sessionIntentGeneration: 1) })
+        model.selectedProjectID = project
+        model.applyStructuralUITestDraft("Exact page", versionID: "new-version")
+        store.save(ownerUserId: owner, projectId: project, draft: "Exact page",
+                   baseVersionId: "old-version", dirty: true, savedAt: 100)
+        model.recoveryCandidate = .init(owner: .init(userID: owner, sessionIntentGeneration: 1),
+            projectId: project, draft: "Exact page", baseVersionId: "old-version", savedAt: 100,
+            isPreservedConflict: false)
+        let status = model.autosaveStatusText
+        model.restoreDraftFromRecovery()
+        XCTAssertEqual(model.fountainDraft, "Exact page")
+        XCTAssertEqual(model.latestVersionID, "new-version")
+        XCTAssertFalse(model.hasUnsavedDraftChanges)
+        XCTAssertEqual(model.autosaveStatusText, status)
+        XCTAssertNil(model.recoveryCandidate)
+        XCTAssertEqual(store.payloads(ownerUserId: owner)[project]?["baseVersionId"] as? String, "old-version")
+    }
+
     func testRecoverySnapshotPreservesUnsavedDraftBasedOnCurrentServerVersion() {
         store.save(
             ownerUserId: ownerUserID,

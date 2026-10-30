@@ -4530,8 +4530,7 @@ private func refreshStudioCreativeInstincts(
             .font(.system(size: 12, weight: .regular, design: .default))
 
             Button("Clear Draft") {
-                vm.clearDraft()
-                liveDraftBridge.clearDraft()
+                Task { _ = await vm.clearDraft() }
                 showingDirectionOneSettings = false
             }
             .font(.system(size: 12, weight: .regular, design: .default))
@@ -9076,34 +9075,30 @@ Current draft version:
     private func draftRecoveryBanner(
         _ recovery: ScreenplayStudioViewModel.LocalDraftRecoveryCandidate
     ) -> some View {
-        let currentDraft = vm.fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-        let recoveryDraft = recovery.draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        let recoveryAlreadyOnPage = vm.hasUnsavedDraftChanges &&
-            !currentDraft.isEmpty &&
-            currentDraft == recoveryDraft
+        let recoveryAlreadyOnPage = vm.fountainDraft.utf8.elementsEqual(recovery.draft.utf8)
         let savedText = relativeTimestamp(dateFromTimestamp(recovery.savedAt) ?? .now)
 
         return draftAlertBanner(
-            title: recoveryAlreadyOnPage ? "Local draft protected" : "Unsaved local draft found",
+            title: recoveryAlreadyOnPage ? "Recovery copy matches page" : "Unsaved local draft found",
             message: recoveryAlreadyOnPage
-                ? "Saved locally \(savedText). Retry Save when the connection is back, or discard the recovery copy."
-                : "Saved \(savedText). Recover it or keep the server draft.",
+                ? "This recovery copy matches the current page. Keep it or discard the copy."
+                : "Saved \(savedText). Recover it or keep the current page.",
             hint: recoveryAlreadyOnPage
-                ? "Press 1 to keep the local draft on the page or 2 to discard the recovery copy."
-                : "Press 1 to recover local or 2 to keep the server draft.",
+                ? "Press 1 to keep the current page or 2 to discard the recovery copy."
+                : "Press 1 to recover local or 2 to keep the current page.",
             tint: Color.orange.opacity(0.88),
             excerpt: nil
         ) {
             NumberedChoiceActionButton(
                 number: "1",
-                title: recoveryAlreadyOnPage ? "Keep Local" : "Recover Local",
+                title: recoveryAlreadyOnPage ? "Keep Current" : "Recover Local",
                 prominence: .prominent
             ) {
                 vm.restoreDraftFromRecovery()
             }
             NumberedChoiceActionButton(
                 number: "2",
-                title: recoveryAlreadyOnPage ? "Discard Copy" : "Keep Server"
+                title: recoveryAlreadyOnPage ? "Discard Copy" : "Keep Current"
             ) {
                 if recoveryAlreadyOnPage {
                     vm.discardLocalRecoveryCopy()
