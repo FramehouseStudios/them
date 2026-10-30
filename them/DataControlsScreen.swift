@@ -155,6 +155,7 @@ struct DataControlsScreen: View {
     @State private var memoryStatsRefreshedAt: Date?
     @State private var statusMessage = ""
     @State private var stateVersion = ""
+    @State private var showingDeviceRecovery = false
     @State private var showingV1LaunchDoctor = false
     @State private var showingAccountDeletionReauth = false
     @State private var accountDeletionAuthProvider = "email"
@@ -185,6 +186,7 @@ struct DataControlsScreen: View {
                         header
                         storageExplanation
                         offlineOutboxStatus
+                        deviceRecoveryEntry
                         outlineRecoveryStatus
                         memoryStatus
                         voiceTransportSettings
@@ -283,6 +285,22 @@ struct DataControlsScreen: View {
             }
             .frame(minWidth: 760, minHeight: 680)
         }
+        .sheet(isPresented: $showingDeviceRecovery) {
+            NavigationStack {
+                ScrollView {
+                    UnassignedLegacyRecoveryPanel()
+                        .padding(24)
+                        .frame(maxWidth: 980, alignment: .leading)
+                }
+                .navigationTitle("Device Recovery")
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Done") { showingDeviceRecovery = false }
+                            .accessibilityIdentifier("data.controls.device.recovery.done")
+                    }
+                }
+            }
+        }
         .sheet(isPresented: $showingAccountDeletionReauth) {
             accountDeletionReauthenticationSheet
         }
@@ -320,6 +338,20 @@ struct DataControlsScreen: View {
                 statusMessage = "\(recoveryExportLabel) export failed: \(error.localizedDescription)"
             }
         }
+    }
+
+    private var deviceRecoveryEntry: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Device recovery copies").font(.headline)
+            Text("Find older copies stored on this device that cannot be assigned to an account.")
+                .font(.subheadline)
+            Button("Open device recovery") { showingDeviceRecovery = true }
+                .disabled(runningAction != nil || isExporting || runningOutlineRecoveryID != nil ||
+                          isPresentingOutlineRecoveryExporter || pendingAction != nil)
+                .accessibilityHint("Requires device authentication and signing out of THEM.")
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityIdentifier("data.controls.device.recovery")
     }
 
     private var header: some View {

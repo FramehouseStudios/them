@@ -545,7 +545,7 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         XCTAssertEqual((payload?["preservedConflict"] as? [String: Any])?["draft"] as? String, "Another recovery")
         XCTAssertTrue(model.hasUnsavedDraftChanges)
         XCTAssertEqual(model.autosaveStatusText, "Empty page - unsaved")
-        XCTAssertTrue(model.infoText.contains("Export"))
+        XCTAssertTrue(model.infoText.localizedCaseInsensitiveContains("export"))
     }
 
     @MainActor
@@ -614,13 +614,18 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
     func testChangedPageDoesNotOverwriteEitherVisibleRecoveryCopy() async {
         let owner = "visible-preserved-owner"
         let project = "visible-preserved-edit"
-        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store,
-            studioAuthContextProvider: { .init(userID: owner, sessionIntentGeneration: 1) })
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let overflow = ScreenplayRecoveryOverflowStore(rootDirectory: root)
+        let origin = ScreenplayDraftSaveOrigin(documentID: "test-document", backendURL: URL(string: "https://example.test")!)
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store, overflowRecoveryStore: overflow,
+            recoveryOriginProvider: { _ in origin }, studioAuthContextProvider: { .init(userID: owner, sessionIntentGeneration: 1) })
         model.autosaveEnabled = false
         model.selectedProjectID = project
         store.save(ownerUserId: owner, projectId: project, draft: "Ordinary words", baseVersionId: "old", dirty: true, savedAt: 100)
         store.savePreservedConflict(ownerUserId: owner, projectId: project, draft: "Preserved words", baseVersionId: "other", savedAt: 200)
         model.applyServerDraft("Server words", versionId: "server")
+        _ = overflow.saveIfVacant(ownerUserID: owner, projectID: project, backendURL: origin.backendURL, documentID: origin.documentID, draft: "Third copy", baseVersionID: "c")
         model.fountainDraft = "New page"
         model.noteManualDraftEdit()
         await model.handleDraftDebouncedChange("New page")
@@ -660,12 +665,17 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
     func testRestoreDoesNotReplaceDirtyPageWhenBothRecoverySlotsAreOccupied() {
         let owner = "slot-owner"
         let project = "slot-full"
-        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store,
-            studioAuthContextProvider: { .init(userID: owner, sessionIntentGeneration: 1) })
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let overflow = ScreenplayRecoveryOverflowStore(rootDirectory: root)
+        let origin = ScreenplayDraftSaveOrigin(documentID: "test-document", backendURL: URL(string: "https://example.test")!)
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store, overflowRecoveryStore: overflow,
+            recoveryOriginProvider: { _ in origin }, studioAuthContextProvider: { .init(userID: owner, sessionIntentGeneration: 1) })
         model.selectedProjectID = project
         store.save(ownerUserId: owner, projectId: project, draft: "Ordinary words", baseVersionId: "old", dirty: true)
         store.savePreservedConflict(ownerUserId: owner, projectId: project, draft: "Preserved words", baseVersionId: "other")
         model.applyServerDraft("Server words", versionId: "server")
+        _ = overflow.saveIfVacant(ownerUserID: owner, projectID: project, backendURL: origin.backendURL, documentID: origin.documentID, draft: "Third copy", baseVersionID: "c")
         model.fountainDraft = "New unsaved words"
         model.hasUnsavedDraftChanges = true
         model.restoreDraftFromRecovery()
@@ -1145,11 +1155,16 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
     func testLiveSyncDoesNotOverwriteOccupiedRecoveryCopies() {
         let owner = "live-recovery-owner"
         let project = "live-recovery-full"
-        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store,
-            studioAuthContextProvider: { .init(userID: owner, sessionIntentGeneration: 1) })
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let overflow = ScreenplayRecoveryOverflowStore(rootDirectory: root)
+        let origin = ScreenplayDraftSaveOrigin(documentID: "test-document", backendURL: URL(string: "https://example.test")!)
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store, overflowRecoveryStore: overflow,
+            recoveryOriginProvider: { _ in origin }, studioAuthContextProvider: { .init(userID: owner, sessionIntentGeneration: 1) })
         model.selectedProjectID = project
         store.save(ownerUserId: owner, projectId: project, draft: "Ordinary words", baseVersionId: "a", dirty: true, savedAt: 100)
         store.savePreservedConflict(ownerUserId: owner, projectId: project, draft: "Preserved words", baseVersionId: "b", savedAt: 200)
+        _ = overflow.saveIfVacant(ownerUserID: owner, projectID: project, backendURL: origin.backendURL, documentID: origin.documentID, draft: "Third copy", baseVersionID: "c")
         model.fountainDraft = "New local words"
         XCTAssertFalse(model.preserveLocalDraftForLiveSyncRecovery("New local words", projectID: project))
         let payload = store.payloads(ownerUserId: owner)[project]
@@ -1157,6 +1172,49 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         XCTAssertEqual((payload?["preservedConflict"] as? [String: Any])?["draft"] as? String, "Preserved words")
         XCTAssertEqual(model.fountainDraft, "New local words")
         XCTAssertTrue(model.errorText.contains("Live sync paused"))
+    }
+
+    @MainActor
+    func testOverflowCopySurvivesRelaunchAndKeepsEarlierCopies() {
+        let owner = "overflow-owner"
+        let project = "overflow-project"
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let overflow = ScreenplayRecoveryOverflowStore(rootDirectory: root)
+        let origin = ScreenplayDraftSaveOrigin(documentID: "test-document", backendURL: URL(string: "https://example.test")!)
+        let identity: () -> ScreenplayStudioAuthContext = { .init(userID: owner, sessionIntentGeneration: 1) }
+        store.save(ownerUserId: owner, projectId: project, draft: "Ordinary words", baseVersionId: "a", dirty: true)
+        store.savePreservedConflict(ownerUserId: owner, projectId: project, draft: "Preserved words", baseVersionId: "b")
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store, overflowRecoveryStore: overflow,
+            recoveryOriginProvider: { _ in origin }, studioAuthContextProvider: identity)
+        model.selectedProjectID = project
+        model.fountainDraft = "Third page"
+        XCTAssertTrue(model.preserveLocalDraftForLiveSyncRecovery("Third page", projectID: project))
+        guard case .present(let persisted) = overflow.load(ownerUserID: owner, projectID: project, backendURL: origin.backendURL, documentID: origin.documentID) else {
+            return XCTFail("Overflow copy must be persisted")
+        }
+        XCTAssertEqual(Data(persisted.draft.utf8), Data("Third page".utf8))
+        let reopenedOrigin = ScreenplayDraftSaveOrigin(documentID: "new-document-after-switch", backendURL: origin.backendURL)
+        let reopened = ScreenplayStudioViewModel(localDraftRecoveryStore: store, overflowRecoveryStore: overflow,
+            recoveryOriginProvider: { _ in reopenedOrigin }, studioAuthContextProvider: identity)
+        reopened.selectedProjectID = project
+        reopened.applyServerDraft("Server page", versionId: "server")
+        XCTAssertEqual(reopened.recoveryCandidate?.overflowSnapshot?.recordID, persisted.recordID)
+        reopened.restoreDraftFromRecovery()
+        XCTAssertEqual(reopened.fountainDraft, "Third page")
+        XCTAssertEqual(reopened.recoveryCandidate?.draft, "Preserved words")
+        reopened.restoreDraftFromRecovery()
+        XCTAssertEqual(reopened.fountainDraft, "Preserved words")
+        XCTAssertEqual(reopened.recoveryCandidate?.draft, "Ordinary words")
+        reopened.restoreDraftFromRecovery()
+        XCTAssertEqual(reopened.fountainDraft, "Ordinary words")
+        XCTAssertNil(reopened.recoveryCandidate, "Reviewed copies must not loop back into the banner")
+        let payload = store.payloads(ownerUserId: owner)[project]
+        XCTAssertEqual(payload?["draft"] as? String, "Ordinary words")
+        XCTAssertEqual((payload?["preservedConflict"] as? [String: Any])?["draft"] as? String, "Preserved words")
+        guard case .present = overflow.load(ownerUserID: owner, projectID: project, backendURL: origin.backendURL, documentID: origin.documentID) else {
+            return XCTFail("Restoring must retain the overflow copy")
+        }
     }
 
     @MainActor
@@ -1249,6 +1307,7 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         )
     }
 
+    @MainActor
     func testLegacyRecoveryPayloadIsQuarantinedFromAuthenticatedAccounts() {
         defaults.set([
             "legacy-project": [
@@ -1261,11 +1320,15 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
 
         XCTAssertTrue(store.payloads(ownerUserId: "user-a").isEmpty)
         XCTAssertTrue(store.payloads(ownerUserId: "user-b").isEmpty)
-        XCTAssertEqual(
-            store.payloads(ownerUserId: "")["legacy-project"]?["draft"] as? String,
-            "Legacy draft without owner metadata"
-        )
-        XCTAssertNil(defaults.object(forKey: recoveryKey))
+        XCTAssertTrue(store.payloads(ownerUserId: "").isEmpty)
+        let retained = defaults.dictionary(forKey: recoveryKey)
+        XCTAssertEqual((retained?["legacy-project"] as? [String: Any])?["draft"] as? String,
+                       "Legacy draft without owner metadata")
+        let inventory = UnassignedLegacyRecoveryDefaultsAdapter(defaults: defaults, baseKey: recoveryKey).inventory()
+        XCTAssertTrue(inventory.records.contains { $0.projectKey == "legacy-project" })
+        let relaunched = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: recoveryKey)
+        XCTAssertTrue(relaunched.payloads(ownerUserId: "").isEmpty)
+        XCTAssertNotNil(defaults.object(forKey: recoveryKey))
     }
 
     func testLegacyRecoveryQuarantinePreservesExistingAnonymousWork() {
@@ -1284,8 +1347,10 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         XCTAssertTrue(store.payloads(ownerUserId: "user-a").isEmpty)
         let quarantined = store.payloads(ownerUserId: "")
         XCTAssertEqual(quarantined["shared-project"]?["draft"] as? String, "Existing anonymous draft")
-        XCTAssertEqual(quarantined["legacy-only"]?["draft"] as? String, "Legacy-only draft")
-        XCTAssertNil(defaults.object(forKey: recoveryKey))
+        XCTAssertNil(quarantined["legacy-only"])
+        let retained = defaults.dictionary(forKey: recoveryKey)
+        XCTAssertEqual((retained?["shared-project"] as? [String: Any])?["draft"] as? String, "Older legacy draft")
+        XCTAssertEqual((retained?["legacy-only"] as? [String: Any])?["draft"] as? String, "Legacy-only draft")
     }
 
     func testAuthContextRejectsAccountAndInteractiveSessionChanges() {

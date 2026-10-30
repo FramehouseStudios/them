@@ -242,6 +242,12 @@ nonisolated private struct ScreenplayDraftSaveOutboxManifest: Codable {
     let entries: [ScreenplayDraftSaveOutboxEntry]
 }
 
+nonisolated enum UnassignedDraftSaveCapture: Sendable {
+    case missing
+    case available([UnassignedLegacyRecoverySource], unconfirmedCount: Int)
+    case unconfirmed
+}
+
 nonisolated enum ScreenplayDraftSaveDelivery {
     case deliver(ScreenplayDraftSaveOutboxEntry)
     case alreadyInflight(ScreenplayDraftSaveOutboxEntry)
@@ -1062,6 +1068,52 @@ actor ScreenplayDraftSaveOutbox {
         entries[index].lastError = normalizedError(error)
         try persist()
         publishSnapshot()
+    }
+
+    /// Device-local recovery inventory. The caller must authenticate the device
+    /// owner; these rows grant no authority to send, reassign, or delete them.
+    /// Read the durable manifest without rewriting it during inspection.
+    func unassignedRecoveryEntries() throws -> [ScreenplayDraftSaveOutboxEntry] {
+        guard fileManager.fileExists(atPath: manifestURL.path) else { return [] }
+        let stored = try Self.decodeStoredEntries(Data(contentsOf: manifestURL))
+        for entry in stored where isRetirementMarkerLike(entry) {
+            guard isRetirementMarkerCandidate(entry), (try? hydratedRetirementMarker(entry)) != nil else {
+                throw BackendMemoryAPIError.invalidResponse
+            }
+        }
+        return stored.filter { entry in
+            !isRetirementMarkerLike(entry) && entry.initialization == nil && !hasValidDeliveryScope(entry)
+        }
+    }
+
+    /// Capture complete held rows as origin-free evidence without modifying the queue.
+    func captureUnassignedRecoverySources() -> UnassignedDraftSaveCapture {
+        guard fileManager.fileExists(atPath: manifestURL.path) else { return .missing }
+        do {
+            let stored = try Self.decodeStoredEntries(Data(contentsOf: manifestURL))
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.sortedKeys]
+            var sources: [UnassignedLegacyRecoverySource] = []
+            var unconfirmed = 0
+            for entry in stored {
+                if isRetirementMarkerLike(entry) {
+                    if !isRetirementMarkerCandidate(entry) || (try? hydratedRetirementMarker(entry)) == nil {
+                        unconfirmed += 1
+                    }
+                    continue
+                }
+                guard entry.initialization == nil, !hasValidDeliveryScope(entry) else { continue }
+                guard let data = try? encoder.encode(entry),
+                      data.count <= UnassignedLegacyRecoveryVault.maximumSourceBytes else {
+                    unconfirmed += 1
+                    continue
+                }
+                sources.append(.init(ownerHint: entry.ownerUserId, projectHint: entry.projectId,
+                    legacyStorageKeyHint: "screenplay-draft-save-outbox", slot: .draftSaveOutbox,
+                    encoding: .draftSaveJSON, payload: data))
+            }
+            return .available(sources, unconfirmedCount: unconfirmed)
+        } catch { return .unconfirmed }
     }
 
     func entriesForTesting() throws -> [ScreenplayDraftSaveOutboxEntry] {

@@ -2111,6 +2111,20 @@ final class V1SmokeUITests: XCTestCase {
         XCTAssertTrue(staticText(containing: "Mara", in: app).waitForExistence(timeout: 8))
     }
 
+    func test_device_recovery_entry_opens_and_closes() {
+        let app = launchApp(openDataControls: true)
+        defer { app.terminate() }
+        XCTAssertTrue(app.otherElements["data.controls.screen"].waitForExistence(timeout: 8))
+        let entry = app.buttons["Open device recovery"]
+        for _ in 0..<8 where !entry.isHittable { app.swipeUp() }
+        XCTAssertTrue(entry.waitForExistence(timeout: 5))
+        XCTAssertTrue(entry.isHittable, "Device recovery must remain available while background refresh runs.")
+        entry.tap()
+        XCTAssertTrue(app.buttons["Unlock device copies"].waitForExistence(timeout: 5))
+        app.buttons["data.controls.device.recovery.done"].tap()
+        XCTAssertTrue(app.otherElements["data.controls.screen"].waitForExistence(timeout: 5))
+    }
+
     func test_realtime_fallback_does_not_crash_companion() {
         let app = launchApp(openDataControls: true, realtimeStub: true)
 

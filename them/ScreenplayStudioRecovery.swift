@@ -175,7 +175,6 @@ struct ScreenplayLocalDraftRecoveryStore {
 
     func payloads(ownerUserId: String) -> [String: [String: Any]] {
         let scopedKey = ownerScopedKey(ownerUserId)
-        migrateLegacyPayloadsIfNeeded()
         let raw = defaults.dictionary(forKey: scopedKey) ?? [:]
         var out: [String: [String: Any]] = [:]
         for (key, value) in raw {
@@ -545,16 +544,6 @@ struct ScreenplayLocalDraftRecoveryStore {
             storedBase.utf8.elementsEqual(baseVersionId.utf8)
     }
 
-    private func migrateLegacyPayloadsIfNeeded() {
-        let quarantineKey = ownerScopedKey(ScreenplayLegacyWorkspaceMigrationPolicy.quarantineOwnerUserID)
-        guard let legacy = defaults.dictionary(forKey: key),
-              !legacy.isEmpty else { return }
-        var quarantined = legacy
-        for (projectID, payload) in defaults.dictionary(forKey: quarantineKey) ?? [:] {
-            // Existing anonymous work is newer and wins project-ID collisions.
-            quarantined[projectID] = payload
-        }
-        defaults.set(quarantined, forKey: quarantineKey)
-        defaults.removeObject(forKey: key)
-    }
+    // Ownerless legacy drafts remain untouched for explicit Device Recovery.
+
 }

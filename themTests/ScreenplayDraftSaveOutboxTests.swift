@@ -100,10 +100,310 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
     }
 
     @MainActor
+    func testUnassignedRecoveryInventoryPreservesManifestAndExactWords() async throws {
+        let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let words = "\r\nINT. CAFE - NIGHT\r\nCafe\u{301} stays.  \t"
+        var payload = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(
+            makeEntry(id: "held", draft: words, authority: .init(id: UUID(), generation: 7)))) as? [String: Any])
+        payload["notes"] = "Writer note  \r\n"
+        payload["source"] = "studio_manual"
+        payload["studioWriteAnchors"] = [["writeId": "write-1", "anchorLine": 2]]
+        payload["screenplayBindings"] = [["draftSceneId": "scene-1", "outlineSceneId": "outline-1"]]
+        var held = try JSONDecoder().decode(ScreenplayDraftSaveOutboxEntry.self,
+            from: JSONSerialization.data(withJSONObject: payload))
+        held.status = .parked
+        held.retries = 3
+        held.lastError = "Held for recovery"
+        held.supersededConflictRequests = [.init(requestID: "older", projectId: held.projectId,
+            ownerUserId: held.ownerUserId, deliveryOrigin: nil, requestAuthority: nil,
+            requestDigest: String(repeating: "a", count: 64))]
+        let valid = makeDeliverableEntry(id: "valid", draft: "Current page", createdAt: 101)
+        try await queue.enqueue(held)
+        try await queue.enqueue(valid)
+        let manifest = storageDirectory.appendingPathComponent("queue.json")
+        let before = try Data(contentsOf: manifest)
+        let records = try await queue.unassignedRecoveryEntries()
+        XCTAssertEqual(records.map(\.id), [held.id])
+        XCTAssertEqual(records.first.map { Data($0.draft.utf8) }, Data(words.utf8))
+        XCTAssertEqual(try Data(contentsOf: manifest), before)
+        guard case .available(let sources, let unconfirmed) = await queue.captureUnassignedRecoverySources() else {
+            return XCTFail("Held evidence should be capturable")
+        }
+        XCTAssertEqual(unconfirmed, 0)
+        XCTAssertEqual(sources.count, 1)
+        XCTAssertEqual(sources.first?.slot, .draftSaveOutbox)
+        let decoded = try JSONDecoder().decode(ScreenplayDraftSaveOutboxEntry.self,
+            from: try XCTUnwrap(sources.first?.payload))
+        XCTAssertEqual(Data(decoded.draft.utf8), Data(words.utf8))
+        XCTAssertEqual(decoded, held)
+        let vault = UnassignedLegacyRecoveryVault(rootDirectory: storageDirectory.appendingPathComponent("held-vault"))
+        let source = try XCTUnwrap(sources.first)
+        let descriptor: UnassignedLegacyRecoveryDescriptor
+        switch vault.preserve(source) {
+        case .verified(let saved), .alreadyVerified(let saved): descriptor = saved
+        case .unconfirmed: return XCTFail("Held evidence was not secured")
+        }
+        XCTAssertEqual(descriptor.provenance, "unassigned_draft_save_origin")
+        guard case .available(let artifact) = vault.export(recordID: descriptor.recordID) else {
+            return XCTFail("Secured evidence must be exportable")
+        }
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: artifact.data) as? [String: Any])
+        XCTAssertEqual(json["provenance"] as? String, "unassigned_draft_save_origin")
+        let encodedPayload = try XCTUnwrap(json["sourcePayload"] as? String)
+        let exportedPayload = try XCTUnwrap(Data(base64Encoded: encodedPayload))
+        XCTAssertEqual(exportedPayload, source.payload)
+        let exported = try JSONDecoder().decode(ScreenplayDraftSaveOutboxEntry.self, from: exportedPayload)
+        XCTAssertEqual(Data(exported.draft.utf8), Data(words.utf8))
+        XCTAssertEqual(exported, held)
+        XCTAssertEqual(try Data(contentsOf: manifest), before)
+    }
+
+    func testUnassignedCaptureReportsMissingAndCorruptManifest() async throws {
+        let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        guard case .missing = await queue.captureUnassignedRecoverySources() else { return XCTFail("Missing queue must be distinct") }
+        try FileManager.default.createDirectory(at: storageDirectory, withIntermediateDirectories: true)
+        let manifest = storageDirectory.appendingPathComponent("queue.json")
+        let corrupt = Data("not a queue".utf8)
+        try corrupt.write(to: manifest)
+        guard case .unconfirmed = await queue.captureUnassignedRecoverySources() else { return XCTFail("Unreadable queue must not be treated as empty") }
+        XCTAssertEqual(try Data(contentsOf: manifest), corrupt)
+    }
+
+    func testDamagedRetirementMarkerIsUnconfirmedAndCannotLoadAsSave() async throws {
+        try FileManager.default.createDirectory(at: storageDirectory, withIntermediateDirectories: true)
+        let entry = makeDeliverableEntry(id: "damaged-marker", draft: "Retained evidence")
+        var raw = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(entry)) as? [String: Any])
+        raw["projectId"] = "load-server-retirement"
+        let original = try JSONSerialization.data(withJSONObject: [raw], options: [.sortedKeys])
+        let manifest = storageDirectory.appendingPathComponent("queue.json")
+        try original.write(to: manifest)
+        let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        guard case .available(let sources, let unconfirmed) = await queue.captureUnassignedRecoverySources() else {
+            return XCTFail("A decoded marker-like row must remain unconfirmed")
+        }
+        XCTAssertTrue(sources.isEmpty)
+        XCTAssertEqual(unconfirmed, 1)
+        do {
+            _ = try await queue.entriesForTesting()
+            XCTFail("A damaged marker must not load as an ordinary save")
+        } catch { }
+        XCTAssertEqual(try Data(contentsOf: manifest), original)
+    }
+
+    func testOriginlessRowsStayLocalAndDoNotBlockProvenSaves() async throws {
+        let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let old = makeEntry(id: "legacy", draft: "Older unassigned words", createdAt: 100)
+        let origin = ScreenplayDraftSaveOrigin(documentID: "document-a", backendURL: URL(string: "https://save.test")!)
+        let proven = makeEntry(id: "proven", draft: "Current writer words", createdAt: 101, origin: origin)
+        try await queue.enqueue(old)
+        try await queue.enqueue(proven)
+        let pending = try await queue.pendingEntry(projectId: old.projectId, ownerUserId: old.ownerUserId)
+        XCTAssertEqual(pending?.id, proven.id)
+        let snapshot = await queue.snapshot(ownerUserId: old.ownerUserId)
+        XCTAssertEqual(snapshot.pendingCount, 1)
+        XCTAssertEqual(snapshot.parkedCount, 1)
+        let next = try await queue.beginNext(projectId: old.projectId, ownerUserId: old.ownerUserId, force: true)
+        XCTAssertEqual(next?.id, proven.id)
+        let kept = try await queue.entriesForTesting()
+        XCTAssertEqual(kept.first(where: { $0.id == old.id })?.draft, old.draft)
+        let delivery = try await queue.beginDelivery(old)
+        guard case .parked(let held) = delivery else { return XCTFail("Originless row must not be delivered") }
+        XCTAssertEqual(held.id, old.id)
+    }
+
+    func testMalformedOriginIsHeldWithoutBlockingValidSave() async throws {
+        let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let invalidOrigin = ScreenplayDraftSaveOrigin(documentID: "", backendURL: URL(string: "https://save.test")!)
+        let validOrigin = ScreenplayDraftSaveOrigin(documentID: "document-a", backendURL: URL(string: "https://save.test")!)
+        let held = makeEntry(id: "invalid", draft: "Keep these words", createdAt: 100, origin: invalidOrigin)
+        let valid = makeEntry(id: "valid", draft: "Current words", createdAt: 101, origin: validOrigin)
+        try await queue.enqueue(held)
+        try await queue.enqueue(valid)
+        let snapshot = await queue.snapshot(ownerUserId: held.ownerUserId)
+        XCTAssertEqual(snapshot.parkedCount, 1)
+        XCTAssertEqual(snapshot.pendingCount, 1)
+        let pending = try await queue.pendingEntry(projectId: held.projectId, ownerUserId: held.ownerUserId)
+        XCTAssertEqual(pending?.id, valid.id)
+        let next = try await queue.beginNext(projectId: held.projectId, ownerUserId: held.ownerUserId, force: true)
+        XCTAssertEqual(next?.id, valid.id)
+        let delivery = try await queue.beginDelivery(held)
+        guard case .parked(let preserved) = delivery else { return XCTFail("Invalid origin must be held") }
+        XCTAssertEqual(preserved.draft, held.draft)
+    }
+
+    func testUnscopedConflictFencesLaterSaveWithoutDeletingEitherCopy() async throws {
+        let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let conflict = makeEntry(id: "legacy-conflict", draft: "Unassigned conflict words", createdAt: 100)
+        let origin = ScreenplayDraftSaveOrigin(documentID: "document-a", backendURL: URL(string: "https://save.test")!)
+        let later = makeEntry(id: "later", draft: "Later writer words", createdAt: 101, origin: origin)
+        try await queue.enqueue(conflict)
+        _ = try await queue.retainConflict(conflict)
+        try await queue.enqueue(later)
+        let next = try await queue.beginNext(projectId: conflict.projectId, ownerUserId: conflict.ownerUserId, force: true)
+        XCTAssertNil(next)
+        guard case .parked = try await queue.beginDelivery(later) else {
+            return XCTFail("Direct delivery must not bypass an unscoped conflict")
+        }
+        let rows = try await queue.entriesForTesting()
+        XCTAssertEqual(rows.map(\.draft), [conflict.draft, later.draft])
+    }
+
+    func testLaterUnscopedConflictDoesNotStrandEarlierClaimInflight() async throws {
+        let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let valid = makeDeliverableEntry(id: "earlier", draft: "Earlier words", createdAt: 100)
+        let conflict = makeEntry(id: "later-conflict", draft: "Other words", createdAt: 101)
+        try await queue.enqueue(valid)
+        try await queue.enqueue(conflict)
+        _ = try await queue.retainConflict(conflict)
+        let next = try await queue.beginNext(projectId: valid.projectId, ownerUserId: valid.ownerUserId, force: true)
+        XCTAssertNil(next)
+        let rows = try await queue.entriesForTesting()
+        XCTAssertEqual(rows.first(where: { $0.id == valid.id })?.status, .pending)
+        XCTAssertEqual(rows.first(where: { $0.id == conflict.id })?.draft, conflict.draft)
+    }
+
+    func testConflictAppearingAfterClaimReturnsClaimToPending() async throws {
+        let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let valid = makeDeliverableEntry(id: "claimed", draft: "Claimed words", createdAt: 100)
+        try await queue.enqueue(valid)
+        let candidate = try await queue.beginNext(projectId: valid.projectId, ownerUserId: valid.ownerUserId, force: true)
+        let claimed = try XCTUnwrap(candidate)
+        let conflict = makeEntry(id: "new-conflict", draft: "Other words", createdAt: 101)
+        try await queue.enqueue(conflict)
+        _ = try await queue.retainConflict(conflict)
+        guard case .parked = try await queue.beginDelivery(claimed, continuingInflightID: claimed.id) else {
+            return XCTFail("A newly discovered unassigned conflict must block delivery")
+        }
+        let rows = try await queue.entriesForTesting()
+        XCTAssertEqual(rows.first(where: { $0.id == valid.id })?.status, .pending)
+        XCTAssertEqual(rows.first(where: { $0.id == valid.id })?.draft, valid.draft)
+    }
+
+    func testDirectDeliveryRespectsScopedConflictLineage() async throws {
+        let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let conflict = makeDeliverableEntry(id: "conflict", draft: "Conflict words", createdAt: 100)
+        try await queue.enqueue(conflict)
+        _ = try await queue.retainConflict(conflict)
+        let unrelated = makeDeliverableEntry(id: "unrelated", draft: "Other words", createdAt: 103)
+        guard case .parked = try await queue.beginDelivery(unrelated) else {
+            return XCTFail("Unrelated direct save must not cross a parked conflict")
+        }
+        let references = try await queue.conflictResolutionReferences(for: conflict)
+        var resolution = makeDeliverableEntry(id: "resolution", draft: "Chosen words", createdAt: 102)
+        resolution.supersededConflictRequests = references
+        guard case .deliver = try await queue.beginDelivery(resolution) else {
+            return XCTFail("Exact linked resolution must be deliverable")
+        }
+        let rows = try await queue.entriesForTesting()
+        XCTAssertEqual(rows.first(where: { $0.id == conflict.id })?.draft, conflict.draft)
+        XCTAssertEqual(rows.first(where: { $0.id == unrelated.id })?.status, .pending)
+    }
+
+    func testDirectDeliveryCannotSkipEarlierPendingOrInflightSave() async throws {
+        for earlierInflight in [false, true] {
+            let directory = storageDirectory.appendingPathComponent("ordering-\(earlierInflight)")
+            let queue = ScreenplayDraftSaveOutbox(storageDirectory: directory)
+            let earlier = makeDeliverableEntry(id: "earlier", draft: "Earlier words", createdAt: 100)
+            let later = makeDeliverableEntry(id: "later", draft: "Later words", createdAt: 101)
+            try await queue.enqueue(earlier)
+            if earlierInflight { try await queue.markInflight(id: earlier.id) }
+            guard case .waiting = try await queue.beginDelivery(later) else {
+                return XCTFail("Later words must wait for the earlier save")
+            }
+            let rows = try await queue.entriesForTesting()
+            XCTAssertEqual(rows.first(where: { $0.id == earlier.id })?.status, earlierInflight ? .inflight : .pending)
+            XCTAssertEqual(rows.first(where: { $0.id == later.id })?.status, .pending)
+        }
+    }
+
+    func testNewerInflightSaveBlocksOlderDirectSave() async throws {
+        let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let inflight = makeDeliverableEntry(id: "inflight", draft: "Running words", createdAt: 101)
+        let older = makeDeliverableEntry(id: "older", draft: "Earlier words", createdAt: 100)
+        try await queue.enqueue(inflight)
+        try await queue.markInflight(id: inflight.id)
+        guard case .waiting = try await queue.beginDelivery(older) else {
+            return XCTFail("A second save must wait while this document is inflight")
+        }
+        let next = try await queue.beginNext(projectId: older.projectId, ownerUserId: older.ownerUserId, force: true)
+        XCTAssertNil(next)
+        let rows = try await queue.entriesForTesting()
+        XCTAssertEqual(rows.first(where: { $0.id == older.id })?.status, .pending)
+        XCTAssertEqual(rows.first(where: { $0.id == inflight.id })?.status, .inflight)
+    }
+
+    func testDrainSelectsOnlyRequestedOriginAndReleasesExactClaim() async throws {
+        let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let other = ScreenplayDraftSaveOrigin(documentID: "other-doc", backendURL: URL(string: "https://other.test")!)
+        let current = ScreenplayDraftSaveOrigin(documentID: "current-doc", backendURL: URL(string: "https://save.test")!)
+        let foreign = makeDeliverableEntry(id: "foreign", draft: "Other document words", createdAt: 100, origin: other)
+        let owned = makeDeliverableEntry(id: "owned", draft: "Current document words", createdAt: 101, origin: current)
+        try await queue.enqueue(foreign)
+        try await queue.enqueue(owned)
+        let candidate = try await queue.beginNext(projectId: owned.projectId, ownerUserId: owned.ownerUserId,
+                                                  deliveryOrigin: current, force: true)
+        let claimed = try XCTUnwrap(candidate)
+        XCTAssertEqual(claimed.id, owned.id)
+        var different = claimed
+        different.baseVersionId = "different-base"
+        try await queue.releaseInflightClaim(different)
+        let afterMismatch = try await queue.entriesForTesting()
+        XCTAssertEqual(afterMismatch.first(where: { $0.id == owned.id })?.status, .inflight)
+        try await queue.releaseInflightClaim(claimed)
+        let rows = try await queue.entriesForTesting()
+        XCTAssertEqual(rows.first(where: { $0.id == owned.id })?.status, .pending)
+        XCTAssertEqual(rows.first(where: { $0.id == foreign.id })?.status, .pending)
+        XCTAssertEqual(rows.first(where: { $0.id == foreign.id })?.draft, foreign.draft)
+    }
+
+    func testScopedConflictDoesNotBlockDifferentDocumentOrBackend() async throws {
+        let original = ScreenplayDraftSaveOrigin(documentID: "document-a", backendURL: URL(string: "https://save.test")!)
+        let others = [ScreenplayDraftSaveOrigin(documentID: "document-b", backendURL: original.backendURL),
+                      ScreenplayDraftSaveOrigin(documentID: "document-a", backendURL: URL(string: "https://other.test")!)]
+        for (index, origin) in others.enumerated() {
+            let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory.appendingPathComponent("scope-\(index)"))
+            let conflict = makeDeliverableEntry(id: "conflict", draft: "Original words", createdAt: 100, origin: original)
+            let independent = makeDeliverableEntry(id: "independent", draft: "Independent words", createdAt: 101, origin: origin)
+            try await queue.enqueue(conflict)
+            _ = try await queue.retainConflict(conflict)
+            guard case .deliver = try await queue.beginDelivery(independent) else {
+                return XCTFail("An unrelated origin must not be blocked by a scoped conflict")
+            }
+            let rows = try await queue.entriesForTesting()
+            XCTAssertEqual(rows.first(where: { $0.id == conflict.id })?.draft, conflict.draft)
+        }
+    }
+
+    @MainActor
+    func testSupersededHydrationCannotReplaceCurrentWriterPage() async throws {
+        let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: .init(), draftSaveOutbox: queue)
+        model.autosaveEnabled = false
+        model.selectedProjectID = "project-1"
+        model.fountainDraft = "Writer's current page"
+        ScreenplayLiveDraftSyncService.shared.attach(to: model)
+        defer { ScreenplayLiveDraftSyncService.shared.detach() }
+        let data = try JSONSerialization.data(withJSONObject: ["id": "project-1", "title": "Test",
+            "activeVersionId": "remote", "versions": [["id": "remote", "draft": "Older server page"]]])
+        let project = try JSONDecoder().decode(BackendScreenplayProjectSummary.self, from: data)
+        var checks = 0
+        let applied = await model.hydrateDraftRestoringQueuedSaves(from: project, isCurrent: {
+            checks += 1
+            return checks < 3
+        })
+        XCTAssertFalse(applied)
+        XCTAssertEqual(model.fountainDraft, "Writer's current page")
+        XCTAssertGreaterThanOrEqual(checks, 3)
+    }
+
+    @MainActor
     func testProjectHydrationRestoresQueuedWriterBeforeRemoteDraft() async throws {
+        let restoreOwner = try installAuthenticatedFixtureOwner()
+        defer { restoreOwner() }
         let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
         let local = "\r\nWriter words cafe\u{0301}\r\n \t "
-        let entry = replacingOwner(of: makeEntry(id: "queued", draft: local), with: ScreenplayStudioAuthContext.current().userID)
+        var entry = replacingOwner(of: makeEntry(id: "queued", draft: local), with: ScreenplayStudioAuthContext.current().userID)
+        entry.deliveryOrigin = .init(documentID: "queued-document", backendURL: BackendAuthClient.resolvedBackendBaseURL())
         var queuedPayload = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(entry)) as? [String: Any])
         queuedPayload["screenplayBindings"] = [["draftSceneId": "queued-scene", "outlineSceneId": "writer-outline", "updatedAt": 100]]
         queuedPayload["studioWriteAnchors"] = [["writeId": "queued-writer-annotation", "anchorLine": 4]]
@@ -117,6 +417,8 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
         let model = ScreenplayStudioViewModel(localDraftRecoveryStore: recovery, draftSaveOutbox: queue)
         model.autosaveEnabled = false
         model.selectedProjectID = "project-1"
+        ScreenplayLiveDraftBridge.shared.draftText = local
+        ScreenplayLiveDraftSyncService.shared.attach(to: model)
         let data = try JSONSerialization.data(withJSONObject: ["id": "project-1", "title": "Test",
             "activeVersionId": "remote", "versions": [["id": "remote", "draft": "Collaborator words"]]])
         let applied = await model.hydrateDraftRestoringQueuedSaves(from: try JSONDecoder().decode(BackendScreenplayProjectSummary.self, from: data))
@@ -131,7 +433,42 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
     }
 
     @MainActor
+    func testQueuedOriginHydrationReportsItsProvenDocument() async throws {
+        let restoreOwner = try installAuthenticatedFixtureOwner()
+        defer { restoreOwner() }
+        let owner = ScreenplayStudioAuthContext.current()
+        let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let local = "Queued writer words"
+        var entry = replacingOwner(of: makeEntry(id: "proven-queued", draft: local), with: owner.userID)
+        entry.deliveryOrigin = .init(documentID: "queued-document", backendURL: BackendAuthClient.resolvedBackendBaseURL())
+        try await queue.enqueue(entry)
+        let suite = "them.queued-proof.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let bridge = ScreenplayLiveDraftBridge.shared
+        let oldDraft = bridge.draftText
+        defer { bridge.draftText = oldDraft; ScreenplayLiveDraftSyncService.shared.detach() }
+        bridge.draftText = local
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: .init(defaults: defaults, key: "recovery"), draftSaveOutbox: queue)
+        model.autosaveEnabled = false
+        model.selectedProjectID = entry.projectId
+        ScreenplayLiveDraftSyncService.shared.attach(to: model)
+        let project = try JSONDecoder().decode(BackendScreenplayProjectSummary.self,
+            from: JSONSerialization.data(withJSONObject: ["id": entry.projectId, "title": entry.title,
+                "activeVersionId": "server-v2", "versions": [["id": "server-v2", "draft": "Server words"]]]))
+        var adoptedDocumentID: String?
+        let applied = await model.hydrateDraftRestoringQueuedSaves(from: project,
+            onHydrated: { adoptedDocumentID = $0 })
+        XCTAssertTrue(applied)
+        XCTAssertEqual(adoptedDocumentID, "queued-document")
+        XCTAssertEqual(Data(model.fountainDraft.utf8), Data(local.utf8))
+        XCTAssertEqual(bridge.draftOrigin.documentID, "queued-document")
+    }
+
+    @MainActor
     func testQueuedOriginCannotRelabelNewerPersistedWordsWhenBootstrapFlagsAreClean() async throws {
+        let restoreOwner = try installAuthenticatedFixtureOwner()
+        defer { restoreOwner() }
         let owner = ScreenplayStudioAuthContext.current()
         let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
         var entry = replacingOwner(of: makeEntry(id: "older-queued", draft: "Earlier queued writer words"), with: owner.userID)
@@ -144,6 +481,7 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
             ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "newer-origin"), draftSaveOutbox: queue)
         model.autosaveEnabled = false
         model.selectedProjectID = entry.projectId
+        ScreenplayLiveDraftSyncService.shared.attach(to: model)
         let newer = "Newer persisted cafe\u{0301} words. \r\n"
         model.applyServerDraft(newer, versionId: "newer-local-base")
         let bridge = ScreenplayLiveDraftBridge.shared
@@ -440,7 +778,7 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
 
     func testFailedQueueClaimKeepsTheSavePendingInMemoryAndOnDisk() async throws {
         let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
-        let entry = makeEntry(id: "claim-persist-failure")
+        let entry = makeDeliverableEntry(id: "claim-persist-failure")
         try await store.enqueue(entry)
         let backup = storageDirectory.appendingPathExtension("saved")
         defer { try? FileManager.default.removeItem(at: backup) }
@@ -474,10 +812,10 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
         let drafts = [raw, raw + " ", raw.replacingOccurrences(of: "\r\n", with: "\n"),
                       raw.precomposedStringWithCanonicalMapping]
         let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
-        try await store.enqueue(makeEntry(id: "raw-0", draft: raw))
+        try await store.enqueue(makeDeliverableEntry(id: "raw-0", draft: raw))
         try await store.markInflight(id: "raw-0")
         for index in 1..<drafts.count {
-            try await store.enqueue(makeEntry(id: "raw-\(index)", draft: drafts[index],
+            try await store.enqueue(makeDeliverableEntry(id: "raw-\(index)", draft: drafts[index],
                                               createdAt: TimeInterval(100 + index)))
         }
         let relaunched = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
@@ -620,7 +958,7 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
 
     func testJoiningAnInflightSaveDoesNotGrantASecondDelivery() async throws {
         let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
-        let entry = makeEntry(id: "claimed-once")
+        let entry = makeDeliverableEntry(id: "claimed-once")
         guard case .deliver = try await store.beginDelivery(entry) else { return XCTFail("First claim failed") }
         guard case .alreadyInflight(let retained) = try await store.beginDelivery(entry) else {
             return XCTFail("An already inflight request was granted a second delivery")
@@ -1430,7 +1768,7 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
 
     func testOnlyExactLinkedResolutionMayCrossItsParkedConflictBarrier() async throws {
         let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
-        let conflict = makeEntry(id: "parked", draft: "Original", createdAt: 100)
+        let conflict = makeDeliverableEntry(id: "parked", draft: "Original", createdAt: 100)
         try await store.enqueue(conflict)
         _ = try await store.retainConflict(conflict)
         let references = try await store.conflictResolutionReferences(for: conflict)
@@ -1438,11 +1776,11 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
             documentID: "document-a",
             backendURL: URL(string: "https://save.test")!
         )
-        var resolution = makeEntry(id: "resolution", draft: "Replacement", createdAt: 101,
+        var resolution = makeDeliverableEntry(id: "resolution", draft: "Replacement", createdAt: 101,
             origin: origin, authority: .init(id: UUID(), generation: 3))
         resolution.supersededConflictRequests = references
         try await store.enqueue(resolution)
-        try await store.enqueue(makeEntry(id: "later-unrelated", draft: "Later", createdAt: 102,
+        try await store.enqueue(makeDeliverableEntry(id: "later-unrelated", draft: "Later", createdAt: 102,
             origin: origin, authority: .init(id: UUID(), generation: 4)))
 
         let next = try await store.beginNext(projectId: conflict.projectId,
@@ -1451,7 +1789,7 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
 
         let blockedDirectory = storageDirectory.appendingPathComponent("unrelated-barrier", isDirectory: true)
         let blockedStore = ScreenplayDraftSaveOutbox(storageDirectory: blockedDirectory)
-        let unrelatedConflict = makeEntry(id: "unrelated-conflict", draft: "Other", createdAt: 99)
+        let unrelatedConflict = makeDeliverableEntry(id: "unrelated-conflict", draft: "Other", createdAt: 99)
         try await blockedStore.enqueue(unrelatedConflict)
         _ = try await blockedStore.retainConflict(unrelatedConflict)
         try await blockedStore.enqueue(resolution)
@@ -1462,7 +1800,7 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
 
     func testLinkedResolutionCannotSkipAnEarlierUnrelatedPendingEdit() async throws {
         let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
-        let conflict = makeEntry(id: "parked", draft: "Original", createdAt: 100)
+        let conflict = makeDeliverableEntry(id: "parked", draft: "Original", createdAt: 100)
         try await store.enqueue(conflict)
         _ = try await store.retainConflict(conflict)
         let references = try await store.conflictResolutionReferences(for: conflict)
@@ -1470,9 +1808,9 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
             documentID: "document-a",
             backendURL: URL(string: "https://save.test")!
         )
-        try await store.enqueue(makeEntry(id: "unrelated-pending", draft: "Independent edit",
+        try await store.enqueue(makeDeliverableEntry(id: "unrelated-pending", draft: "Independent edit",
             createdAt: 101, origin: origin, authority: .init(id: UUID(), generation: 5)))
-        var resolution = makeEntry(id: "resolution", draft: "Replacement", createdAt: 102,
+        var resolution = makeDeliverableEntry(id: "resolution", draft: "Replacement", createdAt: 102,
             origin: origin, authority: .init(id: UUID(), generation: 6))
         resolution.supersededConflictRequests = references
         try await store.enqueue(resolution)
@@ -1749,8 +2087,8 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
 
     func testSnapshotCountsOnlyTheCurrentAccount() async throws {
         let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
-        try await store.enqueue(makeEntry(id: "my-save"))
-        let otherOwner = replacingOwner(of: makeEntry(id: "other-save"), with: "user-2")
+        try await store.enqueue(makeDeliverableEntry(id: "my-save"))
+        let otherOwner = replacingOwner(of: makeDeliverableEntry(id: "other-save"), with: "user-2")
         try await store.enqueue(otherOwner)
 
         let mine = await store.snapshot(ownerUserId: "user-1")
@@ -1858,13 +2196,13 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
 
     func testLaterDraftCannotSkipOlderBackedOffSave() async throws {
         let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
-        try await store.enqueue(makeEntry(id: "save-1", draft: "Draft one", createdAt: 100))
+        try await store.enqueue(makeDeliverableEntry(id: "save-1", draft: "Draft one", createdAt: 100))
         try await store.markRetryable(
             id: "save-1",
             error: "offline",
             now: Date(timeIntervalSince1970: 100)
         )
-        try await store.enqueue(makeEntry(id: "save-2", draft: "Draft two", createdAt: 101))
+        try await store.enqueue(makeDeliverableEntry(id: "save-2", draft: "Draft two", createdAt: 101))
 
         let skipped = try await store.beginNext(
             projectId: "project-1",
@@ -1885,10 +2223,10 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
 
     func testAnotherAccountsOlderSaveDoesNotBlockCurrentAccount() async throws {
         let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
-        var otherOwner = makeEntry(id: "other-save", draft: "Other draft", createdAt: 99)
+        var otherOwner = makeDeliverableEntry(id: "other-save", draft: "Other draft", createdAt: 99)
         otherOwner = replacingOwner(of: otherOwner, with: "user-2")
         try await store.enqueue(otherOwner)
-        try await store.enqueue(makeEntry(id: "my-save", createdAt: 100))
+        try await store.enqueue(makeDeliverableEntry(id: "my-save", createdAt: 100))
 
         let next = try await store.beginNext(
             projectId: "project-1",
@@ -1956,6 +2294,37 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
         ScreenplayDraftSaveOutbox.resetStoredQueueForUITesting(at: storageDirectory)
 
         XCTAssertFalse(FileManager.default.fileExists(atPath: storageDirectory.path))
+    }
+
+    @MainActor
+    private func installAuthenticatedFixtureOwner() throws -> @MainActor () -> Void {
+        let defaults = UserDefaults.standard
+        let keys = ["auth_user_payload", "auth_signed_in", "auth_session_token_deletion_pending"]
+        let original = keys.map { defaults.object(forKey: $0) }
+        let user = BackendAuthUser(userId: "queue-fixture-\(UUID().uuidString)", email: "fixture@example.invalid",
+            authProvider: nil, emailVerified: true, emailVerifiedAt: nil, createdAt: nil, updatedAt: nil)
+        defaults.set(try JSONEncoder().encode(user), forKey: keys[0])
+        defaults.set(true, forKey: keys[1])
+        defaults.set(false, forKey: keys[2])
+        ScreenplayLiveDraftBridge.shared.reconcileAccountStorage()
+        return {
+            ScreenplayLiveDraftSyncService.shared.detach()
+            for (index, key) in keys.enumerated() {
+                if let value = original[index] { defaults.set(value, forKey: key) }
+                else { defaults.removeObject(forKey: key) }
+            }
+            ScreenplayLiveDraftBridge.shared.reconcileAccountStorage()
+        }
+    }
+
+    private func makeDeliverableEntry(
+        id: String,
+        draft: String = "Draft one",
+        createdAt: TimeInterval = 100,
+        origin: ScreenplayDraftSaveOrigin = .init(documentID: "document-a", backendURL: URL(string: "https://save.test")!),
+        authority: ScreenplayDraftSaveRequestAuthority? = nil
+    ) -> ScreenplayDraftSaveOutboxEntry {
+        makeEntry(id: id, draft: draft, createdAt: createdAt, origin: origin, authority: authority)
     }
 
     private func makeEntry(
