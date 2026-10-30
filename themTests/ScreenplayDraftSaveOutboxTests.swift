@@ -1201,6 +1201,23 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
         XCTAssertEqual(rows.count, changes.count + 1)
     }
 
+    func testDistinctManualCheckpointsWithIdenticalBytesSurviveRelaunch() async throws {
+        let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let sample = makeEntry(id: "manual-first", draft: "Same exact words")
+        var payload = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(sample)) as? [String: Any])
+        payload["source"] = "studio_manual"
+        let first = try JSONDecoder().decode(ScreenplayDraftSaveOutboxEntry.self, from: JSONSerialization.data(withJSONObject: payload))
+        payload["id"] = "manual-second"
+        let second = try JSONDecoder().decode(ScreenplayDraftSaveOutboxEntry.self, from: JSONSerialization.data(withJSONObject: payload))
+        _ = try await store.enqueueForDelivery(first)
+        let retained = try await store.enqueueForDelivery(second)
+        XCTAssertEqual(retained.id, second.id)
+        let restarted = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let rows = try await restarted.entriesForTesting()
+        XCTAssertEqual(Set(rows.map(\.id)), Set([first.id, second.id]))
+        XCTAssertTrue(rows.allSatisfy { $0.draft.utf8.elementsEqual(first.draft.utf8) })
+    }
+
     func testPassiveDeliveryKeepsTheExistingExplicitIntentAndRequestIdentifier() async throws {
         let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
         var payload = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(makeEntry(id: "explicit-save"))) as? [String: Any])
