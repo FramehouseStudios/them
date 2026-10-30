@@ -7357,33 +7357,12 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 }
                 return
             }
-            guard case .saved(let versionID, let mayContinueEditing, let proof) = completion else { return }
-            if let queuedRequest = pendingDraftSaveRequest {
-                pendingDraftSaveRequest = nil
-                let sameOwnerProject = activeRequest.projectId == queuedRequest.projectId &&
-                    activeRequest.deliveryOrigin == queuedRequest.deliveryOrigin &&
-                    ScreenplayStudioAuthContextPolicy.matches(expected: activeRequest.authContext, current: queuedRequest.authContext)
-                if sameOwnerProject, proof != nil, queuedRequest.outboxEntry.isSatisfiedByAcknowledgement(
-                    of: activeRequest.outboxEntry, versionID: versionID) {
-                    nextRequest = nil
-                } else if sameOwnerProject, activeRequest.outboxEntry.hasSameTarget(as: queuedRequest.outboxEntry),
-                          ScreenplayDraftSaveCoalescingPolicy.shouldCoalesce(
-                    activeDraft: activeRequest.draft,
-                    activeSource: activeRequest.source,
-                    activeNotes: activeRequest.notes,
-                    activeBaseVersionOverride: activeRequest.baseVersionId,
-                    pendingDraft: queuedRequest.draft,
-                    pendingSource: queuedRequest.source,
-                    pendingNotes: queuedRequest.notes,
-                    pendingBaseVersionOverride: queuedRequest.baseVersionId
-                ) {
-                    nextRequest = nil
-                } else {
-                    nextRequest = draftSaveFollowingAcknowledgement(queuedRequest,
-                        saved: activeRequest, versionID: versionID)
-                }
-                continue
-            }
+            guard case .saved(_, let mayContinueEditing, _) = completion else { return }
+            // Every pending request was admitted before becoming a volatile
+            // hint. Leave it for the one exact-claim handoff path, which will
+            // use the actor's rebased row or observe that it was consumed.
+            // Replaying this stale snapshot here could resurrect that row.
+            if pendingDraftSaveRequest != nil { return }
 
             let currentDraft = fountainDraft
             guard mayContinueEditing, selectedProjectID == activeRequest.projectId,
