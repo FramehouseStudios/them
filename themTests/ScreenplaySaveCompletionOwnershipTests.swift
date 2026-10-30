@@ -197,6 +197,54 @@ final class ScreenplaySaveCompletionOwnershipTests: XCTestCase {
         XCTAssertTrue(rows.isEmpty)
     }
 
+    func testAccountIntentChangeAfterClaimKeepsDraftPending() async throws {
+        let authKeys = ["auth_user_payload", "auth_signed_in", "auth_session_token_deletion_pending"]
+        let previousAuth = authKeys.map { UserDefaults.standard.object(forKey: $0) }
+        let user = BackendAuthUser(userId: "claim-race-\(UUID().uuidString)", email: "claim@example.invalid",
+            authProvider: nil, emailVerified: true, emailVerifiedAt: nil, createdAt: nil, updatedAt: nil)
+        UserDefaults.standard.set(try JSONEncoder().encode(user), forKey: authKeys[0])
+        UserDefaults.standard.set(true, forKey: authKeys[1])
+        UserDefaults.standard.set(false, forKey: authKeys[2])
+        ScreenplayLiveDraftBridge.shared.reconcileAccountStorage()
+        defer {
+            for (index, key) in authKeys.enumerated() {
+                if let value = previousAuth[index] { UserDefaults.standard.set(value, forKey: key) }
+                else { UserDefaults.standard.removeObject(forKey: key) }
+            }
+            ScreenplayLiveDraftBridge.shared.reconcileAccountStorage()
+        }
+        let fixture = try SaveCompletionFixture(useRecoveryOrigin: true)
+        let intentKey = "auth_session_intent_generation"
+        let previous = UserDefaults.standard.object(forKey: intentKey)
+        defer {
+            fixture.model.debugAfterDraftSaveClaim = nil
+            if let previous { UserDefaults.standard.set(previous, forKey: intentKey) }
+            else { UserDefaults.standard.removeObject(forKey: intentKey) }
+            fixture.close()
+        }
+        fixture.select("a", draft: fixture.a, base: "a-base")
+        var earlier = ScreenplayDraftSaveOutboxEntry(id: UUID().uuidString, projectId: "a", ownerUserId: fixture.owner,
+            draft: fixture.a, title: "A", phase: "draft", notes: "", source: "studio_manual",
+            studioWriteAnchors: [], screenplayBindings: [], baseVersionId: "a-base", createdAt: 1, updatedAt: 1,
+            status: .pending, retries: 0, nextAttemptAt: 0, lastError: "")
+        let documentID = try XCTUnwrap(ScreenplayLiveDraftBridge.shared.draftOrigin.documentID)
+        earlier.deliveryOrigin = .init(documentID: documentID, backendURL: BackendAuthClient.resolvedBackendBaseURL())
+        try await fixture.queue.enqueue(earlier)
+        var didClaim = false
+        fixture.model.debugAfterDraftSaveClaim = {
+            didClaim = true
+            _ = BackendAuthClient.reserveAuthSessionIntent()
+        }
+        await fixture.model.resumeQueuedDraftSavesIfNeeded(force: true)
+        XCTAssertTrue(didClaim, "The regression must actually reach the post-claim account change.")
+        let rows = try await fixture.queue.entriesForTesting()
+        XCTAssertEqual(rows.count, 1)
+        XCTAssertEqual(rows.first?.status, .pending)
+        XCTAssertEqual(rows.first.map { Data($0.draft.utf8) }, Data(fixture.a.utf8))
+        XCTAssertTrue(fixture.peer.writes.isEmpty)
+        XCTAssertFalse(fixture.model.debugIsDraftSaveInFlight)
+    }
+
     func testManualSaveBehindBackgroundDrainIsDispatchedExactlyOnce() async throws {
         try await assertPendingSaveFollowsBackgroundDrain(switchProject: false)
     }
@@ -323,7 +371,7 @@ private final class SaveCompletionFixture {
 
     nonisolated deinit {}
 
-    init() throws {
+    init(useRecoveryOrigin: Bool = false) throws {
         let bridge = ScreenplayLiveDraftBridge.shared
         bridge.reconcileAccountStorage()
         priorDraft = bridge.draftText; priorProject = bridge.preferredProjectID
@@ -341,7 +389,12 @@ private final class SaveCompletionFixture {
         config.protocolClasses = [SaveCompletionProtocol.self]
         session = URLSession(configuration: config)
         let api = BackendMemoryAPI(session: session, baseURL: URL(string: "https://save-completion.test")!)
-        model = ScreenplayStudioViewModel(localDraftRecoveryStore: store, draftSaveOutbox: queue, draftSaveAPI: api)
+        let recoveryOrigin: ((String) -> ScreenplayDraftSaveOrigin?)? = useRecoveryOrigin ? { projectID in
+            guard bridge.draftOrigin.projectID == projectID, let documentID = bridge.draftOrigin.documentID else { return nil }
+            return .init(documentID: documentID, backendURL: BackendAuthClient.resolvedBackendBaseURL())
+        } : nil
+        model = ScreenplayStudioViewModel(localDraftRecoveryStore: store, recoveryOriginProvider: recoveryOrigin,
+                                          draftSaveOutbox: queue, draftSaveAPI: api)
         model.autosaveEnabled = false
     }
 

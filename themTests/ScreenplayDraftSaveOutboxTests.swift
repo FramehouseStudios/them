@@ -588,6 +588,25 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
         super.tearDown()
     }
 
+    func testOnlyExactInflightClaimCanBeReturnedToQueue() async throws {
+        let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let origin = ScreenplayDraftSaveOrigin(documentID: "claimed-document", backendURL: URL(string: "https://save.test")!)
+        var entry = makeEntry(id: "claimed", draft: "Cafe\u{301}  ")
+        entry.deliveryOrigin = origin
+        try await store.enqueue(entry)
+        let next = try await store.beginNext(projectId: "project-1", ownerUserId: "user-1", deliveryOrigin: origin, force: true)
+        let claimed = try XCTUnwrap(next)
+        var mismatched = claimed
+        mismatched.baseVersionId = "different-base"
+        try await store.releaseInflightClaim(mismatched)
+        var rows = try await store.entriesForTesting()
+        XCTAssertEqual(rows.first?.status, .inflight)
+        try await store.releaseInflightClaim(claimed)
+        rows = try await store.entriesForTesting()
+        XCTAssertEqual(rows.first?.status, .pending)
+        XCTAssertEqual(rows.first.map { Data($0.draft.utf8) }, Data("Cafe\u{301}  ".utf8))
+    }
+
     func testQueuePersistsAndRecoversInterruptedInflightSave() async throws {
         let firstStore = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
         let entry = makeEntry(id: "save-1")
