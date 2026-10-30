@@ -462,14 +462,14 @@ protocol LiveDraftEditorBinding: AnyObject {
     var liveDraftTextPublisher: AnyPublisher<String, Never> { get }
     @discardableResult
     func applyRemoteLiveDraft(_ text: String, projectID: String, sourceDeviceID: String) -> Bool
-    func preserveLocalDraftForLiveSyncRecovery(_ text: String, projectID: String)
+    func preserveLocalDraftForLiveSyncRecovery(_ text: String, projectID: String) -> Bool
     func adoptRemoteLiveVersion(_ versionID: String, projectID: String, draftChecksum: String)
     /// Bring the line another device is typing on into view.
     func revealRemoteEditLine(_ line: Int)
 }
 
 extension LiveDraftEditorBinding {
-    func preserveLocalDraftForLiveSyncRecovery(_ text: String, projectID: String) {}
+    func preserveLocalDraftForLiveSyncRecovery(_ text: String, projectID: String) -> Bool { false }
 }
 
 extension ScreenplayStudioViewModel: LiveDraftEditorBinding {
@@ -512,6 +512,7 @@ final class ScreenplayLiveDraftSyncService: ObservableObject {
     private var activeProjectID = ""
     /// Last text the channel and this device agreed on.
     private var mirrorText = ""
+    private var mirrorGeneration: UInt64 = 0
     private var mirrorSeq: Int?
     private var mirrorChecksum = ""
     /// The editor text whose checksum opened the current stream. A hello
@@ -631,6 +632,7 @@ final class ScreenplayLiveDraftSyncService: ObservableObject {
     }
 
     private func resetMirror() {
+        mirrorGeneration &+= 1
         mirrorText = ""
         mirrorSeq = nil
         mirrorChecksum = ""
@@ -850,7 +852,6 @@ final class ScreenplayLiveDraftSyncService: ObservableObject {
         // 2026-09-28). Without a base, or when local already matches, there
         // is nothing to merge; the channel wins, as for overlapping edits.
         let hasAgreedBase = mirrorSeq != nil
-        setMirror(text: remoteText, seq: seq, checksum: checksum)
         var merged: String?
         if hasAgreedBase, localText != previousMirror, localText != remoteText,
            let localOp = LiveDraftText.diff(from: previousMirror, to: localText) {
@@ -864,8 +865,14 @@ final class ScreenplayLiveDraftSyncService: ObservableObject {
         // cannot be safely rebased. The editor only persists text that is
         // actually dirty against its last saved fingerprint.
         if merged == nil, localText != remoteText {
-            editor?.preserveLocalDraftForLiveSyncRecovery(localText, projectID: projectID)
+            guard editor?.preserveLocalDraftForLiveSyncRecovery(localText, projectID: projectID) == true else {
+                stopStream()
+                resetMirror()
+                status = .offline(reason: "local_recovery_unavailable")
+                return
+            }
         }
+        setMirror(text: remoteText, seq: seq, checksum: checksum)
         applyToEditor(merged ?? remoteText, projectID: projectID, sourceDeviceID: sourceDeviceID)
         if let revealLine, merged == nil {
             revealRemoteLineIfDue(revealLine)
@@ -911,9 +918,10 @@ final class ScreenplayLiveDraftSyncService: ObservableObject {
         let localText = editor.liveDraftText
         guard localText != baseText, let op = LiveDraftText.diff(from: baseText, to: localText) else { return }
         let projectID = activeProjectID
+        let generation = mirrorGeneration
         let checksum = LiveDraftText.checksum(localText)
         isPublishInFlight = true
-        defer { isPublishInFlight = false }
+        defer { if generation == mirrorGeneration { isPublishInFlight = false } }
         do {
             let result = try await transport.postOp(
                 projectID: projectID,
@@ -924,7 +932,7 @@ final class ScreenplayLiveDraftSyncService: ObservableObject {
                 checksum: checksum,
                 cursor: op.caret
             )
-            guard projectID == activeProjectID else { return }
+            guard projectID == activeProjectID, generation == mirrorGeneration, isConnected else { return }
             switch result {
             case let .applied(seq, appliedChecksum):
                 setMirror(text: localText, seq: seq, checksum: appliedChecksum)
@@ -953,6 +961,7 @@ final class ScreenplayLiveDraftSyncService: ObservableObject {
                 return
             }
         } catch {
+            guard generation == mirrorGeneration, isConnected else { return }
             logger.warning("live draft op failed: \(error.localizedDescription, privacy: .public)")
             schedulePublish(after: LiveDraftSyncPolicy.publishRetryInterval)
             return
@@ -974,6 +983,7 @@ final class ScreenplayLiveDraftSyncService: ObservableObject {
     private func pushLocalSnapshot() async {
         guard isConnected, let editor else { return }
         let projectID = activeProjectID
+        let generation = mirrorGeneration
         let localText = editor.liveDraftText
         do {
             let result = try await transport.postSnapshot(
@@ -982,7 +992,7 @@ final class ScreenplayLiveDraftSyncService: ObservableObject {
                 text: localText,
                 versionID: editor.liveDraftLatestVersionID
             )
-            guard projectID == activeProjectID else { return }
+            guard projectID == activeProjectID, generation == mirrorGeneration, isConnected else { return }
             switch result {
             case let .applied(seq, checksum):
                 setMirror(text: localText, seq: seq, checksum: checksum)
@@ -1002,6 +1012,7 @@ final class ScreenplayLiveDraftSyncService: ObservableObject {
                 logger.warning("live draft snapshot rejected status=\(status) reason=\(reason, privacy: .public)")
             }
         } catch {
+            guard generation == mirrorGeneration, isConnected else { return }
             logger.warning("live draft snapshot failed: \(error.localizedDescription, privacy: .public)")
             schedulePublish(after: LiveDraftSyncPolicy.publishRetryInterval)
         }
@@ -1034,12 +1045,13 @@ final class ScreenplayLiveDraftSyncService: ObservableObject {
     private func scheduleResync() {
         guard resyncTask == nil else { return }
         let projectID = activeProjectID
+        let generation = mirrorGeneration
         resyncTask = Task { [weak self] in
             guard let self else { return }
             defer { self.resyncTask = nil }
             do {
                 let snapshot = try await self.transport.fetchSnapshot(projectID: projectID)
-                guard projectID == self.activeProjectID else { return }
+                guard projectID == self.activeProjectID, generation == self.mirrorGeneration, self.isConnected else { return }
                 self.reconcileRemote(
                     text: snapshot.text,
                     seq: snapshot.seq,
@@ -1049,6 +1061,7 @@ final class ScreenplayLiveDraftSyncService: ObservableObject {
                     revealLine: nil
                 )
             } catch {
+                guard generation == self.mirrorGeneration, self.isConnected else { return }
                 self.logger.warning("live draft resync failed: \(error.localizedDescription, privacy: .public)")
                 self.schedulePublish(after: LiveDraftSyncPolicy.publishRetryInterval)
             }

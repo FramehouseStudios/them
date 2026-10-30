@@ -196,6 +196,7 @@ private final class FakeLiveDraftEditor: LiveDraftEditorBinding {
     var appliedSourceDevices: [String] = []
     var preservedLocalDrafts: [(draft: String, projectID: String)] = []
     var recoveryEvents: [String] = []
+    var preservationSucceeds = true
     var adoptedVersions: [(versionID: String, checksum: String)] = []
     var revealedLines: [Int] = []
 
@@ -223,9 +224,10 @@ private final class FakeLiveDraftEditor: LiveDraftEditorBinding {
         revealedLines.append(line)
     }
 
-    func preserveLocalDraftForLiveSyncRecovery(_ text: String, projectID: String) {
+    func preserveLocalDraftForLiveSyncRecovery(_ text: String, projectID: String) -> Bool {
         recoveryEvents.append("preserve")
         preservedLocalDrafts.append((text, projectID))
+        return preservationSucceeds
     }
 
     func adoptRemoteLiveVersion(_ versionID: String, projectID: String, draftChecksum: String) {
@@ -573,6 +575,23 @@ final class ScreenplayLiveDraftSyncServiceTests: XCTestCase {
         XCTAssertEqual(editor.preservedLocalDrafts.first?.draft, cached)
         XCTAssertEqual(editor.preservedLocalDrafts.first?.projectID, "proj-1")
         service.detach()
+    }
+
+    func testLiveSyncKeepsPageAndStopsWhenRecoveryCannotBeSecured() async {
+        let transport = FakeLiveDraftTransport()
+        let editor = FakeLiveDraftEditor(projectID: "proj-1", text: "Local unsaved words")
+        editor.preservationSucceeds = false
+        let service = makeService(transport: transport)
+        service.attach(to: editor)
+        defer { service.detach() }
+        await waitUntil { !transport.openedStreams.isEmpty }
+        transport.emit("hello", #"{"seq":5,"checksum":"\#(LiveDraftText.checksum("Remote words"))","seeded":false,"text":"Remote words"}"#)
+        await waitUntil { service.status == .offline(reason: "local_recovery_unavailable") }
+        XCTAssertEqual(editor.text, "Local unsaved words")
+        XCTAssertTrue(editor.appliedRemoteTexts.isEmpty)
+        XCTAssertTrue(transport.postedOps.isEmpty)
+        XCTAssertTrue(transport.postedSnapshots.isEmpty)
+        XCTAssertEqual(editor.recoveryEvents, ["preserve"])
     }
 
     func testHelloWithoutTextAgreesOnTheTextWhoseChecksumWasSent() async {

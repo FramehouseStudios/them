@@ -2117,34 +2117,29 @@ final class ScreenplayStudioViewModel: ObservableObject {
 
     /// Preserve a dirty local draft independently before live sync replaces
     /// it with a remote snapshot that has no shared base or cannot merge.
-    func preserveLocalDraftForLiveSyncRecovery(_ text: String, projectID: String) {
-        guard ScreenplayProjectScopedState.matches(projectID, selectedProjectId: selectedProjectID) else {
-            return
-        }
+    @discardableResult
+    func preserveLocalDraftForLiveSyncRecovery(_ text: String, projectID: String) -> Bool {
+        guard ScreenplayProjectScopedState.matches(projectID, selectedProjectId: selectedProjectID) else { return false }
         let cleanProjectID = projectID.trimmingCharacters(in: .whitespacesAndNewlines)
-        let normalizedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !cleanProjectID.isEmpty,
-              !normalizedText.isEmpty,
-              fingerprint(for: text) != lastSavedDraftFingerprint else { return }
-
-        let savedAt = Date().timeIntervalSince1970
-        let ownerUserID = currentStudioAuthContext().userID
-        localDraftRecoveryStore.savePreservedConflict(
-            ownerUserId: ownerUserID,
-            projectId: cleanProjectID,
-            draft: text,
-            baseVersionId: latestVersionID,
-            savedAt: savedAt
-        )
-        recoveryCandidate = LocalDraftRecoveryCandidate(
-            owner: currentStudioAuthContext(), projectId: cleanProjectID,
-            draft: text,
-            baseVersionId: latestVersionID,
-            savedAt: savedAt,
-            isPreservedConflict: true
-        )
-        autosaveStatusText = "Local draft protected"
-        infoText = "Your unsaved local draft is preserved while live sync loads the other device's text. Recover it or keep the server draft."
+        guard !cleanProjectID.isEmpty else { return false }
+        guard fingerprint(for: text) != lastSavedDraftFingerprint else { return true }
+        let owner = currentStudioAuthContext()
+        let result = localDraftRecoveryStore.saveInVacantRecoverySlot(
+            ownerUserId: owner.userID, projectId: cleanProjectID, draft: text,
+            baseVersionId: latestVersionID, preferPreservedConflict: true)
+        switch result {
+        case .present, .stored:
+            if recoveryCandidate == nil {
+                surfaceRemainingRecovery(owner: owner, projectID: cleanProjectID)
+            }
+            autosaveStatusText = "Local draft protected"
+            infoText = "Your unsaved local draft is preserved while live sync loads the other device's text. Recover it or keep the server draft."
+            return true
+        case .occupied, .unconfirmed:
+            autosaveStatusText = "Live sync paused"
+            errorText = "This page could not be safely preserved. Live sync paused; keep it open and export it or retry Save."
+            return false
+        }
     }
 
     /// The typing device normally announces its saved version within a couple

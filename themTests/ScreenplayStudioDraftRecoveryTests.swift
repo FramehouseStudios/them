@@ -1142,6 +1142,24 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
     }
 
     @MainActor
+    func testLiveSyncDoesNotOverwriteOccupiedRecoveryCopies() {
+        let owner = "live-recovery-owner"
+        let project = "live-recovery-full"
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store,
+            studioAuthContextProvider: { .init(userID: owner, sessionIntentGeneration: 1) })
+        model.selectedProjectID = project
+        store.save(ownerUserId: owner, projectId: project, draft: "Ordinary words", baseVersionId: "a", dirty: true, savedAt: 100)
+        store.savePreservedConflict(ownerUserId: owner, projectId: project, draft: "Preserved words", baseVersionId: "b", savedAt: 200)
+        model.fountainDraft = "New local words"
+        XCTAssertFalse(model.preserveLocalDraftForLiveSyncRecovery("New local words", projectID: project))
+        let payload = store.payloads(ownerUserId: owner)[project]
+        XCTAssertEqual(payload?["draft"] as? String, "Ordinary words")
+        XCTAssertEqual((payload?["preservedConflict"] as? [String: Any])?["draft"] as? String, "Preserved words")
+        XCTAssertEqual(model.fountainDraft, "New local words")
+        XCTAssertTrue(model.errorText.contains("Live sync paused"))
+    }
+
+    @MainActor
     func testLiveSyncVersionAdoptionKeepsExactLocalDraftAvailableToRecover() async {
         let local = "INT. DINER - NIGHT\n\nShe waits.\n\nA phone BUZZES."
         let remote = "INT. DINER - NIGHT\n\nShe waits."

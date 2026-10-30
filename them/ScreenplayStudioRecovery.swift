@@ -344,7 +344,8 @@ struct ScreenplayLocalDraftRecoveryStore {
         projectId: String,
         draft: String,
         baseVersionId: String,
-        savedAt: TimeInterval = Date().timeIntervalSince1970
+        savedAt: TimeInterval = Date().timeIntervalSince1970,
+        preferPreservedConflict: Bool = false
     ) -> ScreenplayVacantRecoveryWriteResult {
         let project = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !project.isEmpty else { return .unconfirmed }
@@ -363,7 +364,9 @@ struct ScreenplayLocalDraftRecoveryStore {
         }
 
         let slot: ScreenplayLocalDraftRecoverySlot
-        if !ordinary.exists {
+        if preferPreservedConflict && !preserved.exists {
+            slot = .preservedConflict
+        } else if !ordinary.exists {
             slot = .ordinary
         } else if !preserved.exists {
             slot = .preservedConflict
