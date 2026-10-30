@@ -2630,6 +2630,63 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: manifest), original)
     }
 
+    func testSchemaTwoCannotCarryOrderingFields() async throws {
+        var ordered = makeDeliverableEntry(id: "schema-two-ordered")
+        ordered.saveOrderingVersion = 1
+        ordered.supersededConflictRequests = [.init(
+            requestID: "older", projectId: ordered.projectId,
+            ownerUserId: ordered.ownerUserId, deliveryOrigin: ordered.deliveryOrigin,
+            requestAuthority: nil, requestDigest: String(repeating: "a", count: 64))]
+        let encoded = try XCTUnwrap(JSONSerialization.jsonObject(
+            with: JSONEncoder().encode(ordered)) as? [String: Any])
+        let original = try JSONSerialization.data(withJSONObject:
+            ["schemaVersion": 2, "entries": [encoded]], options: [.sortedKeys])
+        try FileManager.default.createDirectory(at: storageDirectory,
+            withIntermediateDirectories: true)
+        let manifest = storageDirectory.appendingPathComponent("queue.json")
+        try original.write(to: manifest, options: .atomic)
+
+        let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let snapshot = await store.snapshot(ownerUserId: ordered.ownerUserId)
+        XCTAssertFalse(snapshot.isStorageReadable)
+        XCTAssertEqual(try Data(contentsOf: manifest), original)
+    }
+
+    func testAcknowledgementRollbackRestoresWholeCausalChainAfterWriteFailure() async throws {
+        let failMarker = storageDirectory.appendingPathComponent("fail-next-write")
+        let store = ScreenplayDraftSaveOutbox(
+            storageDirectory: storageDirectory,
+            manifestWriter: { data, url in
+                if FileManager.default.fileExists(atPath: failMarker.path) {
+                    throw NSError(domain: "ScreenplayDraftSaveOutboxTests", code: 11)
+                }
+                try data.write(to: url, options: .atomic)
+            })
+        var root = makeDeliverableEntry(id: "rollback-root", draft: "Root", createdAt: 100)
+        root.saveOrderingVersion = 1
+        let admittedRoot = try await store.admitPendingSave(root, following: nil)
+        var child = makeDeliverableEntry(id: "rollback-child", draft: "Child", createdAt: 101)
+        child.saveOrderingVersion = 1
+        let admittedChild = try await store.admitPendingSave(child, following: admittedRoot)
+        var grandchild = makeDeliverableEntry(id: "rollback-grandchild", draft: "Grandchild",
+            createdAt: 102)
+        grandchild.saveOrderingVersion = 1
+        _ = try await store.admitPendingSave(grandchild, following: admittedChild)
+        let beforeRows = try await store.entriesForTesting()
+        let manifest = storageDirectory.appendingPathComponent("queue.json")
+        let beforeBytes = try Data(contentsOf: manifest)
+        try Data().write(to: failMarker)
+
+        do {
+            try await store.markSucceeded(id: root.id, serverVersionId: "server-v2",
+                mayRebaseDeclaredFollowers: true)
+            XCTFail("A failed acknowledgement write reported success")
+        } catch {}
+        try FileManager.default.removeItem(at: failMarker)
+        XCTAssertEqual(try await store.entriesForTesting(), beforeRows)
+        XCTAssertEqual(try Data(contentsOf: manifest), beforeBytes)
+    }
+
     func testDeclaredFollowerRebasesButIndependentAndExplicitBaseRequestsDoNot() async throws {
         let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
         var first = makeDeliverableEntry(id: "ordered-first", draft: "First", createdAt: 100)

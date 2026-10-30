@@ -698,9 +698,10 @@ actor ScreenplayDraftSaveOutbox {
         try loadIfNeeded()
         guard let index = entries.firstIndex(where: { $0.id == id }) else { return }
         let previous = entries
-        let completed = entries.remove(at: index)
-        let nextBase = serverVersionId.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !nextBase.isEmpty {
+        do {
+            let completed = entries.remove(at: index)
+            let nextBase = serverVersionId.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !nextBase.isEmpty {
             var rebasedPredecessors: [(before: ScreenplayDraftSaveOutboxEntry,
                                       after: ScreenplayDraftSaveOutboxEntry)] = []
             var satisfiedFollowerIDs = Set<String>()
@@ -757,8 +758,12 @@ actor ScreenplayDraftSaveOutbox {
                 }
                 entries[queuedIndex].updatedAt = now.timeIntervalSince1970
             }
+            var propagatedRequestIDs = Set(rebasedPredecessors.map { $0.after.id })
             var propagationIndex = 0
             while propagationIndex < rebasedPredecessors.count {
+                guard rebasedPredecessors.count <= entries.count else {
+                    throw BackendMemoryAPIError.invalidResponse
+                }
                 let pair = rebasedPredecessors[propagationIndex]
                 propagationIndex += 1
                 let replacement = try makeConflictReference(pair.after)
@@ -768,6 +773,9 @@ actor ScreenplayDraftSaveOutbox {
                         conflictReference($0, matches: pair.before)
                     }) == true {
                     let before = entries[descendantIndex]
+                    guard propagatedRequestIDs.insert(before.id).inserted else {
+                        throw BackendMemoryAPIError.invalidResponse
+                    }
                     entries[descendantIndex].savePredecessor = replacement
                     entries[descendantIndex].updatedAt = now.timeIntervalSince1970
                     // Rewriting this reference changes the descendant's own
@@ -777,8 +785,12 @@ actor ScreenplayDraftSaveOutbox {
                 }
             }
             entries.removeAll { satisfiedFollowerIDs.contains($0.id) }
+            }
+            try persist()
+        } catch {
+            entries = previous
+            throw error
         }
-        do { try persist() } catch { entries = previous; throw error }
         publishSnapshot()
     }
 
@@ -1686,7 +1698,7 @@ actor ScreenplayDraftSaveOutbox {
         let hasLineage = manifest.entries.contains { !$0.supersededConflictRequests.isEmpty }
         let hasDeferred = manifest.entries.contains { !$0.deferredConflictRequests.isEmpty }
         let hasOrdering = manifest.entries.contains { $0.saveOrderingVersion != nil }
-        guard (manifest.schemaVersion == Self.lineageManifestSchemaVersion && hasLineage && !hasDeferred) ||
+        guard (manifest.schemaVersion == Self.lineageManifestSchemaVersion && hasLineage && !hasDeferred && !hasOrdering) ||
               (manifest.schemaVersion == Self.deferredManifestSchemaVersion && (hasLineage || hasDeferred) && !hasOrdering) ||
               (manifest.schemaVersion == Self.orderedManifestSchemaVersion && hasOrdering) else {
             throw BackendMemoryAPIError.invalidResponse
