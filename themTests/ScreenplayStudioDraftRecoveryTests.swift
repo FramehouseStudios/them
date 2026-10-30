@@ -585,6 +585,59 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
     }
 
     @MainActor
+    func testServerDebouncePreservesBothCopiesWhilePreservedRecoveryIsVisible() async {
+        let owner = "visible-preserved-owner"
+        let project = "visible-preserved-project"
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store,
+            studioAuthContextProvider: { .init(userID: owner, sessionIntentGeneration: 1) })
+        model.autosaveEnabled = false
+        model.selectedProjectID = project
+        store.save(ownerUserId: owner, projectId: project, draft: "Ordinary words", baseVersionId: "old", dirty: true, savedAt: 100)
+        store.savePreservedConflict(ownerUserId: owner, projectId: project, draft: "Preserved words", baseVersionId: "other", savedAt: 200)
+        model.applyServerDraft("Server words", versionId: "server")
+        XCTAssertEqual(model.recoveryCandidate?.draft, "Preserved words")
+        await model.handleDraftDebouncedChange("Server words")
+        let payload = store.payloads(ownerUserId: owner)[project]
+        XCTAssertEqual(payload?["draft"] as? String, "Ordinary words")
+        XCTAssertEqual(payload?["baseVersionId"] as? String, "old")
+        XCTAssertEqual(payload?["dirty"] as? Bool, true)
+        XCTAssertEqual(payload?["savedAt"] as? TimeInterval, 100)
+        let preserved = payload?["preservedConflict"] as? [String: Any]
+        XCTAssertEqual(preserved?["draft"] as? String, "Preserved words")
+        XCTAssertEqual(preserved?["baseVersionId"] as? String, "other")
+        XCTAssertEqual(preserved?["savedAt"] as? TimeInterval, 200)
+        XCTAssertEqual(model.recoveryCandidate?.draft, "Preserved words")
+        XCTAssertEqual(model.fountainDraft, "Server words")
+    }
+
+    @MainActor
+    func testChangedPageDoesNotOverwriteEitherVisibleRecoveryCopy() async {
+        let owner = "visible-preserved-owner"
+        let project = "visible-preserved-edit"
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store,
+            studioAuthContextProvider: { .init(userID: owner, sessionIntentGeneration: 1) })
+        model.autosaveEnabled = false
+        model.selectedProjectID = project
+        store.save(ownerUserId: owner, projectId: project, draft: "Ordinary words", baseVersionId: "old", dirty: true, savedAt: 100)
+        store.savePreservedConflict(ownerUserId: owner, projectId: project, draft: "Preserved words", baseVersionId: "other", savedAt: 200)
+        model.applyServerDraft("Server words", versionId: "server")
+        model.fountainDraft = "New page"
+        model.noteManualDraftEdit()
+        await model.handleDraftDebouncedChange("New page")
+        let payload = store.payloads(ownerUserId: owner)[project]
+        XCTAssertEqual(payload?["draft"] as? String, "Ordinary words")
+        XCTAssertEqual(payload?["baseVersionId"] as? String, "old")
+        XCTAssertEqual(payload?["savedAt"] as? TimeInterval, 100)
+        let preserved = payload?["preservedConflict"] as? [String: Any]
+        XCTAssertEqual(preserved?["draft"] as? String, "Preserved words")
+        XCTAssertEqual(preserved?["baseVersionId"] as? String, "other")
+        XCTAssertEqual(preserved?["savedAt"] as? TimeInterval, 200)
+        XCTAssertEqual(model.recoveryCandidate?.draft, "Preserved words")
+        XCTAssertEqual(model.fountainDraft, "New page")
+        XCTAssertTrue(model.infoText.contains("Export"))
+    }
+
+    @MainActor
     func testRestoreRecoveryLeavesDistinctHiddenCopyIntact() async {
         let owner = "slot-owner"
         let project = "slot-restore"

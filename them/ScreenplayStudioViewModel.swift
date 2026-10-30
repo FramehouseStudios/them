@@ -7659,7 +7659,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
     ) {
         let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedProjectId.isEmpty else { return }
-        if let candidate = recoveryCandidate, !candidate.isPreservedConflict,
+        if let candidate = recoveryCandidate,
            candidate.projectId == normalizedProjectId, authContextIsCurrent(candidate.owner) {
             guard recoveryCandidateIsCurrent(candidate) else {
                 errorText = "A recovery copy changed. Reopen the project before replacing it."
@@ -7710,8 +7710,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
         }
         let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
         let savedAt = Date().timeIntervalSince1970
-        let selectedOrdinary = recoveryCandidate.flatMap { candidate in
-            !candidate.isPreservedConflict && candidate.projectId == normalizedProjectId &&
+        let selectedRecovery = recoveryCandidate.flatMap { candidate in
+            candidate.projectId == normalizedProjectId &&
                 authContextIsCurrent(candidate.owner) ? candidate : nil
         }
         persistLocalDraftRecovery(
@@ -7721,9 +7721,9 @@ final class ScreenplayStudioViewModel: ObservableObject {
             dirty: true,
             savedAt: savedAt
         )
-        // A visible ordinary recovery remains the writer's selected copy;
-        // a different page may have been stored in the other vacant slot.
-        if let selectedOrdinary { return selectedOrdinary }
+        // Keep the visible decision tied to a real stored copy; another page
+        // may have been stored in the other vacant slot, or neither slot was free.
+        if let selectedRecovery { return selectedRecovery }
         let candidate = LocalDraftRecoveryCandidate(
             owner: currentStudioAuthContext(), projectId: normalizedProjectId,
             draft: draft,
