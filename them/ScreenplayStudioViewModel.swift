@@ -1480,7 +1480,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
     private enum EmptyBaseDraftSavePreflightResult {
         case notRequired
         case versionlessProject
-        case canonicalVersion(BackendScreenplayVersion, URL?)
+        case canonicalVersion(BackendScreenplayProjectSummary, BackendScreenplayVersion, URL?)
     }
 
     private enum RelaunchedConflictRecovery {
@@ -7478,7 +7478,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
             switch try await emptyBaseDraftSavePreflight(for: request, initiatingIdentity: identity) {
             case .notRequired, .versionlessProject:
                 break
-            case .canonicalVersion(let serverVersion, let responseURL):
+            case .canonicalVersion(let serverProject, let serverVersion, let responseURL):
                 guard authContextIsCurrent(request.authContext) else {
                     throw BackendMemoryAPIError.server(status: 409, message: "auth_request_superseded")
                 }
@@ -7486,11 +7486,12 @@ final class ScreenplayStudioViewModel: ObservableObject {
                     throw BackendMemoryAPIError.invalidResponse
                 }
                 let serverDraft = serverVersion.draft ?? ""
-                if request.source != "studio_conflict_resolve" && serverDraft.utf8.elementsEqual(request.draft.utf8) {
-                    let confirmed = ScreenplayConfirmedDraftSave.readback(entry: request.outboxEntry,
+                if ScreenplayConfirmedDraftSave.passiveAutosaveTargetMatches(
+                    entry: request.outboxEntry, project: serverProject, version: serverVersion),
+                   let confirmed = ScreenplayConfirmedDraftSave.readback(entry: request.outboxEntry,
                         version: serverVersion, projectID: request.projectId, responseURL: responseURL,
-                        owner: request.authContext, currentOwner: currentStudioAuthContext())
-                    if let confirmed { _ = try await liveReplyOutbox.recordConfirmedPageSave(confirmed) }
+                        owner: request.authContext, currentOwner: currentStudioAuthContext()) {
+                    _ = try await liveReplyOutbox.recordConfirmedPageSave(confirmed)
                     try await draftSaveOutbox.markSucceeded(
                         id: request.id,
                         serverVersionId: serverVersion.id
@@ -7866,7 +7867,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         case .versionless:
             return .versionlessProject
         case .current(let version):
-            return .canonicalVersion(version, detailResult.responseURL)
+            return .canonicalVersion(project, version, detailResult.responseURL)
         case .unverified:
             throw BackendMemoryAPIError.server(status: 409, message: "The current server draft could not be confirmed. Your local words are kept.")
         }
