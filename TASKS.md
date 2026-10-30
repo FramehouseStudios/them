@@ -5,6 +5,21 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-999 — Bind wallet reads to verified identity
+
+- **Owner:** codex. **Branch:** `codex/T-999-wallet-owner-scope`.
+- **Status:** review. **Pillar:** trustworthy account/cost isolation.
+- **Root:** body owner aliases overrode verified identity in /talk/wallet.
+- **Verified:** two synthetic accounts reproduced the cross-account read
+  with global auth on/off; failing-first2/2, corrected focused15/0/0.
+- **Fix:** reuse canonical trusted-user resolver; ignore caller ownership;
+  reject anonymous/invalid/revoked identity even when global auth is off.
+  Auth rejection is no-store; successful balance schema stays unchanged.
+- **Verified:** frozen Node20 backend2741/0/2, scripts210/0/0; D009/diff pass.
+- **Next:** draft PR with fresh hosted proof and adversarial review.
+  Independent approval/fresh checks required; production remains blocked.
+- **Evidence:** `docs/wallet-owner-scope-2026-10-19.md`.
+
 ### T-1042 — Promote the minimal original dependency-security correction
 
 - **Owner:** codex. **Branch:** `codex/T-1042-dependency-boundary-refresh`.
