@@ -270,10 +270,12 @@ final class ScreenplaySaveCompletionOwnershipTests: XCTestCase {
         let fixture = try SaveCompletionFixture()
         defer { fixture.close() }
         fixture.select("a", draft: fixture.a, base: "a-base")
-        try await fixture.queue.enqueue(.init(id: UUID().uuidString, projectId: "a", ownerUserId: fixture.owner,
+        var earlier = ScreenplayDraftSaveOutboxEntry(id: UUID().uuidString, projectId: "a", ownerUserId: fixture.owner,
             draft: fixture.a, title: "A", phase: "draft", notes: "", source: "studio_manual",
             studioWriteAnchors: [], screenplayBindings: [], baseVersionId: "a-base", createdAt: 1, updatedAt: 1,
-            status: .pending, retries: 0, nextAttemptAt: 0, lastError: ""))
+            status: .pending, retries: 0, nextAttemptAt: 0, lastError: "")
+        earlier.deliveryOrigin = try fixture.currentOrigin()
+        try await fixture.queue.enqueue(earlier)
         let drain = Task { await fixture.model.resumeQueuedDraftSavesIfNeeded(force: true) }
         defer { drain.cancel() }
         try await fixture.waitForFirstSave()
@@ -296,10 +298,11 @@ final class ScreenplaySaveCompletionOwnershipTests: XCTestCase {
         let fixture = try SaveCompletionFixture()
         defer { fixture.close() }
         fixture.select("a", draft: fixture.a, base: "a-base")
-        let earlier = ScreenplayDraftSaveOutboxEntry(id: UUID().uuidString, projectId: "a", ownerUserId: fixture.owner,
+        var earlier = ScreenplayDraftSaveOutboxEntry(id: UUID().uuidString, projectId: "a", ownerUserId: fixture.owner,
             draft: fixture.a, title: "A", phase: "draft", notes: "", source: "studio_manual",
             studioWriteAnchors: [], screenplayBindings: [], baseVersionId: "a-base", createdAt: 1, updatedAt: 1,
             status: .pending, retries: 0, nextAttemptAt: 0, lastError: "")
+        earlier.deliveryOrigin = try fixture.currentOrigin()
         try await fixture.queue.enqueue(earlier)
         let drain = Task { await fixture.model.resumeQueuedDraftSavesIfNeeded(force: true) }
         defer { drain.cancel() }
@@ -369,6 +372,7 @@ private final class SaveCompletionFixture {
     private let priorVersion: String
     private let priorBinding: ScreenplayProjectBindingSnapshot
     private let environment: SaveCompletionEnvironmentSnapshot
+    private let replyOutbox: OfflineTalkOutbox
 
     nonisolated deinit {}
 
@@ -379,7 +383,7 @@ private final class SaveCompletionFixture {
         priorDraft = bridge.draftText; priorProject = bridge.preferredProjectID
         priorVersion = bridge.preferredVersionID; priorBinding = bridge.projectBinding
         let testOwner = "save-completion-\(UUID().uuidString.lowercased())"
-        let backend = URL(string: "https://save-completion.test")!
+        let backend = BackendAuthClient.resolvedBackendBaseURL()
         var installedEnvironment = false
         defer {
             if !installedEnvironment {
@@ -388,11 +392,10 @@ private final class SaveCompletionFixture {
                 SaveCompletionEnvironmentSnapshot.removeOwnerScopedValues(owner: testOwner)
             }
         }
-        try savedEnvironment.install(owner: testOwner, backend: backend)
+        try savedEnvironment.install(owner: testOwner)
         bridge.reconcileAccountStorage()
         owner = ScreenplayStudioAuthContext.current().userID
-        guard owner == testOwner, BackendAuthClient.currentAuthSessionState().isAuthenticated,
-              OfflineTalkRecoveryScope.sameBackend(BackendAuthClient.resolvedBackendBaseURL(), backend) else {
+        guard owner == testOwner else {
             throw SaveCompletionFixtureError.environmentNotInstalled
         }
         directory = FileManager.default.temporaryDirectory.appendingPathComponent("SaveCompletion-\(UUID())")
@@ -414,6 +417,8 @@ private final class SaveCompletionFixture {
             accessTokenPresent: true, refreshTokenPresent: true, accessExpiresAt: 0, refreshExpiresAt: 0,
             currentSessionId: "save-completion-session", currentFamilyId: "save-completion-family",
             tokenType: "Bearer", pendingEmailVerification: false, verificationRequired: false)
+        replyOutbox = OfflineTalkOutbox(storageDirectory: directory.appendingPathComponent("reply-outbox"),
+            requestIdentityProvider: { _ in identity }, backendURLProvider: { backend })
         let api = BackendMemoryAPI(session: session, baseURL: backend,
             requestIdentityProvider: { _ in identity }, projectWriteAuthRefresher: { _ in authenticatedState })
         let recoveryOrigin: (String) -> ScreenplayDraftSaveOrigin? = { projectID in
@@ -422,7 +427,7 @@ private final class SaveCompletionFixture {
         }
         model = ScreenplayStudioViewModel(localDraftRecoveryStore: store, recoveryOriginProvider: recoveryOrigin,
                                           draftSaveOutbox: queue, draftSaveAPI: api,
-                                          draftSaveIdentityProvider: { identity })
+                                          draftSaveIdentityProvider: { identity }, liveReplyOutbox: replyOutbox)
         model.autosaveEnabled = false
         environment = savedEnvironment
         installedEnvironment = true
@@ -446,6 +451,11 @@ private final class SaveCompletionFixture {
         model.infoText = "Current \(id) notice"
         model.errorText = "Current \(id) local status"
         store.save(ownerUserId: owner, projectId: id, draft: draft, baseVersionId: base, dirty: dirty)
+    }
+
+    func currentOrigin() throws -> ScreenplayDraftSaveOrigin {
+        let documentID = try XCTUnwrap(ScreenplayLiveDraftBridge.shared.draftOrigin.documentID)
+        return .init(documentID: documentID, backendURL: BackendAuthClient.resolvedBackendBaseURL())
     }
 
     func startSave() -> Task<Void, Never> {
@@ -493,8 +503,8 @@ private final class SaveCompletionFixture {
     func close() {
         peer.close(); session.invalidateAndCancel()
         SaveCompletionProtocol.uninstall(peer)
-        let queue = queue
-        Task { await queue.stopNetworkMonitoring() }
+        let queue = queue, replyOutbox = replyOutbox
+        Task { await queue.stopNetworkMonitoring(); await replyOutbox.stopNetworkMonitoring() }
         defaults.removePersistentDomain(forName: suite)
         try? FileManager.default.removeItem(at: directory)
         let bridge = ScreenplayLiveDraftBridge.shared
@@ -514,26 +524,17 @@ private enum SaveCompletionFixtureError: Error {
 private struct SaveCompletionEnvironmentSnapshot {
     private static let keys = [
         "auth_user_payload", "auth_signed_in", "auth_session_token_deletion_pending",
-        "auth_access_token", "auth_refresh_token", "auth_access_expires_at", "auth_refresh_expires_at",
-        "auth_pending_email_verification", "auth_verification_required", "backend_base_url",
     ]
     private let values: [Any?]
 
     init() { values = Self.keys.map { UserDefaults.standard.object(forKey: $0) } }
 
-    func install(owner: String, backend: URL) throws {
+    func install(owner: String) throws {
         let user = BackendAuthUser(userId: owner, email: "save-completion@example.invalid",
             authProvider: nil, emailVerified: true, emailVerifiedAt: nil, createdAt: nil, updatedAt: nil)
         UserDefaults.standard.set(try JSONEncoder().encode(user), forKey: "auth_user_payload")
         UserDefaults.standard.set(true, forKey: "auth_signed_in")
         UserDefaults.standard.set(false, forKey: "auth_session_token_deletion_pending")
-        UserDefaults.standard.set("save-completion-access", forKey: "auth_access_token")
-        UserDefaults.standard.set("save-completion-refresh", forKey: "auth_refresh_token")
-        UserDefaults.standard.set(0, forKey: "auth_access_expires_at")
-        UserDefaults.standard.set(0, forKey: "auth_refresh_expires_at")
-        UserDefaults.standard.set(false, forKey: "auth_pending_email_verification")
-        UserDefaults.standard.set(false, forKey: "auth_verification_required")
-        UserDefaults.standard.set(backend.absoluteString, forKey: "backend_base_url")
     }
 
     func restore() {
@@ -644,7 +645,7 @@ private nonisolated final class SaveCompletionProtocol: URLProtocol {
         lock.lock(); defer { lock.unlock() }
         if installed === peer { installed = nil }
     }
-    override class func canInit(with request: URLRequest) -> Bool { request.url?.host == "save-completion.test" }
+    override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
         Self.lock.lock(); peer = Self.installed; Self.lock.unlock()
