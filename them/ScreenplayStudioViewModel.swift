@@ -2172,6 +2172,12 @@ final class ScreenplayStudioViewModel: ObservableObject {
 
     func refreshPendingScreenplayQuestion() async {
         guard !IOThemRuntime.isRunningTests else { return }
+        #if DEBUG
+        // The launch fixture owns its question until the UI test resolves it.
+        // Outbox notifications must not replace it with an unrelated session.
+        if IOThemRuntime.isRunningUITests,
+           ProcessInfo.processInfo.arguments.contains("--ui-show-pending-screenplay-question") { return }
+        #endif
         let owner = currentStudioAuthContext()
         let selectedID = selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !selectedID.isEmpty else {
