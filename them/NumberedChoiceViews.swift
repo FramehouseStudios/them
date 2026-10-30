@@ -12,6 +12,7 @@ struct NumberedChoiceActionButton: View {
     var prominence: NumberedChoiceProminence = .regular
     var tint: Color = Color.white.opacity(0.24)
     var isDisabled: Bool = false
+    var minimumLabelHeight: CGFloat? = nil
     let action: () -> Void
 
     private var labelText: String {
@@ -22,16 +23,22 @@ struct NumberedChoiceActionButton: View {
         KeyEquivalent(number.first ?? "1")
     }
 
+    private var label: some View {
+        Text(labelText)
+            .frame(minHeight: minimumLabelHeight)
+            .contentShape(Rectangle())
+    }
+
     @ViewBuilder
     var body: some View {
         if prominence == .prominent {
-            Button(labelText, role: role, action: action)
+            Button(role: role, action: action) { label }
                 .buttonStyle(.borderedProminent)
                 .tint(tint)
                 .disabled(isDisabled)
                 .keyboardShortcut(shortcut, modifiers: [])
         } else {
-            Button(labelText, role: role, action: action)
+            Button(role: role, action: action) { label }
                 .buttonStyle(.bordered)
                 .tint(tint)
                 .disabled(isDisabled)

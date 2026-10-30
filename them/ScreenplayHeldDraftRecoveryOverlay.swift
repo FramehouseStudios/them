@@ -117,31 +117,28 @@ struct ScreenplayHeldDraftRecoveryOverlay: View {
                 if viewModel.heldDraftRecoveryIsLoadServerCopy {
                     NumberedChoiceActionButton(
                         number: "1", title: "Recover Local", prominence: .prominent,
-                        tint: Color.herStudioAccent
+                        tint: Color.herStudioAccent, minimumLabelHeight: 44
                     ) {
                         Task { await viewModel.recoverHeldDraftSave() }
                     }
-                    .frame(minHeight: 44)
                     .accessibilityIdentifier("studio.held-draft-recovery.primary-action")
                 }
                 NumberedChoiceActionButton(
                     number: viewModel.heldDraftRecoveryIsLoadServerCopy ? "2" : "1",
                     title: "Preview Exact Copy",
                     prominence: viewModel.heldDraftRecoveryIsLoadServerCopy ? .regular : .prominent,
-                    tint: Color.herStudioAccent
+                    tint: Color.herStudioAccent, minimumLabelHeight: 44
                 ) {
                     Task { reviewedToken = await viewModel.confirmedHeldDraftRecoveryForReview() }
                 }
-                .frame(minHeight: 44)
                 .accessibilityIdentifier("studio.held-draft-recovery.preview")
                 NumberedChoiceActionButton(
                     number: viewModel.heldDraftRecoveryIsLoadServerCopy ? "3" : "2",
                     title: "Not Now",
-                    tint: Color.herStudioAccent
+                    tint: Color.herStudioAccent, minimumLabelHeight: 44
                 ) {
                     viewModel.leaveHeldDraftRecoveryForLater()
                 }
-                .frame(minHeight: 44)
                 .accessibilityIdentifier("studio.held-draft-recovery.secondary-action")
     }
 
