@@ -717,11 +717,19 @@ actor ScreenplayDraftSaveOutbox {
                     queued.status != .parked &&
                     queued.savePredecessor.map { conflictReference($0, matches: completed) } == true
                 guard legacyFollower || declaredFollower else { continue }
-                if declaredFollower && !mayRebaseDeclaredFollowers {
+                if legacyFollower {
+                    // Legacy rows carry no causal link and cannot distinguish
+                    // a follower from an independent or explicit-base writer
+                    // intent. Preserve its exact bytes/base for review rather
+                    // than silently moving it onto this acknowledgement.
                     entries[queuedIndex].status = .parked
                     entries[queuedIndex].nextAttemptAt = 0
                     entries[queuedIndex].lastError = Self.unprovenPredecessorReason
-                } else if declaredFollower {
+                } else if !mayRebaseDeclaredFollowers {
+                    entries[queuedIndex].status = .parked
+                    entries[queuedIndex].nextAttemptAt = 0
+                    entries[queuedIndex].lastError = Self.unprovenPredecessorReason
+                } else {
                     let hasDeclaredDescendant = entries.contains { descendant in
                         descendant.id != queued.id && descendant.savePredecessor.map {
                             conflictReference($0, matches: queued)
@@ -746,8 +754,6 @@ actor ScreenplayDraftSaveOutbox {
                         entries[queuedIndex].baseVersionId = nextBase
                         rebasedPredecessors.append((before, entries[queuedIndex]))
                     }
-                } else {
-                    entries[queuedIndex].baseVersionId = nextBase
                 }
                 entries[queuedIndex].updatedAt = now.timeIntervalSince1970
             }
@@ -1660,6 +1666,12 @@ actor ScreenplayDraftSaveOutbox {
     ) throws -> [ScreenplayDraftSaveOutboxEntry] {
         let decoder = JSONDecoder()
         if let legacyEntries = try? decoder.decode([ScreenplayDraftSaveOutboxEntry].self, from: data) {
+            // Ordering requires the v4 envelope so an older array-only client
+            // cannot accept, rewrite, and silently discard causal authority.
+            guard legacyEntries.allSatisfy({
+                $0.saveOrderingVersion == nil && $0.savePredecessor == nil &&
+                    !$0.hasExplicitBaseSelection
+            }) else { throw BackendMemoryAPIError.invalidResponse }
             return legacyEntries
         }
         let manifest = try decoder.decode(ScreenplayDraftSaveOutboxManifest.self, from: data)

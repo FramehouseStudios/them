@@ -2584,7 +2584,7 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: manifest), corrupt)
     }
 
-    func testSuccessfulSaveRebasesCausallyFollowingDrafts() async throws {
+    func testSuccessfulSaveParksLegacyRowsWithoutGuessingTheirAncestry() async throws {
         let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
         try await store.enqueue(makeEntry(id: "save-1", draft: "Draft one", createdAt: 100))
         try await store.enqueue(makeEntry(id: "save-2", draft: "Draft two", createdAt: 101))
@@ -2598,7 +2598,29 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
 
         let stored = try await store.entriesForTesting()
         XCTAssertEqual(stored.map(\.id), ["save-2", "save-3"])
-        XCTAssertEqual(stored.map(\.baseVersionId), ["server-v2", "server-v2"])
+        XCTAssertEqual(stored.map(\.baseVersionId), ["server-v1", "server-v1"])
+        XCTAssertTrue(stored.allSatisfy { $0.status == .parked })
+        XCTAssertTrue(stored.allSatisfy {
+            $0.lastError == ScreenplayDraftSaveOutbox.unprovenPredecessorReason
+        })
+        let surfaced = try await store.parkedConflictEntries(
+            projectId: "project-1", ownerUserId: "user-1")
+        XCTAssertEqual(surfaced.map(\.id), ["save-2", "save-3"])
+    }
+
+    func testArrayOnlyOrderingDowngradeFailsClosedWithoutRewrite() async throws {
+        var ordered = makeDeliverableEntry(id: "ordered-array-downgrade")
+        ordered.saveOrderingVersion = 1
+        let original = try JSONEncoder().encode([ordered])
+        try FileManager.default.createDirectory(at: storageDirectory,
+            withIntermediateDirectories: true)
+        let manifest = storageDirectory.appendingPathComponent("queue.json")
+        try original.write(to: manifest, options: .atomic)
+
+        let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let snapshot = await store.snapshot(ownerUserId: ordered.ownerUserId)
+        XCTAssertFalse(snapshot.isStorageReadable)
+        XCTAssertEqual(try Data(contentsOf: manifest), original)
     }
 
     func testDeclaredFollowerRebasesButIndependentAndExplicitBaseRequestsDoNot() async throws {

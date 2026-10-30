@@ -7041,6 +7041,11 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 row.deliveryOrigin?.documentID == documentID &&
                 row.deliveryOrigin?.permitsBackend(backendURL) == true
         }
+        let unprovenCopy = rows.last { row in
+            row.lastError == ScreenplayDraftSaveOutbox.unprovenPredecessorReason &&
+                row.deliveryOrigin?.documentID == documentID &&
+                row.deliveryOrigin?.permitsBackend(backendURL) == true
+        }
         let currentContextCopy = includeUnverifiedCurrentContext ? rows.last { row in
             row.deliveryOrigin?.documentID == documentID &&
                 row.deliveryOrigin?.permitsBackend(backendURL) == true
@@ -7049,7 +7054,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
             row.deliveryOrigin?.documentID != documentID ||
                 row.deliveryOrigin?.permitsBackend(backendURL) != true
         }
-        return loadServerCopy ?? currentContextCopy ?? foreignCopy
+        return loadServerCopy ?? unprovenCopy ?? currentContextCopy ?? foreignCopy
     }
 
     func resumeQueuedDraftSavesIfNeeded(force: Bool = false) async {
