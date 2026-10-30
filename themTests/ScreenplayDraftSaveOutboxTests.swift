@@ -2442,15 +2442,11 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
     func testPreviouslyAdmittedDeliveryUsesDurablyRebasedRow() async throws {
         let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
         let authority = ScreenplayDraftSaveRequestAuthority(id: UUID(), generation: 1)
-        var root = makeDeliverableEntry(id: "causal-root", draft: "Earlier words",
+        let root = try makeOrderedManualEntry(id: "causal-root", draft: "Earlier words",
             createdAt: 100, authority: authority)
-        root.source = "studio_manual"
-        root.saveOrderingVersion = 1
         try await store.enqueue(root)
-        var follower = makeDeliverableEntry(id: "causal-follower", draft: "Newer words",
+        let follower = try makeOrderedManualEntry(id: "causal-follower", draft: "Newer words",
             createdAt: 101, authority: authority)
-        follower.source = "studio_manual"
-        follower.saveOrderingVersion = 1
         let admitted = try await store.admitPendingSave(follower, following: root)
 
         try await store.markSucceeded(id: root.id, serverVersionId: "server-v2",
@@ -2467,15 +2463,11 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
     func testPreviouslyAdmittedDeliveryDoesNotResurrectConsumedFollower() async throws {
         let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
         let authority = ScreenplayDraftSaveRequestAuthority(id: UUID(), generation: 1)
-        var root = makeDeliverableEntry(id: "satisfied-root", createdAt: 100,
+        let root = try makeOrderedManualEntry(id: "satisfied-root", createdAt: 100,
             authority: authority)
-        root.source = "studio_manual"
-        root.saveOrderingVersion = 1
         try await store.enqueue(root)
-        var follower = makeDeliverableEntry(id: "satisfied-follower", createdAt: 101,
+        let follower = try makeOrderedManualEntry(id: "satisfied-follower", createdAt: 101,
             authority: authority)
-        follower.source = "studio_manual"
-        follower.saveOrderingVersion = 1
         let admitted = try await store.admitPendingSave(follower, following: root)
 
         try await store.markSucceeded(id: root.id, serverVersionId: "server-v2",
@@ -2851,6 +2843,22 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
         authority: ScreenplayDraftSaveRequestAuthority? = nil
     ) -> ScreenplayDraftSaveOutboxEntry {
         makeEntry(id: id, draft: draft, createdAt: createdAt, origin: origin, authority: authority)
+    }
+
+    private func makeOrderedManualEntry(
+        id: String,
+        draft: String = "Draft one",
+        createdAt: TimeInterval,
+        authority: ScreenplayDraftSaveRequestAuthority
+    ) throws -> ScreenplayDraftSaveOutboxEntry {
+        let entry = makeDeliverableEntry(id: id, draft: draft, createdAt: createdAt,
+            authority: authority)
+        var payload = try XCTUnwrap(JSONSerialization.jsonObject(
+            with: JSONEncoder().encode(entry)) as? [String: Any])
+        payload["source"] = "studio_manual"
+        payload["saveOrderingVersion"] = 1
+        return try JSONDecoder().decode(ScreenplayDraftSaveOutboxEntry.self,
+            from: JSONSerialization.data(withJSONObject: payload))
     }
 
     private func makeEntry(
