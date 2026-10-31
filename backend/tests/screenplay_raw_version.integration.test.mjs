@@ -29,7 +29,17 @@ test('authenticated raw version bytes survive response, GET, restart and exact r
   try {
     const headers = await createWriter(server);
     const id = await createProject(server, headers);
-    const request = { draft, client_request_id: 'raw-save-once', conflict_strategy: 'reject_if_stale' };
+    const request = {
+      draft,
+      title: 'Exact writer words',
+      phase: 'scene_draft',
+      source: 'studio_manual',
+      notes: 'Exact retry metadata',
+      studio_write_anchors: [{ write_id: 'raw-write-1', anchor_line: 2, inserted_text: 'A cafe\u0301 waits.' }],
+      screenplay_bindings: [{ draft_scene_id: 'raw-scene-1', draft_line: 2, outline_scene_id: 'outline-scene-1' }],
+      client_request_id: 'raw-save-once',
+      conflict_strategy: 'reject_if_stale',
+    };
     const saved = await apiRequest(server, `/screenplay/projects/${id}/version`, { method: 'POST', headers, json: request });
     assert.equal(saved.status, 201);
     const versionID = saved.json.version_id;
@@ -52,6 +62,11 @@ test('authenticated raw version bytes survive response, GET, restart and exact r
     assert.equal(replay.json.version_id, versionID);
     assert.deepEqual(bytes(replay.json.version.draft), bytes(draft));
     assert.equal((await read()).json.project.versions.length, 1);
+    const changedMetadata = await apiRequest(server, `/screenplay/projects/${id}/version`, {
+      method: 'POST', headers, json: { ...request, title: 'Different retry title' },
+    });
+    assert.equal(changedMetadata.status, 409);
+    assert.equal(changedMetadata.json.status, 'client_request_id_reused');
   } finally { await server.stop(); }
 });
 
