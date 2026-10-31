@@ -10550,6 +10550,8 @@ private func hollywoodScreenplayEditorUIFont() -> UIFont {
 
 struct IOSCursorInsertTextEditor: UIViewRepresentable {
     @Binding var text: String
+    var documentID: String = ""
+    var externalMutationRevision: UInt64 = 0
     @Binding var activeScreenplayElement: ScreenplayEditorElement
     @Binding var insertionRequest: ScreenplayInsertionRequest?
     @Binding var lineJumpRequest: ScreenplayLineJumpRequest?
@@ -10637,6 +10639,8 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
         let previousPendingID = context.coordinator.parent.pendingReplacementTarget?.id
         let previousSubmittedID = context.coordinator.parent.submittedReplacementTarget?.id
         let previousInsertionID = context.coordinator.parent.insertionRequest?.id
+        let previousDocumentID = context.coordinator.parent.documentID
+        let previousExternalMutationRevision = context.coordinator.parent.externalMutationRevision
         context.coordinator.parent = self
         let currentPendingID = pendingReplacementTarget?.id
         let currentSubmittedID = submittedReplacementTarget?.id
@@ -10667,7 +10671,13 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
             context.coordinator.applyActiveElementFromBinding(activeScreenplayElement)
         }
 
-        if !context.coordinator.isApplyingProgrammaticChange, uiView.text != text, context.coordinator.shouldApplyBoundText(text, currentText: uiView.text ?? "") {
+        if !context.coordinator.isApplyingProgrammaticChange,
+           context.coordinator.shouldApplyBoundText(
+               text,
+               currentText: uiView.text ?? "",
+               documentDidChange: previousDocumentID != documentID,
+               externalMutationDidChange: previousExternalMutationRevision != externalMutationRevision
+           ) {
             let previousSelection = uiView.selectedRange
             context.coordinator.isApplyingProgrammaticChange = true
             uiView.text = text
@@ -10840,14 +10850,28 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
             scheduleDeferredPublicationFlush()
         }
 
-        func shouldApplyBoundText(_ text: String, currentText: String) -> Bool {
-            let base = streamingInsertRange != nil ? streamingInsertBaseText : (voiceRevealContentRange != nil ? voiceRevealBaseText : nil)
-            return ScreenplayDeferredPublicationGate.shouldApplyBoundText(text, currentText: currentText, pendingExpectedText: deferredText?.expected, pendingText: deferredText?.value, activeStreamingBaseText: base)
+        func shouldApplyBoundText(
+            _ text: String,
+            currentText: String,
+            documentDidChange: Bool,
+            externalMutationDidChange: Bool
+        ) -> Bool {
+            return ScreenplayDeferredPublicationGate.shouldApplyBoundText(
+                text,
+                currentText: currentText,
+                documentDidChange: documentDidChange,
+                externalMutationDidChange: externalMutationDidChange
+            )
+        }
+
+        private func publishEditorText(_ value: String) {
+            guard parent.text != value else { return }
+            parent.text = value
         }
 
         private func publishText(_ value: String, requestID: UUID? = nil) {
             guard representableUpdateDepth > 0 else {
-                parent.text = value
+                publishEditorText(value)
                 return
             }
             coalesce(&deferredText, current: parent.text, value: value, requestID: requestID)
@@ -11041,7 +11065,7 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
 
                 if let text,
                    ScreenplayDeferredPublicationGate.acceptsNativeTextPublication(expectedBinding: text.expected, currentBinding: self.parent.text, queuedText: text.value, nativeText: self.textView?.text, requestID: text.requestID, activeRequestID: self.parent.insertionRequest?.id) {
-                    self.parent.text = text.value
+                    self.publishEditorText(text.value)
                 }
                 if let activeElement,
                    generationIsAccepted(activeElement.generation),

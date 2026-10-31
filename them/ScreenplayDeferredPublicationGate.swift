@@ -1,5 +1,9 @@
 import Foundation
 
+private func screenplayEditorUTF8Equal(_ lhs: String, _ rhs: String) -> Bool {
+    lhs.utf8.elementsEqual(rhs.utf8)
+}
+
 struct ScreenplayDeferredTextPublicationRequirement: Equatable {
     var text: String
     var requestID: UUID?
@@ -9,7 +13,9 @@ enum ScreenplayDeferredPublicationGate {
     /// Request IDs advance per chunk. Native text remains publishable when it
     /// still matches the editor and no external binding edit won the race.
     static func acceptsNativeTextPublication(expectedBinding: String, currentBinding: String, queuedText: String, nativeText: String?, requestID: UUID? = nil, activeRequestID: UUID? = nil) -> Bool {
-        (requestID == nil || activeRequestID != nil) && currentBinding == expectedBinding && nativeText == queuedText
+        (requestID == nil || activeRequestID != nil) &&
+            screenplayEditorUTF8Equal(currentBinding, expectedBinding) &&
+            nativeText.map { screenplayEditorUTF8Equal($0, queuedText) } == true
     }
 
     static func requestIsCurrent(
@@ -29,7 +35,7 @@ enum ScreenplayDeferredPublicationGate {
         activeInsertionRequestID: UUID?
     ) -> Bool {
         guard let requirement = requirements[generation] else { return true }
-        return currentText == requirement.text && requestIsCurrent(
+        return screenplayEditorUTF8Equal(currentText, requirement.text) && requestIsCurrent(
             requirement.requestID,
             lastAppliedInsertionID: lastAppliedInsertionID,
             activeInsertionRequestID: activeInsertionRequestID
@@ -40,8 +46,16 @@ enum ScreenplayDeferredPublicationGate {
     /// Do not replace it with that baseline before publication catches up.
     static func shouldApplyBoundText(
         _ boundText: String, currentText: String,
-        pendingExpectedText: String?, pendingText: String?, activeStreamingBaseText: String? = nil
+        documentDidChange: Bool, externalMutationDidChange: Bool
     ) -> Bool {
-        !(activeStreamingBaseText == boundText || (pendingExpectedText == boundText && pendingText == currentText))
+        guard !screenplayEditorUTF8Equal(boundText, currentText) else { return false }
+        // Native editor publications update the model through a dedicated
+        // binding without advancing the external mutation revision. Any later
+        // mismatching render with the same document/revision is therefore an
+        // echo, regardless of how many intermediate values SwiftUI coalesced.
+        // An explicit model rewrite or document replacement is authoritative.
+        // Deferred native work remains fenced at publication time by its
+        // expected binding, native text and request identity checks above.
+        return documentDidChange || externalMutationDidChange
     }
 }

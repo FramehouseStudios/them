@@ -3,11 +3,6 @@ import XCTest
 
 @MainActor
 final class StudioThreadViewStateSupportTests: XCTestCase {
-    func testActiveStreamBaselineCannotResetNativeTextAfterDeferredQueueDrains() {
-        XCTAssertFalse(ScreenplayDeferredPublicationGate.shouldApplyBoundText("", currentText: "INT. OBSERVATORY - NIGHT", pendingExpectedText: nil, pendingText: nil, activeStreamingBaseText: ""))
-        XCTAssertTrue(ScreenplayDeferredPublicationGate.shouldApplyBoundText("Writer's new draft", currentText: "INT. OBSERVATORY - NIGHT", pendingExpectedText: nil, pendingText: nil, activeStreamingBaseText: ""))
-    }
-
     func testNewChunkDoesNotDiscardStillCurrentNativeTextButCannotCommitOldReceipt() {
         let old = UUID(), next = UUID()
         XCTAssertFalse(ScreenplayDeferredPublicationGate.requestIsCurrent(old, lastAppliedInsertionID: old, activeInsertionRequestID: next))
@@ -20,16 +15,65 @@ final class StudioThreadViewStateSupportTests: XCTestCase {
         XCTAssertFalse(ScreenplayDeferredPublicationGate.acceptsNativeTextPublication(expectedBinding: "", currentBinding: "", queuedText: "Old chunk", nativeText: "New chunk"))
     }
 
-    func testStaleBindingCannotReplaceNewerNativeStreamingTextBeforePublication() {
-        XCTAssertFalse(ScreenplayDeferredPublicationGate.shouldApplyBoundText("", currentText: "INT. OBSERVATORY - NIGHT", pendingExpectedText: "", pendingText: "INT. OBSERVATORY - NIGHT"))
+    func testDelayedNativeEchoCannotReplaceNewerEditorText() {
+        XCTAssertFalse(ScreenplayDeferredPublicationGate.shouldApplyBoundText(
+            "motel sig",
+            currentText: "motel sign",
+            documentDidChange: false,
+            externalMutationDidChange: false
+        ), "A bound value without external authority is a native publication echo.")
     }
 
-    func testGenuineExternalTextChangeStillWinsOverPendingNativePublication() {
-        XCTAssertTrue(ScreenplayDeferredPublicationGate.shouldApplyBoundText("Another project", currentText: "INT. OBSERVATORY - NIGHT", pendingExpectedText: "", pendingText: "INT. OBSERVATORY - NIGHT"))
+    func testExplicitByteDistinctRestoreApplies() {
+        let composed = "caf\u{00E9}"
+        let decomposed = "cafe\u{0301}"
+        XCTAssertEqual(composed, decomposed, "The test requires Swift canonical String equality.")
+        XCTAssertFalse(composed.utf8.elementsEqual(decomposed.utf8))
+
+        XCTAssertTrue(ScreenplayDeferredPublicationGate.shouldApplyBoundText(
+            decomposed,
+            currentText: composed,
+            documentDidChange: false,
+            externalMutationDidChange: true
+        ))
     }
 
-    func testBindingAppliesNormallyWithoutAnUnpublishedNativeChange() {
-        XCTAssertTrue(ScreenplayDeferredPublicationGate.shouldApplyBoundText("Restored draft", currentText: "", pendingExpectedText: nil, pendingText: nil))
+    func testNativeUndoAcknowledgementDoesNotReapplyText() {
+        XCTAssertFalse(ScreenplayDeferredPublicationGate.shouldApplyBoundText(
+            "motel sig",
+            currentText: "motel sig",
+            documentDidChange: false,
+            externalMutationDidChange: false
+        ))
+    }
+
+    func testExplicitRestoreCanReuseEarlierTypedBytes() {
+        XCTAssertTrue(ScreenplayDeferredPublicationGate.shouldApplyBoundText(
+            "first draft",
+            currentText: "second draft",
+            documentDidChange: false,
+            externalMutationDidChange: true
+        ), "An explicit restore is authoritative even when its bytes match an earlier native publication.")
+    }
+
+    func testSameProjectNewDocumentAppliesItsText() {
+        XCTAssertTrue(ScreenplayDeferredPublicationGate.shouldApplyBoundText(
+            "shared bytes",
+            currentText: "new blank document",
+            documentDidChange: true,
+            externalMutationDidChange: false
+        ), "A durable document-ID change must win even when the project ID is unchanged.")
+    }
+
+    func testViewModelDistinguishesNativePublicationFromExternalRestore() {
+        let model = ScreenplayStudioViewModel()
+        let initialRevision = model.editorExternalDraftMutationRevision
+
+        model.publishNativeEditorDraft("typed page")
+        XCTAssertEqual(model.editorExternalDraftMutationRevision, initialRevision)
+
+        model.fountainDraft = "restored page"
+        XCTAssertEqual(model.editorExternalDraftMutationRevision, initialRevision &+ 1)
     }
 
     func testDeferredEditorTransactionRejectsMetadataWhenQueuedTextLosesItsBaseline() {
