@@ -10551,6 +10551,7 @@ private func hollywoodScreenplayEditorUIFont() -> UIFont {
 struct IOSCursorInsertTextEditor: UIViewRepresentable {
     @Binding var text: String
     var documentID: String = ""
+    var externalMutationRevision: UInt64 = 0
     @Binding var activeScreenplayElement: ScreenplayEditorElement
     @Binding var insertionRequest: ScreenplayInsertionRequest?
     @Binding var lineJumpRequest: ScreenplayLineJumpRequest?
@@ -10639,6 +10640,7 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
         let previousSubmittedID = context.coordinator.parent.submittedReplacementTarget?.id
         let previousInsertionID = context.coordinator.parent.insertionRequest?.id
         let previousDocumentID = context.coordinator.parent.documentID
+        let previousExternalMutationRevision = context.coordinator.parent.externalMutationRevision
         context.coordinator.parent = self
         let currentPendingID = pendingReplacementTarget?.id
         let currentSubmittedID = submittedReplacementTarget?.id
@@ -10673,7 +10675,8 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
            context.coordinator.shouldApplyBoundText(
                text,
                currentText: uiView.text ?? "",
-               documentDidChange: previousDocumentID != documentID
+               documentDidChange: previousDocumentID != documentID,
+               externalMutationDidChange: previousExternalMutationRevision != externalMutationRevision
            ) {
             let previousSelection = uiView.selectedRange
             context.coordinator.isApplyingProgrammaticChange = true
@@ -10852,7 +10855,8 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
         func shouldApplyBoundText(
             _ text: String,
             currentText: String,
-            documentDidChange: Bool
+            documentDidChange: Bool,
+            externalMutationDidChange: Bool
         ) -> Bool {
             let base = streamingInsertRange != nil ? streamingInsertBaseText : (voiceRevealContentRange != nil ? voiceRevealBaseText : nil)
             return boundTextTracker.shouldApplyBoundText(
@@ -10860,6 +10864,7 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
                 currentEditorText: currentText,
                 isEditorFocused: textView?.isFirstResponder ?? false,
                 documentDidChange: documentDidChange,
+                externalMutationDidChange: externalMutationDidChange,
                 pendingExpectedText: deferredText?.expected,
                 pendingText: deferredText?.value,
                 activeStreamingBaseText: base

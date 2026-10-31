@@ -1715,8 +1715,19 @@ final class ScreenplayStudioViewModel: ObservableObject {
     @Published var newBeatActID: String = ""
     @Published var editingBeatID: String = ""
 
+    // The custom editor binding marks native publications so every other
+    // byte-changing assignment remains an explicit model rewrite signal.
+    private var pendingNativeEditorDraft: String?
+    @Published private(set) var editorExternalDraftMutationRevision: UInt64 = 0
     @Published var fountainDraft: String = "" {
         didSet {
+            let isNativeEditorPublication = pendingNativeEditorDraft.map {
+                $0.utf8.elementsEqual(fountainDraft.utf8)
+            } ?? false
+            pendingNativeEditorDraft = nil
+            if !isNativeEditorPublication, !fountainDraft.utf8.elementsEqual(oldValue.utf8) {
+                editorExternalDraftMutationRevision &+= 1
+            }
             if !fountainDraft.contains(where: { !$0.isWhitespace }) {
                 invalidateCoverage()
             } else if let active = activeCoverageContext, !active.draft.utf8.elementsEqual(fountainDraft.utf8) {
@@ -1725,6 +1736,12 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 if isCoverageRefreshing { isCoverageRefreshing = false }
             }
         }
+    }
+
+    func publishNativeEditorDraft(_ draft: String) {
+        pendingNativeEditorDraft = draft
+        fountainDraft = draft
+        pendingNativeEditorDraft = nil
     }
     @Published var latestVersionID: String = ""
     @Published var studioWriteAnchors: [BackendScreenplayWriteAnchor] = []

@@ -48,6 +48,117 @@ final class StudioThreadViewStateSupportTests: XCTestCase {
         ), "An acknowledged older native publication is not a new model rewrite.")
     }
 
+    func testPendingNativePublicationsRemainBoundedWithoutRenderAcknowledgements() {
+        var tracker = ScreenplayEditorBoundTextTracker(initialText: "")
+        for index in 0..<(ScreenplayEditorBoundTextTracker.pendingPublicationLimit * 4) {
+            tracker.recordNativePublication("draft-\(index)")
+        }
+        XCTAssertEqual(
+            tracker.pendingPublicationCount,
+            ScreenplayEditorBoundTextTracker.pendingPublicationLimit
+        )
+    }
+
+    func testCanonicallyEquivalentButByteDistinctRewriteIsNotAnAcknowledgement() {
+        let composed = "caf\u{00E9}"
+        let decomposed = "cafe\u{0301}"
+        XCTAssertEqual(composed, decomposed, "The test requires Swift canonical String equality.")
+        XCTAssertFalse(composed.utf8.elementsEqual(decomposed.utf8))
+
+        var tracker = ScreenplayEditorBoundTextTracker(initialText: "")
+        tracker.recordNativePublication(composed)
+        XCTAssertTrue(tracker.shouldApplyBoundText(
+            decomposed,
+            currentEditorText: "current page",
+            isEditorFocused: true,
+            documentDidChange: false,
+            pendingExpectedText: nil,
+            pendingText: nil,
+            activeStreamingBaseText: nil
+        ))
+    }
+
+    func testEvictedPublicationFailsOpenForAnOtherwiseGenuineRewrite() {
+        var tracker = ScreenplayEditorBoundTextTracker(initialText: "")
+        let evicted = "draft-0"
+        for index in 0...ScreenplayEditorBoundTextTracker.pendingPublicationLimit {
+            tracker.recordNativePublication("draft-\(index)")
+        }
+
+        XCTAssertTrue(tracker.shouldApplyBoundText(
+            evicted,
+            currentEditorText: "current page",
+            isEditorFocused: true,
+            documentDidChange: false,
+            pendingExpectedText: nil,
+            pendingText: nil,
+            activeStreamingBaseText: nil
+        ), "The bounded receipt window must not discard an unknown external rewrite.")
+    }
+
+    func testNativeUndoPublishesAndAcknowledgesWithoutReapplyingModelText() {
+        var tracker = ScreenplayEditorBoundTextTracker(initialText: "motel si")
+        tracker.recordNativePublication("motel sig")
+        tracker.recordNativePublication("motel sign")
+        tracker.recordNativePublication("motel sig")
+
+        XCTAssertFalse(tracker.shouldApplyBoundText(
+            "motel sig",
+            currentEditorText: "motel sig",
+            isEditorFocused: true,
+            documentDidChange: false,
+            pendingExpectedText: nil,
+            pendingText: nil,
+            activeStreamingBaseText: nil
+        ))
+        XCTAssertEqual(tracker.pendingPublicationCount, 0)
+    }
+
+    func testExplicitRestoreCanReuseEarlierTypedBytes() {
+        var tracker = ScreenplayEditorBoundTextTracker(initialText: "first")
+        tracker.recordNativePublication("first draft")
+        tracker.recordNativePublication("second draft")
+
+        XCTAssertTrue(tracker.shouldApplyBoundText(
+            "first draft",
+            currentEditorText: "second draft",
+            isEditorFocused: true,
+            documentDidChange: false,
+            externalMutationDidChange: true,
+            pendingExpectedText: nil,
+            pendingText: nil,
+            activeStreamingBaseText: nil
+        ), "An explicit restore is authoritative even when its bytes match an earlier native publication.")
+        XCTAssertEqual(tracker.pendingPublicationCount, 0)
+    }
+
+    func testSameProjectNewDocumentClearsPublicationReceipts() {
+        var tracker = ScreenplayEditorBoundTextTracker(initialText: "project-a draft")
+        tracker.recordNativePublication("shared bytes")
+
+        XCTAssertTrue(tracker.shouldApplyBoundText(
+            "shared bytes",
+            currentEditorText: "new blank document",
+            isEditorFocused: true,
+            documentDidChange: true,
+            pendingExpectedText: nil,
+            pendingText: nil,
+            activeStreamingBaseText: nil
+        ), "A durable document-ID change must win even when the project ID is unchanged.")
+        XCTAssertEqual(tracker.pendingPublicationCount, 0)
+    }
+
+    func testViewModelDistinguishesNativePublicationFromExternalRestore() {
+        let model = ScreenplayStudioViewModel()
+        let initialRevision = model.editorExternalDraftMutationRevision
+
+        model.publishNativeEditorDraft("typed page")
+        XCTAssertEqual(model.editorExternalDraftMutationRevision, initialRevision)
+
+        model.fountainDraft = "restored page"
+        XCTAssertEqual(model.editorExternalDraftMutationRevision, initialRevision &+ 1)
+    }
+
     func testUnrelatedRewriteAndDocumentSwitchStillApply() {
         var tracker = ScreenplayEditorBoundTextTracker(initialText: "local draft")
         tracker.recordNativePublication("newer local draft")
