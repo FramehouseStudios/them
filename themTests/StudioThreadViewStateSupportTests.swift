@@ -32,6 +32,70 @@ final class StudioThreadViewStateSupportTests: XCTestCase {
         XCTAssertTrue(ScreenplayDeferredPublicationGate.shouldApplyBoundText("Restored draft", currentText: "", pendingExpectedText: nil, pendingText: nil))
     }
 
+    func testDelayedPublishedEchoCannotReplaceNewerFocusedEditorText() {
+        var tracker = ScreenplayEditorBoundTextTracker(initialText: "motel si")
+        tracker.recordNativePublication("motel sig")
+        tracker.recordNativePublication("motel sign")
+
+        XCTAssertFalse(tracker.shouldApplyBoundText(
+            "motel sig",
+            currentEditorText: "motel sign",
+            isEditorFocused: true,
+            documentDidChange: false,
+            pendingExpectedText: nil,
+            pendingText: nil,
+            activeStreamingBaseText: nil
+        ), "An acknowledged older native publication is not a new model rewrite.")
+    }
+
+    func testUnrelatedRewriteAndDocumentSwitchStillApply() {
+        var tracker = ScreenplayEditorBoundTextTracker(initialText: "local draft")
+        tracker.recordNativePublication("newer local draft")
+
+        XCTAssertTrue(tracker.shouldApplyBoundText(
+            "server revision",
+            currentEditorText: "newer local draft",
+            isEditorFocused: true,
+            documentDidChange: false,
+            pendingExpectedText: nil,
+            pendingText: nil,
+            activeStreamingBaseText: nil
+        ))
+        XCTAssertTrue(tracker.shouldApplyBoundText(
+            "new project draft",
+            currentEditorText: "newer local draft",
+            isEditorFocused: true,
+            documentDidChange: true,
+            pendingExpectedText: nil,
+            pendingText: nil,
+            activeStreamingBaseText: nil
+        ))
+    }
+
+    func testDocumentSwitchRetiresPriorProjectsNativePublication() {
+        var tracker = ScreenplayEditorBoundTextTracker(initialText: "same words")
+        tracker.recordNativePublication("shared text")
+
+        XCTAssertTrue(tracker.shouldApplyBoundText(
+            "shared text",
+            currentEditorText: "other project text",
+            isEditorFocused: true,
+            documentDidChange: true,
+            pendingExpectedText: nil,
+            pendingText: nil,
+            activeStreamingBaseText: nil
+        ))
+        XCTAssertTrue(tracker.shouldApplyBoundText(
+            "shared text",
+            currentEditorText: "third project text",
+            isEditorFocused: false,
+            documentDidChange: false,
+            pendingExpectedText: nil,
+            pendingText: nil,
+            activeStreamingBaseText: nil
+        ))
+    }
+
     func testDeferredEditorTransactionRejectsMetadataWhenQueuedTextLosesItsBaseline() {
         let generation = 41
         let requirements = [

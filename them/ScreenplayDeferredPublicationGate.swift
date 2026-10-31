@@ -5,6 +5,52 @@ struct ScreenplayDeferredTextPublicationRequirement: Equatable {
     var requestID: UUID?
 }
 
+struct ScreenplayEditorBoundTextTracker {
+    private var lastRenderedText: String
+    private var pendingNativePublications: [String] = []
+
+    init(initialText: String) {
+        lastRenderedText = initialText
+    }
+
+    mutating func recordNativePublication(_ text: String) {
+        if pendingNativePublications.last != text {
+            pendingNativePublications.append(text)
+        }
+    }
+
+    mutating func shouldApplyBoundText(
+        _ boundText: String,
+        currentEditorText: String,
+        isEditorFocused: Bool,
+        documentDidChange: Bool,
+        pendingExpectedText: String?,
+        pendingText: String?,
+        activeStreamingBaseText: String?
+    ) -> Bool {
+        let previousRenderedText = lastRenderedText
+        lastRenderedText = boundText
+
+        if documentDidChange {
+            pendingNativePublications.removeAll()
+        } else if let index = pendingNativePublications.lastIndex(of: boundText) {
+            pendingNativePublications.removeFirst(index + 1)
+            return false
+        }
+
+        guard ScreenplayDeferredPublicationGate.shouldApplyBoundText(
+            boundText,
+            currentText: currentEditorText,
+            pendingExpectedText: pendingExpectedText,
+            pendingText: pendingText,
+            activeStreamingBaseText: activeStreamingBaseText
+        ) else { return false }
+
+        guard boundText != currentEditorText else { return false }
+        return !isEditorFocused || documentDidChange || boundText != previousRenderedText
+    }
+}
+
 enum ScreenplayDeferredPublicationGate {
     /// Request IDs advance per chunk. Native text remains publishable when it
     /// still matches the editor and no external binding edit won the race.

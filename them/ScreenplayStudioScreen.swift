@@ -2893,6 +2893,7 @@ private var directionOneScriptEditor: some View {
             ) {
                 CursorInsertTextEditor(
                     text: $vm.fountainDraft,
+                    documentID: vm.selectedProjectID,
                     activeScreenplayElement: $liveDraftBridge.activeScreenplayElement,
                     insertionRequest: $liveDraftBridge.pendingInsertion,
                     lineJumpRequest: $liveDraftBridge.pendingLineJump,
