@@ -790,12 +790,29 @@ final class V1SmokeUITests: XCTestCase {
         let app = launchApp(openStudio: true, openExportTools: true, structuralSeed: true)
         defer { app.terminate() }
 
-        let themTab = app.buttons["studio.right-panel.them"]
-        XCTAssertTrue(themTab.waitForExistence(timeout: 8))
-        themTab.tap()
-
-        XCTAssertTrue(app.descendants(matching: .any)["studio.them.panel"].waitForExistence(timeout: 4))
         let drawer = element(identifier: "studio.sidebar.right.drawer", in: app)
+        let themTabIdentifier = "studio.right-panel.them"
+        XCTAssertTrue(
+            revealInspectorTab(app.buttons[themTabIdentifier], drawer: drawer, in: app),
+            "Missing io.them inspector tab"
+        )
+        let themTab = app.buttons[themTabIdentifier]
+        XCTAssertTrue(
+            revealInStudioDrawer(themTab, drawer: drawer, scrollingUp: false, maxSwipes: 16),
+            "The io.them inspector tab could not be scrolled into view"
+        )
+        themTab.tap()
+        let selectedThemTab = app.buttons[themTabIdentifier]
+        XCTAssertTrue(
+            waitForSelection(of: selectedThemTab, timeout: 3),
+            "The io.them tab did not report its selected state"
+        )
+
+        let themPanel = element(identifier: "studio.them.panel", in: app)
+        XCTAssertTrue(
+            revealInStudioDrawer(themPanel, drawer: drawer, scrollingUp: true, maxSwipes: 16),
+            "The io.them tab did not reveal its working panel"
+        )
 
         let creativePartner = element(identifier: "studio.them.creative-partner", in: app)
         XCTAssertTrue(
