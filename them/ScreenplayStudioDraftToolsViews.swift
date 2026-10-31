@@ -621,6 +621,68 @@ private struct ScreenplayStudioDraftDocumentControls: View {
     }
 }
 
+private struct ScreenplayStudioIntegrityAction: Identifiable {
+    let id: String
+    let title: String
+    var prominent = false
+    let perform: () -> Void
+}
+
+/// Prefer compact rows, but measure their readable labels before accepting a
+/// horizontal proposal. Very narrow or large-type layouts keep every action.
+private struct ScreenplayStudioIntegrityActionsView: View {
+    let items: [ScreenplayStudioIntegrityAction]
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 8) {
+                ForEach(items) { button($0, intrinsic: true) }
+            }
+            .fixedSize(horizontal: true, vertical: false)
+
+            if items.count > 2 {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 8) {
+                        ForEach(Array(items.prefix(2))) { button($0, intrinsic: true) }
+                    }
+                    HStack(spacing: 8) {
+                        ForEach(Array(items.dropFirst(2))) { button($0, intrinsic: true) }
+                    }
+                }
+                .fixedSize(horizontal: true, vertical: false)
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(items) { button($0, intrinsic: false) }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    @ViewBuilder private func button(_ item: ScreenplayStudioIntegrityAction, intrinsic: Bool) -> some View {
+        if item.prominent {
+            Button(action: item.perform) { label(item.title, intrinsic: intrinsic) }
+                .buttonStyle(.borderedProminent)
+                .tint(.orange.opacity(0.28))
+                .frame(minHeight: 44)
+                .accessibilityIdentifier(item.id)
+        } else {
+            Button(action: item.perform) { label(item.title, intrinsic: intrinsic) }
+                .buttonStyle(.bordered)
+                .frame(minHeight: 44)
+                .accessibilityIdentifier(item.id)
+        }
+    }
+
+    private func label(_ title: String, intrinsic: Bool) -> some View {
+        Text(title)
+            .multilineTextAlignment(.center)
+            .fixedSize(horizontal: intrinsic, vertical: true)
+            .frame(maxWidth: intrinsic ? nil : .infinity, minHeight: 44)
+            .contentShape(Rectangle())
+    }
+}
+
 struct ScreenplayStudioDraftIntegrityWarningSection: View {
     let issues: [ScreenplayPageIntegrityIssue]
     let actions: ScreenplayStudioDraftIntegrityActions
@@ -648,31 +710,36 @@ struct ScreenplayStudioDraftIntegrityWarningSection: View {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .stroke(Color.orange.opacity(0.16), lineWidth: 1)
         )
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("studio.draft.integrity.list")
     }
 
     private var header: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .font(IOThemTypography.UI.label)
-                .foregroundStyle(Color.orange.opacity(0.92))
-            Text(ScreenplayStudioDraftToolsPresentationPlanner.integrityTitle(issueCount: issues.count))
-                .font(IOThemTypography.UI.captionStrong)
-                .foregroundStyle(Color.herText.opacity(0.88))
-            Spacer(minLength: 0)
-            if issues.count > 1 {
-                Button("Move all to Pin", action: actions.onMoveAllToPin)
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .accessibilityIdentifier("studio.draft.integrity.move-all")
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(IOThemTypography.UI.label)
+                    .foregroundStyle(Color.orange.opacity(0.92))
+                Text(ScreenplayStudioDraftToolsPresentationPlanner.integrityTitle(issueCount: issues.count))
+                    .font(IOThemTypography.UI.captionStrong)
+                    .foregroundStyle(Color.herText.opacity(0.88))
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
+                Text("Review")
+                    .font(IOThemTypography.UI.micro)
+                    .foregroundStyle(Color.orange.opacity(0.92))
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Color.orange.opacity(0.12))
+                    .clipShape(Capsule())
+                    .fixedSize(horizontal: true, vertical: false)
             }
-            Text("Review")
-                .font(IOThemTypography.UI.micro)
-                .foregroundStyle(Color.orange.opacity(0.92))
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(Color.orange.opacity(0.12))
-                .clipShape(Capsule())
+            if issues.count > 1 {
+                ScreenplayStudioIntegrityActionsView(items: [
+                    .init(id: "studio.draft.integrity.move-all", title: "Move all to Pin", perform: actions.onMoveAllToPin)
+                ])
+                    .controlSize(.small)
+            }
         }
     }
 
@@ -687,26 +754,11 @@ struct ScreenplayStudioDraftIntegrityWarningSection: View {
                 .font(IOThemTypography.UI.microRegular)
                 .foregroundStyle(Color.herText.opacity(0.58))
 
-            HStack(spacing: 8) {
-                Button("Jump") {
-                    actions.onReview(issue)
-                }
-                .buttonStyle(.bordered)
-                .accessibilityIdentifier("studio.draft.integrity.jump.\(issue.startLine)-\(issue.endLine)")
-
-                Button("Move to Pin") {
-                    actions.onMoveToPin(issue)
-                }
-                .buttonStyle(.bordered)
-                .accessibilityIdentifier("studio.draft.integrity.move.\(issue.startLine)-\(issue.endLine)")
-
-                Button("Remove") {
-                    actions.onRemove(issue)
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(.orange.opacity(0.28))
-                .accessibilityIdentifier("studio.draft.integrity.remove.\(issue.startLine)-\(issue.endLine)")
-            }
+            ScreenplayStudioIntegrityActionsView(items: [
+                .init(id: "studio.draft.integrity.jump.\(issue.startLine)-\(issue.endLine)", title: "Jump", perform: { actions.onReview(issue) }),
+                .init(id: "studio.draft.integrity.move.\(issue.startLine)-\(issue.endLine)", title: "Move to Pin", perform: { actions.onMoveToPin(issue) }),
+                .init(id: "studio.draft.integrity.remove.\(issue.startLine)-\(issue.endLine)", title: "Remove", prominent: true, perform: { actions.onRemove(issue) })
+            ])
         }
         .padding(10)
         .background(
@@ -726,60 +778,31 @@ struct ScreenplayStudioPageIntegrityBanner: View {
 
     var body: some View {
         let primaryIssue = issues.first
-
-        HStack(alignment: .top, spacing: 10) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .font(IOThemTypography.UI.captionStrong)
-                .foregroundStyle(Color.orange.opacity(0.92))
-                .padding(.top, 1)
-
-            VStack(alignment: .leading, spacing: 5) {
-                Text(ScreenplayStudioDraftToolsPresentationPlanner.integrityTitle(issueCount: issues.count))
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: "exclamationmark.triangle.fill")
                     .font(IOThemTypography.UI.captionStrong)
-                    .foregroundStyle(Color.herText.opacity(0.88))
-
-                if let primaryIssue {
-                    Text("Lines \(primaryIssue.startLine)-\(primaryIssue.endLine) read like companion prose, not screenplay: \"\(primaryIssue.preview)\"")
-                        .font(IOThemTypography.UI.labelRegular)
-                        .foregroundStyle(Color.herText.opacity(0.72))
-                        .lineLimit(2)
-                } else {
-                    Text("Non-screenplay text is sitting on the page and should be reviewed before it stays in the draft.")
-                        .font(IOThemTypography.UI.labelRegular)
-                        .foregroundStyle(Color.herText.opacity(0.72))
-                }
-            }
-
-            Spacer(minLength: 0)
-
-            HStack(spacing: 8) {
-                Button("Review") {
+                    .foregroundStyle(Color.orange.opacity(0.92))
+                    .padding(.top, 1)
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(ScreenplayStudioDraftToolsPresentationPlanner.integrityTitle(issueCount: issues.count))
+                        .font(IOThemTypography.UI.captionStrong)
+                        .foregroundStyle(Color.herText.opacity(0.88))
                     if let primaryIssue {
-                        actions.onReview(primaryIssue)
+                        Text("Lines \(primaryIssue.startLine)-\(primaryIssue.endLine) read like companion prose, not screenplay: \"\(primaryIssue.preview)\"")
+                            .font(IOThemTypography.UI.labelRegular)
+                            .foregroundStyle(Color.herText.opacity(0.72))
+                            .lineLimit(2)
                     } else {
-                        actions.onOpenInspector()
+                        Text("Non-screenplay text is sitting on the page and should be reviewed before it stays in the draft.")
+                            .font(IOThemTypography.UI.labelRegular)
+                            .foregroundStyle(Color.herText.opacity(0.72))
                     }
                 }
-                .buttonStyle(.bordered)
-
-                if issues.count > 1 {
-                    Button("Move all to Pin", action: actions.onMoveAllToPin)
-                        .buttonStyle(.bordered)
-                }
-
-                if let primaryIssue {
-                    Button("Move to Pin") {
-                        actions.onMoveToPin(primaryIssue)
-                    }
-                    .buttonStyle(.bordered)
-
-                    Button("Remove") {
-                        actions.onRemove(primaryIssue)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(.orange.opacity(0.28))
-                }
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
+            ScreenplayStudioIntegrityActionsView(items: actionItems)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
@@ -791,7 +814,22 @@ struct ScreenplayStudioPageIntegrityBanner: View {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .stroke(Color.orange.opacity(0.16), lineWidth: 1)
         )
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("studio.page.integrity.banner")
+    }
+
+    private var actionItems: [ScreenplayStudioIntegrityAction] {
+        var items = [ScreenplayStudioIntegrityAction(id: "studio.page.integrity.review", title: "Review", perform: {
+            if let issue = issues.first { actions.onReview(issue) } else { actions.onOpenInspector() }
+        })]
+        if issues.count > 1 {
+            items.append(.init(id: "studio.page.integrity.move-all", title: "Move all to Pin", perform: actions.onMoveAllToPin))
+        }
+        if let issue = issues.first {
+            items.append(.init(id: "studio.page.integrity.move", title: "Move to Pin", perform: { actions.onMoveToPin(issue) }))
+            items.append(.init(id: "studio.page.integrity.remove", title: "Remove", prominent: true, perform: { actions.onRemove(issue) }))
+        }
+        return items
     }
 }
 
