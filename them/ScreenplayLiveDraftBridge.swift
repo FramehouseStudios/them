@@ -10785,7 +10785,6 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
         var explicitCurrentLineLocation: Int?
         var paragraphElements: [ScreenplayEditorElement?] = []
         var lastKnownTextSnapshot: String
-        var boundTextTracker: ScreenplayEditorBoundTextTracker
         private var representableUpdateDepth = 0
         private var representableUpdateGeneration = 0
         private var activeRepresentableUpdateGeneration: Int?
@@ -10807,7 +10806,6 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
             self.parent = parent
             self.lastKnownActiveElement = parent.activeScreenplayElement
             self.lastKnownTextSnapshot = parent.text
-            self.boundTextTracker = ScreenplayEditorBoundTextTracker(initialText: parent.text)
         }
 
         @objc func saveDraftFromKeyboard() {
@@ -10858,22 +10856,16 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
             documentDidChange: Bool,
             externalMutationDidChange: Bool
         ) -> Bool {
-            let base = streamingInsertRange != nil ? streamingInsertBaseText : (voiceRevealContentRange != nil ? voiceRevealBaseText : nil)
-            return boundTextTracker.shouldApplyBoundText(
+            return ScreenplayDeferredPublicationGate.shouldApplyBoundText(
                 text,
-                currentEditorText: currentText,
-                isEditorFocused: textView?.isFirstResponder ?? false,
+                currentText: currentText,
                 documentDidChange: documentDidChange,
-                externalMutationDidChange: externalMutationDidChange,
-                pendingExpectedText: deferredText?.expected,
-                pendingText: deferredText?.value,
-                activeStreamingBaseText: base
+                externalMutationDidChange: externalMutationDidChange
             )
         }
 
         private func publishEditorText(_ value: String) {
             guard parent.text != value else { return }
-            boundTextTracker.recordNativePublication(value)
             parent.text = value
         }
 

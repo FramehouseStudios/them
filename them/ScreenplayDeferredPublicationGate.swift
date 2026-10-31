@@ -9,64 +9,6 @@ struct ScreenplayDeferredTextPublicationRequirement: Equatable {
     var requestID: UUID?
 }
 
-struct ScreenplayEditorBoundTextTracker {
-    // SwiftUI normally acknowledges within a render turn. Keep a bounded
-    // recent window; an evicted value fails open as an external rewrite.
-    static let pendingPublicationLimit = 64
-
-    private var lastRenderedText: String
-    private var pendingNativePublications: [String] = []
-
-    var pendingPublicationCount: Int { pendingNativePublications.count }
-
-    init(initialText: String) {
-        lastRenderedText = initialText
-    }
-
-    mutating func recordNativePublication(_ text: String) {
-        guard pendingNativePublications.last.map({ !screenplayEditorUTF8Equal($0, text) }) ?? true else { return }
-        pendingNativePublications.append(text)
-        if pendingNativePublications.count > Self.pendingPublicationLimit {
-            pendingNativePublications.removeFirst(pendingNativePublications.count - Self.pendingPublicationLimit)
-        }
-    }
-
-    mutating func shouldApplyBoundText(
-        _ boundText: String,
-        currentEditorText: String,
-        isEditorFocused: Bool,
-        documentDidChange: Bool,
-        externalMutationDidChange: Bool = false,
-        pendingExpectedText: String?,
-        pendingText: String?,
-        activeStreamingBaseText: String?
-    ) -> Bool {
-        let previousRenderedText = lastRenderedText
-        lastRenderedText = boundText
-
-        if documentDidChange || externalMutationDidChange {
-            pendingNativePublications.removeAll()
-        } else if let index = pendingNativePublications.lastIndex(where: {
-            screenplayEditorUTF8Equal($0, boundText)
-        }) {
-            pendingNativePublications.removeFirst(index + 1)
-            return false
-        }
-
-        guard ScreenplayDeferredPublicationGate.shouldApplyBoundText(
-            boundText,
-            currentText: currentEditorText,
-            pendingExpectedText: pendingExpectedText,
-            pendingText: pendingText,
-            activeStreamingBaseText: activeStreamingBaseText
-        ) else { return false }
-
-        guard !screenplayEditorUTF8Equal(boundText, currentEditorText) else { return false }
-        return !isEditorFocused || documentDidChange || externalMutationDidChange ||
-            !screenplayEditorUTF8Equal(boundText, previousRenderedText)
-    }
-}
-
 enum ScreenplayDeferredPublicationGate {
     /// Request IDs advance per chunk. Native text remains publishable when it
     /// still matches the editor and no external binding edit won the race.
@@ -104,16 +46,16 @@ enum ScreenplayDeferredPublicationGate {
     /// Do not replace it with that baseline before publication catches up.
     static func shouldApplyBoundText(
         _ boundText: String, currentText: String,
-        pendingExpectedText: String?, pendingText: String?, activeStreamingBaseText: String? = nil
+        documentDidChange: Bool, externalMutationDidChange: Bool
     ) -> Bool {
-        let isStreamingBaseline = activeStreamingBaseText.map {
-            screenplayEditorUTF8Equal($0, boundText)
-        } ?? false
-        let isPendingBaseline = pendingExpectedText.map {
-            screenplayEditorUTF8Equal($0, boundText)
-        } == true && pendingText.map {
-            screenplayEditorUTF8Equal($0, currentText)
-        } == true
-        return !(isStreamingBaseline || isPendingBaseline)
+        guard !screenplayEditorUTF8Equal(boundText, currentText) else { return false }
+        // Native editor publications update the model through a dedicated
+        // binding without advancing the external mutation revision. Any later
+        // mismatching render with the same document/revision is therefore an
+        // echo, regardless of how many intermediate values SwiftUI coalesced.
+        // An explicit model rewrite or document replacement is authoritative.
+        // Deferred native work remains fenced at publication time by its
+        // expected binding, native text and request identity checks above.
+        return documentDidChange || externalMutationDidChange
     }
 }
