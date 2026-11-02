@@ -41,6 +41,10 @@ import express from "express";
 import { createScreenplayProjectInitializer, createEmptyScreenplayProjectRecord } from "./screenplay_project_initialization.js";
 import { createScreenplayVersionRecord } from "./screenplay_version_record.js";
 import {
+  buildScreenplayVersionReplayHash,
+  legacyScreenplayVersionMatchesReplay,
+} from "./screenplay_version_replay_identity.js";
+import {
   defaultResolveScreenplayUserId,
   requireScreenplayUserId,
 } from "./screenplay_route_auth.js";
@@ -1526,8 +1530,19 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
     const studioWriteAnchors = normalizeStoredScreenplayWriteAnchors(req.body?.studio_write_anchors);
     const screenplayBindings = normalizeStoredScreenplayBindings(req.body?.screenplay_bindings);
     const baseVersionId = normalizeSnippet(req.body?.base_version_id, 64);
+    const title = normalizeSnippet(req.body?.title, 160);
     const clientRequestId = normalizeSnippet(req.body?.client_request_id, 96);
     const conflictStrategy = String(req.body?.conflict_strategy || "reject_if_stale").trim().toLowerCase();
+    const saveRequestHash = buildScreenplayVersionReplayHash({
+      draft,
+      phase,
+      source,
+      notes,
+      studioWriteAnchors,
+      screenplayBindings,
+      baseVersionId,
+      title,
+    });
     const latestVersion = getLatestScreenplayVersion(project);
     const currentVersionId = project.activeVersionId || latestVersion?.id || "";
     const replayedVersion = clientRequestId
@@ -1545,7 +1560,16 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
           replayed: false,
         }));
       }
-      const requestMatches = String(replayedVersion.draft || "") === draft;
+      const requestMatches = replayedVersion.saveRequestHash
+        ? replayedVersion.saveRequestHash === saveRequestHash && String(replayedVersion.draft || "") === draft
+        : legacyScreenplayVersionMatchesReplay(replayedVersion, {
+            draft,
+            phase,
+            source,
+            notes,
+            studioWriteAnchors,
+            screenplayBindings,
+          });
       const replayWasSuperseded = Boolean(currentVersionId && currentVersionId !== replayedVersion.id);
       applyReadStateHeaders(res, buildScreenplayReadMeta(req, owner));
       return res.status(requestMatches && !replayWasSuperseded ? 200 : 409).json(buildScreenplayEnvelope(req, owner, {
@@ -1622,6 +1646,7 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
       studioWriteAnchors,
       screenplayBindings,
       persistencePending: Boolean(clientRequestId),
+      saveRequestHash: clientRequestId ? saveRequestHash : "",
     });
     project.versions = Array.isArray(project.versions) ? project.versions : [];
     project.versions.unshift(version);
@@ -1629,8 +1654,8 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
     project.lastVersionId = version.id;
     project.lastVersionAt = now;
     project.lastPhase = phase;
-    if (normalizeSnippet(req.body?.title, 160)) {
-      project.title = normalizeSnippet(req.body?.title, 160);
+    if (title) {
+      project.title = title;
     }
     project.updatedAt = now;
     owner.activeProjectId = project.id;

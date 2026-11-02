@@ -1,13 +1,14 @@
 // One owner for stored version fields; both ordinary saves and first saves use it.
 export function createScreenplayVersionRecord({ id, projectId, phase, source, clientRequestId,
   now, notes = "", draft, score, draftExcerpt, studioWriteAnchors = [], screenplayBindings = [],
-  persistencePending = false, initialRequestHash = "" }) {
+  persistencePending = false, initialRequestHash = "", saveRequestHash = "" }) {
   return {
     id, projectId, phase, source, clientRequestId, createdAt: now, updatedAt: now,
     prompt: "", notes, formatScore: score.formatScore, storyScore: score.storyScore,
     confidenceClass: score.confidenceClass, warnings: score.warnings,
     draft, draftExcerpt, studioWriteAnchors, screenplayBindings, persistencePending,
     ...(initialRequestHash ? { initialRequestHash } : {}),
+    ...(saveRequestHash ? { saveRequestHash } : {}),
   };
 }
 
@@ -19,6 +20,7 @@ export function normalizeStoredScreenplayVersionRecord(entry, {
   const id = normalizeSnippet(entry.id, 64);
   if (!id) return null;
   const initialRequestHash = String(entry.initialRequestHash || "");
+  const saveRequestHash = String(entry.saveRequestHash ?? entry.save_request_hash ?? "");
   return {
     id,
     projectId: normalizeSnippet(entry.projectId, 64),
@@ -38,5 +40,6 @@ export function normalizeStoredScreenplayVersionRecord(entry, {
     studioWriteAnchors: normalizeStoredScreenplayWriteAnchors(entry.studioWriteAnchors || entry.studio_write_anchors),
     screenplayBindings: normalizeStoredScreenplayBindings(entry.screenplayBindings || entry.screenplay_bindings),
     ...(/^[a-f0-9]{64}$/.test(initialRequestHash) ? { initialRequestHash } : {}),
+    ...(/^[a-f0-9]{64}$/.test(saveRequestHash) ? { saveRequestHash } : {}),
   };
 }

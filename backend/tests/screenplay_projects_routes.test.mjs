@@ -1695,6 +1695,97 @@ test("[screenplay-projects-routes] POST /version replays a committed client requ
   });
 });
 
+test("[screenplay-projects-routes] POST /version rejects reused identity when saved intent changes", async () => {
+  const deps = defaultDeps();
+  const project = deps._owner.projects.find((p) => p.id === "p1");
+  project.activeVersionId = "base_v1";
+  project.versions = [{ id: "base_v1", draft: "Old draft.", updatedAt: 1000 }];
+  const body = {
+    draft: "FADE IN:\n\nINT. KITCHEN - NIGHT\n\nLucy waits.",
+    title: "The Kitchen",
+    phase: "scene_draft",
+    source: "studio_manual",
+    notes: "Writer-approved save",
+    studio_write_anchors: [{ write_id: "write-1", anchor_line: 4, inserted_text: "Lucy waits." }],
+    screenplay_bindings: [{ draft_scene_id: "scene-1", draft_line: 3, outline_scene_id: "outline-1" }],
+    base_version_id: "base_v1",
+    conflict_strategy: "reject_if_stale",
+    client_request_id: "full-save-identity",
+  };
+
+  await withTestServer(deps, async (baseURL) => {
+    const first = await postJson(baseURL, "/screenplay/projects/p1/version", body);
+    const replay = await postJson(baseURL, "/screenplay/projects/p1/version", body);
+    assert.equal(first.status, 201);
+    assert.equal(replay.status, 200);
+    assert.match(project.versions[0].saveRequestHash, /^[a-f0-9]{64}$/);
+
+    const changedRequests = [
+      ["phase", { phase: "rewrite" }],
+      ["source", { source: "studio_autosave" }],
+      ["notes", { notes: "Changed note" }],
+      ["anchors", { studio_write_anchors: [{ write_id: "write-1", anchor_line: 5, inserted_text: "Lucy waits." }] }],
+      ["bindings", { screenplay_bindings: [{ draft_scene_id: "scene-1", draft_line: 4, outline_scene_id: "outline-1" }] }],
+      ["base", { base_version_id: first.body.version_id }],
+      ["title", { title: "A Different Kitchen" }],
+    ];
+    for (const [label, change] of changedRequests) {
+      const reused = await postJson(baseURL, "/screenplay/projects/p1/version", { ...body, ...change });
+      assert.equal(reused.status, 409, `${label} change must not replay`);
+      assert.equal(reused.body.status, "client_request_id_reused");
+      assert.equal(reused.body.replayed, false);
+    }
+    assert.equal(project.versions.length, 2);
+  });
+});
+
+test("[screenplay-projects-routes] legacy version replay compares only durable identity fields", async () => {
+  const deps = defaultDeps();
+  const project = deps._owner.projects.find((p) => p.id === "p1");
+  const legacy = {
+    id: "legacy_v1",
+    draft: "FADE IN:\n\nINT. ROOM - DAY\n\nLegacy words.",
+    phase: "scene_draft",
+    source: "studio_manual",
+    notes: "Legacy note",
+    studioWriteAnchors: [{ writeId: "write-legacy", anchorLine: 2 }],
+    screenplayBindings: [{ draftSceneId: "scene-legacy", draftLine: 2 }],
+    clientRequestId: "legacy-save-request",
+    updatedAt: 1000,
+  };
+  project.activeVersionId = legacy.id;
+  project.versions = [legacy];
+
+  await withTestServer(deps, async (baseURL) => {
+    const replay = await postJson(baseURL, "/screenplay/projects/p1/version", {
+      draft: legacy.draft,
+      title: "Unavailable original title",
+      phase: legacy.phase,
+      source: legacy.source,
+      notes: legacy.notes,
+      studio_write_anchors: legacy.studioWriteAnchors,
+      screenplay_bindings: legacy.screenplayBindings,
+      base_version_id: "unavailable-original-base",
+      client_request_id: legacy.clientRequestId,
+    });
+    assert.equal(replay.status, 200);
+    assert.equal(replay.body.status, "replayed");
+    assert.equal(project.title, "First Project", "legacy replay must not infer or apply an unavailable title");
+
+    const changed = await postJson(baseURL, "/screenplay/projects/p1/version", {
+      draft: legacy.draft,
+      phase: legacy.phase,
+      source: legacy.source,
+      notes: "Changed legacy note",
+      studio_write_anchors: legacy.studioWriteAnchors,
+      screenplay_bindings: legacy.screenplayBindings,
+      client_request_id: legacy.clientRequestId,
+    });
+    assert.equal(changed.status, 409);
+    assert.equal(changed.body.status, "client_request_id_reused");
+  });
+});
+
 test("[screenplay-projects-routes] POST /version does not replay before durable persistence completes", async () => {
   let releasePersistence;
   const persistencePromise = new Promise((resolve) => {
