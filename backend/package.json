@@ -135,7 +135,7 @@
     "redis": "^4.7.0"
   },
   "overrides": {
-    "qs": "6.16.0"
+    "qs": "6.16.2"
   },
   "devDependencies": {
     "acorn": "^8.16.0",
