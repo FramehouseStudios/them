@@ -1,7 +1,6 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, unlinkSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { existsSync, mkdirSync, unlinkSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { startBackend } from "../tests/helpers/backend_test_server.mjs";
@@ -9,6 +8,7 @@ import {
   assertSinglePassedTestSummary,
   failureOutputTail,
   xcresultFailureDetails,
+  writerLoopResultBundlePath,
 } from "./studio_ios_writer_loop_contract_helpers.mjs";
 
 const APP_TOKEN = "them-dev";
@@ -23,11 +23,10 @@ if (requestedPort !== null && (!Number.isInteger(requestedPort) || requestedPort
 
 // A failure must retain screenshots/hierarchy, not just a shortened assertion.
 // Unique owned directories also prevent a later run from replacing its proof.
-const ARTIFACT_ROOT = join(process.env.RUNNER_TEMP || tmpdir(), "them-studio-ios-writer-loop");
-mkdirSync(ARTIFACT_ROOT, { recursive: true });
-const ARTIFACT_DIR = mkdtempSync(join(ARTIFACT_ROOT, "run-"));
-const XCCONFIG_PATH = join(ARTIFACT_DIR, "restore.xcconfig");
-const RESULT_BUNDLE_PATH = join(ARTIFACT_DIR, "writer-loop.xcresult");
+const RESULT_BUNDLE_PATH = writerLoopResultBundlePath();
+const ARTIFACT_DIR = dirname(RESULT_BUNDLE_PATH);
+mkdirSync(ARTIFACT_DIR, { recursive: true });
+const XCCONFIG_PATH = `${RESULT_BUNDLE_PATH}.xcconfig`;
 console.log(`writer-loop artifacts: ${ARTIFACT_DIR}`);
 
 let server = null;
@@ -56,6 +55,7 @@ try {
     env: {
       ...process.env,
       ONLY_TESTING: WRITER_LOOP_TEST,
+      ARTIFACT_DIR: dirname(RESULT_BUNDLE_PATH),
       THEM_UITEST_RESTORE_XCCONFIG_PATH: XCCONFIG_PATH,
     },
   });
