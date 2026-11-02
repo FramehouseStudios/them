@@ -25,7 +25,7 @@ if (requestedPort !== null && (!Number.isInteger(requestedPort) || requestedPort
 // Unique owned directories also prevent a later run from replacing its proof.
 const RESULT_BUNDLE_PATH = writerLoopResultBundlePath();
 const ARTIFACT_DIR = dirname(RESULT_BUNDLE_PATH);
-mkdirSync(ARTIFACT_DIR, { recursive: true });
+mkdirSync(ARTIFACT_DIR, { recursive: true, mode: 0o700 });
 const XCCONFIG_PATH = `${RESULT_BUNDLE_PATH}.xcconfig`;
 console.log(`writer-loop artifacts: ${ARTIFACT_DIR}`);
 

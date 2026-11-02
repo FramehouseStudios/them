@@ -26,15 +26,16 @@ test("[recovery-summary] requires all three real passes, with no failures or ski
 });
 for (const [name, environment, expectedDirectory] of [
   ["explicit artifact owner", { ARTIFACT_DIR: "/tmp/them-owned-evidence", RUNNER_TEMP: "/runner", TMPDIR: "/temporary" }, "/tmp/them-owned-evidence"],
-  ["existing CI upload glob", { RUNNER_TEMP: "/runner", TMPDIR: "/temporary" }, "/runner/them-v1-ui-smoke"],
-  ["local temporary owner", { TMPDIR: "/temporary" }, "/temporary/them-v1-ui-smoke"],
-  ["platform fallback", {}, join(tmpdir(), "them-v1-ui-smoke")],
+  ["existing CI upload glob", { RUNNER_TEMP: "/runner", TMPDIR: "/temporary" }, "/runner/them-studio-ios-writer-loop"],
+  ["local temporary owner", { TMPDIR: "/temporary" }, "/temporary/them-studio-ios-writer-loop"],
+  ["platform fallback", {}, join(tmpdir(), "them-studio-ios-writer-loop")],
 ]) {
   test(`[studio-ios-writer-loop] retains a unique native bundle under ${name}`, () => {
     const first = writerLoopResultBundlePath(environment);
     const second = writerLoopResultBundlePath(environment);
-    assert.equal(dirname(first), expectedDirectory);
-    assert.match(basename(first), /^writer-loop-[0-9a-f-]{36}\.xcresult$/);
+    assert.equal(dirname(dirname(first)), expectedDirectory);
+    assert.match(basename(dirname(first)), /^run-[0-9a-f-]{36}$/);
+    assert.equal(basename(first), "writer-loop.xcresult");
     assert.notEqual(first, second, "Runs must not overwrite an earlier result bundle.");
   });
 }

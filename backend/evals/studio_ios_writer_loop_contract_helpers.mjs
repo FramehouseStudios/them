@@ -6,8 +6,8 @@ export const FAILURE_OUTPUT_LIMIT = 24_000;
 
 export function writerLoopResultBundlePath(environment = process.env) {
   const artifactDirectory = environment.ARTIFACT_DIR
-    || join(environment.RUNNER_TEMP || environment.TMPDIR || tmpdir(), "them-v1-ui-smoke");
-  return join(artifactDirectory, `writer-loop-${randomUUID()}.xcresult`);
+    || join(environment.RUNNER_TEMP || environment.TMPDIR || tmpdir(), "them-studio-ios-writer-loop");
+  return join(artifactDirectory, `run-${randomUUID()}`, "writer-loop.xcresult");
 }
 
 export function failureOutputTail(value) {

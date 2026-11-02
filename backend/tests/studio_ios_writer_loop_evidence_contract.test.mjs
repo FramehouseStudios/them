@@ -58,7 +58,7 @@ if(args.includes("tests")) {
       const result = spawnSync(process.execPath, [runner], {
         cwd: root, encoding: "utf8", timeout: 40_000,
         env: {...process.env, PATH: bin + path.delimiter + process.env.PATH,
-          RUNNER_TEMP: runnerTemp, ARTIFACT_DIR: runnerTemp, XCODEBUILD: xcodebuild, XCRUN: xcrun,
+          RUNNER_TEMP: runnerTemp, ARTIFACT_DIR: path.join(runnerTemp, "them-studio-ios-writer-loop"), XCODEBUILD: xcodebuild, XCRUN: xcrun,
           IOS_SIMULATOR_DESTINATION: "platform=iOS Simulator,id=owned-evidence-fixture",
           THEM_UITEST_WRITER_LOOP_BACKEND_PORT: "", THEM_UITEST_CREATION_REPLY_FAULT: "0", DATABASE_URL: "",
           TEST_WRITER_MODE: mode, TEST_ARGS_FILE: argsFile, TEST_CALLS_FILE: callsFile},
