@@ -7,11 +7,130 @@ import { test } from "node:test";
 import express from "express";
 
 import { mountScreenplayProjectsRoutes } from "../lib/screenplay_projects_routes.js";
+import { createScreenplayModelServices } from "../services/screenplay_model.js";
 
 function initialProjectBody(draft = "Title: The Reel\r\n\r\nINT. ROOM - NIGHT\r\nCafe\u0301. \t ") {
   return { project_id: "project-initial", title: "The Reel", phase: "scene_draft",
     initial_draft: { draft, client_request_id: "initial-request-1" } };
 }
+
+function blankProjectBody(overrides = {}) {
+  return { project_id: "project-blank", title: "The Empty Reel", phase: "scene_draft",
+    blank_project: { client_request_id: "blank-request-1" }, ...overrides };
+}
+
+test("[blank-project] lost response replay creates one zero-version project with one durable write", async () => {
+  const deps = defaultDeps();
+  const stats = { calls: 0, writes: 0 };
+  deps.commitScreenplayOwnerMutation = serializedCommitter(deps._owner, stats);
+  await withTestServer(deps, async (base) => {
+    const body = blankProjectBody();
+    const ignoredResponse = await postJson(base, "/screenplay/projects/initialize", body);
+    assert.equal(ignoredResponse.status, 201);
+    const replay = await postJson(base, "/screenplay/projects", body);
+    assert.equal(replay.status, 200);
+    assert.equal(replay.body.replayed, true);
+    assert.equal(replay.body.project_id, body.project_id);
+    assert.equal(Object.hasOwn(replay.body, "version_id"), false);
+    assert.equal(Object.hasOwn(replay.body, "version"), false);
+    const matching = deps._owner.projects.filter(project => project.id === body.project_id);
+    assert.equal(matching.length, 1);
+    assert.equal(matching[0].versions.length, 0);
+    assert.equal(matching[0].initialCreationRequestId, body.blank_project.client_request_id);
+    assert.match(matching[0].initialCreationRequestHash, /^[a-f0-9]{64}$/);
+    assert.equal(stats.writes, 1);
+  });
+});
+
+test("[blank-project] concurrent identical requests serialize to one project", async () => {
+  const deps = defaultDeps();
+  const stats = { calls: 0, writes: 0 };
+  deps.commitScreenplayOwnerMutation = serializedCommitter(deps._owner, stats);
+  await withTestServer(deps, async (base) => {
+    const body = blankProjectBody();
+    const responses = await Promise.all([
+      postJson(base, "/screenplay/projects/initialize", body),
+      postJson(base, "/screenplay/projects/initialize", body),
+    ]);
+    assert.deepEqual(responses.map(response => response.status).sort(), [200, 201]);
+    assert.equal(deps._owner.projects.filter(project => project.id === body.project_id).length, 1);
+    assert.equal(stats.writes, 1);
+  });
+});
+
+test("[blank-project] persisted receipt survives normalization and replay does not rewind later metadata", async () => {
+  const deps = defaultDeps();
+  const body = blankProjectBody();
+  await withTestServer(deps, async base => {
+    assert.equal((await postJson(base, "/screenplay/projects/initialize", body)).status, 201);
+  });
+  const project = deps._owner.projects.find(item => item.id === body.project_id);
+  project.title = "Writer's Later Title";
+  project.tags = ["later-tag"];
+  project.updatedAt += 100;
+  const { normalizeStoredScreenplayOwner } = createScreenplayModelServices();
+  const restored = normalizeStoredScreenplayOwner(JSON.parse(JSON.stringify(deps._owner)));
+  for (const key of Object.keys(deps._owner)) delete deps._owner[key];
+  Object.assign(deps._owner, restored);
+
+  await withTestServer(deps, async base => {
+    const replay = await postJson(base, "/screenplay/projects/initialize", body);
+    assert.equal(replay.status, 200);
+    assert.equal(replay.body.replayed, true);
+  });
+  const replayed = deps._owner.projects.find(item => item.id === body.project_id);
+  assert.equal(replayed.title, "Writer's Later Title");
+  assert.deepEqual(replayed.tags, ["later-tag"]);
+  assert.equal(replayed.initialCreationRequestId, body.blank_project.client_request_id);
+  assert.match(replayed.initialCreationRequestHash, /^[a-f0-9]{64}$/);
+});
+
+test("[blank-project] collisions and changed creation metadata fail without mutation", async () => {
+  const deps = defaultDeps();
+  const beforeExisting = structuredClone(deps._owner.projects.find(project => project.id === "p1"));
+  await withTestServer(deps, async base => {
+    const collision = await postJson(base, "/screenplay/projects/initialize",
+      blankProjectBody({ project_id: "p1" }));
+    assert.equal(collision.status, 409);
+    assert.equal(collision.body.error, "screenplay_initial_request_reused");
+    assert.deepEqual(deps._owner.projects.find(project => project.id === "p1"), beforeExisting);
+
+    const body = blankProjectBody();
+    assert.equal((await postJson(base, "/screenplay/projects/initialize", body)).status, 201);
+    const committed = structuredClone(deps._owner.projects.find(project => project.id === body.project_id));
+    for (const changes of [
+      { title: "Changed title" },
+      { phase: "rewrite" },
+      { activate: false },
+    ]) {
+      const changed = await postJson(base, "/screenplay/projects/initialize", { ...body, ...changes });
+      assert.equal(changed.status, 409);
+      assert.equal(changed.body.error, "screenplay_initial_request_reused");
+      assert.deepEqual(deps._owner.projects.find(project => project.id === body.project_id), committed);
+    }
+    const reusedElsewhere = await postJson(base, "/screenplay/projects/initialize",
+      blankProjectBody({ project_id: "project-other" }));
+    assert.equal(reusedElsewhere.status, 409);
+    assert.equal(reusedElsewhere.body.error, "screenplay_initial_request_reused");
+    assert.equal(deps._owner.projects.some(project => project.id === "project-other"), false);
+  });
+});
+
+test("[blank-project] invalid or mixed envelopes fail before mutation", async () => {
+  for (const body of [
+    blankProjectBody({ project_id: "" }),
+    blankProjectBody({ blank_project: { client_request_id: "" } }),
+    blankProjectBody({ blank_project: { client_request_id: "r", extra: true } }),
+    { ...blankProjectBody(), initial_draft: { draft: "Words", client_request_id: "draft-request" } },
+  ]) {
+    const deps = defaultDeps(), before = structuredClone(deps._owner);
+    await withTestServer(deps, async base => {
+      const result = await postJson(base, "/screenplay/projects/initialize", body);
+      assert.equal(result.status, 400);
+      assert.deepEqual(deps._owner, before);
+    });
+  }
+});
 
 test("[initial-project] metadata and exact first draft commit together and replay without another write", async () => {
   const deps = defaultDeps();
