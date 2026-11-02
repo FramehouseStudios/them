@@ -1212,7 +1212,7 @@ Replace is best when this file should become the script you edit. Append is safe
             }
             .onChange(of: liveDraftBridge.lastCommittedWrite) { _, committedWrite in
                 guard let committedWrite else { return }
-                vm.adoptCommittedPageWriteIfNeeded(committedWrite)
+                vm.adoptCommittedPageWriteIfNeeded(committedWrite, sceneLabel: sceneLabelForLine(committedWrite.startLine))
                 if suppressLastCommittedWriteAutoReveal {
                     suppressLastCommittedWriteAutoReveal = false
                     publishDebugStudioDiffState()
@@ -10078,7 +10078,7 @@ Return revised screenplay lines only.
             sluglineAnchorLine: resolvedSluglineAnchorLine,
             memoryDomainRaw: liveDraftBridge.latestMemoryDomain.rawValue,
             companionModeRaw: liveDraftBridge.companionMode.rawValue,
-            timestamp: Date()
+            timestamp: resolvedWriteID == nil ? Date() : (committedWriteOverride ?? liveDraftBridge.lastCommittedWrite)?.committedAt ?? Date()
         ))
 
         let shouldAutoOpenOnVoiceTurn = source == .voice && target == .page && !didAutoOpenVoicePinOnFirstVoiceTurn

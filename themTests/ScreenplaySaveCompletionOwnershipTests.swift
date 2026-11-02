@@ -6,6 +6,73 @@ import XCTest
 /// The version-write HTTP peer is deterministic; this is not provider proof.
 @MainActor
 final class ScreenplaySaveCompletionOwnershipTests: XCTestCase {
+    func testCommittedWriteAcknowledgedDuringDerivedRefreshDoesNotSaveTwice() async throws {
+        let fixture = try SaveCompletionFixture()
+        defer {
+            fixture.model.debugAfterDraftDerivedRefresh = nil
+            ScreenplayLiveDraftBridge.shared.lastCommittedWrite = nil
+            fixture.close()
+        }
+        fixture.select("a", draft: fixture.a, base: "a-base")
+        fixture.model.autosaveEnabled = true
+        let previousAnchor = try JSONDecoder().decode(BackendScreenplayWriteAnchor.self,
+            from: Data("{\"writeId\":\"existing-write\",\"anchorLine\":2}".utf8))
+        let binding = try JSONDecoder().decode(BackendScreenplayBindingRecord.self,
+            from: Data("{\"draftSceneId\":\"existing-scene\"}".utf8))
+        fixture.model.studioWriteAnchors = [previousAnchor]
+        fixture.model.screenplayBindings = [binding]
+        let committedDraft = fixture.a + "\r\nClementine adds the final exact page.  \t"
+        let write = ScreenplayCommittedWrite(
+            id: UUID(),
+            writeID: "committed-page-write",
+            projectID: "a",
+            previousDraft: fixture.a,
+            committedDraft: committedDraft,
+            insertedText: "Clementine adds the final exact page.",
+            replacementApplied: false,
+            replacedWriteID: nil,
+            startLine: 4,
+            endLine: 4,
+            committedAt: Date()
+        )
+
+        ScreenplayLiveDraftBridge.shared.lastCommittedWrite = write
+        XCTAssertTrue(fixture.model.adoptCommittedPageWriteIfNeeded(write))
+        try await fixture.waitForFirstSave()
+        XCTAssertEqual(fixture.peer.writes.map(\.source), ["studio_clementine_page_write"])
+        let firstWrite = try XCTUnwrap(fixture.peer.writes.first)
+        XCTAssertEqual(firstWrite.anchors.count, 2)
+        XCTAssertEqual(firstWrite.anchors.last, previousAnchor)
+        XCTAssertEqual(firstWrite.anchors.first?.writeId, "committed-page-write")
+        XCTAssertEqual(firstWrite.anchors.first?.anchorLine, 4)
+        XCTAssertEqual(firstWrite.anchors.first?.insertedText, write.insertedText)
+        XCTAssertEqual(firstWrite.bindings, [binding])
+
+        var interleavingCount = 0
+        fixture.model.debugAfterDraftDerivedRefresh = {
+            interleavingCount += 1
+            guard interleavingCount == 1 else { return }
+            fixture.peer.releaseFirst(.success)
+            for _ in 0..<200 {
+                if fixture.model.latestVersionID == "a-ack-1" { break }
+                try? await Task.sleep(nanoseconds: 10_000_000)
+            }
+            // Preserve the dirty decision captured before the derived awaits.
+            // The production handler must replace it from the newly
+            // acknowledged fingerprint before it considers another save.
+            fixture.model.hasUnsavedDraftChanges = true
+        }
+
+        await fixture.model.handleDraftDebouncedChange(committedDraft)
+
+        XCTAssertEqual(fixture.model.latestVersionID, "a-ack-1")
+        XCTAssertFalse(fixture.model.hasUnsavedDraftChanges)
+        XCTAssertEqual(fixture.peer.writes.count, 1,
+            "The debounced observer must re-read the acknowledgement instead of saving the same committed page again")
+        let remainingRows = try await fixture.reloadQueueEntries()
+        XCTAssertTrue(remainingRows.isEmpty)
+    }
+
     func testAcknowledgedASaveCannotRebindBOrCopyItsWordsIntoARecovery() async throws {
         let fixture = try SaveCompletionFixture()
         defer { fixture.close() }

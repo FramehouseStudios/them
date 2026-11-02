@@ -2394,9 +2394,13 @@ final class V1SmokeUITests: XCTestCase {
         let heldB = try await waitForHeldStudioRender(projectID: projectB, excluding: [heldA], baseURL: base)
         let field = element(identifier: "studio.prompt.field", in: app)
         let unsent = "Keep my unsent second idea.  "
-        XCTAssertTrue(waitForHittability(of: field, timeout: 5)); field.tap()
-        field.tap(withNumberOfTaps: 3, numberOfTouches: 1)
-        field.typeText(XCUIKeyboardKey.delete.rawValue); field.typeText(unsent)
+        XCTAssertTrue(waitForHittability(of: field, timeout: 5))
+        let composerBeforeIdea = field.value as? String ?? ""
+        field.tap(); field.typeText(unsent)
+        let composerWithIdea = field.value as? String ?? ""
+        XCTAssertTrue(composerWithIdea.contains(unsent), "The newer unsent idea must be entered")
+        XCTAssertEqual(composerWithIdea.replacingOccurrences(of: unsent, with: ""), composerBeforeIdea,
+            "Entering the newer idea must preserve the existing composer text")
         let releasedA = try await requestJSON(baseURL: base, path: "/__them-proof/render/release", method: "POST", headers: [:], body: ["id": heldA])
         try assertHTTP(releasedA, context: "Release stale A render")
         // Receipt publication proves the app consumed A, rather than merely
@@ -2404,7 +2408,7 @@ final class V1SmokeUITests: XCTestCase {
         try await waitForStudioHeldRenderCount(1, in: app)
         try revealStudioOwnerPromptComposer(in: app)
         XCTAssertEqual(Data(accessibleDraftText(in: app).utf8), Data(beforeB.utf8))
-        XCTAssertEqual(Data((field.value as? String ?? "").utf8), Data(unsent.utf8))
+        XCTAssertEqual(Data((field.value as? String ?? "").utf8), Data(composerWithIdea.utf8))
         let send = app.buttons["studio.prompt.send"]
         XCTAssertEqual(send.label, "Sending…"); XCTAssertFalse(send.isEnabled, "A cleared B's busy state")
         XCTAssertEqual(app.buttons["studio.compact.talk"].label, "Stop talking", "A revoked B's active Stop control")
@@ -2435,13 +2439,19 @@ final class V1SmokeUITests: XCTestCase {
             deliveredBytes.dropFirst(preservedPrefix).reversed()).prefix { $0.0 == $0.1 }.count
         XCTAssertEqual(preservedPrefix + preservedSuffix, originalBytes.count,
             "Insertion must retain every original byte, including CRLF, decomposed accents and whitespace")
-        XCTAssertEqual(Data((field.value as? String ?? "").utf8), Data(unsent.utf8), "B must also preserve the newer unsent seed")
+        XCTAssertEqual(Data((field.value as? String ?? "").utf8), Data(composerWithIdea.utf8), "B must also preserve the newer unsent seed")
         _ = try await waitForWriterLoopSavedVersion(projectID: projectB, draft: finalDraft, fixture: fixture, app: app, timeout: 20)
         let savedB = try await writerLoopProject(id: projectB, fixture: fixture)
         XCTAssertEqual((savedB["versions"] as? [[String: Any]])?.count, 2, "Only B may add one saved version")
         XCTAssertNotEqual(stringValue(savedB["active_version_id"]), versionB, "The initial baseline cannot stand in for a new save")
         let activeB = (savedB["versions"] as? [[String: Any]])?.first { stringValue($0["id"]) == stringValue(savedB["active_version_id"]) }
         XCTAssertEqual(Data((activeB?["draft"] as? String ?? "").utf8), Data(finalDraft.utf8), "The active saved version must contain the committed page")
+        let savedAnchors = activeB?["studio_write_anchors"] as? [[String: Any]] ?? []
+        XCTAssertTrue(savedAnchors.contains { anchor in
+            !stringValue(anchor["write_id"]).isEmpty &&
+                stringValue(anchor["inserted_text"]).contains("HOME VOICE HANDOFF") &&
+                (anchor["anchor_line"] as? Int ?? 0) > 0
+        }, "The single saved page version must preserve its write anchor")
         if element(identifier: "studio.sidebar.right.drawer", in: app).exists {
             app.buttons["studio.sidebar.right.toggle"].tap()
         }

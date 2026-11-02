@@ -2258,6 +2258,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
     }
     var debugAfterDraftSaveClaim: (() -> Void)?
     var debugBeforePendingSaveAdmission: ((String) async -> Void)?
+    var debugAfterDraftDerivedRefresh: (() async -> Void)?
     #endif
 
     func selectProject(_ projectID: String) async {
@@ -2427,7 +2428,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
     }
 
     @discardableResult
-    func adoptCommittedPageWriteIfNeeded(_ committedWrite: ScreenplayCommittedWrite) -> Bool {
+    func adoptCommittedPageWriteIfNeeded(_ committedWrite: ScreenplayCommittedWrite, sceneLabel: String? = nil) -> Bool {
         guard committedWrite.isAuthoritativeWrite,
               authContextIsCurrent(committedWrite.authContext),
               ScreenplayLiveDraftSyncService.shared.ownsEditor(self) else { return false }
@@ -2447,6 +2448,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
             return false
         }
 
+        studioWriteAnchors = ScreenplayCommittedWriteAnchorPolicy.merging(
+            committedWrite, sceneLabel: sceneLabel, into: studioWriteAnchors)
         let committedDraft = committedWrite.committedDraft
         if !fountainDraft.utf8.elementsEqual(committedDraft.utf8) {
             fountainDraft = committedDraft
@@ -6910,7 +6913,15 @@ final class ScreenplayStudioViewModel: ObservableObject {
         await recomputePagination(for: draft, source: "Draft")
         guard isCurrentDraft() else { return }
         await recomputeRevision(for: draft, source: "Draft")
+        #if DEBUG
+        await debugAfterDraftDerivedRefresh?()
+        #endif
         guard isCurrentDraft() else { return }
+        // A save acknowledgement can land while the derived page/revision
+        // work is suspended. Re-read the saved fingerprint before recovery or
+        // dispatch so that observer does not create a second request for the
+        // exact page that just finished saving.
+        hasUnsavedDraftChanges = fingerprint(for: draft) != lastSavedDraftFingerprint
         Task { await self.refreshFormatLint(source: "Draft") }
         Task { await self.refreshCoverageIfNeeded() }
 

@@ -212,6 +212,22 @@ struct ScreenplayProgrammaticDraftAutosavePolicy {
     }
 }
 
+// Capture the write anchor before the first page-save request is created.
+struct ScreenplayCommittedWriteAnchorPolicy {
+    static func merging(_ write: ScreenplayCommittedWrite, sceneLabel: String?,
+                        into anchors: [BackendScreenplayWriteAnchor]) -> [BackendScreenplayWriteAnchor] {
+        let id = write.normalizedWriteID.lowercased()
+        guard write.isAuthoritativeWrite, !id.isEmpty else { return anchors }
+        let clean = write.insertedText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let excerpt = String(clean.prefix(220)).trimmingCharacters(in: .whitespacesAndNewlines)
+        let prior = anchors.first { $0.writeId.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == id }
+        let anchor = BackendScreenplayWriteAnchor(writeId: id, anchorLine: write.startLine,
+            anchorEndLine: write.endLine, anchorSceneLabel: sceneLabel ?? prior?.anchorSceneLabel, anchorExcerpt: excerpt,
+            insertedText: write.insertedText, updatedAt: write.committedAt.timeIntervalSince1970 * 1000)
+        return [anchor] + anchors.filter { $0.writeId.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() != id }.prefix(127)
+    }
+}
+
 struct ScreenplayDraftSaveIntent: Equatable {
     let source: String
     let notes: String
