@@ -393,6 +393,27 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         XCTAssertEqual(store.firstPreservedConflict(ownerUserId: ownerUserID, projectId: "exact")?.draft, local)
     }
 
+    func testEmptyAndWhitespaceConflictCopiesRemainRecoverable() {
+        store.savePreservedConflict(ownerUserId: ownerUserID, projectId: "blank-conflicts",
+                                    draft: "", baseVersionId: "base", savedAt: 100)
+        store.savePreservedConflict(ownerUserId: ownerUserID, projectId: "blank-conflicts",
+                                    draft: " \n", baseVersionId: "base", savedAt: 101)
+        let first = store.firstPreservedConflict(ownerUserId: ownerUserID, projectId: "blank-conflicts")
+        XCTAssertEqual(first?.draft, "")
+        XCTAssertEqual(store.recoverySnapshot(ownerUserId: ownerUserID, projectId: "blank-conflicts",
+            serverDraft: "Old server text", fingerprint: stableFingerprint)?.draft, "")
+        XCTAssertEqual(store.nextPreservedConflict(ownerUserId: ownerUserID, projectId: "blank-conflicts",
+            after: "", savedAt: 100)?.draft, " \n")
+    }
+
+    func testEmptyOrdinaryRecoveryRemainsDirtyAgainstNonemptyServer() {
+        store.save(ownerUserId: ownerUserID, projectId: "blank-ordinary", draft: "",
+                   baseVersionId: "base", dirty: true)
+        XCTAssertEqual(store.dirtyOrdinarySnapshot(ownerUserId: ownerUserID, projectId: "blank-ordinary")?.draft, "")
+        XCTAssertEqual(store.recoverySnapshot(ownerUserId: ownerUserID, projectId: "blank-ordinary",
+            serverDraft: "Old server text", fingerprint: stableFingerprint)?.draft, "")
+    }
+
     func testPreservedRecoveryDistinguishesUnicodeByteSequences() {
         let composed = "Caf\u{00E9}"
         let decomposed = "Cafe\u{0301}"
