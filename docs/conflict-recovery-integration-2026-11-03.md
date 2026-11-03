@@ -9,3 +9,5 @@ Proof on the merge tree before this documentation-only commit:
 - `node scripts/check_god_files.mjs` and both staged and unstaged `git diff --check`: passed.
 
 Not covered: physical-device behavior, production backend, live model output, or a real network conflict in the two seeded UI checks. The earlier `ScreenplayCommittedDraftAdoptionPolicy` on this branch still normalizes draft text and can misclassify a whitespace-only edit. Original PR #982 at `94b9d0a` changes this to exact UTF-8 comparisons. Integrate and verify that original history at the correct boundary after its hosted gate completes; do not call this checkpoint complete custody protection.
+
+Additional integration risk: this older tree rejects a whitespace-only draft in both `saveCurrentDraft` and `performDraftSave`. The #982 history contains later whitespace-draft custody changes and removes those guards; preserve and verify that behavior during integration.
