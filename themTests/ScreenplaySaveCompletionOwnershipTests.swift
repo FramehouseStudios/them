@@ -107,7 +107,21 @@ final class ScreenplaySaveCompletionOwnershipTests: XCTestCase {
         let rows = try await fixture.reloadQueueEntries()
         XCTAssertEqual(rows.count, 1)
         XCTAssertEqual(rows.first?.status, .pending)
+        XCTAssertEqual(rows.first?.lastError, ScreenplayDraftSaveOutbox.unconfirmedReceiptReason)
         XCTAssertEqual(rows.first.map { Data($0.draft.utf8) }, Data(fixture.a.utf8))
+        let origin = try fixture.currentOrigin()
+        let exactScope = try await fixture.queue.hasActiveUnconfirmedReceipt(
+            projectId: "a", ownerUserId: fixture.owner, deliveryOrigin: origin)
+        let otherProject = try await fixture.queue.hasActiveUnconfirmedReceipt(
+            projectId: "b", ownerUserId: fixture.owner, deliveryOrigin: origin)
+        let otherDocument = try await fixture.queue.hasActiveUnconfirmedReceipt(
+            projectId: "a", ownerUserId: fixture.owner,
+            deliveryOrigin: .init(documentID: "another-document", backendURL: origin.backendURL))
+        XCTAssertTrue(exactScope)
+        XCTAssertFalse(otherProject,
+            "Another project's ambiguous receipt must not label this document")
+        XCTAssertFalse(otherDocument,
+            "Another document's ambiguous receipt must not label this document")
         let recovery = fixture.store.payloads(ownerUserId: fixture.owner)["a"]
         XCTAssertEqual((recovery?["draft"] as? String).map { Data($0.utf8) }, Data(fixture.a.utf8))
         XCTAssertEqual(recovery?["baseVersionId"] as? String, "a-base")
@@ -138,6 +152,7 @@ final class ScreenplaySaveCompletionOwnershipTests: XCTestCase {
         let rows = try await fixture.reloadQueueEntries()
         XCTAssertEqual(rows.count, 1)
         XCTAssertEqual(rows.first?.status, .pending)
+        XCTAssertEqual(rows.first?.lastError, ScreenplayDraftSaveOutbox.unconfirmedReceiptReason)
         XCTAssertEqual(rows.first.map { Data($0.draft.utf8) }, Data(fixture.a.utf8))
     }
 

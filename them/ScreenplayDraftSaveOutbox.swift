@@ -335,6 +335,7 @@ actor ScreenplayDraftSaveOutbox {
     private static let maxDraftBytes = 2 * 1024 * 1024
     private static let backoffSeconds: [TimeInterval] = [2, 5, 15, 60, 300]
     static let conflictReason = "Server draft changed. Choose Keep Mine or Load Server."
+    static let unconfirmedReceiptReason = "The server response did not prove this exact screenplay save."
     static let loadServerDeferredReason = "Newer local words are held for an explicit recovery choice."
     static let unprovenPredecessorReason = "The earlier save outcome could not be proven. Review this exact local save before sending it."
     private static let retirementReason = "Load Server retired this exact local request. Update io.them before retrying it."
@@ -407,6 +408,23 @@ actor ScreenplayDraftSaveOutbox {
             return snapshotFor(scopedEntries)
         } catch {
             return snapshotFor([], lastError: error.localizedDescription, isStorageReadable: false)
+        }
+    }
+
+    func hasActiveUnconfirmedReceipt(
+        projectId: String,
+        ownerUserId: String,
+        deliveryOrigin: ScreenplayDraftSaveOrigin
+    ) throws -> Bool {
+        try loadIfNeeded()
+        return entries.contains { entry in
+            (entry.status == .pending || entry.status == .inflight) &&
+                entry.initialization == nil &&
+                entry.projectId == projectId &&
+                entry.ownerUserId == ownerUserId &&
+                entry.deliveryOrigin == deliveryOrigin &&
+                entry.lastError == Self.unconfirmedReceiptReason &&
+                hasValidDeliveryScope(entry)
         }
     }
 

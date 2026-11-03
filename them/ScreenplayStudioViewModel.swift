@@ -7038,6 +7038,10 @@ final class ScreenplayStudioViewModel: ObservableObject {
         let projectID = selectedProjectID
         let backendURL = BackendAuthClient.resolvedBackendBaseURL()
         let snapshot = await draftSaveOutbox.snapshot(ownerUserId: ownerUserId)
+        let hasUnconfirmedReceipt = if let origin = currentRecoveryOrigin(projectID: projectID) {
+            (try? await draftSaveOutbox.hasActiveUnconfirmedReceipt(
+                projectId: projectID, ownerUserId: ownerUserId, deliveryOrigin: origin)) ?? false
+        } else { false }
         let heldRows = (try? await draftSaveOutbox.parkedConflictEntries(
             projectId: projectID, ownerUserId: ownerUserId)) ?? []
         let pending = if let documentID {
@@ -7069,9 +7073,14 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 ? "1 local save needs attention"
                 : "\(snapshot.parkedCount) local saves need attention"
         } else if snapshot.activeCount > 0 {
-            autosaveStatusText = snapshot.activeCount == 1
-                ? "Queued locally - reconnecting"
-                : "\(snapshot.activeCount) saves queued locally"
+            if hasUnconfirmedReceipt {
+                autosaveStatusText = "Save confirmation pending"
+                infoText = "The server response could not confirm your saved words. Your local draft is safe; any retry uses the same request."
+            } else {
+                autosaveStatusText = snapshot.activeCount == 1
+                    ? "Queued locally - reconnecting"
+                    : "\(snapshot.activeCount) saves queued locally"
+            }
         }
     }
 
@@ -7931,7 +7940,10 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 return true
             }()
             shouldQueuePendingDraftSaveAfterFailure = retryable
-            if retryable { try? await draftSaveOutbox.markRetryable(id: request.id, error: error.localizedDescription) }
+            let retainedError = receiptUnconfirmed
+                ? ScreenplayDraftSaveOutbox.unconfirmedReceiptReason
+                : error.localizedDescription
+            if retryable { try? await draftSaveOutbox.markRetryable(id: request.id, error: retainedError) }
             else { try? await draftSaveOutbox.markParked(id: request.id, error: error.localizedDescription) }
             guard ownsCompletion() else { return nil }
             hasUnsavedDraftChanges = true
