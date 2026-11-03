@@ -94,7 +94,7 @@ extension BackendMemoryAPI {
         if let initialDraft {
             guard let metadata = initialDraft.initialization, projectId == initialDraft.projectId,
                   title == initialDraft.title, phase == initialDraft.phase,
-                  (metadata.blankProject == true) == initialDraft.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                  (metadata.blankProject == true) == initialDraft.draft.isEmpty else {
                 throw BackendMemoryAPIError.invalidResponse
             }
             try metadata.validate(owner: identity, entry: initialDraft, requestURL: request.url)

@@ -2643,7 +2643,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         defer { if scope.isCurrent { isSaving = false } }
         errorText = ""
         do {
-            if seededDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            if seededDraft.isEmpty {
                 let bridge = ScreenplayLiveDraftBridge.shared
                 guard initiating.matches(initialProjectContext), bridge.preferredProjectID == selectedProjectID else {
                     throw BackendMemoryAPIError.server(status: 409, message: "The selected page changed. Your words are kept.")
@@ -6939,7 +6939,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
             return
         }
 
-        guard !normalized.isEmpty else {
+        guard !draft.isEmpty else {
             autosaveStatusText = hasUnsavedDraftChanges ? "Empty page - unsaved" : "Draft empty"
             if hasUnsavedDraftChanges, !selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 let result = secureRecoveryCopy(
@@ -7386,8 +7386,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 && bridge.draftOrigin.documentID == documentID
                 && (request.deliveryOrigin?.permitsBackend(BackendAuthClient.resolvedBackendBaseURL()) ?? true)
         }
-        let normalized = request.draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalized.isEmpty else {
+        guard !request.draft.isEmpty else {
             autosaveStatusText = "Draft empty"
             return
         }
