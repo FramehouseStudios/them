@@ -89,6 +89,89 @@ final class ScreenplaySaveCompletionOwnershipTests: XCTestCase {
         XCTAssertFalse(fixture.model.hasUnsavedDraftChanges)
     }
 
+    func testVersionIDOnly2xxKeepsOrdinarySaveAndLocalRecovery() async throws {
+        let fixture = try SaveCompletionFixture()
+        defer { fixture.close() }
+        fixture.select("a", draft: fixture.a, base: "a-base")
+        let save = fixture.startSave()
+        defer { save.cancel() }
+        try await fixture.waitForFirstSave()
+        fixture.peer.releaseFirst(.versionIDOnly)
+        try await fixture.waitForSave(save)
+
+        XCTAssertEqual(fixture.model.latestVersionID, "a-base")
+        XCTAssertTrue(fixture.model.hasUnsavedDraftChanges)
+        XCTAssertEqual(fixture.model.autosaveStatusText, "Save confirmation pending")
+        XCTAssertTrue(fixture.model.infoText.contains("could not confirm"))
+        XCTAssertFalse(fixture.model.infoText.localizedCaseInsensitiveContains("connection"))
+        let rows = try await fixture.reloadQueueEntries()
+        XCTAssertEqual(rows.count, 1)
+        XCTAssertEqual(rows.first?.status, .pending)
+        XCTAssertEqual(rows.first?.lastError, ScreenplayDraftSaveOutbox.unconfirmedReceiptReason)
+        XCTAssertEqual(rows.first.map { Data($0.draft.utf8) }, Data(fixture.a.utf8))
+        let origin = try fixture.currentOrigin()
+        let exactScope = try await fixture.queue.hasActiveUnconfirmedReceipt(
+            projectId: "a", ownerUserId: fixture.owner, deliveryOrigin: origin)
+        let otherProject = try await fixture.queue.hasActiveUnconfirmedReceipt(
+            projectId: "b", ownerUserId: fixture.owner, deliveryOrigin: origin)
+        let otherDocument = try await fixture.queue.hasActiveUnconfirmedReceipt(
+            projectId: "a", ownerUserId: fixture.owner,
+            deliveryOrigin: .init(documentID: "another-document", backendURL: origin.backendURL))
+        XCTAssertTrue(exactScope)
+        XCTAssertFalse(otherProject,
+            "Another project's ambiguous receipt must not label this document")
+        XCTAssertFalse(otherDocument,
+            "Another document's ambiguous receipt must not label this document")
+        let recovery = fixture.store.payloads(ownerUserId: fixture.owner)["a"]
+        XCTAssertEqual((recovery?["draft"] as? String).map { Data($0.utf8) }, Data(fixture.a.utf8))
+        XCTAssertEqual(recovery?["baseVersionId"] as? String, "a-base")
+        XCTAssertEqual(recovery?["dirty"] as? Bool, true)
+
+        await fixture.model.resumeQueuedDraftSavesIfNeeded(force: true)
+        XCTAssertEqual(fixture.peer.writes.count, 2)
+        XCTAssertEqual(fixture.peer.writes[0].id, fixture.peer.writes[1].id,
+            "An ambiguous acknowledgement must retry the original idempotency key")
+        let afterReplay = try await fixture.reloadQueueEntries()
+        XCTAssertTrue(afterReplay.isEmpty)
+    }
+
+    func testWrong2xxReceiptKeepsOrdinarySaveAndLocalRecovery() async throws {
+        let fixture = try SaveCompletionFixture()
+        defer { fixture.close() }
+        fixture.select("a", draft: fixture.a, base: "a-base")
+        let save = fixture.startSave()
+        defer { save.cancel() }
+        try await fixture.waitForFirstSave()
+        fixture.peer.releaseFirst(.wrongReceipt)
+        try await fixture.waitForSave(save)
+
+        XCTAssertEqual(fixture.model.latestVersionID, "a-base")
+        XCTAssertTrue(fixture.model.hasUnsavedDraftChanges)
+        XCTAssertEqual(fixture.model.autosaveStatusText, "Save confirmation pending")
+        XCTAssertTrue(fixture.model.infoText.contains("could not confirm"))
+        let rows = try await fixture.reloadQueueEntries()
+        XCTAssertEqual(rows.count, 1)
+        XCTAssertEqual(rows.first?.status, .pending)
+        XCTAssertEqual(rows.first?.lastError, ScreenplayDraftSaveOutbox.unconfirmedReceiptReason)
+        XCTAssertEqual(rows.first.map { Data($0.draft.utf8) }, Data(fixture.a.utf8))
+    }
+
+    func testNestedExactLegacyReceiptStillCompletesOrdinarySave() async throws {
+        let fixture = try SaveCompletionFixture()
+        defer { fixture.close() }
+        fixture.select("a", draft: fixture.a, base: "a-base")
+        let save = fixture.startSave()
+        defer { save.cancel() }
+        try await fixture.waitForFirstSave()
+        fixture.peer.releaseFirst(.nestedExactReceipt)
+        try await fixture.waitForSave(save)
+
+        XCTAssertEqual(fixture.model.latestVersionID, "a-ack-1")
+        XCTAssertFalse(fixture.model.hasUnsavedDraftChanges)
+        let rows = try await fixture.reloadQueueEntries()
+        XCTAssertTrue(rows.isEmpty)
+    }
+
     func testAcknowledgedASaveCannotRebindBOrCopyItsWordsIntoARecovery() async throws {
         let fixture = try SaveCompletionFixture()
         defer { fixture.close() }
@@ -711,7 +794,7 @@ private struct SaveCompletionEnvironmentSnapshot {
 }
 
 private nonisolated final class SaveCompletionPeer: @unchecked Sendable {
-    enum Outcome { case success, conflict, offline }
+    enum Outcome: Equatable { case success, conflict, offline, versionIDOnly, wrongReceipt, nestedExactReceipt }
     struct Write {
         let project: String; let base: String; let draft: String; let id: String
         let phase: String; let source: String; let notes: String
@@ -774,16 +857,26 @@ private nonisolated final class SaveCompletionPeer: @unchecked Sendable {
             transport.respond(status: 409, payload: ["status": "conflict", "conflict": true,
                 "project_id": write.project, "base_version_id": write.base, "server_version_id": "a-remote",
                 "server_version": ["id": "a-remote", "draft": "Other A words"]])
-        case .success:
+        case .success, .versionIDOnly, .wrongReceipt, .nestedExactReceipt:
             let version = "\(write.project)-ack-\(number)"
             do {
                 let anchors = try JSONSerialization.jsonObject(with: JSONEncoder().encode(write.anchors))
                 let bindings = try JSONSerialization.jsonObject(with: JSONEncoder().encode(write.bindings))
-                transport.respond(status: 200, payload: ["status": "saved", "project_id": write.project,
-                    "version_id": version, "project": ["id": write.project, "title": write.project.uppercased()],
-                    "version": ["id": version, "project_id": write.project, "client_request_id": write.id,
+                if outcome == .versionIDOnly {
+                    transport.respond(status: 200, payload: ["status": "saved", "version_id": version])
+                    return
+                }
+                let echoedRequestID = outcome == .wrongReceipt ? "another-request" : write.id
+                var payload: [String: Any] = ["status": "saved",
+                    "project": ["id": write.project, "title": write.project.uppercased()],
+                    "version": ["id": version, "project_id": write.project, "client_request_id": echoedRequestID,
                         "draft": write.draft, "phase": write.phase, "source": write.source, "notes": write.notes,
-                        "studio_write_anchors": anchors, "screenplay_bindings": bindings]])
+                        "studio_write_anchors": anchors, "screenplay_bindings": bindings]]
+                if outcome != .nestedExactReceipt {
+                    payload["project_id"] = write.project
+                    payload["version_id"] = version
+                }
+                transport.respond(status: 200, payload: payload)
             } catch { transport.fail(error) }
         }
     }

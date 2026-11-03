@@ -2,6 +2,7 @@ import Foundation
 import SwiftUI
 import Combine
 import UniformTypeIdentifiers
+import OSLog
 #if os(macOS)
 import AppKit
 #else
@@ -26,10 +27,37 @@ enum ScreenplayStudioExportSupport {
         var exportFromBackend: (String) async throws -> BackendScreenplayExportArtifact
         var setInfo: (String) -> Void
         var setError: (String) -> Void
+        var clearInfoIfEqual: (String) -> Void
+        var clearErrorIfEqual: (String) -> Void
         var noteSavedDirectory: (URL) -> Void
         var isCurrentContext: () -> Bool
         var copyToClipboard: (String) -> Bool
         var openURL: (URL, @escaping (Bool) -> Void) -> Void
+    }
+
+    @MainActor
+    static func makeStudioDependencies(
+        viewModel: ScreenplayStudioViewModel,
+        navigatorCurrentURL: URL?,
+        noteSavedDirectory: @escaping (URL) -> Void,
+        openURL: @escaping (URL, @escaping (Bool) -> Void) -> Void
+    ) -> Dependencies {
+        Dependencies(
+            draft: viewModel.fountainDraft,
+            projectTitle: viewModel.selectedProject?.title,
+            navigatorCurrentURL: navigatorCurrentURL,
+            isRunningUITests: IOThemRuntime.isRunningUITests,
+            refreshFormatLint: { await viewModel.refreshFormatLint(source: $0) },
+            exportFromBackend: { try await viewModel.exportArtifact(format: $0) },
+            setInfo: { viewModel.infoText = $0 },
+            setError: { viewModel.errorText = $0 },
+            clearInfoIfEqual: { if viewModel.infoText == $0 { viewModel.infoText = "" } },
+            clearErrorIfEqual: { if viewModel.errorText == $0 { viewModel.errorText = "" } },
+            noteSavedDirectory: noteSavedDirectory,
+            isCurrentContext: viewModel.makeStudioExportContextGuard(),
+            copyToClipboard: copyDraftToClipboard,
+            openURL: openURL
+        )
     }
 
     nonisolated static func preferredExportDirectoryURL(navigatorCurrentURL: URL?) -> URL? {
@@ -236,13 +264,82 @@ nonisolated struct ScreenplayStudioExportDocument: FileDocument {
     }
 }
 
+private final class ScreenplayStudioLiveExportRegistry: @unchecked Sendable {
+    nonisolated static let shared = ScreenplayStudioLiveExportRegistry()
+    private let lock = NSLock()
+    nonisolated(unsafe) private var requestIDs: Set<UUID> = []
+
+    nonisolated init() {}
+
+    nonisolated func register(_ requestID: UUID) {
+        lock.lock()
+        requestIDs.insert(requestID)
+        lock.unlock()
+    }
+
+    nonisolated func unregister(_ requestID: UUID) {
+        lock.lock()
+        requestIDs.remove(requestID)
+        lock.unlock()
+    }
+
+    nonisolated func snapshot() -> Set<UUID> {
+        lock.lock()
+        defer { lock.unlock() }
+        return requestIDs
+    }
+}
+
+final class ScreenplayStudioExportStagingLease: @unchecked Sendable {
+    let requestID: UUID
+    let stagedURL: URL
+    private let lock = NSLock()
+    nonisolated(unsafe) private var cleaned = false
+
+    @MainActor init(requestID: UUID, stagedURL: URL) {
+        self.requestID = requestID
+        self.stagedURL = stagedURL
+        ScreenplayStudioLiveExportRegistry.shared.register(requestID)
+    }
+
+    nonisolated func cleanup() {
+        lock.lock()
+        guard !cleaned else {
+            lock.unlock()
+            return
+        }
+        cleaned = true
+        lock.unlock()
+        do {
+            try FileManager.default.removeItem(at: stagedURL.deletingLastPathComponent())
+        } catch {
+#if DEBUG
+            let request = String(requestID.uuidString.prefix(8))
+            Logger(subsystem: "io.them", category: "studio-export")
+                .debug("event=staging-cleanup-failed request=\(request, privacy: .public)")
+#endif
+        }
+        ScreenplayStudioLiveExportRegistry.shared.unregister(requestID)
+    }
+
+    deinit { cleanup() }
+}
+
 /// One export owns preparation and the Files picker until it succeeds, fails, or is cancelled.
 @MainActor
 final class ScreenplayStudioExportCoordinator: ObservableObject {
+#if DEBUG
+    private static let diagnosticLogger = Logger(subsystem: "io.them", category: "studio-export")
+#endif
+    private static let stagingDirectoryName = "io.them.screenplay-export"
     @Published var isPresented = false
     @Published private(set) var document: ScreenplayStudioExportDocument?
+    @Published private(set) var stagedURL: URL?
     @Published private(set) var requestID: UUID?
+    private(set) var stagingLease: ScreenplayStudioExportStagingLease?
     private var pendingDependencies: ScreenplayStudioExportSupport.Dependencies?
+    private var ownedInfoText: String?
+    private var ownedErrorText: String?
 
     func export(format: String, deps: ScreenplayStudioExportSupport.Dependencies) async {
         guard deps.isCurrentContext() else { return }
@@ -251,7 +348,7 @@ final class ScreenplayStudioExportCoordinator: ObservableObject {
         // outcome authoritative until an explicit retry supersedes it. Never
         // retire a still-preparing request or a picker that remains presented.
         if requestID != nil, document != nil, !isPresented {
-            invalidate()
+            invalidate(reason: "dismissed-retry", clearOwnedMessages: true)
         }
         guard requestID == nil else {
             deps.setError("Finish or cancel the current export before starting another.")
@@ -261,9 +358,16 @@ final class ScreenplayStudioExportCoordinator: ObservableObject {
         let id = UUID()
         requestID = id
         pendingDependencies = deps
+        diagnostic("request-started", requestID: id)
         var ownedDependencies = deps
         ownedDependencies.isCurrentContext = { [weak self] in
             self?.requestID == id && deps.isCurrentContext()
+        }
+        ownedDependencies.setInfo = { [weak self] text in
+            self?.publishInfo(text, deps: deps, requestID: id)
+        }
+        ownedDependencies.setError = { [weak self] text in
+            self?.publishError(text, deps: deps, requestID: id)
         }
         await ScreenplayStudioExportSupport.exportCurrentDraft(
             format: format,
@@ -271,17 +375,37 @@ final class ScreenplayStudioExportCoordinator: ObservableObject {
         ) { [weak self] artifact in
             guard let self, self.requestID == id, deps.isCurrentContext() else { return }
             let document = ScreenplayStudioExportDocument(artifact: artifact)
-            self.document = document
-            deps.setInfo("Choose where to save \(document.filename).")
-            self.isPresented = true
+            do {
+                let lease = try self.stage(document, requestID: id)
+                self.document = document
+                self.stagingLease = lease
+                self.stagedURL = lease.stagedURL
+                self.publishInfo("Choose where to save \(document.filename).", deps: deps, requestID: id)
+                self.isPresented = true
+                self.diagnostic("picker-presented", requestID: id)
+            } catch {
+                self.publishInfo("", deps: deps, requestID: id)
+                self.publishError("Could not prepare the export for Files: \(error.localizedDescription)", deps: deps, requestID: id)
+                self.invalidate(reason: "staging-failed")
+            }
         }
-        if requestID == id, !isPresented { invalidate() }
+        if requestID == id, !isPresented {
+            invalidate(reason: "preparation-ended-without-presentation", clearOwnedMessages: true)
+        }
     }
 
     func complete(_ result: Result<URL, Error>, requestID completedID: UUID?) {
-        guard let completedID, requestID == completedID, let deps = pendingDependencies else { return }
-        defer { invalidate() }
-        guard deps.isCurrentContext() else { return }
+        guard let completedID, requestID == completedID, let deps = pendingDependencies else {
+            diagnostic("completion-ignored-stale", requestID: completedID)
+            return
+        }
+        diagnostic("completion-received", requestID: completedID)
+        defer { invalidate(reason: "completion-settled") }
+        guard deps.isCurrentContext() else {
+            diagnostic("completion-ignored-context", requestID: completedID)
+            clearOwnedMessagesIfCurrent(using: deps)
+            return
+        }
         switch result {
         case .success(let url):
             deps.setError("")
@@ -293,35 +417,196 @@ final class ScreenplayStudioExportCoordinator: ObservableObject {
     }
 
     func cancel(requestID cancelledID: UUID?) {
-        guard let cancelledID, requestID == cancelledID, let deps = pendingDependencies else { return }
+        guard let cancelledID, requestID == cancelledID, let deps = pendingDependencies else {
+            diagnostic("cancellation-ignored-stale", requestID: cancelledID)
+            return
+        }
+        diagnostic("cancellation-received", requestID: cancelledID)
         if deps.isCurrentContext() {
             deps.setError("")
             deps.setInfo("Export cancelled.")
+        } else {
+            clearOwnedMessagesIfCurrent(using: deps)
         }
-        invalidate()
+        invalidate(reason: "cancellation-settled")
+    }
+
+    /// A control inside Studio cannot be activated while the native Files
+    /// picker is still covering it. Treat a new physical export action as
+    /// proof that a prepared picker left the screen, even on runtimes that
+    /// deliver neither the cancellation callback nor the binding transition.
+    /// Preparing requests have no picker and remain protected from replacement.
+    func userReturnedFromNativePickerForRetry() {
+        guard requestID != nil, document != nil else { return }
+        invalidate(reason: "explicit-retry", clearOwnedMessages: true)
     }
 
     func presentationBinding(for presentedID: UUID) -> Binding<Bool> {
         Binding(
             get: { self.requestID == presentedID && self.isPresented },
-            set: { if self.requestID == presentedID { self.isPresented = $0 } }
+            set: {
+                guard self.requestID == presentedID else { return }
+                if self.isPresented, !$0 {
+                    self.diagnostic("presentation-dismissed", requestID: presentedID)
+                }
+                self.isPresented = $0
+            }
         )
     }
 
     func invalidateIfContextChanged() {
-        if let deps = pendingDependencies, !deps.isCurrentContext() { invalidate() }
+        if let deps = pendingDependencies, !deps.isCurrentContext() {
+            invalidate(reason: "context-changed", clearOwnedMessages: true)
+        }
     }
 
     func studioDidDisappear() {
-        guard !isPresented else { return }
-        cancel(requestID: requestID)
+        // A sheet or picker navigation transition can make the underlying
+        // SwiftUI content disappear transiently. Only preparation has no
+        // picker-owned staging lease and is safe to retire here. Once staged,
+        // the delegate retains the lease through the provider's terminal call.
+        guard document == nil else { return }
+        invalidate(reason: "owner-disappeared-during-preparation", clearOwnedMessages: true)
     }
 
-    func invalidate() {
+    func invalidate(reason: String = "reset", clearOwnedMessages: Bool = false) {
+        let invalidatedID = requestID
+        if clearOwnedMessages, let deps = pendingDependencies {
+            clearOwnedMessagesIfCurrent(using: deps)
+        }
         isPresented = false
         document = nil
+        stagingLease = nil
+        stagedURL = nil
         requestID = nil
         pendingDependencies = nil
+        ownedInfoText = nil
+        ownedErrorText = nil
+        diagnostic("invalidated-\(reason)", requestID: invalidatedID)
+    }
+
+    private func stage(
+        _ document: ScreenplayStudioExportDocument,
+        requestID: UUID
+    ) throws -> ScreenplayStudioExportStagingLease {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(Self.stagingDirectoryName, isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: root,
+            withIntermediateDirectories: true,
+            attributes: stagingProtectionAttributes
+        )
+        Self.cleanupCrashLeftovers(
+            in: root,
+            excluding: ScreenplayStudioLiveExportRegistry.shared.snapshot()
+        )
+        let directory = root
+            .appendingPathComponent(requestID.uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: false,
+            attributes: stagingProtectionAttributes
+        )
+        let filename = document.filename
+        guard !filename.isEmpty, filename != ".", filename != "..",
+              !filename.contains("/"), !filename.contains("\\"),
+              (filename as NSString).lastPathComponent == filename else {
+            try? FileManager.default.removeItem(at: directory)
+            throw CocoaError(.fileWriteInvalidFileName)
+        }
+        let url = directory.appendingPathComponent(filename, isDirectory: false)
+        guard url.deletingLastPathComponent().standardizedFileURL == directory.standardizedFileURL else {
+            try? FileManager.default.removeItem(at: directory)
+            throw CocoaError(.fileWriteInvalidFileName)
+        }
+        var options: Data.WritingOptions = .atomic
+#if os(iOS)
+        options.insert(.completeFileProtectionUntilFirstUserAuthentication)
+#endif
+        do {
+            try document.data.write(to: url, options: options)
+        } catch {
+            try? FileManager.default.removeItem(at: directory)
+            throw error
+        }
+        diagnostic("artifact-staged", requestID: requestID)
+        return ScreenplayStudioExportStagingLease(requestID: requestID, stagedURL: url)
+    }
+
+    private var stagingProtectionAttributes: [FileAttributeKey: Any]? {
+#if os(iOS)
+        [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication]
+#else
+        nil
+#endif
+    }
+
+    static func cleanupCrashLeftovers(
+        in root: URL,
+        excluding activeRequestIDs: Set<UUID>,
+        now: Date = Date(),
+        staleAfter: TimeInterval = 24 * 60 * 60
+    ) {
+        let fileManager = FileManager.default
+        let root = root.standardizedFileURL
+        let keys: Set<URLResourceKey> = [.isDirectoryKey, .isSymbolicLinkKey, .contentModificationDateKey]
+        guard let children = try? fileManager.contentsOfDirectory(
+            at: root,
+            includingPropertiesForKeys: Array(keys),
+            options: [.skipsHiddenFiles]
+        ) else { return }
+        let cutoff = now.addingTimeInterval(-max(0, staleAfter))
+        for child in children {
+            let child = child.standardizedFileURL
+            guard child.deletingLastPathComponent() == root,
+                  let requestID = UUID(uuidString: child.lastPathComponent),
+                  !activeRequestIDs.contains(requestID),
+                  let values = try? child.resourceValues(forKeys: keys),
+                  values.isDirectory == true,
+                  values.isSymbolicLink != true,
+                  let modifiedAt = values.contentModificationDate,
+                  modifiedAt <= cutoff else { continue }
+            do {
+                try fileManager.removeItem(at: child)
+            } catch {
+#if DEBUG
+                let request = String(requestID.uuidString.prefix(8))
+                Self.diagnosticLogger.debug("event=crash-cleanup-failed request=\(request, privacy: .public)")
+#endif
+            }
+        }
+    }
+
+    private func publishInfo(
+        _ text: String,
+        deps: ScreenplayStudioExportSupport.Dependencies,
+        requestID: UUID
+    ) {
+        guard self.requestID == requestID else { return }
+        deps.setInfo(text)
+        ownedInfoText = text.isEmpty ? nil : text
+    }
+
+    private func publishError(
+        _ text: String,
+        deps: ScreenplayStudioExportSupport.Dependencies,
+        requestID: UUID
+    ) {
+        guard self.requestID == requestID else { return }
+        deps.setError(text)
+        ownedErrorText = text.isEmpty ? nil : text
+    }
+
+    private func clearOwnedMessagesIfCurrent(using deps: ScreenplayStudioExportSupport.Dependencies) {
+        if let ownedInfoText { deps.clearInfoIfEqual(ownedInfoText) }
+        if let ownedErrorText { deps.clearErrorIfEqual(ownedErrorText) }
+    }
+
+    private func diagnostic(_ event: String, requestID: UUID?) {
+#if DEBUG
+        let request = requestID.map { String($0.uuidString.prefix(8)) } ?? "none"
+        Self.diagnosticLogger.debug("event=\(event, privacy: .public) request=\(request, privacy: .public)")
+#endif
     }
 }
 
@@ -332,8 +617,8 @@ struct ScreenplayStudioExportPresentation: ViewModifier {
         content
 #if !os(macOS)
             .background {
-                if let requestID = coordinator.requestID, let document = coordinator.document {
-                    ScreenplayStudioFileExporterHost(coordinator: coordinator, requestID: requestID, document: document)
+                if let requestID = coordinator.requestID, let lease = coordinator.stagingLease {
+                    ScreenplayStudioFileExporterHost(coordinator: coordinator, requestID: requestID, lease: lease)
                         .id(requestID)
                 }
             }
@@ -355,18 +640,86 @@ struct ScreenplayStudioExportPresentation: ViewModifier {
 private struct ScreenplayStudioFileExporterHost: View {
     @ObservedObject var coordinator: ScreenplayStudioExportCoordinator
     let requestID: UUID
-    let document: ScreenplayStudioExportDocument
+    let lease: ScreenplayStudioExportStagingLease
 
     var body: some View {
         Color.clear.frame(width: 0, height: 0)
-            .fileExporter(
-                isPresented: coordinator.presentationBinding(for: requestID),
-                document: document,
-                contentTypes: [document.contentType],
-                defaultFilename: document.filename,
-                onCompletion: { coordinator.complete($0, requestID: requestID) },
-                onCancellation: { coordinator.cancel(requestID: requestID) }
-            )
+            .sheet(isPresented: coordinator.presentationBinding(for: requestID)) {
+                ScreenplayStudioDocumentPicker(
+                    lease: lease,
+                    requestID: requestID,
+                    onCompletion: { [weak coordinator] in
+                        coordinator?.complete($0, requestID: requestID)
+                    },
+                    onCancellation: { [weak coordinator] in
+                        coordinator?.cancel(requestID: requestID)
+                    }
+                )
+                .interactiveDismissDisabled()
+            }
     }
+}
+
+@MainActor
+final class ScreenplayStudioDocumentPickerDelegate: NSObject, UIDocumentPickerDelegate {
+    private let requestID: UUID
+    private let lease: ScreenplayStudioExportStagingLease
+    private let onCompletion: (Result<URL, Error>) -> Void
+    private let onCancellation: () -> Void
+    private var settled = false
+
+    init(
+        requestID: UUID,
+        lease: ScreenplayStudioExportStagingLease,
+        onCompletion: @escaping (Result<URL, Error>) -> Void,
+        onCancellation: @escaping () -> Void
+    ) {
+        self.requestID = requestID
+        self.lease = lease
+        self.onCompletion = onCompletion
+        self.onCancellation = onCancellation
+    }
+
+    func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+        guard !settled else { return }
+        settled = true
+        defer { lease.cleanup() }
+        guard let url = urls.first else {
+            onCompletion(.failure(CocoaError(.fileNoSuchFile)))
+            return
+        }
+        onCompletion(.success(url))
+    }
+
+    func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+        guard !settled else { return }
+        settled = true
+        defer { lease.cleanup() }
+        onCancellation()
+    }
+}
+
+private struct ScreenplayStudioDocumentPicker: UIViewControllerRepresentable {
+    let lease: ScreenplayStudioExportStagingLease
+    let requestID: UUID
+    let onCompletion: (Result<URL, Error>) -> Void
+    let onCancellation: () -> Void
+
+    func makeCoordinator() -> ScreenplayStudioDocumentPickerDelegate {
+        ScreenplayStudioDocumentPickerDelegate(
+            requestID: requestID,
+            lease: lease,
+            onCompletion: onCompletion,
+            onCancellation: onCancellation
+        )
+    }
+
+    func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
+        let picker = UIDocumentPickerViewController(forExporting: [lease.stagedURL], asCopy: true)
+        picker.delegate = context.coordinator
+        return picker
+    }
+
+    func updateUIViewController(_ controller: UIDocumentPickerViewController, context: Context) {}
 }
 #endif
