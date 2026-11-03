@@ -111,6 +111,19 @@ final class ScreenplayInitialProjectCreationTests: XCTestCase {
         XCTAssertNotEqual(other.projectId, first.projectId)
     }
 
+    func testWhitespaceOnlyFirstDraftRemainsAByteExactVersionedIntent() async throws {
+        let queue = ScreenplayDraftSaveOutbox(storageDirectory: directory)
+        let exactWhitespace = "\r\n \t"
+        let entry = try await queue.prepareInitialProject(ownerUserID: "writer-a", backendURL: backend,
+            documentID: "whitespace-a", sourceProjectID: "", draft: exactWhitespace, title: "Untitled",
+            phase: "scene_draft", source: "studio_initial_seed", explicitTitle: true)
+        let resumed = try await ScreenplayDraftSaveOutbox(storageDirectory: directory).pendingInitialProject(
+            ownerUserID: "writer-a", backendURL: backend, documentID: "whitespace-a", sourceProjectID: "")
+        XCTAssertEqual(Data(resumed?.draft.utf8 ?? "".utf8), Data(exactWhitespace.utf8))
+        XCTAssertEqual(resumed?.id, entry.id)
+        XCTAssertNotEqual(resumed?.initialization?.blankProject, true)
+    }
+
     func testBlankReceiptRequiresMatchingRequestProjectAndZeroVersions() async throws {
         let queue = ScreenplayDraftSaveOutbox(storageDirectory: directory)
         let entry = try await queue.prepareInitialProject(ownerUserID: "writer-a", backendURL: backend,

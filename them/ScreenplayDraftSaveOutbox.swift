@@ -1469,7 +1469,7 @@ actor ScreenplayDraftSaveOutbox {
         try loadIfNeeded()
         let origin = try ScreenplayInitialProjectMetadata.origin(backendURL)
         guard !ownerUserID.isEmpty, !documentID.isEmpty, !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              blankProject == draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw BackendMemoryAPIError.invalidResponse }
+              blankProject == draft.isEmpty else { throw BackendMemoryAPIError.invalidResponse }
         if let existing = initialProjectEntry(ownerUserID: ownerUserID, backendURL: origin, documentID: documentID,
                                              sourceProjectID: sourceProjectID) {
             guard (existing.initialization?.blankProject == true) == blankProject else {
