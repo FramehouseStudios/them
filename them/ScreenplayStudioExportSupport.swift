@@ -35,6 +35,31 @@ enum ScreenplayStudioExportSupport {
         var openURL: (URL, @escaping (Bool) -> Void) -> Void
     }
 
+    @MainActor
+    static func makeStudioDependencies(
+        viewModel: ScreenplayStudioViewModel,
+        navigatorCurrentURL: URL?,
+        noteSavedDirectory: @escaping (URL) -> Void,
+        openURL: @escaping (URL, @escaping (Bool) -> Void) -> Void
+    ) -> Dependencies {
+        Dependencies(
+            draft: viewModel.fountainDraft,
+            projectTitle: viewModel.selectedProject?.title,
+            navigatorCurrentURL: navigatorCurrentURL,
+            isRunningUITests: IOThemRuntime.isRunningUITests,
+            refreshFormatLint: { await viewModel.refreshFormatLint(source: $0) },
+            exportFromBackend: { try await viewModel.exportArtifact(format: $0) },
+            setInfo: { viewModel.infoText = $0 },
+            setError: { viewModel.errorText = $0 },
+            clearInfoIfEqual: { if viewModel.infoText == $0 { viewModel.infoText = "" } },
+            clearErrorIfEqual: { if viewModel.errorText == $0 { viewModel.errorText = "" } },
+            noteSavedDirectory: noteSavedDirectory,
+            isCurrentContext: viewModel.makeStudioExportContextGuard(),
+            copyToClipboard: copyDraftToClipboard,
+            openURL: openURL
+        )
+    }
+
     nonisolated static func preferredExportDirectoryURL(navigatorCurrentURL: URL?) -> URL? {
         if let navigatorCurrentURL {
             return navigatorCurrentURL
