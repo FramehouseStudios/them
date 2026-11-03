@@ -265,6 +265,25 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
     }
 
     @MainActor
+    func testLiveSyncRecoveryPreservesIntentionallyClearedDraft() async throws {
+        let owner = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""
+        let suite = "them.live-cleared-recovery.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let recovery = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "recovery")
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: recovery,
+            draftSaveOutbox: ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory))
+        model.autosaveEnabled = false
+        model.selectedProjectID = "project-1"
+        model.applyStructuralUITestDraft("Writer words", versionID: "saved")
+        model.fountainDraft = ""
+        model.noteManualDraftEdit()
+        model.preserveLocalDraftForLiveSyncRecovery("", projectID: "project-1")
+        XCTAssertEqual(recovery.firstPreservedConflict(ownerUserId: owner, projectId: "project-1")?.draft, "")
+        try? await Task.sleep(nanoseconds: 1_100_000_000)
+    }
+
+    @MainActor
     func testAccountSwitchDoesNotReuseOtherAccountSavedBaseline() async throws {
         let suite = "them.account-baseline-scope.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))

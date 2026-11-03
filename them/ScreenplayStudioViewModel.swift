@@ -2031,9 +2031,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
             return
         }
         let cleanProjectID = projectID.trimmingCharacters(in: .whitespacesAndNewlines)
-        let normalizedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanProjectID.isEmpty,
-              !normalizedText.isEmpty,
               draftHasUnsavedExactChanges(text) else { return }
 
         let savedAt = Date().timeIntervalSince1970
