@@ -301,6 +301,16 @@ final class ScreenplayStudioExportCoordinator: ObservableObject {
         invalidate()
     }
 
+    /// A control inside Studio cannot be activated while the native Files
+    /// picker is still covering it. Treat a new physical export action as
+    /// proof that a prepared picker left the screen, even on runtimes that
+    /// deliver neither the cancellation callback nor the binding transition.
+    /// Preparing requests have no picker and remain protected from replacement.
+    func userReturnedFromNativePickerForRetry() {
+        guard requestID != nil, document != nil else { return }
+        invalidate()
+    }
+
     func presentationBinding(for presentedID: UUID) -> Binding<Bool> {
         Binding(
             get: { self.requestID == presentedID && self.isPresented },
