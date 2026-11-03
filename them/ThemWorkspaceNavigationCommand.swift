@@ -103,6 +103,63 @@ enum ThemWorkspaceAuthenticationPolicy {
     }
 }
 
+nonisolated enum ThemMagicMomentOnboardingPolicy {
+    enum RequestedAction: Equatable {
+        case page
+        case voice
+    }
+
+    enum StartDecision: Equatable {
+        case proceed
+        case restorePersistedSession
+        case presentAccount
+    }
+
+    enum ResumeDecision: Equatable {
+        case none
+        case openWorkspace
+        case start(RequestedAction)
+    }
+
+    enum AccountDismissalDecision: Equatable {
+        case none
+        case preserveOnboardingDraft
+    }
+
+    static func startDecision(
+        workspaceAccessDecision: ThemWorkspaceAuthenticationPolicy.AccessDecision
+    ) -> StartDecision {
+        switch workspaceAccessDecision {
+        case .openWorkspace:
+            return .proceed
+        case .refreshPersistedSession:
+            return .restorePersistedSession
+        case .requireAccount:
+            return .presentAccount
+        }
+    }
+
+    static func takeResumeDecision(
+        needsOnboardingName: Bool,
+        shouldResumeAfterAccountSignIn: inout Bool,
+        pageSubmissionPending: Bool
+    ) -> ResumeDecision {
+        guard shouldResumeAfterAccountSignIn else { return .none }
+        shouldResumeAfterAccountSignIn = false
+        guard needsOnboardingName else { return .openWorkspace }
+        return .start(pageSubmissionPending ? .page : .voice)
+    }
+
+    static func takeAccountDismissalDecision(
+        needsOnboardingName: Bool,
+        shouldResumeAfterAccountSignIn: inout Bool
+    ) -> AccountDismissalDecision {
+        guard shouldResumeAfterAccountSignIn else { return .none }
+        shouldResumeAfterAccountSignIn = false
+        return needsOnboardingName ? .preserveOnboardingDraft : .none
+    }
+}
+
 #if os(macOS)
 struct ThemWorkspaceCommands: Commands {
     var body: some Commands {
