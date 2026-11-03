@@ -8107,14 +8107,14 @@ actor BackendMemoryAPI {
         guard !normalizedProjectId.isEmpty else {
             throw BackendMemoryAPIError.server(status: 400, message: "project_id_required")
         }
-        guard !draft.isEmpty else {
+        guard !draft.isEmpty || (!baseVersionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !clientRequestId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && conflictStrategy.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "reject_if_stale") else {
             throw BackendMemoryAPIError.server(status: 400, message: "draft_required")
         }
 
         var payload: [String: Any] = [
             "draft": draft,
             "phase": phase,
-            "source": source,
+            "source": source, "allow_empty_draft": draft.isEmpty,
         ]
         if !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             payload["title"] = title
