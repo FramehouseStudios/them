@@ -346,6 +346,28 @@ final class ScreenplayStudioExportSupportTests: XCTestCase {
         XCTAssertEqual(recorder.info.last, "Saved retry.fdx to Files.")
     }
 
+    func testPhysicalStudioRetryReleasesPickerWhenRuntimeOmitsEveryDismissalSignal() async throws {
+        let recorder = ExportRecorder()
+        let coordinator = ScreenplayStudioExportCoordinator()
+        await coordinator.export(format: "md", deps: exportDependencies(recorder))
+        let firstID = try XCTUnwrap(coordinator.requestID)
+        XCTAssertTrue(coordinator.isPresented)
+
+        // The native picker is gone and the underlying Studio control was
+        // physically activated, but this runtime sent no binding or callback.
+        coordinator.userReturnedFromNativePickerForRetry()
+        XCTAssertNil(coordinator.requestID)
+        XCTAssertFalse(coordinator.isPresented)
+        XCTAssertFalse(recorder.info.contains("Export cancelled."))
+
+        await coordinator.export(format: "fdx", deps: exportDependencies(recorder))
+        XCTAssertNotEqual(coordinator.requestID, firstID)
+        XCTAssertTrue(coordinator.isPresented)
+        XCTAssertEqual(recorder.requestedFormats, ["md", "fdx"])
+        XCTAssertFalse(recorder.errors.contains("Finish or cancel the current export before starting another."))
+        coordinator.cancel(requestID: coordinator.requestID)
+    }
+
     func testExplicitRetryDoesNotReplaceStillPresentedNativePicker() async throws {
         let recorder = ExportRecorder()
         let coordinator = ScreenplayStudioExportCoordinator()

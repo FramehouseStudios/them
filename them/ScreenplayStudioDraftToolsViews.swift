@@ -566,6 +566,7 @@ private struct ScreenplayStudioDraftDocumentControls: View {
                 ForEach(presentation.exportItems) { item in
                     Button {
                         isExportExpanded = false
+                        exportCoordinator.userReturnedFromNativePickerForRetry()
                         actions.onExport(item.format, exportCoordinator)
                     } label: {
                         Text(item.title)
