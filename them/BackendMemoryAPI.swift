@@ -8107,8 +8107,7 @@ actor BackendMemoryAPI {
         guard !normalizedProjectId.isEmpty else {
             throw BackendMemoryAPIError.server(status: 400, message: "project_id_required")
         }
-        let trimmedDraft = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedDraft.isEmpty else {
+        guard !draft.isEmpty else {
             throw BackendMemoryAPIError.server(status: 400, message: "draft_required")
         }
 

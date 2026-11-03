@@ -7512,8 +7512,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         func completion(_ versionID: String, confirmed: ScreenplayConfirmedDraftSave? = nil) -> DraftSaveCompletion {
             .saved(versionID: versionID, mayContinueEditing: ownsCompletion(), confirmed: confirmed)
         }
-        let normalized = request.draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalized.isEmpty else {
+        guard !request.draft.isEmpty else {
             if ownsCompletion() { autosaveStatusText = "Draft empty" }
             return nil
         }

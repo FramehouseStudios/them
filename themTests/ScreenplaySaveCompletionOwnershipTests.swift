@@ -73,6 +73,22 @@ final class ScreenplaySaveCompletionOwnershipTests: XCTestCase {
         XCTAssertTrue(remainingRows.isEmpty)
     }
 
+    func testManualWhitespaceOnlySavePreservesExactBytes() async throws {
+        let fixture = try SaveCompletionFixture()
+        defer { fixture.close() }
+        fixture.select("a", draft: fixture.a, base: "a-base")
+        let whitespace = "\r\n \t"
+        fixture.model.fountainDraft = whitespace
+        fixture.model.noteManualDraftEdit()
+        let save = fixture.startSave()
+        defer { fixture.peer.releaseFirst(.offline); save.cancel() }
+        try await fixture.waitForFirstSave()
+        XCTAssertEqual(Data(try XCTUnwrap(fixture.peer.writes.first?.draft).utf8), Data(whitespace.utf8))
+        fixture.peer.releaseFirst(.success)
+        try await fixture.waitForSave(save)
+        XCTAssertFalse(fixture.model.hasUnsavedDraftChanges)
+    }
+
     func testAcknowledgedASaveCannotRebindBOrCopyItsWordsIntoARecovery() async throws {
         let fixture = try SaveCompletionFixture()
         defer { fixture.close() }
@@ -608,7 +624,7 @@ private final class SaveCompletionFixture {
 
     func waitForFirstSave() async throws {
         let result = await XCTWaiter.fulfillment(of: [started], timeout: 3)
-        XCTAssertEqual(result, .completed)
+        XCTAssertEqual(result, .completed, "Save state: \(model.autosaveStatusText); error: \(model.errorText)")
         guard !peer.writes.isEmpty else { throw URLError(.timedOut) }
     }
 

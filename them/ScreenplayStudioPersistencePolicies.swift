@@ -208,7 +208,7 @@ struct ScreenplayProgrammaticDraftAutosavePolicy {
             autosaveEnabled &&
             hasUnsavedDraftChanges &&
             !isStreamingDraftPreviewActive &&
-            !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            !draft.isEmpty
     }
 }
 
