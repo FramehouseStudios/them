@@ -9097,11 +9097,11 @@ Current draft version:
             message: recoveryAlreadyOnPage
                 ? "This recovery copy matches the current page. Keep it or discard the copy."
                 : recovery.overflowSnapshot != nil
-                    ? "A newer page was kept separately while earlier recovery copies wait. Recover it or keep the current page."
-                    : "Saved \(savedText). Recover it or keep the current page.",
+                    ? "A newer page was kept separately. Recover it or discard this copy and keep the current page."
+                    : "Saved \(savedText). Recover it or discard this copy and keep the current page.",
             hint: recoveryAlreadyOnPage
                 ? "Press 1 to keep the current page or 2 to discard the recovery copy."
-                : "Press 1 to recover local or 2 to keep the current page.",
+                : "Press 1 to recover local or 2 to discard this recovery copy.",
             tint: Color.orange.opacity(0.88),
             excerpt: preview
         ) {
@@ -9117,7 +9117,7 @@ Current draft version:
                     }.accessibilityIdentifier("studio.draft-recovery.primary-action")
                     NumberedChoiceActionButton(
                         number: "2",
-                        title: recoveryAlreadyOnPage ? "Discard Copy" : "Keep Current",
+                        title: "Discard Copy",
                         tint: .herText
                     ) {
                         if recoveryAlreadyOnPage {

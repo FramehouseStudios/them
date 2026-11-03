@@ -3367,7 +3367,7 @@ final class V1SmokeUITests: XCTestCase {
         XCTAssertEqual(Data(accessibleDraftText(in: app).utf8), Data(preserved.utf8))
         let keep = app.buttons["studio.draft-recovery.secondary-action"]
         XCTAssertTrue(keep.waitForExistence(timeout: 10))
-        XCTAssertTrue(keep.label.contains("Keep Current"))
+        XCTAssertTrue(keep.label.contains("Discard Copy"))
         keep.tap()
         // The preserved copy was already reviewed in this session. Keeping
         // the current page must not loop that retained copy back into the
