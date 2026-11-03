@@ -17161,6 +17161,8 @@ Look at the city.
             exportFromBackend: { try await vm.exportArtifact(format: $0) },
             setInfo: { vm.infoText = $0 },
             setError: { vm.errorText = $0 },
+            clearInfoIfEqual: { if vm.infoText == $0 { vm.infoText = "" } },
+            clearErrorIfEqual: { if vm.errorText == $0 { vm.errorText = "" } },
             noteSavedDirectory: {
                 navigatorCurrentURL = $0
                 refreshNavigatorEntries()
