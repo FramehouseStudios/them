@@ -7395,11 +7395,6 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 && bridge.draftOrigin.documentID == documentID
                 && (request.deliveryOrigin?.permitsBackend(BackendAuthClient.resolvedBackendBaseURL()) ?? true)
         }
-        guard !request.draft.isEmpty else {
-            autosaveStatusText = "Draft empty"
-            return
-        }
-
         if (try? await draftSaveOutbox.hasActiveEntries(
                projectId: request.projectId,
                ownerUserId: request.ownerUserId,
@@ -7521,11 +7516,6 @@ final class ScreenplayStudioViewModel: ObservableObject {
         func completion(_ versionID: String, confirmed: ScreenplayConfirmedDraftSave? = nil) -> DraftSaveCompletion {
             .saved(versionID: versionID, mayContinueEditing: ownsCompletion(), confirmed: confirmed)
         }
-        guard !request.draft.isEmpty else {
-            if ownsCompletion() { autosaveStatusText = "Draft empty" }
-            return nil
-        }
-
         guard authContextIsCurrent(request.authContext) else { return nil }
 
 
