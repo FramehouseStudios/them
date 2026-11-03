@@ -9088,6 +9088,9 @@ Current draft version:
     ) -> some View {
         let recoveryAlreadyOnPage = vm.fountainDraft.utf8.elementsEqual(recovery.draft.utf8)
         let savedText = relativeTimestamp(dateFromTimestamp(recovery.savedAt) ?? .now)
+        let preview = recovery.draft.split(whereSeparator: \.isNewline)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+            .prefix(2).joined(separator: "\n")
 
         return draftAlertBanner(
             title: recoveryAlreadyOnPage ? "Recovery copy matches page" : "Unsaved local draft found",
@@ -9100,20 +9103,22 @@ Current draft version:
                 ? "Press 1 to keep the current page or 2 to discard the recovery copy."
                 : "Press 1 to recover local or 2 to keep the current page.",
             tint: Color.orange.opacity(0.88),
-            excerpt: recovery.draft
+            excerpt: preview
         ) {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 8) {
                     NumberedChoiceActionButton(
                         number: "1",
                         title: recoveryAlreadyOnPage ? "Keep Current" : "Recover Local",
-                        prominence: .prominent
+                        prominence: .prominent,
+                        tint: .herText
                     ) {
                         vm.restoreDraftFromRecovery()
                     }.accessibilityIdentifier("studio.draft-recovery.primary-action")
                     NumberedChoiceActionButton(
                         number: "2",
-                        title: recoveryAlreadyOnPage ? "Discard Copy" : "Keep Current"
+                        title: recoveryAlreadyOnPage ? "Discard Copy" : "Keep Current",
+                        tint: .herText
                     ) {
                         if recoveryAlreadyOnPage {
                             vm.discardLocalRecoveryCopy()
@@ -9124,6 +9129,7 @@ Current draft version:
                 }
                 if vm.canReviewNextRecoveryCopy {
                     Button("Review next copy") { vm.reviewNextRecoveryCopy() }
+                        .tint(.herText)
                         .accessibilityIdentifier("studio.draft-recovery.next-copy")
                         .accessibilityHint("Show another saved recovery copy without deleting this one.")
                 }
@@ -9215,6 +9221,7 @@ Current draft version:
             }
         }
         .padding(12)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .fill(tint.opacity(0.10))
