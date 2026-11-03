@@ -3,11 +3,42 @@ import XCTest
 
 @MainActor
 final class ScreenplayStudioThemRailPresentationTests: XCTestCase {
+    func testEveryInspectorTabProvidesAConcreteClementineVoiceContext() {
+        let expected: [(ScreenplayStudioScreen.DirectionOneRightPanelTab, ScreenplayStudioVoiceWorkspaceContext.Workspace, String)] = [
+            (.draft, .draft, "Draft"),
+            (.beats, .beats, "Beats"),
+            (.craft, .craft, "Craft"),
+            (.outline, .outline, "Outline"),
+            (.them, .clementine, "Clementine"),
+            (.saved, .saved, "Saved"),
+        ]
+
+        XCTAssertEqual(ScreenplayStudioScreen.DirectionOneRightPanelTab.allCases.count, expected.count)
+        for (tab, workspace, title) in expected {
+            let context = tab.voiceWorkspaceContext
+            XCTAssertEqual(context.workspace, workspace)
+            XCTAssertEqual(context.title, title)
+            XCTAssertFalse(context.promptInstruction.isEmpty)
+            XCTAssertEqual(context.talkAccessibilityHint, "Clementine will listen with \(title) context.")
+            XCTAssertTrue(context.applying(to: "BASE").hasPrefix("BASE\n\nSTUDIO WORKSPACE CONTEXT:\n"))
+            XCTAssertTrue(context.applying(to: "BASE").contains(context.promptInstruction))
+        }
+    }
+
+    func testLiveDraftBridgePublishesSelectedVoiceWorkspace() {
+        let bridge = ScreenplayLiveDraftBridge.shared
+        defer { bridge.activeStudioVoiceWorkspace = .clementine }
+
+        bridge.activeStudioVoiceWorkspace = .beats
+
+        XCTAssertEqual(bridge.activeStudioVoiceWorkspace, .beats)
+    }
+
     func testOverviewAndSurfaceMixPreserveCanonicalCopyOrderAndCounts() {
-        XCTAssertEqual(ScreenplayStudioThemRailOverviewPresentation.standard.title, "io.them")
+        XCTAssertEqual(ScreenplayStudioThemRailOverviewPresentation.standard.title, "Clementine")
         XCTAssertEqual(
             ScreenplayStudioThemRailOverviewPresentation.standard.subtitle,
-            "Keep io.them's instincts, memory, and craft signals together."
+            "Keep Clementine's instincts, memory, and craft signals together."
         )
 
         let analytics = ScreenplayCompanionAnalyticsSnapshot(

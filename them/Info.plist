@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
 	<key>CFBundleDisplayName</key>
-	<string>io.them</string>
+	<string>THEM</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSExceptionDomains</key>
@@ -23,11 +23,11 @@
 		</dict>
 	</dict>
 	<key>NSContactsUsageDescription</key>
-	<string>io.them uses your contacts to suggest recipient emails in Quick Email.</string>
+	<string>THEM uses your contacts to suggest recipient emails in Quick Email.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>io.them uses your microphone to have real-time conversations.</string>
+	<string>THEM uses your microphone so you can talk with Clementine.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
-	<string>io.them uses speech recognition to show live transcript previews while you talk.</string>
+	<string>THEM uses speech recognition to show live transcript previews while you talk with Clementine.</string>
 	<key>PRIVACY_POLICY_URL</key>
 	<string>https://them.io/privacy</string>
 	<key>SUPPORT_EMAIL</key>
