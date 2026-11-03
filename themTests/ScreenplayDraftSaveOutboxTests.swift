@@ -265,6 +265,30 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
     }
 
     @MainActor
+    func testBlankManualEditsAreRecoverableAfterStoreReinitialization() async throws {
+        let owner = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""
+        let suite = "them.manual-blank-recovery.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let recovery = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "recovery")
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: recovery,
+            draftSaveOutbox: ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory))
+        model.autosaveEnabled = false
+        model.selectedProjectID = "project-1"
+        model.applyStructuralUITestDraft("Writer words", versionID: "saved")
+        for edited in ["", " \n"] {
+            model.fountainDraft = edited
+            model.noteManualDraftEdit()
+            XCTAssertTrue(model.hasUnsavedDraftChanges)
+            let reloaded = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "recovery")
+            let snapshot = reloaded.recoverySnapshot(ownerUserId: owner, projectId: "project-1",
+                serverDraft: "Writer words", fingerprint: { $0 })
+            XCTAssertTrue(snapshot?.draft.utf8.elementsEqual(edited.utf8) == true)
+        }
+        try? await Task.sleep(nanoseconds: 1_100_000_000)
+    }
+
+    @MainActor
     func testLiveSyncRecoveryPreservesIntentionallyClearedDraft() async throws {
         let owner = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""
         let suite = "them.live-cleared-recovery.\(UUID().uuidString)"
