@@ -1,5 +1,8 @@
 import XCTest
 import UniformTypeIdentifiers
+#if !os(macOS)
+import UIKit
+#endif
 @testable import them
 
 @MainActor
@@ -276,9 +279,190 @@ final class ScreenplayStudioExportSupportTests: XCTestCase {
 
         XCTAssertEqual(recorder.requestedFormats, ["md"])
         XCTAssertTrue(coordinator.isPresented)
+        let requestID = try XCTUnwrap(coordinator.requestID)
         XCTAssertEqual(try XCTUnwrap(coordinator.document).makeFileWrapper().regularFileContents, exportArtifact.data)
+        let stagedURL = try XCTUnwrap(coordinator.stagedURL)
+        XCTAssertEqual(try Data(contentsOf: stagedURL), exportArtifact.data)
+        XCTAssertEqual(stagedURL.lastPathComponent, "complete-scene.md")
+        XCTAssertEqual(UUID(uuidString: stagedURL.deletingLastPathComponent().lastPathComponent), requestID)
         XCTAssertEqual(recorder.info.last, "Choose where to save complete-scene.md.")
         XCTAssertFalse(recorder.info.contains { $0.hasPrefix("Saved ") })
+        coordinator.cancel(requestID: coordinator.requestID)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: stagedURL.path))
+    }
+
+    func testCrashCleanupRemovesOnlyOldOwnedRequestDirectories() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("them-export-cleanup-test-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let activeID = UUID()
+        let staleID = UUID()
+        let freshID = UUID()
+        let active = root.appendingPathComponent(activeID.uuidString, isDirectory: true)
+        let stale = root.appendingPathComponent(staleID.uuidString, isDirectory: true)
+        let fresh = root.appendingPathComponent(freshID.uuidString, isDirectory: true)
+        let unrelated = root.appendingPathComponent("writer-not-owned", isDirectory: true)
+        for directory in [active, stale, fresh, unrelated] {
+            try fileManager.createDirectory(at: directory, withIntermediateDirectories: false)
+        }
+        let now = Date(timeIntervalSince1970: 10_000)
+        let old = now.addingTimeInterval(-1_000)
+        for directory in [active, stale, unrelated] {
+            try fileManager.setAttributes([.modificationDate: old], ofItemAtPath: directory.path)
+        }
+        try fileManager.setAttributes([.modificationDate: now], ofItemAtPath: fresh.path)
+
+        ScreenplayStudioExportCoordinator.cleanupCrashLeftovers(
+            in: root,
+            excluding: [activeID],
+            now: now,
+            staleAfter: 100
+        )
+
+        XCTAssertTrue(fileManager.fileExists(atPath: active.path))
+        XCTAssertFalse(fileManager.fileExists(atPath: stale.path))
+        XCTAssertTrue(fileManager.fileExists(atPath: fresh.path))
+        XCTAssertTrue(fileManager.fileExists(atPath: unrelated.path))
+    }
+
+    func testNewExportDoesNotCleanAnotherLiveCoordinatorStagingDirectory() async throws {
+        let firstRecorder = ExportRecorder()
+        let firstCoordinator = ScreenplayStudioExportCoordinator()
+        await firstCoordinator.export(format: "md", deps: exportDependencies(firstRecorder))
+        let firstStagedURL = try XCTUnwrap(firstCoordinator.stagedURL)
+        let firstDirectory = firstStagedURL.deletingLastPathComponent()
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date().addingTimeInterval(-(25 * 60 * 60))],
+            ofItemAtPath: firstDirectory.path
+        )
+
+        let secondRecorder = ExportRecorder()
+        let secondCoordinator = ScreenplayStudioExportCoordinator()
+        await secondCoordinator.export(format: "md", deps: exportDependencies(secondRecorder))
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: firstStagedURL.path))
+        firstCoordinator.cancel(requestID: firstCoordinator.requestID)
+        secondCoordinator.cancel(requestID: secondCoordinator.requestID)
+    }
+
+    func testTransientOwnerDisappearDuringPickerPresentationKeepsRequestAndSource() async throws {
+        let recorder = ExportRecorder()
+        let coordinator = ScreenplayStudioExportCoordinator()
+        await coordinator.export(format: "md", deps: exportDependencies(recorder))
+        let requestID = try XCTUnwrap(coordinator.requestID)
+        let stagedURL = try XCTUnwrap(coordinator.stagedURL)
+
+        coordinator.studioDidDisappear()
+
+        XCTAssertEqual(coordinator.requestID, requestID)
+        XCTAssertTrue(coordinator.isPresented)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: stagedURL.path))
+        XCTAssertFalse(recorder.info.contains("Export cancelled."))
+        coordinator.cancel(requestID: requestID)
+    }
+
+    func testPickerLeaseCleansStagingAfterOwnerAndDelegateRelease() async throws {
+        let recorder = ExportRecorder()
+        var coordinator: ScreenplayStudioExportCoordinator? = ScreenplayStudioExportCoordinator()
+        await coordinator?.export(format: "md", deps: exportDependencies(recorder))
+        let requestID = try XCTUnwrap(coordinator?.requestID)
+        let stagedURL = try XCTUnwrap(coordinator?.stagedURL)
+        var lease: ScreenplayStudioExportStagingLease? = try XCTUnwrap(coordinator?.stagingLease)
+        weak let weakCoordinator = coordinator
+        var delegate: ScreenplayStudioDocumentPickerDelegate? = ScreenplayStudioDocumentPickerDelegate(
+            requestID: requestID,
+            lease: try XCTUnwrap(lease),
+            onCompletion: { [weak coordinator] result in
+                coordinator?.complete(result, requestID: requestID)
+            },
+            onCancellation: { [weak coordinator] in
+                coordinator?.cancel(requestID: requestID)
+            }
+        )
+
+        lease = nil
+        coordinator = nil
+
+        XCTAssertNil(weakCoordinator)
+        XCTAssertNotNil(delegate)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: stagedURL.path))
+        delegate = nil
+        XCTAssertFalse(FileManager.default.fileExists(atPath: stagedURL.path))
+    }
+
+    func testContextRetirementAndCleanupFailurePreserveNewerMessages() async throws {
+        let recorder = ExportRecorder()
+        let coordinator = ScreenplayStudioExportCoordinator()
+        await coordinator.export(format: "md", deps: exportDependencies(recorder))
+        let stagedDirectory = try XCTUnwrap(coordinator.stagedURL).deletingLastPathComponent()
+        try FileManager.default.removeItem(at: stagedDirectory)
+        recorder.currentInfo = "New project loaded."
+        recorder.info.append(recorder.currentInfo)
+        recorder.currentError = "New project warning."
+        recorder.errors.append(recorder.currentError)
+        recorder.isCurrent = false
+
+        coordinator.invalidateIfContextChanged()
+
+        XCTAssertNil(coordinator.requestID)
+        XCTAssertEqual(recorder.currentInfo, "New project loaded.")
+        XCTAssertEqual(recorder.currentError, "New project warning.")
+    }
+
+    func testNativePickerDelegateIgnoresLateCancellationFromSupersededAttempt() async throws {
+        let recorder = ExportRecorder()
+        let coordinator = ScreenplayStudioExportCoordinator()
+        await coordinator.export(format: "md", deps: exportDependencies(recorder))
+        let firstID = try XCTUnwrap(coordinator.requestID)
+        let firstURL = try XCTUnwrap(coordinator.stagedURL)
+        let firstLease = try XCTUnwrap(coordinator.stagingLease)
+        let firstDelegate = ScreenplayStudioDocumentPickerDelegate(
+            requestID: firstID,
+            lease: firstLease,
+            onCompletion: { coordinator.complete($0, requestID: firstID) },
+            onCancellation: { coordinator.cancel(requestID: firstID) }
+        )
+        let picker = UIDocumentPickerViewController(forExporting: [firstURL], asCopy: true)
+
+        coordinator.userReturnedFromNativePickerForRetry()
+        await coordinator.export(format: "fdx", deps: exportDependencies(recorder))
+        let secondID = try XCTUnwrap(coordinator.requestID)
+        firstDelegate.documentPickerWasCancelled(picker)
+
+        XCTAssertNotEqual(firstID, secondID)
+        XCTAssertEqual(coordinator.requestID, secondID)
+        XCTAssertTrue(coordinator.isPresented)
+        XCTAssertFalse(recorder.info.contains("Export cancelled."))
+        coordinator.cancel(requestID: secondID)
+    }
+
+    func testNativePickerDelegateAcceptsSuccessAfterPresentationBindingDismisses() async throws {
+        let recorder = ExportRecorder()
+        let coordinator = ScreenplayStudioExportCoordinator()
+        await coordinator.export(format: "md", deps: exportDependencies(recorder))
+        let requestID = try XCTUnwrap(coordinator.requestID)
+        let stagedURL = try XCTUnwrap(coordinator.stagedURL)
+        let lease = try XCTUnwrap(coordinator.stagingLease)
+        let delegate = ScreenplayStudioDocumentPickerDelegate(
+            requestID: requestID,
+            lease: lease,
+            onCompletion: { coordinator.complete($0, requestID: requestID) },
+            onCancellation: { coordinator.cancel(requestID: requestID) }
+        )
+        coordinator.presentationBinding(for: requestID).wrappedValue = false
+
+        let picker = UIDocumentPickerViewController(forExporting: [stagedURL], asCopy: true)
+        delegate.documentPicker(
+            picker,
+            didPickDocumentsAt: [URL(fileURLWithPath: "/Files/complete-scene.md")]
+        )
+
+        XCTAssertNil(coordinator.requestID)
+        XCTAssertFalse(coordinator.isPresented)
+        XCTAssertEqual(recorder.info.last, "Saved complete-scene.md to Files.")
     }
 
     func testIPhoneExportCancellationReleasesCoordinatorForRetry() async {
@@ -292,6 +476,7 @@ final class ScreenplayStudioExportSupportTests: XCTestCase {
         XCTAssertEqual(recorder.requestedFormats, ["md", "fdx"])
         XCTAssertTrue(coordinator.isPresented)
         XCTAssertFalse(recorder.info.contains { $0.hasPrefix("Saved ") })
+        coordinator.cancel(requestID: coordinator.requestID)
     }
 
     func testIPhoneExportIgnoresStalePickerCompletion() async throws {
@@ -458,6 +643,8 @@ final class ScreenplayStudioExportSupportTests: XCTestCase {
     private final class ExportRecorder {
         var info: [String] = []
         var errors: [String] = []
+        var currentInfo = ""
+        var currentError = ""
         var requestedFormats: [String] = []
         var events: [String] = []
         var copiedDrafts: [String] = []
@@ -477,8 +664,24 @@ final class ScreenplayStudioExportSupportTests: XCTestCase {
                 recorder.requestedFormats.append(format)
                 return artifact
             },
-            setInfo: { recorder.info.append($0) },
-            setError: { recorder.errors.append($0) },
+            setInfo: {
+                recorder.currentInfo = $0
+                recorder.info.append($0)
+            },
+            setError: {
+                recorder.currentError = $0
+                recorder.errors.append($0)
+            },
+            clearInfoIfEqual: {
+                guard recorder.currentInfo == $0 else { return }
+                recorder.currentInfo = ""
+                recorder.info.append("")
+            },
+            clearErrorIfEqual: {
+                guard recorder.currentError == $0 else { return }
+                recorder.currentError = ""
+                recorder.errors.append("")
+            },
             noteSavedDirectory: { _ in },
             isCurrentContext: { recorder.isCurrent },
             copyToClipboard: { _ in true },
