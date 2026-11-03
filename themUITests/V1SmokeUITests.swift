@@ -966,6 +966,51 @@ final class V1SmokeUITests: XCTestCase {
     }
 
     @MainActor
+    func test_initial_project_relaunch_blank_replays_one_creation() async throws {
+#if os(iOS)
+        guard let port = Int(ProcessInfo.processInfo.environment["THEM_UITEST_WRITER_LOOP_BACKEND_PORT"] ?? ""),
+              let baseURL = URL(string: "http://127.0.0.1:\(port)") else {
+            throw XCTSkip("A dedicated held-response local backend is required.")
+        }
+        let fixture = try await createWriterLoopAuthenticationFixture(baseURL: baseURL)
+        var app = launchApp(openStudio: true, launchEnvironment: fixture.appLaunchEnvironment)
+        defer { app.terminate() }
+        let drawer = app.buttons["studio.sidebar.left.toggle"]
+        XCTAssertTrue(waitForHittability(of: drawer, timeout: 10)); drawer.tap()
+        let title = "Blank recovery \(UUID().uuidString.prefix(8))"
+        let field = app.textFields["New project title"]
+        XCTAssertTrue(waitForHittability(of: field, timeout: 8)); field.tap(); field.typeText(title)
+        let create = app.buttons["Create"]
+        XCTAssertTrue(waitForHittability(of: create, timeout: 5)); create.tap()
+        let deadline = Date().addingTimeInterval(20)
+        var projectID = ""
+        repeat {
+            let state = try await requestJSON(baseURL: baseURL, path: "/__them-proof/promotion", method: "GET", headers: [:], body: nil)
+            if intValue(state.payload["pending_creates"]) == 1 { projectID = stringValue(state.payload["held_project_id"]); break }
+            try await Task.sleep(nanoseconds: 100_000_000)
+        } while Date() < deadline
+        XCTAssertFalse(projectID.isEmpty, "Blank project must commit before its response is withheld.")
+        let first = try await writerLoopProject(id: projectID, fixture: fixture)
+        XCTAssertEqual((first["versions"] as? [[String: Any]] ?? []).count, 0)
+        app.terminate()
+        let release = try await requestJSON(baseURL: baseURL, path: "/__them-proof/promotion/release", method: "POST", headers: [:], body: nil)
+        try assertHTTP(release, context: "release blank creation response")
+        app = launchApp(openStudio: true, resetState: false, launchEnvironment: fixture.appLaunchEnvironment)
+        XCTAssertTrue(waitForRestoreSnapshot(in: app, timeout: 25) { stringValue($0["selected_project_id"]) == projectID },
+            "Relaunch must replay the durable creation identity and bind the same project.")
+        let listed = try await requestJSON(baseURL: baseURL, path: "/screenplay/projects", method: "GET", headers: fixture.authorizedHeaders, body: nil)
+        try assertHTTP(listed, context: "blank projects after relaunch")
+        let projects = listed.payload["screenplay_projects"] as? [[String: Any]] ?? []
+        XCTAssertEqual(projects.filter { stringValue($0["title"]) == title }.count, 1)
+        let restored = try await writerLoopProject(id: projectID, fixture: fixture)
+        XCTAssertEqual((restored["versions"] as? [[String: Any]] ?? []).count, 0,
+            "Blank creation must not manufacture a screenplay version.")
+#else
+        throw XCTSkip("This workflow specifically covers iPhone.")
+#endif
+    }
+
+    @MainActor
     func test_initial_project_relaunch_replays_saved_identity_and_preserves_newer_edits() async throws {
 #if os(iOS)
         guard let port = Int(ProcessInfo.processInfo.environment["THEM_UITEST_WRITER_LOOP_BACKEND_PORT"] ?? ""),

@@ -1102,6 +1102,7 @@ Replace is best when this file should become the script you edit. Append is safe
                 }
                 #endif
                 await vm.load()
+                await vm.reconnectAndResumeQueuedDraftSaves()
                 _ = await selectPreferredProjectIfNeeded(liveDraftBridge.preferredProjectID)
                 _ = await applyBridgeDebugProjectLoadIfNeeded(force: true)
                 await restoreStudioWorkspaceAfterProjectHydration()

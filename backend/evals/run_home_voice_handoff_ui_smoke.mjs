@@ -28,6 +28,7 @@ const allowedTests = [
   'themUITests/V1SmokeUITests/test_pages_navigator_controls_jump_and_preserve_source',
   'themUITests/V1SmokeUITests/test_talk_recovery_exports_current_owner_and_confirms_exact_deletion',
   'themUITests/V1SmokeUITests/test_initial_project_relaunch_replays_saved_identity_and_preserves_newer_edits',
+  'themUITests/V1SmokeUITests/test_initial_project_relaunch_blank_replays_one_creation',
   'themUITests/V1SmokeUITests/test_explicit_project_creation_preserves_existing_page_bytes',
   'themUITests/V1SmokeUITests/test_interrupted_talk_recovery_requires_confirmation_and_keeps_original_queue_on_relaunch',
   'themUITests/V1SmokeUITests/test_received_talk_reply_is_reviewed_and_exported_without_resend_after_relaunch',
