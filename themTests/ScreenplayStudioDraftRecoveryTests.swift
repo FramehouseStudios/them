@@ -1584,6 +1584,18 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         ))
     }
 
+    func testRemoteRefreshProtectsExactWhitespaceAndUnicodeBytes() {
+        for (local, remote) in [("\r\n \t", ""), ("", "server"), ("cafe\u{0301}", "caf\u{00e9}")] {
+            XCTAssertTrue(ScreenplayRemoteDraftConflictPolicy.shouldProtectLocalDraft(
+                selectedProjectId: "project-a", loadedProjectId: "project-a", localDraft: local,
+                serverDraft: remote, hasUnsavedChanges: true, isManualEditing: true,
+                secondsSinceManualEdit: 0, allowOverwrite: false))
+            XCTAssertTrue(ScreenplayRemoteDraftConflictPolicy.shouldSurfaceConflict(
+                localEditsProtected: true, localVersionId: "v1", serverVersionId: "v2",
+                localDraft: local, serverDraft: remote))
+        }
+    }
+
     func testRemoteDraftDoesNotSurfaceConflictForCleanPageOrSameVersion() {
         let protected = ScreenplayRemoteDraftConflictPolicy.shouldProtectLocalDraft(
             selectedProjectId: "project-a",
@@ -2189,12 +2201,19 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
             isStreamingDraftPreviewActive: true,
             draft: "INT. ROOM - NIGHT"
         ))
-        XCTAssertFalse(ScreenplayProgrammaticDraftAutosavePolicy.shouldAutosave(
+        XCTAssertTrue(ScreenplayProgrammaticDraftAutosavePolicy.shouldAutosave(
             hasSelectedProject: true,
             autosaveEnabled: true,
             hasUnsavedDraftChanges: true,
             isStreamingDraftPreviewActive: false,
             draft: "   "
+        ))
+        XCTAssertFalse(ScreenplayProgrammaticDraftAutosavePolicy.shouldAutosave(
+            hasSelectedProject: true,
+            autosaveEnabled: true,
+            hasUnsavedDraftChanges: true,
+            isStreamingDraftPreviewActive: false,
+            draft: ""
         ))
     }
 

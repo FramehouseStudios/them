@@ -6792,14 +6792,13 @@ final class ScreenplayStudioViewModel: ObservableObject {
         if !allowOverwriteDirtyLocalDraft, conflictState?.projectId == normalizedProjectID {
             return
         }
-        let normalizedLocalDraft = fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedServerDraft = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedServerVersionID = versionId.trimmingCharacters(in: .whitespacesAndNewlines)
         let localEditsNeedProtection = ScreenplayRemoteDraftConflictPolicy.shouldProtectLocalDraft(
             selectedProjectId: normalizedProjectID,
             loadedProjectId: loadedDraftProjectID,
-            localDraft: normalizedLocalDraft,
-            serverDraft: normalizedServerDraft,
+            localDraft: fountainDraft,
+            serverDraft: draft,
             hasUnsavedChanges: hasUnsavedDraftChanges,
             isManualEditing: isManualDraftEditing,
             secondsSinceManualEdit: Date().timeIntervalSince(lastManualDraftEditAt),
@@ -6811,8 +6810,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 localEditsProtected: true,
                 localVersionId: latestVersionID,
                 serverVersionId: normalizedServerVersionID,
-                localDraft: normalizedLocalDraft,
-                serverDraft: normalizedServerDraft
+                localDraft: fountainDraft,
+                serverDraft: draft
             )
             if remoteConflict {
                 let excerpt = serverDraftExcerpt.trimmingCharacters(in: .whitespacesAndNewlines)
