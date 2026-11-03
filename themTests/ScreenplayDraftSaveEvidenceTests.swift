@@ -283,6 +283,22 @@ final class ScreenplayDraftSaveEvidenceTests: XCTestCase {
     }
 
     @MainActor
+    func testCommittedAdoptionDoesNotOverwriteLaterWhitespaceOrNewlineEdit() throws {
+        let fixture = try CommittedSaveEvidenceFixture()
+        defer { fixture.close() }
+        let committed = raw + "\r\nClementine's committed line."
+        let staleWrite = fixture.write(before: raw, after: committed)
+        for laterEdit in [raw + " ", raw.replacingOccurrences(of: "\r\n", with: "\n")] {
+            fixture.select(raw)
+            fixture.model.fountainDraft = laterEdit
+            fixture.model.noteManualDraftEdit()
+            XCTAssertFalse(fixture.model.adoptCommittedPageWriteIfNeeded(staleWrite))
+            XCTAssertEqual(Data(fixture.model.fountainDraft.utf8), Data(laterEdit.utf8),
+                "A stale committed write overwrote a byte-distinct writer edit")
+        }
+    }
+
+    @MainActor
     func testCommittedAdoptionRejectsOldOwnerAndObsoleteEditor() throws {
         let fixture = try CommittedSaveEvidenceFixture()
         defer { fixture.close() }

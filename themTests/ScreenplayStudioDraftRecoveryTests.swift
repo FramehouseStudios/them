@@ -2403,6 +2403,27 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         ))
     }
 
+    func testCommittedDraftAdoptionRejectsByteDistinctWriterEdits() {
+        let projectID = "project-one"
+        let previous = "INT. ROOM - NIGHT\r\n\r\nHe waits. \t\r\n"
+        let committed = previous + "\r\nThe door opens."
+        let laterEdits = [
+            previous + " ",
+            previous.replacingOccurrences(of: "\r\n", with: "\n"),
+            previous.replacingOccurrences(of: "He waits.", with: "He waits.\t"),
+        ]
+        for current in laterEdits {
+            XCTAssertFalse(current.utf8.elementsEqual(previous.utf8))
+            XCTAssertFalse(ScreenplayCommittedDraftAdoptionPolicy.shouldAdopt(
+                selectedProjectID: projectID,
+                committedProjectID: projectID,
+                currentDraft: current,
+                previousDraft: previous,
+                committedDraft: committed
+            ), "Accepted a byte-distinct writer edit")
+        }
+    }
+
     func testCommittedWriteRevertRequiresCurrentProjectAndExactBytes() {
         let committed = "INT. CAFÉ - NIGHT\r\n\r\nShe waits."
         XCTAssertTrue(ScreenplayCommittedDraftAdoptionPolicy.canRevert(selectedProjectID: "project-a", committedProjectID: "project-a", currentDraft: committed, committedDraft: committed))

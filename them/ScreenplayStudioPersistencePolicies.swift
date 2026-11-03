@@ -344,15 +344,14 @@ struct ScreenplayCommittedDraftAdoptionPolicy {
     ) -> Bool {
         let selectedProject = selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
         let committedProject = committedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
-        let current = normalizedDraft(currentDraft)
-        let previous = normalizedDraft(previousDraft)
         let committed = normalizedDraft(committedDraft)
         guard !selectedProject.isEmpty,
               selectedProject == committedProject,
               !committed.isEmpty else {
             return false
         }
-        return current == previous || current == committed
+        return currentDraft.utf8.elementsEqual(previousDraft.utf8) ||
+            currentDraft.utf8.elementsEqual(committedDraft.utf8)
     }
 
     private static func normalizedDraft(_ draft: String) -> String {
