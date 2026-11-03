@@ -134,30 +134,40 @@ actor ScreenplayDraftSaveOutbox {
         if let index = entries.firstIndex(where: { $0.id == entry.id }) {
             guard entries[index].projectId == entry.projectId,
                   entries[index].ownerUserId == entry.ownerUserId,
-                  normalizedDraft(entries[index].draft) == normalizedDraft(entry.draft) else {
+                  entries[index].draft.utf8.elementsEqual(entry.draft.utf8) else {
                 throw BackendMemoryAPIError.server(status: 409, message: "screenplay_save_id_reused")
+            }
+            if entry.status == .parked {
+                // A held intent must never have a runnable intermediate state.
+                let previous = entries
+                entries[index].status = .parked
+                entries[index].updatedAt = entry.updatedAt
+                entries[index].nextAttemptAt = 0
+                entries[index].lastError = normalizedError(entry.lastError)
+                do { try persist() } catch { entries = previous; throw error }
             }
             let nextSnapshot = snapshotFor(entries)
             publish(nextSnapshot)
             return nextSnapshot
         }
-        if entries.contains(where: { existing in
+        if entry.status != .parked, entries.contains(where: { existing in
             existing.projectId == entry.projectId &&
                 existing.ownerUserId == entry.ownerUserId &&
                 existing.status != .parked &&
                 existing.baseVersionId == entry.baseVersionId &&
-                normalizedDraft(existing.draft) == normalizedDraft(entry.draft)
+                existing.draft.utf8.elementsEqual(entry.draft.utf8)
         }) {
             let nextSnapshot = snapshotFor(entries)
             publish(nextSnapshot)
             return nextSnapshot
         }
+        let previous = entries
         entries.append(entry)
         entries.sort { lhs, rhs in
             if lhs.createdAt == rhs.createdAt { return lhs.id < rhs.id }
             return lhs.createdAt < rhs.createdAt
         }
-        try persist()
+        do { try persist() } catch { entries = previous; throw error }
         let nextSnapshot = snapshotFor(entries)
         publish(nextSnapshot)
         return nextSnapshot
@@ -179,13 +189,21 @@ actor ScreenplayDraftSaveOutbox {
             return nil
         }
         let entry = entries[index]
+        if entry.source == "studio_conflict_resolve", entry.status == .pending {
+            entries[index].status = .parked
+            entries[index].nextAttemptAt = 0
+            entries[index].lastError = Self.conflictReason
+            do { try persist() } catch { entries[index] = entry; throw error }
+            publishSnapshot()
+            return nil
+        }
         guard entry.status == .pending,
               force || entry.nextAttemptAt <= nowSeconds else {
             return nil
         }
         entries[index].status = .inflight
         entries[index].updatedAt = nowSeconds
-        try persist()
+        do { try persist() } catch { entries[index] = entry; throw error }
         publishSnapshot()
         return entries[index]
     }
@@ -203,21 +221,29 @@ actor ScreenplayDraftSaveOutbox {
 
     func markInflight(id: String, now: Date = Date()) throws {
         try loadIfNeeded()
-        guard let index = entries.firstIndex(where: { $0.id == id }) else { return }
+        // Never submit a request which has no durable runnable journal entry.
+        guard let index = entries.firstIndex(where: { $0.id == id }),
+              entries[index].status != .parked else {
+            throw BackendMemoryAPIError.server(status: 409, message: "screenplay_save_not_admitted")
+        }
+        let previous = entries[index]
         entries[index].status = .inflight
         entries[index].updatedAt = now.timeIntervalSince1970
-        try persist()
+        do { try persist() } catch { entries[index] = previous; throw error }
         publishSnapshot()
     }
 
+    @discardableResult
     func markSucceeded(
         id: String,
         serverVersionId: String,
         supersedesEarlierSaves: Bool = false,
+        requireInflight: Bool = false,
         now: Date = Date()
-    ) throws {
+    ) throws -> Bool {
         try loadIfNeeded()
-        guard let index = entries.firstIndex(where: { $0.id == id }) else { return }
+        guard let index = entries.firstIndex(where: { $0.id == id }),
+              !requireInflight || entries[index].status == .inflight else { return false }
         let previous = entries
         let completed = entries.remove(at: index)
         entries.removeAll { entry in
@@ -239,12 +265,14 @@ actor ScreenplayDraftSaveOutbox {
         }
         do { try persist() } catch { entries = previous; throw error }
         publishSnapshot()
+        return true
     }
 
     func remove(id: String) throws {
         try loadIfNeeded()
+        let previous = entries
         entries.removeAll { $0.id == id }
-        try persist()
+        do { try persist() } catch { entries = previous; throw error }
         publishSnapshot()
     }
 
@@ -283,40 +311,46 @@ actor ScreenplayDraftSaveOutbox {
         try loadIfNeeded()
         let cleanProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
         let cleanOwnerUserId = ownerUserId.trimmingCharacters(in: .whitespacesAndNewlines)
+        let previous = entries
         entries.removeAll { entry in
             entry.projectId == cleanProjectId &&
                 entry.ownerUserId == cleanOwnerUserId
         }
-        try persist()
+        do { try persist() } catch { entries = previous; throw error }
         publishSnapshot()
     }
 
     func markRetryable(id: String, error: String, now: Date = Date()) throws {
         try loadIfNeeded()
         guard let index = entries.firstIndex(where: { $0.id == id }) else { return }
+        let previous = entries[index]
         let retryCount = entries[index].retries + 1
         entries[index].retries = retryCount
         entries[index].updatedAt = now.timeIntervalSince1970
         entries[index].lastError = normalizedError(error)
-        if retryCount > Self.backoffSeconds.count {
+        if entries[index].source == "studio_conflict_resolve" || retryCount > Self.backoffSeconds.count {
+            if entries[index].source == "studio_conflict_resolve" {
+                entries[index].lastError = Self.conflictReason
+            }
             entries[index].status = .parked
             entries[index].nextAttemptAt = 0
         } else {
             entries[index].status = .pending
             entries[index].nextAttemptAt = now.timeIntervalSince1970 + Self.backoffSeconds[retryCount - 1]
         }
-        try persist()
+        do { try persist() } catch { entries[index] = previous; throw error }
         publishSnapshot()
     }
 
     func markParked(id: String, error: String, now: Date = Date()) throws {
         try loadIfNeeded()
         guard let index = entries.firstIndex(where: { $0.id == id }) else { return }
+        let previous = entries[index]
         entries[index].status = .parked
         entries[index].updatedAt = now.timeIntervalSince1970
         entries[index].nextAttemptAt = 0
         entries[index].lastError = normalizedError(error)
-        try persist()
+        do { try persist() } catch { entries[index] = previous; throw error }
         publishSnapshot()
     }
 
@@ -379,9 +413,15 @@ actor ScreenplayDraftSaveOutbox {
         var restoredEntries = try JSONDecoder().decode([ScreenplayDraftSaveOutboxEntry].self, from: data)
         let now = Date().timeIntervalSince1970
         for index in restoredEntries.indices where restoredEntries[index].status == .inflight {
-            restoredEntries[index].status = .pending
-            restoredEntries[index].nextAttemptAt = min(restoredEntries[index].nextAttemptAt, now)
-            restoredEntries[index].lastError = "Interrupted while saving."
+            if restoredEntries[index].source == "studio_conflict_resolve" {
+                restoredEntries[index].status = .parked
+                restoredEntries[index].nextAttemptAt = 0
+                restoredEntries[index].lastError = Self.conflictReason
+            } else {
+                restoredEntries[index].status = .pending
+                restoredEntries[index].nextAttemptAt = min(restoredEntries[index].nextAttemptAt, now)
+                restoredEntries[index].lastError = "Interrupted while saving."
+            }
         }
         entries = restoredEntries
         try persist()
@@ -433,13 +473,6 @@ actor ScreenplayDraftSaveOutbox {
                 userInfo: snapshot.notificationUserInfo
             )
         }
-    }
-
-    private func normalizedDraft(_ draft: String) -> String {
-        draft
-            .replacingOccurrences(of: "\r\n", with: "\n")
-            .replacingOccurrences(of: "\r", with: "\n")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func normalizedError(_ error: String) -> String {

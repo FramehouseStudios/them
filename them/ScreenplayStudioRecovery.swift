@@ -193,7 +193,7 @@ struct ScreenplayLocalDraftRecoveryStore {
         var projectPayload = nextPayloads[normalizedProjectId] ?? [:]
         var preserved = preservedConflicts(in: projectPayload)
         let alreadyStored = preserved.contains {
-            ($0["draft"] as? String) == draft &&
+            (($0["draft"] as? String)?.utf8.elementsEqual(draft.utf8) ?? false) &&
                 ($0["baseVersionId"] as? String) == baseVersionId
         }
         if !alreadyStored {
@@ -223,7 +223,7 @@ struct ScreenplayLocalDraftRecoveryStore {
         var preserved = preservedConflicts(in: projectPayload)
         if let draft {
             if let index = preserved.firstIndex(where: {
-                ($0["draft"] as? String) == draft &&
+                (($0["draft"] as? String)?.utf8.elementsEqual(draft.utf8) ?? false) &&
                     (savedAt == nil || ($0["savedAt"] as? TimeInterval) == savedAt)
             }) {
                 preserved.remove(at: index)
@@ -293,7 +293,8 @@ struct ScreenplayLocalDraftRecoveryStore {
               let payload = payloads(ownerUserId: ownerUserId)[normalizedProjectId] else { return nil }
         let conflicts = preservedConflicts(in: payload).filter { $0["dirty"] as? Bool == true }
         guard let currentIndex = conflicts.firstIndex(where: {
-            ($0["draft"] as? String) == draft && ($0["savedAt"] as? TimeInterval) == savedAt
+            (($0["draft"] as? String)?.utf8.elementsEqual(draft.utf8) ?? false) &&
+                ($0["savedAt"] as? TimeInterval) == savedAt
         }), conflicts.indices.contains(currentIndex + 1) else { return nil }
         let next = conflicts[currentIndex + 1]
         let nextDraft = String(describing: next["draft"] ?? "")
@@ -336,11 +337,11 @@ struct ScreenplayLocalDraftRecoveryStore {
         guard !normalizedProjectId.isEmpty,
               let stored = payloads(ownerUserId: ownerUserId)[normalizedProjectId] else { return nil }
 
-        let serverFingerprint = fingerprint(serverDraft.trimmingCharacters(in: .whitespacesAndNewlines))
+        // Recovery may retire a writer copy only when its actual bytes match.
+        // Normalized fingerprints are suitable for presentation, not custody.
         for preserved in preservedConflicts(in: stored) where preserved["dirty"] as? Bool == true {
             let draft = String(describing: preserved["draft"] ?? "")
-            if !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-               fingerprint(draft.trimmingCharacters(in: .whitespacesAndNewlines)) != serverFingerprint {
+            if !draft.isEmpty, !draft.utf8.elementsEqual(serverDraft.utf8) {
                 return ScreenplayLocalDraftRecoverySnapshot(
                     projectId: normalizedProjectId,
                     draft: draft,
@@ -366,13 +367,10 @@ struct ScreenplayLocalDraftRecoveryStore {
         guard let latestStored = payloads(ownerUserId: ownerUserId)[normalizedProjectId] else { return nil }
         let storedDraft = String(describing: latestStored["draft"] ?? "")
         let storedDirty = latestStored["dirty"] as? Bool ?? false
-        guard storedDirty, !storedDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return nil
-        }
+        guard storedDirty, !storedDraft.isEmpty else { return nil }
 
-        let localFingerprint = fingerprint(storedDraft.trimmingCharacters(in: .whitespacesAndNewlines))
-        guard serverFingerprint != localFingerprint else {
-            clear(ownerUserId: ownerUserId, projectId: normalizedProjectId)
+        guard !storedDraft.utf8.elementsEqual(serverDraft.utf8) else {
+            clearOrdinaryDraft(ownerUserId: ownerUserId, projectId: normalizedProjectId)
             return nil
         }
 

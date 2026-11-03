@@ -373,6 +373,44 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         XCTAssertNil(store.payloads(ownerUserId: ownerUserID)["project-recovery"])
     }
 
+    func testRecoveryKeepsExactOrdinaryDraftWhenOnlyWhitespaceDiffers() {
+        let local = "Writer words\r\n"
+        store.save(ownerUserId: ownerUserID, projectId: "exact", draft: local,
+                   baseVersionId: "base", dirty: true)
+        let snapshot = store.recoverySnapshot(ownerUserId: ownerUserID, projectId: "exact",
+            serverDraft: "Writer words", fingerprint: stableFingerprint)
+        XCTAssertEqual(snapshot?.draft, local)
+        XCTAssertEqual(store.dirtyOrdinarySnapshot(ownerUserId: ownerUserID, projectId: "exact")?.draft, local)
+    }
+
+    func testRecoveryKeepsExactPreservedDraftWhenOnlyWhitespaceDiffers() {
+        let local = "Writer words\n"
+        store.savePreservedConflict(ownerUserId: ownerUserID, projectId: "exact",
+                                    draft: local, baseVersionId: "base")
+        let snapshot = store.recoverySnapshot(ownerUserId: ownerUserID, projectId: "exact",
+            serverDraft: "Writer words", fingerprint: stableFingerprint)
+        XCTAssertEqual(snapshot?.draft, local)
+        XCTAssertEqual(store.firstPreservedConflict(ownerUserId: ownerUserID, projectId: "exact")?.draft, local)
+    }
+
+    func testPreservedRecoveryDistinguishesUnicodeByteSequences() {
+        let composed = "Caf\u{00E9}"
+        let decomposed = "Cafe\u{0301}"
+        store.savePreservedConflict(ownerUserId: ownerUserID, projectId: "unicode", draft: composed,
+                                    baseVersionId: "base", savedAt: 100)
+        store.savePreservedConflict(ownerUserId: ownerUserID, projectId: "unicode", draft: decomposed,
+                                    baseVersionId: "base", savedAt: 100)
+        let next = store.nextPreservedConflict(ownerUserId: ownerUserID, projectId: "unicode",
+                                               after: composed, savedAt: 100)
+        XCTAssertTrue(next?.draft.utf8.elementsEqual(decomposed.utf8) == true)
+        store.clearPreservedConflict(ownerUserId: ownerUserID, projectId: "unicode",
+                                     draft: decomposed, savedAt: 100)
+        let remaining = store.firstPreservedConflict(ownerUserId: ownerUserID, projectId: "unicode")
+        XCTAssertTrue(remaining?.draft.utf8.elementsEqual(composed.utf8) == true)
+        XCTAssertNil(store.nextPreservedConflict(ownerUserId: ownerUserID, projectId: "unicode",
+                                                 after: composed, savedAt: 100))
+    }
+
     func testPreservedLiveSyncConflictSurvivesRemoteRecoveryWritesAndStoreReinitialization() {
         let local = "INT. DINER - NIGHT\n\nShe waits.\n\nA phone BUZZES."
         let remote = "INT. DINER - NIGHT\n\nShe waits."
@@ -1553,6 +1591,10 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         let savedDraft = "INT. FERRY - NIGHT\n\nMara turns back."
 
         XCTAssertFalse(ScreenplayDraftSaveCompletionPolicy.hasUnsavedChanges(
+            currentDraft: savedDraft,
+            savedDraft: savedDraft
+        ))
+        XCTAssertTrue(ScreenplayDraftSaveCompletionPolicy.hasUnsavedChanges(
             currentDraft: "  \(savedDraft)\r\n",
             savedDraft: savedDraft
         ))
@@ -1581,10 +1623,20 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
             activeSource: "studio_clementine_page_write",
             activeNotes: "Saved from Clementine page write",
             activeBaseVersionOverride: nil,
-            pendingDraft: "  \(draft)\r\n",
+            pendingDraft: draft,
             pendingSource: "studio_clementine_page_write",
             pendingNotes: "Saved from Clementine page write",
             pendingBaseVersionOverride: ""
+        ))
+        XCTAssertFalse(ScreenplayDraftSaveCoalescingPolicy.shouldCoalesce(
+            activeDraft: draft,
+            activeSource: "studio_clementine_page_write",
+            activeNotes: "Saved from Clementine page write",
+            activeBaseVersionOverride: nil,
+            pendingDraft: "  \(draft)\r\n",
+            pendingSource: "studio_clementine_page_write",
+            pendingNotes: "Saved from Clementine page write",
+            pendingBaseVersionOverride: nil
         ))
         XCTAssertFalse(ScreenplayDraftSaveCoalescingPolicy.shouldCoalesce(
             activeDraft: draft,

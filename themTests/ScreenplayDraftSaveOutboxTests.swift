@@ -221,6 +221,98 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
     }
 
     @MainActor
+    func testWhitespaceEditRemainsDirtyImmediatelyAndAfterDebounce() async throws {
+        let owner = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""
+        let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let suite = "them.whitespace-dirty.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let recovery = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "recovery")
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: recovery, draftSaveOutbox: queue)
+        model.autosaveEnabled = false
+        model.selectedProjectID = "project-1"
+        model.applyStructuralUITestDraft("Writer words", versionID: "saved")
+        let edited = "Writer words\n"
+        model.fountainDraft = edited
+        model.noteManualDraftEdit()
+        XCTAssertTrue(model.hasUnsavedDraftChanges)
+        XCTAssertTrue(recovery.dirtyOrdinarySnapshot(ownerUserId: owner, projectId: "project-1")?.draft.utf8
+            .elementsEqual(edited.utf8) == true)
+        try? await Task.sleep(nanoseconds: 1_100_000_000)
+        XCTAssertTrue(model.hasUnsavedDraftChanges)
+        XCTAssertTrue(model.fountainDraft.utf8.elementsEqual(edited.utf8))
+    }
+
+    @MainActor
+    func testLiveSyncRecoveryPreservesNewlineOnlyLocalEdit() async throws {
+        let owner = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""
+        let suite = "them.live-exact-recovery.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let recovery = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "recovery")
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: recovery,
+            draftSaveOutbox: ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory))
+        model.autosaveEnabled = false
+        model.selectedProjectID = "project-1"
+        model.applyStructuralUITestDraft("Writer words", versionID: "saved")
+        let edited = "Writer words\n"
+        model.fountainDraft = edited
+        model.noteManualDraftEdit()
+        model.preserveLocalDraftForLiveSyncRecovery(edited, projectID: "project-1")
+        let preserved = recovery.firstPreservedConflict(ownerUserId: owner, projectId: "project-1")
+        XCTAssertTrue(preserved?.draft.utf8.elementsEqual(edited.utf8) == true)
+        try? await Task.sleep(nanoseconds: 1_100_000_000)
+    }
+
+    @MainActor
+    func testAccountSwitchDoesNotReuseOtherAccountSavedBaseline() async throws {
+        let suite = "them.account-baseline-scope.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let recovery = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "recovery")
+        var owner = "account-a"
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: recovery,
+            draftSaveOutbox: ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory),
+            studioAuthContextProvider: { ScreenplayStudioAuthContext(userID: owner, sessionIntentGeneration: 1) })
+        model.autosaveEnabled = false
+        model.selectedProjectID = "same-project-id"
+        model.applyStructuralUITestDraft("Writer words", versionID: "saved-a")
+        owner = "account-b"
+        let writerDraft = "Writer words\n"
+        model.fountainDraft = writerDraft
+        model.noteManualDraftEdit()
+        XCTAssertTrue(model.hasUnsavedDraftChanges)
+        XCTAssertTrue(recovery.dirtyOrdinarySnapshot(ownerUserId: owner, projectId: "same-project-id")?.draft.utf8
+            .elementsEqual(writerDraft.utf8) == true)
+        XCTAssertNil(recovery.dirtyOrdinarySnapshot(ownerUserId: "account-a", projectId: "same-project-id"))
+        try? await Task.sleep(nanoseconds: 1_100_000_000)
+        XCTAssertTrue(model.hasUnsavedDraftChanges)
+    }
+
+    @MainActor
+    func testUnknownProjectBaselineDoesNotTreatNormalizedMatchAsSaved() async throws {
+        let owner = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""
+        let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let suite = "them.unknown-project-baseline.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let recovery = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "recovery")
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: recovery, draftSaveOutbox: queue)
+        model.autosaveEnabled = false
+        model.selectedProjectID = "project-1"
+        model.applyStructuralUITestDraft("Writer words", versionID: "saved")
+        model.selectedProjectID = "project-2"
+        let edited = "Writer words\n"
+        model.fountainDraft = edited
+        model.noteManualDraftEdit()
+        XCTAssertTrue(model.hasUnsavedDraftChanges)
+        XCTAssertTrue(recovery.dirtyOrdinarySnapshot(ownerUserId: owner, projectId: "project-2")?.draft.utf8
+            .elementsEqual(edited.utf8) == true)
+        try? await Task.sleep(nanoseconds: 1_100_000_000)
+        XCTAssertTrue(model.hasUnsavedDraftChanges)
+    }
+
+    @MainActor
     func testRevertingToSavedRawTextDoesNotBecomeDirtyAfterDebounce() async throws {
         let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
         let suite = "them.save-revert.\(UUID().uuidString)"
@@ -311,6 +403,307 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
         XCTAssertEqual(recovery.payloads(ownerUserId: owner)["project-1"]?["draft"] as? String, model.fountainDraft)
         let copies = try await queue.entriesForTesting()
         XCTAssertEqual(copies.map(\.draft), ["Draft one"])
+        try? await Task.sleep(nanoseconds: 1_100_000_000)
+    }
+
+    @MainActor
+    func testRepeatedConflictInvalidatesOlderServerChoiceFetch() async throws {
+        let owner = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""
+        let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        try await queue.enqueue(replacingOwner(of: makeEntry(id: "writer"), with: owner))
+        _ = try await queue.retainConflict(projectId: "project-1", ownerUserId: owner)
+        let suite = "them.repeated-conflict-fetch.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let deferred = DeferredConflictProject()
+        let recovery = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "recovery")
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: recovery, draftSaveOutbox: queue,
+            conflictProjectLoader: { _ in await deferred.load() })
+        model.selectedProjectID = "project-1"
+        model.fountainDraft = "Draft one"
+        let conflict = ScreenplayStudioViewModel.SaveConflictState(projectId: "project-1",
+            baseVersionId: "server-v1", serverVersionId: "remote", serverDraft: "",
+            serverDraftExcerpt: "", serverUpdatedAt: 1)
+        model.conflictState = conflict
+        let task = Task { await model.loadMissingServerDraftForConflict(conflict,
+            owner: ScreenplayStudioAuthContext(userID: owner,
+                sessionIntentGeneration: BackendAuthClient.currentAuthSessionIntentGeneration()),
+            draftAtChoice: "Draft one", choiceTime: 200) }
+        await fulfillment(of: [deferred.started], timeout: 2)
+        // A fresh presentation can carry identical values but is a different choice.
+        model.conflictState = conflict
+        model.hasUnsavedDraftChanges = true
+        recovery.save(ownerUserId: owner, projectId: "project-1", draft: model.fountainDraft,
+            baseVersionId: "server-v1", dirty: true)
+        let data = try JSONSerialization.data(withJSONObject: ["id": "project-1", "title": "Test",
+            "activeVersionId": "remote", "versions": [["id": "remote", "draft": "Server words"]]])
+        deferred.continuation?.resume(returning: try JSONDecoder().decode(BackendScreenplayProjectSummary.self, from: data))
+        await task.value
+        XCTAssertEqual(model.fountainDraft, "Draft one")
+        XCTAssertEqual(model.conflictState, conflict)
+        XCTAssertTrue(model.hasUnsavedDraftChanges)
+        XCTAssertEqual(recovery.payloads(ownerUserId: owner)["project-1"]?["draft"] as? String, model.fountainDraft)
+        let copies = try await queue.entriesForTesting()
+        XCTAssertEqual(copies.map(\.draft), ["Draft one"])
+        try? await Task.sleep(nanoseconds: 1_100_000_000)
+    }
+
+    @MainActor
+    func testLoadServerKeepsSeparatePreservedConflictDraft() async throws {
+        let owner = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""
+        let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let suite = "them.load-server-preserved.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let recovery = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "recovery")
+        recovery.save(ownerUserId: owner, projectId: "project-1", draft: "Ordinary local draft",
+                      baseVersionId: "base", dirty: true)
+        recovery.savePreservedConflict(ownerUserId: owner, projectId: "project-1",
+                                       draft: "Other preserved words\n", baseVersionId: "older")
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: recovery, draftSaveOutbox: queue)
+        model.selectedProjectID = "project-1"
+        model.fountainDraft = "Ordinary local draft"
+        model.conflictState = ScreenplayStudioViewModel.SaveConflictState(projectId: "project-1",
+            baseVersionId: "base", serverVersionId: "server", serverDraft: "Server draft",
+            serverDraftExcerpt: "Server draft", serverUpdatedAt: 1)
+        model.applyServerVersionFromConflict()
+        XCTAssertEqual(model.fountainDraft, "Server draft")
+        XCTAssertNil(recovery.dirtyOrdinarySnapshot(ownerUserId: owner, projectId: "project-1"))
+        XCTAssertEqual(recovery.firstPreservedConflict(ownerUserId: owner, projectId: "project-1")?.draft,
+                       "Other preserved words\n")
+        XCTAssertEqual(model.recoveryCandidate?.draft, "Other preserved words\n")
+        XCTAssertEqual(model.recoveryCandidate?.isPreservedConflict, true)
+    }
+
+    @MainActor
+    func testDismissingOneRecoveryCopyKeepsOtherCopies() async throws {
+        let owner = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""
+        let suite = "them.dismiss-one-copy.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let recovery = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "recovery")
+        recovery.savePreservedConflict(ownerUserId: owner, projectId: "project-1", draft: "First",
+                                       baseVersionId: "one", savedAt: 100)
+        recovery.savePreservedConflict(ownerUserId: owner, projectId: "project-1", draft: "Second",
+                                       baseVersionId: "two", savedAt: 101)
+        recovery.save(ownerUserId: owner, projectId: "project-1", draft: "Ordinary",
+                      baseVersionId: "three", dirty: true, savedAt: 102)
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: recovery,
+            draftSaveOutbox: ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory))
+        model.selectedProjectID = "project-1"
+        model.recoveryCandidate = .init(projectId: "project-1", draft: "First", baseVersionId: "one",
+                                        savedAt: 100, isPreservedConflict: true)
+        model.discardLocalRecoveryCopy()
+        XCTAssertEqual(model.recoveryCandidate?.draft, "Second")
+        XCTAssertEqual(recovery.firstPreservedConflict(ownerUserId: owner, projectId: "project-1")?.draft, "Second")
+        XCTAssertEqual(recovery.dirtyOrdinarySnapshot(ownerUserId: owner, projectId: "project-1")?.draft, "Ordinary")
+        model.keepServerDraft()
+        XCTAssertEqual(model.recoveryCandidate?.draft, "Ordinary")
+        XCTAssertEqual(recovery.dirtyOrdinarySnapshot(ownerUserId: owner, projectId: "project-1")?.draft, "Ordinary")
+    }
+
+    @MainActor
+    func testDismissingStaleOrdinaryCopyKeepsNewerOrdinaryText() async throws {
+        let owner = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""
+        let suite = "them.dismiss-stale-copy.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let recovery = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "recovery")
+        recovery.save(ownerUserId: owner, projectId: "project-1", draft: "Newer",
+                      baseVersionId: "base", dirty: true, savedAt: 101)
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: recovery,
+            draftSaveOutbox: ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory))
+        model.selectedProjectID = "project-1"
+        model.recoveryCandidate = .init(projectId: "project-1", draft: "Earlier", baseVersionId: "base",
+                                        savedAt: 100, isPreservedConflict: false)
+        model.discardLocalRecoveryCopy()
+        XCTAssertEqual(model.recoveryCandidate?.draft, "Newer")
+        XCTAssertEqual(recovery.dirtyOrdinarySnapshot(ownerUserId: owner, projectId: "project-1")?.draft, "Newer")
+    }
+
+    @MainActor
+    private final class DeferredFailingSavePreflight {
+        let started = XCTestExpectation(description: "Save preflight started")
+        var continuation: CheckedContinuation<BackendScreenplayProjectSummary, Error>?
+        func load() async throws -> BackendScreenplayProjectSummary {
+            try await withCheckedThrowingContinuation { continuation in
+                self.continuation = continuation
+                started.fulfill()
+            }
+        }
+    }
+
+    @MainActor
+    func testFailedSaveAfterProjectSwitchPreservesOriginalProjectText() async throws {
+        let owner = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""
+        let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let suite = "them.save-switch-scope.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let recovery = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "recovery")
+        let deferred = DeferredFailingSavePreflight()
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: recovery, draftSaveOutbox: queue,
+            savePreflightProjectLoader: { _ in try await deferred.load() })
+        model.autosaveEnabled = false
+        let data = try JSONSerialization.data(withJSONObject: ["id": "project-1", "title": "First"])
+        model.selectedProject = try JSONDecoder().decode(BackendScreenplayProjectSummary.self, from: data)
+        model.selectedProjectID = "project-1"
+        model.latestVersionID = ""
+        model.fountainDraft = "Original project words\n"
+        let save = Task { await model.manualSaveDraft() }
+        await fulfillment(of: [deferred.started], timeout: 2)
+        model.selectedProjectID = "project-2"
+        model.fountainDraft = "Different project words"
+        deferred.continuation?.resume(throwing: URLError(.notConnectedToInternet))
+        await save.value
+        let preserved = recovery.firstPreservedConflict(ownerUserId: owner, projectId: "project-1")
+        XCTAssertTrue(preserved?.draft.utf8.elementsEqual("Original project words\n".utf8) == true)
+        XCTAssertEqual(model.fountainDraft, "Different project words")
+        let reopened = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let retained = try await reopened.entriesForTesting()
+        XCTAssertEqual(retained.first?.projectId, "project-1")
+        XCTAssertTrue(retained.first?.draft.utf8.elementsEqual("Original project words\n".utf8) == true)
+        XCTAssertEqual(retained.first?.status, .parked)
+        try? await Task.sleep(nanoseconds: 1_100_000_000)
+    }
+
+    @MainActor
+    func testSuccessfulPreflightAfterProjectSwitchCannotChangeSelectedProject() async throws {
+        let owner = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""
+        let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let suite = "them.save-switch-success.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let recovery = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "recovery")
+        let deferred = DeferredFailingSavePreflight()
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: recovery, draftSaveOutbox: queue,
+            savePreflightProjectLoader: { _ in try await deferred.load() })
+        model.autosaveEnabled = false
+        let data = try JSONSerialization.data(withJSONObject: ["id": "project-1", "title": "First",
+            "activeVersionId": "server-v1", "versions": [["id": "server-v1", "draft": "Original words"]]])
+        let project = try JSONDecoder().decode(BackendScreenplayProjectSummary.self, from: data)
+        model.selectedProject = project
+        model.selectedProjectID = "project-1"
+        model.latestVersionID = ""
+        model.fountainDraft = "Original words"
+        let save = Task { await model.manualSaveDraft() }
+        await fulfillment(of: [deferred.started], timeout: 2)
+        model.selectedProjectID = "project-2"
+        model.latestVersionID = "project-2-version"
+        model.fountainDraft = "Different project words"
+        deferred.continuation?.resume(returning: project)
+        await save.value
+        XCTAssertEqual(model.selectedProjectID, "project-2")
+        XCTAssertEqual(model.latestVersionID, "project-2-version")
+        XCTAssertEqual(model.fountainDraft, "Different project words")
+        let preserved = recovery.firstPreservedConflict(ownerUserId: owner, projectId: "project-1")
+        XCTAssertEqual(preserved?.draft, "Original words")
+        let reopened = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let retained = try await reopened.entriesForTesting()
+        XCTAssertEqual(retained.first?.projectId, "project-1")
+        XCTAssertEqual(retained.first?.status, .parked)
+        try? await Task.sleep(nanoseconds: 1_100_000_000)
+    }
+
+    @MainActor
+    func testPendingSaveDuringDrainConflictRemainsDiscoverableAfterRelaunch() async throws {
+        let owner = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""
+        let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        var first = replacingOwner(of: makeEntry(id: "first", draft: "Original draft"), with: owner)
+        first.baseVersionId = ""
+        try await queue.enqueue(first)
+        let suite = "them.drain-conflict-pending.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let recovery = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "recovery")
+        let deferred = DeferredFailingSavePreflight()
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: recovery, draftSaveOutbox: queue,
+            savePreflightProjectLoader: { _ in try await deferred.load() })
+        model.autosaveEnabled = false
+        let data = try JSONSerialization.data(withJSONObject: ["id": "project-1", "title": "Script",
+            "activeVersionId": "remote", "versions": [["id": "remote", "draft": "Server draft"]]])
+        let project = try JSONDecoder().decode(BackendScreenplayProjectSummary.self, from: data)
+        model.selectedProjectID = project.id
+        model.selectedProject = project
+        model.applyStructuralUITestDraft("Original draft", versionID: "")
+        let drain = Task { await model.resumeQueuedDraftSavesIfNeeded(force: true) }
+        await fulfillment(of: [deferred.started], timeout: 2)
+        let newest = "Newer writer words\n"
+        model.fountainDraft = newest
+        model.hasUnsavedDraftChanges = true
+        await model.manualSaveDraft()
+        deferred.continuation?.resume(returning: project)
+        await drain.value
+        XCTAssertNotNil(model.conflictState)
+        let reopened = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let restored = try await reopened.pendingEntry(projectId: project.id, ownerUserId: owner)
+        XCTAssertTrue(restored?.draft.utf8.elementsEqual(newest.utf8) == true)
+        XCTAssertEqual(restored?.status, .parked)
+        XCTAssertEqual(restored?.lastError, ScreenplayDraftSaveOutbox.conflictReason)
+        try? await Task.sleep(nanoseconds: 1_100_000_000)
+    }
+
+    @MainActor
+    func testEmptyBasePreflightDoesNotAcknowledgeWhitespaceDifferentDraft() async throws {
+        let owner = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""
+        let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let suite = "them.empty-base-exact-preflight.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let data = try JSONSerialization.data(withJSONObject: ["id": "project-1", "title": "Script",
+            "activeVersionId": "server-v2", "versions": [["id": "server-v2", "draft": "Writer words"]]])
+        let project = try JSONDecoder().decode(BackendScreenplayProjectSummary.self, from: data)
+        let recovery = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "recovery")
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: recovery, draftSaveOutbox: queue,
+            savePreflightProjectLoader: { _ in project })
+        model.autosaveEnabled = false
+        model.selectedProjectID = project.id
+        model.selectedProject = project
+        model.latestVersionID = ""
+        let writerDraft = "Writer words\n"
+        model.fountainDraft = writerDraft
+        model.hasUnsavedDraftChanges = true
+        await model.manualSaveDraft()
+        XCTAssertEqual(model.conflictState?.serverVersionId, "server-v2")
+        XCTAssertTrue(model.hasUnsavedDraftChanges)
+        let saved = try await ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory).entriesForTesting()
+        XCTAssertEqual(saved.count, 1)
+        XCTAssertTrue(saved.first?.draft.utf8.elementsEqual(writerDraft.utf8) == true)
+        XCTAssertEqual(saved.first?.status, .parked)
+        XCTAssertTrue(recovery.dirtyOrdinarySnapshot(ownerUserId: owner, projectId: project.id)?.draft.utf8
+            .elementsEqual(writerDraft.utf8) == true)
+        try? await Task.sleep(nanoseconds: 1_100_000_000)
+    }
+
+    @MainActor
+    func testParkedConflictChoiceReopensWhenServerVersionIsUnchanged() async throws {
+        let owner = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""
+        let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let draft = "Exact writer text\n"
+        var entry = replacingOwner(of: makeEntry(id: "choice", draft: draft,
+            source: "studio_conflict_resolve"), with: owner)
+        entry.baseVersionId = "server-v1"
+        entry.status = .parked
+        entry.lastError = ScreenplayDraftSaveOutbox.conflictReason
+        try await queue.enqueue(entry)
+        let suite = "them.same-version-conflict.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore:
+            ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "recovery"), draftSaveOutbox: queue)
+        model.autosaveEnabled = false
+        model.selectedProjectID = "project-1"
+        let data = try JSONSerialization.data(withJSONObject: ["id": "project-1", "title": "Script",
+            "activeVersionId": "server-v1", "versions": [["id": "server-v1", "draft": "Server words"]]])
+        let project = try JSONDecoder().decode(BackendScreenplayProjectSummary.self, from: data)
+        let applied = await model.hydrateDraftRestoringQueuedSaves(from: project)
+        XCTAssertTrue(applied)
+        XCTAssertEqual(model.conflictState?.serverVersionId, "server-v1")
+        XCTAssertTrue(model.fountainDraft.utf8.elementsEqual(draft.utf8))
+        XCTAssertTrue(model.hasUnsavedDraftChanges)
+        let saved = try await ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory).entriesForTesting()
+        XCTAssertEqual(saved.first?.status, .parked)
+        XCTAssertTrue(saved.first?.draft.utf8.elementsEqual(draft.utf8) == true)
         try? await Task.sleep(nanoseconds: 1_100_000_000)
     }
 
@@ -557,6 +950,24 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
         XCTAssertEqual(after.first { $0.id == "newer-edit" }?.baseVersionId, "confirmed")
     }
 
+    func testStaleAcknowledgementCannotRetireNewlyParkedConflict() async throws {
+        let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let older = makeEntry(id: "older", draft: "Original writer words", createdAt: 100)
+        let choice = makeEntry(id: "choice", draft: "Chosen writer words", createdAt: 101,
+                               source: "studio_conflict_resolve")
+        try await store.enqueue(older)
+        try await store.enqueue(choice)
+        try await store.markInflight(id: choice.id)
+        _ = try await store.retainConflict(projectId: choice.projectId, ownerUserId: choice.ownerUserId)
+        let retired = try await store.markSucceeded(id: choice.id, serverVersionId: "server-v2",
+                                                     supersedesEarlierSaves: true, requireInflight: true)
+        XCTAssertFalse(retired)
+        let reopened = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let entries = try await reopened.entriesForTesting()
+        XCTAssertEqual(entries.map(\.draft), [older.draft, choice.draft])
+        XCTAssertTrue(entries.allSatisfy { $0.status == .parked })
+    }
+
     func testExplicitServerChoiceCannotDiscardOtherOwnerOrLaterConflict() async throws {
         let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
         try await store.enqueue(makeEntry(id: "old", createdAt: 100))
@@ -566,6 +977,128 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
         try await store.discardConflicts(projectId: "project-1", ownerUserId: "user-1", through: 150)
         let after = try await store.entriesForTesting()
         XCTAssertEqual(Set(after.map(\.id)), ["private", "later"])
+    }
+
+    func testHeldSaveIsPersistedSeparatelyFromAnIdenticalRunnableSave() async throws {
+        let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let active = makeEntry(id: "active", draft: "Exact writer words", createdAt: 100)
+        var held = makeEntry(id: "held", draft: active.draft, createdAt: 101)
+        held.status = .parked
+        held.nextAttemptAt = 0
+        held.lastError = "Writer choice required"
+        try await queue.enqueue(active)
+        try await queue.enqueue(held)
+
+        let reopened = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let stored = try await reopened.entriesForTesting()
+        XCTAssertEqual(stored, [active, held], "Same text is not permission to drop a separate held intent.")
+        let next = try await reopened.beginNext(projectId: active.projectId, ownerUserId: active.ownerUserId, force: true)
+        XCTAssertEqual(next?.id, active.id)
+        try await reopened.remove(id: active.id)
+        let replay = try await reopened.beginNext(projectId: held.projectId, ownerUserId: held.ownerUserId, force: true)
+        XCTAssertNil(replay, "Even force-reconnect must not automatically submit held writer words.")
+    }
+
+    func testExistingIdentifierCanBeHeldInOneDurableWrite() async throws {
+        let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        var held = makeEntry(id: "existing")
+        try await queue.enqueue(held)
+        held.status = .parked
+        held.nextAttemptAt = 0
+        held.lastError = "Writer choice required"
+        try await queue.enqueue(held)
+        let reopened = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let stored = try await reopened.entriesForTesting()
+        XCTAssertEqual(stored, [held])
+        let replay = try await reopened.beginNext(projectId: held.projectId, ownerUserId: held.ownerUserId, force: true)
+        XCTAssertNil(replay)
+    }
+
+    func testFailedHeldWriteDoesNotLeaveAnInMemorySaveThatWasNeverPersisted() async throws {
+        let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let active = makeEntry(id: "active")
+        try await queue.enqueue(active)
+        let manifest = storageDirectory.appendingPathComponent("queue.json")
+        // Break only this test's owned destination; exercise a real write failure.
+        try FileManager.default.removeItem(at: manifest)
+        try FileManager.default.createDirectory(at: manifest, withIntermediateDirectories: false)
+        var held = makeEntry(id: "held", draft: "Held writer words")
+        held.status = .parked
+        do {
+            try await queue.enqueue(held)
+            XCTFail("A failed disk write must not report durable retention.")
+        } catch {}
+        let stored = try await queue.entriesForTesting()
+        XCTAssertEqual(stored, [active], "Memory must roll back when durable admission fails.")
+    }
+
+    func testFailedQueueTransitionsRollBackInMemory() async throws {
+        for operation in ["begin", "inflight", "retry", "park", "remove", "removeAll"] {
+            let directory = storageDirectory.appendingPathComponent(operation, isDirectory: true)
+            let queue = ScreenplayDraftSaveOutbox(storageDirectory: directory)
+            let original = makeEntry(id: "writer", draft: "Exact writer words")
+            try await queue.enqueue(original)
+            let manifest = directory.appendingPathComponent("queue.json")
+            try FileManager.default.removeItem(at: manifest)
+            try FileManager.default.createDirectory(at: manifest, withIntermediateDirectories: false)
+            do {
+                switch operation {
+                case "begin": _ = try await queue.beginNext(projectId: original.projectId,
+                    ownerUserId: original.ownerUserId, force: true)
+                case "inflight": try await queue.markInflight(id: original.id)
+                case "retry": try await queue.markRetryable(id: original.id, error: "offline")
+                case "park": try await queue.markParked(id: original.id, error: "held")
+                case "remove": try await queue.remove(id: original.id)
+                default: try await queue.removeAll(projectId: original.projectId, ownerUserId: original.ownerUserId)
+                }
+                XCTFail("\(operation) must report its failed durable write")
+            } catch {}
+            let retained = try await queue.entriesForTesting()
+            XCTAssertEqual(retained, [original], "\(operation) must not mutate the in-memory queue on write failure")
+        }
+    }
+
+    func testQueuedConflictChoiceIsParkedInsteadOfReplayed() async throws {
+        let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let entry = makeEntry(id: "choice", draft: "Exact local words", source: "studio_conflict_resolve")
+        try await queue.enqueue(entry)
+        let next = try await queue.beginNext(projectId: entry.projectId, ownerUserId: entry.ownerUserId, force: true)
+        XCTAssertNil(next)
+        let reopened = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let saved = try await reopened.entriesForTesting()
+        XCTAssertEqual(saved.first?.status, .parked)
+        XCTAssertEqual(saved.first?.draft, entry.draft)
+        XCTAssertEqual(saved.first?.baseVersionId, entry.baseVersionId)
+        let recoverable = try await reopened.pendingEntry(projectId: entry.projectId, ownerUserId: entry.ownerUserId)
+        XCTAssertEqual(recoverable?.draft, entry.draft)
+    }
+
+    func testInterruptedConflictChoiceIsParkedOnRelaunch() async throws {
+        let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let entry = makeEntry(id: "choice", source: "studio_conflict_resolve")
+        try await queue.enqueue(entry)
+        try await queue.markInflight(id: entry.id)
+        let reopened = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let saved = try await reopened.entriesForTesting()
+        XCTAssertEqual(saved.first?.status, .parked)
+        let recoverable = try await reopened.pendingEntry(projectId: entry.projectId, ownerUserId: entry.ownerUserId)
+        XCTAssertEqual(recoverable?.draft, entry.draft)
+        let next = try await reopened.beginNext(projectId: entry.projectId, ownerUserId: entry.ownerUserId, force: true)
+        XCTAssertNil(next)
+    }
+
+    func testFailedConflictChoiceRequiresRenewedConfirmation() async throws {
+        let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let entry = makeEntry(id: "choice", source: "studio_conflict_resolve")
+        try await queue.enqueue(entry)
+        try await queue.markRetryable(id: entry.id, error: "offline")
+        let saved = try await queue.entriesForTesting()
+        XCTAssertEqual(saved.first?.status, .parked)
+        let reopened = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let recoverable = try await reopened.pendingEntry(projectId: entry.projectId, ownerUserId: entry.ownerUserId)
+        XCTAssertEqual(recoverable?.draft, entry.draft)
+        let next = try await queue.beginNext(projectId: entry.projectId, ownerUserId: entry.ownerUserId, force: true)
+        XCTAssertNil(next)
     }
 
     private var storageDirectory: URL!
@@ -597,6 +1130,51 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
         XCTAssertEqual(restored.first?.id, "save-1")
         XCTAssertEqual(restored.first?.status, .pending)
         XCTAssertEqual(restored.first?.lastError, "Interrupted while saving.")
+    }
+
+    func testUnadmittedOrParkedSaveCannotBecomeInflight() async throws {
+        let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let original = makeEntry(id: "original", draft: "Exact writer text")
+        let duplicate = makeEntry(id: "duplicate", draft: original.draft)
+        try await queue.enqueue(original)
+        try await queue.enqueue(duplicate)
+        do {
+            try await queue.markInflight(id: duplicate.id)
+            XCTFail("A coalesced identifier has no durable entry and must not become inflight")
+        } catch {}
+        try await queue.markParked(id: original.id, error: "Writer choice required")
+        do {
+            try await queue.markInflight(id: original.id)
+            XCTFail("A parked writer choice must not become inflight")
+        } catch {}
+        let reopened = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let entries = try await reopened.entriesForTesting()
+        XCTAssertEqual(entries.count, 1)
+        XCTAssertEqual(entries.first?.id, original.id)
+        XCTAssertEqual(entries.first?.status, .parked)
+        XCTAssertTrue(entries.first?.draft.utf8.elementsEqual(original.draft.utf8) == true)
+    }
+
+    func testQueueKeepsWhitespaceDifferentDraftsAndRejectsReusedIdentifier() async throws {
+        let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let first = makeEntry(id: "first", draft: "Writer words", createdAt: 100)
+        let second = makeEntry(id: "second", draft: "Writer words\n", createdAt: 101)
+        try await queue.enqueue(first)
+        try await queue.enqueue(second)
+        let reopened = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let retained = try await reopened.entriesForTesting()
+        XCTAssertEqual(retained.count, 2)
+        XCTAssertTrue(retained[0].draft.utf8.elementsEqual(first.draft.utf8))
+        XCTAssertTrue(retained[1].draft.utf8.elementsEqual(second.draft.utf8))
+        let reused = makeEntry(id: first.id, draft: second.draft, createdAt: 101)
+        do {
+            try await queue.enqueue(reused)
+            XCTFail("Reusing an identifier for byte-different text must fail")
+        } catch {}
+        let after = try await queue.entriesForTesting()
+        XCTAssertEqual(after.count, 2)
+        XCTAssertTrue(after[0].draft.utf8.elementsEqual(first.draft.utf8))
+        XCTAssertTrue(after[1].draft.utf8.elementsEqual(second.draft.utf8))
     }
 
     func testQueueDeduplicatesSameSaveIdentifier() async throws {
@@ -762,7 +1340,8 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
     private func makeEntry(
         id: String,
         draft: String = "Draft one",
-        createdAt: TimeInterval = 100
+        createdAt: TimeInterval = 100,
+        source: String = "studio_autosave"
     ) -> ScreenplayDraftSaveOutboxEntry {
         ScreenplayDraftSaveOutboxEntry(
             id: id,
@@ -772,7 +1351,7 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
             title: "Feature",
             phase: "scene_draft",
             notes: "",
-            source: "studio_autosave",
+            source: source,
             studioWriteAnchors: [],
             screenplayBindings: [],
             baseVersionId: "server-v1",
