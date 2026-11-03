@@ -87,6 +87,11 @@ export function createScreenplayProjectInitializer(deps) {
       return res.status(kind === "created" ? 201 : 200).json(buildScreenplayEnvelope(req, commit.owner, {
         stage, status: kind === "created" ? "created" : "replayed", created: kind === "created",
         replayed: kind === "replayed", conflict: false, project_id: project.id,
+        blank_creation: {
+          client_request_id: project.initialCreationRequestId,
+          project_id: project.id,
+          creation_request_hash: project.initialCreationRequestHash,
+        },
         project: toScreenplayProjectPayload(project, { includeVersions: true, includeDrafts: true, versionLimit: 24 }),
         screenplay_active_project_id: commit.owner.activeProjectId || "",
         screenplay_project_count: commit.owner.projects.length,

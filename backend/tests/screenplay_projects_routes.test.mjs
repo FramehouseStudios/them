@@ -19,6 +19,15 @@ function blankProjectBody(overrides = {}) {
     blank_project: { client_request_id: "blank-request-1" }, ...overrides };
 }
 
+function assertBlankCreationReceipt(response, body) {
+  assert.deepEqual(Object.keys(response.body.blank_creation).sort(), [
+    "client_request_id", "creation_request_hash", "project_id",
+  ]);
+  assert.equal(response.body.blank_creation.client_request_id, body.blank_project.client_request_id);
+  assert.equal(response.body.blank_creation.project_id, body.project_id);
+  assert.match(response.body.blank_creation.creation_request_hash, /^[a-f0-9]{64}$/);
+}
+
 test("[blank-project] lost response replay creates one zero-version project with one durable write", async () => {
   const deps = defaultDeps();
   const stats = { calls: 0, writes: 0 };
@@ -27,8 +36,11 @@ test("[blank-project] lost response replay creates one zero-version project with
     const body = blankProjectBody();
     const ignoredResponse = await postJson(base, "/screenplay/projects/initialize", body);
     assert.equal(ignoredResponse.status, 201);
+    assertBlankCreationReceipt(ignoredResponse, body);
     const replay = await postJson(base, "/screenplay/projects", body);
     assert.equal(replay.status, 200);
+    assertBlankCreationReceipt(replay, body);
+    assert.deepEqual(replay.body.blank_creation, ignoredResponse.body.blank_creation);
     assert.equal(replay.body.replayed, true);
     assert.equal(replay.body.project_id, body.project_id);
     assert.equal(Object.hasOwn(replay.body, "version_id"), false);
@@ -53,6 +65,8 @@ test("[blank-project] concurrent identical requests serialize to one project", a
       postJson(base, "/screenplay/projects/initialize", body),
     ]);
     assert.deepEqual(responses.map(response => response.status).sort(), [200, 201]);
+    for (const response of responses) assertBlankCreationReceipt(response, body);
+    assert.deepEqual(responses[0].body.blank_creation, responses[1].body.blank_creation);
     assert.equal(deps._owner.projects.filter(project => project.id === body.project_id).length, 1);
     assert.equal(stats.writes, 1);
   });
@@ -77,6 +91,7 @@ test("[blank-project] persisted receipt survives normalization and replay does n
     const replay = await postJson(base, "/screenplay/projects/initialize", body);
     assert.equal(replay.status, 200);
     assert.equal(replay.body.replayed, true);
+    assertBlankCreationReceipt(replay, body);
   });
   const replayed = deps._owner.projects.find(item => item.id === body.project_id);
   assert.equal(replayed.title, "Writer's Later Title");
@@ -113,6 +128,37 @@ test("[blank-project] collisions and changed creation metadata fail without muta
     assert.equal(reusedElsewhere.status, 409);
     assert.equal(reusedElsewhere.body.error, "screenplay_initial_request_reused");
     assert.equal(deps._owner.projects.some(project => project.id === "project-other"), false);
+  });
+});
+
+test("[blank-project] mixed project and request identities or a corrupted stored hash fail closed", async () => {
+  const deps = defaultDeps();
+  await withTestServer(deps, async base => {
+    const first = blankProjectBody();
+    const second = blankProjectBody({
+      project_id: "project-blank-two",
+      title: "The Other Empty Reel",
+      blank_project: { client_request_id: "blank-request-2" },
+    });
+    assert.equal((await postJson(base, "/screenplay/projects/initialize", first)).status, 201);
+    assert.equal((await postJson(base, "/screenplay/projects/initialize", second)).status, 201);
+    const before = structuredClone(deps._owner);
+
+    const mixed = await postJson(base, "/screenplay/projects/initialize", {
+      ...first,
+      blank_project: second.blank_project,
+    });
+    assert.equal(mixed.status, 409);
+    assert.equal(mixed.body.error, "screenplay_initial_request_reused");
+    assert.deepEqual(deps._owner, before);
+
+    const stored = deps._owner.projects.find(project => project.id === first.project_id);
+    stored.initialCreationRequestHash = "0".repeat(64);
+    const corrupted = structuredClone(deps._owner);
+    const replay = await postJson(base, "/screenplay/projects/initialize", first);
+    assert.equal(replay.status, 409);
+    assert.equal(replay.body.error, "screenplay_initial_request_reused");
+    assert.deepEqual(deps._owner, corrupted);
   });
 });
 
