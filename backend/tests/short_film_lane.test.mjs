@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { runShortFilmLane } from "../lib/clementine/short_film_lane.js";
 import { generateOfflineShortFilmDraft } from "../lib/clementine/short_film_prompt.js";
+import { resolveShortFilmCraftContext } from "../lib/clementine/short_film_craft_context.js";
 
 const parsed = { totalPages: 15, requestedPages: 5, genre: "horror", setting: "bedroom", characters: ["John","Sally","Sam"] };
 
@@ -70,4 +71,26 @@ test("lane passes apiMode/reasoningEffort/fallbackModel from chatModelPlan", asy
   assert.equal(captured.apiMode, "responses");
   assert.equal(captured.fallbackModel, "gpt-4o");
   assert.equal(captured.model, "gpt-5.6-sol");
+});
+
+test("lane wires selected craft into the live supplier prompt", async () => {
+  const craftParsed = {
+    ...parsed,
+    totalPages: 90,
+    influences: { tones: ["tense"] },
+  };
+  const selected = resolveShortFilmCraftContext(craftParsed);
+  let capturedSystem = "";
+  await runShortFilmLane({
+    req: { clementine: { lane: "Page" } },
+    parsed: craftParsed,
+    chatSupplier: {
+      chat: async ({ messages }) => {
+        capturedSystem = messages.find((message) => message.role === "system")?.content || "";
+        return { text: "INT. BEDROOM - NIGHT\n\nJOHN\nStay close.", usage: { outputTokens: 10 } };
+      },
+    },
+  });
+  assert.equal(selected.cards.length, 2);
+  for (const card of selected.cards) assert.ok(capturedSystem.includes(card.title));
 });

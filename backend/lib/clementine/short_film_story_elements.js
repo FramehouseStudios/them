@@ -8,6 +8,16 @@ import { getFeatureBeats } from "./feature_structure_knowledge.js";
 
 function trimToString(v) { return v == null ? "" : String(v).trim(); }
 
+const FEATURE_BEAT_RATIOS = [0, 0.05, 0.10, 0.12, 0.20, 0.25, 0.30, 0.40, 0.50, 0.62, 0.75, 0.78, 0.80, 0.90, 1];
+
+function scaledBeatPage(index, count, totalPages) {
+  if (count === FEATURE_BEAT_RATIOS.length && totalPages > 30) {
+    return Math.max(1, Math.round(FEATURE_BEAT_RATIOS[index] * totalPages));
+  }
+  if (count <= 1) return 1;
+  return 1 + Math.round((index * (Math.max(1, totalPages) - 1)) / (count - 1));
+}
+
 function buildLogline({ parsed, project }) {
   const genre = trimToString(parsed?.genre || project?.tone || "horror");
   const setting = trimToString(parsed?.setting || project?.setting || "bedroom");
@@ -76,9 +86,8 @@ function buildBeats({ parsed, project }) {
         { id: "b14", page: 14, label: "Finale Confrontation", text: `Chase at speed; the midnight clock, the door, the listening shadow.` },
         { id: "b15", page: 15, label: "Final Image", text: `Mirror of opening, cost paid, ${chars.join(", ")} changed or gone.` },
       ];
-      // For 90p, space pages across 90: page = round((i+1)*total/15) so Final Image = total
       const sliced = [...kbBeats.slice(0,4), ...rest].slice(0, Math.max(5, Math.min(30, total)));
-      return sliced.map((b,i)=>({ ...b, id:`b${i+1}`, page: total>30 ? Math.round(((i+1)*total)/sliced.length) : i+1, genre: kb.genre, tone: tones, motif: kb.motif }));
+      return sliced.map((b,i)=>({ ...b, id:`b${i+1}`, page: scaledBeatPage(i, sliced.length, total), genre: kb.genre, tone: tones, motif: kb.motif }));
     }
   } catch {}
   // 15 beats for 15p = 1 per page; for 5p delivery first 5 are written now, rest are roadmap
@@ -101,7 +110,7 @@ function buildBeats({ parsed, project }) {
   ];
   // Slice to totalPages, attach genre/tone hint — for 90p space pages proportionally
   const baseSliced = allBeats.slice(0, Math.max(5, Math.min(30, total)));
-  return baseSliced.map((b,i)=>({ ...b, page: total>30 ? Math.round(((i+1)*total)/baseSliced.length) : b.page, genre, tone: tones }));
+  return baseSliced.map((b,i)=>({ ...b, page: scaledBeatPage(i, baseSliced.length, total), genre, tone: tones }));
 }
 
 function attachStoryElements(project, parsed) {

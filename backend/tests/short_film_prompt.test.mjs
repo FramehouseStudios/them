@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { buildShortFilmPrompt, generateOfflineShortFilmDraft } from "../lib/clementine/short_film_prompt.js";
+import { resolveShortFilmCraftContext } from "../lib/clementine/short_film_craft_context.js";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -58,4 +59,46 @@ test("offline draft respects requestedPages (plain Fountain)", () => {
 test("build prompt handles missing setting", () => {
   const { system } = buildShortFilmPrompt({ totalPages: 10, requestedPages: 2, genre: "comedy", setting: null, characters: ["Alice"] });
   assert.ok(system.includes("ALICE") || system.includes("Alice"));
+});
+
+test("craft context is explicit, length-aware, and cache-sensitive", () => {
+  const generic = resolveShortFilmCraftContext({
+    totalPages: 5,
+    genre: "horror",
+    influences: { tones: [] },
+  });
+  assert.equal(generic.block, "", "generic horror with no tone must not inject a craft card");
+  assert.equal(generic.cacheKey, "craft:none");
+
+  const short = resolveShortFilmCraftContext({
+    totalPages: 5,
+    genre: "horror",
+    influences: { tones: ["tense"] },
+  });
+  const feature = resolveShortFilmCraftContext({
+    totalPages: 90,
+    genre: "horror",
+    influences: { tones: ["tense"] },
+  });
+  const melancholy = resolveShortFilmCraftContext({
+    totalPages: 5,
+    genre: "horror",
+    influences: { tones: ["melancholic"] },
+  });
+  assert.equal(short.cards.length, 1);
+  assert.equal(feature.cards.length, 2);
+  assert.notEqual(short.cacheKey, feature.cacheKey);
+  assert.notEqual(short.cacheKey, melancholy.cacheKey);
+});
+
+test("90-page prompt carries the feature act split", () => {
+  const { system } = buildShortFilmPrompt({
+    totalPages: 90,
+    requestedPages: 5,
+    genre: "thriller",
+    setting: "courthouse",
+    characters: ["Mara", "Eli"],
+    influences: { tones: ["tense"] },
+  });
+  assert.match(system, /Feature act splits: Act1 23p \/ Act2 45p \/ Act3 22p\./);
 });

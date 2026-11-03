@@ -33,3 +33,23 @@ test("attachStoryElements singular project has logline/synopsis/beats", () => {
   assert.equal(proj.outline.beats.length, proj.beats.length);
   assert.ok(logline && synopsis && beats);
 });
+
+test("90-page feature beats span the full script and honor act landmarks", () => {
+  const parsed = {
+    genre: "thriller",
+    setting: "courthouse",
+    characters: ["Mara", "Eli"],
+    totalPages: 90,
+    requestedPages: 5,
+    influences: { tones: ["tense"] },
+  };
+  const beats = buildBeats({ parsed, project: null });
+  assert.equal(beats.length, 15);
+  assert.equal(beats[0].page, 1);
+  assert.equal(beats.find((beat) => beat.label === "Break into Two")?.page, 23);
+  assert.equal(beats.find((beat) => beat.label === "Midpoint")?.page, 45);
+  assert.equal(beats.find((beat) => beat.label === "Final Image")?.page, 90);
+  for (let index = 1; index < beats.length; index += 1) {
+    assert.ok(beats[index].page >= beats[index - 1].page);
+  }
+});

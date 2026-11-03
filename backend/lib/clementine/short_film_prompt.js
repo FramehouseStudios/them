@@ -3,8 +3,8 @@
 // Uses story_structure_knowledge when available, falls back to generic scaffold.
 
 import { getThreeActBeats } from "./story_structure_knowledge.js";
-import { selectCraftCards } from "./craft_cards.js";
 import { getFeatureBeats } from "./feature_structure_knowledge.js";
+import { resolveShortFilmCraftContext } from "./short_film_craft_context.js";
 
 const promptCache = new Map();
 const PROMPT_CACHE_MAX = 64;
@@ -20,8 +20,8 @@ function trimToString(v) {
  */
 function buildShortFilmPrompt(parsed, opts = {}) {
   const project = opts.project || null;
-  const craftKey = (()=>{ try{ const cards=selectCraftCards({genre:parsed?.genre, tone:parsed?.influences?.tones?.[0]||""}); return cards.slice(0, Number(parsed?.totalPages)>30?2:1).map(c=>c.id).join(","); }catch{return ""} })();
-  const key = JSON.stringify([parsed?.totalPages, parsed?.requestedPages, parsed?.genre, parsed?.setting, parsed?.characters, parsed?.influences, project?.characterContexts?.map((c)=>`${c.name}:${c.voice}:${c.memory?.length||0}`).join("|")||"", craftKey]);
+  const craft = resolveShortFilmCraftContext(parsed);
+  const key = JSON.stringify([parsed?.totalPages, parsed?.requestedPages, parsed?.genre, parsed?.setting, parsed?.characters, parsed?.influences, project?.characterContexts?.map((c)=>`${c.name}:${c.voice}:${c.memory?.length||0}`).join("|")||"", craft.cacheKey]);
   if (promptCache.has(key)) return promptCache.get(key);
   const total = Number(parsed?.totalPages) || 15;
   const req = Number(parsed?.requestedPages) || 5;
@@ -45,17 +45,7 @@ function buildShortFilmPrompt(parsed, opts = {}) {
       ? getFeatureBeats({ genre, tone: tone0, mood: parsed?.mood || "", totalPages: total, influences })
       : getThreeActBeats({ genre, tone: tone0, mood: parsed?.mood || "", influences });
   } catch {}
-  let craftBlock = "";
-  try {
-    const hasTone = Boolean(influences.tones?.[0]) && String(influences.tones[0]).trim().length > 2;
-    const isNonDefault = hasTone || genre.toLowerCase() !== "horror";
-    if (isNonDefault) {
-      const cards = selectCraftCards({ genre, tone: influences.tones?.[0] || "" });
-      const count = total > 30 ? 2 : 1;
-      const top = cards.slice(0, count);
-      craftBlock = `Craft (selected for ${genre}/${influences.tones?.[0] || "tone"}):\n${top.map((c)=>`${c.title} — ${c.want} / ${c.cost} (motif: ${c.motif})`).join("\n")}`;
-    }
-  } catch {}
+  const craftBlock = craft.block;
   const outline = structure
     ? [
         `${total}-page outline — 3-act beats (${structure.genre}${structure.rawGenre!==structure.genre?` ← ${parsed.genre}`:""}):`,
