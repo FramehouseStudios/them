@@ -265,6 +265,30 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
     }
 
     @MainActor
+    func testUnicodeDistinctPreservedCopyRemainsVisibleWhenSavedTextReturns() async throws {
+        let suite = "them.unicode-recovery.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let recovery = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "recovery")
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: recovery,
+            draftSaveOutbox: ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory))
+        model.autosaveEnabled = false
+        model.selectedProjectID = "project-1"
+        let saved = "Caf\u{00E9}"
+        let local = "Cafe\u{0301}"
+        model.applyStructuralUITestDraft(saved, versionID: "saved")
+        model.fountainDraft = local
+        model.noteManualDraftEdit()
+        model.preserveLocalDraftForLiveSyncRecovery(local, projectID: "project-1")
+        XCTAssertTrue(model.recoveryCandidate?.draft.utf8.elementsEqual(local.utf8) == true)
+        model.fountainDraft = saved
+        model.noteManualDraftEdit()
+        XCTAssertFalse(model.hasUnsavedDraftChanges)
+        XCTAssertTrue(model.recoveryCandidate?.draft.utf8.elementsEqual(local.utf8) == true)
+        try? await Task.sleep(nanoseconds: 1_100_000_000)
+    }
+
+    @MainActor
     func testBlankManualEditsAreRecoverableAfterStoreReinitialization() async throws {
         let owner = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""
         let suite = "them.manual-blank-recovery.\(UUID().uuidString)"

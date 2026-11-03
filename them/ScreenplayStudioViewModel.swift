@@ -7100,7 +7100,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         let hasDifferentPreservedConflict = recoveryCandidate.map {
             $0.projectId == normalizedProjectId &&
                 $0.isPreservedConflict &&
-                $0.draft != draft
+                !$0.draft.utf8.elementsEqual(draft.utf8)
         } ?? false
         if !dirty && !hasDifferentPreservedConflict {
             recoveryCandidate = nil
