@@ -7195,11 +7195,12 @@ final class ScreenplayStudioViewModel: ObservableObject {
         if let failed, let queued = pending {
             pending = await pendingDraftSaveAfterFailure(queued, after: failed)
         }
-        if completedCount > 0, pending == nil, authContextIsCurrent(context) {
-            Task { @MainActor [weak self] in
-                await Task.yield()
-                await self?.resumeQueuedDraftSavesIfNeeded()
-            }
+        if completedCount == 4, pending == nil, authContextIsCurrent(context) {
+            // Finish this owned batch handoff before returning. A detached task
+            // can lose its opportunity to run and leave the fifth save pending.
+            await Task.yield()
+            await resumeQueuedDraftSavesIfNeeded()
+            return
         }
         guard let pending else { return }
         // Restore the handoff from original50d04ae using the current immutable
