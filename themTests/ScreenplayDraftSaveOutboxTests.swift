@@ -333,6 +333,29 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
     }
 
     @MainActor
+    func testClearedManualEditRemainsDirtyWhenAccountBaselineIsUnknown() async throws {
+        let suite = "them.account-cleared-baseline.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let recovery = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "recovery")
+        var owner = "account-a"
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: recovery,
+            draftSaveOutbox: ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory),
+            studioAuthContextProvider: { ScreenplayStudioAuthContext(userID: owner, sessionIntentGeneration: 1) })
+        model.autosaveEnabled = false
+        model.selectedProjectID = "same-project-id"
+        model.applyStructuralUITestDraft("Writer words", versionID: "saved-a")
+        owner = "account-b"
+        model.fountainDraft = ""
+        model.noteManualDraftEdit()
+        XCTAssertTrue(model.hasUnsavedDraftChanges)
+        XCTAssertEqual(recovery.dirtyOrdinarySnapshot(ownerUserId: owner, projectId: "same-project-id")?.draft, "")
+        XCTAssertNil(recovery.dirtyOrdinarySnapshot(ownerUserId: "account-a", projectId: "same-project-id"))
+        try? await Task.sleep(nanoseconds: 1_100_000_000)
+        XCTAssertTrue(model.hasUnsavedDraftChanges)
+    }
+
+    @MainActor
     func testUnknownProjectBaselineDoesNotTreatNormalizedMatchAsSaved() async throws {
         let owner = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""
         let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)

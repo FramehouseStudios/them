@@ -7036,8 +7036,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
     private func draftHasUnsavedExactChanges(_ draft: String) -> Bool {
         guard let saved = lastSavedDraftExact, saved.projectID == selectedProjectID,
               saved.ownerID == currentStudioAuthContext().userID else {
-            // Without an exact same-project baseline, never infer that writer text is saved.
-            return !draft.isEmpty
+            // An intentional clear is still an edit when the saved baseline is unknown.
+            return isManualDraftEditing || !draft.isEmpty
         }
         return !draft.utf8.elementsEqual(saved.draft.utf8)
     }
