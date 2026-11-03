@@ -1039,6 +1039,22 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
     }
 
     @MainActor
+    func testRemoteRefreshKeepsUnsavedWhitespaceAndRaisesConflict() {
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store)
+        model.autosaveEnabled = false
+        model.selectedProjectID = "whitespace-refresh-\(UUID().uuidString)"
+        model.applyServerDraft("Original server page", versionId: "v1")
+        let local = "\r\n \t"
+        model.fountainDraft = local
+        model.noteManualDraftEdit()
+        model.applyServerDraft("Changed server page", versionId: "v2")
+        XCTAssertEqual(Data(model.fountainDraft.utf8), Data(local.utf8))
+        XCTAssertTrue(model.hasUnsavedDraftChanges)
+        XCTAssertEqual(model.latestVersionID, "v1")
+        XCTAssertEqual(model.conflictState?.serverVersionId, "v2")
+    }
+
+    @MainActor
     func testUnchangedRawServerDraftStaysCleanAndWhitespaceEditStaysDirty() async {
         let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store)
         model.autosaveEnabled = false
