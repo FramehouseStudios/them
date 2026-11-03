@@ -5,6 +5,7 @@ import http from "node:http";
 import {
   cleanupStudioEvalSessionsWithHelper,
   createStudioEvalDebugContext,
+  createStudioOwnerScopedDefaults,
   ensureStudioProjectLoadedWithDebugHook,
   ensureStudioVisibleWithOpenHandshake,
   stageStudioProjectLoadDebugRequest,
@@ -35,6 +36,8 @@ function runOptional(command, args, options = {}) {
 
 const studioDebug = createStudioEvalDebugContext({ run, runOptional });
 const studioApp = studioDebug.ownedApp;
+let ownerLocalDefaults = null;
+let ownerLocalSnapshot = null;
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -268,47 +271,19 @@ function readDebugDiffState() {
 }
 
 function readFullThreadBrowseStateMap() {
-  const raw = readDefaultString("studio.full.thread.state.v1");
-  if (!raw) return {};
-  try {
-    const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === "object" ? parsed : {};
-  } catch {
-    return {};
-  }
+  return ownerLocalDefaults?.readJSON("studio.full.thread.state.v1", {}) || {};
 }
 
 function readStudioAskNoteHistoryMap() {
-  const raw = readDefaultString("studio.ask.note.history.v2");
-  if (!raw) return {};
-  try {
-    const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === "object" ? parsed : {};
-  } catch {
-    return {};
-  }
+  return ownerLocalDefaults?.readJSON("studio.ask.note.history.v2", {}) || {};
 }
 
 function readAcknowledgedDiffMap() {
-  const raw = readDefaultString("studio.diff.keep-current.v1");
-  if (!raw) return {};
-  try {
-    const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === "object" ? parsed : {};
-  } catch {
-    return {};
-  }
+  return ownerLocalDefaults?.readJSON("studio.diff.keep-current.v1", {}) || {};
 }
 
 function readAcknowledgedDiffWriteIDMap() {
-  const raw = readDefaultString("studio.diff.keep-current.writeids.v1");
-  if (!raw) return {};
-  try {
-    const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === "object" ? parsed : {};
-  } catch {
-    return {};
-  }
+  return ownerLocalDefaults?.readJSON("studio.diff.keep-current.writeids.v1", {}) || {};
 }
 
 function readDefaultsDomainJSON() {
@@ -518,10 +493,6 @@ async function ensureAppStopped() {
   quitApp();
 }
 
-const originalLocalThreadStateRaw = readDefaultString("studio.full.thread.state.v1");
-const originalLocalAckStateRaw = readDefaultString("studio.diff.keep-current.v1");
-const originalLocalAckWriteStateRaw = readDefaultString("studio.diff.keep-current.writeids.v1");
-const originalAskNoteHistoryRaw = readDefaultString("studio.ask.note.history.v2");
 const originalDebugDiffStateRaw = readDefaultString("studio_debug_diff_state_json");
 const originalReplacementTraceRaw = readDefaultString("studio_debug_replacement_trace_json");
 const originalUserIdRaw = readDefaultString("user_id");
@@ -545,7 +516,13 @@ try {
   seedFixture = createStudioRestoreFixture("ack");
   seededRecord = seedFixture.ackSeed;
   const projectId = projectIdFromHistoryKey(seededRecord.projectKey);
-  await ensureAuthenticatedStudioOwner(projectId);
+  const ownerIdentity = await ensureAuthenticatedStudioOwner(projectId);
+  ownerLocalDefaults = createStudioOwnerScopedDefaults({
+    ownerUserID: ownerIdentity.userId,
+    readString: studioDebug.readDefaultString,
+    writeString: studioDebug.writeDefaultString,
+  });
+  ownerLocalSnapshot = ownerLocalDefaults.snapshot();
   const firstEntry = seedFixture.firstEntry;
   const secondEntry = seedFixture.secondEntry;
 
@@ -560,19 +537,19 @@ try {
 
   const threadStateMap = readFullThreadBrowseStateMap();
   delete threadStateMap[seededRecord.projectKey];
-  writeDefaultString("studio.full.thread.state.v1", Object.keys(threadStateMap).length > 0 ? JSON.stringify(threadStateMap) : "");
+  ownerLocalDefaults.writeString("studio.full.thread.state.v1", Object.keys(threadStateMap).length > 0 ? JSON.stringify(threadStateMap) : "");
 
   const ackMap = readAcknowledgedDiffMap();
   delete ackMap[seededRecord.projectKey];
-  writeDefaultString("studio.diff.keep-current.v1", Object.keys(ackMap).length > 0 ? JSON.stringify(ackMap) : "");
+  ownerLocalDefaults.writeString("studio.diff.keep-current.v1", Object.keys(ackMap).length > 0 ? JSON.stringify(ackMap) : "");
 
   const ackWriteMap = readAcknowledgedDiffWriteIDMap();
   delete ackWriteMap[seededRecord.projectKey];
-  writeDefaultString("studio.diff.keep-current.writeids.v1", Object.keys(ackWriteMap).length > 0 ? JSON.stringify(ackWriteMap) : "");
+  ownerLocalDefaults.writeString("studio.diff.keep-current.writeids.v1", Object.keys(ackWriteMap).length > 0 ? JSON.stringify(ackWriteMap) : "");
 
   const askHistoryMap = readStudioAskNoteHistoryMap();
   askHistoryMap[seededRecord.projectKey] = seedFixture.ackHistory;
-  writeDefaultString("studio.ask.note.history.v2", JSON.stringify(askHistoryMap));
+  ownerLocalDefaults.writeString("studio.ask.note.history.v2", JSON.stringify(askHistoryMap));
 
   await postBackendProjectThreadState(
     projectId,
@@ -634,10 +611,7 @@ try {
   }, null, 2));
   console.log("studio-ack-restore-smoke: ok");
 } finally {
-  writeDefaultString("studio.full.thread.state.v1", originalLocalThreadStateRaw);
-  writeDefaultString("studio.diff.keep-current.v1", originalLocalAckStateRaw);
-  writeDefaultString("studio.diff.keep-current.writeids.v1", originalLocalAckWriteStateRaw);
-  writeDefaultString("studio.ask.note.history.v2", originalAskNoteHistoryRaw);
+  if (ownerLocalDefaults && ownerLocalSnapshot) ownerLocalDefaults.restore(ownerLocalSnapshot);
   writeDefaultString("studio_debug_diff_state_json", originalDebugDiffStateRaw);
   writeDefaultString("studio_debug_replacement_trace_json", originalReplacementTraceRaw);
   writeDefaultString("user_id", originalUserIdRaw);

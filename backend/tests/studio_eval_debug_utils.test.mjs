@@ -7,10 +7,82 @@ import test from "node:test";
 
 import {
   cleanupStudioEvalSessionsWithHelper,
+  createStudioOwnerScopedDefaults,
   createStudioOwnedAppController,
   ensureStudioVisibleWithOpenHandshake,
   relaunchStudioAppWithHelper,
+  studioOwnerScopedDefaultsKey,
 } from "../evals/studio_eval_debug_utils.mjs";
+
+test("owner-scoped Studio defaults match the Swift storage-key contract", () => {
+  assert.equal(
+    studioOwnerScopedDefaultsKey("studio.ask.note.history.v2", " writer-a "),
+    "studio.ask.note.history.v2.owner.d3JpdGVyLWE"
+  );
+  assert.equal(
+    studioOwnerScopedDefaultsKey("studio.ask.note.history.v2", ""),
+    "studio.ask.note.history.v2.owner.YW5vbnltb3Vz"
+  );
+  assert.equal(
+    studioOwnerScopedDefaultsKey("studio.ask.note.history.v2", "écrivain"),
+    "studio.ask.note.history.v2.owner.w6ljcml2YWlu"
+  );
+});
+
+test("owner-scoped Studio defaults isolate owners and restore only scoped values", () => {
+  const values = new Map([
+    ["studio.ask.note.history.v2", "legacy-global"],
+  ]);
+  const transport = {
+    readString: (key) => values.get(key) || "",
+    writeString: (key, value) => values.set(key, String(value)),
+  };
+  const ownerA = createStudioOwnerScopedDefaults({ ownerUserID: "writer-a", ...transport });
+  const ownerB = createStudioOwnerScopedDefaults({ ownerUserID: "writer-b", ...transport });
+
+  ownerA.writeString("studio.ask.note.history.v2", "owner-a-original");
+  ownerB.writeString("studio.ask.note.history.v2", "owner-b");
+  const snapshot = ownerA.snapshot(["studio.ask.note.history.v2"]);
+  ownerA.writeString("studio.ask.note.history.v2", "owner-a-mutated");
+  ownerA.restore(snapshot);
+
+  assert.equal(ownerA.readString("studio.ask.note.history.v2"), "owner-a-original");
+  assert.equal(ownerB.readString("studio.ask.note.history.v2"), "owner-b");
+  assert.equal(values.get("studio.ask.note.history.v2"), "legacy-global");
+  assert.notEqual(ownerA.key("studio.ask.note.history.v2"), ownerB.key("studio.ask.note.history.v2"));
+});
+
+test("converted Studio evals do not access owner-scoped state through legacy global transports", () => {
+  const convertedPaths = [
+    "run_live_draft_two_device_smoke.mjs",
+    "run_studio_ack_restore_smoke.mjs",
+    "run_studio_backend_restore_smoke.mjs",
+    "run_studio_cmdreturn_smoke.mjs",
+    "run_studio_cross_platform_restore_contract_smoke.mjs",
+    "run_studio_merged_restore_smoke.mjs",
+    "run_studio_preview_commit_dedupe_smoke.mjs",
+    "run_studio_prompt_mode_separation_smoke.mjs",
+    "run_studio_relaunch_restore_smoke.mjs",
+    "studio_restore_seed_helper.mjs",
+  ];
+  const baseKeys = [
+    "studio.full.thread.state.v1",
+    "studio.ask.note.history.v2",
+    "studio.diff.keep-current.v1",
+    "studio.diff.keep-current.writeids.v1",
+  ];
+  for (const relativePath of convertedPaths) {
+    const source = readFileSync(new URL(`../evals/${relativePath}`, import.meta.url), "utf8");
+    for (const baseKey of baseKeys) {
+      const escapedKey = baseKey.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      assert.doesNotMatch(
+        source,
+        new RegExp(`(?:readDefaultString|writeDefaultString|readJSONDefault|debugDefaults\\.readJSON)\\(\\s*[\"']${escapedKey}[\"']`),
+        `${relativePath} still accesses legacy global ${baseKey}`
+      );
+    }
+  }
+});
 
 function helperSuccess(pid) {
   return {

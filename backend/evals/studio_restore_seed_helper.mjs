@@ -1,6 +1,12 @@
 import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
+import {
+  createStudioDebugDefaultsTransport,
+  createStudioOwnerScopedDefaults,
+} from "./studio_eval_debug_utils.mjs";
+
+const studioDefaults = createStudioDebugDefaultsTransport();
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -70,10 +76,17 @@ function normalizeAcknowledgedKey(value) {
 }
 
 function readProjectScopedState(projectKey, payload) {
+  const ownerUserID = String(payload?.ownerUserID || "").trim();
+  assert(ownerUserID, "Studio cmd-return seed payload did not include an owner user id.");
+  const ownerDefaults = createStudioOwnerScopedDefaults({
+    ownerUserID,
+    readString: studioDefaults.readString,
+    writeString: studioDefaults.writeString,
+  });
   const debugState = readJSONDefault("studio_debug_diff_state_json");
-  const threadMap = readJSONDefault("studio.full.thread.state.v1");
-  const acknowledgedMapRaw = readJSONDefault("studio.diff.keep-current.v1");
-  const acknowledgedWriteMapRaw = readJSONDefault("studio.diff.keep-current.writeids.v1");
+  const threadMap = ownerDefaults.readJSON("studio.full.thread.state.v1", {}) || {};
+  const acknowledgedMapRaw = ownerDefaults.readJSON("studio.diff.keep-current.v1", {}) || {};
+  const acknowledgedWriteMapRaw = ownerDefaults.readJSON("studio.diff.keep-current.writeids.v1", {}) || {};
 
   const rawRecord = threadMap[projectKey] && typeof threadMap[projectKey] === "object"
     ? threadMap[projectKey]
@@ -169,6 +182,7 @@ function buildSeedFixture(payload, mode) {
   };
 
   return {
+    ownerUserID: String(payload.ownerUserID || "").trim(),
     projectId,
     projectKey,
     cmdreturn: payload,

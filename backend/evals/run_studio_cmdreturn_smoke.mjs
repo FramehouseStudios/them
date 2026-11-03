@@ -4,6 +4,7 @@ import http from "node:http";
 import { fileURLToPath } from "node:url";
 import {
   assertInteractionLifecycle,
+  createStudioOwnerScopedDefaults,
   createStudioOwnedAppController,
   createStudioDebugDefaultsTransport,
   defaultStudioSessionTelemetry,
@@ -428,25 +429,21 @@ function readDebugDiffState() {
 }
 
 function readStudioAskNoteHistoryMap() {
-  const raw = readDefaultString("studio.ask.note.history.v2");
-  if (!raw) return {};
-  try {
-    const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === "object" ? parsed : {};
-  } catch {
-    return {};
-  }
+  return currentOwnerLocalDefaults().readJSON("studio.ask.note.history.v2", {}) || {};
 }
 
 function readFullThreadBrowseStateMap() {
-  const raw = readDefaultString("studio.full.thread.state.v1");
-  if (!raw) return {};
-  try {
-    const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === "object" ? parsed : {};
-  } catch {
-    return {};
-  }
+  return currentOwnerLocalDefaults().readJSON("studio.full.thread.state.v1", {}) || {};
+}
+
+function currentOwnerLocalDefaults() {
+  const ownerUserID = readDefaultString("user_id");
+  assert(ownerUserID, "Studio cmd-return smoke is missing its explicit owner user id");
+  return createStudioOwnerScopedDefaults({
+    ownerUserID,
+    readString: studioDebugDefaults.readString,
+    writeString: studioDebugDefaults.writeString,
+  });
 }
 
 function readReplacementTraceEvents() {
@@ -2579,6 +2576,7 @@ const result = {
   appPath,
   appSession: smokeAppSession,
   scenario,
+  ownerUserID: readDefaultString("user_id"),
   throwawayProjectId: throwawayProject.projectId,
   throwawayProjectTitle: throwawayProject.title,
   firstPrompt,

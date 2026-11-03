@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import {
   assertInteractionLifecycle,
   cleanupStudioEvalSessionsWithHelper,
+  createStudioOwnerScopedDefaults,
   createStudioEvalDebugContext,
   ensureStudioProjectLoadedWithDebugHook,
   ensureStudioVisibleWithOpenHandshake,
@@ -30,6 +31,7 @@ function runOptional(command, args, options = {}) {
 const debugContext = createStudioEvalDebugContext({ run, runOptional });
 const studioApp = debugContext.ownedApp;
 const debugDefaults = debugContext.defaults;
+let ownerLocalDefaults = null;
 
 async function waitFor(predicate, description, timeoutMs = 20000, intervalMs = 250) {
   await waitForCondition(predicate, description, timeoutMs, intervalMs);
@@ -256,7 +258,8 @@ function readDebugDiffState() {
 }
 
 function readStudioAskNoteHistoryMap() {
-  return debugDefaults.readJSON("studio.ask.note.history.v2", {}) || {};
+  assert(ownerLocalDefaults, "Studio prompt-mode smoke owner-scoped defaults are not initialized");
+  return ownerLocalDefaults.readJSON("studio.ask.note.history.v2", {}) || {};
 }
 
 function readStudioSubmitResultPayload(token = 0) {
@@ -718,6 +721,11 @@ const beforeHealth = await readHealth();
 assert(beforeHealth?.ok === true, "Backend health is not OK on localhost:3000");
 setLocalBackendDefaults();
 const smokeIdentity = await bootstrapSmokeIdentity();
+ownerLocalDefaults = createStudioOwnerScopedDefaults({
+  ownerUserID: smokeIdentity.userId,
+  readString: debugDefaults.readString,
+  writeString: debugDefaults.writeString,
+});
 const throwawayProject = await createThrowawayStudioProject();
 const expectedProjectKey = normalizeKey(`project:${throwawayProject.projectId}`);
 resetSubmitDebugDefaults();

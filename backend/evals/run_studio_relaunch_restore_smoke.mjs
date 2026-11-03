@@ -5,6 +5,7 @@ import http from "node:http";
 import {
   cleanupStudioEvalSessionsWithHelper,
   createStudioEvalDebugContext,
+  createStudioOwnerScopedDefaults,
   ensureStudioProjectLoadedWithDebugHook,
   ensureStudioVisibleWithOpenHandshake,
   stageStudioProjectLoadDebugRequest,
@@ -257,7 +258,7 @@ function readDebugDiffState() {
 }
 
 function readFullThreadBrowseStateMap() {
-  const raw = readDefaultString("studio.full.thread.state.v1");
+  const raw = ownerLocalDefaults.readString("studio.full.thread.state.v1");
   if (!raw) return {};
   try {
     const parsed = JSON.parse(raw);
@@ -268,7 +269,7 @@ function readFullThreadBrowseStateMap() {
 }
 
 function readStudioAskNoteHistoryMap() {
-  const raw = readDefaultString("studio.ask.note.history.v2");
+  const raw = ownerLocalDefaults.readString("studio.ask.note.history.v2");
   if (!raw) return {};
   try {
     const parsed = JSON.parse(raw);
@@ -444,10 +445,6 @@ async function ensureAppStopped() {
   quitApp();
 }
 
-const originalLocalStateRaw = readDefaultString("studio.full.thread.state.v1");
-const originalLocalAckStateRaw = readDefaultString("studio.diff.keep-current.v1");
-const originalLocalAckWriteStateRaw = readDefaultString("studio.diff.keep-current.writeids.v1");
-const originalAskNoteHistoryRaw = readDefaultString("studio.ask.note.history.v2");
 const originalDebugDiffStateRaw = readDefaultString("studio_debug_diff_state_json");
 const originalReplacementTraceRaw = readDefaultString("studio_debug_replacement_trace_json");
 const originalAppTokenRaw = readDefaultString("app_token");
@@ -471,6 +468,8 @@ let restoredState = null;
 let backendProbe = null;
 let stagedProjectLoadRequest = null;
 let seededCollaboration = null;
+let ownerLocalDefaults = null;
+let ownerLocalSnapshot = null;
 
 function isExpectedCollaborationState(state, expectedCollaboration) {
   if (!expectedCollaboration) return true;
@@ -524,7 +523,13 @@ try {
   seedFixture = createStudioRestoreFixture("reopened");
   seededRecord = seedFixture.reopenedSeed;
   const projectId = projectIdFromHistoryKey(seededRecord.projectKey);
-  await ensureOwnerIdentity(projectId);
+  const ownerIdentity = await ensureOwnerIdentity(projectId);
+  ownerLocalDefaults = createStudioOwnerScopedDefaults({
+    ownerUserID: ownerIdentity.userId,
+    readString: readDefaultString,
+    writeString: writeDefaultString,
+  });
+  ownerLocalSnapshot = ownerLocalDefaults.snapshot();
   appPath = findDebugAppPath();
   await ensureAppStopped();
   const staleLoadProjectToken = Math.max(
@@ -538,10 +543,10 @@ try {
   writeDefaultString("studio_debug_project_load_trace_json", "[]");
   const threadStateMap = readFullThreadBrowseStateMap();
   threadStateMap[seededRecord.projectKey] = seededRecord.rawRecord;
-  writeDefaultString("studio.full.thread.state.v1", JSON.stringify(threadStateMap));
+  ownerLocalDefaults.writeString("studio.full.thread.state.v1", JSON.stringify(threadStateMap));
   const askHistoryMap = readStudioAskNoteHistoryMap();
   askHistoryMap[seededRecord.projectKey] = seedFixture.reopenedHistory;
-  writeDefaultString("studio.ask.note.history.v2", JSON.stringify(askHistoryMap));
+  ownerLocalDefaults.writeString("studio.ask.note.history.v2", JSON.stringify(askHistoryMap));
   synchronizeDefaults();
   await postBackendProjectThreadState(projectId, seededRecord);
   const ownerVersionPayload = await postBackendProjectVersion(projectId, {
@@ -645,10 +650,9 @@ try {
   );
   console.log("studio-relaunch-restore-smoke: ok");
 } finally {
-  writeDefaultString("studio.full.thread.state.v1", originalLocalStateRaw);
-  writeDefaultString("studio.diff.keep-current.v1", originalLocalAckStateRaw);
-  writeDefaultString("studio.diff.keep-current.writeids.v1", originalLocalAckWriteStateRaw);
-  writeDefaultString("studio.ask.note.history.v2", originalAskNoteHistoryRaw);
+  if (ownerLocalDefaults && ownerLocalSnapshot) {
+    ownerLocalDefaults.restore(ownerLocalSnapshot);
+  }
   writeDefaultString("studio_debug_diff_state_json", originalDebugDiffStateRaw);
   writeDefaultString("studio_debug_replacement_trace_json", originalReplacementTraceRaw);
   writeDefaultString("app_token", originalAppTokenRaw);
