@@ -93,8 +93,12 @@ test('a request ID cannot acknowledge different whitespace, line endings or Unic
     const foreign = await apiRequest(server, `/screenplay/projects/${id}?include_drafts=1`, { headers: otherWriter });
     assert.equal(foreign.status, 404);
     assert.equal(JSON.stringify(foreign.json).includes('A cafe'), false);
-    const empty = await apiRequest(server, `/screenplay/projects/${id}/version`, { method: 'POST', headers, json: { draft: '\r\n \t ' } });
-    assert.equal(empty.status, 400);
-    assert.equal(empty.json.error, 'draft_required');
+    for (const invalidDraft of ['', 42, null, { text: 'words' }]) {
+      const invalid = await apiRequest(server, `/screenplay/projects/${id}/version`, {
+        method: 'POST', headers, json: { draft: invalidDraft },
+      });
+      assert.equal(invalid.status, 400);
+      assert.equal(invalid.json.error, 'draft_required');
+    }
   } finally { await server.stop(); }
 });

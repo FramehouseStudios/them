@@ -5,7 +5,7 @@ import { once } from "node:events";
 import { startBackend, apiRequest } from "./helpers/backend_test_server.mjs";
 
 const options = { unsetEnv: ["DATABASE_URL", "REDIS_URL"], env: { REQUIRE_USER_AUTH: "1" } };
-const draft = "\r\nTitle: The Reel\r\n\r\nINT. CAFE - NIGHT\r\nCafe\u0301.\r\n\t ";
+const draft = "\r\n\t \r\n";
 const bytes = value => Buffer.from(value, "utf8");
 const initializePath = "/screenplay/projects/initialize";
 const body = () => ({ project_id: `project-${randomUUID()}`, title: "The Reel", phase: "scene_draft",
@@ -49,12 +49,28 @@ test("initial project survives abrupt server restart, lost acknowledgement and c
     const list = await apiRequest(server, "/screenplay/projects", { headers });
     assert.equal(list.json.screenplay_projects.length, 1);
     assert.equal(list.json.screenplay_projects[0].id, request.project_id);
-    const nextDraft = draft + "\r\nThe writer changes the ending. ";
+    const nextDraft = "\t\r\n  \t\r\n";
+    const nextRequest = { draft: nextDraft, base_version_id: versionId,
+      client_request_id: "second-version", conflict_strategy: "reject_if_stale" };
     const next = await apiRequest(server, `/screenplay/projects/${request.project_id}/version`, {
-      method: "POST", headers, json: { draft: nextDraft, base_version_id: versionId,
-        client_request_id: "second-version", conflict_strategy: "reject_if_stale" },
+      method: "POST", headers, json: nextRequest,
     });
     assert.equal(next.status, 201);
+    assert.deepEqual(bytes(next.json.version.draft), bytes(nextDraft));
+    const secondDataDir = server.dataDir;
+    assert.equal((await server.stop()).forced, false);
+    server = await startBackend({ ...options, dataDir: secondDataDir });
+    const replayNext = await apiRequest(server, `/screenplay/projects/${request.project_id}/version`, {
+      method: "POST", headers, json: nextRequest,
+    });
+    assert.equal(replayNext.status, 200);
+    assert.equal(replayNext.json.version_id, next.json.version_id);
+    assert.deepEqual(bytes(replayNext.json.version.draft), bytes(nextDraft));
+    const changedNext = await apiRequest(server, `/screenplay/projects/${request.project_id}/version`, {
+      method: "POST", headers, json: { ...nextRequest, draft: "\t\r\n \t \r\n" },
+    });
+    assert.equal(changedNext.status, 409);
+    assert.equal(changedNext.json.status, "client_request_id_reused");
     const late = await send();
     assert.equal(late.status, 409);
     assert.equal(late.json.error, "screenplay_initial_request_superseded");

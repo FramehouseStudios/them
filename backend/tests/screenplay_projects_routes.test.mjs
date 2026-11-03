@@ -199,6 +199,31 @@ test("[initial-project] metadata and exact first draft commit together and repla
   });
 });
 
+test("[initial-project] preserves nonempty whitespace-only draft bytes across replay and conflict", async () => {
+  const deps = defaultDeps();
+  const stats = { calls: 0, writes: 0 };
+  deps.commitScreenplayOwnerMutation = serializedCommitter(deps._owner, stats);
+  await withTestServer(deps, async (base) => {
+    const body = initialProjectBody("\r\n\t \r\n");
+    const first = await postJson(base, "/screenplay/projects/initialize", body);
+    assert.equal(first.status, 201);
+    assert.equal(first.body.version.draft, body.initial_draft.draft);
+    assert.equal(deps._owner.projects[0].versions[0].draft, body.initial_draft.draft);
+
+    const replay = await postJson(base, "/screenplay/projects/initialize", body);
+    assert.equal(replay.status, 200);
+    assert.equal(replay.body.version_id, first.body.version_id);
+    assert.equal(replay.body.version.draft, body.initial_draft.draft);
+
+    const changed = structuredClone(body);
+    changed.initial_draft.draft = "\r\n \t\r\n";
+    const conflict = await postJson(base, "/screenplay/projects/initialize", changed);
+    assert.equal(conflict.status, 409);
+    assert.equal(conflict.body.error, "screenplay_initial_request_reused");
+    assert.equal(stats.writes, 1);
+  });
+});
+
 test("[initial-project] concurrent retries cannot duplicate or acknowledge different intent", async () => {
   const deps = defaultDeps();
   const stats = { calls: 0, writes: 0 };
@@ -235,8 +260,10 @@ test("[initial-project] failed persistence publishes neither an empty project no
   });
 });
 
-test("[initial-project] missing durable identity or blank draft fails before mutation", async () => {
-  for (const changes of [{ project_id: "" }, { initial_draft: { draft: "  ", client_request_id: "r" } },
+test("[initial-project] missing durable identity or invalid draft fails before mutation", async () => {
+  for (const changes of [{ project_id: "" }, { initial_draft: { draft: "", client_request_id: "r" } },
+    { initial_draft: { draft: 42, client_request_id: "r" } },
+    { initial_draft: { draft: null, client_request_id: "r" } },
     { initial_draft: { draft: "Exact words", client_request_id: "" } }]) {
     const deps = defaultDeps(), before = structuredClone(deps._owner);
     await withTestServer(deps, async (base) => {
@@ -2125,8 +2152,43 @@ test("[screenplay-projects-routes] explicit allow strategy permits an unbased ov
 
 test("[screenplay-projects-routes] POST /version rejects empty draft with 400", async () => {
   await withTestServer(defaultDeps(), async (baseURL) => {
-    const r = await postJson(baseURL, "/screenplay/projects/p1/version", { draft: "  " });
-    assert.equal(r.status, 400);
-    assert.equal(r.body.error, "draft_required");
+    for (const draft of ["", 42, null, { text: "words" }]) {
+      const r = await postJson(baseURL, "/screenplay/projects/p1/version", { draft });
+      assert.equal(r.status, 400);
+      assert.equal(r.body.error, "draft_required");
+    }
+  });
+});
+
+test("[screenplay-projects-routes] POST /version preserves whitespace-only bytes for save, replay and conflict", async () => {
+  const deps = defaultDeps();
+  const project = deps._owner.projects.find((item) => item.id === "p1");
+  project.activeVersionId = "base_v1";
+  project.versions = [{ id: "base_v1", draft: "Earlier words.", updatedAt: 1000 }];
+  const body = {
+    draft: "\r\n\t \r\n",
+    base_version_id: "base_v1",
+    client_request_id: "whitespace-only-version",
+    conflict_strategy: "reject_if_stale",
+  };
+  await withTestServer(deps, async (baseURL) => {
+    const first = await postJson(baseURL, "/screenplay/projects/p1/version", body);
+    assert.equal(first.status, 201);
+    assert.equal(first.body.version.draft, body.draft);
+    assert.equal(project.versions[0].draft, body.draft);
+
+    const replay = await postJson(baseURL, "/screenplay/projects/p1/version", body);
+    assert.equal(replay.status, 200);
+    assert.equal(replay.body.version_id, first.body.version_id);
+    assert.equal(replay.body.version.draft, body.draft);
+
+    const changed = await postJson(baseURL, "/screenplay/projects/p1/version", {
+      ...body,
+      draft: "\r\n \t\r\n",
+    });
+    assert.equal(changed.status, 409);
+    assert.equal(changed.body.status, "client_request_id_reused");
+    assert.equal(project.versions.length, 2);
+    assert.equal(project.versions[0].draft, body.draft);
   });
 });
