@@ -188,13 +188,8 @@ const TITLE_FIELDS = Object.freeze([
 function serializeTitlePage(title) {
   if (!title || typeof title !== "object" || Array.isArray(title)) return "";
   const paragraphs = [];
-  // Auto-fill Draft Date for festival submission if title provided but date empty
-  const filled = { ...title };
-  if (trim(filled.title) && !trim(filled.draftDate)) {
-    try { filled.draftDate = new Date().toISOString().slice(0, 10); } catch(_e) {}
-  }
   for (const [key, label] of TITLE_FIELDS) {
-    const value = trim(filled[key]);
+    const value = trim(title[key]);
     if (!value) continue;
     paragraphs.push(paragraph("General", `${label}: ${value}`, { Alignment: "Center" }));
   }

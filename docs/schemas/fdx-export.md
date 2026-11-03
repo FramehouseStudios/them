@@ -41,15 +41,20 @@ consume the same `{ title?, scenes? }` document and just emit
 different output formats. See `docs/schemas/fountain-export.md`
 for the request body description.
 
+Title-page metadata is explicit. `title.draftDate`, when present and
+non-empty, renders as `Draft Date`; when it is absent the exporter omits that
+field. The backend does not infer a date from its clock and does not accept
+top-level date aliases. This keeps output deterministic and prevents a server
+timezone from silently changing writer-authored metadata.
+
 The additive `centered` and `lyrics` line kinds render as an FDX `General`
 paragraph with `Alignment="Center"` and an FDX `Lyrics` paragraph,
 respectively. A transition with `forced: true` preserves its supplied text
 without inventing a `TO:` suffix.
 
-`dualDialogue` is retained by the shared canonical request and by Fountain
-round trips. The current FDX exporter deliberately emits its character and
-dialogue content as ordinary sequential paragraphs; it does not yet claim
-Final Draft dual-dialogue grouping support.
+For a character line whose canonical `dual` flag is `true`, the FDX exporter
+marks the Character, optional Parenthetical, and each Dialogue paragraph with
+`DualDialogue="Yes"`. Other paragraph kinds do not receive that attribute.
 
 ## Validation
 
@@ -118,6 +123,8 @@ evolve its body limit / cache headers independently.
 
 ## Changelog
 
+- v1 (compatible clarification, 2026-09-08) — make draft dates explicit and
+  deterministic, and align dual-dialogue documentation with serializer output.
 - v1 (compatible extension, 2026-08-30) — add centered and lyrics paragraphs,
   preserve forced transition text, and document the current dual-dialogue
   degradation explicitly.
