@@ -1886,6 +1886,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
     private let craftClient: BackendClient
     private let projectSelectionAPI: BackendMemoryAPI
     private let draftSaveAPI: BackendMemoryAPI
+    private let draftInsightsAPI: BackendMemoryAPI
     private let draftSaveIdentityProvider: () -> BackendAuthRequestIdentity
     private let liveReplyOutbox: OfflineTalkOutbox
     private var clientTokenOwnedProjectIDs: Set<String> = []
@@ -1905,6 +1906,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
          craftClient: BackendClient = BackendClient(),
          coverageAuthContextProvider: (() -> ScreenplayStudioAuthContext)? = nil,
          draftSaveAPI: BackendMemoryAPI = .shared,
+         draftInsightsAPI: BackendMemoryAPI = .shared,
          projectSelectionAPI: BackendMemoryAPI = BackendMemoryAPI(),
          draftSaveIdentityProvider: @escaping () -> BackendAuthRequestIdentity = {
              BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: true)
@@ -1918,6 +1920,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         self.draftSaveOutbox = draftSaveOutbox
         self.craftClient = craftClient
         self.draftSaveAPI = draftSaveAPI
+        self.draftInsightsAPI = draftInsightsAPI
         self.projectSelectionAPI = projectSelectionAPI
         self.draftSaveIdentityProvider = draftSaveIdentityProvider
         self.liveReplyOutbox = liveReplyOutbox
@@ -8071,7 +8074,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         let requestedDensity = linesPerPage
         do {
             let result = try await StudioCraftResilience.run(source: source) {
-                try await BackendMemoryAPI.shared.paginateScreenplayDraft(
+                try await draftInsightsAPI.paginateScreenplayDraft(
                     draft: draft,
                     title: selectedProject?.title ?? "",
                     phase: selectedProject?.lastPhase ?? "scene_draft",
@@ -8091,7 +8094,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         }
     }
 
-    private func recomputeRevision(for draft: String, source: String, api: BackendMemoryAPI = .shared,
+    private func recomputeRevision(for draft: String, source: String, api: BackendMemoryAPI? = nil,
                                    isCurrent: () -> Bool = { true }) async {
         let normalized = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalized.isEmpty else {
@@ -8106,7 +8109,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         defer { if isCurrent() { isRevisionRefreshing = false } }
         do {
             let result = try await StudioCraftResilience.run(source: source) {
-                try await api.fetchScreenplayRevisionColors(
+                try await (api ?? draftInsightsAPI).fetchScreenplayRevisionColors(
                     baseDraft: lastRevisionBaseDraft,
                     draft: draft,
                     revisionColor: revisionColor
