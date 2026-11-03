@@ -1935,6 +1935,18 @@ final class ScreenplayStudioViewModel: ObservableObject {
     var debugIsDraftSaveInFlight: Bool {
         draftSaveSlot.isClaimed
     }
+
+    @discardableResult
+    func debugClaimDraftSaveSlotForConflictInterleaving() -> Bool {
+        draftSaveSlot.claimForQueue()
+    }
+
+    /// Releases the task-owned synthetic queue drain and exercises the same
+    /// pending conflict authority gate as production without starting I/O.
+    func debugReleasePendingConflictAfterQueueDrain() -> Bool? {
+        guard let pending = draftSaveSlot.release() else { return nil }
+        return pendingConflictMayProceed(pending)
+    }
     #endif
 
     func selectProject(_ projectID: String) async {
@@ -4469,9 +4481,15 @@ final class ScreenplayStudioViewModel: ObservableObject {
         conflictAuthority.chooseServer(scope: ticket.scope)
         applyServerDraft(conflict.serverDraft, versionId: conflict.serverVersionId,
             allowOverwriteDirtyLocalDraft: true)
-        // This choice resolves the ordinary conflict copy; separately preserved
-        // drafts remain available until the writer explicitly handles them.
+        // This choice resolves the ordinary copy and every older conflict
+        // choice it covers. Untagged live-sync recovery remains independent.
         localDraftRecoveryStore.clearOrdinaryDraft(ownerUserId: owner.userID, projectId: conflict.projectId)
+        localDraftRecoveryStore.clearPreservedConflicts(
+            ownerUserId: owner.userID,
+            projectId: conflict.projectId,
+            conflictAuthorityEpoch: ticket.authorityEpoch,
+            throughConflictGeneration: ticket.generation
+        )
         if let preserved = localDraftRecoveryStore.firstPreservedConflict(
             ownerUserId: owner.userID, projectId: conflict.projectId
         ) {
@@ -6185,20 +6203,27 @@ final class ScreenplayStudioViewModel: ObservableObject {
         )
         if disposition == .retire { return false }
         if disposition == .preserve || displaced {
-            localDraftRecoveryStore.savePreservedConflict(
-                ownerUserId: request.ownerUserId, projectId: request.projectId,
-                draft: request.draft, baseVersionId: request.baseVersionId
-            )
+            preserveDraftSaveRequest(request)
             return false
         }
         return true
     }
 
+    private func preserveDraftSaveRequest(_ request: DraftSaveRequest) {
+        localDraftRecoveryStore.savePreservedConflict(
+            ownerUserId: request.ownerUserId,
+            projectId: request.projectId,
+            draft: request.draft,
+            baseVersionId: request.baseVersionId,
+            conflictAuthorityEpoch: request.conflictTicket?.authorityEpoch,
+            conflictGeneration: request.conflictTicket?.generation
+        )
+    }
+
     /// Suspended saves must not apply to a different project or an obsolete choice.
     private func validateSaveAfterSuspension(_ request: DraftSaveRequest) async -> Bool {
         if !authContextIsCurrent(request.authContext) || selectedProjectID != request.projectId {
-            localDraftRecoveryStore.savePreservedConflict(ownerUserId: request.ownerUserId,
-                projectId: request.projectId, draft: request.draft, baseVersionId: request.baseVersionId)
+            preserveDraftSaveRequest(request)
             try? await draftSaveOutbox.markParked(id: request.id, error: ScreenplayDraftSaveOutbox.conflictReason)
             return false
         }
@@ -6260,8 +6285,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 await refreshDraftSaveOutboxStatus()
             } catch {
                 guard authContextIsCurrent(request.authContext), selectedProjectID == request.projectId else {
-                    localDraftRecoveryStore.savePreservedConflict(ownerUserId: request.ownerUserId,
-                        projectId: request.projectId, draft: request.draft, baseVersionId: request.baseVersionId)
+                    preserveDraftSaveRequest(request)
                     return false
                 }
                 errorText = "Your draft is preserved locally, but its retry could not be queued: \(error.localizedDescription)"
@@ -6369,8 +6393,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         } catch {
             guard authContextIsCurrent(request.authContext) else { return false }
             guard selectedProjectID == request.projectId else {
-                localDraftRecoveryStore.savePreservedConflict(ownerUserId: request.ownerUserId,
-                    projectId: request.projectId, draft: request.draft, baseVersionId: request.baseVersionId)
+                preserveDraftSaveRequest(request)
                 return false
             }
             hasUnsavedDraftChanges = true
@@ -6622,8 +6645,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 return false
             }
             guard selectedProjectID == request.projectId else {
-                localDraftRecoveryStore.savePreservedConflict(ownerUserId: request.ownerUserId,
-                    projectId: request.projectId, draft: request.draft, baseVersionId: request.baseVersionId)
+                preserveDraftSaveRequest(request)
                 try? await draftSaveOutbox.markParked(id: request.id, error: ScreenplayDraftSaveOutbox.conflictReason)
                 return false
             }

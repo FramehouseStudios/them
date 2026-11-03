@@ -92,4 +92,23 @@ final class ScreenplayDraftConflictAuthorityTests: XCTestCase {
         let ticket = authority.present(scope: scope, serverVersionID: "base")
         XCTAssertEqual(authority.disposition(for: ticket, scopeIsCurrent: false, conflictIsVisible: false), .preserve)
     }
+
+    func testReinitializedAuthorityCannotSubmitOrRetirePriorEpochTicket() {
+        let scope = ScreenplayDraftConflictAuthority.Scope(ownerID: "owner", projectID: "project")
+        var priorAuthority = ScreenplayDraftConflictAuthority(epoch: "epoch-before-relaunch")
+        let priorTicket = priorAuthority.present(scope: scope, serverVersionID: "server-one")
+
+        var relaunchedAuthority = ScreenplayDraftConflictAuthority(epoch: "epoch-after-relaunch")
+        _ = relaunchedAuthority.present(scope: scope, serverVersionID: "server-two")
+        relaunchedAuthority.chooseServer(scope: scope)
+
+        XCTAssertEqual(
+            relaunchedAuthority.disposition(
+                for: priorTicket,
+                scopeIsCurrent: true,
+                conflictIsVisible: false
+            ),
+            .preserve
+        )
+    }
 }

@@ -524,6 +524,108 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         XCTAssertNotNil(payload?["preservedConflicts"])
     }
 
+    func testServerChoiceRetiresOnlyCoveredConflictGenerations() {
+        store.savePreservedConflict(
+            ownerUserId: ownerUserID,
+            projectId: "project-recovery",
+            draft: "Older pending Keep Mine",
+            baseVersionId: "server-one",
+            conflictAuthorityEpoch: "epoch-current",
+            conflictGeneration: 1,
+            savedAt: 100
+        )
+        store.savePreservedConflict(
+            ownerUserId: ownerUserID,
+            projectId: "project-recovery",
+            draft: "Later local conflict",
+            baseVersionId: "server-three",
+            conflictAuthorityEpoch: "epoch-current",
+            conflictGeneration: 3,
+            savedAt: 300
+        )
+        store.savePreservedConflict(
+            ownerUserId: ownerUserID,
+            projectId: "project-recovery",
+            draft: "Independent live-sync recovery",
+            baseVersionId: "live-base",
+            savedAt: 400
+        )
+
+        store.clearPreservedConflicts(
+            ownerUserId: ownerUserID,
+            projectId: "project-recovery",
+            conflictAuthorityEpoch: "epoch-current",
+            throughConflictGeneration: 2
+        )
+
+        let preserved = store.payloads(ownerUserId: ownerUserID)["project-recovery"]?["preservedConflicts"]
+            as? [[String: Any]] ?? []
+        XCTAssertEqual(preserved.compactMap { $0["draft"] as? String }, [
+            "Later local conflict",
+            "Independent live-sync recovery",
+        ])
+    }
+
+    func testReinitializedAuthorityCannotRetirePriorEpochExactCopy() throws {
+        let scope = ScreenplayDraftConflictAuthority.Scope(
+            ownerID: ownerUserID,
+            projectID: "project-recovery"
+        )
+        var priorAuthority = ScreenplayDraftConflictAuthority(epoch: "epoch-before-relaunch")
+        let priorTicket = priorAuthority.present(scope: scope, serverVersionID: "server-one")
+        let exactDraft = "  Prior cafe\u{0301}\r\n\t "
+        store.savePreservedConflict(
+            ownerUserId: ownerUserID,
+            projectId: scope.projectID,
+            draft: exactDraft,
+            baseVersionId: "shared-base",
+            conflictAuthorityEpoch: priorTicket.authorityEpoch,
+            conflictGeneration: priorTicket.generation,
+            savedAt: 100
+        )
+
+        // A new model/process starts its generation counter at one again, but
+        // receives a distinct epoch and must not gain custody of the old copy.
+        var relaunchedAuthority = ScreenplayDraftConflictAuthority(epoch: "epoch-after-relaunch")
+        let currentTicket = relaunchedAuthority.present(scope: scope, serverVersionID: "server-two")
+        store.savePreservedConflict(
+            ownerUserId: ownerUserID,
+            projectId: scope.projectID,
+            draft: exactDraft,
+            baseVersionId: "shared-base",
+            conflictAuthorityEpoch: currentTicket.authorityEpoch,
+            conflictGeneration: currentTicket.generation,
+            savedAt: 200
+        )
+        store.savePreservedConflict(
+            ownerUserId: ownerUserID,
+            projectId: scope.projectID,
+            draft: "Independent live-sync recovery",
+            baseVersionId: "live-base",
+            savedAt: 300
+        )
+
+        store.clearPreservedConflicts(
+            ownerUserId: ownerUserID,
+            projectId: scope.projectID,
+            conflictAuthorityEpoch: currentTicket.authorityEpoch,
+            throughConflictGeneration: currentTicket.generation
+        )
+
+        let preserved = store.payloads(ownerUserId: ownerUserID)[scope.projectID]?["preservedConflicts"]
+            as? [[String: Any]] ?? []
+        XCTAssertEqual(preserved.count, 2)
+        let prior = try XCTUnwrap(preserved.first {
+            ($0["conflictAuthorityEpoch"] as? String) == priorTicket.authorityEpoch
+        })
+        XCTAssertTrue((prior["draft"] as? String)?.utf8.elementsEqual(exactDraft.utf8) == true)
+        XCTAssertEqual((prior["conflictGeneration"] as? NSNumber)?.uint64Value, 1)
+        XCTAssertTrue(preserved.contains {
+            ($0["draft"] as? String) == "Independent live-sync recovery" &&
+                $0["conflictAuthorityEpoch"] == nil
+        })
+    }
+
     func testSuccessivePreservedConflictsSurviveAcknowledgementAndAreRecoverableInOrder() {
         let remote = "INT. DINER - NIGHT\n\nShe waits."
         let first = remote + "\n\nA phone BUZZES."

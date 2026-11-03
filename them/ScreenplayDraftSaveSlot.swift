@@ -49,6 +49,7 @@ nonisolated struct ScreenplayDraftConflictAuthority {
 
     struct Ticket: Equatable {
         let scope: Scope
+        let authorityEpoch: String
         let generation: UInt64
         let serverVersionID: String
     }
@@ -59,13 +60,19 @@ nonisolated struct ScreenplayDraftConflictAuthority {
         case retire
     }
 
+    private let epoch: String
     private var latest: [Scope: UInt64] = [:]
     private var retiredThrough: [Scope: UInt64] = [:]
+
+    init(epoch: String = UUID().uuidString.lowercased()) {
+        self.epoch = epoch
+    }
 
     mutating func present(scope: Scope, serverVersionID: String) -> Ticket {
         let generation = (latest[scope] ?? 0) &+ 1
         latest[scope] = generation
-        return Ticket(scope: scope, generation: generation, serverVersionID: serverVersionID)
+        return Ticket(scope: scope, authorityEpoch: epoch, generation: generation,
+            serverVersionID: serverVersionID)
     }
 
     mutating func chooseServer(scope: Scope) {
@@ -73,6 +80,7 @@ nonisolated struct ScreenplayDraftConflictAuthority {
     }
 
     func disposition(for ticket: Ticket, scopeIsCurrent: Bool, conflictIsVisible: Bool) -> Disposition {
+        guard ticket.authorityEpoch == epoch else { return .preserve }
         if ticket.generation <= (retiredThrough[ticket.scope] ?? 0) { return .retire }
         guard scopeIsCurrent, !conflictIsVisible,
               ticket.generation == latest[ticket.scope] else { return .preserve }

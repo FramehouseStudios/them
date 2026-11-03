@@ -459,6 +459,94 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
     }
 
     @MainActor
+    func testDisplacedKeepMinePreservesExactBytesAndNewestChoiceKeepsAuthority() async throws {
+        let suite = "them.displaced-conflict-choice.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let recovery = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "recovery")
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: recovery,
+            draftSaveOutbox: ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory))
+        model.selectedProjectID = "project-1"
+        let projectData = try JSONSerialization.data(withJSONObject: [
+            "id": "project-1", "title": "Script", "activeVersionId": "server-zero",
+            "versions": [["id": "server-zero", "draft": "Server zero"]],
+        ])
+        let project = try JSONDecoder().decode(BackendScreenplayProjectSummary.self, from: projectData)
+        model.selectedProject = project
+        model.hydrateDraft(from: project)
+        let firstBytes = "  First choice cafe\u{0301}\r\n\t "
+        model.fountainDraft = firstBytes
+        model.noteManualDraftEdit()
+        XCTAssertTrue(model.debugClaimDraftSaveSlotForConflictInterleaving())
+
+        model.conflictState = .init(projectId: "project-1", baseVersionId: "server-zero",
+            serverVersionId: "server-one", serverDraft: "Server one",
+            serverDraftExcerpt: "Server one", serverUpdatedAt: 1)
+        await model.keepLocalDraftAfterConflict()
+
+        let secondBytes = "Second explicit choice\n"
+        model.conflictState = .init(projectId: "project-1", baseVersionId: "server-one",
+            serverVersionId: "server-two", serverDraft: "Server two",
+            serverDraftExcerpt: "Server two", serverUpdatedAt: 2)
+        model.fountainDraft = secondBytes
+        model.noteManualDraftEdit()
+        await model.keepLocalDraftAfterConflict()
+
+        XCTAssertEqual(model.debugReleasePendingConflictAfterQueueDrain(), true,
+            "The newest explicit choice should remain authorized after displacing the older one.")
+        let payloads = recovery.payloads(
+            ownerUserId: BackendAuthClient.currentAuthSessionState().user?.userId ?? ""
+        )
+        let preserved = payloads["project-1"]?["preservedConflicts"] as? [[String: Any]] ?? []
+        let first = try XCTUnwrap(preserved.first)
+        XCTAssertTrue((first["draft"] as? String)?.utf8.elementsEqual(firstBytes.utf8) == true)
+        XCTAssertFalse((first["conflictAuthorityEpoch"] as? String ?? "").isEmpty)
+        XCTAssertEqual((first["conflictGeneration"] as? NSNumber)?.uint64Value, 1)
+    }
+
+    @MainActor
+    func testLoadServerRetiresPendingOlderKeepMineWithoutResurrectingRecovery() async throws {
+        let suite = "them.retired-conflict-choice.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let recovery = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "recovery")
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: recovery,
+            draftSaveOutbox: ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory))
+        model.selectedProjectID = "project-1"
+        let projectData = try JSONSerialization.data(withJSONObject: [
+            "id": "project-1", "title": "Script", "activeVersionId": "server-zero",
+            "versions": [["id": "server-zero", "draft": "Server zero"]],
+        ])
+        let project = try JSONDecoder().decode(BackendScreenplayProjectSummary.self, from: projectData)
+        model.selectedProject = project
+        model.hydrateDraft(from: project)
+        let localBytes = "Pending local choice\r\n"
+        model.fountainDraft = localBytes
+        model.noteManualDraftEdit()
+        XCTAssertTrue(model.debugClaimDraftSaveSlotForConflictInterleaving())
+
+        model.conflictState = .init(projectId: "project-1", baseVersionId: "server-zero",
+            serverVersionId: "server-one", serverDraft: "Server one",
+            serverDraftExcerpt: "Server one", serverUpdatedAt: 1)
+        await model.keepLocalDraftAfterConflict()
+        model.conflictState = .init(projectId: "project-1", baseVersionId: "server-one",
+            serverVersionId: "server-two", serverDraft: "Server two",
+            serverDraftExcerpt: "Server two", serverUpdatedAt: 2)
+        model.applyServerVersionFromConflict()
+
+        XCTAssertEqual(model.debugReleasePendingConflictAfterQueueDrain(), false)
+        XCTAssertEqual(model.fountainDraft, "Server two")
+        XCTAssertNil(model.conflictState)
+        let payloads = recovery.payloads(
+            ownerUserId: BackendAuthClient.currentAuthSessionState().user?.userId ?? ""
+        )
+        let payload = payloads["project-1"]
+        XCTAssertNil(payload?["draft"])
+        XCTAssertNil(payload?["preservedConflicts"],
+            "Load Server must not resurrect the older pending Keep Mine as recovery.")
+    }
+
+    @MainActor
     func testTypingDuringServerChoiceFetchPreservesNewerEditorAndQueuedCopy() async throws {
         let owner = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""
         let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)

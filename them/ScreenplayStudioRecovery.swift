@@ -184,6 +184,8 @@ struct ScreenplayLocalDraftRecoveryStore {
         projectId: String,
         draft: String,
         baseVersionId: String,
+        conflictAuthorityEpoch: String? = nil,
+        conflictGeneration: UInt64? = nil,
         savedAt: TimeInterval = Date().timeIntervalSince1970
     ) {
         let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -192,20 +194,63 @@ struct ScreenplayLocalDraftRecoveryStore {
         var projectPayload = nextPayloads[normalizedProjectId] ?? [:]
         var preserved = preservedConflicts(in: projectPayload)
         let alreadyStored = preserved.contains {
-            (($0["draft"] as? String)?.utf8.elementsEqual(draft.utf8) ?? false) &&
-                ($0["baseVersionId"] as? String) == baseVersionId
+            guard (($0["draft"] as? String)?.utf8.elementsEqual(draft.utf8) ?? false),
+                  ($0["baseVersionId"] as? String) == baseVersionId else { return false }
+            let storedGeneration = ($0["conflictGeneration"] as? NSNumber)?.uint64Value
+            let storedEpoch = $0["conflictAuthorityEpoch"] as? String
+            return storedGeneration == conflictGeneration && storedEpoch == conflictAuthorityEpoch
         }
         if !alreadyStored {
-            preserved.append([
+            var snapshot: [String: Any] = [
                 "draft": draft,
                 "baseVersionId": baseVersionId,
                 "dirty": true,
                 "savedAt": savedAt,
-            ])
+            ]
+            if let conflictGeneration {
+                snapshot["conflictGeneration"] = NSNumber(value: conflictGeneration)
+            }
+            if let conflictAuthorityEpoch {
+                snapshot["conflictAuthorityEpoch"] = conflictAuthorityEpoch
+            }
+            preserved.append(snapshot)
         }
         projectPayload["preservedConflicts"] = preserved
         projectPayload.removeValue(forKey: "preservedConflict")
         nextPayloads[normalizedProjectId] = projectPayload
+        defaults.set(nextPayloads, forKey: ownerScopedKey(ownerUserId))
+    }
+
+    /// Retires only local copies that belong to conflict choices covered by an
+    /// explicit Load Server decision from the same authority epoch. Untagged,
+    /// legacy, and prior-epoch recovery stays intact.
+    func clearPreservedConflicts(
+        ownerUserId: String,
+        projectId: String,
+        conflictAuthorityEpoch: String,
+        throughConflictGeneration generation: UInt64
+    ) {
+        let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedEpoch = conflictAuthorityEpoch.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedProjectId.isEmpty, !normalizedEpoch.isEmpty else { return }
+        var nextPayloads = payloads(ownerUserId: ownerUserId)
+        guard var projectPayload = nextPayloads[normalizedProjectId] else { return }
+        let preserved = preservedConflicts(in: projectPayload).filter { snapshot in
+            guard snapshot["conflictAuthorityEpoch"] as? String == normalizedEpoch,
+                  let number = snapshot["conflictGeneration"] as? NSNumber else { return true }
+            return number.uint64Value > generation
+        }
+        if preserved.isEmpty {
+            projectPayload.removeValue(forKey: "preservedConflicts")
+        } else {
+            projectPayload["preservedConflicts"] = preserved
+        }
+        projectPayload.removeValue(forKey: "preservedConflict")
+        if projectPayload.isEmpty {
+            nextPayloads.removeValue(forKey: normalizedProjectId)
+        } else {
+            nextPayloads[normalizedProjectId] = projectPayload
+        }
         defaults.set(nextPayloads, forKey: ownerScopedKey(ownerUserId))
     }
 
