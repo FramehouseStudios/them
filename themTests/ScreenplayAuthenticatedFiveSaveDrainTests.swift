@@ -112,6 +112,28 @@ final class ScreenplayAuthenticatedFiveSaveDrainTests: XCTestCase {
         await fixture.close()
     }
 
+    func testClearingPageAutosavesThroughAuthenticatedOutbox() async throws {
+        let fixture = try AuthenticatedFiveSaveDrainFixture()
+        do {
+            fixture.model.autosaveEnabled = true
+            fixture.model.fountainDraft = ""
+            fixture.model.noteManualDraftEdit()
+            await fixture.model.handleDraftDebouncedChange("")
+            let rows = try await fixture.queue.entriesForTesting()
+            XCTAssertTrue(rows.isEmpty)
+            XCTAssertEqual(fixture.peer.writes.count, 1)
+            XCTAssertEqual(fixture.peer.writes.first?.draft, "")
+            XCTAssertEqual(fixture.peer.writes.first?.baseVersionID, "base-0")
+            XCTAssertEqual(fixture.model.latestVersionID, "ack-1")
+            XCTAssertFalse(fixture.model.hasUnsavedDraftChanges)
+            XCTAssertTrue(fixture.peer.failures.isEmpty, fixture.peer.failures.joined(separator: " | "))
+        } catch {
+            await fixture.close()
+            throw error
+        }
+        await fixture.close()
+    }
+
     func testAuthenticatedOutboxDeliversAndAcknowledgesClearedPage() async throws {
         let fixture = try AuthenticatedFiveSaveDrainFixture()
         do {

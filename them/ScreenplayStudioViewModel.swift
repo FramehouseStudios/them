@@ -6938,26 +6938,26 @@ final class ScreenplayStudioViewModel: ObservableObject {
             return
         }
 
-        guard !draft.isEmpty else {
+        if draft.isEmpty {
             autosaveStatusText = hasUnsavedDraftChanges ? "Empty page - unsaved" : "Draft empty"
-            if hasUnsavedDraftChanges, !selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                let result = secureRecoveryCopy(
-                    ownerUserId: authContext.userID, projectId: selectedProjectID,
-                    draft: draft, baseVersionId: latestVersionID)
-                switch result {
-                case .secured: break
-                case .occupied: infoText = "Another recovery copy is stored. Export this page before closing or retry Save."
-                case .unconfirmed: infoText = "This page could not be secured locally. Keep it open and export it or retry Save."
-                }
+            guard hasUnsavedDraftChanges,
+                  !selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+            let result = secureRecoveryCopy(ownerUserId: authContext.userID, projectId: selectedProjectID,
+                draft: draft, baseVersionId: latestVersionID)
+            switch result {
+            case .secured: break
+            case .occupied:
+                infoText = "Another recovery copy is stored. Export this page before closing or retry Save."
+                return
+            case .unconfirmed:
+                infoText = "This page could not be secured locally. Keep it open and export it or retry Save."
+                return
             }
-            return
+            guard selectedProject != nil, autosaveEnabled else { return }
+        } else {
+            persistLocalDraftRecovery(projectId: selectedProjectID, draft: draft,
+                baseVersionId: latestVersionID, dirty: hasUnsavedDraftChanges)
         }
-        persistLocalDraftRecovery(
-            projectId: selectedProjectID,
-            draft: draft,
-            baseVersionId: latestVersionID,
-            dirty: hasUnsavedDraftChanges
-        )
         if selectedProject == nil {
             autosaveStatusText = hasUnsavedDraftChanges ? "Create project to save" : "Live draft"
             return
