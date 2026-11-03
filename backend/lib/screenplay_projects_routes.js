@@ -1523,8 +1523,8 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
       return res.status(404).json({ stage: "screenplay_version", error: "project_not_found" });
     }
     const now = Date.now();
-    const draft = String(req.body?.draft || "");
-    if (!draft.trim()) {
+    const draft = req.body?.draft;
+    if (typeof draft !== "string" || draft.length === 0) {
       return res.status(400).json({ stage: "screenplay_version", error: "draft_required" });
     }
     const phase = normalizeScreenplayPhaseValue(req.body?.phase || project.lastPhase);

@@ -104,7 +104,7 @@ export function createScreenplayProjectInitializer(deps) {
     if (!projectId || projectId.length > 64) return fail(400, "project_id_required");
     if (!requestId || requestId.length > 96) return fail(400, "client_request_id_required");
     if (!title) return fail(400, "title_required");
-    if (typeof initial.draft !== "string" || !initial.draft.trim()) return fail(400, "draft_required");
+    if (typeof initial.draft !== "string" || initial.draft.length === 0) return fail(400, "draft_required");
     const supported = new Set(["project_id", "title", "phase", "activate", "initial_draft"]);
     const initialFields = new Set(["draft", "client_request_id", "source", "notes"]);
     if (Object.keys(body).some(k => !supported.has(k)) || Object.keys(initial).some(k => !initialFields.has(k))) {
