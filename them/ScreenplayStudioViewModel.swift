@@ -5933,9 +5933,11 @@ final class ScreenplayStudioViewModel: ObservableObject {
         }
 
         guard !normalized.isEmpty else {
-            autosaveStatusText = "Draft empty"
-            if !selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                clearLocalDraftRecovery(projectId: selectedProjectID)
+            persistLocalDraftRecovery(projectId: selectedProjectID, draft: draft,
+                baseVersionId: latestVersionID, dirty: hasUnsavedDraftChanges)
+            autosaveStatusText = hasUnsavedDraftChanges ? "Blank page - unsaved" : "Draft empty"
+            if hasUnsavedDraftChanges {
+                infoText = "Your blank page is kept on this device. Add text before saving."
             }
             return
         }

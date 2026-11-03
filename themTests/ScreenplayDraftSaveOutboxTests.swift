@@ -280,6 +280,9 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
             model.fountainDraft = edited
             model.noteManualDraftEdit()
             XCTAssertTrue(model.hasUnsavedDraftChanges)
+            await model.handleDraftDebouncedChange(edited)
+            XCTAssertTrue(model.hasUnsavedDraftChanges)
+            XCTAssertEqual(model.autosaveStatusText, "Blank page - unsaved")
             let reloaded = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "recovery")
             let snapshot = reloaded.recoverySnapshot(ownerUserId: owner, projectId: "project-1",
                 serverDraft: "Writer words", fingerprint: { $0 })
