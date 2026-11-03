@@ -11,10 +11,21 @@ import {
   createStudioOwnedAppController,
   ensureStudioVisibleWithOpenHandshake,
   relaunchStudioAppWithHelper,
+  STUDIO_OWNER_SCOPED_LOCAL_STATE_BASE_KEYS,
   studioOwnerScopedDefaultsKey,
 } from "../evals/studio_eval_debug_utils.mjs";
 
 test("owner-scoped Studio defaults match the Swift storage-key contract", () => {
+  assert.deepEqual(STUDIO_OWNER_SCOPED_LOCAL_STATE_BASE_KEYS, [
+    "studio.full.thread.state.v1",
+    "studio.ask.note.history.v2",
+    "studio.diff.keep-current.v1",
+    "studio.diff.keep-current.writeids.v1",
+    "studio.inspector.workspace.v1",
+    "studio.inspector.beat.provenance.v1",
+    "studio.inspector.beat.provenance.history.v1",
+    "studio.feature.planner.pending.v1",
+  ]);
   assert.equal(
     studioOwnerScopedDefaultsKey("studio.ask.note.history.v2", " writer-a "),
     "studio.ask.note.history.v2.owner.d3JpdGVyLWE"
@@ -59,25 +70,22 @@ test("converted Studio evals do not access owner-scoped state through legacy glo
     "run_studio_backend_restore_smoke.mjs",
     "run_studio_cmdreturn_smoke.mjs",
     "run_studio_cross_platform_restore_contract_smoke.mjs",
+    "run_studio_inspector_input_path_smoke.mjs",
+    "run_studio_inspector_provenance_visual_smoke.mjs",
     "run_studio_merged_restore_smoke.mjs",
     "run_studio_preview_commit_dedupe_smoke.mjs",
     "run_studio_prompt_mode_separation_smoke.mjs",
     "run_studio_relaunch_restore_smoke.mjs",
     "studio_restore_seed_helper.mjs",
   ];
-  const baseKeys = [
-    "studio.full.thread.state.v1",
-    "studio.ask.note.history.v2",
-    "studio.diff.keep-current.v1",
-    "studio.diff.keep-current.writeids.v1",
-  ];
+  const baseKeys = STUDIO_OWNER_SCOPED_LOCAL_STATE_BASE_KEYS;
   for (const relativePath of convertedPaths) {
     const source = readFileSync(new URL(`../evals/${relativePath}`, import.meta.url), "utf8");
     for (const baseKey of baseKeys) {
       const escapedKey = baseKey.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       assert.doesNotMatch(
         source,
-        new RegExp(`(?:readDefaultString|writeDefaultString|readJSONDefault|debugDefaults\\.readJSON)\\(\\s*[\"']${escapedKey}[\"']`),
+        new RegExp(`(?:readDefaultString|writeDefaultString|readJSONDefault|readJsonDefault|debugDefaults\\.readJSON)\\(\\s*[\"']${escapedKey}[\"']`),
         `${relativePath} still accesses legacy global ${baseKey}`
       );
     }

@@ -13,6 +13,10 @@ export const STUDIO_OWNER_SCOPED_LOCAL_STATE_BASE_KEYS = Object.freeze([
   "studio.ask.note.history.v2",
   "studio.diff.keep-current.v1",
   "studio.diff.keep-current.writeids.v1",
+  "studio.inspector.workspace.v1",
+  "studio.inspector.beat.provenance.v1",
+  "studio.inspector.beat.provenance.history.v1",
+  "studio.feature.planner.pending.v1",
 ]);
 
 export function studioOwnerScopedDefaultsKey(baseKey, ownerUserID) {
