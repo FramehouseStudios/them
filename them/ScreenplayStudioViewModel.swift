@@ -7803,9 +7803,13 @@ final class ScreenplayStudioViewModel: ObservableObject {
                   result.payload.version.map({ $0.id == nextVersionId && ($0.draft?.utf8.elementsEqual(request.draft.utf8) ?? true) }) ?? true else {
                 throw BackendMemoryAPIError.invalidResponse
             }
+            // Older compatible servers can omit the redundant top-level IDs,
+            // but an ordinary save still needs the exact nested version echo.
+            let receiptProjectId = result.payload.projectId ?? result.payload.project?.id
+                ?? result.payload.version?.projectId
             let confirmed = ScreenplayConfirmedDraftSave.ordinary(entry: request.outboxEntry,
-                version: result.payload.version, versionID: result.payload.versionId,
-                projectID: result.payload.projectId, responseURL: result.responseURL,
+                version: result.payload.version, versionID: nextVersionId,
+                projectID: receiptProjectId, responseURL: result.responseURL,
                 owner: request.authContext, currentOwner: currentStudioAuthContext())
             let hasExactFollowerRebaseProof: Bool = {
                 guard confirmed != nil, let version = result.payload.version,
@@ -7825,9 +7829,10 @@ final class ScreenplayStudioViewModel: ObservableObject {
             if request.source == "studio_conflict_resolve", confirmed == nil {
                 throw BackendMemoryAPIError.server(status: 409, message: "The saved draft could not be confirmed. Your local words are kept.")
             }
-            if let confirmed { _ = try await liveReplyOutbox.recordConfirmedPageSave(confirmed) }
+            guard let confirmed else { throw BackendMemoryAPIError.invalidResponse }
+            _ = try await liveReplyOutbox.recordConfirmedPageSave(confirmed)
             if !request.supersededConflictRequests.isEmpty {
-                guard let confirmed, let version = result.payload.version,
+                guard let version = result.payload.version,
                       version.phase == request.phase, version.source == request.source,
                       version.notes == request.notes,
                       ScreenplayDraftSaveMetadataPolicy.matchesServerEcho(
@@ -7920,6 +7925,11 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 return nil
             }
             let retryable = ScreenplayDraftSaveRetryPolicy.shouldRetry(error)
+            let receiptUnconfirmed: Bool = {
+                guard let apiError = error as? BackendMemoryAPIError,
+                      case .invalidResponse = apiError else { return false }
+                return true
+            }()
             shouldQueuePendingDraftSaveAfterFailure = retryable
             if retryable { try? await draftSaveOutbox.markRetryable(id: request.id, error: error.localizedDescription) }
             else { try? await draftSaveOutbox.markParked(id: request.id, error: error.localizedDescription) }
@@ -7931,8 +7941,10 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 baseVersionId: request.baseVersionId
             )
             if retryable {
-                autosaveStatusText = "Queued locally - reconnecting"
-                infoText = "Your draft is safe on this device and will save when the connection returns."
+                autosaveStatusText = receiptUnconfirmed ? "Save confirmation pending" : "Queued locally - reconnecting"
+                infoText = receiptUnconfirmed
+                    ? "The server response could not confirm your saved words. Your local draft is safe; any retry uses the same request."
+                    : "Your draft is safe on this device and will save when the connection returns."
                 errorText = ""
             } else {
                 autosaveStatusText = ScreenplayDraftSaveRecoveryPresentationPolicy.failureStatus(source: request.source)
