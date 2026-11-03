@@ -129,7 +129,7 @@ nonisolated struct ScreenplayConfirmedDraftSave: Sendable {
               ScreenplayStudioAuthContextPolicy.matches(expected: owner, current: currentOwner),
               projectID == entry.projectId, version.projectId == entry.projectId,
               version.draft?.utf8.elementsEqual(entry.draft.utf8) == true,
-              !entry.draft.isEmpty,
+              (!entry.draft.isEmpty || (entry.initialization == nil && validID(entry.baseVersionId))),
               let responseURL, OfflineTalkRecoveryScope.sameBackend(origin.backendURL, responseURL),
               let responseOrigin = try? ScreenplayInitialProjectMetadata.origin(responseURL) else { return nil }
         return responseOrigin

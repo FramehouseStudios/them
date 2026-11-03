@@ -64,6 +64,15 @@ final class ScreenplayDraftSaveEvidenceTests: XCTestCase {
         XCTAssertNil(evidence.initialProjectReceiptID)
     }
 
+    func testEmptyVersionReceiptRequiresExactEchoAndKnownBase() throws {
+        var cleared = entry(draft: "")
+        XCTAssertEqual(try ordinary(cleared, version: version(cleared))?.draft, "")
+        XCTAssertNil(try ordinary(cleared, version: version(cleared, patch: ["draft": NSNull()])))
+        XCTAssertNil(try ordinary(cleared, version: version(cleared, patch: ["draft": " "])))
+        cleared.baseVersionId = ""
+        XCTAssertNil(try ordinary(cleared, version: version(cleared)))
+    }
+
     func testMissingOrContradictoryPostEchoCannotBecomeSaveEvidence() throws {
         let entry = entry()
         let patches: [[String: Any]] = [
@@ -392,8 +401,8 @@ final class ScreenplayDraftSaveEvidenceTests: XCTestCase {
             backendURL: backend, documentID: origin.documentID), .missing)
     }
 
-    private func entry(id: String = "save-a", source: String = "studio_manual", notes: String = "") -> ScreenplayDraftSaveOutboxEntry {
-        .init(id: id, projectId: "project-a", ownerUserId: owner.userID, draft: raw, title: "A", phase: "scene_draft",
+    private func entry(id: String = "save-a", source: String = "studio_manual", notes: String = "", draft: String? = nil) -> ScreenplayDraftSaveOutboxEntry {
+        .init(id: id, projectId: "project-a", ownerUserId: owner.userID, draft: draft ?? raw, title: "A", phase: "scene_draft",
             notes: notes, source: source, studioWriteAnchors: [], screenplayBindings: [], baseVersionId: "base-a",
             createdAt: 1, updatedAt: 1, status: .pending, retries: 0, nextAttemptAt: 0, lastError: "",
             deliveryOrigin: .init(documentID: "document-a", backendURL: backend))
