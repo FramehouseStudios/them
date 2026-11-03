@@ -218,22 +218,63 @@ struct ScreenplayLocalDraftRecoveryStore {
         guard !normalizedProjectId.isEmpty else { return }
         var nextPayloads = payloads(ownerUserId: ownerUserId)
         var projectPayload = nextPayloads[normalizedProjectId] ?? [:]
-        projectPayload["preservedConflict"] = [
-            "draft": draft,
-            "baseVersionId": baseVersionId,
-            "dirty": true,
-            "savedAt": savedAt,
-        ]
+        let slot = storedRecoverySlot(.preservedConflict, in: projectPayload)
+        guard !slot.exists || slot.candidate != nil else { return }
+        var preserved = preservedConflicts(in: projectPayload)
+        let alreadyStored = preserved.contains {
+            (($0["draft"] as? String)?.utf8.elementsEqual(draft.utf8) ?? false) &&
+                ($0["baseVersionId"] as? String) == baseVersionId
+        }
+        if !alreadyStored {
+            let copy: [String: Any] = [
+                "draft": draft,
+                "baseVersionId": baseVersionId,
+                "dirty": true,
+                "savedAt": savedAt,
+            ]
+            // Publish the new copy as the current decision while retaining the
+            // previous copy. A decision shown before this write is now stale.
+            var additional = projectPayload["preservedConflicts"] as? [[String: Any]] ?? []
+            if let previous = projectPayload["preservedConflict"] as? [String: Any] {
+                additional.append(previous)
+            }
+            if !additional.isEmpty { projectPayload["preservedConflicts"] = additional }
+            projectPayload["preservedConflict"] = copy
+        }
         nextPayloads[normalizedProjectId] = projectPayload
         defaults.set(nextPayloads, forKey: ownerScopedKey(ownerUserId))
     }
 
-    func clearPreservedConflict(ownerUserId: String, projectId: String) {
+    func clearPreservedConflict(
+        ownerUserId: String,
+        projectId: String,
+        draft: String? = nil,
+        savedAt: TimeInterval? = nil
+    ) {
         let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedProjectId.isEmpty else { return }
         var nextPayloads = payloads(ownerUserId: ownerUserId)
         guard var projectPayload = nextPayloads[normalizedProjectId] else { return }
-        projectPayload.removeValue(forKey: "preservedConflict")
+        let slot = storedRecoverySlot(.preservedConflict, in: projectPayload)
+        guard !slot.exists || slot.candidate != nil else { return }
+        if let draft {
+            var additional = projectPayload["preservedConflicts"] as? [[String: Any]] ?? []
+            if let index = additional.firstIndex(where: {
+                (($0["draft"] as? String)?.utf8.elementsEqual(draft.utf8) ?? false) &&
+                    (savedAt == nil || ($0["savedAt"] as? TimeInterval) == savedAt)
+            }) {
+                additional.remove(at: index)
+                if additional.isEmpty { projectPayload.removeValue(forKey: "preservedConflicts") }
+                else { projectPayload["preservedConflicts"] = additional }
+            } else if let legacy = projectPayload["preservedConflict"] as? [String: Any],
+                      ((legacy["draft"] as? String)?.utf8.elementsEqual(draft.utf8) ?? false),
+                      (savedAt == nil || (legacy["savedAt"] as? TimeInterval) == savedAt) {
+                projectPayload.removeValue(forKey: "preservedConflict")
+            }
+        } else {
+            projectPayload.removeValue(forKey: "preservedConflict")
+            projectPayload.removeValue(forKey: "preservedConflicts")
+        }
         if projectPayload.isEmpty {
             nextPayloads.removeValue(forKey: normalizedProjectId)
         } else {
@@ -261,6 +302,105 @@ struct ScreenplayLocalDraftRecoveryStore {
         defaults.set(nextPayloads, forKey: ownerScopedKey(ownerUserId))
     }
 
+    /// Returns the active preserved decision; older copies remain queued behind it.
+    func currentPreservedConflict(ownerUserId: String, projectId: String) -> ScreenplayLocalDraftRecoverySnapshot? {
+        let project = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !project.isEmpty, let payload = payloads(ownerUserId: ownerUserId)[project] else { return nil }
+        let state = storedRecoverySlot(.preservedConflict, in: payload)
+        guard let fallback = state.candidate,
+              let copy = (payload["preservedConflict"] as? [String: Any] ?? fallback) as [String: Any]?,
+              copy["dirty"] as? Bool == true, let draft = copy["draft"] as? String,
+              let base = copy["baseVersionId"] as? String, let savedAt = copy["savedAt"] as? TimeInterval else { return nil }
+        return ScreenplayLocalDraftRecoverySnapshot(projectId: project, draft: draft,
+            baseVersionId: base, savedAt: savedAt, isPreservedConflict: true)
+    }
+
+    func firstPreservedConflict(ownerUserId: String, projectId: String) -> ScreenplayLocalDraftRecoverySnapshot? {
+        let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedProjectId.isEmpty,
+              let payload = payloads(ownerUserId: ownerUserId)[normalizedProjectId],
+              let conflict = preservedConflicts(in: payload).first(where: { $0["dirty"] as? Bool == true }) else {
+            return nil
+        }
+        guard let draft = conflict["draft"] as? String else { return nil }
+        return ScreenplayLocalDraftRecoverySnapshot(
+            projectId: normalizedProjectId,
+            draft: draft,
+            baseVersionId: String(describing: conflict["baseVersionId"] ?? ""),
+            savedAt: conflict["savedAt"] as? TimeInterval ?? 0,
+            isPreservedConflict: true
+        )
+    }
+
+    func nextPreservedConflict(
+        ownerUserId: String,
+        projectId: String,
+        after draft: String,
+        savedAt: TimeInterval
+    ) -> ScreenplayLocalDraftRecoverySnapshot? {
+        let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedProjectId.isEmpty,
+              let payload = payloads(ownerUserId: ownerUserId)[normalizedProjectId] else { return nil }
+        let conflicts = preservedConflicts(in: payload).filter { $0["dirty"] as? Bool == true }
+        guard let currentIndex = conflicts.firstIndex(where: {
+            (($0["draft"] as? String)?.utf8.elementsEqual(draft.utf8) ?? false) &&
+                ($0["savedAt"] as? TimeInterval) == savedAt
+        }), conflicts.indices.contains(currentIndex + 1) else { return nil }
+        let next = conflicts[currentIndex + 1]
+        guard let nextDraft = next["draft"] as? String else { return nil }
+        return ScreenplayLocalDraftRecoverySnapshot(
+            projectId: normalizedProjectId,
+            draft: nextDraft,
+            baseVersionId: String(describing: next["baseVersionId"] ?? ""),
+            savedAt: next["savedAt"] as? TimeInterval ?? 0,
+            isPreservedConflict: true
+        )
+    }
+
+    func hasMultiplePreservedConflicts(ownerUserId: String, projectId: String) -> Bool {
+        let project = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let payload = payloads(ownerUserId: ownerUserId)[project],
+              storedRecoverySlot(.preservedConflict, in: payload).candidate != nil else { return false }
+        return preservedConflicts(in: payload).count > 1
+    }
+
+    /// Moves the current preserved copy behind the next one without deleting text.
+    /// The expected identity protects against advancing an obsolete UI decision.
+    @MainActor
+    func advancePreservedConflict(ownerUserId: String, projectId: String, draft: String,
+                                  baseVersionId: String, savedAt: TimeInterval) -> Bool {
+        let project = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !project.isEmpty else { return false }
+        var all = payloads(ownerUserId: ownerUserId)
+        guard var payload = all[project] else { return false }
+        let state = storedRecoverySlot(.preservedConflict, in: payload)
+        guard let fallback = state.candidate else { return false }
+        let current = payload["preservedConflict"] as? [String: Any] ?? fallback
+        let copies = preservedConflicts(in: payload)
+        guard copies.filter({ exactRecoveryCandidate($0, draft: draft, baseVersionId: baseVersionId, savedAt: savedAt) }).count == 1,
+              exactRecoveryCandidate(current, draft: draft, baseVersionId: baseVersionId, savedAt: savedAt),
+              var archived = payload["preservedConflicts"] as? [[String: Any]] else { return false }
+        if payload["preservedConflict"] == nil {
+            guard let index = archived.firstIndex(where: {
+                exactRecoveryCandidate($0, draft: draft, baseVersionId: baseVersionId, savedAt: savedAt)
+            }) else { return false }
+            archived.remove(at: index)
+        }
+        guard !archived.isEmpty else { return false }
+        let next = archived.removeFirst()
+        guard let nextDraft = next["draft"] as? String,
+              let nextBase = next["baseVersionId"] as? String,
+              let nextTime = next["savedAt"] as? TimeInterval,
+              next["dirty"] as? Bool == true,
+              copies.filter({ exactRecoveryCandidate($0, draft: nextDraft, baseVersionId: nextBase, savedAt: nextTime) }).count == 1 else { return false }
+        archived.append(current)
+        payload["preservedConflict"] = next
+        payload["preservedConflicts"] = archived
+        all[project] = payload
+        defaults.set(all, forKey: ownerScopedKey(ownerUserId))
+        return NSDictionary(dictionary: payloads(ownerUserId: ownerUserId)).isEqual(to: all)
+    }
+
     /// Revalidates the exact recovery decision without changing stored work.
     @MainActor
     func matchRecoverySlot(
@@ -276,8 +416,18 @@ struct ScreenplayLocalDraftRecoveryStore {
               let payload = payloads(ownerUserId: ownerUserId)[project] else { return .missing }
         let slotState = storedRecoverySlot(slot, in: payload)
         guard slotState.exists else { return .missing }
-        guard let candidate = slotState.candidate,
-              exactRecoveryCandidate(candidate, draft: draft, baseVersionId: baseVersionId, savedAt: savedAt) else {
+        // Malformed or ambiguous stored copies cannot authorize a decision.
+        guard let fallback = slotState.candidate else { return .changed }
+        let current = slot == .preservedConflict
+            ? (payload["preservedConflict"] as? [String: Any] ?? fallback)
+            : fallback
+        let matchingCount = slot == .preservedConflict
+            ? preservedConflicts(in: payload).filter {
+                exactRecoveryCandidate($0, draft: draft, baseVersionId: baseVersionId, savedAt: savedAt)
+              }.count
+            : 1
+        guard matchingCount == 1,
+              exactRecoveryCandidate(current, draft: draft, baseVersionId: baseVersionId, savedAt: savedAt) else {
             return .changed
         }
         return .matching
@@ -301,8 +451,18 @@ struct ScreenplayLocalDraftRecoveryStore {
 
         let slotState = storedRecoverySlot(slot, in: payload)
         guard slotState.exists else { return .missing }
-        guard let candidate = slotState.candidate,
-              exactRecoveryCandidate(candidate, draft: draft, baseVersionId: baseVersionId, savedAt: savedAt) else {
+        // Malformed or ambiguous stored copies cannot authorize a decision.
+        guard let fallback = slotState.candidate else { return .changed }
+        let current = slot == .preservedConflict
+            ? (payload["preservedConflict"] as? [String: Any] ?? fallback)
+            : fallback
+        let matchingCount = slot == .preservedConflict
+            ? preservedConflicts(in: payload).filter {
+                exactRecoveryCandidate($0, draft: draft, baseVersionId: baseVersionId, savedAt: savedAt)
+              }.count
+            : 1
+        guard matchingCount == 1,
+              exactRecoveryCandidate(current, draft: draft, baseVersionId: baseVersionId, savedAt: savedAt) else {
             return .changed
         }
 
@@ -312,7 +472,16 @@ struct ScreenplayLocalDraftRecoveryStore {
                 payload.removeValue(forKey: key)
             }
         case .preservedConflict:
-            payload.removeValue(forKey: "preservedConflict")
+            var additional = payload["preservedConflicts"] as? [[String: Any]] ?? []
+            if let index = additional.firstIndex(where: {
+                exactRecoveryCandidate($0, draft: draft, baseVersionId: baseVersionId, savedAt: savedAt)
+            }) {
+                additional.remove(at: index)
+                if additional.isEmpty { payload.removeValue(forKey: "preservedConflicts") }
+                else { payload["preservedConflicts"] = additional }
+            } else {
+                payload.removeValue(forKey: "preservedConflict")
+            }
         }
 
         if payload.isEmpty {
@@ -330,7 +499,10 @@ struct ScreenplayLocalDraftRecoveryStore {
         let slotIsAbsent: Bool
         switch slot {
         case .ordinary: slotIsAbsent = storedProject?["draft"] == nil
-        case .preservedConflict: slotIsAbsent = storedProject?["preservedConflict"] == nil
+        case .preservedConflict:
+            slotIsAbsent = !preservedConflicts(in: storedProject ?? [:]).contains {
+                exactRecoveryCandidate($0, draft: draft, baseVersionId: baseVersionId, savedAt: savedAt)
+            }
         }
         return slotIsAbsent ? .deleted : .unconfirmed
     }
@@ -357,8 +529,9 @@ struct ScreenplayLocalDraftRecoveryStore {
             return .present(.ordinary)
         }
         let preserved = storedRecoverySlot(.preservedConflict, in: payload)
-        if let candidate = preserved.candidate,
-           exactRecoveryCandidate(candidate, draft: draft, baseVersionId: baseVersionId) {
+        if preserved.candidate != nil, preservedConflicts(in: payload).contains(where: {
+            exactRecoveryCandidate($0, draft: draft, baseVersionId: baseVersionId)
+        }) {
             return .present(.preservedConflict)
         }
 
@@ -418,8 +591,8 @@ struct ScreenplayLocalDraftRecoveryStore {
             guard let text = value["draft"] as? String, let base = value["baseVersionId"] as? String else { return false }
             return text.utf8.elementsEqual(draft.utf8) && base.utf8.elementsEqual(baseVersionId.utf8)
         }
-        if let preserved = payload["preservedConflict"] as? [String: Any],
-           preserved["dirty"] as? Bool == true, exact(preserved) { return .present }
+        if storedRecoverySlot(.preservedConflict, in: payload).candidate != nil,
+           preservedConflicts(in: payload).contains(where: { $0["dirty"] as? Bool == true && exact($0) }) { return .present }
         if payload["draft"] != nil {
             guard payload["draft"] is String, payload["baseVersionId"] is String else { return .unconfirmed }
             guard exact(payload) else { return .occupied }
@@ -449,8 +622,10 @@ struct ScreenplayLocalDraftRecoveryStore {
         if matches(payload) {
             for key in ["draft", "baseVersionId", "dirty", "savedAt"] { payload.removeValue(forKey: key) }
         }
-        if let preserved = payload["preservedConflict"] as? [String: Any], matches(preserved) {
+        let copies = preservedConflicts(in: payload)
+        if copies.count == 1, matches(copies[0]), storedRecoverySlot(.preservedConflict, in: payload).candidate != nil {
             payload.removeValue(forKey: "preservedConflict")
+            payload.removeValue(forKey: "preservedConflicts")
         }
         if payload.isEmpty { all.removeValue(forKey: project) } else { all[project] = payload }
         defaults.set(all, forKey: ownerScopedKey(ownerUserId))
@@ -464,6 +639,16 @@ struct ScreenplayLocalDraftRecoveryStore {
         defaults.set(nextPayloads, forKey: ownerScopedKey(ownerUserId))
     }
 
+    func dirtyOrdinarySnapshot(ownerUserId: String, projectId: String) -> ScreenplayLocalDraftRecoverySnapshot? {
+        let project = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let stored = payloads(ownerUserId: ownerUserId)[project],
+              stored["dirty"] as? Bool == true,
+              let draft = stored["draft"] as? String else { return nil }
+        return ScreenplayLocalDraftRecoverySnapshot(projectId: project, draft: draft,
+            baseVersionId: stored["baseVersionId"] as? String ?? "",
+            savedAt: stored["savedAt"] as? TimeInterval ?? 0, isPreservedConflict: false)
+    }
+
     func recoverySnapshot(
         ownerUserId: String,
         projectId: String,
@@ -473,9 +658,22 @@ struct ScreenplayLocalDraftRecoveryStore {
         guard !normalizedProjectId.isEmpty,
               let stored = payloads(ownerUserId: ownerUserId)[normalizedProjectId] else { return nil }
 
-        if let preserved = stored["preservedConflict"] as? [String: Any],
-           preserved["dirty"] as? Bool == true,
-           let draft = preserved["draft"] as? String {
+        // A malformed preserved slot is never treated as vacant or retired.
+        let preservedSlot = storedRecoverySlot(.preservedConflict, in: stored)
+        guard !preservedSlot.exists || preservedSlot.candidate != nil else { return nil }
+        // Recovery may retire a writer copy only when its actual bytes match.
+        let allPreserved = preservedConflicts(in: stored)
+        // A matching server page does not settle which of several saved copies
+        // the writer wants to keep. Leave all copies for an explicit decision.
+        if allPreserved.count > 1 {
+            return currentPreservedConflict(ownerUserId: ownerUserId, projectId: normalizedProjectId)
+        }
+        let activePreserved = stored["preservedConflict"] as? [String: Any]
+        let orderedPreserved = activePreserved.map { active in
+            [active] + allPreserved.filter { !NSDictionary(dictionary: $0).isEqual(to: active) }
+        } ?? allPreserved
+        for preserved in orderedPreserved where preserved["dirty"] as? Bool == true {
+            guard let draft = preserved["draft"] as? String else { continue }
             if !draft.utf8.elementsEqual(serverDraft.utf8) {
                 return ScreenplayLocalDraftRecoverySnapshot(
                     projectId: normalizedProjectId,
@@ -485,15 +683,22 @@ struct ScreenplayLocalDraftRecoveryStore {
                     isPreservedConflict: true
                 )
             }
-            clearPreservedConflict(ownerUserId: ownerUserId, projectId: normalizedProjectId)
+            clearPreservedConflict(
+                ownerUserId: ownerUserId,
+                projectId: normalizedProjectId,
+                draft: draft,
+                savedAt: preserved["savedAt"] as? TimeInterval
+            )
+            return recoverySnapshot(
+                ownerUserId: ownerUserId,
+                projectId: normalizedProjectId,
+                serverDraft: serverDraft
+            )
         }
 
         guard let latestStored = payloads(ownerUserId: ownerUserId)[normalizedProjectId] else { return nil }
-        let storedDraft = String(describing: latestStored["draft"] ?? "")
-        let storedDirty = latestStored["dirty"] as? Bool ?? false
-        guard storedDirty, latestStored["draft"] is String else {
-            return nil
-        }
+        guard let storedDraft = latestStored["draft"] as? String,
+              latestStored["dirty"] as? Bool == true else { return nil }
 
         guard !storedDraft.utf8.elementsEqual(serverDraft.utf8) else {
             clearOrdinaryDraft(ownerUserId: ownerUserId, projectId: normalizedProjectId)
@@ -513,6 +718,18 @@ struct ScreenplayLocalDraftRecoveryStore {
         ScreenplayOwnerScopedStoragePolicy.storageKey(baseKey: key, ownerUserID: ownerUserId)
     }
 
+    private func preservedConflicts(in projectPayload: [String: Any]) -> [[String: Any]] {
+        var copies = projectPayload["preservedConflicts"] as? [[String: Any]] ?? []
+        if let legacy = projectPayload["preservedConflict"] as? [String: Any] {
+            copies.append(legacy)
+        }
+        return copies.enumerated().sorted { left, right in
+            let leftTime = left.element["savedAt"] as? TimeInterval ?? .greatestFiniteMagnitude
+            let rightTime = right.element["savedAt"] as? TimeInterval ?? .greatestFiniteMagnitude
+            return leftTime == rightTime ? left.offset < right.offset : leftTime < rightTime
+        }.map(\.element)
+    }
+
     private func storedRecoverySlot(
         _ slot: ScreenplayLocalDraftRecoverySlot,
         in payload: [String: Any]
@@ -523,8 +740,10 @@ struct ScreenplayLocalDraftRecoveryStore {
             let exists = keys.contains { payload[$0] != nil }
             return (exists, exists ? payload : nil)
         case .preservedConflict:
-            guard let value = payload["preservedConflict"] else { return (false, nil) }
-            return (true, value as? [String: Any])
+            if let value = payload["preservedConflicts"], !(value is [[String: Any]]) { return (true, nil) }
+            if let value = payload["preservedConflict"], !(value is [String: Any]) { return (true, nil) }
+            let copies = preservedConflicts(in: payload)
+            return (!copies.isEmpty, copies.first)
         }
     }
 

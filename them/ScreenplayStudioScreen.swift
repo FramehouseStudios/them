@@ -9100,25 +9100,34 @@ Current draft version:
                 ? "Press 1 to keep the current page or 2 to discard the recovery copy."
                 : "Press 1 to recover local or 2 to keep the current page.",
             tint: Color.orange.opacity(0.88),
-            excerpt: nil
+            excerpt: recovery.draft
         ) {
-            NumberedChoiceActionButton(
-                number: "1",
-                title: recoveryAlreadyOnPage ? "Keep Current" : "Recover Local",
-                prominence: .prominent
-            ) {
-                vm.restoreDraftFromRecovery()
-            }.accessibilityIdentifier("studio.draft-recovery.primary-action")
-            NumberedChoiceActionButton(
-                number: "2",
-                title: recoveryAlreadyOnPage ? "Discard Copy" : "Keep Current"
-            ) {
-                if recoveryAlreadyOnPage {
-                    vm.discardLocalRecoveryCopy()
-                } else {
-                    vm.keepServerDraft()
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 8) {
+                    NumberedChoiceActionButton(
+                        number: "1",
+                        title: recoveryAlreadyOnPage ? "Keep Current" : "Recover Local",
+                        prominence: .prominent
+                    ) {
+                        vm.restoreDraftFromRecovery()
+                    }.accessibilityIdentifier("studio.draft-recovery.primary-action")
+                    NumberedChoiceActionButton(
+                        number: "2",
+                        title: recoveryAlreadyOnPage ? "Discard Copy" : "Keep Current"
+                    ) {
+                        if recoveryAlreadyOnPage {
+                            vm.discardLocalRecoveryCopy()
+                        } else {
+                            vm.keepServerDraft()
+                        }
+                    }.accessibilityIdentifier("studio.draft-recovery.secondary-action")
                 }
-            }.accessibilityIdentifier("studio.draft-recovery.secondary-action")
+                if vm.canReviewNextRecoveryCopy {
+                    Button("Review next copy") { vm.reviewNextRecoveryCopy() }
+                        .accessibilityIdentifier("studio.draft-recovery.next-copy")
+                        .accessibilityHint("Show another saved recovery copy without deleting this one.")
+                }
+            }
         }
     }
 

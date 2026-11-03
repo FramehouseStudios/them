@@ -39,6 +39,11 @@ nonisolated enum UITestLaunchConfiguration {
             store.savePreservedConflict(ownerUserId: "", projectId: "debug-structural",
                                         draft: "INT. ROOM - DAY\n\nPRESERVED RECOVERY COPY.",
                                         baseVersionId: "recovery-base-b", savedAt: 200)
+            if environment["THEM_UITEST_MULTIPLE_PRESERVED_COPIES"] == "1" {
+                store.savePreservedConflict(ownerUserId: "", projectId: "debug-structural",
+                    draft: "INT. ROOM - DAY\n\nSECOND PRESERVED RECOVERY COPY.",
+                    baseVersionId: "recovery-base-c", savedAt: 300)
+            }
         }
 
         if arguments.contains("--ui-seed-remembered-login"),
