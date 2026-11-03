@@ -67,6 +67,7 @@ struct ScreenplayStudioRightPanelTabs: View {
                     }
                     .foregroundStyle(isActive ? textColor.opacity(0.96) : secondaryTextColor)
                     .frame(maxWidth: .infinity, minHeight: 48)
+                    .contentShape(Rectangle())
                     .background(
                         RoundedRectangle(cornerRadius: 12, style: .continuous)
                             .fill(isActive ? Color.white.opacity(0.96) : panelColor)
