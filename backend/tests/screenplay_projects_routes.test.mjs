@@ -2190,6 +2190,24 @@ test("[screenplay-projects-routes] explicit empty version requires safe base and
   });
 });
 
+test("[screenplay-projects-routes] an empty version cannot clear an unconfirmed server head", async () => {
+  for (const activeVersionId of ["", "missing-head"]) {
+    const deps = defaultDeps();
+    const project = deps._owner.projects.find((item) => item.id === "p1");
+    project.activeVersionId = activeVersionId;
+    project.versions = [];
+    await withTestServer(deps, async (baseURL) => {
+      const result = await postJson(baseURL, "/screenplay/projects/p1/version", {
+        draft: "", allow_empty_draft: true, base_version_id: activeVersionId || "invented",
+        client_request_id: "unconfirmed-clear", conflict_strategy: "reject_if_stale",
+      });
+      assert.equal(result.status, 409);
+      assert.equal(result.body.error, "empty_draft_head_unconfirmed");
+      assert.equal(project.versions.length, 0);
+    });
+  }
+});
+
 test("[screenplay-projects-routes] POST /version preserves whitespace-only bytes for save, replay and conflict", async () => {
   const deps = defaultDeps();
   const project = deps._owner.projects.find((item) => item.id === "p1");

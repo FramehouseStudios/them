@@ -1600,6 +1600,13 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
         replayed: requestMatches,
       }));
     }
+    // An explicit clear must not turn an unknown or missing server head into
+    // authority to create a destructive version.
+    if (draft.length === 0 && (!currentVersionId || !(project.versions || []).some(
+      (version) => version.id === currentVersionId && version.persistencePending !== true
+    ))) {
+      return res.status(409).json({ stage: "screenplay_version", error: "empty_draft_head_unconfirmed" });
+    }
     const missingRequiredBase = conflictStrategy === "reject_if_stale" && currentVersionId && !baseVersionId;
     const staleBase = conflictStrategy === "reject_if_stale" &&
       baseVersionId &&
