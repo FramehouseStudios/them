@@ -1464,13 +1464,17 @@ actor ScreenplayDraftSaveOutbox {
 
     func prepareInitialProject(ownerUserID: String, backendURL: URL, documentID: String,
                                sourceProjectID: String, draft: String, title: String, phase: String,
-                               source: String, explicitTitle: Bool = false) throws -> ScreenplayDraftSaveOutboxEntry {
+                               source: String, explicitTitle: Bool = false,
+                               blankProject: Bool = false) throws -> ScreenplayDraftSaveOutboxEntry {
         try loadIfNeeded()
         let origin = try ScreenplayInitialProjectMetadata.origin(backendURL)
         guard !ownerUserID.isEmpty, !documentID.isEmpty, !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw BackendMemoryAPIError.invalidResponse }
+              blankProject == draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw BackendMemoryAPIError.invalidResponse }
         if let existing = initialProjectEntry(ownerUserID: ownerUserID, backendURL: origin, documentID: documentID,
                                              sourceProjectID: sourceProjectID) {
+            guard (existing.initialization?.blankProject == true) == blankProject else {
+                throw BackendMemoryAPIError.server(status: 409, message: "A different project setup is already pending. Finish it before starting another project.")
+            }
             guard !explicitTitle || existing.title == title else {
                 throw BackendMemoryAPIError.server(status: 409, message: "A project named ‘\(existing.title)’ is still being set up. Save now to finish it before starting another project. Your words are kept.")
             }
@@ -1482,7 +1486,8 @@ actor ScreenplayDraftSaveOutbox {
             draft: draft, title: title, phase: phase, notes: "Initial Studio draft", source: source,
             studioWriteAnchors: [], screenplayBindings: [], baseVersionId: "", createdAt: now, updatedAt: now,
             status: .pending, retries: 0, nextAttemptAt: 0, lastError: "Project setup is kept on this device.")
-        entry.initialization = .init(documentID: documentID, backendURL: origin, sourceProjectID: sourceProjectID)
+        entry.initialization = .init(documentID: documentID, backendURL: origin, sourceProjectID: sourceProjectID,
+                                     blankProject: blankProject ? true : nil)
         entry.deliveryOrigin = .init(documentID: documentID, backendURL: origin)
         _ = try enqueue(entry)
         return entry
@@ -1521,10 +1526,14 @@ actor ScreenplayDraftSaveOutbox {
 
     func recordInitialProjectReceipt(id: String, versionID: String) throws {
         try loadIfNeeded()
-        guard let index = entries.firstIndex(where: { $0.id == id }), entries[index].initialization != nil,
-              !versionID.isEmpty else { throw BackendMemoryAPIError.invalidResponse }
+        guard let index = entries.firstIndex(where: { $0.id == id }), let metadata = entries[index].initialization,
+              metadata.blankProject == true ? versionID.isEmpty : !versionID.isEmpty else { throw BackendMemoryAPIError.invalidResponse }
         let previous = entries
-        entries[index].initialization?.receiptVersionID = versionID
+        if metadata.blankProject == true {
+            entries[index].initialization?.blankReceipt = true
+        } else {
+            entries[index].initialization?.receiptVersionID = versionID
+        }
         entries[index].status = .parked
         entries[index].lastError = "First draft saved. Finish project setup to bind this receipt."
         do { try persist() } catch { entries = previous; throw error }
@@ -1535,7 +1544,8 @@ actor ScreenplayDraftSaveOutbox {
         try owner.requireCurrentOwner(BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: false))
         try loadIfNeeded()
         guard let entry = entries.first(where: { $0.id == id }), entry.ownerUserId == owner.userID,
-              let metadata = entry.initialization, metadata.receiptVersionID == versionID,
+              let metadata = entry.initialization,
+              (metadata.blankProject == true ? (metadata.blankReceipt == true && versionID.isEmpty) : metadata.receiptVersionID == versionID),
               OfflineTalkRecoveryScope.sameBackend(metadata.backendURL, BackendAuthClient.resolvedBackendBaseURL()) else {
             throw BackendMemoryAPIError.invalidResponse
         }

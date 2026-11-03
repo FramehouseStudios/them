@@ -2591,7 +2591,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
               ScreenplayLiveDraftBridge.shared.draftOrigin.documentID == metadata.documentID,
               (selectedProjectID == metadata.sourceProjectID || selectedProjectID == receipt.project.id),
               fountainDraft.utf8.elementsEqual(receipt.localDraft.utf8) else { return false }
-        let dirty = !fountainDraft.utf8.elementsEqual(receipt.entry.draft.utf8)
+        let dirty = metadata.blankProject == true
+            ? !fountainDraft.isEmpty : !fountainDraft.utf8.elementsEqual(receipt.entry.draft.utf8)
         localDraftRecoveryStore.save(ownerUserId: receipt.owner.userID, projectId: receipt.project.id,
             draft: fountainDraft, baseVersionId: receipt.versionID, dirty: dirty)
         clearTransientProjectStateForSelectionChange(to: receipt.project.id)
@@ -2600,24 +2601,28 @@ final class ScreenplayStudioViewModel: ObservableObject {
         selectedProjectID = receipt.project.id
         loadedDraftProjectID = receipt.project.id
         latestVersionID = receipt.versionID
-        lastSavedDraftFingerprint = fingerprint(for: receipt.entry.draft)
-        lastRevisionBaseDraft = receipt.entry.draft
+        lastSavedDraftFingerprint = fingerprint(for: metadata.blankProject == true ? "" : receipt.entry.draft)
+        lastRevisionBaseDraft = metadata.blankProject == true ? "" : receipt.entry.draft
         hasUnsavedDraftChanges = dirty
         isManualDraftEditing = dirty
         autosaveStatusText = dirty ? "Unsaved changes" : "Saved now"
-        infoText = dirty ? "Project recovered. Your newer local edits are kept; Save now to sync them." : "Project and first draft saved."
+        infoText = dirty ? "Project recovered. Your newer local edits are kept; Save now to sync them." :
+            (metadata.blankProject == true ? "Project created. Your empty page is ready." : "Project and first draft saved.")
         return true
     }
 
     private func finishInitialProject(_ entry: ScreenplayDraftSaveOutboxEntry,
                                       initiating: StudioActionDocumentContext,
-                                      owner: BackendAuthRequestIdentity) async throws -> Bool {
-        guard initiating.matches(initialProjectContext), let metadata = entry.initialization,
+                                      owner: BackendAuthRequestIdentity, expectedTitle: String? = nil) async throws -> Bool {
+        func titleIsCurrent() -> Bool {
+            expectedTitle == nil || newProjectTitle.trimmingCharacters(in: .whitespacesAndNewlines) == expectedTitle
+        }
+        guard titleIsCurrent(), initiating.matches(initialProjectContext), let metadata = entry.initialization,
               ScreenplayLiveDraftBridge.shared.draftOrigin.documentID == metadata.documentID,
               (initiating.projectID == metadata.sourceProjectID || initiating.projectID == entry.projectId) else { return false }
         let receipt = try await ScreenplayInitialProjectCreation.save(entry, owner: owner,
             localDraft: initiating.draft, outbox: draftSaveOutbox, api: draftSaveAPI, liveReplyOutbox: liveReplyOutbox)
-        guard initiating.matches(initialProjectContext) else { return false }
+        guard titleIsCurrent(), initiating.matches(initialProjectContext) else { return false }
         let bridge = ScreenplayLiveDraftBridge.shared
         guard bridge.adoptInitialProjectReceipt(receipt, initiating: initiating),
               adoptInitialProjectReceipt(receipt) else { return false }
@@ -2639,13 +2644,17 @@ final class ScreenplayStudioViewModel: ObservableObject {
         errorText = ""
         do {
             if seededDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                // Intentional blank/title setup is not a failed first-draft fallback.
-                let result = try await BackendMemoryAPI.shared.upsertScreenplayProject(title: title,
-                    phase: "scene_draft", initiatingIdentity: owner)
-                guard initiating.matches(initialProjectContext), newProjectTitle.trimmingCharacters(in: .whitespacesAndNewlines) == title,
-                      scope.isCurrent, let project = result.payload.project else { return }
-                upsertProject(project); selectedProjectID = project.id; selectedProject = project
-                infoText = "Project created. The empty page is kept locally."
+                let bridge = ScreenplayLiveDraftBridge.shared
+                guard initiating.matches(initialProjectContext), bridge.preferredProjectID == selectedProjectID else {
+                    throw BackendMemoryAPIError.server(status: 409, message: "The selected page changed. Your words are kept.")
+                }
+                bridge.draftText = seededDraft
+                let documentID = try bridge.initialProjectDocumentID(owner: owner)
+                let entry = try await draftSaveOutbox.prepareInitialProject(ownerUserID: owner.userID, backendURL: backendURL,
+                    documentID: documentID, sourceProjectID: selectedProjectID, draft: seededDraft, title: title,
+                    phase: "scene_draft", source: "studio_blank_create", explicitTitle: true, blankProject: true)
+                guard initiating.matches(initialProjectContext), scope.isCurrent else { return }
+                guard try await finishInitialProject(entry, initiating: initiating, owner: owner, expectedTitle: title) else { return }
             } else {
                 let bridge = ScreenplayLiveDraftBridge.shared
                 guard initiating.matches(initialProjectContext), bridge.preferredProjectID == selectedProjectID else {
@@ -2657,7 +2666,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
                     documentID: documentID, sourceProjectID: selectedProjectID, draft: seededDraft, title: title,
                     phase: "scene_draft", source: "studio_initial_seed", explicitTitle: true)
                 guard initiating.matches(initialProjectContext), scope.isCurrent else { return }
-                guard try await finishInitialProject(entry, initiating: initiating, owner: owner) else { return }
+                guard try await finishInitialProject(entry, initiating: initiating, owner: owner, expectedTitle: title) else { return }
             }
             if scope.isCurrent, newProjectTitle.trimmingCharacters(in: .whitespacesAndNewlines) == title { newProjectTitle = "" }
             await loadSelectedProjectOutline()
@@ -7216,6 +7225,31 @@ final class ScreenplayStudioViewModel: ObservableObject {
 
     func reconnectAndResumeQueuedDraftSaves() async {
         await refreshDraftSaveOutboxStatus()
+        let owner = BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: false)
+        let scope = OfflineTalkRecoveryScope(identity: owner, backendURL: BackendAuthClient.resolvedBackendBaseURL())
+        if !isSaving, let documentID = ScreenplayLiveDraftBridge.shared.draftOrigin.documentID {
+            do {
+                if let entry = try await draftSaveOutbox.pendingInitialProject(ownerUserID: owner.userID,
+                    backendURL: scope.backendURL, documentID: documentID, sourceProjectID: selectedProjectID) {
+                    let visibleTitle = newProjectTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard visibleTitle.isEmpty || visibleTitle == entry.title else {
+                        errorText = "A different project setup is kept locally. Finish it before starting another."
+                        return
+                    }
+                    let initiating = initialProjectContext
+                    isSaving = true
+                    let recovered: Bool
+                    do { recovered = try await finishInitialProject(entry, initiating: initiating, owner: owner) }
+                    catch { if scope.isCurrent { isSaving = false }; throw error }
+                    if scope.isCurrent { isSaving = false }
+                    guard recovered, scope.isCurrent else { return }
+                    await refreshDraftSaveOutboxStatus()
+                }
+            } catch {
+                if scope.isCurrent { errorText = "Project setup is kept locally: \(error.localizedDescription)" }
+                return
+            }
+        }
         guard queuedDraftSaveCount > 0 else { return }
         if !didLoadScreenplayProjectsFromBackend {
             guard !isLoading else { return }

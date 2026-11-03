@@ -1,5 +1,11 @@
 import Foundation
 
+nonisolated struct BackendBlankProjectReceipt: Decodable {
+    let clientRequestId: String
+    let projectId: String
+    let creationRequestHash: String
+}
+
 // Project writes share the canonical auth/bootstrap, HTTP and sync-result helpers.
 extension BackendMemoryAPI {
     func upsertScreenplayProject(
@@ -88,13 +94,18 @@ extension BackendMemoryAPI {
         if let initialDraft {
             guard let metadata = initialDraft.initialization, projectId == initialDraft.projectId,
                   title == initialDraft.title, phase == initialDraft.phase,
-                  !initialDraft.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                  (metadata.blankProject == true) == initialDraft.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 throw BackendMemoryAPIError.invalidResponse
             }
             try metadata.validate(owner: identity, entry: initialDraft, requestURL: request.url)
-            payload = ["project_id": initialDraft.projectId, "title": initialDraft.title, "phase": initialDraft.phase,
-                "initial_draft": ["draft": initialDraft.draft, "client_request_id": initialDraft.id,
-                                  "source": initialDraft.source, "notes": initialDraft.notes]]
+            if metadata.blankProject == true {
+                payload = ["project_id": initialDraft.projectId, "title": initialDraft.title, "phase": initialDraft.phase,
+                    "blank_project": ["client_request_id": initialDraft.id]]
+            } else {
+                payload = ["project_id": initialDraft.projectId, "title": initialDraft.title, "phase": initialDraft.phase,
+                    "initial_draft": ["draft": initialDraft.draft, "client_request_id": initialDraft.id,
+                                      "source": initialDraft.source, "notes": initialDraft.notes]]
+            }
             request.setValue(initialDraft.id, forHTTPHeaderField: "X-Idempotency-Key")
         }
         request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])

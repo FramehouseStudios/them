@@ -31,6 +31,48 @@ final class BackendProjectWriteOwnershipTests: XCTestCase {
         XCTAssertEqual(writes.first?.value(forHTTPHeaderField: "Authorization"), "Bearer fixture-rotated")
     }
 
+    func testBlankProjectRetryUsesSameAtomicIdentityWithoutCreatingEmptyVersion() async throws {
+        let state = ProjectWriteOwnershipState()
+        var entry = ScreenplayDraftSaveOutboxEntry(id: "request-initial", projectId: "project-a", ownerUserId: "writer-a",
+            draft: "", title: "A", phase: "scene_draft", notes: "", source: "studio_blank_create",
+            studioWriteAnchors: [], screenplayBindings: [], baseVersionId: "", createdAt: 1, updatedAt: 1,
+            status: .pending, retries: 0, nextAttemptAt: 0, lastError: "")
+        entry.initialization = .init(documentID: "document-a", backendURL: URL(string: "https://project-write-ownership.test")!,
+                                     sourceProjectID: "", blankProject: true)
+        ProjectWriteOwnershipProtocol.handler = { request in
+            state.record(request)
+            if request.url?.path == "/session" { return .json(#"{"error":"unavailable"}"#, status: 503) }
+            let count = state.requests().filter { $0.url?.path == "/screenplay/projects/initialize" }.count
+            if count == 1 { return .json(#"{"error":"connection_lost"}"#, status: 503) }
+            return .json(#"{"stage":"screenplay_project","status":"replayed","project_id":"project-a","project":{"id":"project-a","title":"A","version_count":0}}"#)
+        }
+        let api = makeAPI(state), owner = state.identity()
+        do {
+            _ = try await api.upsertScreenplayProject(projectId: entry.projectId, title: entry.title,
+                phase: entry.phase, initialDraft: entry, initiatingIdentity: owner)
+            XCTFail("The failed response must not be acknowledged.")
+        } catch {}
+        let result = try await api.upsertScreenplayProject(projectId: entry.projectId, title: entry.title,
+            phase: entry.phase, initialDraft: entry, initiatingIdentity: owner)
+        XCTAssertEqual(result.payload.projectId, entry.projectId)
+        XCTAssertNil(result.payload.versionId)
+        let requests = state.requests().filter { $0.url?.path == "/screenplay/projects/initialize" }
+        XCTAssertEqual(requests.count, 2)
+        for request in requests {
+            var body = request.httpBody ?? Data()
+            if body.isEmpty, let stream = request.httpBodyStream {
+                stream.open(); defer { stream.close() }
+                var buffer = [UInt8](repeating: 0, count: 1024)
+                while true { let count = stream.read(&buffer, maxLength: buffer.count); if count <= 0 { break }; body.append(contentsOf: buffer.prefix(count)) }
+            }
+            let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+            XCTAssertEqual(json["project_id"] as? String, entry.projectId)
+            XCTAssertEqual((json["blank_project"] as? [String: Any])?["client_request_id"] as? String, entry.id)
+            XCTAssertNil(json["initial_draft"])
+            XCTAssertEqual(request.value(forHTTPHeaderField: "X-Idempotency-Key"), entry.id)
+        }
+    }
+
     func testMissingAtomicEndpointNeverFallsBackToUnsafeMetadataThenVersion() async {
         let state = ProjectWriteOwnershipState(), entry = initialEntry()
         ProjectWriteOwnershipProtocol.handler = { request in state.record(request); return .json(#"{"error":"not_found"}"#, status: 404) }

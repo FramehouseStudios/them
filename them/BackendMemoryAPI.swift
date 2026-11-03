@@ -2575,6 +2575,7 @@ nonisolated struct BackendScreenplayProjectResponse: Decodable {
 }
 
 nonisolated struct BackendScreenplayProjectMutationResponse: Decodable {
+    var blankCreation: BackendBlankProjectReceipt? = nil
     var versionId: String? = nil
     var version: BackendScreenplayVersion? = nil
     let stage: String?

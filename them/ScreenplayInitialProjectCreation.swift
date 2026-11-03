@@ -6,6 +6,9 @@ nonisolated struct ScreenplayInitialProjectMetadata: Codable, Equatable, Sendabl
     let backendURL: URL
     let sourceProjectID: String
     var receiptVersionID: String? = nil
+    // Missing on legacy rows; those rows always represent a first draft.
+    var blankProject: Bool? = nil
+    var blankReceipt: Bool? = nil
 
     func validate(owner: BackendAuthRequestIdentity, entry: ScreenplayDraftSaveOutboxEntry, requestURL: URL?) throws {
         guard entry.ownerUserId == owner.userID, !owner.userID.isEmpty,
@@ -34,6 +37,20 @@ struct ScreenplayInitialProjectReceipt {
     let localDraft: String
 }
 
+enum ScreenplayBlankProjectReceiptPolicy {
+    static func accepts(_ response: BackendScreenplayProjectMutationResponse, entry: ScreenplayDraftSaveOutboxEntry) -> Bool {
+        guard let project = response.project, project.id == entry.projectId,
+              response.projectId == entry.projectId, let receipt = response.blankCreation,
+              receipt.clientRequestId == entry.id, receipt.projectId == entry.projectId,
+              receipt.creationRequestHash.range(of: "^[a-f0-9]{64}$", options: .regularExpression) != nil,
+              (response.status == "created" && response.created == true) ||
+                (response.status == "replayed" && response.created == false),
+              (project.activeVersionId ?? "").isEmpty, (project.lastVersionId ?? "").isEmpty,
+              project.versionCount == 0, response.version == nil, (response.versionId ?? "").isEmpty else { return false }
+        return true
+    }
+}
+
 @MainActor
 enum ScreenplayInitialProjectCreation {
     static func save(_ entry: ScreenplayDraftSaveOutboxEntry, owner: BackendAuthRequestIdentity,
@@ -49,6 +66,14 @@ enum ScreenplayInitialProjectCreation {
                 phase: entry.phase, initialDraft: entry, initiatingIdentity: owner)
             try owner.requireCurrentOwner(BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: false))
             try metadata.validate(owner: owner, entry: entry, requestURL: BackendAuthClient.resolvedBackendBaseURL())
+            if metadata.blankProject == true {
+                guard ScreenplayBlankProjectReceiptPolicy.accepts(result.payload, entry: entry),
+                      let project = result.payload.project else {
+                    throw BackendMemoryAPIError.server(status: 409, message: "This project has changed on the server. Your local page is kept; reopen the project to review it.")
+                }
+                try await outbox.recordInitialProjectReceipt(id: entry.id, versionID: "")
+                return .init(entry: entry, project: project, versionID: "", owner: owner, localDraft: localDraft)
+            }
             guard let project = result.payload.project, project.id == entry.projectId,
                   let version = result.payload.version, let versionID = result.payload.versionId,
                   !versionID.isEmpty, version.id == versionID,
@@ -79,7 +104,10 @@ extension ScreenplayLiveDraftBridge {
               initiating.matches(.current(bridge: self)),
               (try? receipt.owner.requireCurrentOwner(BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: false))) != nil,
               OfflineTalkRecoveryScope.sameBackend(metadata.backendURL, BackendAuthClient.resolvedBackendBaseURL()) else { return false }
-        let dirty = !draftText.utf8.elementsEqual(receipt.entry.draft.utf8)
+        // A blank server project has no saved version: preserve even whitespace
+        // typed locally as dirty until a real screenplay save can acknowledge it.
+        let dirty = receipt.entry.initialization?.blankProject == true
+            ? !draftText.isEmpty : !draftText.utf8.elementsEqual(receipt.entry.draft.utf8)
         ScreenplayLocalDraftRecoveryStore().save(ownerUserId: receipt.owner.userID, projectId: receipt.project.id,
             draft: draftText, baseVersionId: receipt.versionID, dirty: dirty)
         initialProjectReceipt = receipt
