@@ -6,6 +6,10 @@ import {
   apiRequest,
   startBackend,
 } from "./helpers/backend_test_server.mjs";
+import {
+  SCREENPLAY_DRAFT_HASH_VERSION,
+  hashCanonicalScreenplayDraft,
+} from "../lib/screenplay_draft_receipt_protocol.js";
 
 function authHeaders(token) {
   return { Authorization: `Bearer ${token}` };
@@ -88,6 +92,9 @@ test("[screenplay-cross-device] iPhone save restores on desktop after backend re
     assert.equal(iPhoneSave.status, 201, iPhoneSave.text);
     iPhoneVersionId = String(iPhoneSave.json?.version_id || "");
     assert.ok(iPhoneVersionId);
+    assert.equal(iPhoneSave.json?.client_request_id, "iphone-durable-save");
+    assert.equal(iPhoneSave.json?.draft_hash_version, SCREENPLAY_DRAFT_HASH_VERSION);
+    assert.equal(iPhoneSave.json?.draft_hash, hashCanonicalScreenplayDraft(iPhoneDraft));
   } finally {
     const stopped = await server.stop();
     assert.equal(stopped.forced, false, "backend should drain before restart");
@@ -130,6 +137,9 @@ test("[screenplay-cross-device] iPhone save restores on desktop after backend re
     assert.equal(replay.status, 200, replay.text);
     assert.equal(replay.json?.status, "replayed");
     assert.equal(replay.json?.version_id, iPhoneVersionId);
+    assert.equal(replay.json?.client_request_id, "iphone-durable-save");
+    assert.equal(replay.json?.draft_hash_version, SCREENPLAY_DRAFT_HASH_VERSION);
+    assert.equal(replay.json?.draft_hash, hashCanonicalScreenplayDraft(iPhoneDraft));
 
     const stale = await apiRequest(server, `/screenplay/projects/${projectId}/version`, {
       method: "POST",
@@ -143,6 +153,9 @@ test("[screenplay-cross-device] iPhone save restores on desktop after backend re
     });
     assert.equal(stale.status, 409, stale.text);
     assert.equal(stale.json?.server_version_id, iPhoneVersionId);
+    assert.equal(stale.json?.client_request_id, "desktop-stale-save");
+    assert.equal(stale.json?.draft_hash_version, SCREENPLAY_DRAFT_HASH_VERSION);
+    assert.equal(stale.json?.draft_hash, hashCanonicalScreenplayDraft(iPhoneDraft));
 
     const otherEmail = `other-${stamp}@example.test`;
     const otherToken = await signup(server, otherEmail, password, "Other Writer");

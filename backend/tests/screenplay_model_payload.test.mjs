@@ -13,6 +13,20 @@ function services() {
   });
 }
 
+test("[screenplay-model-payload] preserves the version save request identity", () => {
+  const { toScreenplayVersionPayload } = services();
+  const payload = toScreenplayVersionPayload({
+    id: "version-receipt",
+    projectId: "project-receipt",
+    clientRequestId: "client-save-001",
+    draft: "INT. ROOM - DAY",
+  });
+
+  assert.equal(payload.id, "version-receipt");
+  assert.equal(payload.project_id, "project-receipt");
+  assert.equal(payload.client_request_id, "client-save-001");
+});
+
 test("[screenplay-model-payload] includes active version even beyond version limit", () => {
   const { toScreenplayProjectPayload } = services();
   const project = {
