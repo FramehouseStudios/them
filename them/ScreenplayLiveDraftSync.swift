@@ -394,6 +394,7 @@ nonisolated enum LiveDraftSyncPolicy {
         isRunningTests: Bool
     ) -> Bool {
         if isRunningTests { return false }
+        if arguments.contains("--ui-screenplay-save-network-fault") { return false }
         let optIn = (environment[automationOptInEnvironmentKey] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         if optIn == "1" || optIn.lowercased() == "true" { return true }
         if IOThemRuntime.isStudioAutomationArguments(arguments) || IOThemRuntime.isStudioEvalArguments(arguments) {
@@ -845,9 +846,6 @@ final class ScreenplayLiveDraftSyncService: ObservableObject {
         // 2026-09-28). Without a base, or when local already matches, there
         // is nothing to merge; the channel wins, as for overlapping edits.
         let hasAgreedBase = mirrorSeq != nil
-        if !hasAgreedBase, localText != remoteText {
-            editor?.preserveLocalDraftForLiveSyncRecovery(localText, projectID: projectID)
-        }
         setMirror(text: remoteText, seq: seq, checksum: checksum)
         var merged: String?
         if hasAgreedBase, localText != previousMirror, localText != remoteText,
@@ -856,6 +854,13 @@ final class ScreenplayLiveDraftSyncService: ObservableObject {
             if merged == nil {
                 logger.notice("live draft: overlapping edits, channel text kept")
             }
+        }
+        // Do not discard local words when the channel wins. This includes
+        // both a fresh mirror (no agreed base) and overlapping edits that
+        // cannot be safely rebased. The editor only persists text that is
+        // actually dirty against its last saved fingerprint.
+        if merged == nil, localText != remoteText {
+            editor?.preserveLocalDraftForLiveSyncRecovery(localText, projectID: projectID)
         }
         applyToEditor(merged ?? remoteText, projectID: projectID, sourceDeviceID: sourceDeviceID)
         if let revealLine, merged == nil {

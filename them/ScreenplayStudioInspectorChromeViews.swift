@@ -1,6 +1,22 @@
 import SwiftUI
 import ScreenplayStudio
 
+/// Navigation belongs to the drawer viewport, not the scrolling panel body.
+struct ScreenplayStudioPinnedInspectorTabs<Tabs: View>: ViewModifier {
+    let tabs: Tabs
+    let selection: ScreenplayStudioScreen.DirectionOneRightPanelTab
+
+    func body(content: Content) -> some View {
+        VStack(spacing: 0) {
+            tabs
+                .padding(.horizontal, 12)
+                .padding(.top, 12)
+            content.id(selection)
+                .accessibilityIdentifier("studio.sidebar.right.content-scroll")
+        }
+    }
+}
+
 struct ScreenplayStudioRightPanelTabs: View {
     @Binding var selection: ScreenplayStudioScreen.DirectionOneRightPanelTab
     let textColor: Color
@@ -11,10 +27,28 @@ struct ScreenplayStudioRightPanelTabs: View {
     let strokeColor: Color
 
     var body: some View {
-        let columns = Array(repeating: GridItem(.flexible(), spacing: 6), count: 3)
+        let tabs = ScreenplayStudioScreen.DirectionOneRightPanelTab.allCases
+        let rowCount = (tabs.count + 2) / 3
 
-        LazyVGrid(columns: columns, spacing: 8) {
-            ForEach(ScreenplayStudioScreen.DirectionOneRightPanelTab.allCases) { tab in
+        VStack(spacing: 8) {
+            ForEach(0..<rowCount, id: \.self) { row in
+                rightPanelTabRow(Array(tabs.dropFirst(row * 3).prefix(3)))
+            }
+        }
+        .padding(6)
+        .background(panelSoftColor)
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(strokeColor.opacity(0.55), lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    private func rightPanelTabRow(
+        _ tabs: [ScreenplayStudioScreen.DirectionOneRightPanelTab]
+    ) -> some View {
+        HStack(spacing: 6) {
+            ForEach(tabs) { tab in
                 let isActive = selection == tab
                 Button {
                     withAnimation(.easeInOut(duration: 0.16)) {
@@ -33,6 +67,7 @@ struct ScreenplayStudioRightPanelTabs: View {
                     }
                     .foregroundStyle(isActive ? textColor.opacity(0.96) : secondaryTextColor)
                     .frame(maxWidth: .infinity, minHeight: 48)
+                    .contentShape(Rectangle())
                     .background(
                         RoundedRectangle(cornerRadius: 12, style: .continuous)
                             .fill(isActive ? Color.white.opacity(0.96) : panelColor)
@@ -53,13 +88,6 @@ struct ScreenplayStudioRightPanelTabs: View {
                 .accessibilityAddTraits(isActive ? .isSelected : [])
             }
         }
-        .padding(6)
-        .background(panelSoftColor)
-        .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(strokeColor.opacity(0.55), lineWidth: 1)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 }
 
