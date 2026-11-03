@@ -137,8 +137,8 @@ struct ScreenplayProjectDraftRestorePolicy {
 
 struct ScreenplayUnconfirmedSaveRecoveryPolicy {
     static func shouldPersist(projectId: String, draft: String) -> Bool {
-        !projectId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-            !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        // An empty draft can be the writer's intentional deletion.
+        !projectId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 }
 

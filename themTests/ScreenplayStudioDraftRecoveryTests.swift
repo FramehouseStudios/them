@@ -1476,7 +1476,7 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         XCTAssertEqual(restored?.draft, "INT. LAST SAVED - NIGHT")
     }
 
-    func testUnconfirmedSaveRecoveryPolicyRequiresProjectAndDraft() {
+    func testUnconfirmedSaveRecoveryPolicyRequiresProjectButKeepsBlankDrafts() {
         XCTAssertTrue(ScreenplayUnconfirmedSaveRecoveryPolicy.shouldPersist(
             projectId: " project-a ",
             draft: "INT. ROOM - NIGHT"
@@ -1485,9 +1485,13 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
             projectId: "",
             draft: "INT. ROOM - NIGHT"
         ))
-        XCTAssertFalse(ScreenplayUnconfirmedSaveRecoveryPolicy.shouldPersist(
+        XCTAssertTrue(ScreenplayUnconfirmedSaveRecoveryPolicy.shouldPersist(
             projectId: "project-a",
             draft: "   "
+        ))
+        XCTAssertTrue(ScreenplayUnconfirmedSaveRecoveryPolicy.shouldPersist(
+            projectId: "project-a",
+            draft: ""
         ))
     }
 
