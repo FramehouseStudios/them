@@ -192,6 +192,7 @@ import { mountFountainImportRoute } from "./lib/fountain_import_route.js";
 import { mountFDXExportRoute } from "./lib/fdx_export_route.js";
 import { mountFountainExportRoute } from "./lib/fountain_export_route.js";
 import { mountScreenplayProjectsRoutes } from "./lib/screenplay_projects_routes.js";
+import { normalizeVoiceProjectBrief } from "./lib/screenplay_voice_project_brief.js";
 import { mountScreenplayCompanionRoutes } from "./lib/screenplay_companion_routes.js";
 import { mountRealtimeRoutes } from "./lib/realtime_routes.js";
 import { mountRealtimeClientSecretRoute } from "./lib/realtime_client_secret_route.js";
@@ -10413,9 +10414,7 @@ function normalizeStoredScreenplayProject(entry) {
     }
   );
   const outline = normalizeStoredScreenplayOutline(entry.outline);
-  const outlineRevision = normalizeOutlineRevision(
-    entry.outlineRevision ?? entry.outline_revision ?? outline.revision
-  );
+  const outlineRevision = normalizeOutlineRevision(entry.outlineRevision ?? entry.outline_revision ?? outline.revision);
   outline.revision = outlineRevision;
   const versions = Array.isArray(entry.versions)
     ? entry.versions.map(normalizeStoredScreenplayVersion).filter(Boolean)
@@ -10467,6 +10466,7 @@ function normalizeStoredScreenplayProject(entry) {
     outlineMutationReceipts: normalizeOutlineMutationReceipts(
       entry.outlineMutationReceipts ?? entry.outline_mutation_receipts
     ),
+    ...(entry.voiceProjectBrief || entry.voice_project_brief ? { voiceProjectBrief: normalizeVoiceProjectBrief(entry.voiceProjectBrief ?? entry.voice_project_brief) } : {}),
     outline,
     versions,
     collaborators,

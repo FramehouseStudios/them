@@ -49,6 +49,7 @@ import {
   normalizeOutlineMutationReceipts,
   normalizeOutlineRevision,
 } from "./screenplay_outline_protocol.js";
+import { mountScreenplayVoiceProjectBriefRoute } from "./screenplay_voice_project_brief_route.js";
 
 const SAFE_OUTLINE_COLLECTION_LIMITS = Object.freeze({
   acts: 32,
@@ -152,6 +153,17 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
     throw new Error("mountScreenplayProjectsRoutes: resolveScreenplayUserId must be a function");
   }
   const activeOutlineMutations = new Map();
+  mountScreenplayVoiceProjectBriefRoute(app, {
+    resolveScreenplayUserId,
+    getOrCreateScreenplayOwnerRecord,
+    getScreenplayProjectRecord,
+    refreshScreenplayOwnerRecord,
+    commitScreenplayOwnerMutation,
+    buildScreenplayEnvelope,
+    buildScreenplayReadMeta,
+    applyReadStateHeaders,
+    normalizeSnippet,
+  });
 
   function getAuthorizedScreenplayOwner(req, res, stage) {
     const userId = requireScreenplayUserId(req, res, {
