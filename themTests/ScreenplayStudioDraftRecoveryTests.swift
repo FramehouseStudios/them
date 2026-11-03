@@ -1055,6 +1055,14 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
             XCTAssertEqual(recovery.map { Data($0.draft.utf8) }, Data(local.utf8))
             XCTAssertEqual(recovery?.baseVersionId, "v1")
             XCTAssertTrue(model.hasUnsavedDraftChanges)
+            let relaunched = ScreenplayStudioViewModel(localDraftRecoveryStore: reopened)
+            relaunched.autosaveEnabled = false
+            relaunched.selectedProjectID = project
+            relaunched.applyServerDraft(server, versionId: "v1")
+            XCTAssertNotNil(relaunched.recoveryCandidate)
+            relaunched.restoreDraftFromRecovery()
+            XCTAssertEqual(Data(relaunched.fountainDraft.utf8), Data(local.utf8))
+            XCTAssertTrue(relaunched.hasUnsavedDraftChanges)
         }
     }
 
