@@ -2553,16 +2553,13 @@ final class ScreenplayStudioViewModel: ObservableObject {
         isManualDraftEditing = true
         stopFollowingRemoteLiveDraft()
         lastManualDraftEditAt = Date()
-        let normalized = fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         hasUnsavedDraftChanges = fingerprint(for: fountainDraft) != lastSavedDraftFingerprint
-        if !normalized.isEmpty {
-            persistLocalDraftRecovery(
-                projectId: selectedProjectID,
-                draft: fountainDraft,
-                baseVersionId: latestVersionID,
-                dirty: hasUnsavedDraftChanges
-            )
-        }
+        persistLocalDraftRecovery(
+            projectId: selectedProjectID,
+            draft: fountainDraft,
+            baseVersionId: latestVersionID,
+            dirty: hasUnsavedDraftChanges
+        )
         if !isStreamingDraftPreviewActive {
             autosaveStatusText = hasUnsavedDraftChanges ? "Unsaved changes" : "Editing draft"
         }
