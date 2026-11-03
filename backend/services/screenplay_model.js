@@ -1219,6 +1219,14 @@ function normalizeStoredScreenplayProject(entry) {
   return {
     id,
     title,
+    initialCreationRequestId: normalizeSnippet(
+      entry.initialCreationRequestId ?? entry.initial_creation_request_id,
+      96
+    ),
+    initialCreationRequestHash: normalizeSnippet(
+      entry.initialCreationRequestHash ?? entry.initial_creation_request_hash,
+      64
+    ),
     archived: Boolean(entry.archived),
     tags: normalizeScreenplayStringList(entry.tags, 24, 48),
     characters: normalizeScreenplayStringList(entry.characters, 24, 48),

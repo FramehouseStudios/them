@@ -4,6 +4,7 @@ import { createScreenplayVersionRecord } from "./screenplay_version_record.js";
 export function createEmptyScreenplayProjectRecord({ id, title, now, createEmptyScreenplayOutline }) {
   return {
     id, title, archived: false, tags: [], characters: [], setting: "", tone: "", promptSeed: "",
+    initialCreationRequestId: "", initialCreationRequestHash: "",
     logline: "", themeArgument: "", centralQuestion: "", protagonistWant: "", protagonistNeed: "",
     antagonisticForce: "", actPosition: "", endingImage: "", unresolvedSetups: [],
     createdAt: now, updatedAt: now, lastPhase: "scene_draft", activeVersionId: "",
@@ -25,7 +26,77 @@ export function createScreenplayProjectInitializer(deps) {
     const owner = getAuthorizedScreenplayOwner(req, res, stage);
     if (!owner) return;
     const fail = (status, error) => { res.setHeader("Cache-Control", "no-store"); return res.status(status).json({ stage, error }); };
-    const body = req.body || {}, initial = body.initial_draft;
+    const body = req.body || {}, initial = body.initial_draft, blank = body.blank_project;
+    if (blank && typeof blank === "object" && !Array.isArray(blank)) {
+      if (initial != null) return fail(400, "initialization_mode_conflict");
+      const projectId = typeof body.project_id === "string" ? body.project_id.trim() : "";
+      const requestId = typeof blank.client_request_id === "string" ? blank.client_request_id.trim() : "";
+      const title = normalizeSnippet(body.title, 160);
+      if (!projectId || projectId.length > 64) return fail(400, "project_id_required");
+      if (!requestId || requestId.length > 96) return fail(400, "client_request_id_required");
+      if (!title) return fail(400, "title_required");
+      const supported = new Set(["project_id", "title", "phase", "activate", "blank_project"]);
+      if (Object.keys(body).some(k => !supported.has(k))
+          || Object.keys(blank).some(k => k !== "client_request_id")) {
+        return fail(400, "initial_metadata_not_supported");
+      }
+      const phase = normalizeScreenplayPhaseValue(body.phase);
+      const activate = body.activate == null ? true : parseBool(body.activate);
+      const requestHash = createHash("sha256")
+        .update(JSON.stringify(["them.blank-project.v1", projectId, title, phase, activate]))
+        .digest("hex");
+      const now = Date.now();
+      let commit;
+      try {
+        commit = await commitScreenplayOwnerMutation({ ownerKey: owner.ownerKey, now, retryAmbiguousCommit: true,
+          mutate(nextOwner) {
+            const existing = getScreenplayProjectRecord(nextOwner, projectId);
+            if (existing) {
+              if (existing.initialCreationRequestId !== requestId
+                  || existing.initialCreationRequestHash !== requestHash) {
+                return { commit: false, kind: "request_reused" };
+              }
+              return { commit: false, kind: "replayed" };
+            }
+            if ((nextOwner.projects || []).some(project => project.initialCreationRequestId === requestId)) {
+              return { commit: false, kind: "request_reused" };
+            }
+            const project = createEmptyScreenplayProjectRecord({
+              id: projectId, title, now, createEmptyScreenplayOutline,
+            });
+            project.initialCreationRequestId = requestId;
+            project.initialCreationRequestHash = requestHash;
+            project.lastPhase = phase;
+            nextOwner.projects.unshift(project);
+            if (activate || !nextOwner.activeProjectId) nextOwner.activeProjectId = project.id;
+            return { kind: "created" };
+          },
+        });
+      } catch { return fail(503, "screenplay_persistence_failed"); }
+      if (!commit?.ok || !commit.owner) return fail(503, "screenplay_persistence_failed");
+      const kind = commit.result?.kind;
+      if (kind === "request_reused") return fail(409, "screenplay_initial_request_reused");
+      if (!["created", "replayed"].includes(kind)) return fail(503, "screenplay_persistence_failed");
+      const project = getScreenplayProjectRecord(commit.owner, projectId);
+      if (!project || project.initialCreationRequestId !== requestId
+          || project.initialCreationRequestHash !== requestHash) {
+        return fail(503, "screenplay_persistence_failed");
+      }
+      res.setHeader("Cache-Control", "no-store");
+      applyReadStateHeaders(res, buildScreenplayReadMeta(req, commit.owner));
+      return res.status(kind === "created" ? 201 : 200).json(buildScreenplayEnvelope(req, commit.owner, {
+        stage, status: kind === "created" ? "created" : "replayed", created: kind === "created",
+        replayed: kind === "replayed", conflict: false, project_id: project.id,
+        blank_creation: {
+          client_request_id: project.initialCreationRequestId,
+          project_id: project.id,
+          creation_request_hash: project.initialCreationRequestHash,
+        },
+        project: toScreenplayProjectPayload(project, { includeVersions: true, includeDrafts: true, versionLimit: 24 }),
+        screenplay_active_project_id: commit.owner.activeProjectId || "",
+        screenplay_project_count: commit.owner.projects.length,
+      }));
+    }
     if (!initial || typeof initial !== "object" || Array.isArray(initial)) return fail(400, "initial_draft_required");
     const projectId = typeof body.project_id === "string" ? body.project_id.trim() : "";
     const requestId = typeof initial.client_request_id === "string" ? initial.client_request_id.trim() : "";
