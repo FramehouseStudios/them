@@ -3,6 +3,26 @@ import XCTest
 
 final class ScreenplayDraftSaveOutboxTests: XCTestCase {
     @MainActor
+    func testClearedManualPageIsRecoverableBeforeDebounce() async throws {
+        let owner = ScreenplayStudioAuthContext.current()
+        let suite = "them.immediate-clear.\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "recovery")
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store,
+            draftSaveOutbox: ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory))
+        model.autosaveEnabled = false
+        model.selectedProjectID = "project-1"
+        model.applyStructuralUITestDraft("Server baseline", versionID: "base")
+        model.fountainDraft = ""
+        model.noteManualDraftEdit()
+        XCTAssertTrue(model.hasUnsavedDraftChanges)
+        let reloaded = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "recovery")
+        XCTAssertEqual(reloaded.recoverySnapshot(ownerUserId: owner.userID, projectId: "project-1",
+            serverDraft: "Server baseline")?.draft, "")
+    }
+
+    @MainActor
     func testInitialQueueWriteFailureDoesNotOverwriteDifferentRecovery() async throws {
         let owner = ScreenplayStudioAuthContext.current()
         let suite = "them.admission-failure.\(UUID())"

@@ -2555,7 +2555,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         lastManualDraftEditAt = Date()
         let normalized = fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         hasUnsavedDraftChanges = fingerprint(for: fountainDraft) != lastSavedDraftFingerprint
-        if !normalized.isEmpty {
+        if !normalized.isEmpty || hasUnsavedDraftChanges {
             persistLocalDraftRecovery(
                 projectId: selectedProjectID,
                 draft: fountainDraft,
