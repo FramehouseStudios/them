@@ -2248,7 +2248,11 @@ final class V1SmokeUITests: XCTestCase {
         reviews.firstMatch.tap()
         let alert = app.alerts.firstMatch
         XCTAssertTrue(alert.waitForExistence(timeout: 5))
-        alert.buttons["Queue Request"].tap()
+        let confirmQueue = alert.buttons["Queue Request"]
+        XCTAssertTrue(confirmQueue.waitForExistence(timeout: 5))
+        XCTAssertTrue(confirmQueue.isHittable)
+        confirmQueue.press(forDuration: 0.1)
+        XCTAssertTrue(alert.waitForNonExistence(timeout: 5))
         XCTAssertTrue(staticText(containing: "Recovered request queued with its original ID", in: app).waitForExistence(timeout: 5))
         XCTAssertEqual(reviews.count, 0)
         app.terminate()
