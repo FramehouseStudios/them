@@ -1752,11 +1752,19 @@ final class V1SmokeUITests: XCTestCase {
     }
 
     func test_inspector_navigation_stays_visible_while_panel_scrolls() {
-        let app = launchApp(openStudio: true, openExportTools: true, structuralSeed: true)
+        let app = launchApp(openStudio: true, structuralSeed: true)
         defer { app.terminate() }
+        let inspector = app.buttons["studio.sidebar.right.toggle"]
+        guard waitForHittability(of: inspector, timeout: 15) else {
+            XCTFail("The Studio inspector control was not tappable."); return
+        }
+        inspector.tap()
         let drawer = element(identifier: "studio.sidebar.right.drawer", in: app)
+        guard waitForStableFrame(of: drawer, timeout: 15) else {
+            XCTFail("The Studio inspector did not settle."); return
+        }
         let tab = app.buttons["studio.right-panel.draft"]
-        guard tab.waitForExistence(timeout: 8), tab.isHittable else {
+        guard waitForHittability(of: tab, timeout: 8) else {
             XCTFail("The inspector navigation must be visible before scrolling.")
             return
         }
