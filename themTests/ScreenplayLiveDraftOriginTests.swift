@@ -56,7 +56,13 @@ final class ScreenplayLiveDraftOriginTests: XCTestCase {
         let defaults = UserDefaults(suiteName: suite)!
         defer { defaults.removePersistentDomain(forName: suite) }
         let store = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "unicode-recovery")
-        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store)
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [OfflineDraftInsightsProtocol.self]
+        let session = URLSession(configuration: configuration)
+        defer { session.invalidateAndCancel() }
+        let api = BackendMemoryAPI(session: session,
+            baseURL: URL(string: "https://offline-draft-insights.test")!)
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store, draftInsightsAPI: api)
         model.autosaveEnabled = false
         let project = "unicode-observation-\(UUID().uuidString)"
         model.selectedProjectID = project
@@ -233,4 +239,11 @@ final class ScreenplayLiveDraftOriginTests: XCTestCase {
         }
         operation(bridge)
     }
+}
+
+private nonisolated final class OfflineDraftInsightsProtocol: URLProtocol {
+    override class func canInit(with request: URLRequest) -> Bool { request.url?.host == "offline-draft-insights.test" }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() { client?.urlProtocol(self, didFailWithError: URLError(.notConnectedToInternet)) }
+    override func stopLoading() {}
 }
