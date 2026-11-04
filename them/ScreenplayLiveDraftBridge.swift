@@ -8936,7 +8936,8 @@ struct MacCursorInsertTextEditor: NSViewRepresentable {
             if startsReplacement, let target, let textView,
                !screenplayReplacementTargetIsCurrent(target, in: textView.string) {
                 lastAppliedInsertionID = request.id
-                DispatchQueue.main.async {
+                DispatchQueue.main.async { [weak self] in
+                    guard self?.parent.insertionRequest?.id == request.id else { return }
                     ScreenplayLiveDraftBridge.shared.autoInsertStatusText = "The rewrite target changed. Review the reply before applying it."
                 }
                 return
@@ -11285,7 +11286,8 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
             if startsReplacement, let target, let textView,
                !screenplayReplacementTargetIsCurrent(target, in: textView.text ?? "") {
                 lastAppliedInsertionID = request.id
-                DispatchQueue.main.async {
+                DispatchQueue.main.async { [weak self] in
+                    guard self?.parent.insertionRequest?.id == request.id else { return }
                     ScreenplayLiveDraftBridge.shared.autoInsertStatusText = "The rewrite target changed. Review the reply before applying it."
                 }
                 return

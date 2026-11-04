@@ -213,6 +213,30 @@ final class ScreenplayLivePageMutationGateTests: XCTestCase {
         XCTAssertNil(retained.pageDelivery, "A rejected target must not be recorded as a delivered page mutation.")
     }
 
+    func testRejectedRewriteCannotPublishStatusOverNewerRequest() async throws {
+        let bridge = ScreenplayLiveDraftBridge.shared
+        let oldStatus = bridge.autoInsertStatusText
+        defer { bridge.autoInsertStatusText = oldStatus }
+        bridge.autoInsertStatusText = "Newer request status"
+        let current = "JOHN\nChanged line.\n"
+        let target = ScreenplayPendingReplacementTarget(id: UUID(), sourceWriteID: "old", startLine: 2, endLine: 2, currentText: "Original line.")
+        let rejected = ScreenplayInsertionRequest(text: "Old reply", replacementTarget: target)
+        var pending: ScreenplayInsertionRequest? = rejected
+        var model = current
+        let editor = UITextView(); editor.text = current
+        let coordinator = IOSCursorInsertTextEditor(text: Binding(get: { model }, set: { model = $0 }),
+            activeScreenplayElement: .constant(.action), insertionRequest: Binding(get: { pending }, set: { pending = $0 }),
+            lineJumpRequest: .constant(nil), lineHighlightRequest: .constant(nil), anchoredTextRectRequest: .constant(nil),
+            anchoredTextRectSnapshot: .constant(nil), editorFocusRequest: .constant(nil), editorActionRequest: .constant(nil),
+            editorSelection: .constant(nil), currentCursorLine: .constant(1), lastCommittedWrite: .constant(nil),
+            pendingReplacementTarget: .constant(nil), submittedReplacementTarget: .constant(nil)).makeCoordinator()
+        coordinator.textView = editor
+        coordinator.applyInsertion(rejected)
+        pending = ScreenplayInsertionRequest(text: "New reply")
+        try await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertEqual(bridge.autoInsertStatusText, "Newer request status")
+    }
+
     func testNativeCurrentReplacementChangesOnlyTargetLine() {
         let current = "INT. ROOM - DAY\nJOHN\nThe original line.\nNext line.\n"
         let target = ScreenplayPendingReplacementTarget(id: UUID(), sourceWriteID: "old", startLine: 3, endLine: 3, currentText: "The original line.")
