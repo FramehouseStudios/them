@@ -47,6 +47,32 @@ final class V1SmokeUITests: XCTestCase {
 #endif
     }
 
+    func test_studio_prompt_focus_exposes_single_send_action() throws {
+#if os(iOS)
+        let app = launchApp(openStudio: true, openCommandBar: true)
+        defer { app.terminate() }
+
+        let field = element(identifier: "studio.prompt.field", in: app)
+        XCTAssertTrue(field.waitForExistence(timeout: 10), "The Studio prompt field was missing.")
+        XCTAssertTrue(field.isHittable, "The Studio prompt field was not tappable.")
+        field.tap()
+
+        let inlineSend = app.buttons["studio.prompt.send"]
+        XCTAssertTrue(inlineSend.exists, "The composer must retain its single visible Send action.")
+        XCTAssertTrue(
+            app.buttons["studio.prompt.keyboard-send"].exists,
+            "Prompt focus must retain the actionable keyboard-toolbar Send."
+        )
+        XCTAssertFalse(
+            app.keyboards.buttons.matching(NSPredicate(format: "label ==[c] %@", "send")).firstMatch
+                .waitForExistence(timeout: 5),
+            "The multiline keyboard must not add a second Send beside the toolbar action."
+        )
+#else
+        throw XCTSkip("The duplicate Send regression specifically covers the iPhone keyboard.")
+#endif
+    }
+
     @MainActor
     func test_pages_navigator_controls_jump_and_preserve_source() async throws {
 #if os(iOS)
