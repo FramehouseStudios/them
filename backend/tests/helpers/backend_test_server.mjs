@@ -26,10 +26,11 @@ async function getFreePort() {
   return port;
 }
 
-async function waitForServer(baseUrl, timeoutMs = 15000) {
-  const startedAt = Date.now();
+export async function waitForServer(baseUrl, timeoutMs = 15000) {
+  // Wall-clock adjustments must not shorten or extend the startup deadline.
+  const startedAt = performance.now();
   let lastError = null;
-  while ((Date.now() - startedAt) < timeoutMs) {
+  while ((performance.now() - startedAt) < timeoutMs) {
     try {
       const response = await fetch(baseUrl + "/health");
       if (response.ok) return;
