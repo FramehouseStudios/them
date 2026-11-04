@@ -5275,6 +5275,9 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             pendingInsertion = nil // Revoke a delayed live fallback; its durable intention stays kept.
         }
         let queuedInsertMode = pendingInsertion?.mode
+        if !rollbackDraft && (isStreamingDraftPreviewActive || queuedInsertMode == .streamPreview || queuedInsertMode == .streamCommit || queuedInsertMode == .streamCancel) {
+            isStreamingDraftPreviewActive = false; streamingPreviewText = ""; streamingPreviewBaseDraft = ""; pendingInsertion = nil
+        }
         let hadQueuedSyncedInsert = queuedInsertMode == .streamInsertProgress
             || queuedInsertMode == .streamInsertFinalize
             || queuedInsertMode == .streamInsertCancel
@@ -8870,6 +8873,12 @@ struct MacCursorInsertTextEditor: NSViewRepresentable {
         }
 
         private func interruptStreamingInsertForUserEditIfNeeded() {
+            if streamingPreviewRange != nil {
+                _ = ScreenplayLiveDraftBridge.shared.cancelStreamPreservingCurrentDraft(reason: .manualTyping)
+                resetStreamingPreviewState()
+                parent.insertionRequest = nil; parent.pendingReplacementTarget = nil; parent.submittedReplacementTarget = nil
+                return
+            }
             if voiceRevealContentRange != nil {
                 ScreenplayLiveDraftBridge.shared.debugTraceReplacementTarget(
                     kind: "voice-reveal-manual-edit-interrupt",
@@ -10367,9 +10376,7 @@ struct MacCursorInsertTextEditor: NSViewRepresentable {
                     )
                     return (exactRange, true)
                 }
-
             }
-
             ScreenplayLiveDraftBridge.shared.debugTraceReplacementTarget(
                 kind: "resolve-fallback-selection",
                 target: target,
@@ -11223,7 +11230,9 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
         private func interruptStreamingInsertForUserEditIfNeeded() {
             let hadStreamingInsert = streamingInsertRange != nil
             let hadVoiceReveal = voiceRevealContentRange != nil
-            guard hadStreamingInsert || hadVoiceReveal else { return }
+            let hadPreview = streamingPreviewRange != nil
+            guard hadStreamingInsert || hadVoiceReveal || hadPreview else { return }
+            if hadPreview { resetStreamingPreviewState() }
             let replacementTarget = parent.pendingReplacementTarget ?? parent.submittedReplacementTarget
             traceReplacementTarget(
                 kind: hadVoiceReveal
@@ -12701,9 +12710,7 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
                     )
                     return (exactRange, true)
                 }
-
             }
-
             ScreenplayLiveDraftBridge.shared.debugTraceReplacementTarget(
                 kind: "ios-resolve-fallback-selection",
                 target: target,

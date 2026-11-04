@@ -255,6 +255,48 @@ final class ScreenplayLivePageMutationGateTests: XCTestCase {
         XCTAssertEqual(editor.text, "INT. ROOM - DAY\nJOHN\nA better line.\nNext line.\n")
     }
 
+    func testPreviewCancelDoesNotOverwriteWriterEdit() {
+        let current = "JOHN\nOriginal line.\n"
+        let target = ScreenplayPendingReplacementTarget(id: UUID(), sourceWriteID: "old", startLine: 2, endLine: 2, currentText: "Original line.")
+        let request = ScreenplayInsertionRequest(text: "Preview line.", mode: .streamPreview, replacementTarget: target)
+        var model = current
+        let editor = UITextView(); editor.text = current
+        let coordinator = IOSCursorInsertTextEditor(text: Binding(get: { model }, set: { model = $0 }),
+            activeScreenplayElement: .constant(.action), insertionRequest: .constant(request),
+            lineJumpRequest: .constant(nil), lineHighlightRequest: .constant(nil), anchoredTextRectRequest: .constant(nil),
+            anchoredTextRectSnapshot: .constant(nil), editorFocusRequest: .constant(nil), editorActionRequest: .constant(nil),
+            editorSelection: .constant(nil), currentCursorLine: .constant(1), lastCommittedWrite: .constant(nil),
+            pendingReplacementTarget: .constant(nil), submittedReplacementTarget: .constant(nil)).makeCoordinator()
+        coordinator.textView = editor
+        coordinator.primeParagraphElements(for: current, attributedText: editor.attributedText)
+        coordinator.applyInsertion(request)
+        XCTAssertEqual(editor.text, "JOHN\nPreview line.\n")
+        editor.text = "JOHN\nWriter's own.\n"
+        coordinator.textViewDidChange(editor)
+        coordinator.applyInsertion(ScreenplayInsertionRequest(text: "", mode: .streamCancel))
+        XCTAssertEqual(editor.text, "JOHN\nWriter's own.\n", "Cancel must not roll back a newer writer edit.")
+    }
+
+    func testUneditedPreviewCancelRestoresOriginalLine() {
+        let current = "JOHN\nOriginal line.\n"
+        let target = ScreenplayPendingReplacementTarget(id: UUID(), sourceWriteID: "old", startLine: 2, endLine: 2, currentText: "Original line.")
+        let request = ScreenplayInsertionRequest(text: "Preview line.", mode: .streamPreview, replacementTarget: target)
+        var model = current
+        let editor = UITextView(); editor.text = current
+        let coordinator = IOSCursorInsertTextEditor(text: Binding(get: { model }, set: { model = $0 }),
+            activeScreenplayElement: .constant(.action), insertionRequest: .constant(request),
+            lineJumpRequest: .constant(nil), lineHighlightRequest: .constant(nil), anchoredTextRectRequest: .constant(nil),
+            anchoredTextRectSnapshot: .constant(nil), editorFocusRequest: .constant(nil), editorActionRequest: .constant(nil),
+            editorSelection: .constant(nil), currentCursorLine: .constant(1), lastCommittedWrite: .constant(nil),
+            pendingReplacementTarget: .constant(nil), submittedReplacementTarget: .constant(nil)).makeCoordinator()
+        coordinator.textView = editor
+        coordinator.primeParagraphElements(for: current, attributedText: editor.attributedText)
+        coordinator.applyInsertion(request)
+        XCTAssertEqual(editor.text, "JOHN\nPreview line.\n")
+        coordinator.applyInsertion(ScreenplayInsertionRequest(text: "", mode: .streamCancel))
+        XCTAssertEqual(editor.text, current, "Cancel should restore the original line when no writer edit occurred.")
+    }
+
     func testNativePartialReplacementStaysWithinCapturedLine() {
         let current = "JOHN\nStay.\nPlease Stay. here.\n"
         let target = ScreenplayPendingReplacementTarget(id: UUID(), sourceWriteID: "old", startLine: 3, endLine: 3, currentText: "Stay.")
