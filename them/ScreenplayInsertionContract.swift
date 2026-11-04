@@ -1,5 +1,22 @@
 import Foundation
 
+// A line range alone is not authority to replace changed writer text.
+func screenplayReplacementTargetIsCurrent(_ target: ScreenplayPendingReplacementTarget, in draft: String) -> Bool {
+    let wanted = target.currentText.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !wanted.isEmpty, target.startLine > 0, target.endLine >= target.startLine else { return false }
+    let lines = draft.components(separatedBy: "\n")
+    if target.endLine <= lines.count {
+        let candidate = lines[(target.startLine - 1)..<target.endLine].joined(separator: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if candidate.utf8.elementsEqual(wanted.utf8) { return true }
+    }
+    let text = draft as NSString
+    let first = text.range(of: wanted, options: [.literal])
+    guard first.location != NSNotFound else { return false }
+    let next = first.location + 1
+    return next >= text.length || text.range(of: wanted, options: [.literal], range: NSRange(location: next, length: text.length - next)).location == NSNotFound
+}
+
 struct ScreenplayInsertionRequest: Identifiable, Equatable {
     enum Mode: String, Equatable {
         case insert

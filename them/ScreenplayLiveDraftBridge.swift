@@ -8927,6 +8927,20 @@ struct MacCursorInsertTextEditor: NSViewRepresentable {
             guard !request.requiresLivePageContext || request.livePageContext != nil else { return }
             if let context = request.livePageContext,
                !context.permitsDelivery(in: ScreenplayLiveDraftBridge.shared) { return }
+            let target = request.replacementTarget ?? parent.pendingReplacementTarget ?? parent.submittedReplacementTarget
+            let startsReplacement = request.mode == .insert || request.mode == .voiceRevealPrepare ||
+                (request.mode == .streamPreview && streamingPreviewRange == nil) ||
+                (request.mode == .streamInsertProgress && streamingInsertRange == nil) ||
+                (request.mode == .streamCommit && streamingPreviewRange == nil) ||
+                (request.mode == .streamInsertFinalize && streamingInsertRange == nil)
+            if startsReplacement, let target, let textView,
+               !screenplayReplacementTargetIsCurrent(target, in: textView.string) {
+                lastAppliedInsertionID = request.id
+                DispatchQueue.main.async {
+                    ScreenplayLiveDraftBridge.shared.autoInsertStatusText = "The rewrite target changed. Review the reply before applying it."
+                }
+                return
+            }
             switch request.mode {
             case .insert:
                 applyStandardInsertion(request)
@@ -10332,18 +10346,18 @@ struct MacCursorInsertTextEditor: NSViewRepresentable {
 
             if candidateRange.length > 0 {
                 let candidateText = ns.substring(with: candidateRange).trimmingCharacters(in: .whitespacesAndNewlines)
-                if candidateText.caseInsensitiveCompare(cleanTarget) == .orderedSame {
+                if candidateText.utf8.elementsEqual(cleanTarget.utf8) {
                     ScreenplayLiveDraftBridge.shared.debugTraceReplacementTarget(
                         kind: "resolve-match-line-range",
                         target: target,
                         detail: "Matched replacement target using stored line range."
                     )
-                    return (candidateRange, true)
+                    return (ns.range(of: cleanTarget, options: [.literal], range: candidateRange), true)
                 }
             }
 
             if !cleanTarget.isEmpty {
-                let exactRange = ns.range(of: cleanTarget)
+                let exactRange = ns.range(of: cleanTarget, options: [.literal])
                 if exactRange.location != NSNotFound {
                     ScreenplayLiveDraftBridge.shared.debugTraceReplacementTarget(
                         kind: "resolve-match-exact",
@@ -10353,27 +10367,6 @@ struct MacCursorInsertTextEditor: NSViewRepresentable {
                     return (exactRange, true)
                 }
 
-                let caseInsensitiveRange = ns.range(
-                    of: cleanTarget,
-                    options: [.caseInsensitive]
-                )
-                if caseInsensitiveRange.location != NSNotFound {
-                    ScreenplayLiveDraftBridge.shared.debugTraceReplacementTarget(
-                        kind: "resolve-match-case-insensitive",
-                        target: target,
-                        detail: "Matched replacement target using case-insensitive text."
-                    )
-                    return (caseInsensitiveRange, true)
-                }
-            }
-
-            if candidateRange.length > 0 {
-                ScreenplayLiveDraftBridge.shared.debugTraceReplacementTarget(
-                    kind: "resolve-fallback-line-range",
-                    target: target,
-                    detail: "Fell back to stored line range without exact text match."
-                )
-                return (candidateRange, true)
             }
 
             ScreenplayLiveDraftBridge.shared.debugTraceReplacementTarget(
@@ -11283,6 +11276,20 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
             guard !request.requiresLivePageContext || request.livePageContext != nil else { return }
             if let context = request.livePageContext,
                !context.permitsDelivery(in: ScreenplayLiveDraftBridge.shared) { return }
+            let target = request.replacementTarget ?? parent.pendingReplacementTarget ?? parent.submittedReplacementTarget
+            let startsReplacement = request.mode == .insert || request.mode == .voiceRevealPrepare ||
+                (request.mode == .streamPreview && streamingPreviewRange == nil) ||
+                (request.mode == .streamInsertProgress && streamingInsertRange == nil) ||
+                (request.mode == .streamCommit && streamingPreviewRange == nil) ||
+                (request.mode == .streamInsertFinalize && streamingInsertRange == nil)
+            if startsReplacement, let target, let textView,
+               !screenplayReplacementTargetIsCurrent(target, in: textView.text ?? "") {
+                lastAppliedInsertionID = request.id
+                DispatchQueue.main.async {
+                    ScreenplayLiveDraftBridge.shared.autoInsertStatusText = "The rewrite target changed. Review the reply before applying it."
+                }
+                return
+            }
             switch request.mode {
             case .insert:
                 applyStandardInsertion(request)
@@ -12672,18 +12679,18 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
 
             if candidateRange.length > 0 {
                 let candidateText = ns.substring(with: candidateRange).trimmingCharacters(in: .whitespacesAndNewlines)
-                if candidateText.caseInsensitiveCompare(cleanTarget) == .orderedSame {
+                if candidateText.utf8.elementsEqual(cleanTarget.utf8) {
                     traceReplacementTarget(
                         kind: "ios-resolve-match-line-range",
                         target: target,
                         detail: "Matched replacement target using stored line range."
                     )
-                    return (candidateRange, true)
+                    return (ns.range(of: cleanTarget, options: [.literal], range: candidateRange), true)
                 }
             }
 
             if !cleanTarget.isEmpty {
-                let exactRange = ns.range(of: cleanTarget)
+                let exactRange = ns.range(of: cleanTarget, options: [.literal])
                 if exactRange.location != NSNotFound {
                     traceReplacementTarget(
                         kind: "ios-resolve-match-exact",
@@ -12693,24 +12700,6 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
                     return (exactRange, true)
                 }
 
-                let caseInsensitiveRange = ns.range(of: cleanTarget, options: [.caseInsensitive])
-                if caseInsensitiveRange.location != NSNotFound {
-                    traceReplacementTarget(
-                        kind: "ios-resolve-match-case-insensitive",
-                        target: target,
-                        detail: "Matched replacement target using case-insensitive text."
-                    )
-                    return (caseInsensitiveRange, true)
-                }
-            }
-
-            if candidateRange.length > 0 {
-                ScreenplayLiveDraftBridge.shared.debugTraceReplacementTarget(
-                    kind: "ios-resolve-fallback-line-range",
-                    target: target,
-                    detail: "Fell back to stored line range without exact text match."
-                )
-                return (candidateRange, true)
             }
 
             ScreenplayLiveDraftBridge.shared.debugTraceReplacementTarget(
