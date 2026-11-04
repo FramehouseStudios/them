@@ -9105,35 +9105,13 @@ Current draft version:
             tint: Color.orange.opacity(0.88),
             excerpt: preview
         ) {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(spacing: 8) {
-                    NumberedChoiceActionButton(
-                        number: "1",
-                        title: recoveryAlreadyOnPage ? "Keep Current" : "Recover Local",
-                        prominence: .prominent,
-                        tint: .herText
-                    ) {
-                        vm.restoreDraftFromRecovery()
-                    }.accessibilityIdentifier("studio.draft-recovery.primary-action")
-                    NumberedChoiceActionButton(
-                        number: "2",
-                        title: "Discard Copy",
-                        tint: .herText
-                    ) {
-                        if recoveryAlreadyOnPage {
-                            vm.discardLocalRecoveryCopy()
-                        } else {
-                            vm.keepServerDraft()
-                        }
-                    }.accessibilityIdentifier("studio.draft-recovery.secondary-action")
-                }
-                if vm.canReviewNextRecoveryCopy {
-                    Button("Review next copy") { vm.reviewNextRecoveryCopy() }
-                        .tint(.herText)
-                        .accessibilityIdentifier("studio.draft-recovery.next-copy")
-                        .accessibilityHint("Show another saved recovery copy without deleting this one.")
-                }
-            }
+            ScreenplayRecoveryActionButtons(
+                recoveryAlreadyOnPage: recoveryAlreadyOnPage,
+                canReviewNext: vm.canReviewNextRecoveryCopy,
+                onRecover: { vm.restoreDraftFromRecovery() },
+                onDiscard: { recoveryAlreadyOnPage ? vm.discardLocalRecoveryCopy() : vm.keepServerDraft() },
+                onNext: { vm.reviewNextRecoveryCopy() }
+            )
         }
     }
 
