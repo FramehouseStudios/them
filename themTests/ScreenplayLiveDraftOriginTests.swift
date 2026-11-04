@@ -57,11 +57,12 @@ final class ScreenplayLiveDraftOriginTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: suite) }
         let store = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "unicode-recovery")
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [OriginDebounceOfflineProtocol.self]
+        configuration.protocolClasses = [OfflineDraftInsightsProtocol.self]
         let session = URLSession(configuration: configuration)
         defer { session.invalidateAndCancel() }
-        let api = BackendMemoryAPI(session: session, baseURL: URL(string: "https://origin-debounce.test")!)
-        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store, draftSaveAPI: api)
+        let api = BackendMemoryAPI(session: session,
+            baseURL: URL(string: "https://offline-draft-insights.test")!)
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store, draftInsightsAPI: api)
         model.autosaveEnabled = false
         let project = "unicode-observation-\(UUID().uuidString)"
         model.selectedProjectID = project
@@ -240,13 +241,9 @@ final class ScreenplayLiveDraftOriginTests: XCTestCase {
     }
 }
 
-private nonisolated final class OriginDebounceOfflineProtocol: URLProtocol {
-    override class func canInit(with request: URLRequest) -> Bool { request.url?.host == "origin-debounce.test" }
+private nonisolated final class OfflineDraftInsightsProtocol: URLProtocol {
+    override class func canInit(with request: URLRequest) -> Bool { request.url?.host == "offline-draft-insights.test" }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
-    override func startLoading() {
-        let response = HTTPURLResponse(url: request.url!, statusCode: 400, httpVersion: "HTTP/1.1", headerFields: nil)!
-        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-        client?.urlProtocolDidFinishLoading(self)
-    }
+    override func startLoading() { client?.urlProtocol(self, didFailWithError: URLError(.notConnectedToInternet)) }
     override func stopLoading() {}
 }
