@@ -92,11 +92,15 @@ final class OrbAudioDriver: NSObject, ObservableObject, AVAudioPlayerDelegate {
         level = 0
 
         let ok = p.play()
+        // AVAudioPlayer may synchronously deliver a terminal delegate callback from
+        // play(). Do not let this older invocation mutate playback that the callback
+        // has already cleared or replaced.
+        guard player === p else { return }
         guard ok else {
             resetPlayback()
             throw OrbAudioDriverError.startPlaybackFailed
         }
-        startMetering()
+        startMetering(for: p)
     }
 
     func stop() {
@@ -104,11 +108,23 @@ final class OrbAudioDriver: NSObject, ObservableObject, AVAudioPlayerDelegate {
     }
 
     nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
-        Task { @MainActor [weak self] in self?.finishPlayback(player, successfully: flag) }
+        completePlayback(player, successfully: flag)
     }
 
     nonisolated func audioPlayerDecodeErrorDidOccur(_ player: AVAudioPlayer, error: Error?) {
-        Task { @MainActor [weak self] in self?.finishPlayback(player, successfully: false) }
+        completePlayback(player, successfully: false)
+    }
+
+    private nonisolated func completePlayback(_ player: AVAudioPlayer, successfully: Bool) {
+        if Thread.isMainThread {
+            MainActor.assumeIsolated {
+                finishPlayback(player, successfully: successfully)
+            }
+            return
+        }
+        Task { @MainActor [weak self] in
+            self?.finishPlayback(player, successfully: successfully)
+        }
     }
 
     private func finishPlayback(_ completedPlayer: AVAudioPlayer, successfully: Bool) {
@@ -249,20 +265,23 @@ final class OrbAudioDriver: NSObject, ObservableObject, AVAudioPlayerDelegate {
 
     }
 
-    private func startMetering() {
+    private func startMetering(for meteredPlayer: AVAudioPlayer) {
+        guard player === meteredPlayer else { return }
+        let meteredPlayerID = ObjectIdentifier(meteredPlayer)
         meterTimer?.invalidate()
 
         meterTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / meterHz, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                guard let p = self.player else { return }
+                guard let currentPlayer = self.player,
+                      ObjectIdentifier(currentPlayer) == meteredPlayerID else { return }
 
                 // Stopped/paused is not evidence that the whole reply played.
                 // Only the current player's successful delegate callback is.
-                guard p.isPlaying else { self.level = 0; return }
+                guard currentPlayer.isPlaying else { self.level = 0; return }
 
-                p.updateMeters()
-                let db = p.averagePower(forChannel: 0)
+                currentPlayer.updateMeters()
+                let db = currentPlayer.averagePower(forChannel: 0)
                 let raw = self.normalize(db: db)
 
                 let smoothed = self.level + (raw - self.level) * self.smoothing

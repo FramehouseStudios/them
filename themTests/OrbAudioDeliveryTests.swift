@@ -7,14 +7,15 @@ final class OrbAudioDeliveryTests: XCTestCase {
     func testOnlySuccessfulCurrentPlayerCanFinishAndCallbackCanStartNextPlayer() async throws {
         let url = try audioFile(); defer { try? FileManager.default.removeItem(at: url) }
         let driver = OrbAudioDriver(); defer { driver.stop() }
-        let finished = expectation(description: "current player successfully completed")
+        var finishes = 0
         try driver.play(url: url, onFinish: {
-            finished.fulfill()
+            finishes += 1
             try? driver.play(url: url)
         })
         let first = try XCTUnwrap(driver.currentPlayer)
         driver.audioPlayerDidFinishPlaying(first, successfully: true)
-        await fulfillment(of: [finished], timeout: 2)
+        XCTAssertEqual(finishes, 1,
+            "A main-thread AVAudioPlayer completion must be delivered before the delegate call returns")
         XCTAssertTrue(driver.isSpeaking)
         XCTAssertFalse(driver.currentPlayer === first, "Cleanup must precede callback-created playback")
     }
@@ -22,14 +23,14 @@ final class OrbAudioDeliveryTests: XCTestCase {
     func testFailedAndDecodeCompletionNeverCallSuccess() async throws {
         let url = try audioFile(); defer { try? FileManager.default.removeItem(at: url) }
         let driver = OrbAudioDriver(); defer { driver.stop() }
-        var successes = 0
+        var successes = 0, failures = 0
         for decoding in [false, true] {
-            let failed = expectation(description: "audio failure")
-            try driver.play(url: url, onFailure: { failed.fulfill() }, onFinish: { successes += 1 })
+            try driver.play(url: url, onFailure: { failures += 1 }, onFinish: { successes += 1 })
             let current = try XCTUnwrap(driver.currentPlayer)
             if decoding { driver.audioPlayerDecodeErrorDidOccur(current, error: nil) }
             else { driver.audioPlayerDidFinishPlaying(current, successfully: false) }
-            await fulfillment(of: [failed], timeout: 2)
+            XCTAssertEqual(failures, decoding ? 2 : 1,
+                "A main-thread AVAudioPlayer failure must be delivered before the delegate call returns")
             XCTAssertNil(driver.currentPlayer)
             XCTAssertFalse(driver.isSpeaking)
         }

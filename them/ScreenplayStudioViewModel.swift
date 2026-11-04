@@ -6917,7 +6917,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
 
         await recomputePagination(for: draft, source: "Draft")
         guard isCurrentDraft() else { return }
-        await recomputeRevision(for: draft, source: "Draft")
+        await recomputeRevision(for: draft, source: "Draft", api: draftSaveAPI)
         #if DEBUG
         await debugAfterDraftDerivedRefresh?()
         #endif
@@ -8071,7 +8071,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         let requestedDensity = linesPerPage
         do {
             let result = try await StudioCraftResilience.run(source: source) {
-                try await BackendMemoryAPI.shared.paginateScreenplayDraft(
+                try await draftSaveAPI.paginateScreenplayDraft(
                     draft: draft,
                     title: selectedProject?.title ?? "",
                     phase: selectedProject?.lastPhase ?? "scene_draft",
