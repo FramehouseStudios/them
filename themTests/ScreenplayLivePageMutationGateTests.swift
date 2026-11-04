@@ -256,6 +256,11 @@ final class ScreenplayLivePageMutationGateTests: XCTestCase {
     }
 
     func testPreviewCancelDoesNotOverwriteWriterEdit() {
+        let bridge = ScreenplayLiveDraftBridge.shared
+        let previousInterrupt = bridge.onPageGenerationInterrupted
+        defer { bridge.onPageGenerationInterrupted = previousInterrupt }
+        var interruptions: [ScreenplaySyncedInsertInterruptionReason] = []
+        bridge.onPageGenerationInterrupted = { interruptions.append($0) }
         let current = "JOHN\nOriginal line.\n"
         let target = ScreenplayPendingReplacementTarget(id: UUID(), sourceWriteID: "old", startLine: 2, endLine: 2, currentText: "Original line.")
         let request = ScreenplayInsertionRequest(text: "Preview line.", mode: .streamPreview, replacementTarget: target)
@@ -273,6 +278,7 @@ final class ScreenplayLivePageMutationGateTests: XCTestCase {
         XCTAssertEqual(editor.text, "JOHN\nPreview line.\n")
         editor.text = "JOHN\nWriter's own.\n"
         coordinator.textViewDidChange(editor)
+        XCTAssertEqual(interruptions, [.manualTyping], "A user edit must notify the page-generation owner.")
         coordinator.applyInsertion(ScreenplayInsertionRequest(text: "", mode: .streamCancel))
         XCTAssertEqual(editor.text, "JOHN\nWriter's own.\n", "Cancel must not roll back a newer writer edit.")
     }
