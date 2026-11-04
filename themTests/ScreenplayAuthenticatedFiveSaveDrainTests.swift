@@ -112,6 +112,28 @@ final class ScreenplayAuthenticatedFiveSaveDrainTests: XCTestCase {
         await fixture.close()
     }
 
+    func testSavePeerHandlesDraftInsightRefreshWithoutRejectingWrites() async throws {
+        let fixture = try AuthenticatedFiveSaveDrainFixture()
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [AuthenticatedFiveSaveProtocol.self]
+        let session = URLSession(configuration: configuration)
+        do {
+            let url = BackendAuthClient.resolvedBackendBaseURL().appendingPathComponent("screenplay/paginate")
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            let (_, response) = try await session.data(for: request)
+            XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 400)
+            XCTAssertTrue(fixture.peer.failures.isEmpty)
+            XCTAssertTrue(fixture.peer.writes.isEmpty)
+        } catch {
+            session.invalidateAndCancel()
+            await fixture.close()
+            throw error
+        }
+        session.invalidateAndCancel()
+        await fixture.close()
+    }
+
     func testAuthenticatedFiveSaveDrainAcknowledgesEveryExactWriteOnceInOrder() async throws {
         let fixture = try AuthenticatedFiveSaveDrainFixture()
         do {
@@ -591,6 +613,12 @@ private nonisolated final class AuthenticatedFiveSavePeer: @unchecked Sendable {
             }
             if url.path == "/screenplay/revision-colors" {
                 transport.respond(status: 200, payload: ["ranges": []])
+                return
+            }
+            if url.path == "/screenplay/paginate" {
+                // Draft-insight refresh can run while queued saves drain. It is
+                // unrelated to acknowledgement ordering and must stay offline.
+                transport.respond(status: 400, payload: ["error": "pagination unavailable in save fixture"])
                 return
             }
             guard url.path == "/screenplay/projects/\(projectID)/version" else {
