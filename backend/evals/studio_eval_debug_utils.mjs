@@ -8,6 +8,68 @@ const DEFAULT_STUDIO_APP_SESSION_HELPER_PATH = fileURLToPath(
   new URL("./studio_app_session_helper.sh", import.meta.url)
 );
 
+export const STUDIO_OWNER_SCOPED_LOCAL_STATE_BASE_KEYS = Object.freeze([
+  "studio.full.thread.state.v1",
+  "studio.ask.note.history.v2",
+  "studio.diff.keep-current.v1",
+  "studio.diff.keep-current.writeids.v1",
+  "studio.inspector.workspace.v1",
+  "studio.inspector.beat.provenance.v1",
+  "studio.inspector.beat.provenance.history.v1",
+  "studio.feature.planner.pending.v1",
+]);
+
+export function studioOwnerScopedDefaultsKey(baseKey, ownerUserID) {
+  const cleanBaseKey = String(baseKey || "").trim();
+  if (!cleanBaseKey) throw new Error("studio owner-scoped defaults require a base key");
+  const owner = String(ownerUserID || "").trim() || "anonymous";
+  const encodedOwner = Buffer.from(owner, "utf8")
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/g, "");
+  return `${cleanBaseKey}.owner.${encodedOwner}`;
+}
+
+export function createStudioOwnerScopedDefaults({
+  ownerUserID,
+  readString,
+  writeString,
+} = {}) {
+  const owner = String(ownerUserID || "").trim();
+  if (!owner) throw new Error("studio owner-scoped defaults require an explicit owner user id");
+  if (typeof readString !== "function" || typeof writeString !== "function") {
+    throw new Error("studio owner-scoped defaults require readString and writeString transports");
+  }
+  const key = (baseKey) => studioOwnerScopedDefaultsKey(baseKey, owner);
+  const readScopedString = (baseKey) => readString(key(baseKey));
+  return {
+    ownerUserID: owner,
+    key,
+    readString: readScopedString,
+    readJSON(baseKey, fallback = null) {
+      const raw = readScopedString(baseKey);
+      if (!raw) return fallback;
+      try {
+        return JSON.parse(raw);
+      } catch {
+        return fallback;
+      }
+    },
+    writeString(baseKey, value) {
+      writeString(key(baseKey), value);
+    },
+    snapshot(baseKeys = STUDIO_OWNER_SCOPED_LOCAL_STATE_BASE_KEYS) {
+      return Object.fromEntries(baseKeys.map((baseKey) => [baseKey, readScopedString(baseKey)]));
+    },
+    restore(snapshot = {}) {
+      for (const [baseKey, value] of Object.entries(snapshot)) {
+        writeString(key(baseKey), value);
+      }
+    },
+  };
+}
+
 export function runCommand(command, args, options = {}) {
   const result = spawnSync(command, args, {
     encoding: "utf8",

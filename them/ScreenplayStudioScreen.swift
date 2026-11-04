@@ -2340,7 +2340,6 @@ Replace is best when this file should become the script you edit. Append is safe
                     .textFieldStyle(.plain)
                     .focused($studioPromptFocused)
                     .lineLimit(1...3)
-                    .submitLabel(.send)
                     .onSubmit {
                         submitStudioPromptSeed()
                     }

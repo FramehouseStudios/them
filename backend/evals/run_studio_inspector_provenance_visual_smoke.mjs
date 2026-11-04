@@ -1,9 +1,14 @@
 import { existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
 import { spawnSync } from "node:child_process";
-import { createStudioEvalDebugContext, ensureStudioVisibleWithOpenHandshake } from "./studio_eval_debug_utils.mjs";
+import {
+  createStudioEvalDebugContext,
+  createStudioOwnerScopedDefaults,
+  ensureStudioVisibleWithOpenHandshake,
+} from "./studio_eval_debug_utils.mjs";
 
 const SCREENSHOT_DIR = "/tmp/them-smoke/inspector-provenance";
 const SCREENSHOT_PATH = `${SCREENSHOT_DIR}/them-inspector-provenance-visual.png`;
+const INSPECTOR_PROVENANCE_HISTORY_BASE_KEY = "studio.inspector.beat.provenance.history.v1";
 
 function resolveScreenplayStudioSourcePath() {
   const explicit = String(process.env.STUDIO_SCREENPLAY_SCREEN_PATH || "").trim();
@@ -58,6 +63,8 @@ function runOptional(command, args, options = {}) {
 const debugContext = createStudioEvalDebugContext({ run, runOptional });
 const studioApp = debugContext.ownedApp;
 const debugDefaults = debugContext.defaults;
+let ownerLocalDefaults = null;
+let ownerLocalSnapshot = null;
 
 function readDefaultString(key) {
   for (const domain of studioDebugDefaultsDomains) {
@@ -111,7 +118,19 @@ function readDebugDiffState() {
 }
 
 function readBeatProvenanceHistory() {
-  return readJsonDefault("studio.inspector.beat.provenance.history.v1") || {};
+  assert(ownerLocalDefaults, "Studio inspector provenance smoke owner-scoped defaults are not initialized");
+  return ownerLocalDefaults.readJSON(INSPECTOR_PROVENANCE_HISTORY_BASE_KEY, {}) || {};
+}
+
+function initializeOwnerLocalDefaults() {
+  const ownerUserID = debugDefaults.readString("user_id");
+  assert(ownerUserID, "Studio inspector provenance smoke is missing its explicit owner user id");
+  ownerLocalDefaults = createStudioOwnerScopedDefaults({
+    ownerUserID,
+    readString: debugDefaults.readString,
+    writeString: debugDefaults.writeString,
+  });
+  ownerLocalSnapshot = ownerLocalDefaults.snapshot([INSPECTOR_PROVENANCE_HISTORY_BASE_KEY]);
 }
 
 function sleep(ms) {
@@ -171,11 +190,12 @@ function resetStudioInspectorProvenanceDefaults() {
     "studio_debug_inspector_interaction_result_status",
     "studio_debug_inspector_interaction_result_error",
     "studio_debug_inspector_interaction_result_json",
-    "studio.inspector.beat.provenance.history.v1",
   ];
   for (const key of stringKeys) {
     writeDefaultString(key, "");
   }
+  assert(ownerLocalDefaults, "Studio inspector provenance smoke owner-scoped defaults are not initialized");
+  ownerLocalDefaults.writeString(INSPECTOR_PROVENANCE_HISTORY_BASE_KEY, "");
 }
 
 function findDebugAppPath() {
@@ -429,7 +449,9 @@ function readSourceProvenanceA11yContract() {
 }
 
 async function main() {
-  mkdirSync(SCREENSHOT_DIR, { recursive: true });
+  initializeOwnerLocalDefaults();
+  try {
+    mkdirSync(SCREENSHOT_DIR, { recursive: true });
 
   await ensureStudioVisible();
   await prepareSeededBeatsInspector();
@@ -488,27 +510,30 @@ async function main() {
 
   const bytes = captureWindow(SCREENSHOT_PATH);
 
-  console.log(
-    JSON.stringify(
-      {
-        beatID: "beat-diner",
-        createdFrom,
-        lastRefreshedFrom,
-        createdAt,
-        lastRefreshedAt,
-        sourceA11y,
-        runtimeA11y: {
-          hasCreatedFrom: runtimeHasCreatedFrom,
-          hasLastRefreshed: runtimeHasLastRefreshed,
-          foundBoth: runtimeA11yFoundBoth,
+    console.log(
+      JSON.stringify(
+        {
+          beatID: "beat-diner",
+          createdFrom,
+          lastRefreshedFrom,
+          createdAt,
+          lastRefreshedAt,
+          sourceA11y,
+          runtimeA11y: {
+            hasCreatedFrom: runtimeHasCreatedFrom,
+            hasLastRefreshed: runtimeHasLastRefreshed,
+            foundBoth: runtimeA11yFoundBoth,
+          },
+          screenshotPath: SCREENSHOT_PATH,
+          screenshotBytes: bytes,
         },
-        screenshotPath: SCREENSHOT_PATH,
-        screenshotBytes: bytes,
-      },
-      null,
-      2
-    )
-  );
+        null,
+        2
+      )
+    );
+  } finally {
+    if (ownerLocalDefaults && ownerLocalSnapshot) ownerLocalDefaults.restore(ownerLocalSnapshot);
+  }
 }
 
 main().catch((error) => {

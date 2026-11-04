@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { createStudioOwnerScopedDefaults } from "./studio_eval_debug_utils.mjs";
 
 function assert(condition, message) {
   if (!condition) {
@@ -34,15 +35,14 @@ function readDebugDiffState() {
   }
 }
 
-function readStudioAskNoteHistoryMap() {
-  const raw = readDefaultString("studio.ask.note.history.v2");
-  if (!raw) return {};
-  try {
-    const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === "object" ? parsed : {};
-  } catch {
-    return {};
-  }
+function readStudioAskNoteHistoryMap(ownerUserID) {
+  return createStudioOwnerScopedDefaults({
+    ownerUserID,
+    readString: readDefaultString,
+    writeString() {
+      throw new Error("preview/commit smoke owner-scoped defaults are read-only");
+    },
+  }).readJSON("studio.ask.note.history.v2", {}) || {};
 }
 
 function normalizeKey(value) {
@@ -103,6 +103,8 @@ assert(result?.ok, "Preview/commit smoke did not finish cleanly");
 
 const projectKey = String(result.projectKey || "").trim();
 assert(projectKey, "Preview/commit smoke did not surface a project key");
+const ownerUserID = String(result.ownerUserID || "").trim();
+assert(ownerUserID, "Preview/commit smoke did not surface its explicit owner user id");
 
 const latestEntry = result.latestEntry || {};
 if (latestEntry && Object.keys(latestEntry).length > 0) {
@@ -138,7 +140,7 @@ assert(
   "Preview/commit smoke found duplicate inserted text in the final draft preview"
 );
 
-const historyMap = readStudioAskNoteHistoryMap();
+const historyMap = readStudioAskNoteHistoryMap(ownerUserID);
 const projectEntries = Array.isArray(historyMap[projectKey]) ? historyMap[projectKey] : [];
 const pageEntries = projectEntries.filter((entry) => normalizeKey(entry?.target) === "page");
 const matchingPageEntries = pageEntries.filter((entry) => normalizeText(entry?.insertedText || entry?.noteBody || "") === insertedText);

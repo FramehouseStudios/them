@@ -24,6 +24,7 @@ import { fileURLToPath } from "node:url";
 import {
   cleanupStudioEvalSessionsWithHelper,
   createStudioEvalDebugContext,
+  createStudioOwnerScopedDefaults,
   ensureStudioProjectLoadedWithDebugHook,
   ensureStudioVisibleWithOpenHandshake,
   runCommand,
@@ -104,6 +105,8 @@ function assertOriginalLinesExactlyOnce(actualDraft, expectedDraft, stage) {
 
 const studioDebug = createStudioEvalDebugContext({ run: runCommand, runOptional: runOptionalCommand });
 const studioApp = studioDebug.ownedApp;
+let ownerLocalDefaults = null;
+let ownerLocalSnapshot = null;
 
 function synchronizeDefaults() {
   runOptionalCommand("defaults", ["synchronize", "io.them.them"]);
@@ -157,6 +160,12 @@ done
 
 function writeMacDefaults(seeded) {
   const { writeDefaultString, writeDefaultInt, writeDefaultBool } = studioDebug;
+  ownerLocalDefaults = createStudioOwnerScopedDefaults({
+    ownerUserID: seeded.identity.userID,
+    readString: studioDebug.readDefaultString,
+    writeString: studioDebug.writeDefaultString,
+  });
+  ownerLocalSnapshot = ownerLocalDefaults.snapshot();
   writeDefaultString("studio_debug_target_session_id", AUTOMATION_SESSION_ID);
   writeDefaultString("app_token", APP_TOKEN);
   writeDefaultString("backend_base_url", seeded.baseURL);
@@ -169,10 +178,10 @@ function writeMacDefaults(seeded) {
   writeDefaultBool("auth_debug_access_token_enabled", true);
   writeDefaultBool("auth_signed_in", true);
   writeDefaultBool("auth_session_token_deletion_pending", false);
-  writeDefaultString("studio.full.thread.state.v1", seeded.localState.fullThreadStateJSON);
-  writeDefaultString("studio.ask.note.history.v2", "{}");
-  writeDefaultString("studio.diff.keep-current.v1", seeded.localState.acknowledgedJSON);
-  writeDefaultString("studio.diff.keep-current.writeids.v1", seeded.localState.acknowledgedWriteIDsJSON);
+  ownerLocalDefaults.writeString("studio.full.thread.state.v1", seeded.localState.fullThreadStateJSON);
+  ownerLocalDefaults.writeString("studio.ask.note.history.v2", "{}");
+  ownerLocalDefaults.writeString("studio.diff.keep-current.v1", seeded.localState.acknowledgedJSON);
+  ownerLocalDefaults.writeString("studio.diff.keep-current.writeids.v1", seeded.localState.acknowledgedWriteIDsJSON);
   writeDefaultString("studio_debug_diff_state_json", "");
   writeDefaultString("studio_debug_project_load_trace_json", "[]");
   writeDefaultString("studio_debug_submit_transport_mode", "stub");
@@ -318,8 +327,7 @@ function startIPhoneTest(seeded) {
 // ---------- main ----------
 
 const restoreStringKeys = [
-  "studio.full.thread.state.v1", "studio.diff.keep-current.v1", "studio.diff.keep-current.writeids.v1",
-  "studio.ask.note.history.v2", "studio_debug_diff_state_json", "studio_debug_project_load_trace_json",
+  "studio_debug_diff_state_json", "studio_debug_project_load_trace_json",
   "studio_debug_submit_transport_mode", "studio_debug_manual_edit_text", "app_token", "backend_base_url",
   "client_token", "user_id", "client_token_base_url", "client_token_expiry", "auth_debug_access_token",
   "studio_debug_load_project_id", "studio_debug_load_project_version_id", "studio_debug_target_session_id",
@@ -446,6 +454,7 @@ try {
     console.error(`Studio eval cleanup failed: ${cleanupError?.message || cleanupError}`);
   }
   for (const [key, value] of Object.entries(originalStrings)) studioDebug.writeDefaultString(key, value);
+  if (ownerLocalDefaults && ownerLocalSnapshot) ownerLocalDefaults.restore(ownerLocalSnapshot);
   for (const [key, value] of Object.entries(originalInts)) studioDebug.writeDefaultInt(key, value);
   for (const [key, value] of Object.entries(originalBools)) studioDebug.writeDefaultBool(key, value);
   synchronizeDefaults();

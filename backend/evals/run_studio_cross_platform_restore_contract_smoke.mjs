@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import {
   cleanupStudioEvalSessionsWithHelper,
   createStudioEvalDebugContext,
+  createStudioOwnerScopedDefaults,
   ensureStudioProjectLoadedWithDebugHook,
   ensureStudioVisibleWithOpenHandshake,
   stageStudioProjectLoadDebugRequest,
@@ -447,6 +448,12 @@ function readDebugDiffState() {
 }
 
 function writeMacRestoreDefaults(seeded) {
+  ownerLocalDefaults = createStudioOwnerScopedDefaults({
+    ownerUserID: seeded.identity.userID,
+    readString: readDefaultString,
+    writeString: writeDefaultString,
+  });
+  ownerLocalSnapshot = ownerLocalDefaults.snapshot();
   writeDefaultString("app_token", APP_TOKEN);
   writeDefaultString("backend_base_url", seeded.baseURL);
   writeDefaultString("user_id", seeded.identity.userID);
@@ -458,10 +465,10 @@ function writeMacRestoreDefaults(seeded) {
   writeDefaultBool("auth_debug_access_token_enabled", true);
   writeDefaultBool("auth_signed_in", true);
   writeDefaultBool("auth_session_token_deletion_pending", false);
-  writeDefaultString("studio.full.thread.state.v1", seeded.localState.fullThreadStateJSON);
-  writeDefaultString("studio.ask.note.history.v2", "{}");
-  writeDefaultString("studio.diff.keep-current.v1", seeded.localState.acknowledgedJSON);
-  writeDefaultString("studio.diff.keep-current.writeids.v1", seeded.localState.acknowledgedWriteIDsJSON);
+  ownerLocalDefaults.writeString("studio.full.thread.state.v1", seeded.localState.fullThreadStateJSON);
+  ownerLocalDefaults.writeString("studio.ask.note.history.v2", "{}");
+  ownerLocalDefaults.writeString("studio.diff.keep-current.v1", seeded.localState.acknowledgedJSON);
+  ownerLocalDefaults.writeString("studio.diff.keep-current.writeids.v1", seeded.localState.acknowledgedWriteIDsJSON);
   writeDefaultString("studio_debug_diff_state_json", "");
   writeDefaultString("studio_debug_project_load_trace_json", "[]");
   writeDefaultString("studio_debug_submit_transport_mode", "stub");
@@ -840,10 +847,6 @@ function restoreSharedProjectOniPhone(seeded) {
 }
 
 const restoreKeys = [
-  "studio.full.thread.state.v1",
-  "studio.diff.keep-current.v1",
-  "studio.diff.keep-current.writeids.v1",
-  "studio.ask.note.history.v2",
   "studio_debug_diff_state_json",
   "studio_debug_project_load_trace_json",
   "studio_debug_submit_transport_mode",
@@ -890,6 +893,8 @@ const originalIntValues = Object.fromEntries(restoreIntKeys.map((key) => [key, r
 const originalBoolValues = Object.fromEntries(restoreBoolKeys.map((key) => [key, readDefaultBool(key)]));
 
 let server = null;
+let ownerLocalDefaults = null;
+let ownerLocalSnapshot = null;
 try {
   buildCurrentMacApp();
   const backendEnv = {
@@ -1045,6 +1050,9 @@ try {
   }
   for (const [key, value] of Object.entries(originalStringValues)) {
     writeDefaultString(key, value);
+  }
+  if (ownerLocalDefaults && ownerLocalSnapshot) {
+    ownerLocalDefaults.restore(ownerLocalSnapshot);
   }
   for (const [key, value] of Object.entries(originalIntValues)) {
     writeDefaultInt(key, value);

@@ -6,6 +6,7 @@ import { fetchStudioProjectMetadata } from "./studio_project_metadata_probe.mjs"
 import { createStudioRestoreFixture } from "./studio_restore_seed_helper.mjs";
 import {
   cleanupStudioEvalSessionsWithHelper,
+  createStudioOwnerScopedDefaults,
   createStudioOwnedAppController,
   relaunchStudioAppWithHelper,
 } from "./studio_eval_debug_utils.mjs";
@@ -32,6 +33,8 @@ function runOptional(command, args, options = {}) {
 }
 
 const ownedApp = createStudioOwnedAppController({ runOptional });
+let ownerLocalDefaults = null;
+let ownerLocalSnapshot = null;
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -234,7 +237,7 @@ function readDebugDiffState() {
 }
 
 function readFullThreadBrowseStateMap() {
-  const raw = readDefaultString("studio.full.thread.state.v1");
+  const raw = ownerLocalDefaults?.readString("studio.full.thread.state.v1") || "";
   if (!raw) return {};
   try {
     const parsed = JSON.parse(raw);
@@ -245,7 +248,7 @@ function readFullThreadBrowseStateMap() {
 }
 
 function readAcknowledgedDiffMap() {
-  const raw = readDefaultString("studio.diff.keep-current.v1");
+  const raw = ownerLocalDefaults?.readString("studio.diff.keep-current.v1") || "";
   if (!raw) return {};
   try {
     const parsed = JSON.parse(raw);
@@ -268,7 +271,7 @@ function readAcknowledgedDiffMap() {
 }
 
 function readAcknowledgedDiffWriteIDMap() {
-  const raw = readDefaultString("studio.diff.keep-current.writeids.v1");
+  const raw = ownerLocalDefaults?.readString("studio.diff.keep-current.writeids.v1") || "";
   if (!raw) return {};
   try {
     const parsed = JSON.parse(raw);
@@ -292,7 +295,7 @@ function readAcknowledgedDiffWriteIDMap() {
 }
 
 function readStudioAskNoteHistoryMap() {
-  const raw = readDefaultString("studio.ask.note.history.v2");
+  const raw = ownerLocalDefaults?.readString("studio.ask.note.history.v2") || "";
   if (!raw) return {};
   try {
     const parsed = JSON.parse(raw);
@@ -499,10 +502,6 @@ async function ensureAppStopped() {
   quitApp();
 }
 
-const originalLocalStateRaw = readDefaultString("studio.full.thread.state.v1");
-const originalLocalAckStateRaw = readDefaultString("studio.diff.keep-current.v1");
-const originalLocalAckWriteStateRaw = readDefaultString("studio.diff.keep-current.writeids.v1");
-const originalAskNoteHistoryRaw = readDefaultString("studio.ask.note.history.v2");
 const originalDebugDiffStateRaw = readDefaultString("studio_debug_diff_state_json");
 const originalReplacementTraceRaw = readDefaultString("studio_debug_replacement_trace_json");
 const originalUserIdRaw = readDefaultString("user_id");
@@ -530,7 +529,13 @@ try {
   seedFixture = createStudioRestoreFixture("reopened");
   seededRecord = seedFixture.reopenedSeed;
   const projectId = projectIdFromHistoryKey(seededRecord.projectKey);
-  await ensureAuthenticatedStudioOwner(projectId);
+  const ownerIdentity = await ensureAuthenticatedStudioOwner(projectId);
+  ownerLocalDefaults = createStudioOwnerScopedDefaults({
+    ownerUserID: ownerIdentity.userId,
+    readString: readDefaultString,
+    writeString: writeDefaultString,
+  });
+  ownerLocalSnapshot = ownerLocalDefaults.snapshot();
 
   appPath = findDebugAppPath();
   await ensureAppStopped();
@@ -554,10 +559,10 @@ try {
     latestReopenedWriteID: "",
   };
   map[seededRecord.projectKey] = mergedLocalRecord;
-  writeDefaultString("studio.full.thread.state.v1", JSON.stringify(map));
+  ownerLocalDefaults.writeString("studio.full.thread.state.v1", JSON.stringify(map));
   const askHistoryMap = readStudioAskNoteHistoryMap();
   askHistoryMap[seededRecord.projectKey] = seedFixture.reopenedHistory;
-  writeDefaultString("studio.ask.note.history.v2", JSON.stringify(askHistoryMap));
+  ownerLocalDefaults.writeString("studio.ask.note.history.v2", JSON.stringify(askHistoryMap));
   synchronizeDefaults();
   await postBackendProjectThreadState(
     projectId,
@@ -635,10 +640,7 @@ try {
   }, null, 2));
   console.log("studio-merged-restore-smoke: ok");
 } finally {
-  writeDefaultString("studio.full.thread.state.v1", originalLocalStateRaw);
-  writeDefaultString("studio.diff.keep-current.v1", originalLocalAckStateRaw);
-  writeDefaultString("studio.diff.keep-current.writeids.v1", originalLocalAckWriteStateRaw);
-  writeDefaultString("studio.ask.note.history.v2", originalAskNoteHistoryRaw);
+  if (ownerLocalDefaults && ownerLocalSnapshot) ownerLocalDefaults.restore(ownerLocalSnapshot);
   writeDefaultString("studio_debug_diff_state_json", originalDebugDiffStateRaw);
   writeDefaultString("studio_debug_replacement_trace_json", originalReplacementTraceRaw);
   writeDefaultString("user_id", originalUserIdRaw);

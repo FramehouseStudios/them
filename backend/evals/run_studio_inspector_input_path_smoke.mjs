@@ -1,6 +1,10 @@
 import { existsSync } from "node:fs";
 import { spawnSync } from "node:child_process";
-import { createStudioEvalDebugContext, ensureStudioVisibleWithOpenHandshake } from "./studio_eval_debug_utils.mjs";
+import {
+  createStudioEvalDebugContext,
+  createStudioOwnerScopedDefaults,
+  ensureStudioVisibleWithOpenHandshake,
+} from "./studio_eval_debug_utils.mjs";
 
 const studioDebugDefaultsDomains = Array.from(
   new Set([
@@ -10,6 +14,7 @@ const studioDebugDefaultsDomains = Array.from(
 );
 const PREFILL_DRAFT_LABEL = "__prefill_label__";
 const PREFILL_DRAFT_SUMMARY = "__prefill_summary__";
+const INSPECTOR_PROVENANCE_HISTORY_BASE_KEY = "studio.inspector.beat.provenance.history.v1";
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -41,6 +46,8 @@ function runOptional(command, args, options = {}) {
 const debugContext = createStudioEvalDebugContext({ run, runOptional });
 const studioApp = debugContext.ownedApp;
 const debugDefaults = debugContext.defaults;
+let ownerLocalDefaults = null;
+let ownerLocalSnapshot = null;
 
 function readDefaultString(key) {
   for (const domain of studioDebugDefaultsDomains) {
@@ -94,7 +101,19 @@ function readDebugDiffState() {
 }
 
 function readBeatProvenanceHistory() {
-  return readJsonDefault("studio.inspector.beat.provenance.history.v1") || {};
+  assert(ownerLocalDefaults, "Studio inspector input-path smoke owner-scoped defaults are not initialized");
+  return ownerLocalDefaults.readJSON(INSPECTOR_PROVENANCE_HISTORY_BASE_KEY, {}) || {};
+}
+
+function initializeOwnerLocalDefaults() {
+  const ownerUserID = debugDefaults.readString("user_id");
+  assert(ownerUserID, "Studio inspector input-path smoke is missing its explicit owner user id");
+  ownerLocalDefaults = createStudioOwnerScopedDefaults({
+    ownerUserID,
+    readString: debugDefaults.readString,
+    writeString: debugDefaults.writeString,
+  });
+  ownerLocalSnapshot = ownerLocalDefaults.snapshot([INSPECTOR_PROVENANCE_HISTORY_BASE_KEY]);
 }
 
 function sleep(ms) {
@@ -770,7 +789,9 @@ async function runBeatProvenanceHistoryCase() {
 }
 
 async function main() {
-  await ensureStudioVisible();
+  initializeOwnerLocalDefaults();
+  try {
+    await ensureStudioVisible();
 
   const keyboardMake = await runKeyboardMakeBeatFromSelectionCase();
   const keyboardUpdate = await runKeyboardUpdateSelectedBeatCase();
@@ -778,23 +799,26 @@ async function main() {
   const voiceUpdate = await runVoiceUpdateSelectedBeatCase();
   const beatProvenanceHistory = await runBeatProvenanceHistoryCase();
 
-  console.log(
-    JSON.stringify(
-      {
-        keyboard: {
-          optionCommandB: keyboardMake,
-          optionCommandU: keyboardUpdate,
+    console.log(
+      JSON.stringify(
+        {
+          keyboard: {
+            optionCommandB: keyboardMake,
+            optionCommandU: keyboardUpdate,
+          },
+          voice: {
+            makeBeatFromSelection: voiceMake,
+            updateSelectedBeatFromSelection: voiceUpdate,
+          },
+          beatProvenanceHistory,
         },
-        voice: {
-          makeBeatFromSelection: voiceMake,
-          updateSelectedBeatFromSelection: voiceUpdate,
-        },
-        beatProvenanceHistory,
-      },
-      null,
-      2
-    )
-  );
+        null,
+        2
+      )
+    );
+  } finally {
+    if (ownerLocalDefaults && ownerLocalSnapshot) ownerLocalDefaults.restore(ownerLocalSnapshot);
+  }
 }
 
 main().catch((error) => {
