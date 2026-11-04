@@ -73,6 +73,48 @@ final class ScreenplaySaveCompletionOwnershipTests: XCTestCase {
         XCTAssertTrue(remainingRows.isEmpty)
     }
 
+    func testPassiveAutosaveMatchingInflightManualSaveDoesNotCreateAnotherRequest() async throws {
+        let fixture = try SaveCompletionFixture()
+        defer { fixture.close() }
+        fixture.select("a", draft: fixture.a, base: "a-base", dirty: true)
+        fixture.model.autosaveEnabled = true
+        let manualSave = fixture.startSave()
+        defer { fixture.peer.releaseFirst(.offline); manualSave.cancel() }
+        try await fixture.waitForFirstSave()
+
+        await fixture.model.handleDraftDebouncedChange(fixture.a)
+        let rowsBeforeAcknowledgement = try await fixture.reloadQueueEntries()
+        XCTAssertEqual(rowsBeforeAcknowledgement.count, 1,
+            "An identical passive autosave must not create another durable request")
+        fixture.peer.releaseFirst(.success)
+        try await fixture.waitForSave(manualSave)
+        let remaining = try await fixture.reloadQueueEntries()
+        XCTAssertTrue(remaining.isEmpty, "The acknowledged page must not leave a duplicate parked save")
+        XCTAssertEqual(fixture.peer.writes.count, 1)
+    }
+
+    func testPassiveAutosaveWithNewerWordsRemainsDurableBehindInflightSave() async throws {
+        let fixture = try SaveCompletionFixture()
+        defer { fixture.close() }
+        fixture.select("a", draft: fixture.a, base: "a-base", dirty: true)
+        fixture.model.autosaveEnabled = true
+        let manualSave = fixture.startSave()
+        defer { fixture.peer.releaseFirst(.offline); manualSave.cancel() }
+        try await fixture.waitForFirstSave()
+
+        let newer = fixture.a + "\r\nA newer exact line.  \t"
+        fixture.model.fountainDraft = newer
+        fixture.model.noteManualDraftEdit()
+        await fixture.model.handleDraftDebouncedChange(newer)
+        let rows = try await fixture.reloadQueueEntries()
+        XCTAssertEqual(rows.count, 2)
+        let pending = try XCTUnwrap(rows.first { $0.draft.utf8.elementsEqual(newer.utf8) })
+        XCTAssertEqual(pending.status, .pending)
+        XCTAssertEqual(pending.source, "studio_autosave")
+        XCTAssertEqual(pending.ownerUserId, fixture.owner)
+        XCTAssertEqual(pending.projectId, "a")
+    }
+
     func testManualWhitespaceOnlySavePreservesExactBytes() async throws {
         let fixture = try SaveCompletionFixture()
         defer { fixture.close() }

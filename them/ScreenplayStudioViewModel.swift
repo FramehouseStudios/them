@@ -7517,6 +7517,14 @@ final class ScreenplayStudioViewModel: ObservableObject {
         // Acquire the flight before the first actor hop. A save captured on
         // the old base must not race a queue drain across this suspension.
         if isDraftSaveInFlight {
+            // A passive copy of an already active, exactly scoped save carries
+            // no new writer intent. Avoid admitting it after its predecessor
+            // has already been acknowledged and removed from the outbox.
+            if request.outboxEntry.isPassiveAutosave, !request.hasExplicitBaseSelection,
+               request.conflictTicket == nil, let active = activeDraftSaveRequest,
+               active.conflictTicket == nil, active.deliveryOrigin != nil,
+               ScreenplayStudioAuthContextPolicy.matches(expected: active.authContext, current: request.authContext),
+               request.outboxEntry.hasSameTarget(as: active.outboxEntry) { return }
             // The pending request can outlive the currently visible project.
             // Preserve its exact words without replacing another recovery copy.
             if authContextIsCurrent(request.authContext) {
