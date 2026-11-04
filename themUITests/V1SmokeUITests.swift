@@ -154,12 +154,27 @@ final class V1SmokeUITests: XCTestCase {
 
     func test_studio_prompt_focus_exposes_single_send_action() throws {
 #if os(iOS)
-        let app = launchApp(openStudio: true, openCommandBar: true)
+        let app = launchApp(openStudio: true, structuralSeed: true)
         defer { app.terminate() }
 
+        let inspector = app.buttons["studio.sidebar.right.toggle"]
+        guard waitForHittability(of: inspector, timeout: 15) else {
+            XCTFail("The Studio inspector control was not tappable."); return
+        }
+        inspector.tap()
+        let drawer = element(identifier: "studio.sidebar.right.drawer", in: app)
+        guard waitForStableFrame(of: drawer, timeout: 15) else {
+            XCTFail("The Studio inspector did not settle."); return
+        }
+        let openCommand = app.buttons["studio.commandbar.open"]
+        guard revealInStudioDrawer(openCommand, drawer: drawer, scrollingUp: true, maxSwipes: 12) else {
+            XCTFail("The command bar control was not available."); return
+        }
+        openCommand.tap()
         let field = element(identifier: "studio.prompt.field", in: app)
-        XCTAssertTrue(field.waitForExistence(timeout: 10), "The Studio prompt field was missing.")
-        XCTAssertTrue(field.isHittable, "The Studio prompt field was not tappable.")
+        guard waitForHittability(of: field, timeout: 15) else {
+            XCTFail("The Studio prompt field was not tappable."); return
+        }
         field.tap()
 
         let inlineSend = app.buttons["studio.prompt.send"]
@@ -1764,8 +1779,17 @@ final class V1SmokeUITests: XCTestCase {
     }
 
     func test_all_studio_inspector_tabs_route_to_real_panels_and_report_selection() {
-        let app = launchApp(openStudio: true, openExportTools: true, structuralSeed: true)
+        let app = launchApp(openStudio: true, structuralSeed: true)
         defer { app.terminate() }
+        let inspector = app.buttons["studio.sidebar.right.toggle"]
+        guard waitForHittability(of: inspector, timeout: 15) else {
+            XCTFail("The Studio inspector control was not tappable."); return
+        }
+        inspector.tap()
+        let drawer = element(identifier: "studio.sidebar.right.drawer", in: app)
+        guard waitForStableFrame(of: drawer, timeout: 15) else {
+            XCTFail("The Studio inspector did not settle."); return
+        }
 
         let routes = [
             (tab: "draft", panel: "studio.draft.tools.pages"),
@@ -1775,13 +1799,11 @@ final class V1SmokeUITests: XCTestCase {
             (tab: "them", panel: "studio.them.panel"),
             (tab: "saved", panel: "studio.saved.save"),
         ]
-        let drawer = element(identifier: "studio.sidebar.right.drawer", in: app)
-
         for route in routes {
             let tab = app.buttons["studio.right-panel.\(route.tab)"]
             // Navigation stays pinned; selecting it must not require a
             // scroll/reopen recovery sequence.
-            guard tab.waitForExistence(timeout: 8), tab.isHittable else {
+            guard waitForHittability(of: tab, timeout: 15) else {
                 XCTFail("Missing pinned \(route.tab) inspector tab")
                 return
             }
@@ -5404,6 +5426,26 @@ final class V1SmokeUITests: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.1))
         }
         return !element.exists
+    }
+
+    /// Wait for the drawer's opening animation to finish before tapping a tab.
+    /// Existence and hittability alone can be true while its frame is moving.
+    private func waitForStableFrame(of element: XCUIElement, timeout: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        var previous = CGRect.null
+        var stableSince: Date?
+        while Date() < deadline {
+            let frame = element.exists ? element.frame : .null
+            if !frame.isNull, !frame.isEmpty, frame == previous {
+                if let stableSince, Date().timeIntervalSince(stableSince) >= 0.4 { return true }
+                if stableSince == nil { stableSince = Date() }
+            } else {
+                stableSince = nil
+                previous = frame
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        }
+        return false
     }
 
     private func waitForHittability(
