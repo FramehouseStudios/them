@@ -9,3 +9,10 @@ This preserving merge combines `8c2d87b` with original #986 head `6453169ea9b80f
 - macOS scaffold unsigned build, D009 and staged `git diff --check`: passed.
 
 This does not prove physical-iPhone, live-model, production or outside-app export behavior. Original PR sequencing, hosted checks and independent review remain required.
+
+Additional local evidence on the same source tree:
+
+- Synthetic raw-audio Home handoff into a saved and restored screenplay: 1 passed, 0 failed, 0 skipped; `/private/tmp/them-t1267-raw-audio-20261104.xcresult`.
+- Synthetic retained talk replacement, save and relaunch: 1 passed, 0 failed, 0 skipped; `/private/tmp/them-t1267-replacement-20261104.xcresult`.
+
+Both intercepted the provider and do not establish real microphone capture, response quality, real speech playback or physical-device behavior. No paid calls were made.
