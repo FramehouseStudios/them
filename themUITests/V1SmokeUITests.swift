@@ -1205,6 +1205,49 @@ final class V1SmokeUITests: XCTestCase {
     }
 
     @MainActor
+    func test_cleared_page_saves_and_restores_against_authenticated_backend() async throws {
+#if os(iOS)
+        guard let port = Int(ProcessInfo.processInfo.environment["THEM_UITEST_WRITER_LOOP_BACKEND_PORT"] ?? ""),
+              let baseURL = URL(string: "http://127.0.0.1:\(port)") else {
+            throw XCTSkip("An authenticated local backend is required.")
+        }
+        let fixture = try await createWriterLoopAuthenticationFixture(baseURL: baseURL)
+        let projectID = "project-\(UUID().uuidString.lowercased())"
+        let seed = try await requestJSON(baseURL: baseURL, path: "/screenplay/projects/initialize", method: "POST",
+            headers: fixture.authorizedHeaders, body: ["project_id": projectID, "title": "Clear recovery",
+                "initial_draft": ["draft": "INT. ROOM - NIGHT\n\nOriginal writer words.", "client_request_id": UUID().uuidString]])
+        try assertHTTP(seed, context: "clear baseline")
+        let oldVersion = stringValue(seed.payload["version_id"])
+        var app = launchApp(openStudio: true, launchEnvironment: fixture.appLaunchEnvironment)
+        defer { app.terminate() }
+        XCTAssertTrue(waitForRestoreSnapshot(in: app, timeout: 15) { stringValue($0["selected_project_id"]) == projectID })
+        let settings = app.buttons["studio.header.settings"]
+        XCTAssertTrue(waitForHittability(of: settings, timeout: 8))
+        settings.tap()
+        let clear = app.buttons["Clear Draft"]
+        XCTAssertTrue(waitForHittability(of: clear, timeout: 8))
+        clear.tap()
+        let saved = try await waitForWriterLoopSavedVersion(projectID: projectID, draft: "", fixture: fixture, app: app, timeout: 20)
+        let versions = saved["versions"] as? [[String: Any]] ?? []
+        let cleared = try XCTUnwrap(versions.first { ($0["draft"] as? String) == "" })
+        let versionID = stringValue(cleared["id"])
+        XCTAssertFalse(versionID.isEmpty)
+        XCTAssertNotEqual(versionID, oldVersion)
+        XCTAssertEqual(stringValue(saved["active_version_id"]), versionID)
+        XCTAssertEqual(versions.count, 2)
+        app.terminate()
+        app = launchApp(openStudio: true, resetState: false, launchEnvironment: fixture.appLaunchEnvironment)
+        XCTAssertTrue(waitForRestoreSnapshot(in: app, timeout: 15) {
+            stringValue($0["selected_project_id"]) == projectID && stringValue($0["latest_version_id"]) == versionID
+        })
+        XCTAssertEqual(element(identifier: "studio.draft.snapshot", in: app).label, "EMPTY_DRAFT",
+                       "Cleared page did not restore empty")
+#else
+        throw XCTSkip("This is an iPhone save and relaunch workflow.")
+#endif
+    }
+
+    @MainActor
     func test_explicit_project_creation_preserves_existing_page_bytes() async throws {
 #if os(iOS)
         guard let port = Int(ProcessInfo.processInfo.environment["THEM_UITEST_WRITER_LOOP_BACKEND_PORT"] ?? ""),
@@ -2416,7 +2459,7 @@ final class V1SmokeUITests: XCTestCase {
         let confirmQueue = alert.buttons["Queue Request"]
         XCTAssertTrue(confirmQueue.waitForExistence(timeout: 5))
         XCTAssertTrue(confirmQueue.isHittable)
-        confirmQueue.press(forDuration: 0.1)
+        confirmQueue.tap()
         XCTAssertTrue(alert.waitForNonExistence(timeout: 5))
         XCTAssertTrue(staticText(containing: "Recovered request queued with its original ID", in: app).waitForExistence(timeout: 5))
         XCTAssertEqual(reviews.count, 0)

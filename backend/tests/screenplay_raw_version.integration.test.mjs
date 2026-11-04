@@ -102,3 +102,36 @@ test('a request ID cannot acknowledge different whitespace, line endings or Unic
     }
   } finally { await server.stop(); }
 });
+
+test('explicit cleared version survives authenticated restart and idempotent replay', { timeout: 60000 }, async () => {
+  let server = await startBackend(options);
+  try {
+    const headers = await createWriter(server);
+    const id = await createProject(server, headers);
+    const original = await apiRequest(server, `/screenplay/projects/${id}/version`, {
+      method: 'POST', headers, json: { draft: 'Original writer words', client_request_id: 'clear-base' },
+    });
+    assert.equal(original.status, 201);
+    const clear = { draft: '', allow_empty_draft: true, base_version_id: original.json.version_id,
+      client_request_id: 'clear-once', conflict_strategy: 'reject_if_stale' };
+    const saved = await apiRequest(server, `/screenplay/projects/${id}/version`, { method: 'POST', headers, json: clear });
+    assert.equal(saved.status, 201);
+    assert.equal(saved.json.version.draft, '');
+    const versionID = saved.json.version_id;
+    const dataDir = server.dataDir;
+    assert.equal((await server.stop()).forced, false);
+    server = await startBackend({ ...options, dataDir });
+    const restored = await apiRequest(server, `/screenplay/projects/${id}?include_drafts=1`, { headers });
+    assert.equal(restored.status, 200);
+    assert.equal(restored.json.project.active_version_id, versionID);
+    assert.equal(restored.json.project.versions[0].draft, '');
+    const replay = await apiRequest(server, `/screenplay/projects/${id}/version`, { method: 'POST', headers, json: clear });
+    assert.equal(replay.status, 200);
+    assert.equal(replay.json.version_id, versionID);
+    assert.equal(replay.json.version.draft, '');
+    assert.equal((await apiRequest(server, `/screenplay/projects/${id}?include_drafts=1`, { headers })).json.project.versions.length, 2);
+    const other = await createWriter(server);
+    const foreign = await apiRequest(server, `/screenplay/projects/${id}/version`, { method: 'POST', headers: other, json: clear });
+    assert.equal(foreign.status, 404);
+  } finally { await server.stop(); }
+});

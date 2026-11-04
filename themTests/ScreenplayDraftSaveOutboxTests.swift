@@ -1645,6 +1645,47 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
     }
 
     @MainActor
+    func testClearedManualPageIsRecoverableBeforeDebounce() async throws {
+        let owner = ScreenplayStudioAuthContext.current()
+        let suite = "them.immediate-clear.\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "recovery")
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store,
+            draftSaveOutbox: ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory))
+        model.autosaveEnabled = false
+        model.selectedProjectID = "project-1"
+        model.applyStructuralUITestDraft("Server baseline", versionID: "base")
+        model.fountainDraft = ""
+        model.noteManualDraftEdit()
+        XCTAssertTrue(model.hasUnsavedDraftChanges)
+        let reloaded = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "recovery")
+        XCTAssertEqual(reloaded.recoverySnapshot(ownerUserId: owner.userID, projectId: "project-1",
+            serverDraft: "Server baseline")?.draft, "")
+    }
+
+    @MainActor
+    func testHydrationRestoresAcknowledgedEmptyVersion() async throws {
+        let suite = "them.empty-version-hydration.\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: .init(defaults: defaults, key: "recovery"),
+            draftSaveOutbox: ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory))
+        model.autosaveEnabled = false
+        model.selectedProjectID = "empty-project"
+        let payload = try JSONSerialization.data(withJSONObject: ["id": "empty-project", "title": "Test",
+            "activeVersionId": "empty-version", "versionCount": 2,
+            "versions": [["id": "empty-version", "projectId": "empty-project", "draft": ""],
+                         ["id": "old-version", "projectId": "empty-project", "draft": "Old words"]]])
+        let project = try JSONDecoder().decode(BackendScreenplayProjectSummary.self, from: payload)
+        let hydrated = await model.hydrateDraftRestoringQueuedSaves(from: project)
+        XCTAssertTrue(hydrated)
+        XCTAssertEqual(model.fountainDraft, "")
+        XCTAssertEqual(model.latestVersionID, "empty-version")
+        XCTAssertFalse(model.hasUnsavedDraftChanges)
+    }
+
+    @MainActor
     func testInitialQueueWriteFailureDoesNotOverwriteDifferentRecovery() async throws {
         let owner = ScreenplayStudioAuthContext.current()
         let suite = "them.admission-failure.\(UUID())"

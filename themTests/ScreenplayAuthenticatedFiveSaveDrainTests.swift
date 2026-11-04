@@ -112,6 +112,47 @@ final class ScreenplayAuthenticatedFiveSaveDrainTests: XCTestCase {
         await fixture.close()
     }
 
+    func testClearingPageAutosavesThroughAuthenticatedOutbox() async throws {
+        let fixture = try AuthenticatedFiveSaveDrainFixture()
+        do {
+            fixture.model.autosaveEnabled = true
+            fixture.model.fountainDraft = ""
+            fixture.model.noteManualDraftEdit()
+            await fixture.model.handleDraftDebouncedChange("")
+            let rows = try await fixture.queue.entriesForTesting()
+            XCTAssertTrue(rows.isEmpty)
+            XCTAssertEqual(fixture.peer.writes.count, 1)
+            XCTAssertEqual(fixture.peer.writes.first?.draft, "")
+            XCTAssertEqual(fixture.peer.writes.first?.baseVersionID, "base-0")
+            XCTAssertEqual(fixture.model.latestVersionID, "ack-1")
+            XCTAssertFalse(fixture.model.hasUnsavedDraftChanges)
+            XCTAssertTrue(fixture.peer.failures.isEmpty, fixture.peer.failures.joined(separator: " | "))
+        } catch {
+            await fixture.close()
+            throw error
+        }
+        await fixture.close()
+    }
+
+    func testAuthenticatedOutboxDeliversAndAcknowledgesClearedPage() async throws {
+        let fixture = try AuthenticatedFiveSaveDrainFixture()
+        do {
+            try await fixture.enqueueClearedPage()
+            await fixture.model.resumeQueuedDraftSavesIfNeeded(force: true)
+            let rows = try await fixture.queue.entriesForTesting()
+            XCTAssertTrue(rows.isEmpty)
+            XCTAssertEqual(fixture.peer.writes.count, 1)
+            XCTAssertEqual(fixture.peer.writes.first?.draft, "")
+            XCTAssertEqual(fixture.peer.writes.first?.baseVersionID, "base-0")
+            XCTAssertEqual(fixture.model.latestVersionID, "ack-1")
+            XCTAssertTrue(fixture.peer.failures.isEmpty, fixture.peer.failures.joined(separator: " | "))
+        } catch {
+            await fixture.close()
+            throw error
+        }
+        await fixture.close()
+    }
+
     func testAuthenticatedFiveSaveDrainAcknowledgesEveryExactWriteOnceInOrder() async throws {
         let fixture = try AuthenticatedFiveSaveDrainFixture()
         do {
@@ -352,6 +393,20 @@ private final class AuthenticatedFiveSaveDrainFixture {
         drafts = testDrafts
         requestIDs = testRequestIDs
         initialized = true
+    }
+
+    func enqueueClearedPage() async throws {
+        guard let document = bridge.captureLiveTalkDocument(),
+              let origin = ScreenplayDraftSaveOrigin.capture(document: document, projectID: projectID,
+                  owner: .current(), isActiveEditor: true, backendURL: BackendAuthClient.resolvedBackendBaseURL()) else {
+            throw FiveSaveFixtureError.documentIdentityUnavailable
+        }
+        var entry = ScreenplayDraftSaveOutboxEntry(id: "clear-\(UUID().uuidString)", projectId: projectID,
+            ownerUserId: owner, draft: "", title: "Five Save Drain", phase: "scene_draft", notes: "",
+            source: "studio_manual", studioWriteAnchors: [], screenplayBindings: [], baseVersionId: "base-0",
+            createdAt: 1, updatedAt: 1, status: .pending, retries: 0, nextAttemptAt: 0, lastError: "")
+        entry.deliveryOrigin = origin
+        try await queue.enqueue(entry)
     }
 
     func enqueueFiveSaves(baseVersionID: String = "base-0") async throws {

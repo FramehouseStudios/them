@@ -2160,6 +2160,54 @@ test("[screenplay-projects-routes] POST /version rejects empty draft with 400", 
   });
 });
 
+test("[screenplay-projects-routes] explicit empty version requires safe base and replays once", async () => {
+  const deps = defaultDeps();
+  const project = deps._owner.projects.find((item) => item.id === "p1");
+  project.activeVersionId = "base_v1";
+  project.versions = [{ id: "base_v1", draft: "Earlier words.", updatedAt: 1000 }];
+  const body = { draft: "", allow_empty_draft: true, base_version_id: "base_v1",
+    client_request_id: "clear-page-1", conflict_strategy: "reject_if_stale" };
+  await withTestServer(deps, async (baseURL) => {
+    for (const change of [{ base_version_id: "" }, { client_request_id: "" },
+      { conflict_strategy: "force" }]) {
+      const invalid = await postJson(baseURL, "/screenplay/projects/p1/version", { ...body, ...change });
+      assert.equal(invalid.status, 400);
+      assert.equal(invalid.body.error, "empty_draft_requires_versioned_save");
+      assert.equal(project.versions.length, 1);
+    }
+    const stale = await postJson(baseURL, "/screenplay/projects/p1/version", { ...body, base_version_id: "obsolete" });
+    assert.equal(stale.status, 409);
+    assert.equal(project.versions.length, 1);
+    const saved = await postJson(baseURL, "/screenplay/projects/p1/version", body);
+    assert.equal(saved.status, 201);
+    assert.equal(saved.body.version.draft, "");
+    assert.equal(project.versions.length, 2);
+    const replay = await postJson(baseURL, "/screenplay/projects/p1/version", body);
+    assert.equal(replay.status, 200);
+    assert.equal(replay.body.version_id, saved.body.version_id);
+    assert.equal(replay.body.version.draft, "");
+    assert.equal(project.versions.length, 2);
+  });
+});
+
+test("[screenplay-projects-routes] an empty version cannot clear an unconfirmed server head", async () => {
+  for (const activeVersionId of ["", "missing-head"]) {
+    const deps = defaultDeps();
+    const project = deps._owner.projects.find((item) => item.id === "p1");
+    project.activeVersionId = activeVersionId;
+    project.versions = [];
+    await withTestServer(deps, async (baseURL) => {
+      const result = await postJson(baseURL, "/screenplay/projects/p1/version", {
+        draft: "", allow_empty_draft: true, base_version_id: activeVersionId || "invented",
+        client_request_id: "unconfirmed-clear", conflict_strategy: "reject_if_stale",
+      });
+      assert.equal(result.status, 409);
+      assert.equal(result.body.error, "empty_draft_head_unconfirmed");
+      assert.equal(project.versions.length, 0);
+    });
+  }
+});
+
 test("[screenplay-projects-routes] POST /version preserves whitespace-only bytes for save, replay and conflict", async () => {
   const deps = defaultDeps();
   const project = deps._owner.projects.find((item) => item.id === "p1");

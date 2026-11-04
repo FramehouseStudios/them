@@ -1524,7 +1524,7 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
     }
     const now = Date.now();
     const draft = req.body?.draft;
-    if (typeof draft !== "string" || draft.length === 0) {
+    if (typeof draft !== "string" || (draft.length === 0 && req.body?.allow_empty_draft !== true)) {
       return res.status(400).json({ stage: "screenplay_version", error: "draft_required" });
     }
     const phase = normalizeScreenplayPhaseValue(req.body?.phase || project.lastPhase);
@@ -1536,6 +1536,10 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
     const title = normalizeSnippet(req.body?.title, 160);
     const clientRequestId = normalizeSnippet(req.body?.client_request_id, 96);
     const conflictStrategy = String(req.body?.conflict_strategy || "reject_if_stale").trim().toLowerCase();
+    // Clearing an existing page is an explicit, replay-safe versioned write.
+    if (draft.length === 0 && (!baseVersionId || !clientRequestId || conflictStrategy !== "reject_if_stale")) {
+      return res.status(400).json({ stage: "screenplay_version", error: "empty_draft_requires_versioned_save" });
+    }
     const saveRequestHash = buildScreenplayVersionReplayHash({
       draft,
       phase,
@@ -1595,6 +1599,13 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
         conflict: !requestMatches || replayWasSuperseded,
         replayed: requestMatches,
       }));
+    }
+    // An explicit clear must not turn an unknown or missing server head into
+    // authority to create a destructive version.
+    if (draft.length === 0 && (!currentVersionId || !(project.versions || []).some(
+      (version) => version.id === currentVersionId && version.persistencePending !== true
+    ))) {
+      return res.status(409).json({ stage: "screenplay_version", error: "empty_draft_head_unconfirmed" });
     }
     const missingRequiredBase = conflictStrategy === "reject_if_stale" && currentVersionId && !baseVersionId;
     const staleBase = conflictStrategy === "reject_if_stale" &&
