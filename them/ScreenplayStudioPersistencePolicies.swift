@@ -160,8 +160,8 @@ enum ScreenplaySaveHeadPreflight {
 
 struct ScreenplayUnconfirmedSaveRecoveryPolicy {
     static func shouldPersist(projectId: String, draft: String) -> Bool {
-        !projectId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-            !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        // Blank text may be a deliberate deletion that has not been confirmed.
+        !projectId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 }
 

@@ -898,6 +898,36 @@ final class BackendProjectWriteOwnershipTests: XCTestCase {
         if !changedOwner { XCTAssertEqual(writes.last?.value(forHTTPHeaderField: "Authorization"), "Bearer fixture-rotated") }
     }
 
+    func testEmptyVersionRequiresBaseAndRequestIdentityAndSendsExplicitFlag() async throws {
+        let state = ProjectWriteOwnershipState()
+        ProjectWriteOwnershipProtocol.handler = { request in
+            state.record(request)
+            if request.url?.path == "/session" { return .json(#"{"error":"unavailable"}"#, status: 503) }
+            return .json(Self.mutation, status: 201)
+        }
+        let api = makeAPI(state)
+        do {
+            _ = try await api.upsertScreenplayProjectVersion(projectId: "project-a", draft: "",
+                initiatingIdentity: state.identity())
+            XCTFail("Unbased empty version must be rejected.")
+        } catch BackendMemoryAPIError.server(let status, _) { XCTAssertEqual(status, 400) }
+        XCTAssertTrue(state.requests().filter { $0.url?.path.hasSuffix("/version") == true }.isEmpty)
+        _ = try await api.upsertScreenplayProjectVersion(projectId: "project-a", draft: "",
+            baseVersionId: "base-a", clientRequestId: "clear-a", initiatingIdentity: state.identity())
+        let request = try XCTUnwrap(state.requests().last { $0.url?.path.hasSuffix("/version") == true })
+        var body = request.httpBody ?? Data()
+        if body.isEmpty, let stream = request.httpBodyStream {
+            stream.open(); defer { stream.close() }
+            var buffer = [UInt8](repeating: 0, count: 1024)
+            while true { let count = stream.read(&buffer, maxLength: buffer.count); if count <= 0 { break }; body.append(contentsOf: buffer.prefix(count)) }
+        }
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        XCTAssertEqual(json["draft"] as? String, "")
+        XCTAssertEqual(json["allow_empty_draft"] as? Bool, true)
+        XCTAssertEqual(json["base_version_id"] as? String, "base-a")
+        XCTAssertEqual(json["client_request_id"] as? String, "clear-a")
+    }
+
     func testSameOwnerConflictEnvelopeStillReturnsItsServerVersion() async throws {
         let state = ProjectWriteOwnershipState()
         ProjectWriteOwnershipProtocol.handler = { request in

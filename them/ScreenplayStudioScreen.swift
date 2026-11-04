@@ -2711,7 +2711,7 @@ private var directionOneHeaderSettingsButton: some View {
                     .stroke(directionOneChromeStroke.opacity(0.55), lineWidth: 1)
             )
     }
-    .buttonStyle(.plain)
+    .buttonStyle(.plain).accessibilityIdentifier("studio.header.settings")
     .popover(isPresented: $showingDirectionOneSettings, arrowEdge: .top) {
         directionOneSettingsPopover
     }
