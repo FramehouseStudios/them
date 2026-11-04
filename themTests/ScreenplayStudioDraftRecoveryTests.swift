@@ -1039,6 +1039,34 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
     }
 
     @MainActor
+    func testBlankAndWhitespaceManualEditsRemainRecoverableAfterRelaunch() {
+        let owner = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""
+        for local in ["", "\r\n \t"] {
+            let project = "empty-recovery-\(UUID().uuidString)"
+            let server = "INT. ROOM - DAY\n\nThe original page."
+            let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store)
+            model.autosaveEnabled = false
+            model.selectedProjectID = project
+            model.applyServerDraft(server, versionId: "v1")
+            model.fountainDraft = local
+            model.noteManualDraftEdit()
+            let reopened = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: recoveryKey)
+            let recovery = reopened.recoverySnapshot(ownerUserId: owner, projectId: project, serverDraft: server)
+            XCTAssertEqual(recovery.map { Data($0.draft.utf8) }, Data(local.utf8))
+            XCTAssertEqual(recovery?.baseVersionId, "v1")
+            XCTAssertTrue(model.hasUnsavedDraftChanges)
+            let relaunched = ScreenplayStudioViewModel(localDraftRecoveryStore: reopened)
+            relaunched.autosaveEnabled = false
+            relaunched.selectedProjectID = project
+            relaunched.applyServerDraft(server, versionId: "v1")
+            XCTAssertNotNil(relaunched.recoveryCandidate)
+            relaunched.restoreDraftFromRecovery()
+            XCTAssertEqual(Data(relaunched.fountainDraft.utf8), Data(local.utf8))
+            XCTAssertTrue(relaunched.hasUnsavedDraftChanges)
+        }
+    }
+
+    @MainActor
     func testRemoteRefreshKeepsUnsavedWhitespaceAndRaisesConflict() {
         let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store)
         model.autosaveEnabled = false
