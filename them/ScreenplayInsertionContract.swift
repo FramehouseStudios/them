@@ -5,16 +5,12 @@ func screenplayReplacementTargetIsCurrent(_ target: ScreenplayPendingReplacement
     let wanted = target.currentText.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !wanted.isEmpty, target.startLine > 0, target.endLine >= target.startLine else { return false }
     let lines = draft.components(separatedBy: "\n")
-    if target.endLine <= lines.count {
-        let candidate = lines[(target.startLine - 1)..<target.endLine].joined(separator: "\n")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        if candidate.utf8.elementsEqual(wanted.utf8) { return true }
-    }
-    let text = draft as NSString
-    let first = text.range(of: wanted, options: [.literal])
+    guard target.endLine <= lines.count else { return false }
+    let candidate = lines[(target.startLine - 1)..<target.endLine].joined(separator: "\n") as NSString
+    let first = candidate.range(of: wanted, options: [.literal])
     guard first.location != NSNotFound else { return false }
     let next = first.location + 1
-    return next >= text.length || text.range(of: wanted, options: [.literal], range: NSRange(location: next, length: text.length - next)).location == NSNotFound
+    return next >= candidate.length || candidate.range(of: wanted, options: [.literal], range: NSRange(location: next, length: candidate.length - next)).location == NSNotFound
 }
 
 struct ScreenplayInsertionRequest: Identifiable, Equatable {

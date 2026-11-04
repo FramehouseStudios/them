@@ -255,6 +255,24 @@ final class ScreenplayLivePageMutationGateTests: XCTestCase {
         XCTAssertEqual(editor.text, "INT. ROOM - DAY\nJOHN\nA better line.\nNext line.\n")
     }
 
+    func testNativePartialReplacementStaysWithinCapturedLine() {
+        let current = "JOHN\nStay.\nPlease Stay. here.\n"
+        let target = ScreenplayPendingReplacementTarget(id: UUID(), sourceWriteID: "old", startLine: 3, endLine: 3, currentText: "Stay.")
+        let request = ScreenplayInsertionRequest(text: "Wait.", replacementTarget: target)
+        var model = current
+        let editor = UITextView(); editor.text = current
+        let coordinator = IOSCursorInsertTextEditor(text: Binding(get: { model }, set: { model = $0 }),
+            activeScreenplayElement: .constant(.action), insertionRequest: .constant(request),
+            lineJumpRequest: .constant(nil), lineHighlightRequest: .constant(nil), anchoredTextRectRequest: .constant(nil),
+            anchoredTextRectSnapshot: .constant(nil), editorFocusRequest: .constant(nil), editorActionRequest: .constant(nil),
+            editorSelection: .constant(nil), currentCursorLine: .constant(1), lastCommittedWrite: .constant(nil),
+            pendingReplacementTarget: .constant(nil), submittedReplacementTarget: .constant(nil)).makeCoordinator()
+        coordinator.textView = editor
+        coordinator.primeParagraphElements(for: current, attributedText: editor.attributedText)
+        coordinator.applyInsertion(request)
+        XCTAssertEqual(editor.text, "JOHN\nStay.\nPlease Wait. here.\n")
+    }
+
     func testNativeReplacementPreservesSurroundingWhitespace() {
         let current = "INT. ROOM - DAY\nJOHN\n  The original line.  \n"
         let target = ScreenplayPendingReplacementTarget(id: UUID(), sourceWriteID: "old", startLine: 3, endLine: 3, currentText: "The original line.")
@@ -276,7 +294,9 @@ final class ScreenplayLivePageMutationGateTests: XCTestCase {
     func testReplacementTargetRequiresExactOrUniqueText() {
         let target = ScreenplayPendingReplacementTarget(id: UUID(), sourceWriteID: "old", startLine: 2, endLine: 2, currentText: "Stay.")
         XCTAssertTrue(screenplayReplacementTargetIsCurrent(target, in: "JOHN\nStay.\n"))
-        XCTAssertTrue(screenplayReplacementTargetIsCurrent(target, in: "New line\nJOHN\nStay.\n"))
+        XCTAssertFalse(screenplayReplacementTargetIsCurrent(target, in: "New line\nJOHN\nStay.\n"))
+        XCTAssertFalse(screenplayReplacementTargetIsCurrent(target, in: "JOHN\nChanged.\nStay.\n"))
+        XCTAssertTrue(screenplayReplacementTargetIsCurrent(target, in: "JOHN\nPlease stay here.\n".replacingOccurrences(of: "stay", with: "Stay.")))
         XCTAssertFalse(screenplayReplacementTargetIsCurrent(target, in: "JOHN\nChanged.\n"))
         XCTAssertFalse(screenplayReplacementTargetIsCurrent(target, in: "Stay.\nChanged.\nStay.\n"))
         let accent = ScreenplayPendingReplacementTarget(id: UUID(), sourceWriteID: "old", startLine: 1, endLine: 1, currentText: "Café")

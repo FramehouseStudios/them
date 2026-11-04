@@ -10358,7 +10358,7 @@ struct MacCursorInsertTextEditor: NSViewRepresentable {
             }
 
             if !cleanTarget.isEmpty {
-                let exactRange = ns.range(of: cleanTarget, options: [.literal])
+                let exactRange = ns.range(of: cleanTarget, options: [.literal], range: candidateRange)
                 if exactRange.location != NSNotFound {
                     ScreenplayLiveDraftBridge.shared.debugTraceReplacementTarget(
                         kind: "resolve-match-exact",
@@ -12692,7 +12692,7 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
             }
 
             if !cleanTarget.isEmpty {
-                let exactRange = ns.range(of: cleanTarget, options: [.literal])
+                let exactRange = ns.range(of: cleanTarget, options: [.literal], range: candidateRange)
                 if exactRange.location != NSNotFound {
                     traceReplacementTarget(
                         kind: "ios-resolve-match-exact",
